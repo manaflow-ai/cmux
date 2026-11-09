@@ -73,16 +73,4 @@ struct CloudLinkErrorTextTests {
             try CloudLinkSocketPolicy.check(directory + "/cmux-link-0123456789ab.sock")
         }
     }
-
-    @Test func aCarrierThatIsNotUpIsNamedByItsState() async {
-        let resolver = CloudConnectOpResolver(run: { _, _, _, _ in Data(#"{"machine":"m1","state":"starting"}"#.utf8) }, check: { _ in })
-        await #expect(throws: CloudLinkError.notUp(state: "starting")) {
-            _ = try await resolver.open(CloudLinkKey(machine: "m1"), intent: "i", origin: .script)
-        }
-    }
-
-    @Test func anAppOpErrorReadsAsItsMessageElseItsCode() {
-        #expect(CloudAppOpError(code: "cmux.cloud.link_down", message: "The link ended.").localizedDescription == "The link ended.")
-        #expect(CloudAppOpError(code: "cmux.cloud.link_down", message: "").localizedDescription == "cmux.cloud.link_down")
-    }
 }

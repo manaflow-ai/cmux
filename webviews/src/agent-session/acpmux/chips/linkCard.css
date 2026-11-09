@@ -126,6 +126,7 @@
 .acpmux-pr-card__slot>[data-placeholder]{animation:cmux-load-fade var(--cmux-load-fade-duration,var(--agent-motion-in,var(--cmux-motion-micro,120ms))) var(--cmux-load-fade-easing,var(--cmux-ease-out,ease-out)) reverse both}}
 :root:is([data-agent-motion="off"],[data-agent-motion="reduced"],[data-cmux-motion="off"],[data-cmux-motion="reduced"]) .acpmux-pr-card__body[data-load-fade] *{animation:none}
 .acpmux-pr-card__slot{display:grid;min-width:0}
+.acpmux-pr-card__slot:empty{display:none}
 .acpmux-pr-card__face{flex:none;width:20px;height:20px;border-radius:50%;background:color-mix(in srgb,var(--agent-muted) 22%,transparent)}
 .acpmux-pr-card__slot>*{grid-area:1/1}
 /* With no fade to play (motion off or reduced) a placeholder still in its slot draws nothing. */

@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 858,
-    "mcp": 772
+    "verbs": 859,
+    "mcp": 773
   },
   "nouns": [
     {
@@ -601,6 +601,13 @@
           "id": "app.install",
           "mcp": true,
           "mcpTool": "app_apps_install"
+        },
+        {
+          "command": "cmux apps reload",
+          "title": "Reload Custom Views",
+          "id": "app.reloadCustomViews",
+          "mcp": true,
+          "mcpTool": "app_apps_reload"
         },
         {
           "command": "cmux apps remove",
@@ -1282,13 +1289,6 @@
           "mcpTool": "app_cloud_domain_list"
         },
         {
-          "command": "cmux cloud enroll-machine",
-          "title": "Enroll Machine as Agent Host",
-          "id": "cloudEnrollMachine",
-          "mcp": true,
-          "mcpTool": "app_cloud_enroll_machine"
-        },
-        {
           "command": "cmux cloud exec",
           "title": "Run Command on Cloud Machine…",
           "id": "cloudExec",
@@ -1541,13 +1541,6 @@
           "mcpTool": "app_cloud_publication_list"
         },
         {
-          "command": "cmux cloud relay-chat",
-          "title": "Chat on Cloud Machine via the Relay…",
-          "id": "cloudRelayChat",
-          "mcp": true,
-          "mcpTool": "app_cloud_relay_chat"
-        },
-        {
           "command": "cmux cloud rename-machine",
           "title": "Rename Machine…",
           "id": "cloudRenameMachine",
@@ -1776,7 +1769,7 @@
         },
         {
           "command": "cmux density use-cozy",
-          "title": "Density: Cozy",
+          "title": "Density: Default",
           "id": "appearance.density.cozy",
           "mcp": false,
           "mcpTool": null
@@ -2101,6 +2094,13 @@
           "mcpTool": "app_home_show_hidden"
         },
         {
+          "command": "cmux home start-agent",
+          "title": "Start Queued Agent Now",
+          "id": "home.startQueuedAgent",
+          "mcp": true,
+          "mcpTool": "app_home_start_agent"
+        },
+        {
           "command": "cmux home switch-view",
           "title": "Switch Home View",
           "id": "home.switchView",
@@ -2113,6 +2113,13 @@
           "id": "home.tab",
           "mcp": true,
           "mcpTool": "app_home_tab"
+        },
+        {
+          "command": "cmux home undock-chief",
+          "title": "Undock Chief",
+          "id": "home.undockChief",
+          "mcp": true,
+          "mcpTool": "app_home_undock_chief"
         },
         {
           "command": "cmux home unmute",

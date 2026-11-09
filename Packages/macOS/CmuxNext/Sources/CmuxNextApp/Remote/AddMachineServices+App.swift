@@ -36,7 +36,7 @@ extension AddMachineServices {
             run: { command in
                 #if DEBUG
                 if command.needsAccount, services.debugFixtures.joinedMachines != nil {
-                    return AsyncThrowingStream { for line in DebugAddDevice.joinedDoctorLines { $0.yield(line) }; $0.finish() }
+                    return AsyncThrowingStream { for line in JoinedMachine.fixtureDoctorLines { $0.yield(line) }; $0.finish() }
                 }
                 #endif
                 guard let cli else { return AsyncThrowingStream { $0.finish(throwing: ActionFailure(message: RemoteStrings.noClient)) } }
@@ -73,15 +73,5 @@ extension AddMachineServices {
             }
             continuation.onTermination = { _ in run.cancel() }
         }
-    }
-
-    /// The field read as ssh takes it, for enroll and the app's connect alike. No port: enroll's ssh
-    /// destination is `[user@]host` (acpmux `checked_host`); a port belongs in ~/.ssh/config, and an
-    /// agent peer's URL port is its daemon's, not ssh's. An IPv6 host keeps its brackets
-    /// (`leo@[fd7a::2]`) so the text parses back to the same host instead of a port.
-    static func hostDestination(_ text: String) -> HostDestination? {
-        guard let parsed = try? SSHDestination(parsing: text), parsed.port == nil else { return nil }
-        let host = parsed.host.contains(":") ? "[\(parsed.host)]" : parsed.host
-        return HostDestination(host: (parsed.user.map { "\($0)@" } ?? "") + host, shortName: parsed.displayName)
     }
 }

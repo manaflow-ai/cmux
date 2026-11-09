@@ -1,73 +1,126 @@
-/* IMPORT COOKIES CARD (CookieImportCard.tsx). The design scale only (pages/shared/desktop.css):
-   a 12 padding, a 32 icon with 12 to the text, the title in the body step at emphasis, the detail
-   in the detail step and the muted ink, then one row of answers 8 under the text. The two buttons
-   share one width (the wider label's) and the compact control height; Don't Show Again is a ghost
-   button of the same height in the faint ink, its text on the title's column, so all three sit on
-   one baseline. In the app the native card is the glass and the shadow; the gallery draws its own. */
+/* IMPORT COOKIES CARD (CookieImportCard.tsx). A toast: the toast surface's glass (--surface-toast-*,
+   the toasts' veil, radius and shadow; toasts.css), one row on the design scale (pages/shared/
+   desktop.css): a 20 icon, the one line in the body step, then the answers. In the app the native
+   card draws the glass under the page; the gallery draws its own. */
 .ci-card {
-  --ci-padding: var(--ds-space-3);
-  --ci-icon: var(--ds-space-6);
-  --ci-gap: var(--ds-space-3);
+  --ci-icon: var(--ds-icon-20, 20px);
+  --ci-ink: var(--cmux-text, var(--ds-color-fg));
+  --ci-ink-2: var(--cmux-text-secondary, var(--ds-color-muted));
+  --glass-tint: var(--surface-toast-veil);
+  --glass-elevation: var(--elevation-2);
   box-sizing: border-box;
-  display: grid;
-  grid-template-columns: var(--ci-icon) minmax(0, 1fr);
-  column-gap: var(--ci-gap);
-  row-gap: var(--ds-space-2);
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  column-gap: var(--ds-space-2);
+  row-gap: var(--ds-space-1);
   width: 100%;
-  padding: var(--ci-padding);
-  border-radius: var(--ui-popup-radius, var(--ds-radius-popup));
-  color: var(--ds-color-fg);
+  min-height: calc(var(--ds-control-compact) + 2 * var(--ds-space-2));
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--surface-toast-radius);
+  color: var(--ci-ink);
   font-family: var(--font-ui);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
   -webkit-user-select: none;
   user-select: none;
 }
-/* No icon: the text and the row start at the padding. */
-.ci-card:not([data-icon]) {
-  grid-template-columns: minmax(0, 1fr);
+/* On the app's glass the card paints no fill: only its contents and the popups' one shadow. */
+.ci-card[data-native-glass] {
+  box-shadow: none;
 }
 .ci-icon {
+  flex: none;
   width: var(--ci-icon);
   height: var(--ci-icon);
   object-fit: contain;
 }
-.ci-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
+/* The one line: it takes the room left and wraps to a second line before it ever cuts a word. */
 .ci-title {
-  overflow: hidden;
-  font-weight: var(--weight-emphasis);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ci-detail {
+  /* A small basis keeps the line beside the icon in the narrowest pane; it grows to the room left. */
+  flex: 1 1 8em;
+  min-width: 0;
   display: -webkit-box;
   overflow: hidden;
-  color: var(--ds-color-muted);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
-/* The row of answers: on the text column (split), or across the card (trailing). When the labels
-   do not fit beside the link (a narrow pane, longer languages), the buttons go to their own line at
-   the end; narrower still, they shrink and their labels end in an ellipsis, never past the card. */
+/* TOAST LOOK: the toast's clear-text answers (toasts.css .cmux-toast-action) and its close button.
+   Import bold in the ink, Don't Show Again quiet in the secondary ink; the hover fill only under the
+   pointer. The answers stay together at the trailing edge; in a narrow pane they wrap under the line. */
+.ci-action,
+.ci-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--ds-control-compact);
+  margin: 0;
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background: transparent;
+  color: var(--ci-ink);
+  font: inherit;
+  white-space: nowrap;
+}
+.ci-action {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  padding-inline: var(--ds-space-1);
+  text-overflow: ellipsis;
+  font-weight: var(--weight-emphasis, 600);
+}
+.ci-action[data-quiet] {
+  color: var(--ci-ink-2);
+  font-weight: inherit;
+}
+/* The three answers move as one group: in a narrow pane they wrap under the line together, and in
+   the narrowest (a 200 pt pane) the group wraps inside itself, Import and the close button together
+   at the end; a label too long for the card ends in an ellipsis, never past its edge. */
+.ci-toast-answers {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  max-width: 100%;
+  margin-inline-start: auto;
+}
+.ci-close {
+  width: var(--ds-control-icon);
+  height: var(--ds-control-icon);
+  padding: 0;
+  color: var(--ci-ink-2);
+}
+:is(.ci-action, .ci-close):hover,
+:is(.ci-action, .ci-close):active {
+  background: var(--ds-color-hover);
+  color: var(--ci-ink);
+}
+:is(.ci-action, .ci-close):focus-visible {
+  outline: 1.5px solid var(--ui-ring, currentColor);
+  outline-offset: 1px;
+}
+
+/* BUTTONS AND STACKED LOOKS: Not Now and Import as compact buttons of one width, Don't Show Again a
+   ghost button of the same height in the faint ink. */
 .ci-row {
   display: flex;
+  flex: 1 0 100%;
   flex-wrap: wrap;
-  grid-column: 2;
   align-items: center;
   gap: var(--ds-space-2);
   min-width: 0;
+  padding-inline-start: calc(var(--ci-icon) + var(--ds-space-2));
 }
-.ci-card:not([data-icon]) .ci-row,
-.ci-card[data-look="trailing"] .ci-row {
-  grid-column: 1 / -1;
+.ci-card:not(:has(.ci-icon)) .ci-row {
+  padding-inline-start: 0;
 }
 .ci-spacer {
   flex: 1;
@@ -88,67 +141,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* Don't Show Again: a quiet link with a button's height, its text on the title's column. */
 .ci-never.ui-btn {
   min-width: 0;
   overflow: hidden;
   color: var(--ds-color-faint);
   text-overflow: ellipsis;
 }
-.ci-card[data-look="split"] .ci-never.ui-btn,
-.ci-card[data-look="inline"] .ci-never.ui-btn {
+.ci-card[data-look="stacked"] .ci-never.ui-btn {
   margin-inline-start: calc(-1 * var(--ds-space-2));
+}
+.ci-card[data-look="buttons"] .ci-never.ui-btn {
+  margin-inline-start: auto;
 }
 .ci-never.ui-btn:hover:not([data-disabled]) {
   color: var(--ds-color-muted);
-}
-
-/* Inline: icon, the two lines (the link under them), the buttons beside. */
-.ci-card[data-look="inline"] {
-  grid-template-columns: var(--ci-icon) minmax(0, 1fr) auto;
-}
-.ci-card[data-look="inline"]:not([data-icon]) {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-.ci-card[data-look="inline"] .ci-never.ui-btn {
-  align-self: flex-start;
-}
-
-/* Keep in sync: a small box and its label under the detail, the whole line a click target; the
-   box fills with the accent when on. */
-.ci-keep {
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
-  gap: var(--ds-space-2);
-  min-height: var(--ds-control-compact);
-  color: var(--ds-color-muted);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
-  cursor: default;
-}
-.ci-keep:hover {
-  color: var(--ds-color-fg);
-}
-.ci-keep-box {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: var(--ds-icon-14);
-  height: var(--ds-icon-14);
-  padding: 0;
-  border: 0;
-  border-radius: var(--ds-radius-sm);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ds-color-fg) 36%, transparent);
-  background: transparent;
-  color: var(--ds-color-on-accent);
-}
-.ci-keep-box[data-checked] {
-  box-shadow: none;
-  background: var(--ds-color-accent);
-}
-.ci-keep-box:focus-visible {
-  outline: 1.5px solid var(--ds-color-focus);
-  outline-offset: 2px;
 }

@@ -60,6 +60,12 @@ extension AgentPaneView {
 
     /// Whether the chat shows in Chromium (its clicks go through DevTools, ``debugPress(x:y:)``).
     public var debugShowsChromium: Bool { page?.showsChromium == true }
+    /// Whether this pane has the native keyboard: its window is key with the first responder in this pane, or a chat
+    /// shown in Chromium has the keys (its own key child window).
+    public var debugHoldsKeyboard: Bool {
+        if chromiumPage?.hasKeys == true { return true }
+        return window?.isKeyWindow == true && (window?.firstResponder as? NSView)?.isDescendant(of: self) == true
+    }
 
     /// Whether the chat is to show in Chromium but Chromium has not attached yet: the page shows
     /// nothing until it does, or until it falls back to WebKit.

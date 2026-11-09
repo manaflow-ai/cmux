@@ -17,6 +17,7 @@ import {
   arrivalKey,
   sessionInfoLists,
   sendLabel,
+  serverUrl,
   splitCommands,
   type BackgroundCommand,
   type SessionInfoProcess,
@@ -118,7 +119,7 @@ export function tasksSection(
   // Servers, newest first: the command, the ports it names (each explicit port is its own button)
   // and how long it has run. The row itself stays plain, like ServersSection.tsx.
   for (const server of [...servers].sort((a, b) => b.startedAt - a.startedAt)) {
-    const urls = server.ports.map((port) => `http://localhost:${port}`);
+    const urls = server.ports.map((port) => serverUrl(server, port));
     const buttons: NativeInfoButton[] = [];
     if (urls.length > 0)
       for (const url of urls)
