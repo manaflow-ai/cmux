@@ -125,7 +125,7 @@ public actor CmuxConfigFile {
     /// The text of the record ``writeBeside(suffix:text:)`` left named `suffix`; nil when there is none.
     public func readBeside(suffix: String) throws -> String? {
         guard hasRecordBeside(suffix: suffix) else { return nil }
-        return try String(contentsOf: recordURL(suffix: suffix), encoding: .utf8)
+        return try String(blockingContentsOf: recordURL(suffix: suffix), encoding: .utf8)
     }
 
     private func recordURL(suffix: String) -> URL {
