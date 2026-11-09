@@ -419,7 +419,13 @@ class LockTest(unittest.TestCase):
 
         tools = show("scripts/cmux-next/lint-tools.lock")
         if tools is None:
-            self.skipTest("origin/feat-cmux-next is not fetched here")
+            # A guard job checks out one branch: fetch the other tip (no history), as
+            # test_ci_owned_pool_sources.py does, and fail if it still cannot be read.
+            subprocess.run(["git", "-C", str(ROOT), "fetch", "--no-tags", "--depth=1", "origin",
+                            "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"],
+                           capture_output=True, text=True)
+            tools = show("scripts/cmux-next/lint-tools.lock")
+        self.assertIsNotNone(tools, "origin/feat-cmux-next could not be fetched, so its pins were not checked")
         expected = set()
         for line in tools.splitlines():
             fields = line.split("\t")
