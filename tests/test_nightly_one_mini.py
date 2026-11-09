@@ -30,13 +30,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_nightly_never_blacksmith import JOBS, evaluate, parse_expression, sample  # noqa: E402
-from test_nightly_owned_minis_only import HOSTED_TAIL_JOBS, NIGHTLY_NEXT_ONLY_OWNED  # noqa: E402
+from test_nightly_owned_minis_only import HOSTED_LOOP_JOBS, HOSTED_TAIL_JOBS, NIGHTLY_NEXT_ONLY_OWNED  # noqa: E402
 
 MINI, BUILDER, SIGN = "glaeda-nightly-mini", "glaeda-nightly-mini-builder", "glaeda-trusted-next-signing"
 MODE = {"vars.CI_NIGHTLY_MINI": MINI, "vars.CI_NIGHTLY_MINI_BUILDER": BUILDER, "vars.CI_NIGHTLY_SIGN_RUNNER": SIGN}
 # glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS, nightly.yml entries: the jobs that take the whole Mac.
 SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-nightly-next-notarization",
-           "publish-nightly", "publish-nightly-next-github", "sign-nightly-identity-legacy", "generate-nightly-deltas",
+           "publish-nightly", "sign-nightly-identity-legacy", "generate-nightly-deltas",
            "promote-nightly-next-acked", "keep-published-dsyms", "republish-nightly-deltas"}
 VISUAL_GATE = {"route-visual-gate-nightly"}
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github/workflows"
@@ -52,7 +52,7 @@ def want(name: str, ref: str = "refs/heads/nightly-next") -> str:
         return SIGN
     if name == "build-nightly-app":
         return BUILDER
-    return HOSTED if name in HOSTED_TAIL_JOBS else MINI
+    return HOSTED if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS else MINI
 
 
 def resolve(source: str, rng: random.Random, extra: dict | None = None) -> tuple[object, dict]:

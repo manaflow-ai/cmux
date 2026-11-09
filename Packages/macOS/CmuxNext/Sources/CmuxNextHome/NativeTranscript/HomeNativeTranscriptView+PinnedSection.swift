@@ -7,6 +7,8 @@ public import AppKit
 extension HomeNativeTranscriptView {
     /// The pinned section shown now (tests and `debug.home`).
     public var pinnedSection: NSView? { pinned?.view }
+    /// The Set Up cmux card's view shown now: its buttons keep their keys (Home's typing redirect skips it).
+    public var setupCardView: NSView? { setupCard?.view }
 
     /// Shows `view` pinned under the header, measured now (its fitting height); nil removes it.
     public func setPinnedSection(_ view: NSView?) {
@@ -31,27 +33,53 @@ extension HomeNativeTranscriptView {
         needsLayout = true
     }
 
-    /// The room the pinned section takes under the header (the first-run panel starts below it).
+    /// Shows `view` (Home's Set Up cmux card, a page sized to its card) under the pinned section, `height` points
+    /// tall; nil removes it. Like the pinned section it lies over the transcript, so no message moves.
+    public func setSetupCard(_ view: NSView?, height: CGFloat) {
+        if view !== setupCard?.view {
+            setupCard?.view.removeFromSuperview()
+            if let view { addSubview(view, positioned: .below, relativeTo: noticeLabel) }
+        }
+        setupCard = view.map { ($0, height) }
+        needsLayout = true
+    }
+
+    /// The room the pinned section and the setup card take under the header (the first-run panel starts below them).
     var pinnedSectionClearance: CGFloat {
-        guard let pinned, let height = pinned.height, height > 0 else { return 0 }
-        return pinned.view.frame.maxY - transcript.headerHeight + 8
+        let bottoms = [pinned.flatMap { ($0.height ?? 0) > 0 ? $0.view.frame.maxY : nil },
+                       setupCard.flatMap { $0.height > 0 ? $0.view.frame.maxY : nil }].compactMap { $0 }
+        guard let bottom = bottoms.max() else { return 0 }
+        return bottom - transcript.headerHeight + 8
     }
 
     /// Under the header, inset from the sides like the field, no wider than a reading column; never
-    /// over the message box.
+    /// over the message box. The setup card goes under the pinned section.
     func layoutPinnedSection() {
-        guard let pinned else { return }
-        let view = pinned.view
-        let height = pinned.height ?? ceil(view.fittingSize.height)
-        if pinned.height == nil { self.pinned = (view, height) }
         let inset: CGFloat = 12
         let width = min(max(0, bounds.width - 2 * inset), Self.pinnedSectionMaxWidth)
-        let top = transcript.headerHeight + 4
-        let shown = min(height, max(0, transcript.fieldTop - top - 8))
-        let frame = CGRect(x: ((bounds.width - width) / 2).rounded(), y: top, width: width, height: shown)
-        if view.frame != frame { view.frame = frame }
-        // The oldest message scrolls clear of the card (only the top of the scroll range moves).
-        transcript.rowsTopClearance = shown > 0 ? max(0, frame.maxY - transcript.headerHeight + 4) : 0
+        let x = ((bounds.width - width) / 2).rounded()
+        var top = transcript.headerHeight + 4
+        var bottom: CGFloat?
+        if let pinned {
+            let view = pinned.view
+            let height = pinned.height ?? ceil(view.fittingSize.height)
+            if pinned.height == nil { self.pinned = (view, height) }
+            let shown = min(height, max(0, transcript.fieldTop - top - 8))
+            let frame = CGRect(x: x, y: top, width: width, height: shown)
+            if view.frame != frame { view.frame = frame }
+            if shown > 0 { bottom = frame.maxY; top = frame.maxY + 8 }
+        }
+        if let card = setupCard {
+            // Before its first size the page stays in the window at 1 pt (never hidden): a hidden web view
+            // stops measuring, and the card would never report the height that shows it.
+            // Taller than the room above the message box, the slot stops there and the page scrolls.
+            let shown = min(card.height, max(0, transcript.fieldTop - top - 8))
+            let frame = CGRect(x: x, y: top, width: width, height: max(shown, 1))
+            if card.view.frame != frame { card.view.frame = frame }
+            if shown > 0 { bottom = frame.maxY }
+        }
+        // The oldest message scrolls clear of the cards (only the top of the scroll range moves).
+        transcript.rowsTopClearance = bottom.map { max(0, $0 - transcript.headerHeight + 4) } ?? 0
     }
 
     /// The pinned section's widest.

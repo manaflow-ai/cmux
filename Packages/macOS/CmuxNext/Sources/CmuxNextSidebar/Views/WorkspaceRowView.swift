@@ -33,6 +33,8 @@ final class WorkspaceRowView: SidebarRowView {
     var shownBadges: (workspace: WorkspaceID, states: [StatusIndicatorState])?
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()
+    /// An agent driving the screen or a browser in the workspace (`sidebar.driveIndicator`), shown with the dots off.
+    let driveIndicator = AgentDriveIndicatorView()
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = DecorativeImageView()
@@ -162,7 +164,7 @@ final class WorkspaceRowView: SidebarRowView {
         usageWarningMark.imageScaling = .scaleProportionallyDown
         usageWarningMark.isHidden = true
         usageWarningMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, badge, rowBadge, presenceDots, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, rollUp].forEach(addSubview)
         setUpSessionTree()
         tabCount.isHidden = true
@@ -180,7 +182,7 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] {
-        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made] as [NSView?]).compactMap(\.self)
+        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator] as [NSView?]).compactMap(\.self)
     }
     override var hoverPaintedControls: [NSView] {
         ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made] as [NSView?]).compactMap(\.self)
@@ -221,6 +223,7 @@ final class WorkspaceRowView: SidebarRowView {
         onToggleTree = nil
         onToggleAudio = nil
         title.stopMarquee()
+        title.cancelRoll()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
         titleArrivalGeneration &+= 1
@@ -238,7 +241,8 @@ final class WorkspaceRowView: SidebarRowView {
         var group: GroupID?
         var fontSize: CGFloat
         var iconSize: CGFloat
-        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int
+        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, driveIndicator: SidebarDriveIndicatorVariant
+        var rowBadge: SidebarRowBadgeStyle, stackLimit: Int
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
         var row: WorkspaceRowContent?
     }
@@ -249,7 +253,7 @@ final class WorkspaceRowView: SidebarRowView {
         let content = Content(
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: SidebarStyle.leadingGlyphSide,
-            agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
+            agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, driveIndicator: tunables.driveIndicator, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
             rowTitle: tunables.rowTitle, rowTitleSingleChat: tunables.rowTitleSingleChat,
             row: row.content
         )
@@ -291,8 +295,9 @@ final class WorkspaceRowView: SidebarRowView {
         isQuiet = ws.isUnnamed && !ws.unread.isUnread && ws.activity == .idle && !ws.agentWorking
         isArchived = ws.isArchived
         icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1
+        // Roll is for renames: a first name over the loading bar arrives at once, as under instant.
         let arrival = priorTitle?.isEmpty == true && !shownTitle.isEmpty && !isPlaceholderRow
-            && tunables.workspaceTitleMotion != .instant && Motion.sidebar.animatesMovement
+            && ![.instant, .roll].contains(tunables.workspaceTitleMotion) && Motion.sidebar.animatesMovement
         if arrival {
             titleArrivalPending = true
             titleArrivalVariant = tunables.workspaceTitleMotion
@@ -317,7 +322,9 @@ final class WorkspaceRowView: SidebarRowView {
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(badgesLead ? .none : ws.unread)
-        presenceDots.configure(content.presenceDots && !isShowingPlaceholder ? ws.presence : [])
+        // An agent driving the screen or a browser has its own mark, dots or not; the dots show the rest.
+        presenceDots.configure(content.presenceDots && !isShowingPlaceholder ? ws.presence.filter { $0.drive == nil } : [])
+        driveIndicator.configure(isShowingPlaceholder ? [] : ws.presence, variant: content.driveIndicator)
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
@@ -369,6 +376,9 @@ final class WorkspaceRowView: SidebarRowView {
         case .instant: return
         case .crossfade: transition = Motion.crossfadeAction
         case .lift: transition = Motion.pushUpAction
+        case .roll:
+            title.rollText(from: old)
+            return
         }
         transition.duration = variant == .crossfade ? Motion.sidebar.duration(.crossfade) : Motion.sidebar.duration(.fadeIn)
         transition.timingFunction = Motion.fadeCurve
@@ -388,8 +398,7 @@ final class WorkspaceRowView: SidebarRowView {
         title.isHidden = false
         placeholderBar.isHidden = false
         let transition: CATransition = switch variant {
-        case .instant: Motion.crossfadeAction
-        case .crossfade: Motion.crossfadeAction
+        case .instant, .crossfade, .roll: Motion.crossfadeAction
         case .lift: Motion.pushUpAction
         }
         transition.duration = variant == .crossfade ? Motion.sidebar.duration(.crossfade) : Motion.sidebar.duration(.fadeIn)
