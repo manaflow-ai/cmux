@@ -456,4 +456,24 @@ mod tests {
         assert!(probed(&next, dir.path(), &["m-two"]).await);
         assert!(changes.try_recv().is_ok());
     }
+
+    /// The first `_acpmux/models` of a starting daemon waits for the disk lists: answered
+    /// before them, it named only "default", and the cached list arriving after it announced
+    /// nothing, so a pane with no list of its own stayed empty (#39080 review).
+    #[tokio::test]
+    async fn a_models_read_during_startup_waits_for_the_disk_lists() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(probed(&hub(&["acme-acp"]), dir.path(), &["m-one"]).await);
+        let next = hub(&["acme-acp"]);
+        next.begin_startup(false);
+        let reader = next.clone();
+        let read = tokio::spawn(async move {
+            reader.wait_model_caches().await;
+            model_ids(&reader).await
+        });
+        tokio::task::yield_now().await;
+        assert!(!read.is_finished());
+        next.load_model_caches_from(dir.path().to_path_buf()).await;
+        assert_eq!(read.await.unwrap(), vec!["m-one".to_owned()]);
+    }
 }
