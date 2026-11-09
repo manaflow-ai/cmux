@@ -436,11 +436,11 @@ fn row_ratios(root: &Value, pane: &str, is_agent: &dyn Fn(&str) -> bool) -> Vec<
     let Some(row) = path.get(top) else { return Vec::new() };
     let mut cells = Vec::new();
     cells_of(row, direction, 1.0, &mut cells);
-    let Some(new) = cells.iter().position(|cell| cell.panes.iter().any(|id| *id == pane)) else {
+    let Some(new) = cells.iter().position(|cell| cell.panes.contains(&pane)) else {
         return Vec::new();
     };
     let agent =
-        |cell: &Cell<'_>| !cell.panes.is_empty() && cell.panes.iter().all(|id| is_agent(*id));
+        |cell: &Cell<'_>| !cell.panes.is_empty() && cell.panes.iter().all(|id| is_agent(id));
     let before = cells.get(..new).unwrap_or_default();
     let first = new.saturating_sub(before.iter().rev().take_while(|cell| agent(cell)).count());
     let after = cells.get(new..).unwrap_or_default();
