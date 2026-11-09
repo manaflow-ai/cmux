@@ -49,24 +49,27 @@ pub(crate) const APPROVAL_REQUIRED: &str = "preset.approval_required";
 
 /// The fields of a `session/new` that, named by the request itself, keep a preset's approval
 /// from applying: the approval covers the preset's own contents, nothing the agent adds.
-const OWN_FIELDS: [&str; 6] = ["harness", "model", "effort", "policy", "mode", "env"];
+const OWN_FIELDS: [&str; 8] =
+    ["harness", "model", "effort", "policy", "mode", "env", "route", "adopt"];
 
 impl Hub {
     /// The `session/new` `p` this daemon forwards to peer `host` for proven caller `caller`
     /// (module docs): an approved no-prompt preset of this daemon expanded in place of its name,
     /// or the refusal that asks the person for its approval. Anything else is left as it is.
+    /// Returns the expanded preset's name and approved digest, which
+    /// [`Hub::unattended_preset_holds`] checks again right before the start is sent.
     pub(crate) async fn forward_unattended_preset(
         &self,
         caller: Option<&str>,
         host: &str,
         p: &mut Value,
-    ) -> Result<(), RpcError> {
+    ) -> Result<Option<(String, String)>, RpcError> {
         let Some(s) = caller.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id)) else {
-            return Ok(());
+            return Ok(None);
         };
         // A starter in full access already starts its chats there in full access.
         if self.starter_runs_full_access(caller) {
-            return Ok(());
+            return Ok(None);
         }
         let meta = p.pointer("/_meta/acpmux");
         let field = |k: &str| {
@@ -75,16 +78,16 @@ impl Hub {
                 .or(p.get(k).filter(|v| !v.is_null()))
         };
         let Some(name) = field("preset").and_then(Value::as_str).map(str::to_owned) else {
-            return Ok(());
+            return Ok(None);
         };
         if OWN_FIELDS.iter().any(|k| field(k).is_some()) {
-            return Ok(());
+            return Ok(None);
         }
         let Some(preset) = self.config.read().await.presets.get(&name).cloned() else {
-            return Ok(());
+            return Ok(None);
         };
         if !preset.policy_skips_asking() {
-            return Ok(());
+            return Ok(None);
         }
         if !preset.policy_approved() {
             let card = json!({
@@ -130,7 +133,32 @@ impl Hub {
                 p.set_path(&["_meta", "acpmux", k], json!(v));
             }
         }
-        Ok(())
+        Ok(preset.mode_approval.map(|d| (name, d)))
+    }
+
+    /// Whether preset `name` still has the approved contents `digest` (the person may have edited
+    /// it while the forward was made): the last check before the start leaves for the peer
+    /// (`server/requests.rs`). An edit that lands after it is the same as one right after the
+    /// start: it covers the next start, not the one already sent.
+    pub(crate) async fn unattended_preset_holds(
+        &self,
+        name: &str,
+        digest: &str,
+    ) -> Result<(), RpcError> {
+        let cfg = self.config.read().await;
+        let holds = cfg.presets.get(name).is_some_and(|p| {
+            p.policy_approved()
+                && p.approval_digest().is_some_and(|d| cmux_local_auth::tokens_match(&d, digest))
+        });
+        if holds {
+            Ok(())
+        } else {
+            Err(RpcError::new(
+                -32000,
+                format!("preset {name} changed while this start was made; nothing was started, start again"),
+            )
+            .with_data(json!({"reason": APPROVAL_REQUIRED, "preset": name})))
+        }
     }
 
     /// The person's answer to a chat's approval card (module docs): `preset_approval_decision` in

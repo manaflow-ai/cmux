@@ -215,11 +215,10 @@ pub(super) async fn handle(
             return Err(RpcError::internal(format!("save config: {e}")));
         }
         drop(cfg);
-        // Only the person's answer closes a card: an approval passed the person check, and an
-        // agent's `approveMode: false` narrows but must not hide the card from the person.
-        let persons = conn.is_person() || !hub.person.has_key();
+        // Only the person's answer closes a card: an agent's `approveMode: false` narrows, but
+        // must not hide the card from the person (review 3 F3 of #39333).
         if let Some(approve) = approve
-            && (approve || persons)
+            && conn.is_person()
         {
             hub.close_preset_card(params, &name, approve);
         }

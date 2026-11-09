@@ -219,6 +219,17 @@ fn an_approved_no_prompt_preset_starts_unattended_chats_on_another_machine() {
         assert_eq!(card["policy"], "approve-all", "{card}");
         assert_eq!(card["host"], "b", "{card}");
         let digest = card["digest"].as_str().expect("a digest").to_owned();
+        // An agent's Not now narrows, but never closes the person's card (review 3 F3).
+        agent
+            .ok(
+                "_acpmux/presets",
+                json!({"name": PRESET, "approveMode": false, "approveDigest": digest, "sessionId": asking}),
+            )
+            .await;
+        assert!(
+            record(&mut app, &asking, "preset_approval_decision").await.is_none(),
+            "an agent closed the card"
+        );
         // An answer for other contents approves nothing.
         let stale = app
             .call(
@@ -242,6 +253,11 @@ fn an_approved_no_prompt_preset_starts_unattended_chats_on_another_machine() {
         assert_eq!(decision["outcome"], "approved", "{decision}");
         let child = id(&agent.ok("session/new", on_b(json!({"preset": PRESET}))).await);
         assert_eq!(on_b_app.level(&child).await.1, json!("approve-all"), "unattended on B");
+        // A field of the agent's own (a route) keeps the approval from applying (review 3 F2).
+        let r = agent.call("session/new", on_b(json!({"preset": PRESET, "route": "r1"}))).await;
+        if r.get("error").is_none() {
+            assert_ne!(on_b_app.level(&id(&r["result"])).await.1, json!("approve-all"), "{r}");
+        }
         // Any change to the preset drops the approval.
         app.ok("_acpmux/presets", json!({"name": PRESET, "set": {"model": "m1"}})).await;
         let r = agent.call("session/new", on_b(json!({"preset": PRESET}))).await;
