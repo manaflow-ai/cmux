@@ -30,9 +30,11 @@ import {
 import "../ledger/ledger.css";
 import "./teamAudit.css";
 
+/// `group` is the grouping a reply was read for: the table keeps its heading and labels while the
+/// next grouping's read runs.
 type State =
-  | { phase: "loading"; reply?: TeamAuditReply }
-  | { phase: "answered"; answer: TeamAuditAnswer }
+  | { phase: "loading"; reply?: TeamAuditReply; group?: TeamAuditGroup }
+  | { phase: "answered"; answer: TeamAuditAnswer; group: TeamAuditGroup }
   | { phase: "older" };
 
 type Props = {
@@ -80,16 +82,16 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
       // The last table stays on screen while the next read runs.
       setState((previous) =>
         previous.phase === "answered" && previous.answer.kind === "ready"
-          ? { phase: "loading", reply: previous.answer.reply }
+          ? { phase: "loading", reply: previous.answer.reply, group: previous.group }
           : { phase: "loading" },
       );
       loadRef.current(teamAuditParams(which, by, now ?? Date.now())).then(
         (value) => {
-          if (id === request.current) setState({ phase: "answered", answer: readTeamAudit(value) });
+          if (id === request.current) setState({ phase: "answered", answer: readTeamAudit(value), group: by });
         },
         (error: unknown) => {
           if (id !== request.current) return;
-          setState(isOlderDaemon(error) ? { phase: "older" } : { phase: "answered", answer: { kind: "failed" } });
+          setState(isOlderDaemon(error) ? { phase: "older" } : { phase: "answered", answer: { kind: "failed" }, group: by });
         },
       );
     },
@@ -132,6 +134,8 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
           : !auditHasRows(reply)
             ? t("teamAudit.empty")
             : "";
+  // The rows on screen are labelled by the grouping they were read for, not the one being read.
+  const shown = (state.phase === "older" ? undefined : state.group) ?? group;
   const machine = reply ? auditHasMachineTime(reply) : false;
   const rows = reply && auditHasRows(reply) ? reply.rows : [];
 
@@ -172,7 +176,7 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
             <thead>
               <tr>
                 <th scope="col" className="tma-key">
-                  {t(GROUP_KEY[group])}
+                  {t(GROUP_KEY[shown])}
                 </th>
                 <th scope="col">{t("ledger.total.tokensIn")}</th>
                 <th scope="col">{t("ledger.total.tokensOut")}</th>
@@ -186,9 +190,9 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={`${group}:${row.key}`}>
+                <tr key={`${shown}:${row.key}`}>
                   <th scope="row" className="tma-key" title={row.key}>
-                    {row.key === TEAM_AUDIT_NONE ? t("teamAudit.none") : auditRowLabel(group, row, locale)}
+                    {row.key === TEAM_AUDIT_NONE ? t("teamAudit.none") : auditRowLabel(shown, row, locale)}
                   </th>
                   <Measures totals={row} machine={machine} locale={locale} />
                 </tr>
