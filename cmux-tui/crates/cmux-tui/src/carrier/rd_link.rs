@@ -452,7 +452,7 @@ where
                         let _ = host_tx.send(ToHost::Bytes(bytes));
                     }
                     Out::Viewer(bytes)
-                        if bytes[0] == FRAME_DATAGRAM
+                        if bytes.first() == Some(&FRAME_DATAGRAM)
                             && viewer_queued.load(Ordering::Relaxed) >= QUEUE_LIMIT => {}
                     Out::Viewer(bytes) => {
                         viewer_queued.fetch_add(bytes.len(), Ordering::Relaxed);
