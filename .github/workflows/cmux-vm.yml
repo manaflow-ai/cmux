@@ -212,7 +212,7 @@ jobs:
           # At most 20 runs (one page) and 5 job reads.
           reads=0
           while read -r id sha; do
-            [ -n "$id" ] && [ "$reads" -lt 5 ] || break
+            if [ -z "$id" ] || [ "$reads" -ge 5 ]; then break; fi
             git fetch --quiet --no-tags --depth=1 origin "$sha" || continue
             diff="$(git diff --name-only "$sha" HEAD -- "${checked[@]}")" || continue
             [ -z "$diff" ] || [ "$diff" = workers/cmux-vm/wrangler.jsonc ] || continue
