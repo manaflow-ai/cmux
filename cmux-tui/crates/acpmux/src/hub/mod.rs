@@ -244,6 +244,7 @@ mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
 mod turn_retry;
+mod update_repeats;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -1631,6 +1632,8 @@ impl Hub {
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
             harness_turn: AtomicBool::new(false),
+            logged_init: StdMutex::new(Default::default()),
+            update_repeats: StdMutex::new(Default::default()),
             background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),

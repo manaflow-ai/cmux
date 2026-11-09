@@ -415,6 +415,10 @@ pub struct Session {
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
     pub(super) harness_turn: AtomicBool,
+    /// The sections of the last `system/init` its log kept whole (`logged_init.rs`).
+    pub(super) logged_init: StdMutex<crate::claude_stdio::LoggedInit>,
+    /// The state update sections its log last kept (`update_repeats.rs`).
+    pub(super) update_repeats: StdMutex<super::update_repeats::UpdateRepeats>,
     /// The turns Claude Code runs that the person did not start (`background_turn.rs`).
     pub(super) background_turns: StdMutex<super::background_turn::BackgroundTurns>,
     /// The commands its harness runs in the background (`processes.rs`).

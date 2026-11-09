@@ -229,6 +229,13 @@ impl Hub {
                         let mut line = params.clone().unwrap_or(Value::Null);
                         crate::model_copies::scrub_logged(&mut line);
                         crate::claude_stdio::leave_out_bodies(&kind, &mut line);
+                        // Claude Code repeats its whole system/init each turn; the log keeps
+                        // the sections that changed (`logged_init.rs`).
+                        tap_session
+                            .logged_init
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .leave_out_repeats(&kind, &mut line);
                         let retry = (!muted && method == "claude.system.api_retry")
                             .then(|| super::turn_retry::claude_retry(&line));
                         let logged =
@@ -383,6 +390,23 @@ impl Hub {
             } else {
                 None
             };
+            // A state update that repeats what the log last kept is not logged again; the
+            // session's meta took it already (`update_repeats.rs`).
+            if live_update
+                && !subagent_events
+                && !background_changed
+                && !running_changed
+                && todo_plan.is_none()
+                && let Some(update) = value.pointer_mut("/params/update")
+                && tap_session
+                    .update_repeats
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .leave_out_repeats(&kind, update)
+            {
+                tap_hub.touch(&tap_session);
+                return true;
+            }
             let (rec, logged) = tap_hub.append_logged(&tap_session, d, &kind, value, host_seq);
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
