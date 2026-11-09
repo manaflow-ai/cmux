@@ -56,9 +56,13 @@ struct GitAndHarnessPaletteActionsTests {
         _ = services.registry.perform("git.worktree.remove", invocation: ActionInvocation())
         #expect(presented == ["git.worktree.remove"], "the palette run did not ask")
 
-        let plain = await DestructiveConfirmation.prompt(for: "git.worktree.remove", ActionInvocation(), services)
+        let folder: [String: ActionValue] = [GitRepositoryActions.pinnedPathName: .string("/repo/worktree-a")]
+        let plain = await DestructiveConfirmation.prompt(for: "git.worktree.remove", ActionInvocation(arguments: folder), services)
         let discarding = await DestructiveConfirmation.prompt(
-            for: "git.worktree.remove", ActionInvocation(arguments: ["discard": .bool(true)]), services)
+            for: "git.worktree.remove", ActionInvocation(arguments: folder.merging(["discard": .bool(true)]) { $1 }), services)
+        // Review (codex) F2: no folder pinned (the tab has none) asks nothing, so the run refuses at once
+        // instead of resolving a folder after the question.
+        #expect(await DestructiveConfirmation.prompt(for: "git.worktree.remove", ActionInvocation(), services) == nil)
         #expect(plain != nil, "no question, so the presenter runs it unasked")
         #expect(discarding != nil)
         #expect(plain?.body != discarding?.body, "discarding says it deletes uncommitted changes too")
@@ -74,7 +78,7 @@ struct GitAndHarnessPaletteActionsTests {
     /// `cd` while the question was up removed a different worktree. The question pins the folder it
     /// asked about; a confirmed run whose tab is now elsewhere is refused before anything is sent.
     @Test func aConfirmedRemoveRefusesWhenItsTabLeftTheFolderItAskedAbout() {
-        let registry = ActionRegistry()
+        let registry = ActionRegistry(catalog: ActionCatalog.all)
         let link = AgentPaneGitLink(daemon: DaemonService())
         GitRepositoryActions(place: { _ in GitRepositoryActions.Place(link: link, cwd: "/repo/worktree-b") }, announce: { _ in }).bind(into: registry)
         let invocation = ActionInvocation(arguments: [GitRepositoryActions.pinnedPathName: .string("/repo/worktree-a")]).confirmed()
