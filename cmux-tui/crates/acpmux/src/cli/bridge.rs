@@ -151,10 +151,15 @@ fn home_env() -> String {
     format!("ACPMUX_HOME={}", home.display())
 }
 
-/// A server entry is ours when it runs `bridge mcp --as`: one `connect` wrote, maybe for an
-/// older install. Any other server with our name is left alone.
-fn ours(args_text: &str) -> bool {
-    args_text.contains("bridge mcp --as")
+/// A server entry is ours when its args run `bridge mcp --as APP`: one `connect` wrote, maybe for
+/// an older install. Any other server with our name is left alone.
+fn ours(entry: &Value) -> bool {
+    let args: Vec<&str> = entry
+        .get("args")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    matches!(args.as_slice(), [.., "bridge", "mcp", "--as", app] if desktop_bridge::app(app).is_some())
 }
 
 /// Who holds the `cmux-bridge` name in a harness's own config.
@@ -165,13 +170,32 @@ enum Holder {
     Other,
 }
 
-async fn holder(harness: &str) -> Result<Holder> {
-    let get = run_cmd(&[harness, "mcp", "get", SERVER_NAME]).await?;
-    Ok(match get {
-        Err(_) => Holder::Nobody,
-        Ok(out) if ours(&out) => Holder::Us,
-        Ok(_) => Holder::Other,
+/// Read from the user config `register` writes, not `mcp get`: that also sees a project's
+/// override, which is not the entry `mcp add` replaces.
+fn holder(harness: &str) -> Result<Holder> {
+    let entry = if harness == "codex" { codex_entry()? } else { claude_code_entry()? };
+    Ok(match entry {
+        None => Holder::Nobody,
+        Some(entry) if ours(&entry) => Holder::Us,
+        Some(_) => Holder::Other,
     })
+}
+
+/// Codex's `mcp_servers.cmux-bridge` in `$CODEX_HOME/config.toml`, which `codex mcp add` writes;
+/// read only.
+fn codex_entry() -> Result<Option<Value>> {
+    let Some(path) = crate::route_shadow::codex_base().map(|b| b.join("config.toml")) else {
+        return Ok(None);
+    };
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    let config: toml::Value = toml::from_str(&text)
+        .with_context(|| format!("{} is not TOML; not changed", path.display()))?;
+    let entry = config.get("mcp_servers").and_then(|s| s.get(SERVER_NAME));
+    Ok(entry.map(serde_json::to_value).transpose()?)
 }
 
 /// Claude Code's user config, which `claude mcp add --scope user` writes; read only.
@@ -182,11 +206,18 @@ fn claude_code_config() -> Option<PathBuf> {
     }
 }
 
-/// Our old entry in Claude Code's user config, to put back if the replacement fails.
-fn claude_code_entry() -> Option<Value> {
-    let bytes = std::fs::read(claude_code_config()?).ok()?;
-    let config: Value = serde_json::from_slice(&bytes).ok()?;
-    config.get("mcpServers")?.get(SERVER_NAME).cloned()
+/// Our entry in Claude Code's user config, if any: checked before replacing it, and put back if
+/// the replacement fails.
+fn claude_code_entry() -> Result<Option<Value>> {
+    let Some(path) = claude_code_config() else { return Ok(None) };
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    let config: Value = serde_json::from_slice(&bytes)
+        .with_context(|| format!("{} is not JSON; not changed", path.display()))?;
+    Ok(config.get("mcpServers").and_then(|s| s.get(SERVER_NAME)).cloned())
 }
 
 async fn connect(app: App, dry_run: bool) -> Vec<Value> {
@@ -236,7 +267,7 @@ async fn connect(app: App, dry_run: bool) -> Vec<Value> {
 /// touched; ours is replaced, and for Claude Code (whose `mcp add` refuses a name it has) put back
 /// when the replacement fails.
 async fn register(app: App, argv: &[String], env: &str, entry: &Value) -> Result<String> {
-    let held = holder(app.harness).await?;
+    let held = holder(app.harness)?;
     if held == Holder::Other {
         bail!(
             "its `{SERVER_NAME}` server is not cmux's; not changed (`{} mcp remove {SERVER_NAME}` frees the name)",
@@ -250,7 +281,7 @@ async fn register(app: App, argv: &[String], env: &str, entry: &Value) -> Result
         run_cmd(&add).await?.map_err(anyhow::Error::msg)?;
         return Ok(format!("added {SERVER_NAME} with `codex mcp add`."));
     }
-    let old = if held == Holder::Us { claude_code_entry() } else { None };
+    let old = if held == Holder::Us { claude_code_entry()? } else { None };
     if held == Holder::Us {
         run_cmd(&["claude", "mcp", "remove", "--scope", "user", SERVER_NAME])
             .await?
@@ -342,13 +373,7 @@ fn add_to_claude_app_config(path: &Path, entry: &Value) -> Result<()> {
         bail!("mcpServers in {} is not an object; not changed", path.display());
     };
     if let Some(held) = servers.get(SERVER_NAME)
-        && !ours(
-            &held
-                .get("args")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
-                .unwrap_or_default(),
-        )
+        && !ours(held)
     {
         bail!("its `{SERVER_NAME}` server in {} is not cmux's; not changed", path.display());
     }
@@ -431,7 +456,9 @@ mod tests {
         ]));
         let me = crate::self_command::SelfCommand::current().unwrap();
         assert_eq!(argv[1..argv.len() - 4], me.args_lossy::<&str>(&[])[..]);
-        assert!(ours(&argv[1..].join(" ")));
+        assert!(ours(&json!({"args": argv[1..]})));
+        assert!(!ours(&json!({"args": ["serve", "bridge mcp --as claude-desktop"]})));
+        assert!(!ours(&json!({"args": ["bridge", "mcp", "--as", "other"]})));
     }
 
     #[test]
