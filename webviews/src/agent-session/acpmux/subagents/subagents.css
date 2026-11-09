@@ -808,7 +808,7 @@ button.cv-subagent > :last-child {
    into a wider form ("59s" to "1m 1s") changes its text alone: the names, the count and the marks
    before it never cut shorter or step aside (a DEV-build capture, 2026-11-09; Leo: "im still
    sometimes seeing a flicker on the composer/composer hat when scrolling and things are running in
-   background aka time is ticking"). Past an hour it grows once more, then holds again. */
+   background aka time is ticking"). Past an hour it grows to the hour form and may still change width where a form drops its seconds ("1h 1m 59s" to "1h 2m"); a hat folded over an hour-long run is rare enough not to hold room for it. */
 .acpmux-running-tray__head > .acpmux-running-tray__time:not(:empty) {
   min-width: 7.5ch;
   font-variant-numeric: tabular-nums;
