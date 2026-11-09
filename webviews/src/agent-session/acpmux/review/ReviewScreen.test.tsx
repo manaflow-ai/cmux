@@ -118,10 +118,10 @@ test("a refresh that hides the selected row leaves `a` waiting until the person 
   const view = mount(["a", "b", "c"].map((name, at) => chat(name, NOW - (at + 1) * 60_000)), {
     accept: async (sessionId) => void accepted.push(sessionId),
     // A folder's second read never answers: its row and every row under it wait for it.
-    readDiff: (cwd, scope) => {
+    readDiff: (cwd) => {
       const count = (reads.get(cwd) ?? 0) + 1;
       reads.set(cwd, count);
-      return count > 1 ? new Promise(() => {}) : readDiff(cwd, scope);
+      return count > 1 ? new Promise(() => {}) : readDiff();
     },
   });
   await flush();
