@@ -60,8 +60,10 @@ struct Pending {
 static PENDING: LazyLock<Mutex<HashMap<(String, String), Pending>>> =
     LazyLock::new(Default::default);
 
+/// The phase of a settled turn's pair still being taken.
 fn pending_phase(key: &(String, String)) -> Option<watch::Receiver<Phase>> {
-    PENDING.lock().unwrap_or_else(PoisonError::into_inner).get(key).map(|p| p.phase.subscribe())
+    let pending = PENDING.lock().unwrap_or_else(PoisonError::into_inner);
+    pending.get(key).filter(|p| p.ended).map(|p| p.phase.subscribe())
 }
 
 /// Ends a turn's pending pair: its readers stop waiting.
@@ -306,6 +308,7 @@ pub(super) fn turn_ended(session: &Session, turn: &str) {
 /// or no `before` and `after` when it has none. A pair still being taken is waited for, at most
 /// [`READ_WAIT`].
 pub(crate) async fn turn_shots(session: &str, turn: &str) -> Value {
+    // Only a settled turn's after is coming: a turn that failed before its result never gets one.
     if let Some(mut phase) = pending_phase(&(session.to_owned(), turn.to_owned())) {
         let _ = tokio::time::timeout(READ_WAIT, phase.wait_for(|p| *p == Phase::Done)).await;
     }

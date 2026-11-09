@@ -139,3 +139,17 @@ fn a_chat_keeps_its_newest_turns_only() {
     newest.sort();
     assert_eq!(left, newest);
 }
+
+#[tokio::test]
+async fn a_read_waits_only_on_a_settled_turns_pair() {
+    let key = ("turn-shots-test-unsettled".to_owned(), "t1".to_owned());
+    let (phase, _) = watch::channel(Phase::Ready);
+    PENDING
+        .lock()
+        .unwrap()
+        .insert(key.clone(), Pending { workspace: "ws_ab".into(), phase, ended: false });
+    // A turn that failed before its result never gets an after: the read answers at once.
+    let read = tokio::time::timeout(Duration::from_secs(2), turn_shots(&key.0, &key.1)).await;
+    assert!(read.is_ok_and(|reply| reply.get("after").is_none()));
+    finish(&key);
+}
