@@ -27,17 +27,30 @@ describe("db-connections", () => {
 
   it("waits out a full server, then gives up at the deadline", async () => {
     let calls = 0
+    let clock = 0
     const slept: Array<number> = []
-    const sleep = async (ms: number) => void slept.push(ms)
+    const sleep = async (ms: number) => {
+      slept.push(ms)
+      clock += ms
+    }
+    const now = () => clock
     const fullTwice = async () => {
       calls += 1
       if (calls <= 4) throw full // direct and PgBouncer, twice
       return fakeClient
     }
-    expect((await connectWaiting("postgresql://u:p@h:5432/db", 60_000, fullTwice, sleep)).route).toBe("direct")
+    expect((await connectWaiting("postgresql://u:p@h:5432/db", 60_000, fullTwice, sleep, 15_000, now)).route).toBe("direct")
     expect(slept).toEqual([15_000, 15_000])
-    await expect(connectWaiting("postgresql://u:p@h:5432/db", 20_000, async () => { throw full }, sleep)).rejects.toBe(full)
-    await expect(connectWaiting("postgresql://u:p@h:5432/db", 0, async () => { throw full }, sleep)).rejects.toBe(full)
+    await expect(connectWaiting("postgresql://u:p@h:5432/db", 20_000, async () => { throw full }, sleep, 15_000, now)).rejects.toBe(full)
+    await expect(connectWaiting("postgresql://u:p@h:5432/db", 0, async () => { throw full }, sleep, 15_000, now)).rejects.toBe(full)
+    // Slow refusals use up the budget too: each attempt here takes 9 s of the 30 s.
+    const before = slept.length
+    const slowFull = async () => {
+      clock += 9_000
+      throw full
+    }
+    await expect(connectWaiting("postgresql://u:p@h:5432/db", 30_000, slowFull, sleep, 15_000, now)).rejects.toBe(full)
+    expect(slept.length - before).toBe(0)
   })
 
   it("warns at 80 % of the open slots", () => {

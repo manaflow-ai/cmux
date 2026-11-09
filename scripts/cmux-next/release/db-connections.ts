@@ -63,20 +63,23 @@ export const connect = async (url: string, open: (url: string) => Promise<Client
   }
 }
 
-/** connect, tried again every `everyMs` while the server is full, until `waitMs` has passed. */
+/** connect, tried again every `everyMs` while the server is full, until `waitMs` of wall time has passed
+ * (the attempts count too: each may wait out its connect timeout). */
 export const connectWaiting = async (
   url: string,
   waitMs: number,
   open?: (url: string) => Promise<Client>,
   sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
   everyMs = 15_000,
+  now: () => number = Date.now,
 ): Promise<{ client: Client; route: string }> => {
-  for (let waited = 0; ; waited += everyMs) {
+  const deadline = now() + waitMs
+  for (;;) {
     try {
       return await connect(url, open)
     } catch (e) {
-      if (!isFull(e) || waited + everyMs > waitMs) throw e
-      console.log(`still full after ${waited / 1000} s; trying again in ${everyMs / 1000} s`)
+      if (!isFull(e) || now() + everyMs > deadline) throw e
+      console.log(`still full, ${Math.round((deadline - now()) / 1000)} s left; trying again in ${everyMs / 1000} s`)
       await sleep(everyMs)
     }
   }
