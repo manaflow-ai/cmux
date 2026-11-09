@@ -305,6 +305,8 @@ export class SubsessionStore {
     }
     // A session listed twice in place of another keeps the length: the ids' count shows it left.
     if (nameFrom.size !== this.nameFrom.size) names = true;
+    // Listed twice, the later entry's names hide the earlier one's: an alias can leave unseen.
+    if (nameFrom.size !== sessions.length) names = true;
     this.nameFrom = nameFrom;
     this.nameSigs = nameSigs;
     this.nameCount = sessions.length;

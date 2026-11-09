@@ -515,8 +515,12 @@ export class SessionsBy {
     // Same length: updated in place, as an id not seen before marks the list moved. Another length
     // starts again, so a session no longer listed leaves nothing behind.
     if (moved) this.seen = new Map();
+    const listedIds = new Set<string>();
     for (let at = 0; at < sessions.length; at++) {
       const entry = sessions[at]!;
+      // A session listed twice changes what the list holds without changing its length.
+      if (listedIds.has(entry.sessionId)) moved = true;
+      listedIds.add(entry.sessionId);
       const before = this.seen.get(entry.sessionId);
       if (before?.entry === entry) {
         if (before.at !== at) {
@@ -533,11 +537,10 @@ export class SessionsBy {
         before.at = at;
       } else this.seen.set(entry.sessionId, { entry, key, at });
     }
-    // A session that left while another came keeps the same length: drop what it left behind.
-    if (this.seen.size > sessions.length) {
-      const listedIds = new Set(sessions.map((entry) => entry.sessionId));
+    // A session that left while another came, or another listed twice, keeps the same length: drop
+    // what it left behind, so it is new again when it comes back.
+    if (this.seen.size !== listedIds.size)
       for (const id of this.seen.keys()) if (!listedIds.has(id)) this.seen.delete(id);
-    }
     this.count = sessions.length;
     if (moved) this.kept = sessions;
     return this.kept!;
