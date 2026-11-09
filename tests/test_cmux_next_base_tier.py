@@ -200,6 +200,17 @@ class CancelSuperseded(unittest.TestCase):
         kick(api, clock)
         self.assertEqual(api.cancelled, [12])
 
+    def test_runs_whose_mac_jobs_were_only_skipped_or_cancelled_are_candidates(self):
+        # Mac jobs that never started protect nothing: the oldest such run is kept, the newer one cancelled.
+        never = [job("cmux app scheme compile (Debug)", "completed", "skipped"),
+                 job("cmux-next daemon tests", "completed", "cancelled"),
+                 job("cmux-next generated files", "queued")]
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(10, OLDEST, T0 - 60, "in_progress", never)
+        api.open_run(11, OLD, T0, "in_progress", never)
+        kick(api, clock)
+        self.assertEqual(api.cancelled, [11])
+
     def test_an_unreadable_job_list_counts_as_running(self):
         api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
         api.open_run(10, OLDEST, T0 - 60, "queued", QUEUED_MAC)
