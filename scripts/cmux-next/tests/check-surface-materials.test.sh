@@ -69,4 +69,23 @@ expect_pass pending
 printf '<BasePopover.Popup\n  className="ui-popup ui-glass tip"\n  data-host-glass="popover"\n>\n' > "$web/Tip.tsx"
 expect_fail pending-stale web-floating
 
+reset; manifest '' ''
+printf '<BaseMenu.Popup\n  // a comment with an apostrophe: Base UI'"'"'s popup\n  className={cx(\n    "ui-popup ui-glass ui-menu",\n    className,\n  )}\n>\n' > "$web/Multi.tsx"
+expect_fail multiline-class web-floating
+
+reset; manifest '' ''
+printf '<div className="ui-popup ui-glass one" data-host-glass="menu">\n</div>\n<div className="ui-popup ui-glass two">\n</div>\n' > "$web/Siblings.tsx"
+expect_fail marked-sibling-does-not-exempt web-floating
+
+reset; manifest '' ''
+printf '<div className="ui-popup ui-glass" data-host-glass-cover="">\n</div>\n' > "$web/Cover.tsx"
+expect_fail cover-alone-is-not-a-mark web-floating
+
+reset; manifest '' ''
+printf 'const popupClassName = cx("ui-popup ui-glass ui-popover", className);\nreturn <BasePopover.Popup className={popupClassName}>x</BasePopover.Popup>;\n' > "$web/Named.tsx"
+expect_fail class-in-a-const web-floating
+
+printf 'const popupClassName = cx("ui-popup ui-glass ui-popover", className);\nreturn <BasePopover.Popup className={popupClassName} data-host-glass="popover">x</BasePopover.Popup>;\n' > "$web/Named.tsx"
+expect_pass class-in-a-const-marked
+
 echo "check-surface-materials.test: ok"
