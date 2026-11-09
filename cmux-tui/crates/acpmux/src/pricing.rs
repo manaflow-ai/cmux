@@ -135,6 +135,16 @@ impl PriceTable {
                 + per(usage.cache_write_tokens, p.cache_write.unwrap_or(0.0)),
         )
     }
+
+    /// What `usage`'s cache reads saved at `model`'s price: the same tokens at the input price,
+    /// less what they cost as cache reads. None when the table does not list the model or the
+    /// turn read nothing from cache.
+    pub fn cache_savings(&self, model: &str, usage: &crate::store::TurnUsage) -> Option<f64> {
+        let tokens = usage.cache_read_tokens.filter(|n| *n > 0)?;
+        let (_, p) = self.lookup(model)?;
+        let saved = tokens as f64 * (p.input - p.cache_read.unwrap_or(p.input)) / 1e6;
+        Some(saved.max(0.0))
+    }
 }
 
 /// `model` is `id`, or `id` with a tag or a dated suffix after it.

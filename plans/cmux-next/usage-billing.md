@@ -14,6 +14,11 @@ Bead: cx-y79zh (P1). Base read: origin/feat-cmux-next at bc24e6885fff.
   billed at the reserved amount and a late settle writes a correction fact.
 - Order: S1 (metering fixes, feat-cmux-next) and S0 (plan item, web on main, PR with the chief's go
   before merge) first; Stripe test mode only after both; no live objects, prices or keys.
+- 2026-11-09, Leo: Team is the existing 60 USD per seat plan with 25 USD per seat of included usage,
+  pooled across the team; overage is at cost. Leo approved only Team, so Go, Pro and Max stay as they
+  are. This is price set `v2` (`cmux-ai-usage-team-seat25-v2`); v1 is not edited. Under v2 a Team
+  team with no operator setting is per seat. Only development and staging use v2, and only with
+  `BILLING_USAGE_PRICE_SET=v2`. Production stays on v1 until Leo gives a separate go.
 
 S1 landed on feat-cmux-next: `UsageMeterDO.settleCall` (`backend/apps/api/src/usage-user.ts`) writes
 the call's fact and every counter in one transaction, on the charged path too; the proof is

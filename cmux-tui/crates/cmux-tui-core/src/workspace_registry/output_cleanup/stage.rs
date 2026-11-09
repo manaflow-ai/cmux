@@ -142,7 +142,7 @@ fn stage_registry_until_stopped(
             Staged::Finished => {
                 let (staged_kept, staged_total) = staged_records(&staging)?;
                 let (live_kept, live_total) = live_records(&source)?;
-                staged_bytes_refusal(db_path)
+                staged_bytes_refusal(&staging)?
                     .or_else(|| kept_refusal(staged_kept + live_kept, staged_total + live_total))
             }
         };
@@ -415,7 +415,7 @@ pub(super) fn stage_segments(
                 return Ok(Staged::Refused(reason));
             }
             let (kept, _) = staged_records(staging)?;
-            if let Some(reason) = staged_bytes_refusal(db_path).or_else(|| {
+            if let Some(reason) = staged_bytes_refusal(staging)?.or_else(|| {
                 (kept > MAX_KEPT_RECORDS)
                     .then(|| format!("{kept} records staged, over the bound of {MAX_KEPT_RECORDS}"))
             }) {
