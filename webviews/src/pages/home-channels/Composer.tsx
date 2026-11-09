@@ -140,7 +140,8 @@ export function Composer({
   };
   /// A file edit of the person's: undoable, and what they type next is a new text step.
   const noteFileEdit = (edit: Omit<AttachmentEdit<PendingAttachment>, "depth">) => {
-    fileHistory.current.record({ ...edit, depth: editor.current?.history().depth ?? 0 });
+    const text = editor.current?.history();
+    fileHistory.current.record({ ...edit, depth: text?.depth ?? 0 }, text?.redoDepth ?? 0);
     editor.current?.closeHistory();
     // A click on the tray or a file chooser took the keyboard from the field: Cmd-Z goes to it again.
     editor.current?.focus();
@@ -213,6 +214,12 @@ export function Composer({
       event.preventDefault();
       // The editor's history takes `historyUndo` input too: this one was the files'.
       if (event.type === "beforeinput") event.stopPropagation();
+      return;
+    }
+    // A text step undone before a newer file edit is gone, as typing would have dropped it.
+    if (direction === "redo" && !fileHistory.current.textRedoAllowed(editor.current?.history().redoDepth ?? 0)) {
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
     replaying.current = true;

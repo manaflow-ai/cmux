@@ -18,11 +18,23 @@ export type AttachmentEdit<T> = {
 export class AttachmentUndo<T> {
   private undos: AttachmentEdit<T>[] = [];
   private redos: AttachmentEdit<T>[] = [];
+  /// How many of the editor's text redos a file edit ended: the oldest undone text steps, which
+  /// its redo stack keeps (ProseMirror has no way to drop only them), but Shift-Cmd-Z must not
+  /// bring back.
+  private deadTextRedos = 0;
 
-  /// A new file edit: what was undone can no longer be redone.
-  record(edit: AttachmentEdit<T>): void {
+  /// A new file edit: what was undone, files or text (`textRedos`, the editor's redo depth now),
+  /// can no longer be redone.
+  record(edit: AttachmentEdit<T>, textRedos = 0): void {
     this.undos.push(edit);
     this.redos = [];
+    this.deadTextRedos = textRedos;
+  }
+
+  /// Whether Shift-Cmd-Z may redo the editor's newest undone text step (`textRedos`, its redo depth
+  /// now): not one a file edit ended. Text undone after that edit sits above those and redoes.
+  textRedoAllowed(textRedos: number): boolean {
+    return textRedos > this.deadTextRedos;
   }
 
   /// The file edit Cmd-Z undoes now, when no text edit came after it (`textDepth`, the editor's undo
@@ -49,12 +61,15 @@ export class AttachmentUndo<T> {
   /// the editor's redo is.
   textEdited(): void {
     this.redos = [];
+    // The editor dropped its redos too.
+    this.deadTextRedos = 0;
   }
 
   /// The files were sent: nothing brings them back.
   clear(): void {
     this.undos = [];
     this.redos = [];
+    this.deadTextRedos = 0;
   }
 }
 

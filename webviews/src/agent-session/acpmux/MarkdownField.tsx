@@ -132,8 +132,8 @@ export type MarkdownFieldHandle = {
   /// The formats active at the selection, for the toolbar's pressed states.
   formats(): Set<MarkdownFormat>;
   /// The field's own history (its context menu's Undo and Redo): whether there is an edit to
-  /// undo or redo, how many it can undo (`depth`), and doing it.
-  history(): { undo: boolean; redo: boolean; depth: number };
+  /// undo or redo, how many it can undo (`depth`) and redo (`redoDepth`), and doing it.
+  history(): { undo: boolean; redo: boolean; depth: number; redoDepth: number };
   undo(): void;
   redo(): void;
   /// Ends the current undo step: what is typed next is its own step (a surface's own edit, such as
@@ -1610,7 +1610,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         history: () => {
           const state = view.current?.state;
           const depth = state ? undoDepth(state) : 0;
-          return { undo: depth > 0, redo: state ? redoDepth(state) > 0 : false, depth };
+          const redos = state ? redoDepth(state) : 0;
+          return { undo: depth > 0, redo: redos > 0, depth, redoDepth: redos };
         },
         closeHistory: () => {
           const current = view.current;
