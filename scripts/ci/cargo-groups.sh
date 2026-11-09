@@ -24,6 +24,15 @@
 # Each group gets CARGO_BUILD_JOBS = ceil(2 * cores / groups) unless the caller
 # set it: all groups at full -j would start cores x groups rustc processes and
 # as many fat-LTO links at once, which can run a small runner out of memory.
+# Group 1 gets every core instead. It is the longest group in every caller (the
+# cmux-tui group), and builds alone for its last minutes after the others are
+# done: on a 16 vCPU Linux musl leg the other groups ended after 17-296 s and
+# group 1 after 358-461 s (runs 42653261844 to 42654596743, 2026-11-09), with
+# its rustc and ThinLTO workers held to 7 jobserver tokens on 16 cores. Every
+# core for group 1 adds cores - ceil(2 * cores / groups) tokens at the start
+# (16 + 5 x 6 = 46 instead of 36 for the six groups of a Linux musl leg), and the
+# extra ones all go to it once the short groups end. A caller's CARGO_BUILD_JOBS
+# still applies to every group.
 set -euo pipefail
 set -o noglob # BINS entries like '?name' are names, not patterns
 
@@ -51,9 +60,13 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
   groups=${#commands[@]}
   jobs=$(((2 * cores + groups - 1) / groups))
   ((jobs >= 1)) || jobs=1
+  lead_jobs=$((cores > jobs ? cores : jobs))
   export CARGO_BUILD_JOBS=$jobs
+  echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$lead_jobs for group 1, $CARGO_BUILD_JOBS each for the others"
+else
+  lead_jobs=$CARGO_BUILD_JOBS
+  echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS each"
 fi
-echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS each"
 
 for i in "${!commands[@]}"; do
   n=$((i + 1))
@@ -68,6 +81,7 @@ for i in "${!commands[@]}"; do
   starts+=("$(date +%s)")
   (
     export CARGO_TARGET_DIR="$dir"
+    if ((n == 1)); then export CARGO_BUILD_JOBS="$lead_jobs"; fi
     status=0
     bash -c "set -euo pipefail; ${commands[i]}" > "$logs/$n.log" 2>&1 || status=$?
     echo "$status $(date +%s)" > "$logs/$n.done"
