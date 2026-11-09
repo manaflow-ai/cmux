@@ -746,14 +746,53 @@ pub(crate) fn still_made_at(
     {
         return Err("the folder at its path is no longer the worktree it was made in");
     }
+    // With neither a stamp nor a creation time, its device and inode are all that is left, and a
+    // file system hands a freed inode out again: a worktree made again at its path would pass.
+    if made.stamp.is_none() && made.born.is_none() {
+        return Err(
+            "nothing recorded tells this worktree from one made again at its path; it stays",
+        );
+    }
     let dot_git = std::fs::read_to_string(at.join(".git")).unwrap_or_default();
     let admin = dot_git.trim().strip_prefix("gitdir: ").map(|dir| at.join(dir));
+    let read = |name: &str| admin.as_ref().and_then(|a| read_small(&a.join(name)));
+    // A worktree made again at its path is registered again, without the stamp this one got
+    // (`MadeWorktree::stamp`), whatever inode the file system gave its folder.
+    if made.stamp.as_ref().is_some_and(|s| {
+        read(crate::subsession_worktree::MADE_STAMP).as_deref().map(str::trim) != Some(s)
+    }) {
+        return Err("the folder at its path is no longer the worktree it was made in");
+    }
     let head = admin.and_then(|admin| std::fs::read_to_string(admin.join("HEAD")).ok());
     if head.as_deref().map(str::trim) != Some(&format!("ref: refs/heads/{}", made.branch)) {
         return Err("its worktree is no longer on the branch it was made on");
     }
     Ok(())
 }
+
+/// The short text of the file at `path`, or None when it is no regular file or is longer than a
+/// stamp may be: an agent can put a FIFO or a link to a device in its registration folder, and the
+/// read never blocks on one or follows a link.
+fn read_small(path: &Path) -> Option<String> {
+    use std::io::Read as _;
+    let mut open = std::fs::OpenOptions::new();
+    open.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        open.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = open.open(path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut text = String::new();
+    file.take(STAMP_BYTES + 1).read_to_string(&mut text).ok()?;
+    (text.len() as u64 <= STAMP_BYTES).then_some(text)
+}
+
+/// The most a stamp file may hold: 32 hex digits and a line end, with room to spare.
+const STAMP_BYTES: u64 = 256;
 
 #[cfg(test)]
 #[path = "plan_build_tests.rs"]

@@ -98,14 +98,36 @@ fn a_worktree_is_still_made_only_with_its_folder_and_branch() {
     std::fs::create_dir_all(&admin).unwrap();
     std::fs::write(root.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
     std::fs::write(admin.join("HEAD"), "ref: refs/heads/cmux/run-1\n").unwrap();
+    std::fs::write(admin.join(crate::subsession_worktree::MADE_STAMP), "0f1e2d").unwrap();
     let made = crate::store::MadeWorktree {
         root: root.clone(),
         pin: crate::cwd_pin::CwdPin::of(&root),
         born: crate::store::MadeWorktree::born_of(&std::fs::File::open(&root).unwrap()),
         branch: "cmux/run-1".to_owned(),
         base: None,
+        stamp: Some("0f1e2d".to_owned()),
     };
     assert_eq!(still_made(&made), Ok(()));
+    // Another stamp in its registration: not the worktree made.
+    let other = crate::store::MadeWorktree { stamp: Some("abcdef".to_owned()), ..made.clone() };
+    assert!(still_made(&other).is_err());
+    // Where the file system records no creation time, the stamp alone decides.
+    let no_time = crate::store::MadeWorktree { born: None, ..made.clone() };
+    assert_eq!(still_made(&no_time), Ok(()));
+    assert!(still_made(&crate::store::MadeWorktree { born: None, ..other.clone() }).is_err());
+    // With neither, nothing tells it from a worktree made again at its path: it stays.
+    let neither = crate::store::MadeWorktree { stamp: None, ..no_time.clone() };
+    assert!(still_made(&neither).unwrap_err().contains("nothing recorded"));
+    // An agent's FIFO in the stamp's place never hangs the check, and is no stamp.
+    let stamp_file = admin.join(crate::subsession_worktree::MADE_STAMP);
+    std::fs::remove_file(&stamp_file).unwrap();
+    let c = std::ffi::CString::new(stamp_file.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    let started = std::time::Instant::now();
+    assert!(still_made(&made).is_err());
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "a FIFO blocked the check");
+    std::fs::remove_file(&stamp_file).unwrap();
+    std::fs::write(&stamp_file, "0f1e2d").unwrap();
     // Its agent moved it to another branch: no longer the worktree made for the run.
     std::fs::write(admin.join("HEAD"), "ref: refs/heads/main\n").unwrap();
     assert!(still_made(&made).is_err());
@@ -117,20 +139,25 @@ fn a_worktree_is_still_made_only_with_its_folder_and_branch() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::copy(dir.join("away/.git"), root.join(".git")).unwrap();
     assert!(still_made(&made).is_err());
-    // Made again after the first went, even where the file system gives it the same inode. Only
-    // its creation time tells the two apart, so a file system that records none (the Linux CI
-    // runner's) has nothing to check it with.
-    if made.born.is_none() {
-        let _ = std::fs::remove_dir_all(&dir);
-        return;
-    }
+    // Removed and made again at its path, registered again under the same name, where the file
+    // system gives the new folder the same inode and records no creation time (Linux CI's): its
+    // registration has no stamp, so it is not the one made either.
     std::fs::remove_dir_all(&root).unwrap();
     std::fs::remove_dir_all(dir.join("away")).unwrap();
+    std::fs::remove_dir_all(&admin).unwrap();
     std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&admin).unwrap();
     std::fs::write(root.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
-    let same_inode =
-        crate::store::MadeWorktree { pin: crate::cwd_pin::CwdPin::of(&root), ..made.clone() };
+    std::fs::write(admin.join("HEAD"), "ref: refs/heads/cmux/run-1\n").unwrap();
+    let same_inode = crate::store::MadeWorktree {
+        pin: crate::cwd_pin::CwdPin::of(&root),
+        born: None,
+        ..made.clone()
+    };
     assert!(still_made(&same_inode).is_err());
+    // A record from before stamps were written, with no creation time either, is refused too.
+    let unstamped = crate::store::MadeWorktree { stamp: None, ..same_inode.clone() };
+    assert!(still_made(&unstamped).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

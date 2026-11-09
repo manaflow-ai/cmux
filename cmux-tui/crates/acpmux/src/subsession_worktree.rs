@@ -39,7 +39,16 @@ pub struct Worktree {
     /// `root`, held open from before git filled it (unix): its inode is never another folder's
     /// while this lives, so `root_pin` names this folder only.
     pub root_held: Option<std::sync::Arc<std::fs::File>>,
+    /// The random stamp [`make_worktree`] wrote in the worktree's own registration folder
+    /// ([`MADE_STAMP`]) once git added it: a worktree made again at the same path, which a file
+    /// system with no creation times may give the same inode, has a registration without it.
+    pub stamp: Option<String>,
 }
+
+/// The file in a made worktree's registration folder (`.git/worktrees/<name>/`) that holds its
+/// [`Worktree::stamp`]: git never writes it, and the agent's checkout reaches it only through the
+/// `.git` file, never through its edits.
+pub(crate) const MADE_STAMP: &str = "cmux-made";
 
 /// No automatic maintenance or gc: run from the throwaway git directory,
 /// whose refs reach none of the repository's objects, it would prune them
@@ -544,6 +553,26 @@ fn held_gitdir(dir: &std::fs::File) -> Option<PathBuf> {
     text.trim().strip_prefix("gitdir: ").map(PathBuf::from)
 }
 
+/// Writes a new random stamp in the registration folder the `.git` file in the held worktree
+/// folder `held` (at `root`) names, as [`MADE_STAMP`]; None when it could not, and the worktree
+/// is then told apart by its inode and creation time alone.
+#[cfg(unix)]
+fn stamp_made(held: &std::fs::File, root: &Path) -> Option<String> {
+    use std::io::Write as _;
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).ok()?;
+    let stamp: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    // A relative one is relative to the worktree's folder (`worktree.useRelativePaths`).
+    let admin = root.join(held_gitdir(held)?);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(admin.join(MADE_STAMP))
+        .ok()?;
+    file.write_all(stamp.as_bytes()).ok()?;
+    Some(stamp)
+}
+
 /// A worktree's own registration folder, held open with the `worktrees/` folder it is in.
 #[cfg(unix)]
 struct HeldRegistration {
@@ -843,6 +872,10 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
         }
         #[cfg(test)]
         after_add(&root);
+        #[cfg(unix)]
+        let stamp = root_held.as_deref().and_then(|held| stamp_made(held, &root));
+        #[cfg(not(unix))]
+        let stamp = None;
         let made = Worktree {
             root: root.clone(),
             branch,
@@ -850,6 +883,7 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
             cwd: root,
             root_pin,
             root_held,
+            stamp,
         };
         return fill(folder, &layout, made, &commit, false);
     }
@@ -1118,8 +1152,15 @@ fn ensure_worktree_under(
             let cwd = Some(root.join(&layout.prefix))
                 .filter(|c| !layout.prefix.is_empty() && c.is_dir())
                 .unwrap_or_else(|| root.clone());
-            let worktree =
-                Worktree { root: root.clone(), branch, base, cwd, root_pin: None, root_held: None };
+            let worktree = Worktree {
+                root: root.clone(),
+                branch,
+                base,
+                cwd,
+                root_pin: None,
+                root_held: None,
+                stamp: None,
+            };
             return Ok(Ensured { worktree, reused: Some("worktree") });
         }
         std::fs::create_dir_all(&layout.parent)
@@ -1167,6 +1208,7 @@ fn ensure_worktree_under(
             cwd: root.clone(),
             root_pin: None,
             root_held: None,
+            stamp: None,
         };
         let worktree = fill(folder.into(), &layout, made, &commit, reused.is_some())?;
         return Ok(Ensured { worktree, reused });
@@ -1333,6 +1375,25 @@ mod tests {
         let at = Dir::held(&made.root, Some(&held));
         let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
         assert!(refused.contains("not the worktree that was made"), "{refused}");
+    }
+
+    /// A made worktree's registration holds the stamp it records, which no other worktree's has.
+    #[cfg(unix)]
+    #[test]
+    fn a_made_worktree_is_stamped_in_its_registration() {
+        let (_scratch, repo, home) = repo();
+        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        let again = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        let read = |w: &Worktree| {
+            let held = std::fs::File::open(&w.root).unwrap();
+            let admin = w.root.join(held_gitdir(&held).unwrap());
+            std::fs::read_to_string(admin.join(MADE_STAMP)).unwrap()
+        };
+        let stamp = made.stamp.clone().unwrap();
+        assert_eq!(stamp.len(), 32, "{stamp}");
+        assert_eq!(read(&made), stamp);
+        assert_eq!(read(&again), again.stamp.clone().unwrap());
+        assert_ne!(made.stamp, again.stamp);
     }
 
     /// A folder that takes the new worktree's place while git adds it (here as soon as it is
