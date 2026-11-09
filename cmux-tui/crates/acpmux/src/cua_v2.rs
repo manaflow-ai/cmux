@@ -205,8 +205,9 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
                 hello["reason"].as_str().unwrap_or("no reason")
             );
         }
-        helper.checks_lock = hello["capabilities"]
-            .as_array()
+        helper.checks_lock = hello
+            .get("capabilities")
+            .and_then(Value::as_array)
             .is_some_and(|capabilities| capabilities.iter().any(|c| c == LOCK_CAPABILITY));
         Ok(helper)
     }

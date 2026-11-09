@@ -109,7 +109,7 @@ fn refuse_calls(message: &Value, held: impl FnOnce() -> bool, reason: &str, text
 }
 
 fn is_call(message: &Value) -> bool {
-    message["method"] == "tools/call"
+    message.get("method").and_then(Value::as_str) == Some("tools/call")
 }
 
 /// The answer, while held, to one request of a message that holds a call: a call gets the
