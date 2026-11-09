@@ -21,7 +21,7 @@ import Testing
 /// film after #38125.
 ///
 /// p1 | p2, each a full-screen program (the alternate screen, a ring on its edges) that redraws its ring at each grid
-/// its PTY gets, 3 ms after the send (``AnnouncingTerminalIO``). A held key: Ctrl-Shift-L, L, H on p2 two frames apart,
+/// its PTY gets, 3 ms after the send (``AnnouncingTerminalIO``). A held key: Ctrl-Shift-H, H, L on p2 two frames apart,
 /// the last to its landing; and a divider drag. Each frame waits (at most 2 s) for its sizes to show.
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)),
                   .enabled(if: ["CMUX_TEST_REQUIRE_GUI", "CMUX_CI_DISPLAY_ROUTED"].contains { ProcessInfo.processInfo.environment[$0] == "1" }))
@@ -33,7 +33,7 @@ struct TerminalResizeProgramHoldTests {
         defer { presents.stop() }
 
         var steps = 0
-        let presses: [LayoutDirection] = [.right, .right, .left]
+        let presses: [LayoutDirection] = [.left, .left, .right]
         for (index, direction) in presses.enumerated() {
             try #require(PaneResize.press("p2", direction, model: screen.model, view: screen.root), "Ctrl-Shift-\(direction) on p2 moved nothing")
             let last = index == presses.count - 1
@@ -90,8 +90,8 @@ struct TerminalResizeProgramHoldTests {
     /// a frame the program drew for a HELD request cleared, so from then on no size of that terminal waited and every
     /// frame showed the program's last picture clipped or padded (#38206 at 340d74d5967: the hold was off for the rest of
     /// the session after one slow redraw).
-    /// p1 | p2 full-screen programs; press 1 (Ctrl-Shift-L on p2) while they print nothing, to its landing (the sizes show
-    /// at the bound); then they redraw at each grid again, and press 2 (Ctrl-Shift-H) must show each new grid only with
+    /// p1 | p2 full-screen programs; press 1 (Ctrl-Shift-H on p2) while they print nothing, to its landing (the sizes show
+    /// at the bound); then they redraw at each grid again, and press 2 (Ctrl-Shift-L) must show each new grid only with
     /// the program's redraw at it.
     @Test func aProgramThatMissedOneBoundIsHeldAgainAtTheNextPress() async throws {
         let program = RingProgram(redraws: false)
@@ -100,7 +100,7 @@ struct TerminalResizeProgramHoldTests {
         let presenter = TerminalFramePresenter.forWindow(screen.window)
 
         let before = presenter.stats.boundPresents
-        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
+        try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "Ctrl-Shift-H on p2 moved nothing")
         try await Self.stepToLanding(screen)
         await TerminalKeyResizeFrameTests.settle(screen)
         try #require(presenter.stats.boundPresents > before,
@@ -117,7 +117,7 @@ struct TerminalResizeProgramHoldTests {
         await TerminalKeyResizeFrameTests.settle(screen)
         let presents = Presents(screen)
         defer { presents.stop() }
-        try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "Ctrl-Shift-H on p2 moved nothing")
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
         try await Self.stepToLanding(screen)
         await TerminalKeyResizeFrameTests.settle(screen)
         // The rule itself, not only its pictures (review of 17154838e7b P2 1): press 2's first new size of each terminal
@@ -132,7 +132,7 @@ struct TerminalResizeProgramHoldTests {
     /// pane moves in the press's first frame and the surface keeps the program's last frame at its OLD size, anchored
     /// top-left in the pane, unscaled (its layer shows its frame pixel for pixel); the strip a grow opens beside it has the
     /// program's background colour (OSC 11), not the theme's. The host clips the old frame at its own edge on a shrink,
-    /// so it never draws over the neighbour. p2's program set its background with OSC 11 and does not redraw; Ctrl-Shift-H
+    /// so it never draws over the neighbour. p2's program set its background with OSC 11 and does not redraw; Ctrl-Shift-L
     /// grows p2.
     @Test func aHeldFrameKeepsItsOldSizeTopLeftBesideTheProgramsBackground() async throws {
         let program = RingProgram(redraws: false, background: (0x20, 0x40, 0x60))
@@ -146,7 +146,7 @@ struct TerminalResizeProgramHoldTests {
         try #require(host.layer?.masksToBounds == true, "the host does not clip its surface: a held frame larger than its pane draws over the neighbour")
         let oldSize = view.bounds.size, oldHost = host.bounds.size
 
-        try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "Ctrl-Shift-H on p2 moved nothing")
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
         var held: [String] = [], checked = 0
         var moving = true, steps = 0
         while moving, steps < 240 {
@@ -183,7 +183,7 @@ struct TerminalResizeProgramHoldTests {
     /// terminal show the new size together, with the program's picture at the new grid (at most
     /// ``TerminalFramePresenter/resizeHoldTicks`` refreshes, then the size shows anyway).
     /// p1 | p2 full-screen programs; Reduce Motion on; p2's program is busy at the press and redraws a refresh late.
-    /// Ctrl-Shift-H grows p2.
+    /// Ctrl-Shift-L grows p2.
     @Test func aReduceMotionGrowShowsTheNewPaneSizeOnlyWithTheProgramsRedrawAtIt() async throws {
         let program = RingProgram(redraws: false)
         let screen = try await Self.ringScreen(program)
@@ -194,7 +194,7 @@ struct TerminalResizeProgramHoldTests {
         let presents = Presents(screen)
         defer { presents.stop() }
 
-        try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "Ctrl-Shift-H on p2 moved nothing")
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
         await TerminalKeyResizeFrameTests.commit() // the key's turn, its presenter pass and its commit
         // Ghostty draws p2's new size before the tick; the busy program has not redrawn at its grid.
         let drawn = await TerminalKeyResizeFrameTests.commits(screen, seconds: 2) { _ in
@@ -224,7 +224,7 @@ struct TerminalResizeProgramHoldTests {
             record(frame)
         }
         await TerminalKeyResizeFrameTests.settle(screen)
-        try #require(host.bounds.width > oldHost.width, "SETUP: Ctrl-Shift-H did not grow p2 (\(oldHost) -> \(host.bounds.size))")
+        try #require(host.bounds.width > oldHost.width, "SETUP: Ctrl-Shift-L did not grow p2 (\(oldHost) -> \(host.bounds.size))")
 
         #expect(torn.isEmpty, "\(torn.count) frames showed p2's pane at its new size with the program's picture at the old size: \(torn)")
         // p2's only (RESIZE P0 21): p1's program is busy too and never redraws, so p1's size-only frame at the bound is
@@ -243,7 +243,7 @@ struct TerminalResizeProgramHoldTests {
     /// ``TerminalFramePresenter/resizeHoldTicks`` refreshes. The Chromium model: no frame shows a pane at its new size with
     /// its terminal at the old one. The snap waits for its terminals (bounded); the commit that shows it shows each
     /// terminal at its new size, with the program's redraw or, at the bound, the size only.
-    /// p1 | p2 full-screen programs, busy (they print nothing after a resize); Reduce Motion on; Ctrl-Shift-L on p2 twice
+    /// p1 | p2 full-screen programs, busy (they print nothing after a resize); Reduce Motion on; Ctrl-Shift-H on p2 twice
     /// (p2 shrinks, p1 grows), each press's first frame tick in the key's own run loop turn, then a refresh of time per tick.
     @Test func aReduceMotionPressTickedInTheKeysOwnTurnNeverShowsAPaneWithItsTerminalAtTheOldSize() async throws {
         let screen = try await Self.ringScreen(RingProgram(redraws: false))
@@ -252,7 +252,7 @@ struct TerminalResizeProgramHoldTests {
         var torn: [String] = [], runs: [String: Int] = [:], longest = 0
         for press in 1...2 {
             let before = screen.sessions.map { $0.view.bounds.size }
-            try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "press \(press): Ctrl-Shift-L on p2 moved nothing")
+            try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "press \(press): Ctrl-Shift-H on p2 moved nothing")
             for tick in 1...8 {
                 // Tick 1 runs in the key's own turn, before the presenter's pass (a HID key and a display tick in one wake).
                 _ = screen.root.advanceFrame(1.0 / 120)
@@ -291,7 +291,7 @@ struct TerminalResizeProgramHoldTests {
         let session = screen.sessions[1], view = session.surfaceView, host = session.view
         let oldHost = host.bounds.size
 
-        try #require(PaneResize.press("p2", .left, model: screen.model, view: screen.root), "Ctrl-Shift-H on p2 moved nothing")
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
         await TerminalKeyResizeFrameTests.commit() // the key's turn, its presenter pass and its commit
         let drawn = await TerminalKeyResizeFrameTests.commits(screen, seconds: 2) { _ in
             view.frameOwnership.ahead != nil && view.hostFrame(present: false) == GHOSTTY_HOST_FRAME_READY
