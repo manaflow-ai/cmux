@@ -228,3 +228,13 @@ test("in the preview arm, Show more of a report only the view holds opens the vi
   await click(host.querySelector(".cv-subagent-done__more")!);
   expect(opened).toEqual(["air"]);
 });
+
+test("a reply's chunks after its end outrank the result acpmux snapshotted at the end", async () => {
+  // Completion can come before the reply's last chunks (subagentFold.test.ts, "late chunks ...").
+  const view: AcpmuxRow[] = [{ id: "r", version: 1, at: 1, kind: "assistant", text: "Opened **/pull/41**" }];
+  const host = render(agent({ result: "Opened **/pull/4" }), { air: view });
+  await open(host);
+  expect(report(host).querySelector("strong")?.textContent).toBe("/pull/41");
+  noRawMarks(report(host));
+  expect(moreRow(host)).toBeNull();
+});

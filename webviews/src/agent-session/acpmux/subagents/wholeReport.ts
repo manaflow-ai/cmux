@@ -47,8 +47,11 @@ export function useWholeReport(agent: Source | undefined, open: boolean, fallbac
   const result = agent?.result?.trim() || undefined;
   const preview = agent?.lastMessage?.trim() || undefined;
   const capped = !result && preview !== undefined && isCappedPreview(preview, LAST_MESSAGE_CHARS);
-  // Its own transcript's last reply is whole wherever `lastMessage` is not: read before it.
-  const reply = open && id && !result ? lastReply(readView?.(id)) : undefined;
+  // Its own transcript's last reply is whole wherever `lastMessage` is not: read before it. It
+  // also outranks a `result` it extends: acpmux snapshots `result` at the end, and the reply's last
+  // chunks may land after it (subagentFold.test.ts "late chunks ... across completion").
+  const viewed = open && id ? lastReply(readView?.(id)) : undefined;
+  const reply = viewed && (!result || (viewed !== result && viewed.startsWith(result))) ? viewed : undefined;
   const asks = !!(open && id && capped && !reply && mine?.wanted && mine.reply === undefined && readReply);
   useEffect(() => {
     if (!asks || !id || !readReply) return;
@@ -71,8 +74,8 @@ export function useWholeReport(agent: Source | undefined, open: boolean, fallbac
   // A reply acpmux kept only the tail of (hub/subsession_results.rs): its whole blocks after the cut.
   if (result?.startsWith("…"))
     return { text: wholeBlocksAfter(result) || result.slice(1).trim(), cut: true, loading: false, away: true, more };
-  if (result) return whole(result);
   if (reply) return whole(reply);
+  if (result) return whole(result);
   if (preview && !capped) return whole(preview);
   if (preview) {
     if (mine?.wanted && mine.reply) return whole(mine.reply);
