@@ -460,7 +460,7 @@ impl Hub {
         }
     }
 
-    fn session_by_id(&self, id: &str) -> Option<Arc<Session>> {
+    pub(super) fn session_by_id(&self, id: &str) -> Option<Arc<Session>> {
         self.sessions.lock().unwrap().get(id).cloned()
     }
 
