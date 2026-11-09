@@ -28,7 +28,7 @@ use std::process::Child;
 use std::sync::{Arc, Weak};
 use std::time::Instant;
 
-use crate::agent::{Exit, PAUSE_TICK, Platform, ResumeOnce, Wake, paused_for};
+use crate::agent::{Exit, PAUSE_TICK, Platform, ResumeOnce, ResumeSource, Wake, paused_for};
 use crate::announce::{arping_args, is_announce_target, is_global_address};
 use crate::config::{
     AGENT_DIR, BAKE_FILE_NAME, BAKE_INSTANCE_FILE, BOUND_INSTANCE_FILE, Config, DAEMON_PID_FILE,
@@ -624,7 +624,9 @@ impl Platform for LinuxPlatform {
                             crate::agent::PAUSES.found();
                         }
                         if wake == Wake::ClockSet
-                            && !self.resume_once.first(clock_ns(libc::CLOCK_REALTIME))
+                            && !self
+                                .resume_once
+                                .first(ResumeSource::ClockSet, clock_ns(libc::CLOCK_REALTIME))
                         {
                             wake = Wake::ClockAdjusted;
                         }
@@ -641,7 +643,11 @@ impl Platform for LinuxPlatform {
                             );
                             paused = true;
                         }
-                        if paused && self.resume_once.first(clock_ns(libc::CLOCK_REALTIME)) {
+                        if paused
+                            && self
+                                .resume_once
+                                .first(ResumeSource::PauseWatch, clock_ns(libc::CLOCK_REALTIME))
+                        {
                             wakes.push(Wake::Paused);
                         }
                     }
