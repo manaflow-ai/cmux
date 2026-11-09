@@ -340,3 +340,35 @@ test.each(["spring", "chunk", "linear", "blocks"] as FollowMotionArm[])(
     expect(drawn()).toBeLessThanOrEqual(4 + 1e-6);
   },
 );
+
+/// How long (ms at 120 Hz) the thread keeps moving after `moved` lands, and when it is within half a
+/// pixel of home (what the reader still sees moving).
+function settle(arm: FollowMotionArm, moved: number, below?: number) {
+  const chase = createFollowChase(arm);
+  const { node, frame, pending } = fixture();
+  chase.shift(node, moved, below);
+  let frames = 0;
+  let seen = 0;
+  while (pending() > 0 && frames < 240) {
+    frames += 1;
+    if (Math.abs(frame()) >= 0.5) seen = frames;
+  }
+  return { restMs: (frames * 1000) / 120, seenMs: (seen * 1000) / 120 };
+}
+
+// Leo, 2026-11-09: "the tool call shifting the chat animation and stuff is just too slow. it's
+// really sluggish. thinking, tool calls, etc... cannot lag nor can they take long." A tool row or a
+// thinking line landing moves the followed thread a line or two: it is seen moving for at most 84 ms
+// (158-183 ms on the standard step) and at rest within 120 ms (217-242 ms). A send's rise keeps the
+// standard step, one motion with its bubble.
+test.each(["spring", "blocks"] as FollowMotionArm[])(
+  "%s: a tool call or thinking line landing is seen moving for under 85 ms",
+  (arm) => {
+    const line = currentChatMetrics().lineHeight;
+    for (const moved of [-line, -1.5 * line, -2 * line]) {
+      const { restMs, seenMs } = settle(arm, moved, 4 * line);
+      expect(seenMs).toBeLessThanOrEqual(84);
+      expect(restMs).toBeLessThanOrEqual(120);
+    }
+  },
+);
