@@ -17,6 +17,10 @@ import React, {
 } from "react";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { ShareDialogHost } from "./share/ShareControl";
+import { PosterDialogHost } from "./share/poster/PosterDialog";
+import { hasPoster } from "./share/poster/posterModel";
+import { usePosterShortcut } from "./share/poster/posterShortcut";
+import { modelName } from "./summary/foldWorkflows";
 import { ShareNudge } from "./share/ShareNudge";
 import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
@@ -1439,6 +1443,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [sandboxDraftMoved, setSandboxDraftMoved] = useState(false);
   /// The Share dialog, opened by the chat menu's Share… (share/ShareControl.tsx).
   const [shareOpen, setShareOpen] = useState(false);
+  /// Share poster…: the last finished turn as an image (share/poster/PosterDialog.tsx).
+  const [posterOpen, setPosterOpen] = useState(false);
   const [sandbox] = useState(
     () =>
       new SandboxTab(callNative, (text) => {
@@ -1690,6 +1696,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   if (shareChat !== snapshot.sessionId) {
     setShareChat(snapshot.sessionId);
     setShareOpen(false);
+    setPosterOpen(false);
   }
   // Updated by the client before React renders, so a late Trust save cannot replay into a new
   // route during that interval. The catalog generation changes only when the client changes.
@@ -5523,6 +5530,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   quickCwd.current = remoteChat ? undefined : (snapshot.summary?.cwd ?? projectDraft);
   useEffect(flushOpenInWindow, [snapshot.sessionId]);
+  // ⌥⌘S: Share poster… on the last finished turn (share/poster/posterShortcut.ts).
+  usePosterShortcut(
+    Boolean(snapshot.sessionId) && hasNativeHost() && !quick,
+    () => hasPoster(snapshot.rows),
+    () => setPosterOpen(true),
+  );
   useEscapeToDismiss(quick, () => {
     cancelOpenInWindow();
     void callNative(QUICK_MESSAGES.dismiss).catch(() => undefined);
@@ -9178,6 +9191,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.sessionId && hasNativeHost()
         ? { key: "share", label: t("share.menu"), icon: "action.share", onSelect: () => setShareOpen(true) }
         : undefined;
+    // Share poster… beside Share…: only once a turn has finished (walks back to it, not the chat).
+    const poster: ChatMenuItem | undefined =
+      share && hasPoster(snapshot.rows)
+        ? { key: "poster", label: t("poster.menu"), icon: "action.share", onSelect: () => setPosterOpen(true) }
+        : undefined;
     // Fork immediately; destination choices are a separate action and Option-click shortcut.
     const fork =
       forkable && lastForkSeq !== undefined ? forkMenuRows(lastForkSeq, () => turnActions.fork?.(lastForkSeq), t) : [];
@@ -9322,7 +9340,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       [...opensBeside, ...fork],
       continueIn,
       // Share… beside Copy (Leo, 2026-11-07: "put it in the dot dot dot area"): a started chat in the app.
-      [...(share ? [share] : []), ...(copy ? [copy] : [])],
+      [...(share ? [share] : []), ...(poster ? [poster] : []), ...(copy ? [copy] : [])],
       [
         {
           key: "moveRight",
@@ -11748,6 +11766,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         chat={chatName}
                         open={shareOpen}
                         onOpenChange={setShareOpen}
+                      />
+                    )}
+                    {snapshot.sessionId && !showNewTab && hasNativeHost() && (
+                      <PosterDialogHost
+                        key={`poster-${snapshot.sessionId}`}
+                        sessionId={snapshot.sessionId}
+                        title={chatName}
+                        rows={snapshot.rows}
+                        chat={{
+                          cwd: snapshot.summary?.cwd,
+                          harness: snapshot.summary?.harness ? agentName(snapshot.summary.harness) : undefined,
+                          model: snapshot.summary?.model ? modelName(snapshot.summary.model) : undefined,
+                        }}
+                        open={posterOpen}
+                        onOpenChange={setPosterOpen}
                       />
                     )}
                     {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}

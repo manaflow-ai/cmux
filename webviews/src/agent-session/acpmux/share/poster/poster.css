@@ -1,0 +1,63 @@
+/* Share poster… (PosterDialog.tsx): the sheet role's glass, as the Share dialog. One size while it
+   shows: the preview keeps the poster's 3:2 shape and the status line keeps its room, so nothing
+   moves when the link comes on or a step reports. */
+.poster-dialog-popup {
+  width: min(720px, calc(100vw - 32px));
+}
+.poster-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-5);
+  color: var(--ui-fg);
+  font-size: var(--text-body);
+}
+.poster-dialog__title {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: var(--weight-emphasis);
+}
+.poster-dialog__preview {
+  overflow: hidden;
+  aspect-ratio: 3 / 2;
+  border-radius: var(--ds-radius-md);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-fg) 12%, transparent);
+}
+.poster-dialog__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.poster-dialog__note,
+.poster-dialog__detail {
+  margin: 0;
+  color: var(--ui-fg-2);
+  font-size: var(--text-detail);
+}
+.poster-dialog__link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+}
+.poster-dialog__link-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.poster-dialog__status {
+  display: block;
+  min-height: var(--ds-control-primary);
+  margin: 0;
+  color: var(--ui-fg-2);
+  font-size: var(--text-detail);
+}
+.poster-dialog__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+.poster-dialog__actions {
+  display: flex;
+  gap: var(--ds-space-2);
+}
