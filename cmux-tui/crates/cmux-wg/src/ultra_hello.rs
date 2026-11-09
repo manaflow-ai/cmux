@@ -62,6 +62,9 @@ const HEARD: u8 = 1;
 const ACKNOWLEDGED: u8 = 2;
 /// Hellos sent before an unanswered side gives up.
 const TRIES: usize = 5;
+/// Earlier instances of the peer remembered, so a hello one of them sent
+/// that arrives late cannot bring it back.
+const RETIRED: usize = 4;
 /// The wait after each hello, before the next.
 const BACKOFF: [Duration; TRIES - 1] = [
     Duration::from_millis(250),
@@ -175,6 +178,9 @@ pub(crate) struct Negotiation {
     instance: u64,
     /// The peer's mode and instance, once its hello arrived.
     peer: Option<(UltraMode, u64)>,
+    /// Instances of the peer it restarted from, newest last: their hellos
+    /// are ignored.
+    retired: Vec<u64>,
     /// The peer speaks version 1: hellos to it go out in version 1, and its
     /// `heard` flag acknowledges this side.
     peer_legacy: bool,
@@ -205,6 +211,7 @@ impl Negotiation {
             configured,
             instance,
             peer: None,
+            retired: Vec::new(),
             peer_legacy: false,
             acknowledged: false,
             sent: 0,
@@ -237,8 +244,17 @@ impl Negotiation {
 
     /// Take the peer's hello. Returns the mode to send in now.
     pub(crate) fn receive(&mut self, hello: Hello) -> UltraMode {
-        let restarted = self.peer.is_some_and(|(_, instance)| instance != hello.instance);
-        if restarted {
+        if !hello.legacy && self.retired.contains(&hello.instance) {
+            // Late, from an instance the peer restarted from.
+            return self.mode();
+        }
+        let previous = self.peer.map(|(_, instance)| instance);
+        let restarted = previous.is_some_and(|instance| instance != hello.instance);
+        if let Some(old) = previous.filter(|_| restarted) {
+            if self.retired.len() >= RETIRED {
+                self.retired.remove(0);
+            }
+            self.retired.push(old);
             // A new instance of the peer knows nothing of this side: start
             // over, so this side's hellos go out again until it acknowledges
             // them, whatever the old instance had heard.
@@ -249,8 +265,14 @@ impl Negotiation {
         }
         self.peer = Some((hello.mode, hello.instance));
         self.peer_legacy = hello.legacy;
-        let acknowledges =
-            if hello.legacy { hello.heard.is_some() } else { hello.heard == Some(self.instance) };
+        // The hello that announces a new instance does not also acknowledge
+        // this side: this side's own hello must reach that instance first.
+        let acknowledges = !restarted
+            && if hello.legacy {
+                hello.heard.is_some()
+            } else {
+                hello.heard == Some(self.instance)
+            };
         if acknowledges {
             self.acknowledged = true;
             self.next = None;
@@ -599,5 +621,30 @@ mod tests {
         // Its next hello (a retry) is not a restart: nothing starts over.
         side.receive(version_1(RS, true));
         assert!(side.acknowledged && side.due(now + Duration::from_secs(60)).is_none());
+    }
+
+    /// A hello from the instance the peer restarted from, delivered late
+    /// (it echoes this side, so it would look like an acknowledgement),
+    /// does not bring that instance or its mode back.
+    #[test]
+    fn a_late_hello_from_a_retired_instance_is_ignored() {
+        let start = Instant::now();
+        let mut survivor = Negotiation::with_instance(UltraMode::Off, 1);
+        let mut old = Negotiation::with_instance(RS, 2);
+        exchange(&mut survivor, &mut old, start, 200, &|_| false);
+        let late = old.due(start).unwrap_or(Hello {
+            mode: RS,
+            instance: 2,
+            heard: Some(1),
+            acknowledged: true,
+            legacy: false,
+        });
+        let mut restarted = Negotiation::with_instance(FEC, 3);
+        let later = start + Duration::from_secs(60);
+        exchange(&mut survivor, &mut restarted, later, 200, &|_| false);
+        assert_eq!(survivor.mode(), FEC);
+        assert_eq!(survivor.receive(late), FEC, "instance 2 stays retired");
+        assert!(survivor.acknowledged);
+        assert!(survivor.due(later + Duration::from_secs(60)).is_none());
     }
 }
