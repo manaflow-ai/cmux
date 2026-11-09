@@ -80,6 +80,8 @@ impl Hub {
         self.resume_queues();
         // The last live model lists, before anything slow.
         self.load_live_cache().await;
+        // And the ACP agents' lists their last probes reported (OpenCode, Gemini).
+        self.load_acp_cache().await;
         let login_env = self.login_env_requested.load(Ordering::SeqCst);
         let mut reloaded = false;
         if login_env {

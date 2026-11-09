@@ -710,6 +710,13 @@ pub struct Hub {
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
     pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
+    /// The ACP lists kept on disk by earlier probes (`live_models::AcpCache`), read once at
+    /// start: by harness, the profile key it was probed under and the list. Each fills
+    /// `known_models` for a profile with the same key until its probe answers (`model_probe.rs`).
+    pub(super) acp_cached: StdMutex<HashMap<String, (String, Vec<(String, String)>)>>,
+    /// The harnesses whose `known_models` entry is that disk copy, not a report of this
+    /// daemon's: the probe still runs for them.
+    pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
@@ -1091,6 +1098,8 @@ impl Hub {
             peer_notices_finished: AtomicBool::new(false),
             peer_notices_done: Arc::new(Notify::new()),
             known_models: StdMutex::new(HashMap::new()),
+            acp_cached: StdMutex::new(HashMap::new()),
+            acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),

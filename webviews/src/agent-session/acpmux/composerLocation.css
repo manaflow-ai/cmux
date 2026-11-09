@@ -610,6 +610,18 @@
    its step) take the model's name or the mode's label away, its mark or symbol alone shows, so
    neither chip is ever a bare chevron. test/composer-footer-plain.test.ts measures it. */
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] :is(.acpmux-model-name, .acpmux-model-short) { color: inherit; }
+/* The model chip's right-click (modelChipLook.ts) can hide the provider's logo or the effort. A
+   hidden logo comes back once the row's fit steps take the model's name away (the modelMark step,
+   370, or data-fit-model="icon"), so the chip still never reads as a bare chevron. */
+@container composer (width > 370px) {
+  :is(.acpmux-composer-bar, .nt-pickers):not([data-fit-model="icon"])
+    .acpmux-model[data-chip-logo="off"]
+    .acpmux-picker-button
+    > .agent-mark {
+    display: none;
+  }
+}
+.acpmux-model[data-chip-effort="off"] .acpmux-picker-button [data-fit-part="effort"] { display: none; }
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-plan:not([aria-pressed="true"]):focus-visible {
   background: var(--acpmux-row-hover);

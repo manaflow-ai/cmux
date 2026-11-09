@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "picker.showEffort": {
+      "comment": "Agent pane: the model chip's right-click menu, a checkbox that shows or hides the effort level after the model's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار مستوى الجهد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži napor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis indsats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufwand anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Effort"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar esfuerzo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’effort"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra impegno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推論レベルを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ​កម្រិត​ប្រឹងប្រែង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추론 수준 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis innsats"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż wysiłek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar esforço"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать уровень усилий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงระดับความพยายาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çabayı Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати рівень зусиль"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện mức nỗ lực"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示推理强度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示推理強度"
+          }
+        }
+      }
+    },
+    "picker.showProviderLogo": {
+      "comment": "Agent pane: the model chip's right-click menu, a checkbox that shows or hides the provider's logo left of the model's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار شعار المزوّد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži logo pružaoca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis udbyderens logo"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anbieterlogo anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Provider Logo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar logotipo del proveedor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le logo du fournisseur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra logo del provider"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロバイダのロゴを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ​និមិត្តសញ្ញា​អ្នក​ផ្ដល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공업체 로고 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis leverandørlogo"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż logo dostawcy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar logotipo do provedor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать логотип провайдера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงโลโก้ผู้ให้บริการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sağlayıcı Logosunu Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати логотип постачальника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện logo nhà cung cấp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示提供商标志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示供應商標誌"
+          }
+        }
+      }
+    },
     "waiting.title": {"comment":"Agent pane: History tab and page title listing every ask (approvals, plans, questions, pull requests) waiting on the person","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"بانتظارك"}},"bs":{"stringUnit":{"state":"translated","value":"Čeka vas"}},"da":{"stringUnit":{"state":"translated","value":"Venter på dig"}},"de":{"stringUnit":{"state":"translated","value":"Wartet auf dich"}},"en":{"stringUnit":{"state":"translated","value":"Waiting on you"}},"es":{"stringUnit":{"state":"translated","value":"Esperando por ti"}},"fr":{"stringUnit":{"state":"translated","value":"En attente de vous"}},"it":{"stringUnit":{"state":"translated","value":"In attesa di te"}},"ja":{"stringUnit":{"state":"translated","value":"対応待ち"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងរង់ចាំអ្នក"}},"ko":{"stringUnit":{"state":"translated","value":"내 응답 대기 중"}},"nb":{"stringUnit":{"state":"translated","value":"Venter på deg"}},"pl":{"stringUnit":{"state":"translated","value":"Czeka na Ciebie"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Aguardando você"}},"ru":{"stringUnit":{"state":"translated","value":"Ждёт вас"}},"th":{"stringUnit":{"state":"translated","value":"รอคุณอยู่"}},"tr":{"stringUnit":{"state":"translated","value":"Sizi bekliyor"}},"uk":{"stringUnit":{"state":"translated","value":"Чекає на вас"}},"vi":{"stringUnit":{"state":"translated","value":"Đang chờ bạn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"等待你处理"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"等待你處理"}}}},
     "waiting.empty": {"comment":"Agent pane: Waiting on you, empty list","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"لا شيء بانتظارك."}},"bs":{"stringUnit":{"state":"translated","value":"Ništa ne čeka vas."}},"da":{"stringUnit":{"state":"translated","value":"Der venter intet på dig."}},"de":{"stringUnit":{"state":"translated","value":"Nichts wartet auf dich."}},"en":{"stringUnit":{"state":"translated","value":"Nothing is waiting on you."}},"es":{"stringUnit":{"state":"translated","value":"No hay nada esperándote."}},"fr":{"stringUnit":{"state":"translated","value":"Rien ne vous attend."}},"it":{"stringUnit":{"state":"translated","value":"Niente in attesa di te."}},"ja":{"stringUnit":{"state":"translated","value":"対応待ちの項目はありません。"}},"km":{"stringUnit":{"state":"translated","value":"គ្មានអ្វីកំពុងរង់ចាំអ្នកទេ។"}},"ko":{"stringUnit":{"state":"translated","value":"기다리는 항목이 없습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Ingenting venter på deg."}},"pl":{"stringUnit":{"state":"translated","value":"Nic na Ciebie nie czeka."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Nada aguardando você."}},"ru":{"stringUnit":{"state":"translated","value":"Вас ничего не ждёт."}},"th":{"stringUnit":{"state":"translated","value":"ไม่มีรายการที่รอคุณอยู่"}},"tr":{"stringUnit":{"state":"translated","value":"Sizi bekleyen bir şey yok."}},"uk":{"stringUnit":{"state":"translated","value":"Вас нічого не чекає."}},"vi":{"stringUnit":{"state":"translated","value":"Không có gì đang chờ bạn."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"没有等待你处理的内容。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"沒有等待你處理的項目。"}}}},
     "waiting.older": {"comment":"Agent pane: Waiting on you, the local agent service does not support the queue yet","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"خدمة الوكلاء على هذا الـ Mac أقدم ولا تحتفظ بقائمة انتظار بعد. حدّث cmux لعرض كل الطلبات هنا."}},"bs":{"stringUnit":{"state":"translated","value":"Usluga agenata na ovom Macu je starija i još ne vodi red čekanja. Ažurirajte cmux da vidite sve zahtjeve ovdje."}},"da":{"stringUnit":{"state":"translated","value":"Agenttjenesten på denne Mac er ældre og har ingen kø endnu. Opdater cmux for at se alle anmodninger her."}},"de":{"stringUnit":{"state":"translated","value":"Der Agent-Dienst dieses Macs ist älter und führt noch keine Warteschlange. Aktualisiere cmux, um hier alle Anfragen zu sehen."}},"en":{"stringUnit":{"state":"translated","value":"This Mac's agent service is older and keeps no queue yet. Update cmux to see every ask here."}},"es":{"stringUnit":{"state":"translated","value":"El servicio de agentes de este Mac es más antiguo y aún no mantiene una cola. Actualiza cmux para ver aquí todas las solicitudes."}},"fr":{"stringUnit":{"state":"translated","value":"Le service d'agents de ce Mac est plus ancien et ne gère pas encore de file. Mettez à jour cmux pour voir toutes les demandes ici."}},"it":{"stringUnit":{"state":"translated","value":"Il servizio agenti di questo Mac è più vecchio e non gestisce ancora una coda. Aggiorna cmux per vedere qui tutte le richieste."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac のエージェントサービスは古く、まだキューに対応していません。cmux を更新すると、すべての依頼がここに表示されます。"}},"km":{"stringUnit":{"state":"translated","value":"សេវាភ្នាក់ងារនៅលើ Mac នេះចាស់ជាង ហើយមិនទាន់មានជួររង់ចាំនៅឡើយទេ។ សូមធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីមើលសំណើទាំងអស់នៅទីនេះ។"}},"ko":{"stringUnit":{"state":"translated","value":"이 Mac의 에이전트 서비스가 오래되어 아직 대기열을 지원하지 않습니다. cmux를 업데이트하면 모든 요청을 여기서 볼 수 있습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Agenttjenesten på denne Macen er eldre og har ingen kø ennå. Oppdater cmux for å se alle forespørsler her."}},"pl":{"stringUnit":{"state":"translated","value":"Usługa agentów na tym Macu jest starsza i nie prowadzi jeszcze kolejki. Zaktualizuj cmux, aby widzieć tu wszystkie prośby."}},"pt-BR":{"stringUnit":{"state":"translated","value":"O serviço de agentes deste Mac é mais antigo e ainda não mantém uma fila. Atualize o cmux para ver todos os pedidos aqui."}},"ru":{"stringUnit":{"state":"translated","value":"Служба агентов на этом Mac устарела и пока не ведёт очередь. Обновите cmux, чтобы видеть здесь все запросы."}},"th":{"stringUnit":{"state":"translated","value":"บริการเอเจนต์บน Mac เครื่องนี้เป็นรุ่นเก่าและยังไม่มีคิว อัปเดต cmux เพื่อดูคำขอทั้งหมดที่นี่"}},"tr":{"stringUnit":{"state":"translated","value":"Bu Mac'in ajan hizmeti daha eski ve henüz kuyruk tutmuyor. Tüm istekleri burada görmek için cmux'u güncelleyin."}},"uk":{"stringUnit":{"state":"translated","value":"Служба агентів на цьому Mac застаріла й ще не веде чергу. Оновіть cmux, щоб бачити тут усі запити."}},"vi":{"stringUnit":{"state":"translated","value":"Dịch vụ tác tử trên máy Mac này cũ hơn và chưa có hàng đợi. Hãy cập nhật cmux để xem mọi yêu cầu tại đây."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"这台 Mac 的智能体服务版本较旧，尚不支持队列。请更新 cmux 以在此查看所有请求。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"這部 Mac 的代理程式服務版本較舊，尚未支援佇列。請更新 cmux 以在此查看所有請求。"}}}},
