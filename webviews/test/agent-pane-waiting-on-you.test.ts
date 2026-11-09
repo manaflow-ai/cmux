@@ -500,3 +500,35 @@ test("a comment the chat did not get goes to the clipboard, and the chat opens t
   copies = false;
   expect(await pages.queue.verdict(pr, "changes", "Split it")).toMatchObject({ commentCopied: false });
 });
+
+test("a refused comment comes back in its box, or beside a newer one being written, never over it", async () => {
+  const { createComments } = await import("../src/agent-session/acpmux/queue/comments");
+  const comments = createComments();
+  comments.restore({ id: "a", text: "Split the commit" });
+  expect(comments.get().draft).toEqual({ id: "a", text: "Split the commit" });
+  // Another row's comment is being written when the first is refused: both stay.
+  comments.setDraft({ id: "b", text: "Rename it" });
+  comments.restore({ id: "a", text: "Split the commit" });
+  expect(comments.get().draft).toEqual({ id: "b", text: "Rename it" });
+  expect(comments.get().unsent).toBe("Split the commit");
+  // An empty box gives way.
+  comments.dismissUnsent();
+  comments.setDraft({ id: "b", text: "  " });
+  comments.restore({ id: "a", text: "Split the commit" });
+  expect(comments.get().draft).toEqual({ id: "a", text: "Split the commit" });
+  expect(comments.get().unsent).toBeUndefined();
+  // Kept words add up and outlive any one page.
+  comments.keepUnsent("one");
+  comments.keepUnsent("two");
+  expect(comments.get().unsent).toBe("one\n\ntwo");
+});
+
+test("a read asked before the key moved does not count as current once it lands", async () => {
+  const { createQueueCache } = await import("../src/agent-session/acpmux/queue/useQueue");
+  const cache = createQueueCache();
+  cache.note("a");
+  const asked = cache.generation();
+  cache.note("b");
+  cache.note("a");
+  expect(cache.generation()).not.toBe(asked);
+});

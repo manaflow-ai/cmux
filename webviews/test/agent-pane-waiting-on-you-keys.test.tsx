@@ -50,6 +50,8 @@ const { createRoot } = await import("react-dom/client");
 const { QueueScreen } = await import("../src/agent-session/acpmux/queue/QueueScreen");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { createQueueCache } = await import("../src/agent-session/acpmux/queue/useQueue");
+const { createComments } = await import("../src/agent-session/acpmux/queue/comments");
+type Comments = import("../src/agent-session/acpmux/queue/comments").Comments;
 type QueueCache = import("../src/agent-session/acpmux/queue/useQueue").QueueCache;
 
 afterEach(() => {
@@ -110,7 +112,7 @@ type Calls = { answers: [string, string][]; verdicts: [string, string][]; opened
 async function render(
   load: () => Promise<unknown> = async () => ({ items, now: 10 }),
   refuseVerdict = false,
-  extra: { cache?: QueueCache; refreshKey?: string } = {},
+  extra: { cache?: QueueCache; refreshKey?: string; comments?: Comments } = {},
 ) {
   const calls: Calls = { answers: [], verdicts: [], opened: [], exports: 0 };
   root = createRoot(host);
@@ -131,6 +133,7 @@ async function render(
           calls.exports++;
           return 3;
         }}
+        comments={extra.comments ?? createComments()}
         {...extra}
       />,
     ),
@@ -326,6 +329,7 @@ test("leaving the tab while an answer's refresh is under way reads again on the 
 test("a comment that reached neither the chat nor the clipboard stays on the page until dismissed", async () => {
   const pr = items[2]!;
   const cache = createQueueCache();
+  const comments = createComments();
   root = createRoot(host);
   await act(async () =>
     root!.render(
@@ -336,6 +340,7 @@ test("a comment that reached neither the chat nor the clipboard stays on the pag
         open={() => {}}
         exportAudit={async () => 0}
         cache={cache}
+        comments={comments}
       />,
     ),
   );
@@ -358,19 +363,20 @@ test("a comment that reached neither the chat nor the clipboard stays on the pag
   expect(host.querySelector(".wq-unsent .wq-notice-detail")?.textContent).toBe("Split the commit");
   // So does a tab switch: History's cache keeps it.
   act(() => root?.unmount());
-  await render(async () => ({ items: [pr], now: 10 }), false, { cache });
+  await render(async () => ({ items: [pr], now: 10 }), false, { cache, comments });
   expect(host.querySelector(".wq-unsent .wq-notice-detail")?.textContent).toBe("Split the commit");
   // Dismissed, it goes.
   await act(async () => {
     host.querySelector<HTMLButtonElement>(".wq-unsent button")!.click();
   });
   expect(host.querySelector(".wq-unsent")).toBeNull();
-  expect(cache.unsent()).toBeUndefined();
+  expect(comments.get().unsent).toBeUndefined();
 });
 
 test("a verdict refused after the tab changed brings its comment back on the return", async () => {
   const pr = items[2]!;
   const cache = createQueueCache();
+  const comments = createComments();
   let refuse: (error: Error) => void = () => {};
   const mount = () =>
     act(async () => {
@@ -387,6 +393,7 @@ test("a verdict refused after the tab changed brings its comment back on the ret
           open={() => {}}
           exportAudit={async () => 0}
           cache={cache}
+          comments={comments}
           refreshKey="k"
         />,
       );
@@ -411,6 +418,7 @@ test("a verdict refused after the tab changed brings its comment back on the ret
 
 test("an answer that lands after the tab changed and came back reads the page shown now", async () => {
   const cache = createQueueCache();
+  const comments = createComments();
   let reads = 0;
   let land: () => void = () => {};
   const mount = () =>
@@ -431,6 +439,7 @@ test("an answer that lands after the tab changed and came back reads the page sh
           open={() => {}}
           exportAudit={async () => 0}
           cache={cache}
+          comments={comments}
           refreshKey="k"
         />,
       );

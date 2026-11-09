@@ -33,14 +33,9 @@ export type QueueCache = {
   /// A key History saw, the page shown or not: one that differs from the last seen forgets the
   /// read's key, so a return reads again even if the key came back to it meanwhile.
   note(key: string): void;
-  /// A Request changes comment neither the chat nor the clipboard took: kept until dismissed,
-  /// across tab switches, as its only copy.
-  unsent(): string | undefined;
-  keepUnsent(text: string | undefined): void;
-  /// The Request changes box: which row and what is typed, kept across tab switches, so a verdict
-  /// refused after the page left brings the words back on the return.
-  draft(): { id: string; text: string } | undefined;
-  keepDraft(draft: { id: string; text: string } | undefined): void;
+  /// Counts the key moves `note` saw: a read asked before a move does not mark its answer
+  /// current, even when the key has come back to what it was asked at.
+  generation(): number;
   /// Reads the shown page again after an answer lands; with no page shown, the next one reads on
   /// arrival. An answer that lands after the page left and came back reaches the new page.
   refresh(): void;
@@ -52,8 +47,7 @@ export function createQueueCache(): QueueCache {
   let state: QueueState | undefined;
   let key: string | undefined;
   let seen: string | undefined;
-  let unsent: string | undefined;
-  let draft: { id: string; text: string } | undefined;
+  let moves = 0;
   let reader: (() => void) | undefined;
   return {
     state: () => state,
@@ -65,17 +59,13 @@ export function createQueueCache(): QueueCache {
       key = next;
     },
     note: (next) => {
-      if (seen !== undefined && next !== seen) key = undefined;
+      if (seen !== undefined && next !== seen) {
+        key = undefined;
+        moves++;
+      }
       seen = next;
     },
-    unsent: () => unsent,
-    keepUnsent: (text) => {
-      unsent = text;
-    },
-    draft: () => draft,
-    keepDraft: (next) => {
-      draft = next;
-    },
+    generation: () => moves,
     refresh: () => {
       if (reader) reader();
       else key = undefined;
@@ -101,6 +91,7 @@ export function useQueue(load: () => Promise<unknown>, refreshKey: string, cache
   const read = useCallback(() => {
     const id = ++request.current;
     const key = keyRef.current;
+    const generation = cache?.generation();
     cache?.readAt(undefined);
     setState((previous) =>
       previous.phase === "ready"
@@ -110,7 +101,7 @@ export function useQueue(load: () => Promise<unknown>, refreshKey: string, cache
     loadRef.current().then(
       (value) => {
         if (!alive.current || id !== request.current) return;
-        cache?.readAt(key);
+        cache?.readAt(cache.generation() === generation ? key : undefined);
         setState({ phase: "ready", reply: readQueue(value) });
       },
       (error: unknown) => {

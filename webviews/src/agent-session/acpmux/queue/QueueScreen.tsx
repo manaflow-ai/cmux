@@ -17,6 +17,7 @@ import { formatCost } from "../ledger/ledgerModel";
 import { SHORTCUT_ACTIONS, useShortcut } from "../shortcuts";
 import { queueAnswers, queueCommand, queueReasons, type QueueItem, type QueueReason } from "./queueModel";
 import { useQueue, type QueueCache } from "./useQueue";
+import { paneComments, useComments, type Comments } from "./comments";
 import "./queue.css";
 
 /// How a row reads (gallery `agent-pane.review-queue`): `inbox` two lines with the answers on the
@@ -47,6 +48,8 @@ type Props = QueueActions & {
   now?: number;
   /// History's copy of the last answer, so a return to the tab shows it without a read.
   cache?: QueueCache;
+  /// Request changes words kept outside the page (comments.ts); the pane's own copy by default.
+  comments?: Comments;
 };
 
 /// `detail`: words the person wrote that reached nowhere, shown whole so they can copy them.
@@ -66,6 +69,7 @@ export function QueueScreen({
   look = "inbox",
   now,
   cache,
+  comments = paneComments,
 }: Props) {
   const t = useT();
   const { state, refresh } = useQueue(load, refreshKey, cache);
@@ -73,27 +77,11 @@ export function QueueScreen({
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
   const [failures, setFailures] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [selected, setSelected] = useState<string | undefined>();
-  // The open Request changes box, kept in History's cache too: a verdict refused after a tab
-  // switch brings the words back on the return (`QueueCache.draft`).
-  const [comment, setCommentState] = useState<{ id: string; text: string } | undefined>(() => cache?.draft());
-  const setComment = useCallback(
-    (next: { id: string; text: string } | undefined) => {
-      cache?.keepDraft(next);
-      setCommentState(next);
-    },
-    [cache],
-  );
+  // The open Request changes box and any comment neither the chat nor the clipboard took: kept
+  // outside the page (comments.ts), so no tab switch, opened chat or late verdict loses them.
+  const { draft: comment, unsent } = useComments(comments);
+  const setComment = comments.setDraft;
   const [notice, setNotice] = useState<Notice | undefined>();
-  /// A comment neither the chat nor the clipboard took: its only copy, kept (in History's cache
-  /// too) until the person dismisses it, whatever notice comes after.
-  const [unsent, setUnsentState] = useState<string | undefined>(() => cache?.unsent());
-  const setUnsent = useCallback(
-    (next: string | undefined) => {
-      cache?.keepUnsent(next);
-      setUnsentState(next);
-    },
-    [cache],
-  );
   const lastIndex = useRef(0);
   const list = useRef<HTMLDivElement>(null);
 
@@ -173,18 +161,15 @@ export function QueueScreen({
           if (copied === true) setNotice({ tone: "ok", text: t("waiting.commentCopied") });
           // Neither the chat nor the clipboard took it: the words stay on the page to copy by hand,
           // after any earlier ones still kept.
-          else if (copied === false && text) {
-            const kept = cache?.unsent();
-            setUnsent(kept ? `${kept}\n\n${text}` : text);
-          }
+          else if (copied === false && text) comments.keepUnsent(text);
           return reply;
         },
         t("waiting.answerFailed"),
-        text === undefined ? undefined : () => setComment({ id: item.id, text }),
+        text === undefined ? undefined : () => comments.restore({ id: item.id, text }),
       );
       list.current?.focus({ preventScroll: true });
     },
-    [settle, verdict, t, cache, setUnsent, setComment],
+    [settle, verdict, t, comments, setComment],
   );
 
   const runExport = useCallback(() => {
@@ -368,7 +353,7 @@ export function QueueScreen({
           <div className="wq-unsent" role="alert">
             <span className="wq-unsent-text">{t("waiting.commentNotCopied")}</span>
             <span className="wq-notice-detail">{unsent}</span>
-            <button type="button" className="wq-link" onClick={() => setUnsent(undefined)}>
+            <button type="button" className="wq-link" onClick={comments.dismissUnsent}>
               {t("waiting.dismissComment")}
             </button>
           </div>
