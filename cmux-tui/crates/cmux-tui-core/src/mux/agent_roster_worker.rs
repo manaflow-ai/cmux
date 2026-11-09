@@ -177,6 +177,22 @@ impl RosterControl {
 }
 
 /// The roster's owner: its fold state, what requests ask of it, and its thread.
+/// The direct agent reports a settling roster's reconcile must respect. A
+/// direct report commits its projection under the hook projector's lock and
+/// appends its journal echo, the record the roster folds, only after it
+/// released it. The reconcile after a background replay, under that lock:
+/// - leaves the row of every terminal in `written` (a direct report wrote it
+///   during the replay, so it is newer than anything the replay folded), with
+///   no wall-clock comparison;
+/// - waits while `echoes_pending` is not zero: until an echo is in the
+///   journal, the roster holds the agent's older state next to the report's
+///   session, and a guarded send would read it.
+#[derive(Default)]
+pub(in crate::mux) struct ReplayReports {
+    pub(in crate::mux) written: std::collections::HashSet<TerminalPublicId>,
+    pub(in crate::mux) echoes_pending: usize,
+}
+
 #[derive(Default)]
 pub(in crate::mux) struct AgentRosterWorker {
     /// The fold's own state (its journal reader); only the owner's passes
@@ -197,6 +213,9 @@ pub(in crate::mux) struct AgentRosterWorker {
     /// The replay is done, and the projection reconcile it owes waits for a
     /// pass whose fold reached the journal head (`run_roster_pass`).
     pub(in crate::mux) reconcile_pending: AtomicBool,
+    /// Direct agent reports while the roster settles (`ReplayReports`),
+    /// taken under the hook projector's lock (`agent_hook_fences`).
+    pub(in crate::mux) replay_reports: Mutex<ReplayReports>,
     /// Test seam (`agent_roster_restore::REPLAY_GATE_FOR_TEST`).
     #[cfg(test)]
     pub(in crate::mux) replay_gate: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
@@ -361,6 +380,7 @@ impl Mux {
     ) {
         let worker = &self.agent_roster_worker;
         *worker.replay.lock().unwrap_or_else(PoisonError::into_inner) = Some(replay);
+        worker.replay_reports.lock().unwrap_or_else(PoisonError::into_inner).written.clear();
         worker.replaying.store(true, Ordering::Release);
         worker.control.continue_later();
     }

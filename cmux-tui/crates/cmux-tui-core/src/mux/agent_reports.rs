@@ -399,6 +399,20 @@ impl Mux {
         state.resource_revision = commit.revision;
         drop(state);
         drop(registry);
+        // A direct report while the roster settles, noted before the hook
+        // projector's lock goes: the replay's reconcile keeps this row and
+        // waits for its echo (`ReplayReports`).
+        let noted_for_replay =
+            origin == AgentReportOrigin::Direct && !commit.replayed && self.agent_roster_settling();
+        if noted_for_replay {
+            let mut reports = self
+                .agent_roster_worker
+                .replay_reports
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            reports.written.insert(terminal_id.clone());
+            reports.echoes_pending += 1;
+        }
         drop(sequence_guard);
         let agent = AgentRecord {
             surface,
@@ -457,6 +471,18 @@ impl Mux {
                     agent.session.as_deref(),
                     agent.updated_at_ms,
                 );
+                // Written or failed, the echo no longer holds the replay's
+                // reconcile, which waits for this pass.
+                if noted_for_replay {
+                    let mut reports = self
+                        .agent_roster_worker
+                        .replay_reports
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner);
+                    reports.echoes_pending = reports.echoes_pending.saturating_sub(1);
+                    drop(reports);
+                    self.continue_agent_roster_replay_later();
+                }
             }
         }
         Ok((commit, Some(agent)))

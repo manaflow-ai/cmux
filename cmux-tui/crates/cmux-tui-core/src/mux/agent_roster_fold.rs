@@ -622,18 +622,21 @@ impl Mux {
         // another pass; a journal that cannot be read holds it for the next
         // request or maintenance tick.
         match reconciled {
-            Some(Some(false)) => self.continue_agent_roster_replay_later(),
+            Some(ReplayReconcile::Behind) => self.continue_agent_roster_replay_later(),
+            // A direct report's echo is not in the journal yet: its writer
+            // asks for the next pass once it is.
+            Some(ReplayReconcile::EchoPending) => {}
             // A journal that cannot be read: retried after the roster's read
             // backoff, with no request needed, as the replay's own reads are.
             // Until then guarded sends stay refused.
-            Some(None) => {
+            Some(ReplayReconcile::Failed) => {
                 let worker = &self.agent_roster_worker;
                 let failed = worker.replay_failed_reads.fetch_add(1, Ordering::AcqRel) + 1;
                 self.retry_agent_roster_replay_after(
                     agent_roster_rebuild::roster_read_retry_delay(failed),
                 );
             }
-            Some(Some(true)) => {
+            Some(ReplayReconcile::Done) => {
                 self.agent_roster_worker.replay_failed_reads.store(0, Ordering::Release);
             }
             None => {}
@@ -689,8 +692,11 @@ impl Mux {
     }
 
     /// The projection reconcile a background replay owes, once the roster
-    /// has folded every agent record: `Some(false)` when the journal holds
-    /// one past the roster's cursor, `None` when it cannot be read.
+    /// has folded every agent record: `Behind` when the journal holds
+    /// one past the roster's cursor, `EchoPending` while a direct report's
+    /// journal echo is not written yet, `Failed` when the journal cannot be
+    /// read. A terminal a direct report wrote during the replay keeps its
+    /// row (`ReplayReports`).
     ///
     /// The check and the writes hold the hook projector's lock
     /// (`agent_hook_fences`), which a hook's projection holds from its fence
@@ -704,12 +710,12 @@ impl Mux {
     fn reconcile_after_replay(
         &self,
         reader: Option<&crate::workspace_registry::SessionJournalReader>,
-    ) -> Option<bool> {
+    ) -> ReplayReconcile {
         // A stale roster (a reducer bump) is not reconciled from: its
         // rebuild reconciles when it replaces the roster.
         if self.agent_roster_stale() {
             self.agent_roster_worker.reconcile_pending.store(false, Ordering::Release);
-            return Some(true);
+            return ReplayReconcile::Done;
         }
         // Only the owner moves the roster, and this is the owner: its cursor
         // and entries stay as read. Read before the fences lock, as the fold
@@ -726,6 +732,20 @@ impl Mux {
             (host.cursor, entries)
         };
         let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
+        // Read before the journal check: a report commits under this lock,
+        // so none commits now, and an echo counted as written here is in the
+        // journal the check reads. The echo's writer wakes the owner.
+        let written = {
+            let reports = self
+                .agent_roster_worker
+                .replay_reports
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if reports.echoes_pending > 0 {
+                return ReplayReconcile::EchoPending;
+            }
+            reports.written.clone()
+        };
         let kinds = crate::journal_reducers::AgentRoster::folds_kind;
         #[cfg(test)]
         let injected = rebuild_faults::take_failing_reconcile_read(&self.session);
@@ -742,12 +762,12 @@ impl Mux {
         };
         match newer {
             Ok((records, _)) if records.is_empty() => {}
-            Ok(_) => return Some(false),
+            Ok(_) => return ReplayReconcile::Behind,
             Err(error) => {
                 eprintln!(
                     "cmux-tui: the agent roster reconcile could not read the journal: {error}"
                 );
-                return None;
+                return ReplayReconcile::Failed;
             }
         }
         #[cfg(test)]
@@ -762,14 +782,26 @@ impl Mux {
         }
         for (terminal_id, entry) in entries {
             let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { continue };
+            // A direct report wrote this row during the replay: it is newer
+            // than the replay's entry, whatever the clocks say, and the row
+            // may be one the public read filters out (a hook's `done`).
+            if written.contains(&terminal_id) {
+                continue;
+            }
             self.reconcile_agent_roster_projection_with(&terminal_id, entry, true);
         }
         // Only now, with the writes committed and the lock still held: a
         // guarded send (`expect_agent`) that sees the roster settled must see
         // the reconciled rows, never the ones about to be rewritten.
+        self.agent_roster_worker
+            .replay_reports
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .written
+            .clear();
         self.agent_roster_worker.reconcile_pending.store(false, Ordering::Release);
         drop(fences);
-        Some(true)
+        ReplayReconcile::Done
     }
 
     pub(super) fn reconcile_agent_roster_projections_for_terminal(
@@ -805,7 +837,7 @@ impl Mux {
 
     /// [`Self::reconcile_agent_roster_projection_for_entry`]; with
     /// `sequence_lock_held`, the caller (the reconcile after a background
-    /// replay) holds `agent_hook_fences`, and a row newer than the entry stays.
+    /// replay) holds `agent_hook_fences`.
     fn reconcile_agent_roster_projection_with(
         &self,
         terminal_id: &TerminalPublicId,
@@ -837,16 +869,7 @@ impl Mux {
                 && projection.source_session == entry.session
                 && projection.agent == entry.agent
         });
-        // After a background replay, a row newer than the roster's entry was
-        // written since: a direct report commits its row and releases the hook
-        // projector's lock before it appends the journal echo the roster
-        // folds, and that echo moves only the roster. Replacing the row would
-        // leave it on the replay's older state.
-        let newer = sequence_lock_held
-            && projection
-                .as_ref()
-                .is_some_and(|projection| projection.updated_at_ms > entry.updated_at_ms);
-        if matches || newer {
+        if matches {
             return;
         }
         self.apply_roster_delta_with(
@@ -1051,6 +1074,18 @@ impl Mux {
             eprintln!("cmux-tui: journaling an agent report for {terminal_id} failed: {error}");
         }
     }
+}
+
+/// How the reconcile a background replay owes ended (`reconcile_after_replay`).
+enum ReplayReconcile {
+    /// Done, or not owed (a stale roster's rebuild reconciles).
+    Done,
+    /// The journal holds an agent record past the roster's cursor.
+    Behind,
+    /// A direct report's journal echo is not written yet.
+    EchoPending,
+    /// The journal could not be read.
+    Failed,
 }
 
 /// Whether the roster pass, not the hook projector, commits `entry`'s public
