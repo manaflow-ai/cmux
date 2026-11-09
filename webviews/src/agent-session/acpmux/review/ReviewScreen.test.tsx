@@ -208,7 +208,9 @@ test("a send that fails late never overwrites a newer draft on its row", async (
     const count = (reads.get(cwd) ?? 0) + 1;
     reads.set(cwd, count);
     const diff = await readDiff();
-    return cwd === "/work/a" && count > 1 ? { ...diff, additions: 3, files: [{ ...diff.files[0]!, additions: 3 }] } : diff;
+    return cwd === "/work/a" && count > 1
+      ? { ...diff, additions: 3, files: [{ ...diff.files[0]!, additions: 3 }] }
+      : diff;
   };
   const view = mount(sessions, { send, readDiff: grow });
   await flush();

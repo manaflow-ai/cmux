@@ -147,7 +147,9 @@ export function ReviewScreen({
       () => {
         const draft = latestDrafts.current.get(row.key);
         if (draft !== undefined && draft.text !== text) return;
-        setDrafts((previous) => new Map(previous).set(row.key, { text, sent: { sessionId, signature, prompt, promptId } }));
+        setDrafts((previous) =>
+          new Map(previous).set(row.key, { text, sent: { sessionId, signature, prompt, promptId } }),
+        );
         setComment((open) => open ?? { key: row.key, text });
       },
     );
