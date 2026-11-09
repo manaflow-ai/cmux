@@ -804,7 +804,7 @@ fn a_first_start_writes_nothing_before_its_seed() {
 /// A first start with nothing to seed still ends the hold: later turns reach the file.
 #[test]
 fn an_empty_seed_ends_the_hold() {
-    let dir = scratch("seed-empty");
+    let dir = scratch("seed-empty-ends-hold");
     let l = Ledger::open_as(Some(dir.clone()), COMPACT_BYTES, "leo@test".into(), true);
     l.seed(Vec::new());
     turn(&l, "a", D0, 0, json!({"costUsd": 0.5}), "claude", "claude");
