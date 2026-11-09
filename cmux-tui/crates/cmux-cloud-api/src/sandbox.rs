@@ -501,8 +501,9 @@ impl Engine {
         }
         run.finished_ms = Some(now);
         run.updated_ms = now;
-        // A start cut off may still be making the machine: a list without it is not proof until then.
-        if cut {
+        // A start cut off before it named its machine may still be making one: a list without it is
+        // not proof until then. A named machine is deleted by its id, which is proof at once.
+        if cut && run.machine.is_none() {
             run.settle_ms = run.created_ms + run.timeout_ms + ms(timing.start_settle);
         }
         self.save(&state);

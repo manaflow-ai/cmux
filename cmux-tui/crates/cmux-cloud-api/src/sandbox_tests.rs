@@ -127,10 +127,11 @@ fn a_run_answers_the_reply_and_deletes_its_machine() {
 
 #[test]
 fn a_timeout_is_a_failed_receipt_that_says_so_and_its_machine_still_goes() {
-    let fake = Fake::new(Some(Outcome::TimedOut { machine: None }), vec![]);
+    let fake = Fake::new(Some(Outcome::TimedOut { machine: Some("m-t".into()) }), vec![]);
     let engine = Engine::open(None, fake.clone(), quick());
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
     let snapshot = settled(&engine, &id, "destroyed");
+    assert_eq!(snapshot["receipt"]["cleanup"], "destroyed");
     assert_eq!(snapshot["receipt"]["status"], "failed");
     assert_eq!(snapshot["receipt"]["timedOut"], true);
     assert_eq!(snapshot["attempts"][0]["status"], "expired");
