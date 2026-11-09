@@ -83,6 +83,28 @@ import Testing
         #expect(await escaped.value == nil)
     }
 
+    /// The page is AppKit (no SwiftUI hosting view), and the toggle draws the cards' prices again.
+    @Test func theToggleRedrawsTheCardsInAppKit() async throws {
+        let window = window()
+        defer { window.close() }
+        let answer = Task { await CloudPlanPickerPresenter().choose(CloudPlanPicker(), in: window) }
+        let view = try #require(await shown(in: window))
+        var views: [NSView] = [view]
+        while let next = views.popLast() {
+            #expect(!String(describing: type(of: next)).contains("Hosting"), "no SwiftUI bridge: \(type(of: next))")
+            views.append(contentsOf: next.subviews)
+        }
+        #expect(view.shownCards.map(\.first) == ["Pro", "Max", "Team"])
+        #expect(view.shownCards[0].contains(CloudPlanPicker.price(50)) && view.shownCards[0].contains { $0.contains(CloudPlanPicker.price(50)) && $0 != CloudPlanPicker.price(50) })
+        view.show(.year)
+        #expect(view.shownCards[0].contains(CloudPlanPicker.price(40)) && view.shownCards[0].contains { $0.contains(CloudPlanPicker.price(480)) })
+        #expect(view.shownCards[2].contains(CloudPlanPicker.price(60)), "Team stays monthly")
+        view.show(.month)
+        #expect(view.shownCards[1].contains(CloudPlanPicker.price(200)))
+        view.notNow()
+        #expect(await answer.value == nil)
+    }
+
     @Test func runOnThisMacIsTheFreeWayOut() async throws {
         let window = window()
         defer { window.close() }
