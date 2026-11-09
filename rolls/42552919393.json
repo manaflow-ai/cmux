@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42552919393",
+  "recorded_at": "2026-11-09T02:55:39Z",
+  "reason": "cmux-tui 2681a4fb957e changes the image's cmux-tui (pinned d5f44ed22824)",
+  "dry_run": false,
+  "cmux_tui": "2681a4fb957e98feba27aab4094ead145b1ac4d3",
+  "fixes": [
+    {
+      "sha": "2681a4fb957e98feba27aab4094ead145b1ac4d3",
+      "mergedAt": "2026-11-09T02:33:15Z",
+      "subject": "Plan build follow-ups: one build call per approval, the plan's turn stops, a refusal says why, a durable build record (#39082)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T02:55:39Z",
+    "snapshot_id": "sh-517203486ea842cbbd9ffc31cadbf3e0",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42552919393): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "216f2af59add18b057cf2c32910cd2a00926d8aa",
+    "image": "cloud-native-auto-2681a4fb-42552919393-1",
+    "revision": "ci-42552919393-1",
+    "at": "2026-11-09T02:55:39Z"
+  },
+  "rolled_back": false
+}
