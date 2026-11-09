@@ -16,9 +16,12 @@ import Testing
         var value: Int { count.withLock { $0 } }
     }
 
-    /// Serves the handshake, then exits shortly after: a connection that came up and dropped.
+    /// Serves the handshake, then exits `argv[1]` seconds after (0.3 by default): a connection that
+    /// came up and dropped. The first stderr line is the bridge's dial report.
     private static let script = #"""
     import json, sys, time
+    print('{"ok":true}', file=sys.stderr, flush=True)
+    linger = float(sys.argv[1]) if len(sys.argv) > 1 else 0.3
     for line in sys.stdin:
         frame = json.loads(line)
         if frame.get('cmd') == 'identify':
@@ -27,7 +30,7 @@ import Testing
             data = {}
         print(json.dumps({'id': frame.get('id'), 'ok': True, 'data': data}), flush=True)
         if frame.get('cmd') == 'subscribe':
-            time.sleep(0.3)
+            time.sleep(linger)
             sys.exit(0)
     """#
 
@@ -75,6 +78,29 @@ import Testing
         try await Task.sleep(for: .seconds(4))
         await connection.close()
         #expect(calls.value >= 3, "a second drop within 10 s got no attempt (\(calls.value) endpoint calls)")
+    }
+
+    /// Review of 5d8ee21, F2: every handshake reset the spacing, so a peer that accepts and closes at once
+    /// got an attempt per drop without bound. Ten such cycles in under a second now make at most three
+    /// attempts (the drop budget) before the first token comes back 10 s later.
+    @Test func rapidHandshakeThenCloseCyclesMakeAtMostThreeAttemptsBeforeARefill() async throws {
+        let calls = Calls()
+        let wake = RetryWake(owner: "LinkWakeDuringAttemptTests.rapid")
+        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script, "0.02"])
+        let socket = "/tmp/cmux-link-rapid-test-\(UUID().uuidString).sock"
+        let connection = DaemonConnection(
+            configuration: .init(requiredCapabilities: [], retry: .linkReconnect, retryWake: wake, requestTimeout: .seconds(5),
+                                 spawnTimeout: .seconds(5), terminalEnvironment: nil)
+        ) {
+            _ = calls.hit()
+            return DaemonEndpoint(socketPath: socket, bridge: bridge)
+        }
+        try await connection.start()
+        try await Task.sleep(for: .seconds(3))
+        await connection.close()
+        // The first connection, then one per token.
+        #expect(calls.value <= 4, "a peer that closes after each handshake got \(calls.value - 1) reconnects in 3 s")
+        #expect(calls.value >= 4, "each of the three tokens gets its attempt (\(calls.value) endpoint calls)")
     }
 
     @Test func theLinkReportingConnectedDuringAFailingFirstConnectWakesTheNextAttempt() async throws {

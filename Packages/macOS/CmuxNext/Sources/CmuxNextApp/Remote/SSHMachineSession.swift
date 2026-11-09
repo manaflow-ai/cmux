@@ -67,10 +67,9 @@ final class SSHMachineSession {
     @ObservationIgnored var connectRecovery: SSHConnectRecovery?
     /// In use by another cmux daemon: only a person's Reconnect takes it over (G5).
     var waitsForUser: Bool { link.waitsForUser }
-    /// The daemon connection dropped and waits for the link's state (``DaemonConnectionState/disconnected(_:)``).
+    /// The daemon connection dropped (waits for the link's state) or ended for good (an incompatible daemon).
     var daemonDown: Bool {
-        if case .disconnected = daemon.store.connectionState { return true }
-        return false
+        switch daemon.store.connectionState { case .disconnected, .failed: true; case .connecting, .connected: false }
     }
     /// Changes at the start of every user or automatic connection attempt, even when the
     /// transport and daemon report the same failure again.
@@ -184,7 +183,7 @@ final class SSHMachineSession {
                 }
             }, followsLink: true)
             // Already running (a reconnect): wake its wait.
-            self.daemon.retryWake.fire()
+            self.daemon.reconnectNow()
         }
     }
 
@@ -205,17 +204,17 @@ final class SSHMachineSession {
     /// Reopens a daemon attempt without disturbing an already-connected SSH transport.
     func reconnectDaemon() {
         beginConnectionAttempt()
-        daemon.retryWake.fire()
+        daemon.reconnectNow()
     }
 
     /// An event that may let a blocked attempt succeed: opens the gate,
     /// then wakes the daemon loop.
     func wake(_ wake: SSHConnectionMachine.Wake) {
-        let link = link, retry = daemon.retryWake
-        // task-owner: short actor hop; the retry fires after the gate opened
+        let link = link, daemon = daemon
+        // task-owner: short actor hop; the retry fires after the gate opened (a person's also refills the budget)
         Task {
             await link.handle(.wake(wake))
-            retry.fire()
+            if wake == .user { daemon.reconnectNow() } else { daemon.retryWake.fire() }
         }
     }
 

@@ -4,6 +4,7 @@ import CmuxNextCompat
 @testable import CmuxNextDaemon
 @testable import CmuxNextDaemonService
 import CmuxNextRemote
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -13,7 +14,7 @@ import Testing
 /// restarted the link client "with a new retry budget"), so one dead link became a burst of dials.
 /// Now the app makes one attempt and then waits for the link's state or an event.
 /// Counts endpoint calls; off the main actor, so the endpoint closure can call it.
-private final class RemoteLinkCalls: Sendable {
+private nonisolated final class RemoteLinkCalls: Sendable {
     private let count = Mutex(0)
     func hit() { count.withLock { $0 += 1 } }
     var value: Int { count.withLock { $0 } }
@@ -96,10 +97,125 @@ private final class RemoteLinkCalls: Sendable {
 @Suite(.serialized, .timeLimit(.minutes(1))) struct LinkReconnectPolicyTests {
     @Test func aDropGetsOneAttemptThenEventsOnly() {
         var pacer = RetryPacer(.linkReconnect)
+        pacer.noteDrop()
         #expect(pacer.failed() != nil, "the drop's one attempt")
         #expect(pacer.failed() == nil, "a failed attempt waits for an event")
         #expect(pacer.waitsForEventOnly)
         var first = RetryPacer(.linkFirstConnect)
         #expect(first.failed() == nil, "a failed first attempt waits for an event")
+    }
+}
+
+/// Review of 5d8ee21, F2: each handshake reset the link's reconnect spacing, so a peer that accepted and
+/// closed at once got an attempt per drop with no bound. Drops now spend tokens of one budget that lives
+/// across connections: 3, one back every 10 s, and an explicit reconnect fills it.
+@Suite struct DropBudgetTests {
+    @Test func threeDropsThenTheNextWaitsForTheRefill() {
+        var budget = DropBudget(capacity: 3, refill: .seconds(10))
+        let start = ContinuousClock.now
+        #expect(budget.take(at: start) == nil)
+        #expect(budget.take(at: start + .milliseconds(100)) == nil)
+        #expect(budget.take(at: start + .milliseconds(200)) == nil)
+        let wait = budget.take(at: start + .milliseconds(300))
+        #expect(wait == .milliseconds(9700), "the fourth drop waits for the first token back (\(String(describing: wait)))")
+        #expect(budget.take(at: start + .seconds(10)) == nil, "one token back after 10 s")
+        #expect(budget.take(at: start + .seconds(10) + .milliseconds(1)) != nil, "only one")
+        #expect(budget.isFull(at: start + .seconds(40)), "all back after the refills")
+    }
+
+    @Test func anExplicitReconnectFillsIt() {
+        var budget = DropBudget(capacity: 3, refill: .seconds(10))
+        let now = ContinuousClock.now
+        for _ in 0..<3 { _ = budget.take(at: now) }
+        #expect(budget.take(at: now) != nil)
+        budget.fill()
+        #expect(budget.take(at: now) == nil)
+    }
+
+    @Test func aPacerSpendsATokenPerDropAndNeverResetsItOnAConnection() {
+        var pacer = RetryPacer(.linkReconnect)
+        for drop in 1...3 {
+            pacer.noteDrop()
+            let delay = pacer.failed()
+            #expect(delay != nil && delay! <= .seconds(2), "drop \(drop) gets its attempt after the backoff")
+            pacer.woke(.timer)
+            pacer.reset() // a restoring owner, or any other reset: the budget stays spent
+        }
+        pacer.noteDrop()
+        let wait = pacer.failed()
+        #expect(pacer.waitsForToken)
+        #expect(wait != nil && wait! > .seconds(9), "the fourth drop in a row waits for a token (\(String(describing: wait)))")
+        pacer.woke(.event)
+        #expect(!pacer.waitsForToken)
+        #expect(pacer.failed() == nil, "a failed attempt after it waits for an event only")
+        pacer.refillDropBudget()
+        pacer.noteDrop()
+        #expect(pacer.failed().map { $0 <= .seconds(2) } == true, "an explicit reconnect refilled the budget")
+    }
+}
+
+/// Review of 5d8ee21, F1: after the reconnect met an incompatible daemon (`unsupportedProtocol`,
+/// `missingCapabilities`) the connection ended (`.failed`), and Reconnect did nothing: it only woke a
+/// `.disconnected` daemon. Now Reconnect starts a new attempt there; the link's automatic wakes don't.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct RemoteLinkReconnectAfterFailureTests {
+    /// The n-th connection (0-based, counted in the identify log): 0 serves and drops 0.3 s after its
+    /// handshake, 1 answers an unsupported protocol, later ones serve and stay.
+    private static let script = #"""
+    import json, os, sys, time
+    print('{"ok":true}', file=sys.stderr, flush=True)
+    log = sys.argv[1]
+    nth = None
+    for line in sys.stdin:
+        frame = json.loads(line)
+        data = {}
+        if frame.get('cmd') == 'identify':
+            nth = len(open(log).read().splitlines()) if os.path.exists(log) else 0
+            with open(log, 'a') as out:
+                out.write('identify\n')
+            data = {'app': 'cmux-tui', 'protocol': 99 if nth == 1 else 12, 'generation': 'reconnect-after-failure-%d' % nth,
+                    'pid': 4242, 'capabilities': []}
+        print(json.dumps({'id': frame.get('id'), 'ok': True, 'data': data}), flush=True)
+        if frame.get('cmd') == 'subscribe' and nth == 0:
+            time.sleep(0.3)
+            sys.exit(0)
+    """#
+
+    private static func identifies(_ log: String) -> Int {
+        ((try? String(contentsOfFile: log, encoding: .utf8)) ?? "").split(separator: "\n").count
+    }
+
+    private static func waitUntil(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(15)
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        try #require(condition())
+    }
+
+    @Test func reconnectAfterAnUnsupportedProtocolStartsANewAttemptAndRecovers() async throws {
+        let log = "/private/tmp/cn-reconnect-failed-\(UUID().uuidString.prefix(8)).log"
+        defer { try? FileManager.default.removeItem(atPath: log) }
+        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script, log])
+        let socket = "/tmp/cn-reconnect-failed-\(UUID().uuidString.prefix(8)).sock"
+        let daemon = DaemonService(machineID: "ssh:reconnect-after-failure-\(UUID().uuidString)")
+        defer { daemon.shutdownConnection() }
+        daemon.start(remote: { socket }, bridge: bridge, requiredCapabilities: [], followsLink: true)
+        // The first connection drops; its reconnect meets an unsupported protocol and ends for good.
+        try await Self.waitUntil { if case .failed = daemon.store.connectionState { true } else { false } }
+        #expect(Self.identifies(log) == 2)
+        // The link's automatic wake (it reported connected) does not retry an incompatible daemon.
+        daemon.retryWake.fire()
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(Self.identifies(log) == 2, "an automatic wake retried an incompatible daemon")
+        // Reconnect does: the session routes it to the daemon (`daemonDown`), which makes a new attempt.
+        let host = try SSHHost(destination: SSHDestination(parsing: "reconnect-after-failure.invalid"))
+        let session = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
+                                        paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/reconnect-after-failure-tests")),
+                                        environment: { [:] }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        session.daemon.store.markFailed("cmux-tui protocol 99 is not supported (need 12)")
+        #expect(session.daemonDown, "a failed (ended) daemon connection is down: Reconnect must reach it")
+        #expect(SSHConnectionMachine.Status.connected.reconnectStep(daemonConnected: true, daemonFailed: false,
+                                                                    daemonDown: session.daemonDown) == .wake)
+        daemon.reconnectNow()
+        try await Self.waitUntil { if case .connected = daemon.store.connectionState { true } else { false } }
+        #expect(Self.identifies(log) == 3, "Reconnect made one new attempt")
     }
 }

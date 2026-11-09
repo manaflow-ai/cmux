@@ -334,8 +334,6 @@ public actor DaemonConnection {
             releaseHandoffHold()
             wake.watch(file: endpoint.socketPath, companions: [endpoint.socketPath + ".websocket.json"])
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
-            // A link that redials by itself: each drop gets its one attempt, also one soon after the last.
-            if pacer.policy.keepsEventsDuringAttempt { pacer.reset() }
             if endpoint.bridge != nil || configuration.localHeartbeat { heartbeat.start(transport, every: configuration.heartbeat, misses: configuration.heartbeatMisses) }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
                                                 event: .connected(identity, generationChanged: generationChanged), sourceID: eventSourceID)
@@ -386,15 +384,25 @@ public actor DaemonConnection {
         }
     }
 
-    /// Up for `healthyAfter`: the next drop starts the backoff from its first step.
+    /// Up for `healthyAfter`: the next drop starts the backoff from its first step. Under a drop
+    /// budget (``RetryPolicy/dropBudget``) only time refills it, so a connection that stays up
+    /// changes nothing.
     private func stayedHealthy(serial: UInt64) {
-        guard serial == self.serial, case .ready = phase else { return }
+        guard serial == self.serial, case .ready = phase, pacer.dropBudget == nil else { return }
         pacer.reset()
+    }
+
+    /// An explicit reconnect (a person's Reconnect): the drop budget is full again
+    /// (``RetryPacer/refillDropBudget()``). The caller then fires the retry wake.
+    public func refillRetryBudget() {
+        pacer.refillDropBudget()
     }
 
     private func reconnectLoop() async {
         // The explicit events before the last attempt (`RetryPolicy.keepsEventsDuringAttempt`).
         var mark: UInt64?
+        // The loop starts on a drop: under a drop budget its attempt spends a token.
+        pacer.noteDrop()
         // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only, or the cap with `keepsTrying`)
         while !Task.isCancelled {
             // A drop or a failed attempt: space the next one (events only past the budget;
@@ -403,6 +411,9 @@ public actor DaemonConnection {
             let delay = pacer.failed()
             if pacer.socketFailures == pacer.policy.socketRetries {
                 logger.error("cmux-tui reconnect: \(self.pacer.socketFailures) new daemon sockets failed; waiting for app activation or a reconnect")
+            }
+            if pacer.waitsForToken, let delay {
+                logger.info("cmux-tui reconnect: drop budget spent; next attempt in \(String(describing: delay), privacy: .public) or on an event")
             }
             let cause = await wake.awaitWake(delay: delay, clock: clock, socket: pacer.wakesOnSocket)
             guard cause != .cancelled else { break }
