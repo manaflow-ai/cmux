@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42695708335",
+  "recorded_at": "2026-11-09T20:56:04Z",
+  "reason": "cmux-tui 99f8c6c377c4 changes the image's cmux-tui (pinned a7137b32deef)",
+  "dry_run": false,
+  "cmux_tui": "99f8c6c377c453b25c2ce3d609319bd3bd659199",
+  "fixes": [
+    {
+      "sha": "99f8c6c377c453b25c2ce3d609319bd3bd659199",
+      "mergedAt": "2026-11-09T12:09:23-08:00",
+      "subject": "cmux-tui: output cleanup drops superseded personal.session.put records (#39381)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T20:56:04Z",
+    "snapshot_id": "sh-cf0939e76aa2495f9f562f738c759632",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42695708335): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d0b56111f8c7f3388fe43a40b7dabef70f1b0250",
+    "image": "cloud-native-auto-99f8c6c3-42695708335-1",
+    "revision": "ci-42695708335-1",
+    "at": "2026-11-09T20:56:04Z"
+  },
+  "rolled_back": false
+}
