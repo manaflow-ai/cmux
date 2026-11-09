@@ -132,10 +132,10 @@ class EarlyUploadAndAnotherPublisher(unittest.TestCase):
         self.early_dir.mkdir()
         (self.early_dir / LINUX).write_text("linux build of run 1\n")
 
-    def early(self, **env):
+    def early(self, assets=None, **env):
         """point-machine-channel-early's upload (its point is not under test)."""
         script = f"""
-            rc=0; scripts/ci/cmux-machine-linux-bytes.sh early {self.early_dir} || rc=$?
+            rc=0; scripts/ci/cmux-machine-linux-bytes.sh early {assets or self.early_dir} || rc=$?
             [[ $rc == 3 ]] && {{ echo skipped; exit 0; }}
             [[ $rc == 0 ]] || exit $rc
             echo uploaded"""
@@ -200,6 +200,44 @@ class EarlyUploadAndAnotherPublisher(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in prefix.iterdir()), sorted(names))
         for name in names:
             self.assertEqual((prefix / name).read_text(), f"{name} of run 1\n")
+
+    def test_the_loser_of_the_claim_uploads_nothing_else(self):
+        # Two attempts of one commit race. Attempt 1 has written the claim (the x86_64 hook) and its
+        # other three uploads are still in flight; attempt 2, with other bytes, must not take any
+        # of the other keys, or publish would name binaries of two builds.
+        names = [f"{n}-{t}" for t in ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
+                 for n in ("cmux-tui", "cmux-tui-hook")]
+        claim = "cmux-tui-hook-x86_64-unknown-linux-musl"
+        first = pathlib.Path(self.tmp.name) / "attempt-1"
+        first.mkdir()
+        (first / claim).write_text("claim of attempt 1\n")
+        self.assertIn("uploaded", self.early(assets=first).stdout)
+        second = pathlib.Path(self.tmp.name) / "attempt-2"
+        second.mkdir()
+        for name in names:
+            (second / name).write_text(f"{name} of attempt 2\n")
+        result = self.early(assets=second, GITHUB_RUN_ID="2")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("skipped", result.stdout)
+        prefix = self.box.r2 / f"cmux-tui/{self.box.sha}"
+        self.assertEqual(sorted(p.name for p in prefix.iterdir()), [claim])
+        self.assertEqual((prefix / claim).read_text(), "claim of attempt 1\n")
+
+    def test_a_rerun_with_the_same_bytes_holds_the_claim_and_fills_the_rest(self):
+        # A later attempt that reuses the first attempt's build artifacts holds the same claim bytes,
+        # so it uploads the keys the first attempt never got to, as the old order did.
+        names = [f"{n}-{t}" for t in ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
+                 for n in ("cmux-tui", "cmux-tui-hook")]
+        claim = "cmux-tui-hook-x86_64-unknown-linux-musl"
+        for name in names:
+            (self.early_dir / name).write_text(f"{name} of run 1\n")
+        partial = pathlib.Path(self.tmp.name) / "partial"
+        partial.mkdir()
+        shutil.copy(self.early_dir / claim, partial / claim)
+        self.assertIn("uploaded", self.early(assets=partial).stdout)
+        self.assertIn("uploaded", self.early(GITHUB_RUN_ID="1").stdout)
+        prefix = self.box.r2 / f"cmux-tui/{self.box.sha}"
+        self.assertEqual(sorted(p.name for p in prefix.iterdir()), sorted(names))
 
     def test_a_rerun_of_all_jobs_keeps_its_own_earlier_upload(self):
         self.assertIn("uploaded", self.early(GITHUB_RUN_ID="2").stdout)
