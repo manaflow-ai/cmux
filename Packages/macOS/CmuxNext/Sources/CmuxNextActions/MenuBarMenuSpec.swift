@@ -95,6 +95,10 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
                                    symbol: "person.crop.circle"))
         }
         var agents: [Item] = []
+        if let awake = state.keepingAwake {
+            agents.append(.info(Self.text("menu.menuBar.keepingAwake", "Keeping Mac awake"), symbol: "cup.and.saucer", avatar: false))
+            if awake.commands > 0 { agents.append(.info(Self.commandsRunning(awake.commands), symbol: "terminal", avatar: false)) }
+        }
         if state.agentsWorking > 0 {
             agents.append(.info(Self.agentsWorking(state.agentsWorking), symbol: "circle.dotted", avatar: false))
         }
@@ -168,6 +172,10 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
 
     static func agentsWorking(_ count: Int) -> String {
         String(localized: "menu.menuBar.agentsWorking", defaultValue: "Agents working: \(count)", table: "ProfileActions", bundle: .module)
+    }
+
+    static func commandsRunning(_ count: Int) -> String {
+        String(localized: "menu.menuBar.commandsRunning", defaultValue: "Commands running: \(count)", table: "ProfileActions", bundle: .module)
     }
 
     static func needsInput(_ count: Int) -> String {

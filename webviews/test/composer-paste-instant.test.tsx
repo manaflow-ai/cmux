@@ -562,3 +562,61 @@ test("a loading tile's indicator waits 400 ms, by its own timer", async () => {
   shot.release();
   await until(() => placeholders().length === 0, "the ready chip");
 });
+
+// Leo, 2026-11-09: "have we fixed the attachments preview going into the top area of hte composer and
+// THEN to where they shuld be yet too?" A chip the host makes for the chat (a long dictation recording
+// it sends to the chat's machine, Composer.tsx `attachLater`) loads in the text at the caret, as a
+// paste's does, and the chip it becomes takes that same place: the strip above the text never draws
+// it, not while it loads, not when it fails, and not when Retry makes it again.
+test("a recording the host makes for the chat loads at the caret and stays there through a failure and Retry", async () => {
+  const composer = await openComposer();
+  showAttachments("inline");
+  await act(async () => composer.current!.restore("hello world", []));
+  await until(() => field().textContent?.includes("hello world") === true, "the prompt");
+  await act(async () => markdownField().setCaret("hello ".length));
+  const inStrip: string[] = [];
+  const watch = new dom.window.MutationObserver(() => {
+    if (host.querySelector(".acpmux-attachments .acpmux-attachment")) inStrip.push(host.innerHTML);
+  });
+  watch.observe(host, { childList: true, subtree: true, attributes: true });
+  const makes: ((made: ComposerAttachment | undefined) => void)[] = [];
+  const recording: ComposerAttachment = {
+    id: "made-by-host",
+    kind: "audio",
+    name: "Recording.wav",
+    mimeType: "audio/wav",
+    size: 4,
+    path: "/remote/Recording.wav",
+  };
+  const node = () => field().querySelector<HTMLElement>("p [data-inline-attachment]");
+  try {
+    act(() =>
+      composer.current!.attachLater(
+        "Recording.wav",
+        () => new Promise((resolve) => makes.push(resolve)),
+        "could not send",
+      ),
+    );
+    await until(() => node()?.querySelector('[aria-busy="true"]') != null, "the loading tile in the text");
+    expect(node()!.previousSibling?.textContent).toBe("hello ");
+    expect(node()!.nextSibling?.textContent).toBe("world");
+    const id = node()!.getAttribute("data-inline-attachment");
+    // It fails: the tile says so where it is, with Retry.
+    await act(async () => makes[0]!(undefined));
+    await until(() => node()?.querySelector(".acpmux-md-inline-retry") != null, "Retry on the tile");
+    act(() => node()!.querySelector<HTMLElement>(".acpmux-md-inline-retry")!.click());
+    await until(() => makes.length === 2, "the second make");
+    expect(node()!.getAttribute("data-inline-attachment")).toBe(id);
+    // Made: the chip is the tile's, at the tile's place.
+    await act(async () => makes[1]!(recording));
+    await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the made chip");
+    await until(() => node()?.querySelector('[aria-busy="true"]') === null, "the made chip in the text");
+    expect(node()!.getAttribute("data-inline-attachment")).toBe(id);
+    expect(field().querySelectorAll("[data-inline-attachment]")).toHaveLength(1);
+    expect(node()!.previousSibling?.textContent).toBe("hello ");
+  } finally {
+    watch.disconnect();
+  }
+  expect(inStrip).toHaveLength(0);
+  expect(composer.current!.wakeState().attachments![0]!.path).toBe("/remote/Recording.wav");
+});
