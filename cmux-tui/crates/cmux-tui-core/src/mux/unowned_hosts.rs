@@ -722,6 +722,42 @@ mod tests {
     }
 
     #[test]
+    fn a_root_whose_listing_failed_keeps_its_entries_when_the_store_is_pruned() {
+        let (dir, own, roots) = state_with_sessions("listing-failed", &["cmux-app-flaky"]);
+        let flaky = roots[0].clone();
+        let store_path = dir.join(STORE_FILE);
+        let mut store = Store::default();
+        for index in 0..=MAX_STORE_ENTRIES {
+            store.hosts.insert(
+                format!("{}|t{index}|i", flaky.display()),
+                Seen { first_seen_ms: index as u64, owner_mark: String::new(), failed_ms: None },
+            );
+        }
+        // Its listing fails once, then reads back nothing (a partial read).
+        let calls = std::cell::Cell::new(0);
+        let records = |_: &Path| -> LoadedRecords {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 { Err(anyhow::anyhow!("listing failed")) } else { Ok(Vec::new()) }
+        };
+        let hosts = HostOps {
+            load: &records,
+            liveness: &|_, _| TerminalHostLiveness::Live,
+            end: &|_, _| panic!("nothing to end"),
+        };
+        // A store over its cap, as a pass leaves it before it saves.
+        let bytes = serde_json::to_vec(&store).unwrap();
+        std::fs::write(&store_path, bytes).unwrap();
+        let never = || false;
+        reap_pass_with(&hosts, &own, &store_path, 10_000_000, Timing::STANDARD, &never);
+        assert_eq!(
+            load_store(&store_path).hosts.len(),
+            MAX_STORE_ENTRIES,
+            "the times of a root whose listing failed were dropped"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn entries_of_an_empty_root_past_the_root_cap_leave_before_they_drop_new_hosts() {
         let sessions = (0..=MAX_ROOTS_PER_PASS)
             .map(|index| format!("cmux-app-{index:03}"))
