@@ -111,7 +111,7 @@ fn active_kinds_after(
     kinds: JournalKinds,
     limit: usize,
 ) -> anyhow::Result<(Vec<SessionJournalRecord>, u64)> {
-    let mut distinct = connection.prepare_cached(
+    let mut distinct = connection.prepare(
         "WITH RECURSIVE kinds(kind) AS (
            SELECT (SELECT MIN(kind) FROM session_journal
                    INDEXED BY session_journal_by_kind_sequence)
@@ -126,7 +126,7 @@ fn active_kinds_after(
     let mut accepted =
         distinct.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
     accepted.retain(|kind| kinds(kind));
-    let mut range = connection.prepare_cached(
+    let mut range = connection.prepare(
         "SELECT sequence FROM session_journal
          INDEXED BY session_journal_by_kind_sequence
          WHERE kind = ?1 AND sequence > ?2 AND sequence <= ?3
@@ -166,7 +166,7 @@ fn active_kinds_after(
         }
         _ => through,
     };
-    let mut row = connection.prepare_cached(
+    let mut row = connection.prepare(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
                 occurred_at_ms, committed_at_ms, producer_json, authority_json,
                 causation_id, correlation_id, causation_depth, subjects_json,
@@ -196,7 +196,7 @@ fn archived_kinds_after(
     limit: usize,
 ) -> anyhow::Result<Option<(Vec<SessionJournalRecord>, u64)>> {
     backfill_legacy_journal_segment_kinds(connection)?;
-    let mut statement = connection.prepare_cached(
+    let mut statement = connection.prepare(
         "SELECT segment_id, start_sequence, end_sequence
          FROM journal_segments
          WHERE end_sequence > ?1 AND start_sequence <= ?2
@@ -222,8 +222,8 @@ fn archived_kinds_after(
             pair[1].1
         );
     }
-    let mut segment_kinds = connection
-        .prepare_cached("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1")?;
+    let mut segment_kinds =
+        connection.prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1")?;
     let mut reached = sequence;
     let mut records = Vec::new();
     for (segment_id, _, end) in segments {
@@ -251,6 +251,7 @@ fn archived_kinds_after(
 
 /// One record a test appends as its writer would.
 #[cfg(test)]
+#[derive(Clone)]
 pub(crate) struct TestJournalRecord {
     pub(crate) kind: String,
     pub(crate) producer: JournalProducer,
