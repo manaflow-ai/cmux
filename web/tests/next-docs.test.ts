@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import cliGenerated from "../data/next-docs/cli-reference.generated.json";
@@ -67,15 +67,18 @@ describe("cmux-next docs", () => {
   });
 
   // The architecture page points at folders and files; a move or rename must not leave it
-  // linking to nothing.
-  test("every repository path a page links to exists", () => {
-    const missing = nextDocPages.flatMap((page) =>
+  // linking to nothing, and a file links under blob, a folder under tree.
+  test("every repository path a page links to exists and is the kind it says", () => {
+    const wrong = nextDocPages.flatMap((page) =>
       page.body.flatMap((block) => ("files" in block ? block.files : []))
-        .filter((file) => !existsSync(join(repo, file.path)))
-        .map((file) => `${page.slug}: ${file.path}`));
-    expect(missing).toEqual([]);
-    expect(repoSourceHref("cmux-tui/docs")).toBe("https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/docs");
-    expect(repoSourceHref("cmux-tui/spec/resource-api-v2.md")).toBe("https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/spec/resource-api-v2.md");
+        .filter((file) => {
+          const full = join(repo, file.path);
+          return !existsSync(full) || statSync(full).isDirectory() !== (file.kind === "folder");
+        })
+        .map((file) => `${page.slug}: ${file.path} (${file.kind})`));
+    expect(wrong).toEqual([]);
+    expect(repoSourceHref("cmux-tui/docs", "folder")).toBe("https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/docs");
+    expect(repoSourceHref("cmux-tui/spec/resource-api-v2.md", "file")).toBe("https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/spec/resource-api-v2.md");
   });
 
   test("the settings reference is fresh against the settings schema", () => {
