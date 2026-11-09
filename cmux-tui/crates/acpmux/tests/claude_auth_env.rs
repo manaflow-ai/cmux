@@ -515,7 +515,7 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     let dir = scratch(
         "cache",
         &format!(
-            "{count}export ANTHROPIC_AUTH_TOKEN=s3cret-value\nexport NO_PROXY=plain-value\nexport TEAM_ROUTE_NAME=not-allow-listed\nexport OPENAI_BASE_URL=https://gateway.invalid/route-s3cret\n"
+            "{count}export ANTHROPIC_AUTH_TOKEN=s3cret-value\nexport NO_PROXY=plain-value\nexport TEAM_ROUTE_NAME=not-allow-listed\nexport OPENAI_BASE_URL='https://gateway.invalid/v1?token=route-s3cret'\n"
         ),
     );
     let runs =
@@ -531,7 +531,7 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     let text = std::fs::read_to_string(&cache).unwrap();
     assert!(!text.contains("s3cret-value"), "a secret value in the cache: {text}");
     let v: Value = serde_json::from_str(&text).unwrap();
-    // A provider base URL can carry a token in its path: only its name is cached.
+    // A base URL with a credential in its query is a secret: only its name is cached.
     assert!(!text.contains("route-s3cret"), "a base URL in the cache: {text}");
     let mut names: Vec<String> = serde_json::from_value(v["secretNames"].clone()).unwrap();
     names.sort();
@@ -565,19 +565,27 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     assert_eq!(runs(), 3, "an edited rc file runs the shell again");
 }
 
+/// A login shell that exports `ANTHROPIC_BASE_URL={url}` and, once
+/// `~/slow` exists, first sleeps the seconds it holds.
+fn slow_base_url_rc(url: &str) -> String {
+    format!(
+        "[ -f \"$HOME/slow\" ] && sleep \"$(cat \"$HOME/slow\")\"\nexport ANTHROPIC_BASE_URL='{url}'\n"
+    )
+}
+
 /// A cached restart with Claude already signed in, so nothing waits for the
-/// login shell on its account (`Plan::wait`), and a slow shell: the base URL
-/// the cache keeps by name only (`save_cache`) still reaches the agent, which
-/// waits for the read, both as a direct child and under an agent host.
+/// login shell on its account (`Plan::wait`), and a shell slower than the
+/// 3 s wait: a plain base URL is cached by value, so the agent has it at
+/// once, also through a profile's `${env:ANTHROPIC_BASE_URL}`, both as a
+/// direct child and under an agent host.
 #[tokio::test]
 async fn a_cached_restart_keeps_the_login_base_url_while_the_shell_is_slow() {
     for hosted in [false, true] {
-        let dir = scratch(
-            if hosted { "bu-h" } else { "bu-d" },
-            &format!("[ -f \"$HOME/slow\" ] && sleep 1.5\nexport ANTHROPIC_BASE_URL={SUBROUTER}\n"),
-        );
-        let config = json!({"harnesses": {"claude": claude(json!({}))}, "defaultHarness": "claude",
-            "permissionPolicy": "approve-all"});
+        let dir = scratch(if hosted { "bu-h" } else { "bu-d" }, &slow_base_url_rc(SUBROUTER));
+        let config = json!({"harnesses": {
+                "claude": claude(json!({})),
+                "claude-ref": claude(json!({"ANTHROPIC_BASE_URL": "${env:ANTHROPIC_BASE_URL}"})),
+            }, "defaultHarness": "claude", "permissionPolicy": "approve-all"});
         let signed_in = [("ANTHROPIC_API_KEY", "from-the-daemon")];
         {
             let d = start_with(&dir, config.clone(), &signed_in, hosted).await;
@@ -585,11 +593,56 @@ async fn a_cached_restart_keeps_the_login_base_url_while_the_shell_is_slow() {
             assert_eq!(found(&reply)["base"], SUBROUTER, "first start, hosted {hosted}");
         }
         let text = std::fs::read_to_string(dir.join("login-env.json")).unwrap();
-        assert!(!text.contains(SUBROUTER), "the base URL is cached by name only: {text}");
-        std::fs::write(dir.join("home/slow"), "").unwrap();
+        assert!(text.contains(SUBROUTER), "a plain base URL is cached by value: {text}");
+        std::fs::write(dir.join("home/slow"), "5").unwrap();
         let d = start_with(&dir, config, &signed_in, hosted).await;
-        let (reply, _) = ask_as(&d, "claude", "restarted").await;
-        assert_eq!(found(&reply)["base"], SUBROUTER, "cached restart, hosted {hosted}");
+        for (harness, name) in [("claude", "restarted"), ("claude-ref", "by-reference")] {
+            let started = Instant::now();
+            let (reply, _) = ask_as(&d, harness, name).await;
+            assert_eq!(found(&reply)["base"], SUBROUTER, "{harness}, hosted {hosted}");
+            let took = started.elapsed();
+            assert!(took < Duration::from_secs(3), "{harness} waited {took:?}, hosted {hosted}");
+        }
+    }
+}
+
+/// A base URL that carries a credential (`?api_key=`) is cached by name
+/// only. On a cached restart the agent waits for the shell and gets it;
+/// when the shell is slower than the wait, the start is refused, naming the
+/// variable, never run on Claude's default endpoint. The same for a
+/// profile's `${env:ANTHROPIC_BASE_URL}`.
+#[tokio::test]
+async fn a_base_url_with_a_credential_waits_for_the_shell_and_never_falls_back() {
+    let url = format!("{SUBROUTER}/v1?api_key=s3cret-in-url");
+    let dir = scratch("bu-key", &slow_base_url_rc(&url));
+    let config = json!({"harnesses": {
+            "claude": claude(json!({})),
+            "claude-ref": claude(json!({"ANTHROPIC_BASE_URL": "${env:ANTHROPIC_BASE_URL}"})),
+        }, "defaultHarness": "claude", "permissionPolicy": "approve-all"});
+    let signed_in = [("ANTHROPIC_API_KEY", "from-the-daemon")];
+    {
+        let d = start_with(&dir, config.clone(), &signed_in, false).await;
+        let (reply, _) = ask_as(&d, "claude", "first").await;
+        assert_eq!(found(&reply)["base"], url);
+    }
+    let text = std::fs::read_to_string(dir.join("login-env.json")).unwrap();
+    assert!(!text.contains("s3cret-in-url"), "a credential in the cache: {text}");
+    assert!(text.contains("ANTHROPIC_BASE_URL"), "its name is cached: {text}");
+    // A shell inside the wait: the agent gets the URL.
+    std::fs::write(dir.join("home/slow"), "1.5").unwrap();
+    {
+        let d = start_with(&dir, config.clone(), &signed_in, false).await;
+        let (reply, _) = ask_as(&d, "claude", "waited").await;
+        assert_eq!(found(&reply)["base"], url);
+    }
+    // A shell slower than the wait: refused, never the default endpoint.
+    std::fs::write(dir.join("home/slow"), "8").unwrap();
+    let d = start_with(&dir, config, &signed_in, false).await;
+    for (harness, name) in [("claude", "refused"), ("claude-ref", "refused-ref")] {
+        let (reply, _) = ask_as(&d, harness, name).await;
+        let error = reply.expect_err(&format!("{harness} started without its base URL"));
+        assert!(error.contains("ANTHROPIC_BASE_URL"), "{harness}: {error}");
+        assert!(!error.contains("s3cret-in-url"), "{harness}: {error}");
     }
 }
 
