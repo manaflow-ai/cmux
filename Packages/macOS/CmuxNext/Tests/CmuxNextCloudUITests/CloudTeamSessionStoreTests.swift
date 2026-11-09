@@ -132,7 +132,7 @@ import Testing
         worker.replies = [.success(Self.list([Self.row("s1", at: 3, following: true, followers: 1), Self.row("s2", at: 2, following: true)]))]
         await store.select(.following)
         worker.replies = [.failure(CloudTeamError(code: CloudTeamError.unreachable, message: "down"))]
-        await #expect(throws: CloudTeamError.self) { try await store.setFollowing(Self.ref("s1"), false) }
+        await #expect(throws: CloudTeamError.self) { _ = try await store.setFollowing(Self.ref("s1"), false) }
         #expect(store.sessions.map(\.session) == ["s1", "s2"], "back in its place by activity")
         worker.replies = [.success(["value": Self.row("s1", at: 3, following: false)])]
         _ = try await store.setFollowing(Self.ref("s1"), false)
@@ -158,7 +158,7 @@ import Testing
         await store.refresh()
         worker.replies = [.failure(CloudTeamError(code: "cloud_session.assignee_not_member", message: "guest"))]
         await #expect(throws: CloudTeamError(code: "cloud_session.assignee_not_member", message: "guest")) {
-            try await store.reassign(Self.ref("s1"), to: "user_guest")
+            _ = try await store.reassign(Self.ref("s1"), to: "user_guest")
         }
         #expect(store.sessions.map(\.session) == ["s1"])
     }
