@@ -349,6 +349,9 @@ impl RemoteSession {
                 }
             }
             Some(cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT) => {
+                self.disconnect_state.record_shutdown_notice(
+                    crate::session::DaemonShutdownNotice::from_event(&value),
+                );
                 let mut state = self.disconnect_state.lock().unwrap();
                 if matches!(&*state, DisconnectState::Active) {
                     *state = DisconnectState::ExpectedRemoteShutdown;

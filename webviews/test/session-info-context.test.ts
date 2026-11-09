@@ -1,7 +1,7 @@
 // Session Info's Context, open (ContextSection.tsx): the window's parts, whose shares add up to the
 // whole window, with usage past the window counted as full and an unknown window as empty.
 import { expect, test } from "bun:test";
-import { contextParts } from "../src/agent-session/acpmux/session-info/ContextSection";
+import { contextParts } from "../src/agent-session/acpmux/session-info/contextSectionModel";
 
 const sum = (parts: { share: number }[]) => parts.reduce((total, part) => total + part.share, 0);
 

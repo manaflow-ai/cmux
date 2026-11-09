@@ -82,7 +82,9 @@ the schema only asks for a string there.
     "showSpaces": false,
   },
 
-  "layout": { "panePadding": 6, "paneCornerRadius": 10 },
+  // One corner radius for panes and tabs; tabs and other nested corners
+  // are that radius less cornerPadding (the gap to the first tab).
+  "layout": { "panePadding": 6, "paneCornerRadius": 10, "cornerPadding": 2 },
 }
 ```
 

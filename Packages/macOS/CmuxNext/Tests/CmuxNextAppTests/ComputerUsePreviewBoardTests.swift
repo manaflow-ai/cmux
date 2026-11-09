@@ -1,6 +1,8 @@
 @testable import CmuxNextAgentActivity
 @testable import CmuxNextAgentPane
 @testable import CmuxNextComputerUse
+import CmuxNextSettings
+import CoreGraphics
 import Foundation
 import Testing
 
@@ -274,6 +276,62 @@ struct ComputerUsePreviewBoardTests {
         #expect(ComputerUseAgentCursorWindows.fraction([outside, inside], in: window) == CGPoint(x: 0.25, y: 0.5))
         #expect(ComputerUseAgentCursorWindows.fraction([outside], in: window) == nil)
         #expect(ComputerUseAgentCursorWindows.fraction([inside], in: nil) == nil)
+    }
+
+    /// The person's pointer is a fraction of the window too: inside it shows; outside it is clamped to
+    /// the nearest edge and hidden, so the card never draws it off the window.
+    @Test func thePersonsPointerIsAFractionOfTheWindowAndHiddenOutside() {
+        let window = CGRect(x: 100, y: 200, width: 400, height: 300)
+        #expect(ComputerUseAgentCursorWindows.person(CGPoint(x: 200, y: 350), in: window)
+            == ComputerUsePersonPointer(point: CGPoint(x: 0.25, y: 0.5), visible: true))
+        #expect(ComputerUseAgentCursorWindows.person(CGPoint(x: 900, y: 50), in: window)
+            == ComputerUsePersonPointer(point: CGPoint(x: 1, y: 0), visible: false))
+        #expect(ComputerUseAgentCursorWindows.person(CGPoint(x: 1, y: 1), in: .zero) == nil)
+    }
+
+    /// A running card carries both telepointers: the agent's where its cursor shows, aged from the
+    /// live cursor's move, and the person's as the capture read it. A done card carries none.
+    @Test func aRunningCardCarriesTheAgentsAndThePersonsTelepointers() {
+        var board = Self.running()
+        let calculator = ComputerUsePreviewWindow(pid: 40846, windowID: 7)
+        board.apply(window: calculator, session: "s")
+        #expect(board.card(for: "a")?.telepointers == nil, "neither is known yet")
+        let person = ComputerUsePreviewTelepointer(x: 0.5, y: 0.2, visible: true, movedAt: Self.at(5))
+        board.apply(person: person, session: "s")
+        #expect(board.card(for: "a")?.telepointers == ComputerUsePreviewTelepointers(person: person))
+        board.apply(cursor: ComputerUseAgentCursor(point: CGPoint(x: 0.4, y: 0.6), windowWidth: 230), session: "s", at: Self.at(6))
+        let both = board.card(for: "a")?.telepointers
+        #expect(both?.agent == ComputerUsePreviewTelepointer(x: 0.4, y: 0.6, visible: true, movedAt: Self.at(6)))
+        #expect(both?.person == person)
+        board.apply(cursor: nil, session: "s", at: Self.at(7))
+        board.apply(pointer: ComputerUsePreviewPointer(window: calculator, x: 0.1, y: 0.1, click: 4), session: "s")
+        #expect(board.card(for: "a")?.telepointers?.agent == ComputerUsePreviewTelepointer(x: 0.1, y: 0.1, visible: true),
+                "a pixel click's point has no age")
+        board.apply(sessions: [Self.session("s", live: false)])
+        #expect(board.card(for: "a")?.telepointers == nil, "a done card draws no telepointer")
+    }
+
+    /// The page's value keeps `pointer` for older pages and adds `telepointers`, each pointer with its
+    /// fraction, whether it shows, its age in milliseconds and, once still long enough, `idle`.
+    @Test func thePageValueCarriesTelepointersBesideThePointer() {
+        let preview = AgentPaneComputerUsePreview(
+            session: "cua_s", app: "Calculator", done: false, frame: "data:image/png;base64,AA==",
+            pointer: .init(x: 0.4, y: 0.6, click: 3, windowWidth: 230),
+            telepointers: .init(agent: .init(x: 0.4, y: 0.6, visible: true, movedAt: Self.at(10)),
+                                person: .init(x: 1, y: 0.5, visible: false, movedAt: Self.at(8), idle: true)))
+        let json = preview.json(at: Self.at(10.25))
+        guard case .object(let object) = json, case .object(let pointers)? = object["telepointers"] else {
+            Issue.record("no telepointers in \(json.compactText)")
+            return
+        }
+        #expect(object["pointer"] == .object(["x": .number(0.4), "y": .number(0.6), "click": .number(3), "windowWidth": .number(230)]))
+        #expect(pointers["agent"] == .object(["x": .number(0.4), "y": .number(0.6), "visible": .bool(true), "ageMs": .number(250)]))
+        #expect(pointers["person"] == .object(["x": .number(1), "y": .number(0.5), "visible": .bool(false), "ageMs": .number(2250),
+                                               "idle": .bool(true)]))
+        let none = AgentPaneComputerUsePreview(session: "cua_s", app: "", done: false, frame: "data:image/png;base64,AA==",
+                                               telepointers: .init())
+        guard case .object(let bare) = none.json(at: Self.at(1)) else { return }
+        #expect(bare["telepointers"] == nil, "no pointer known: no field")
     }
 
     @Test func onlyClickToolsPlayTheClick() {

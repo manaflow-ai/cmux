@@ -276,7 +276,7 @@ pub const TURN_DENIED_TOOLS: [&str; 24] = [
 /// Folded `acpmux_*` tools reach coordinator sessions. They are not in
 /// `approval::turn_allowed_tools`: an ask turn still refuses them.
 /// Background tasks stay out because a turn session is temporary.
-pub const CHIEF_CMUX_TOOLS: [&str; 22] = [
+pub const CHIEF_CMUX_TOOLS: [&str; 23] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -294,6 +294,7 @@ pub const CHIEF_CMUX_TOOLS: [&str; 22] = [
     "agents_chat_read",
     "agents_chat_state",
     "acpmux_send",
+    "acpmux_send_status",
     "acpmux_ls",
     "acpmux_last",
     "acpmux_info",
@@ -587,6 +588,31 @@ pub fn claude_settings() -> Value {
 /// which also turns off feature flags). Only these sessions: the user's
 /// ~/.claude config is never changed.
 pub const QUIET_ENV: [(&str, &str); 1] = [("DISABLE_AUTOUPDATER", "1")];
+
+/// Claude Code's switch for auto mode's server-side safety check
+/// (2.1.319). With it on, auto mode asks the API to judge each tool call
+/// and runs the call only on the verdict that comes back with the
+/// response. When a response carries no verdict (`server_no_result` in
+/// `--debug`), it denies the call ("auto mode has no safety result for
+/// this call"), because it keeps no local classifier as a fallback. On
+/// 2026-11-06 that denied every classified Bash call of a Chief on both
+/// `claude` and `claude-sr2` (https://github.com/manaflow-ai/cmux/issues/37356).
+/// With the switch at `0`, Claude Code's own classifier judges the same
+/// calls with its own retries, and still denies the unsafe ones.
+pub const AUTO_MODE_SERVER_ENV: &str = "CLAUDE_CODE_AUTO_MODE_SERVER";
+
+/// The env every Chief Claude session's preset carries (turn, compactor,
+/// subagent): [`QUIET_ENV`], and auto mode judged by Claude Code's local
+/// classifier ([`AUTO_MODE_SERVER_ENV`] at `0`). A daemon with built-in
+/// Chief presets fills the same env itself (acpmux
+/// `config/chief_builtins.rs`).
+pub fn claude_session_env() -> BTreeMap<String, String> {
+    QUIET_ENV
+        .iter()
+        .chain(&[(AUTO_MODE_SERVER_ENV, "0")])
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect()
+}
 
 /// The env of the turn and subagent sessions' acpmux presets: no
 /// auto-memory. No `CLAUDE_CONFIG_DIR` of their own: Claude Code finds the

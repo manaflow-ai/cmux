@@ -137,10 +137,15 @@ final class AppHoverCardContent: SidebarCustomContent {
 
     var isReady: Bool { mount.model.status == .ready }
 
+    /// Why the card did not draw, in plain words: a script error's place and message (`Line 2,
+    /// column 12: expecting ';'`), else what failed (AppFailureCopy); a disconnected reason as it is.
     var errorText: String? {
         switch mount.model.status {
-        case .failed(let reason), .disconnected(let reason): reason
-        case .loading, .ready: nil
+        case .failed(let reason):
+            let copy = AppFailureCopy(reason: reason)
+            return copy.location ?? copy.title
+        case .disconnected(let reason): return reason
+        case .loading, .ready: return nil
         }
     }
 

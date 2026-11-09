@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextHome
+import CmuxNextHomeModel
 
 /// The panels the Home transcript header's top-right toggles open and close beside Home, like
 /// Claude desktop's panel buttons (Leo 2026-10-20: "stop opening the hard-coded default right

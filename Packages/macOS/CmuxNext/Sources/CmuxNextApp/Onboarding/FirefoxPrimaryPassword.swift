@@ -13,7 +13,7 @@ struct FirefoxPrimaryPassword {
     static let field = "primaryPassword"
 
     static func prompt(_ profile: BrowserSourceProfile) async -> SecretBytes? {
-        let center = CmuxDialogCenter()
+        let center = CmuxDialogCenter(host: CmuxDialogCenter.shared.host)
         let spec = CmuxDialogSpec(
             title: FirefoxPrimaryPasswordStrings.title(profile.browser.displayName),
             lines: [FirefoxPrimaryPasswordStrings.message],

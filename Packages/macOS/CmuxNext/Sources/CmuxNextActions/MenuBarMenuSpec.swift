@@ -1,8 +1,12 @@
-/// The menu bar menu, top to bottom (user 2026-10-27, after Raycast's menu): the account, the agents
-/// that work or wait, opening cmux, help, cmux's community, the app, logs, then Sign Out and Quit.
+/// The menu bar menu, top to bottom (user 2026-10-27, after Raycast's menu; user 2026-11-06: "for
+/// our computer use i imagine w'll also want to maybe have something similar to this in our top
+/// right menu button situation"): Computer Use, the Unread and Running chats, the account, the
+/// agents that work or wait, opening cmux, help, cmux's community, the app, logs, then Sign Out
+/// and Quit.
 ///
-/// Every row runs a registry action, so the palette, the Help menu and this menu share one path.
-/// A row whose action the build does not bind is left out, and so is a section left with no row.
+/// Every fixed row runs a registry action, so the palette, the Help menu and this menu share one
+/// path; a chat row and Take Over / Hand Back are ``Command``s the App runs on one session. A row
+/// whose action the build does not bind is left out, and so is a section left with no row.
 /// The rows are values (``items(for:isBound:)``), so tests read them without AppKit;
 /// ``MenuBarMenuBuilder`` turns them into an `NSMenu`.
 public nonisolated struct MenuBarMenuSpec: Sendable {
@@ -15,7 +19,29 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         case action(ActionID, title: String?, symbol: String)
         /// A divider between two sections.
         case separator
+        /// A section's title (Unread, Running), a native section header.
+        case header(String)
+        /// An agent chat: a click opens it in its workspace.
+        case chat(MenuBarMenuState.Chat)
+        /// A row that runs on one session, not a registry action.
+        case command(Command, title: String, symbol: String)
+        /// The Computer Use row: `app` (its name and bundle id, for the icon) is what it drives,
+        /// nil when nothing does; `items` is its submenu.
+        case computerUse(app: String?, bundleID: String?, items: [Item])
     }
+
+    /// What a ``Item/command(_:title:symbol:)`` row does.
+    public enum Command: Sendable, Hashable {
+        /// Opens the chat (an acpmux session id) in its workspace.
+        case openChat(String)
+        /// Takes the mouse and keyboard back from a Computer Use session (it pauses).
+        case takeOver(String)
+        /// Gives them back to the session (it resumes).
+        case handBack(String)
+    }
+
+    /// The most chats one list shows; the rest are behind More….
+    public static let chatLimit = 8
 
     public init() {}
 
@@ -29,18 +55,35 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
     public func items(for state: MenuBarMenuState, isBound: (ActionID) -> Bool) -> [Item] {
         var out: [Item] = []
         for section in sections(for: state) {
-            let rows = section.filter {
-                guard case .action(let id, _, _) = $0 else { return true }
-                return isBound(id)
-            }
-            guard !rows.isEmpty else { continue }
+            let rows = Self.bound(section, isBound: isBound)
+            guard rows.contains(where: { if case .header = $0 { false } else { true } }) else { continue }
             if !out.isEmpty { out.append(.separator) }
             out += rows
         }
         return out
     }
 
+    /// `rows` without unbound actions, in submenus too, and without a separator left at an end
+    /// or next to another.
+    private static func bound(_ rows: [Item], isBound: (ActionID) -> Bool) -> [Item] {
+        var out: [Item] = []
+        for row in rows {
+            switch row {
+            case .action(let id, _, _) where !isBound(id): continue
+            case .computerUse(let app, let bundleID, let items):
+                out.append(.computerUse(app: app, bundleID: bundleID, items: bound(items, isBound: isBound)))
+            case .separator where out.last == nil || out.last == .separator: continue
+            default: out.append(row)
+            }
+        }
+        if out.last == .separator { out.removeLast() }
+        return out
+    }
+
     private func sections(for state: MenuBarMenuState) -> [[Item]] {
+        let computerUse: [Item] = state.computerUse.map { [Self.computerUse($0)] } ?? []
+        let unread = Self.chats(state.unread, header: Self.text("menu.menuBar.unread", "Unread"))
+        let running = Self.chats(state.running, header: Self.text("menu.menuBar.running", "Running"))
         var account: [Item] = []
         if let signedIn = state.account {
             for (index, line) in signedIn.lines.enumerated() {
@@ -52,6 +95,10 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
                                    symbol: "person.crop.circle"))
         }
         var agents: [Item] = []
+        if let awake = state.keepingAwake {
+            agents.append(.info(Self.text("menu.menuBar.keepingAwake", "Keeping Mac awake"), symbol: "cup.and.saucer", avatar: false))
+            if awake.commands > 0 { agents.append(.info(Self.commandsRunning(awake.commands), symbol: "terminal", avatar: false)) }
+        }
         if state.agentsWorking > 0 {
             agents.append(.info(Self.agentsWorking(state.agentsWorking), symbol: "circle.dotted", avatar: false))
         }
@@ -90,11 +137,45 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         var end: [Item] = []
         if state.account != nil { end.append(.action("palette.auth.signOut", title: nil, symbol: "rectangle.portrait.and.arrow.right")) }
         end.append(.action("quit", title: nil, symbol: "power"))
-        return [account, agents, open, help, community, app, logs, end]
+        return [computerUse, unread, running, account, agents, open, help, community, app, logs, end]
+    }
+
+    /// A chat list under its header, ending with More… (Search Everything) past the cap; empty for none.
+    private static func chats(_ chats: MenuBarMenuState.Chats, header: String) -> [Item] {
+        guard !chats.shown.isEmpty else { return [] }
+        var rows: [Item] = [.header(header)] + chats.shown.map(Item.chat)
+        if chats.more > 0 { rows.append(.action("search.chats", title: text("menu.menuBar.more", "More…"), symbol: "ellipsis")) }
+        return rows
+    }
+
+    /// The Computer Use row and its submenu: Take Over or Hand Back, the app and the terminal that
+    /// started the session, Stop, then Agent Activity. With no session: Agent Activity and setup.
+    private static func computerUse(_ state: MenuBarMenuState.ComputerUse) -> Item {
+        guard let session = state.session else {
+            return .computerUse(app: nil, bundleID: nil, items: [
+                .action("agentActivity.open", title: nil, symbol: "cursorarrow.click.2"),
+                .action("palette.computerUse.setup", title: nil, symbol: "gear"),
+            ])
+        }
+        let control: Item = session.paused
+            ? .command(.handBack(session.id), title: text("menu.menuBar.computerUse.handBack", "Hand Back"), symbol: "arrow.uturn.backward")
+            : .command(.takeOver(session.id), title: text("menu.menuBar.computerUse.takeOver", "Take Over"), symbol: "hand.raised")
+        return .computerUse(app: session.appName, bundleID: session.bundleID, items: [
+            control,
+            .action("computerUseFocus", title: nil, symbol: "cursorarrow.rays"),
+            .action("computerUseFocusCallingTerminal", title: nil, symbol: "terminal"),
+            .action("computerUseStop", title: nil, symbol: "stop.circle"),
+            .separator,
+            .action("agentActivity.open", title: nil, symbol: "cursorarrow.click.2"),
+        ])
     }
 
     static func agentsWorking(_ count: Int) -> String {
         String(localized: "menu.menuBar.agentsWorking", defaultValue: "Agents working: \(count)", table: "ProfileActions", bundle: .module)
+    }
+
+    static func commandsRunning(_ count: Int) -> String {
+        String(localized: "menu.menuBar.commandsRunning", defaultValue: "Commands running: \(count)", table: "ProfileActions", bundle: .module)
     }
 
     static func needsInput(_ count: Int) -> String {

@@ -92,7 +92,7 @@ output_areas() {
       schemas/settings/settings-schema.json | docs/mdm/*) echo settings ;;
       "$snapshot") echo settings; echo actions ;;
       web/data/cmux-shortcuts.generated.json) echo shortcuts; echo actions ;;
-      cmux-tui/crates/cmux-app-host/generated/*) echo apphost; echo actions ;;
+      cmux-tui/crates/cmux-app-host/generated/* | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo apphost; echo actions ;;
       scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f').
       Packages/*.swift | ios/cmux/*.swift) echo ratchets ;;
@@ -114,7 +114,8 @@ export_of() {
 # The exports a file is generated from (base-autofix.sh). The snapshot is derived again instead.
 built_from() {
   case "$1" in
-    web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/*) echo actions ;;
+    web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/* \
+      | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo actions ;;
     */generated/strings.json) echo settings ;;
   esac
 }

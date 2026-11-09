@@ -44,15 +44,34 @@ pub struct FsGate;
 
 impl RemoteGate for FsGate {
     fn admit(&self, _peer: &RemotePeer, frame: &str) -> bool {
-        frame_command(frame).is_some()
-            || crate::git_seed::frame_command(frame).is_some()
-            || crate::cloud_repos::frame_command(frame).is_some_and(|cmd| {
-                !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember")
-            })
+        data_frame(frame)
     }
 
     fn admit_native_owner(&self, frame: &str) -> bool {
         super::native_owner::admits(frame)
+    }
+}
+
+/// Whether `frame` is one of the file, seed, blob or `cloud.repo.*` frames [`FsGate`] admits.
+pub(super) fn data_frame(frame: &str) -> bool {
+    frame_command(frame).is_some()
+        || crate::git_seed::frame_command(frame).is_some()
+        || crate::blob_fetch::frame_command(frame).is_some()
+        || crate::cloud_repos::frame_command(frame)
+            .is_some_and(|cmd| !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember"))
+}
+
+/// Whether a dial stamped with a Native link token of `vm_kind` may send `frame`: a data frame
+/// ([`data_frame`]) reads and writes the machine owner's files, so on a Native dial only the
+/// owner's (`vm_kind` owner) may send one; a team or unverified Native dial is refused it. Every
+/// other frame, and every classic (non-Native) dial (`None`), keeps the gate's own answer.
+pub(super) fn native_dial_admits(
+    vm_kind: Option<Option<cmux_link::token::VmKind>>,
+    frame: &str,
+) -> bool {
+    match vm_kind {
+        Some(Some(cmux_link::token::VmKind::Owner)) | None => true,
+        Some(_) => !data_frame(frame),
     }
 }
 
@@ -68,6 +87,14 @@ pub(super) fn try_handle(
         // and writes under the same roots.
         let allowed = transport_allows_fs(mux, client) && mux.frame_principal(client).is_some();
         let reply = crate::git_seed::answer_line(crate::git_seed::installed(), allowed, message);
+        return Some(writer.send_control(&reply).is_ok());
+    }
+    if message.contains("\"blob.fetch.") && crate::blob_fetch::frame_command(message).is_some() {
+        // The same transports and principal as the fs ops: the fetch writes
+        // under the same roots.
+        let allowed = transport_allows_fs(mux, client) && mux.frame_principal(client).is_some();
+        let reply =
+            crate::blob_fetch::answer_line(crate::blob_fetch::installed(), allowed, message);
         return Some(writer.send_control(&reply).is_ok());
     }
     if !message.contains("\"fs.") {
@@ -157,6 +184,7 @@ impl EntryFs {
 /// line is an admitted `fs.*` stream request is registered as a remote
 /// client, served here, and `None` is returned; any other dial comes back
 /// unchanged (that line first) for the line connection.
+#[cfg(test)]
 pub(super) fn route_first_line(
     mux: &Arc<Mux>,
     stream: UnixStream,
@@ -164,10 +192,24 @@ pub(super) fn route_first_line(
     peer: &RemotePeer,
     entry: EntryFs,
 ) -> Option<Box<dyn transport::Stream>> {
+    route_first_line_of(mux, stream, gate, peer, entry, None)
+}
+
+/// [`route_first_line`] for a dial whose stamp carried `native_vm_kind` (`None`: a classic
+/// dial): a Native dial that is not the owner's never opens a byte stream
+/// ([`native_dial_admits`]).
+pub(super) fn route_first_line_of(
+    mux: &Arc<Mux>,
+    stream: UnixStream,
+    gate: &dyn RemoteGate,
+    peer: &RemotePeer,
+    entry: EntryFs,
+    native_vm_kind: Option<Option<cmux_link::token::VmKind>>,
+) -> Option<Box<dyn transport::Stream>> {
     let (first, rest) = read_first_line(&stream, entry.first_line_deadline)?;
     let request = std::str::from_utf8(&first)
         .ok()
-        .filter(|line| gate.admit(peer, line))
+        .filter(|line| gate.admit(peer, line) && native_dial_admits(native_vm_kind, line))
         .and_then(StreamRequest::parse);
     let Some(request) = request else {
         let mut prefix = first;

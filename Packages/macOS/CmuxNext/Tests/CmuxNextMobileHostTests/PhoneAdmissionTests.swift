@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextMobile
+import CmuxNextWakeupsTestSupport
 @testable import CmuxNextMobileHost
 import Foundation
 import Testing
@@ -465,5 +466,38 @@ import Testing
         await host.removePhone(id: "iroh:" + Self.phone.phoneDeviceID)
         #expect(!host.pairedStore.trusts(Self.phone))
         await host.pairedStore.reload()
+    }
+
+    /// Review of #36157: a Don't Allow for a stored iroh phone while the pairing seal is refused (memory
+    /// only) is written fail closed, so the next launch whose Keychain answers does not trust it again.
+    @Test func anIrohDenyWhileTheSealIsRefusedIsNotUndoneAtTheNextLaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let first = MobileHostPairedStore(seal: seal)
+        first.select(userID: "one")
+        await first.attach(directory: directory)
+        try await first.change(for: "one") { $0.approve(Self.phone, at: Date()) }
+
+        seal.refuseAll()
+        let clock = ManualClock()
+        let refused = MobileHostPairedStore(seal: seal, clock: clock)
+        refused.select(userID: "one")
+        await refused.attach(directory: directory)
+        for wait in MobileHostPairedStore.sealWaits {
+            try await clock.waitForSleeper()
+            clock.advance(by: wait)
+        }
+        while refused.current == nil { await Task.yield() }
+        let admission = PhoneAdmission(phones: refused, disconnect: { _ in })
+        admission.ask = { _, _ in .deny }
+        #expect(await !admission.decide(Self.phone))
+        await refused.reload()  // after the removal's write on the file's queue
+
+        seal.answerAgain()
+        let next = MobileHostPairedStore(seal: seal)
+        next.select(userID: "one")
+        await next.attach(directory: directory)
+        #expect(!next.trusts(Self.phone), "an iroh phone refused while the Keychain refused was trusted again")
     }
 }

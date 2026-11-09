@@ -2,6 +2,7 @@ import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { conversation } from "@cmux/home-core"
 import type { Env } from "../env.ts"
 import type { DefaultChiefMachine } from "../chief-default-hand.ts"
+import { declared } from "../do-stub.ts"
 
 /**
  * The Chief brain's only ways out: reads and ops on the ConversationDO and MuxDO of its chief, as
@@ -12,11 +13,6 @@ import type { DefaultChiefMachine } from "../chief-default-hand.ts"
 type Head = NonNullable<conversation.ConversationState>
 type Message = conversation.Message
 
-interface OwnerStub {
-  submit(entity: string, principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "script" }): Promise<{ frames: ReadonlyArray<OwnerFrame> }>
-  readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<{ ok: true; value: unknown } | { ok: false; code: string; message: string }>
-}
-
 /**
  * The grant a chief acts with: what a placed chief token holds (read, mutate-own, mutate-shared;
  * user-chief.ts chiefGrantClasses). This brain is the chief's placement in the cloud; the owner turned
@@ -26,8 +22,8 @@ const CHIEF_GRANT = ["read", "mutate-own", "mutate-shared"]
 
 export const chiefPrincipal = (agent: string, owner: string): Principal => ({ identity: `agent:${agent}`, kind: "agent", agent, user: owner, grant_classes: CHIEF_GRANT })
 
-const conv = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as OwnerStub & { agentFrame(entity: string, agent: string, f: { typing: boolean } | { run: unknown; steps: ReadonlyArray<unknown> }): Promise<void> }
-const mux = (env: Env, agent: string) => env.MUX_DO.get(env.MUX_DO.idFromName(agent)) as unknown as OwnerStub
+const conv = (env: Env, id: string) => declared(env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)))
+const mux = (env: Env, agent: string) => declared(env.MUX_DO.get(env.MUX_DO.idFromName(agent)))
 
 export interface ConversationView {
   readonly head: Head
@@ -126,7 +122,7 @@ export const chiefOwnedBy = async (env: Env, agent: string, principal: Principal
 }
 
 /** The chief's record as its owner's UserDO holds it (chief.list, as the owner), or null for an unknown or archived chief. */
-type ChiefRecord = { display_name: string; brain_place: unknown; is_default: boolean; is_hosted_default: boolean; harness: string | null; cloud_machine: DefaultChiefMachine | null } | null
+type ChiefRecord = { display_name: string; brain_place: unknown; is_default: boolean; is_hosted_default: boolean; harness: string | null; cloud_machine: DefaultChiefMachine | null; channel: string | null } | null
 const records = new Map<string, { at: number; record: ChiefRecord }>()
 /** How long a turn admission may reuse a chief record it read: an archive or a placement stops new turns within this time. */
 const RECORD_MS = 10_000
@@ -145,13 +141,13 @@ export const chiefRecordFresh = async (env: Env, owner: string, agent: string, n
 }
 
 export const chiefRecord = async (env: Env, owner: string, agent: string, requireRead = false): Promise<ChiefRecord> => {
-  const stub = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as OwnerStub
+  const stub = declared(env.USER_DO.get(env.USER_DO.idFromName(owner)))
   const r = await stub.readOp(owner, { identity: `session:${owner}`, kind: "session", user: owner }, "chief.list", {})
   if (!r.ok) {
     if (requireRead) throw new Error("owner.unreachable")
     return null
   }
-  const chiefs = (r.value as { chiefs?: Array<{ id: string; display_name: string; archived_at: string | null; brain_place?: unknown; is_default?: boolean; is_hosted_default?: boolean; harness?: string | null; cloud_machine?: DefaultChiefMachine | null }> }).chiefs ?? []
+  const chiefs = (r.value as { chiefs?: Array<{ id: string; display_name: string; archived_at: string | null; brain_place?: unknown; is_default?: boolean; is_hosted_default?: boolean; harness?: string | null; cloud_machine?: DefaultChiefMachine | null; channel?: { conversation: string } }> }).chiefs ?? []
   const c = chiefs.find((x) => x.id === agent && x.archived_at === null)
-  return c ? { display_name: c.display_name, brain_place: c.brain_place ?? null, is_default: c.is_default === true, is_hosted_default: c.is_hosted_default === true, harness: c.harness ?? null, cloud_machine: c.cloud_machine ?? null } : null
+  return c ? { display_name: c.display_name, brain_place: c.brain_place ?? null, is_default: c.is_default === true, is_hosted_default: c.is_hosted_default === true, harness: c.harness ?? null, cloud_machine: c.cloud_machine ?? null, channel: c.channel?.conversation ?? null } : null
 }

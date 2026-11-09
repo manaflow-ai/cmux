@@ -152,7 +152,7 @@ test("several assistant messages and tool calls render exactly one footer at the
   }
 });
 
-test("a personal steer keeps reply A and final reply B expanded while other chatter collapses", async () => {
+test("a personal steer keeps reply A and final reply B expanded while the work around them folds", async () => {
   for (const steered of [false, true]) {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const expanded = new Set<string>();
@@ -189,8 +189,18 @@ test("a personal steer keeps reply A and final reply B expanded while other chat
       expect(Boolean(document.querySelector('[data-row-id="a1"]'))).toBe(steered);
       expect(Boolean(document.querySelector('[data-row-id="steer"]'))).toBe(steered);
       expect(document.querySelector('[data-row-id="a2"]')).not.toBeNull();
-      for (const id of ["t1", "interim", "t2"]) expect(document.querySelector(`[data-row-id="${id}"]`)).toBeNull();
-      expect(document.querySelectorAll(".cv-turn-actions").length).toBe(1);
+      for (const id of ["interim", "t2"]) expect(document.querySelector(`[data-row-id="${id}"]`)).toBeNull();
+      // Steered or not, the work stays under the one closed Worked for: reply A stays in sight (Leo,
+      // 2026-11-06: "your intermediate message got lost. that can never happen") without its runs
+      // drawing beside the fold (turnFoldSteered.experiment.ts; Leo, 2026-11-07: "this could have been,
+      // like, tucked inside the worked for").
+      expect(document.querySelector('[data-row-id="t1"]')).toBeNull();
+      expect(document.querySelector(`[data-row-id="${WORKED}-u1"]`)).not.toBeNull();
+      // Steered, reply A's stretch ends on its own copy row over the steer (turns.ts supersededFooters,
+      // #34939; Leo, 2026-11-03: "a lot of these should've been counted as "ended"-ish turns that allow
+      // me to copy/paste your stuff"); the turn keeps one footer of its own, at its end.
+      expect(document.querySelectorAll(".cv-turn-actions").length).toBe(steered ? 2 : 1);
+      expect(Boolean(document.querySelector('[data-row-id="superseded-steer"] .cv-turn-actions'))).toBe(steered);
       expect(document.querySelectorAll(".cv-reply-actions").length).toBe(0);
     } finally {
       await act(async () => root.unmount());

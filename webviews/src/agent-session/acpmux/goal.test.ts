@@ -3,8 +3,48 @@ import { taskGoal } from "./goal";
 
 test("normalizes a persisted Codex goal for the pane snapshot", () => {
   expect(
-    taskGoal({ objective: "Keep typing responsive", status: "active", tokenBudget: 12_000, tokensUsed: 240 }),
-  ).toEqual({ objective: "Keep typing responsive", status: "active", tokenBudget: 12_000, tokensUsed: 240 });
+    taskGoal({
+      objective: "Keep typing responsive",
+      status: "active",
+      provider: "codex",
+      startedAt: 1_700_000_000_000,
+      elapsedMs: 1200,
+      steps: [{ label: "Measure", status: "done" }],
+      tokenBudget: 12_000,
+      tokensUsed: 240,
+    }),
+  ).toEqual({
+    objective: "Keep typing responsive",
+    status: "running",
+    provider: "codex",
+    startedAt: 1_700_000_000_000,
+    elapsedMs: 1200,
+    steps: [{ label: "Measure", status: "done" }],
+    tokenBudget: 12_000,
+    tokensUsed: 240,
+  });
+});
+
+test("normalizes Claude loop lifecycle and keeps its plan steps", () => {
+  expect(
+    taskGoal({
+      objective: "Keep checking until the build is green",
+      status: "stalled",
+      provider: "claude",
+      createdAt: 1_700_000_000,
+      updatedAt: 1_700_000_012,
+      timeUsedSeconds: 12,
+      steps: ["Inspect", { content: "Test", status: "running" }, { nope: true }],
+    }),
+  ).toEqual({
+    objective: "Keep checking until the build is green",
+    status: "stalled",
+    provider: "claude",
+    startedAt: 1_700_000_000_000,
+    updatedAt: 1_700_000_012_000,
+    elapsedMs: 12_000,
+    steps: [{ label: "Inspect" }, { label: "Test", status: "running" }],
+  });
 });
 
 test("drops malformed goal metadata instead of rendering a stale banner", () => {
@@ -12,7 +52,7 @@ test("drops malformed goal metadata instead of rendering a stale banner", () => 
   expect(taskGoal({ objective: "Keep typing responsive", status: "unknown" })).toBeUndefined();
   expect(taskGoal({ objective: "Keep typing responsive", status: "active", tokenBudget: -1 })).toEqual({
     objective: "Keep typing responsive",
-    status: "active",
+    status: "running",
   });
 });
 
@@ -44,4 +84,18 @@ test("keeps Claude Code's /loop as a loop goal, with its next run and schedule",
   // A Codex goal names no kind and stays as it was.
   expect(taskGoal({ objective: "Ship", status: "active" })?.kind).toBeUndefined();
   expect(taskGoal({ kind: "other", objective: "Ship", status: "active" })?.kind).toBeUndefined();
+});
+
+// cmux#38051: Claude Code's autonomous sentinels are never shown as a prompt, whichever one acpmux
+// passes through.
+test("a loop whose prompt is a Claude Code sentinel reads as autonomous", () => {
+  for (const objective of ["<<autonomous-loop-dynamic>>", "<<autonomous-loop>>", " <<loop.md>> "])
+    expect(taskGoal({ kind: "loop", objective, status: "active" })).toEqual({
+      kind: "loop",
+      objective: "",
+      status: "active",
+      autonomous: true,
+    });
+  // Not a loop: a Codex goal's text stays what it says.
+  expect(taskGoal({ objective: "<<autonomous-loop>>", status: "active" })?.objective).toBe("<<autonomous-loop>>");
 });

@@ -11,7 +11,6 @@ import type { HostDO } from "./host-do.ts"
 import type { HandDO } from "./hand-do.ts"
 import type { WireTicketDO } from "./wire-ticket.ts"
 import type { TeamVmDO } from "./team-vm-do.ts"
-import type { CloudDO } from "./cloud-do.ts"
 import type { TrajectoryDO } from "./cloud-trajectory-store.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
@@ -115,8 +114,11 @@ export interface Env {
   readonly TEAM_VM_API_SERVICE_KEY?: string
   readonly TEAM_VM_API_IMAGE?: string
   readonly TEAM_VM_API_IMAGE_REVISION?: string
-  /** One CloudDO per team: Cloud machines, the provider-call ledger and plan checks (state-placement.md 5). */
-  readonly CLOUD_DO: DurableObjectNamespace<CloudDO>
+  /**
+   * One CloudDO per team, served by cmux-platform (script_name in wrangler.jsonc); its typed client is platform-cloud.ts.
+   * Absent in the local env: every Cloud call then answers a retryable owner.unreachable (platformCloud).
+   */
+  readonly CLOUD_DO?: DurableObjectNamespace
   /**
    * Secret: the cmux-next Cloud Freestyle key (state-placement.md 5.3), never FREESTYLE_API_KEY (the team VM lane's).
    * Never logged. Without it, or without CLOUD_FREESTYLE_SNAPSHOT, create and delete answer cloud.provider.unavailable.
@@ -168,8 +170,6 @@ export interface Env {
   readonly CLOUD_PLAN_ENTITLEMENTS?: string
   /** Var: "on" turns automatic pauses of Freestyle VMs back on (auto-pause.ts); anything else, or unset, = off (Leo, 2026-10-30). */
   readonly CLOUD_IDLE_PAUSE?: string
-  /** Var: "on" = PlatformMachines (platform-machines.ts) answers bound Workers; anything else refuses every call. Development only today. */
-  readonly PLATFORM_MACHINES?: string
   /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
   readonly PLATFORM_AGENT_GATEWAY?: string
   /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
@@ -245,6 +245,13 @@ export interface Env {
   readonly STACK_SECRET_SERVER_KEY?: string
   /** Secret: the Svix endpoint secret (whsec_...) of the Stack team webhook (stack-webhook.ts); unset answers 503. */
   readonly STACK_WEBHOOK_SECRET?: string
+  /**
+   * GitHub Actions jobs that may sign in as one test account by their OIDC token (ci-session.ts, hq#7076): a JSON
+   * array of rows naming the exact repository, ref and workflow file, and the one Stack user. No secret.
+   */
+  readonly CI_SESSION_TRUST?: string
+  /** Test only (ENVIRONMENT=test): a JWKS that replaces GitHub Actions' published keys in ci-session.ts. */
+  readonly GITHUB_ACTIONS_TEST_JWKS?: string
   /** Pace of Stack webhook syncs per project, one token per sync (stack-server.ts stackReadPace); namespaces 1201-1203 (cx-f5tk4). */
   readonly STACK_READ_LIMIT?: RateLimit
   /** The low lane of the Stack read pace (stack-server.ts stackLowReadPace): syncs of never-mirrored teams no person waits on. */

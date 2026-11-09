@@ -107,6 +107,11 @@ pub struct NetConfig {
     /// TURN servers (from the hub ticket's relay list), for the relay
     /// candidate and the relayed paths. At most [`MAX_TURN_SERVERS`] are used.
     pub turn: Vec<TurnServer>,
+    /// Reach the peer only through this side's TURN allocations: no host or
+    /// reflexive candidate is gathered or sent, no direct path is opened, and a
+    /// packet from anywhere but a TURN server is dropped, so the peer never
+    /// learns this side's addresses. Without a TURN server nothing connects.
+    pub relay_only: bool,
 }
 
 /// A TURN server with long-term credentials (RFC 8656 over UDP).
@@ -251,8 +256,9 @@ impl Net {
         let socket = UdpSocket::bind(config.bind).map_err(|e| LinkError::Io(e.to_string()))?;
         socket.set_nonblocking(true).map_err(|e| LinkError::Io(e.to_string()))?;
         let local_addr = socket.local_addr().map_err(|e| LinkError::Io(e.to_string()))?;
-        let endpoint =
+        let mut endpoint =
             Endpoint::new(config.role, &config.session, &config.local, config.expected_remote, 0)?;
+        endpoint.set_local_networks(cmux_transport::local_networks());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
         let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
@@ -264,8 +270,7 @@ impl Net {
             command_fd: command_wake.read,
             events: event_tx,
             event_fd: event_wake.write,
-            stun: config
-                .stun
+            stun: (if config.relay_only { &[][..] } else { &config.stun[..] })
                 .iter()
                 .enumerate()
                 .map(|(i, server)| StunQuery {
@@ -287,11 +292,12 @@ impl Net {
                 })
                 .collect(),
             remote: Vec::new(),
+            relay_only: config.relay_only,
             candidates_done: false,
             start: Instant::now(),
         };
         // Host candidates are known at once.
-        for ip in interface_addresses() {
+        for ip in interface_addresses().into_iter().filter(|_| !config.relay_only) {
             driver.emit(NetEvent::Candidate(Candidate {
                 kind: CandidateKind::Host,
                 addr: SocketAddr::new(ip, local_addr.port()),
@@ -413,6 +419,8 @@ struct Driver {
     relays: Vec<Relay>,
     /// The peer's candidates, for the relayed paths of allocations that finish later.
     remote: Vec<Candidate>,
+    /// `NetConfig::relay_only`.
+    relay_only: bool,
     candidates_done: bool,
     start: Instant,
 }
@@ -486,8 +494,12 @@ impl Driver {
 
     fn turn_events(&mut self, now: u64) {
         for index in 0..self.relays.len() {
-            for event in self.relays[index].client.take_events() {
-                self.relays[index].settled = true;
+            let Some(relay) = self.relays.get_mut(index) else { continue };
+            let events = relay.client.take_events();
+            if !events.is_empty() {
+                relay.settled = true;
+            }
+            for event in events {
                 match event {
                     TurnEvent::Allocated { relayed, .. } => {
                         self.emit(NetEvent::Candidate(Candidate {
@@ -500,8 +512,9 @@ impl Driver {
                         }
                     }
                     TurnEvent::Failed(error) => {
-                        let server = self.relays[index].server;
-                        self.emit(NetEvent::RelayFailed { server, reason: error.to_string() });
+                        if let Some(server) = self.relays.get(index).map(|r| r.server) {
+                            self.emit(NetEvent::RelayFailed { server, reason: error.to_string() });
+                        }
                     }
                 }
             }
@@ -520,7 +533,9 @@ impl Driver {
     }
 
     fn on_remote_candidate(&mut self, c: Candidate, now: u64) {
-        self.endpoint.add_path(Route::Udp(c.addr), c.path_kind(), now);
+        if !self.relay_only {
+            self.endpoint.add_path(Route::Udp(c.addr), c.path_kind(), now);
+        }
         if self.remote.contains(&c) || self.remote.len() >= MAX_PATHS {
             return;
         }
@@ -606,7 +621,10 @@ impl Driver {
                         }
                     }
                     Command::Control(r) => self.endpoint.send_control(r, now)?,
-                    Command::NetworkChange => self.endpoint.on_network_change(),
+                    Command::NetworkChange => {
+                        self.endpoint.set_local_networks(cmux_transport::local_networks());
+                        self.endpoint.on_network_change();
+                    }
                     Command::Close => {
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {
@@ -625,9 +643,11 @@ impl Driver {
             loop {
                 match self.socket.recv_from(&mut buf) {
                     Ok((n, from)) => {
-                        let packet = &buf[..n];
-                        if let Some(index) = self.relays.iter().position(|r| r.server == from) {
-                            match self.relays[index].client.on_packet(packet, now) {
+                        let packet = buf.get(..n).unwrap_or_default();
+                        if let Some((index, server)) =
+                            self.relays.iter_mut().enumerate().find(|(_, r)| r.server == from)
+                        {
+                            match server.client.on_packet(packet, now) {
                                 TurnReceive::Data { peer, payload } => {
                                     let relay = u16::try_from(index).unwrap_or(u16::MAX);
                                     if self.deliver(Route::Relay { relay, peer }, payload, now)? {
@@ -642,6 +662,10 @@ impl Driver {
                                 // A STUN binding answer from the same server, say.
                                 TurnReceive::Ignored => {}
                             }
+                        }
+                        // Relay only: nothing but the TURN servers may reach this side.
+                        if self.relay_only {
+                            continue;
                         }
                         if packet.first().is_some_and(|b| *b < 4) {
                             self.on_stun(packet);

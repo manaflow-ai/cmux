@@ -13,6 +13,16 @@ export function callChipHost(method: string, params: Record<string, unknown>): P
     .catch(() => undefined);
 }
 
+/// Sends `method` to the host: true when it did it, false when it refused (or there is no host).
+export function tryChipHost(method: string, params: Record<string, unknown>): Promise<boolean> {
+  return Promise.resolve()
+    .then(() => call(method, params))
+    .then(
+      (reply) => !(reply && typeof reply === "object" && (reply as { ok?: unknown }).ok === false),
+      () => false,
+    );
+}
+
 /// Tests replace the host.
 export function setChipHost(next: Call | undefined): void {
   call = next ?? postNative;

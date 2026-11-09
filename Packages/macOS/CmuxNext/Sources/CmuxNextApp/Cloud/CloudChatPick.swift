@@ -13,14 +13,16 @@ import CmuxNextDaemon
 struct CloudChatPick {
     let services: AppServices
 
+    /// Whether the Cloud app server's create takes `autosize` (``CloudService/createMachine``): not yet,
+    /// so every pick is nil until it does.
+    static let createTakesAutosize = false
+
     /// The pick for the chat in `folder` (its tab `tab`: the title for the task kind, the agent for
-    /// the Codex broker). Nil for no absolute folder and on the Cloud app server's link, whose
-    /// create takes no `autosize` yet (``CloudService/createMachine``). Not behind Labs (Leo,
-    /// 2026-10-30: "WHAT GOOD REASON DO WE HAVE IN THE FIRST PLACE TO KEEP THIS SHIT IN FUCKING
-    /// LABS IF I FUCKING ASKED FOR THESE FUCKING FEATURES").
+    /// the Codex broker). Nil for no absolute folder and while the create takes no `autosize`
+    /// (``createTakesAutosize``). Not behind Labs (Leo, 2026-10-30: "WHAT GOOD REASON DO WE HAVE IN
+    /// THE FIRST PLACE TO KEEP THIS SHIT IN FUCKING LABS IF I FUCKING ASKED FOR THESE FUCKING FEATURES").
     func read(folder: String?, tab: TabModel?) async -> CloudWorkPick? {
-        guard services.cloud.configuration.linkSource == .legacy,
-              let folder, folder.hasPrefix("/") else { return nil }
+        guard Self.createTakesAutosize, let folder, folder.hasPrefix("/") else { return nil }
         return await CloudWorkPick.read(folder: folder, text: tab?.displayTitle, harness: tab?.agentSession?.harness, work: services.work)
     }
 

@@ -139,12 +139,8 @@ import Testing
         _ = NSApplication.shared
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
         TunableStore.shared.set(SidebarTunables.groupRowLimit.key, .number(2))
-        defer {
-            TunableStore.shared.set(SidebarTunables.doneFold.key, nil)
-            TunableStore.shared.set(SidebarTunables.groupRowLimit.key, nil)
-        }
+        defer { TunableStore.shared.set(SidebarTunables.groupRowLimit.key, nil) }
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let nodes = (0..<5).map { index -> SidebarNode in
             var workspace = SidebarWorkspace(id: WorkspaceID("w\(index)"), title: "Workspace \(index)")

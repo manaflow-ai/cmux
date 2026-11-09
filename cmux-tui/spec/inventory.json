@@ -49,6 +49,8 @@
     "chief.profile.update",
     "chief.retry",
     "chief.stop",
+    "classic_import.plan",
+    "classic_import.record",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",
@@ -59,7 +61,43 @@
     "closed.delete",
     "closed.list",
     "closed.reopen",
+    "cloud.machine.io",
+    "cloud.owner.acpmux_keyed_start",
+    "cloud.owner.acpmux_person_holds",
+    "cloud.owner.fork_run",
+    "cloud.owner.github_app",
+    "cloud.owner.handoff_begin_turn",
+    "cloud.owner.handoff_open",
+    "cloud.owner.handoff_wait",
+    "cloud.owner.handoffs",
+    "cloud.owner.harness_login_copy",
+    "cloud.previews.create_link",
+    "cloud.previews.refresh",
+    "cloud.previews.revoke_link",
+    "cloud.runs.cancel",
+    "cloud.runs.create",
+    "cloud.runs.sandbox",
+    "cloud.runs.start",
+    "cloud.runs.wait",
+    "cloud.vm.domains",
+    "cloud.vm.firewall_create",
+    "cloud.vm.firewall_delete",
+    "cloud.vm.firewall_get",
+    "cloud.vm.firewall_list",
+    "cloud.vm.networks",
+    "cloud.vm.provision_api",
+    "cloud.vm.publication_api_keys",
+    "cloud.vm.publications",
+    "cloud.vm.revoke_publication_api_key",
+    "cloud.vm.scp_endpoint",
+    "cloud.vm.tunnel_attach",
+    "cloud.vm.tunnel_detach",
+    "cloud.vm.tunnel_enroll",
+    "cloud.vm.tunnel_revoke",
+    "cloud.vm.tunnel_rotate_key",
     "column.update",
+    "conductor_import.plan",
+    "conductor_import.record",
     "conversation.draft",
     "conversation.events",
     "conversation.get",
@@ -71,6 +109,9 @@
     "credential.mint",
     "credential.rotate",
     "credential.verify",
+    "diff.comments.delete",
+    "diff.comments.list",
+    "diff.comments.save",
     "frontend_projection.get",
     "frontend_projection.put",
     "git.branches",
@@ -89,6 +130,7 @@
     "git.worktree.apply",
     "git.worktree.create",
     "git.worktree.remove",
+    "git.worktree.setup",
     "history.backups.purge",
     "history.clear",
     "history.entries.list",
@@ -115,6 +157,7 @@
     "origin.confirmation.issue",
     "pairing_request.list",
     "pairing_request.resolve",
+    "palette.rank",
     "palette_usage.forget",
     "palette_usage.get",
     "palette_usage.hide",
@@ -463,6 +506,7 @@
       "set-default-colors",
       "set-frontend-browser-history",
       "set-host-size-policy",
+      "set-layout-sizes",
       "set-personal-terminal",
       "set-personal-workspace",
       "set-profile-follows",
@@ -487,6 +531,7 @@
       "terminal-ports",
       "terminal-read-range",
       "terminal-resources",
+      "terminal-last-command",
       "terminal-resume-command",
       "undo-layout",
       "ungroup-screen-group",
@@ -613,7 +658,11 @@
       "conversation-live",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
-      "feed-local-handoff-done"
+      "feed-local-handoff-done",
+      "remote-host-status",
+      "remote-host-call",
+      "remote-host-config",
+      "remote-host-app"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -654,6 +703,12 @@
     },
     {
       "name": "history-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "stash-changed",
       "streams": [
         "subscribe"
       ]
@@ -1452,6 +1507,42 @@
       "route": "frontend viewport adapter; scroll-surface for shared local viewport"
     },
     {
+      "variant": "ScrollPageUp",
+      "key": "scroll-page-up",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollPageDown",
+      "key": "scroll-page-down",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollHalfPageUp",
+      "key": "scroll-half-page-up",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollHalfPageDown",
+      "key": "scroll-half-page-down",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "CopyMode",
+      "key": "copy-mode",
+      "classification": "presentation-only",
+      "route": "frontend copy mode over the terminal mirror"
+    },
+    {
+      "variant": "SearchScrollback",
+      "key": "search-scrollback",
+      "classification": "presentation-only",
+      "route": "frontend copy mode over the terminal mirror"
+    },
+    {
       "variant": "ClearHistory",
       "key": "clear-history",
       "classification": "direct",
@@ -1486,6 +1577,18 @@
       "key": "show-shortcuts",
       "classification": "presentation-only",
       "route": "frontend shortcut overlay"
+    },
+    {
+      "variant": "NextAttention",
+      "key": "next-attention",
+      "classification": "presentation-only",
+      "route": "frontend attention queue + client focus"
+    },
+    {
+      "variant": "AttentionList",
+      "key": "attention-list",
+      "classification": "presentation-only",
+      "route": "frontend attention list overlay"
     },
     {
       "variant": "Detach",
@@ -1766,6 +1869,11 @@
       "variant": "ShowShortcuts",
       "classification": "presentation-only",
       "route": "frontend shortcut overlay"
+    },
+    {
+      "variant": "FocusAttention",
+      "classification": "presentation-only",
+      "route": "frontend attention list + client focus"
     },
     {
       "variant": "SetClientSizing",

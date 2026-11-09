@@ -29,6 +29,18 @@ import Testing
         #expect(AcpmuxSessionSource.sessionState(state) == [.queuePaused(true, reason: nil)])
     }
 
+    /// Leo, 2026-11-05, on an inbox notice under "Paused after an error": "Why is the thing still
+    /// queued? ... don't show these kinds of things." A hold of only prompts that go in again by
+    /// themselves pauses nothing, and acpmux's inbox notice is no queued prompt of the person's.
+    @Test @MainActor func inboxNoticeNeitherQueuesNorPauses() throws {
+        let retrying = try json(#"{"seq":5,"dir":"mux","kind":"queue_paused","msg":{"turnId":"t","held":["n1"],"retrying":["n1"]}}"#)
+        #expect(records.map(retrying) == [])
+        let mixed = try json(#"{"seq":6,"dir":"mux","kind":"queue_paused","msg":{"turnId":"t","held":["n1","p2"],"retrying":["n1"]}}"#)
+        #expect(records.map(mixed) == [.queuePaused(true, reason: nil)])
+        let notice = try json(#"{"seq":7,"dir":"mux","kind":"queued","msg":{"promptId":"n1","text":"[inbox] New messages from other agents in 3 threads.","_meta":{"provenance":{"kind":"inbox_notice","noticeId":"n1","threads":[]}}}}"#)
+        #expect(records.map(notice) == [])
+    }
+
     @Test func userMessageLeavesOutTheVideoFrames() throws {
         let user = try json(#"""
         {"seq":4,"dir":"mux","kind":"user_message","msg":{"turnId":"t","promptId":"p","text":"what happens here?\nFrames from the video clip.mov (0:08, 640×360), in order, at: 0:01.0.\nclip.mov frame at 0:01.0","images":[{"id":"img1","name":"clip.mov frame at 0:01.0"},{"id":"img2","name":"photo.png"}]}}

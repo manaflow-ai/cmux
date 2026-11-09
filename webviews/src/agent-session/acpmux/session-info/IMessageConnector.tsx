@@ -1,9 +1,10 @@
+import "./imessage.css";
+
 import { memo } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { imessageError, type IMessageView } from "./imessage";
-import "./imessage.css";
 
 export type IMessageLook = "list" | "grouped" | "details";
 

@@ -97,6 +97,10 @@ extension LayoutRootView {
         for view in plane.subviews where view is PaneOverlayView && !shown.contains(ObjectIdentifier(view)) && !context.isRetiredChrome(view) {
             view.removeFromSuperview()
         }
+        // A page or lens in a dragged pane hears the moves its held ancestors do not post (`FrameNoticeHold`).
+        if !moved.isEmpty {
+            for screen in screenViews.values where screen.paneFrameNotices.isHolding { screen.paneFrameNotices.noteFrame() }
+        }
         panesMovedInLastOverlaySync = moved
         reportInteractiveRects()
         notifyOverlaySync()
@@ -108,8 +112,8 @@ extension LayoutRootView {
     /// nothing over panes (`dividerMouseAreas`).
     public var interactiveOverlayRects: [CGRect] {
         var rects: [CGRect] = []
-        if let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden {
-            rects += screen.dividerLineRects.map { convert($0, from: screen) }
+        if let active = model.layoutPassReads.activeScreenID, let screen = screenViews[active], !screen.isHidden {
+            rects += ScreenDividers(screen: screen).lineRects.map { convert($0, from: screen) }
         }
         return rects
     }
@@ -119,7 +123,7 @@ extension LayoutRootView {
     /// click-catching panel that forwards the mouse to this window, so the
     /// page keeps drawing edge to edge under them.
     public var dividerMouseAreas: [LayoutMouseArea] {
-        guard let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden else { return [] }
+        guard let active = model.layoutPassReads.activeScreenID, let screen = screenViews[active], !screen.isHidden else { return [] }
         return screen.dividerMouseAreas.map { area in
             var area = area
             area.rect = convert(area.rect, from: screen)

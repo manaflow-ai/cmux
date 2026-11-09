@@ -33,6 +33,8 @@ pub struct Command {
     pub(crate) stderr: Option<Stdio>,
     pub(crate) process_group: Option<i32>,
     pub(crate) new_session: bool,
+    /// macOS: the child is its own responsible process ([`Command::disclaim_responsibility`]).
+    pub(crate) disclaim_responsibility: bool,
     /// (descriptor, the number the child gets it at).
     #[cfg(unix)]
     pub(crate) inherit: Vec<(OwnedFd, RawFd)>,
@@ -55,6 +57,7 @@ impl Command {
             stderr: None,
             process_group: None,
             new_session: false,
+            disclaim_responsibility: false,
             #[cfg(unix)]
             inherit: Vec::new(),
         }
@@ -166,6 +169,17 @@ impl Command {
     /// controlling terminal.
     pub fn new_session(&mut self) -> &mut Self {
         self.new_session = true;
+        self
+    }
+
+    /// macOS: the child becomes its own responsible process, so privacy
+    /// permissions (Accessibility, Screen Recording) are checked against the
+    /// child's code signature, never this process's or its launcher's
+    /// (`responsibility_spawnattrs_setdisclaim`). The spawn fails when the
+    /// system has no such call, rather than starting the child under this
+    /// process's grants. Elsewhere it changes nothing.
+    pub fn disclaim_responsibility(&mut self) -> &mut Self {
+        self.disclaim_responsibility = true;
         self
     }
 

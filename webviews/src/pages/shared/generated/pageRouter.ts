@@ -39,6 +39,16 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "apps.uninstall"
     ]
   },
+  "bookmarks": {
+    "read": [
+      "bookmarks.list",
+      "bookmarks.search"
+    ],
+    "gesture": [
+      "bookmarks.apply"
+    ],
+    "confirm": []
+  },
   "history": {
     "read": [
       "history.entries.list",
@@ -59,6 +69,7 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "chief.profile.history",
       "chief.profile.list",
       "chief.profile.update",
+      "palette.rank",
       "participant.avatar.get"
     ],
     "gesture": [
@@ -66,6 +77,28 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "chief.profile.delete",
       "chief.profile.undo",
       "workspace.open_url"
+    ],
+    "confirm": []
+  },
+  "stash": {
+    "read": [
+      "stash.list"
+    ],
+    "gesture": [
+      "stash.import"
+    ],
+    "confirm": []
+  },
+  "tasks": {
+    "read": [
+      "tasks.snapshot"
+    ],
+    "gesture": [
+      "tasks.archive",
+      "tasks.create",
+      "tasks.delegate",
+      "tasks.move",
+      "tasks.update"
     ],
     "confirm": []
   }
@@ -104,6 +137,33 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
       "apps.install",
       "apps.set",
       "apps.uninstall"
+    ]
+  },
+  "bookmarks": {
+    "owner": "bookmarks.tree",
+    "read": [
+      "bookmarks.export",
+      "bookmarks.list",
+      "bookmarks.rank",
+      "bookmarks.search"
+    ],
+    "mutation": [
+      "bookmarks.apply",
+      "bookmarks.import_html",
+      "bookmarks.import_source"
+    ]
+  },
+  "tasks": {
+    "owner": "tasks.local",
+    "read": [
+      "tasks.snapshot"
+    ],
+    "mutation": [
+      "tasks.archive",
+      "tasks.create",
+      "tasks.delegate",
+      "tasks.move",
+      "tasks.update"
     ]
   }
 };

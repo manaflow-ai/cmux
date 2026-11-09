@@ -75,6 +75,13 @@ fn owner_part(value: Option<&str>) -> String {
 /// already in its own session (an adopting host's launcher still runs
 /// `setsid` itself) keeps it.
 pub fn enter_terminal_host_process() -> anyhow::Result<()> {
+    // Under a test, name the test process (a host a test ran its daemon in
+    // its own process for is that test's child, cx-leo45).
+    // SAFETY: the host is still single-threaded (see below).
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    unsafe {
+        crate::test_owner::adopt();
+    }
     // SAFETY: getpid/getsid/setsid take no pointers; the host is still
     // single-threaded here.
     let own_session = unsafe { libc::getsid(0) == libc::getpid() };

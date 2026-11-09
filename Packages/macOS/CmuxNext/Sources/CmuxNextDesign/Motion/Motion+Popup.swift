@@ -157,7 +157,7 @@ public final class PopupFade {
 
     /// Fades `window` out toward `anchor`, then takes it off its window.
     /// Keys and clicks go back to the window under it now, not when the
-    /// fade ends (like `SidebarGroupEditor.dismiss`).
+    /// fade ends.
     public func close(_ window: NSWindow, toward anchor: CGRect) {
         guard window.isVisible, !isClosing else { return }
         window.ignoresMouseEvents = true

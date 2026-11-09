@@ -1,6 +1,798 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "handlers.refusal.noPaneForDock": {
+      "comment": "Move Pane to Dock with no pane focused or named.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No pane is focused."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد جزء مركّز عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan panel nije fokusiran."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen rude har fokus."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Teilfenster ist fokussiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún panel enfocado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun volet n’est actif."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun pannello attivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされたペインがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានផ្ទាំងកំពុងផ្ដោតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스된 분할 창이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen rute er fokusert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żaden panel nie jest aktywny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum painel está focado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет активной панели."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีบานหน้าต่างที่โฟกัสอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odakta bölme yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає активної панелі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có khung nào đang được tập trung."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有聚焦的窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有聚焦的窗格。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.windowHasNoDock": {
+      "comment": "Refusal: a window-dock action in a window with no dock.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This window has no dock. Press Cmd-I to dock the Chief, or move a pane to the dock."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتوي هذا النافذة على رصيف. اضغط Cmd-I لإرساء Chief، أو انقل لوحة إلى الرصيف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj prozor nema dok. Pritisnite Cmd-I da usidrite Chief ili premjestite okno u dok."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette vindue har ingen dock. Tryk Cmd-I for at docke Chief, eller flyt en rude til docken."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Fenster hat kein Dock. Drücke Cmd-I, um den Chief anzudocken, oder verschiebe einen Bereich ins Dock."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta ventana no tiene dock. Pulsa Cmd-I para anclar el Chief o mueve un panel al dock."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette fenêtre n’a pas de dock. Appuyez sur Cmd-I pour ancrer le Chief, ou déplacez un panneau dans le dock."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa finestra non ha un dock. Premi Cmd-I per agganciare il Chief o sposta un riquadro nel dock."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このウインドウにはドックがありません。Cmd-IでChiefをドックに置くか、ペインをドックへ移動してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្អួចនេះគ្មានចតទេ។ ចុច Cmd-I ដើម្បីចត Chief ឬផ្លាស់ផ្ទាំងទៅចត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 윈도우에는 도크가 없습니다. Cmd-I를 눌러 Chief를 도크에 두거나 패인을 도크로 옮기세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette vinduet har ingen dokk. Trykk Cmd-I for å dokke Chief, eller flytt en rute til dokken."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "To okno nie ma doku. Naciśnij Cmd-I, aby zadokować Chief, lub przenieś panel do doku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta janela não tem dock. Pressione Cmd-I para fixar o Chief ou mova um painel para o dock."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этом окне нет дока. Нажмите Cmd-I, чтобы закрепить Chief, или переместите панель в док."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าต่างนี้ไม่มีด็อก กด Cmd-I เพื่อวาง Chief ในด็อก หรือย้ายแผงไปที่ด็อก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu pencerede yuva yok. Chief'i yuvaya almak için Cmd-I'ya basın veya bir bölmeyi yuvaya taşıyın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У цьому вікні немає дока. Натисніть Cmd-I, щоб закріпити Chief, або перемістіть панель у док."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cửa sổ này không có dock. Nhấn Cmd-I để đặt Chief vào dock hoặc chuyển một khung vào dock."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此窗口没有停靠栏。按 Cmd-I 停靠 Chief，或将窗格移到停靠栏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此視窗沒有停駐區。按 Cmd-I 停駐 Chief，或將窗格移到停駐區。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.paneAlreadyInDock": {
+      "comment": "Refusal: Move Pane to Dock on a pane that is in the dock already.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pane is already in the dock."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذه اللوحة موجودة بالفعل في الرصيف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo okno je već u doku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne rude er allerede i docken."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Bereich ist bereits im Dock."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este panel ya está en el dock."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce panneau est déjà dans le dock."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo riquadro è già nel dock."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインはすでにドックにあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនេះនៅក្នុងចតរួចហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 패인은 이미 도크에 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne ruten er allerede i dokken."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten panel jest już w doku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este painel já está no dock."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта панель уже в доке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แผงนี้อยู่ในด็อกแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu bölme zaten yuvada."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця панель уже в доці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khung này đã ở trong dock."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此窗格已在停靠栏中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此窗格已在停駐區中。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.dockWorkspaceGone": {
+      "comment": "Refusal: the window dock's workspace closed.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The dock's workspace is gone."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تعد مساحة عمل الرصيف موجودة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radni prostor doka više ne postoji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dockens arbejdsområde findes ikke længere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Workspace des Docks ist nicht mehr da."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El espacio de trabajo del dock ya no existe."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’espace de travail du dock n’existe plus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’area di lavoro del dock non c’è più."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドックのワークスペースはもうありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការរបស់ចតបានបាត់ហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "도크의 워크스페이스가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dokkens arbeidsområde finnes ikke lenger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obszar roboczy doku już nie istnieje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O espaço de trabalho do dock não existe mais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рабочая область дока больше не существует."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เวิร์กสเปซของด็อกไม่มีแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yuvanın çalışma alanı artık yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робочого простору дока більше немає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc của dock không còn nữa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停靠栏的工作区已不存在。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停駐區的工作區已不存在。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.chiefDockUnavailable": {
+      "comment": "Refusal: Open Chief Dock while the window has no Home to dock.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief can't dock yet. Open Home first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن إرساء Chief بعد. افتح الصفحة الرئيسية أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief se još ne može usidriti. Prvo otvorite Početnu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief kan ikke dockes endnu. Åbn Hjem først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Chief kann noch nicht andocken. Öffne zuerst Home."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El Chief aún no se puede anclar. Abre Inicio primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le Chief ne peut pas encore être ancré. Ouvrez d’abord l’accueil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il Chief non può ancora essere agganciato. Apri prima Home."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefはまだドックに置けません。先にホームを開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief មិនទាន់អាចចតបានទេ។ សូមបើកទំព័រដើមជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 Chief를 도크에 둘 수 없습니다. 먼저 홈을 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief kan ikke dokkes ennå. Åpne Hjem først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief nie może jeszcze zostać zadokowany. Najpierw otwórz Start."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Chief ainda não pode ser fixado. Abra o Início primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief пока нельзя закрепить. Сначала откройте «Главную»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังวาง Chief ในด็อกไม่ได้ เปิดหน้าหลักก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief henüz yuvaya alınamaz. Önce Ana Sayfa'yı açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief поки не можна закріпити. Спершу відкрийте «Головну»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa thể đặt Chief vào dock. Hãy mở Trang chủ trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 暂时无法停靠。请先打开主页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 暫時無法停駐。請先打開首頁。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.chiefNotDocked": {
+      "comment": "Refusal: Undock Chief while this window's Chief panel is not docked.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief is not docked."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief غير مُرسى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief nije usidren."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief er ikke docket."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ist nicht angedockt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief no está acoplado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief n’est pas ancré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief non è agganciato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief はドッキングされていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief មិនបានចតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief가 도킹되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief er ikke festet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief nie jest przypięty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief não está encaixado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief не закреплён."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ไม่ได้ยึดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief yerleştirilmiş değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief не закріплено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief chưa được neo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 未停靠。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 未停靠。"
+          }
+        }
+      }
+    },
     "handlers.refusal.noNewMessage": {
       "comment": "Refusal of Close New Message when no New Message draft is open.",
       "extractionState": "manual",
@@ -14677,6 +15469,268 @@
         }
       }
     },
+    "handlers.misc.failed.noLastCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal has no finished command to run again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルには、もう一度実行できる完了済みのコマンドがありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يحتوي هذا الطرفية على أمر مكتمل لتشغيله مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj terminal nema završenu naredbu za ponovno pokretanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne terminal har ingen afsluttet kommando at køre igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Terminal hat keinen abgeschlossenen Befehl, der erneut ausgeführt werden kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este terminal no tiene ningún comando terminado para volver a ejecutar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce terminal n'a aucune commande terminée à relancer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo terminale non ha comandi completati da eseguire di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថានីយនេះមិនមានពាក្យបញ្ជាដែលបានបញ្ចប់ដើម្បីដំណើរការម្ដងទៀតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널에는 다시 실행할 완료된 명령이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne terminalen har ingen fullført kommando å kjøre på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten terminal nie ma zakończonego polecenia do ponownego uruchomienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este terminal não tem nenhum comando concluído para executar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом терминале нет завершённой команды для повтора."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลนี้ไม่มีคำสั่งที่เสร็จแล้วให้เรียกใช้อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu terminalde yeniden çalıştırılacak tamamlanmış bir komut yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому терміналі немає завершеної команди для повтору."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal này không có lệnh đã hoàn tất nào để chạy lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端没有可再次运行的已完成命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機沒有可再次執行的已完成指令。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.programRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program is running in this terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルではプログラムが実行中です。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل برنامج في هذه الطرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U ovom terminalu radi program."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program kører i denne terminal."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Terminal läuft ein Programm."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay un programa en ejecución en este terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programme est en cours d'exécution dans ce terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In questo terminale è in esecuzione un programma."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានកម្មវិធីកំពុងដំណើរការក្នុងស្ថានីយនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널에서 프로그램이 실행 중입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program kjører i denne terminalen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W tym terminalu działa program."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Há um programa em execução neste terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом терминале работает программа."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีโปรแกรมกำลังทำงานอยู่ในเทอร์มินัลนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu terminalde bir program çalışıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому терміналі працює програма."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Có một chương trình đang chạy trong terminal này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端中有程序正在运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機中有程式正在執行。"
+          }
+        }
+      }
+    },
     "handlers.refusal.addSecondColumnFirst": {
       "extractionState": "manual",
       "localizations": {
@@ -16904,137 +17958,6 @@
         }
       }
     },
-    "refusal.server.controlNotYet": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This server control is not available yet."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عنصر التحكم هذا في الخادم غير متاح بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ova kontrola servera još nije dostupna."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne serverfunktion er ikke tilgængelig endnu."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Diese Serversteuerung ist noch nicht verfügbar."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Este control del servidor aún no está disponible."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cette commande du serveur n'est pas encore disponible."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Questo controllo del server non è ancora disponibile."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このサーバー操作はまだ使用できません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការគ្រប់គ្រងម៉ាស៊ីនមេនេះមិនទាន់មាននៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 서버 제어는 아직 사용할 수 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne serverkontrollen er ikke tilgjengelig ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ta kontrolka serwera nie jest jeszcze dostępna."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Este controle do servidor ainda não está disponível."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Это управление сервером пока недоступно."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การควบคุมเซิร์ฟเวอร์นี้ยังไม่พร้อมใช้งาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu sunucu denetimi henüz kullanılamıyor."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Це керування сервером ще недоступне."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Điều khiển máy chủ này chưa khả dụng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此服务器控制尚不可用。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此伺服器控制尚無法使用。"
-          }
-        }
-      }
-    },
     "refusal.server.cliMissing": {
       "extractionState": "manual",
       "localizations": {
@@ -18210,137 +19133,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無法還原你的電源設定：%@"
-          }
-        }
-      }
-    },
-    "refusal.server.stopFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not stop serving: %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعذر إيقاف الخدمة: %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nije moguće zaustaviti posluživanje: %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke stoppe serveren: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der Serverbetrieb konnte nicht beendet werden: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No se pudo dejar de servir: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossible d'arrêter le service : %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile interrompere il servizio: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サーバーを停止できませんでした: %@"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចបញ្ឈប់ការបម្រើបានទេ៖ %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "서버 실행을 중지할 수 없습니다: %@"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke stoppe serveren: %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie można zatrzymać serwera: %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não foi possível parar de servir: %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не удалось остановить сервер: %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่สามารถหยุดการให้บริการได้: %@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sunucu durdurulamadı: %@"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вдалося зупинити сервер: %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không thể dừng phục vụ: %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无法停止服务：%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無法停止服務：%@"
           }
         }
       }
@@ -19532,127 +20324,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "this machine's cmux-tui cannot hold agent chat tabs yet: update it"
+            "value": "cmux on this machine can't hold agent chat tabs yet: update it"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このマシンの cmux-tui はまだエージェントチャットのタブを保持できません: 更新してください"
+            "value": "このマシンの cmux はまだエージェントチャットのタブを保持できません: アップデートしてください"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يمكن لـ cmux-tui على هذا الجهاز الاحتفاظ بعلامات تبويب دردشة الوكيل بعد: حدّثه"
+            "value": "لا يستطيع cmux على هذا الجهاز استضافة علامات تبويب دردشة الوكلاء بعد: حدّثه"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na ovoj mašini još ne može držati kartice chata s agentom: ažurirajte ga"
+            "value": "cmux na ovom računaru još ne može držati kartice chata s agentom: ažurirajte ga"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på denne maskine kan endnu ikke rumme agentchatfaner: opdater den"
+            "value": "cmux på denne maskine kan endnu ikke rumme agentchatfaner: opdater den"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui auf diesem Rechner kann noch keine Agent-Chat-Tabs halten: aktualisiere es"
+            "value": "cmux auf diesem Rechner kann noch keine Agenten-Chat-Tabs halten: aktualisiere es"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui en esta máquina aún no admite pestañas de chat con agentes: actualízalo"
+            "value": "cmux en esta máquina aún no admite pestañas de chat de agentes: actualízalo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "le cmux-tui de cette machine ne peut pas encore contenir d'onglets de conversation d'agent : mettez-le à jour"
+            "value": "cmux sur cette machine ne peut pas encore accueillir d’onglets de discussion d’agent : mettez-le à jour"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui su questa macchina non può ancora contenere schede di chat con agenti: aggiornalo"
+            "value": "cmux su questa macchina non supporta ancora le schede di chat degli agenti: aggiornalo"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui នៅលើម៉ាស៊ីននេះមិនទាន់អាចផ្ទុកផ្ទាំងជជែកភ្នាក់ងារបានទេ៖ សូមធ្វើបច្ចុប្បន្នភាពវា"
+            "value": "cmux នៅលើម៉ាស៊ីននេះមិនទាន់អាចផ្ទុកផ្ទាំងជជែកភ្នាក់ងារបានទេ៖ អាប់ដេតវា"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 머신의 cmux-tui는 아직 에이전트 채팅 탭을 담을 수 없음: 업데이트하세요"
+            "value": "이 머신의 cmux는 아직 에이전트 채팅 탭을 담을 수 없습니다: 업데이트하세요"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på denne maskinen kan ennå ikke holde agentchatfaner: oppdater den"
+            "value": "cmux på denne maskinen kan ennå ikke holde agentchatfaner: oppdater den"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na tej maszynie nie obsługuje jeszcze kart czatu z agentem: zaktualizuj go"
+            "value": "cmux na tej maszynie nie obsługuje jeszcze kart czatu z agentem: zaktualizuj go"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "o cmux-tui desta máquina ainda não comporta abas de chat com agentes: atualize-o"
+            "value": "o cmux nesta máquina ainda não suporta abas de chat de agentes: atualize-o"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на этой машине пока не поддерживает вкладки чата с агентом: обновите его"
+            "value": "cmux на этой машине пока не поддерживает вкладки чата с агентом: обновите его"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui บนเครื่องนี้ยังไม่รองรับแท็บแชทกับเอเจนต์: โปรดอัปเดต"
+            "value": "cmux บนเครื่องนี้ยังรองรับแท็บแชทเอเจนต์ไม่ได้: อัปเดตก่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "bu makinedeki cmux-tui henüz ajan sohbet sekmelerini tutamıyor: güncelleyin"
+            "value": "bu makinedeki cmux henüz ajan sohbet sekmelerini tutamıyor: güncelleyin"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на цій машині ще не підтримує вкладки чату з агентом: оновіть його"
+            "value": "cmux на цій машині ще не підтримує вкладки чату з агентом: оновіть його"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui trên máy này chưa thể giữ các thẻ trò chuyện với tác tử: hãy cập nhật"
+            "value": "cmux trên máy này chưa hỗ trợ thẻ trò chuyện tác tử: hãy cập nhật"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此机器上的 cmux-tui 还无法容纳智能体聊天标签页:请更新"
+            "value": "此机器上的 cmux 尚不支持代理聊天标签页：请更新"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此機器上的 cmux-tui 還無法容納代理程式聊天分頁:請更新"
+            "value": "此機器上的 cmux 尚不支援代理聊天分頁：請更新"
           }
         }
       }
@@ -20056,127 +20848,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "this machine's cmux-tui is not connected: the agent chat tab was not opened"
+            "value": "this machine isn't connected: the agent chat tab was not opened"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このマシンの cmux-tui は接続されていません: エージェントチャットのタブは開かれませんでした"
+            "value": "このマシンは接続されていません: エージェントチャットのタブは開かれませんでした"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui على هذا الجهاز غير متصل: لم تُفتح علامة تبويب دردشة الوكيل"
+            "value": "هذا الجهاز غير متصل: لم تُفتح علامة تبويب دردشة الوكيل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na ovoj mašini nije povezan: kartica chata s agentom nije otvorena"
+            "value": "ovaj računar nije povezan: kartica chata s agentom nije otvorena"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på denne maskine er ikke forbundet: agentchatfanen blev ikke åbnet"
+            "value": "denne maskine er ikke forbundet: agentchatfanen blev ikke åbnet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui auf diesem Rechner ist nicht verbunden: der Agent-Chat-Tab wurde nicht geöffnet"
+            "value": "dieser Rechner ist nicht verbunden: der Agenten-Chat-Tab wurde nicht geöffnet"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui en esta máquina no está conectado: no se abrió la pestaña de chat con el agente"
+            "value": "esta máquina no está conectada: no se abrió la pestaña de chat del agente"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "le cmux-tui de cette machine n'est pas connecté : l'onglet de conversation d'agent n'a pas été ouvert"
+            "value": "cette machine n’est pas connectée : l’onglet de discussion de l’agent n’a pas été ouvert"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui su questa macchina non è connesso: la scheda di chat con l'agente non è stata aperta"
+            "value": "questa macchina non è connessa: la scheda di chat dell’agente non è stata aperta"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui នៅលើម៉ាស៊ីននេះមិនបានភ្ជាប់ទេ៖ ផ្ទាំងជជែកភ្នាក់ងារមិនត្រូវបានបើកទេ"
+            "value": "ម៉ាស៊ីននេះមិនបានភ្ជាប់ទេ៖ ផ្ទាំងជជែកភ្នាក់ងារមិនត្រូវបានបើកទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 머신의 cmux-tui가 연결되어 있지 않음: 에이전트 채팅 탭을 열지 않았습니다"
+            "value": "이 머신이 연결되어 있지 않습니다: 에이전트 채팅 탭을 열지 않았습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på denne maskinen er ikke tilkoblet: agentchatfanen ble ikke åpnet"
+            "value": "denne maskinen er ikke tilkoblet: agentchatfanen ble ikke åpnet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na tej maszynie nie jest połączony: karta czatu z agentem nie została otwarta"
+            "value": "ta maszyna nie jest połączona: karta czatu z agentem nie została otwarta"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "o cmux-tui desta máquina não está conectado: a aba de chat com o agente não foi aberta"
+            "value": "esta máquina não está conectada: a aba de chat do agente não foi aberta"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на этой машине не подключён: вкладка чата с агентом не открыта"
+            "value": "эта машина не подключена: вкладка чата с агентом не открыта"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui บนเครื่องนี้ไม่ได้เชื่อมต่อ: ไม่ได้เปิดแท็บแชทกับเอเจนต์"
+            "value": "เครื่องนี้ไม่ได้เชื่อมต่อ: ไม่ได้เปิดแท็บแชทเอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "bu makinedeki cmux-tui bağlı değil: ajan sohbet sekmesi açılmadı"
+            "value": "bu makine bağlı değil: ajan sohbet sekmesi açılmadı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на цій машині не підключено: вкладку чату з агентом не відкрито"
+            "value": "ця машина не підключена: вкладку чату з агентом не відкрито"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui trên máy này chưa được kết nối: thẻ trò chuyện với tác tử chưa được mở"
+            "value": "máy này chưa kết nối: thẻ trò chuyện tác tử chưa được mở"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此机器上的 cmux-tui 未连接:未打开智能体聊天标签页"
+            "value": "此机器未连接：未打开代理聊天标签页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此機器上的 cmux-tui 未連線:未開啟代理程式聊天分頁"
+            "value": "此機器未連線：未開啟代理聊天分頁"
           }
         }
       }
@@ -20706,6 +21498,137 @@
         }
       }
     },
+    "handlers.refusal.topPageHasNoPanes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This page has no panes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このページにはペインがありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تحتوي هذه الصفحة على أجزاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova stranica nema panela."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne side har ingen ruder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Seite hat keine Teilfenster."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta página no tiene paneles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette page n’a pas de volets."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa pagina non ha pannelli."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រនេះគ្មានផ្ទាំងបែងចែកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 페이지에는 분할 창이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne siden har ingen ruter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta strona nie ma paneli."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta página não tem painéis."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На этой странице нет панелей."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้านี้ไม่มีบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sayfada bölme yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На цій сторінці немає панелей."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang này không có khung nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此页面没有窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此頁面沒有窗格。"
+          }
+        }
+      }
+    },
     "handlers.refusal.chatDockCannotSplit": {
       "extractionState": "manual",
       "localizations": {
@@ -21095,137 +22018,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "該窗格已關閉。再按一次即可關閉此窗格中的分頁。"
-          }
-        }
-      }
-    },
-    "handlers.refusal.pinnedTabKept": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ピン留めしたタブは開いたままになります。閉じるには、タブを右クリックして「タブを閉じる」を選択してください。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تبقى علامات التبويب المثبتة مفتوحة. انقر بزر الماوس الأيمن على علامة التبويب واختر إغلاق علامة التبويب لإغلاقها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikačene kartice ostaju otvorene. Desnom tipkom kliknite karticu i odaberite Zatvori karticu da je zatvorite."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fastgjorte faner forbliver åbne. Højreklik på fanen, og vælg Luk fane for at lukke den."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Angeheftete Tabs bleiben offen. Klicke mit der rechten Maustaste auf den Tab und wähle „Tab schließen“, um ihn zu schließen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Las pestañas fijadas permanecen abiertas. Haz clic derecho en la pestaña y elige Cerrar pestaña para cerrarla."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les onglets épinglés restent ouverts. Cliquez avec le bouton droit sur l’onglet et choisissez Fermer l’onglet pour le fermer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le schede fissate restano aperte. Fai clic con il tasto destro sulla scheda e scegli Chiudi scheda per chiuderla."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទាំងដែលបានខ្ទាស់នៅតែបើក។ ចុចខាងស្តាំលើផ្ទាំង ហើយជ្រើសរើស បិទផ្ទាំង ដើម្បីបិទវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "고정된 탭은 열린 상태로 유지됩니다. 닫으려면 탭을 마우스 오른쪽 버튼으로 클릭하고 탭 닫기를 선택하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Festede faner forblir åpne. Høyreklikk på fanen og velg Lukk fane for å lukke den."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przypięte karty pozostają otwarte. Kliknij kartę prawym przyciskiem i wybierz Zamknij kartę, aby ją zamknąć."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abas fixadas permanecem abertas. Clique com o botão direito na aba e escolha Fechar aba para fechá-la."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закреплённые вкладки остаются открытыми. Чтобы закрыть вкладку, щёлкните её правой кнопкой и выберите «Закрыть вкладку»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แท็บที่ปักหมุดจะยังคงเปิดอยู่ คลิกขวาที่แท็บแล้วเลือก ปิดแท็บ เพื่อปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sabitlenmiş sekmeler açık kalır. Kapatmak için sekmeye sağ tıklayıp Sekmeyi Kapat'ı seçin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закріплені вкладки залишаються відкритими. Щоб закрити вкладку, клацніть її правою кнопкою і виберіть «Закрити вкладку»."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thẻ đã ghim vẫn mở. Nhấp chuột phải vào thẻ và chọn Đóng thẻ để đóng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "固定的标签页会保持打开。要关闭它，请右键点按标签页并选择“关闭标签页”。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已固定的分頁會保持開啟。若要關閉，請在分頁上按右鍵並選擇「關閉分頁」。"
           }
         }
       }
@@ -25430,127 +26222,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The cmux-tui on %@ cannot start agent chats yet. Update cmux-tui on that machine."
+            "value": "cmux on %@ can't start agent chats yet. Update cmux on that machine."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の cmux-tui はまだエージェントチャットを開始できません。そのマシンの cmux-tui を更新してください。"
+            "value": "%@ の cmux はまだエージェントチャットを開始できません。そのマシンの cmux をアップデートしてください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يستطيع cmux-tui على %@ بدء دردشات الوكيل بعد. حدّث cmux-tui على ذلك الجهاز."
+            "value": "لا يستطيع cmux على %@ بدء دردشات الوكلاء بعد. حدّث cmux على ذلك الجهاز."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na %@ još ne može pokretati agent chatove. Ažurirajte cmux-tui na toj mašini."
+            "value": "cmux na %@ još ne može pokretati chatove s agentima. Ažurirajte cmux na tom računaru."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på %@ kan endnu ikke starte agentchats. Opdater cmux-tui på den maskine."
+            "value": "cmux på %@ kan endnu ikke starte agentchats. Opdater cmux på den maskine."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Das cmux-tui auf %@ kann noch keine Agent-Chats starten. Aktualisiere cmux-tui auf diesem Rechner."
+            "value": "cmux auf %@ kann noch keine Agenten-Chats starten. Aktualisiere cmux auf diesem Rechner."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El cmux-tui de %@ todavía no puede iniciar chats de agente. Actualiza cmux-tui en esa máquina."
+            "value": "cmux en %@ aún no puede iniciar chats de agentes. Actualiza cmux en esa máquina."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le cmux-tui de %@ ne peut pas encore lancer de discussions d’agent. Mettez à jour cmux-tui sur cette machine."
+            "value": "cmux sur %@ ne peut pas encore lancer de discussions d’agent. Mettez cmux à jour sur cette machine."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il cmux-tui su %@ non può ancora avviare chat con agenti. Aggiorna cmux-tui su quella macchina."
+            "value": "cmux su %@ non può ancora avviare chat degli agenti. Aggiorna cmux su quella macchina."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui នៅលើ %@ មិនទាន់អាចចាប់ផ្ដើមការជជែកជាមួយភ្នាក់ងារបានទេ។ សូមធ្វើបច្ចុប្បន្នភាព cmux-tui នៅលើម៉ាស៊ីននោះ។"
+            "value": "cmux នៅលើ %@ មិនទាន់អាចចាប់ផ្តើមការជជែកភ្នាក់ងារបានទេ។ អាប់ដេត cmux នៅលើម៉ាស៊ីននោះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@의 cmux-tui는 아직 에이전트 채팅을 시작할 수 없습니다. 그 컴퓨터의 cmux-tui를 업데이트하세요."
+            "value": "%@의 cmux는 아직 에이전트 채팅을 시작할 수 없습니다. 그 머신의 cmux를 업데이트하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på %@ kan ennå ikke starte agentchatter. Oppdater cmux-tui på den maskinen."
+            "value": "cmux på %@ kan ennå ikke starte agentchatter. Oppdater cmux på den maskinen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na %@ nie może jeszcze uruchamiać czatów z agentem. Zaktualizuj cmux-tui na tej maszynie."
+            "value": "cmux na %@ nie może jeszcze uruchamiać czatów z agentami. Zaktualizuj cmux na tej maszynie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux-tui em %@ ainda não consegue iniciar chats de agente. Atualize o cmux-tui nessa máquina."
+            "value": "O cmux em %@ ainda não consegue iniciar chats de agentes. Atualize o cmux nessa máquina."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на %@ пока не умеет запускать чаты с агентом. Обновите cmux-tui на этой машине."
+            "value": "cmux на %@ пока не может запускать чаты с агентами. Обновите cmux на этой машине."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui บน %@ ยังเริ่มแชทเอเจนต์ไม่ได้ อัปเดต cmux-tui บนเครื่องนั้น"
+            "value": "cmux บน %@ ยังเริ่มแชทเอเจนต์ไม่ได้ อัปเดต cmux บนเครื่องนั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ üzerindeki cmux-tui henüz ajan sohbetleri başlatamıyor. O makinedeki cmux-tui’yi güncelleyin."
+            "value": "%@ üzerindeki cmux henüz ajan sohbetleri başlatamıyor. O makinedeki cmux'u güncelleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на %@ поки не вміє запускати чати з агентом. Оновіть cmux-tui на цій машині."
+            "value": "cmux на %@ поки не може запускати чати з агентами. Оновіть cmux на тій машині."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui trên %@ chưa thể bắt đầu trò chuyện với tác tử. Hãy cập nhật cmux-tui trên máy đó."
+            "value": "cmux trên %@ chưa thể bắt đầu trò chuyện với tác tử. Hãy cập nhật cmux trên máy đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 上的 cmux-tui 还无法开始代理聊天。请更新那台机器上的 cmux-tui。"
+            "value": "%@ 上的 cmux 尚不能开始代理聊天。请更新该机器上的 cmux。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 上的 cmux-tui 還無法開始代理程式聊天。請更新那台機器上的 cmux-tui。"
+            "value": "%@ 上的 cmux 尚不能開始代理聊天。請更新該機器上的 cmux。"
           }
         }
       }
@@ -25948,133 +26740,266 @@
         }
       }
     },
-    "handlers.refusal.agentRemoteStart.hostMismatch": {
+    "handlers.refusal.agentRemoteStart.belongsTo": {
+      "comment": "A chat tab whose record names another machine than the one listing it; %@ is the machine the chat belongs to.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This chat belongs to another machine, so it does not run here."
+            "value": "This chat belongs to %@, so it does not run on this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このチャットは別のマシンのものなので、ここでは実行されません。"
+            "value": "このチャットは %@ のものなので、この Mac では実行されません。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تنتمي هذه الدردشة إلى جهاز آخر، لذا لا تعمل هنا."
+            "value": "تنتمي هذه الدردشة إلى %@، لذا لا تعمل على جهاز Mac هذا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj chat pripada drugoj mašini, pa se ne pokreće ovdje."
+            "value": "Ovaj chat pripada mašini %@, pa se ne pokreće na ovom Macu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne chat hører til en anden maskine, så den kører ikke her."
+            "value": "Denne chat hører til %@, så den kører ikke på denne Mac."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieser Chat gehört zu einem anderen Rechner und läuft daher nicht hier."
+            "value": "Dieser Chat gehört zu %@ und läuft daher nicht auf diesem Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este chat pertenece a otra máquina, así que no se ejecuta aquí."
+            "value": "Este chat pertenece a %@, así que no se ejecuta en este Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette discussion appartient à une autre machine ; elle ne s’exécute donc pas ici."
+            "value": "Cette discussion appartient à %@, elle ne s’exécute donc pas sur ce Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa chat appartiene a un’altra macchina, quindi non viene eseguita qui."
+            "value": "Questa chat appartiene a %@, quindi non viene eseguita su questo Mac."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការជជែកនេះជារបស់ម៉ាស៊ីនផ្សេង ដូច្នេះវាមិនដំណើរការនៅទីនេះទេ។"
+            "value": "ការជជែកនេះជារបស់ %@ ដូច្នេះវាមិនដំណើរការលើ Mac នេះទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 채팅은 다른 컴퓨터의 것이므로 여기서 실행되지 않습니다."
+            "value": "이 채팅은 %@에 속하므로 이 Mac에서 실행되지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne chatten tilhører en annen maskin, så den kjører ikke her."
+            "value": "Denne chatten tilhører %@, så den kjører ikke på denne Macen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ten czat należy do innej maszyny, więc nie działa tutaj."
+            "value": "Ten czat należy do %@, więc nie działa na tym Macu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este chat pertence a outra máquina, então não é executado aqui."
+            "value": "Este chat pertence a %@, então não é executado neste Mac."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Этот чат принадлежит другой машине, поэтому здесь он не запускается."
+            "value": "Этот чат принадлежит %@, поэтому он не запускается на этом Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แชทนี้เป็นของเครื่องอื่น จึงไม่ทำงานที่นี่"
+            "value": "แชทนี้เป็นของ %@ จึงไม่ทำงานบน Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu sohbet başka bir makineye ait, bu yüzden burada çalışmaz."
+            "value": "Bu sohbet %@ makinesine ait, bu yüzden bu Mac'te çalışmaz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цей чат належить іншій машині, тому тут він не запускається."
+            "value": "Цей чат належить %@, тому він не запускається на цьому Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cuộc trò chuyện này thuộc về máy khác, nên không chạy ở đây."
+            "value": "Cuộc trò chuyện này thuộc về %@, nên nó không chạy trên máy Mac này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此聊天属于另一台机器，因此不会在这里运行。"
+            "value": "此聊天属于 %@，因此不会在这台 Mac 上运行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此聊天屬於另一台機器，因此不會在這裡執行。"
+            "value": "此聊天屬於 %@，因此不會在這台 Mac 上執行。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.listedElsewhere": {
+      "comment": "A chat tab of this Mac listed in another machine's workspace; %@ is that machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat belongs to this Mac, so it does not run on %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットはこの Mac のものなので、%@ では実行されません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تنتمي هذه الدردشة إلى جهاز Mac هذا، لذا لا تعمل على %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj chat pripada ovom Macu, pa se ne pokreće na mašini %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chat hører til denne Mac, så den kører ikke på %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat gehört zu diesem Mac und läuft daher nicht auf %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat pertenece a este Mac, así que no se ejecuta en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette discussion appartient à ce Mac, elle ne s’exécute donc pas sur %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat appartiene a questo Mac, quindi non viene eseguita su %@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះជារបស់ Mac នេះ ដូច្នេះវាមិនដំណើរការលើ %@ ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 이 Mac에 속하므로 %@에서 실행되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chatten tilhører denne Macen, så den kjører ikke på %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten czat należy do tego Maca, więc nie działa na %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat pertence a este Mac, então não é executado em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат принадлежит этому Mac, поэтому он не запускается на %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้เป็นของ Mac เครื่องนี้ จึงไม่ทำงานบน %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet bu Mac'e ait, bu yüzden %@ üzerinde çalışmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей чат належить цьому Mac, тому він не запускається на %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện này thuộc về máy Mac này, nên nó không chạy trên %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天属于这台 Mac，因此不会在 %@ 上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天屬於這台 Mac，因此不會在 %@ 上執行。"
           }
         }
       }
@@ -32238,6 +33163,795 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 的背景服務正忙，未能及時回應，因此變更仍可能生效。"
+          }
+        }
+      }
+    },
+    "refusal.server.inviteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not make a pairing code: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر إنشاء رمز إقران: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće napraviti kod za uparivanje: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke lave en parringskode: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopplungscode konnte nicht erstellt werden: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo crear un código de vinculación: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de créer un code d'association : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile creare un codice di associazione: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ペアリングコードを作成できませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចបង្កើតកូដផ្គូផ្គងបានទេ: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페어링 코드를 만들 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke lage en tilkoblingskode: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się utworzyć kodu parowania: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível criar um código de pareamento: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось создать код подключения: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถสร้างรหัสจับคู่ได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eşleme kodu oluşturulamadı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося створити код під'єднання: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể tạo mã ghép nối: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法生成配对代码：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法產生配對代碼：%@"
+          }
+        }
+      }
+    },
+    "refusal.server.inviteNotMade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not make a pairing code. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على cmux إنشاء رمز إقران. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije mogao napraviti kod za uparivanje. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke lave en parringskode. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux konnte keinen Kopplungscode erstellen. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no pudo crear un código de vinculación. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n'a pas pu créer de code d'association. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non è riuscito a creare un codice di associazione. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux はペアリングコードを作成できませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចបង្កើតកូដផ្គូផ្គងបានទេ។ សូមព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux에서 페어링 코드를 만들 수 없습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke lage en tilkoblingskode. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie mógł utworzyć kodu parowania. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não conseguiu criar um código de pareamento. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не удалось создать код подключения. Повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ไม่สามารถสร้างรหัสจับคู่ได้ ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux eşleme kodu oluşturamadı. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не вдалося створити код під'єднання. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không thể tạo mã ghép nối. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法生成配对代码。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法產生配對代碼。請再試一次。"
+          }
+        }
+      }
+    },
+    "refusal.server.inviteLocalOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair machines from this Mac only."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أقرن الأجهزة من جهاز Mac هذا فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uparujte računare samo s ovog Maca."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Par kun maskiner fra denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopple Geräte nur von diesem Mac aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vincula máquinas solo desde este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Associez des machines uniquement depuis ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Associa le macchine solo da questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "マシンのペアリングはこの Mac からのみ行えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្គូផ្គងម៉ាស៊ីនពី Mac នេះប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac에서만 컴퓨터를 페어링할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koble til maskiner bare fra denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paruj maszyny tylko z tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pareie máquinas somente a partir deste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключайте компьютеры только с этого Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จับคู่เครื่องจาก Mac เครื่องนี้เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makineleri yalnızca bu Mac'ten eşleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Під'єднуйте комп'ютери лише з цього Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ ghép nối máy từ máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只能从这台 Mac 配对机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只能從這台 Mac 配對機器。"
+          }
+        }
+      }
+    },
+    "refusal.server.needsCloud": {
+      "comment": "Refusal when a Server panel action needs a signed-in cmux account.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux to manage paired servers and devices."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みのサーバーとデバイスを管理するには、cmux にサインインしてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل الدخول إلى cmux لإدارة الخوادم والأجهزة المقترنة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijavite se u cmux da upravljate uparenim serverima i uređajima."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log ind på cmux for at administrere parrede servere og enheder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Melde dich bei cmux an, um gekoppelte Server und Geräte zu verwalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicia sesión en cmux para gestionar servidores y dispositivos vinculados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connectez-vous à cmux pour gérer les serveurs et appareils associés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accedi a cmux per gestire server e dispositivi associati."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូលគណនី cmux ដើម្បីគ្រប់គ្រងម៉ាស៊ីនមេ និងឧបករណ៍ដែលបានផ្គូផ្គង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페어링된 서버와 기기를 관리하려면 cmux에 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg på cmux for å administrere sammenkoblede servere og enheter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaloguj się do cmux, aby zarządzać sparowanymi serwerami i urządzeniami."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entre no cmux para gerenciar servidores e dispositivos pareados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Войдите в cmux, чтобы управлять связанными серверами и устройствами."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้ cmux เพื่อจัดการเซิร์ฟเวอร์และอุปกรณ์ที่จับคู่ไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eşlenmiş sunucuları ve cihazları yönetmek için cmux'a giriş yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увійдіть у cmux, щоб керувати пов'язаними серверами та пристроями."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đăng nhập cmux để quản lý máy chủ và thiết bị đã ghép nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登录 cmux 以管理已配对的服务器和设备。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登入 cmux 以管理已配對的伺服器和裝置。"
+          }
+        }
+      }
+    },
+    "refusal.server.revokeFailed": {
+      "comment": "Refusal when revoking a paired server's access failed; %@ is the team's reason.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not revoke access: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスを取り消せませんでした: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر إلغاء الوصول: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pristup nije moguće opozvati: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adgangen kunne ikke tilbagekaldes: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Zugriff konnte nicht widerrufen werden: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo revocar el acceso: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de révoquer l'accès : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile revocare l'accesso: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចដកសិទ្ធិចូលប្រើបានទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "액세스를 취소할 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke trekke tilbake tilgangen: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można cofnąć dostępu: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível revogar o acesso: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось отозвать доступ: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเพิกถอนสิทธิ์เข้าถึงได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erişim iptal edilemedi: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося відкликати доступ: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể thu hồi quyền truy cập: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法撤销访问权限：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法撤銷存取權限：%@"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noTabGroupToJoin": {
+      "comment": "Add Tab to Group… on a tab whose machine has no other open tab group.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no other tab group to add this tab to."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブを追加できるほかのタブグループがありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد مجموعة علامات تبويب أخرى لإضافة علامة التبويب هذه إليها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema druge grupe tabova u koju bi se ovaj tab mogao dodati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der er ingen anden fanegruppe at føje denne fane til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es gibt keine andere Tab-Gruppe, zu der dieser Tab hinzugefügt werden kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay otro grupo de pestañas al que añadir esta pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il n’y a aucun autre groupe d’onglets auquel ajouter cet onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non c’è un altro gruppo di schede a cui aggiungere questa scheda."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនមានក្រុមថេបផ្សេងទៀតសម្រាប់បន្ថែមថេបនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 탭을 추가할 다른 탭 그룹이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det finnes ingen annen fanegruppe å legge denne fanen til i."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie ma innej grupy kart, do której można dodać tę kartę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não há outro grupo de abas ao qual adicionar esta aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет другой группы вкладок, в которую можно добавить эту вкладку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีกลุ่มแท็บอื่นให้เพิ่มแท็บนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sekmenin ekleneceği başka bir sekme grubu yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає іншої групи вкладок, до якої можна додати цю вкладку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có nhóm tab nào khác để thêm tab này vào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有其他可添加此标签页的标签页组。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有其他可加入此標籤頁的標籤頁群組。"
           }
         }
       }

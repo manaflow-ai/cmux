@@ -97,7 +97,7 @@ public final class WebKitDriver: DriverCallHandler {
     private func keepRendering(_ params: DriverParams) async {
         guard params.method != "tabs.close", let raw = try? params.optionalString("targetId"),
               let provider, let tab = provider.automationTabs(all: true).first(where: { $0.tab.id.rawValue == raw })?.tab,
-              tab.webView.window == nil else { return }
+              tab.webView.isOffScreen() else { return }
         guard await provider.keepRendering(tab) else { return }
         await privateCalls.afterActivityStateUpdate(tab.webView)
     }

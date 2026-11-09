@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDesign
+import CmuxNextHomeModel
 import SwiftUI
 
 /// The group info sheet (styled as the Home page's other sheets: the sheet's glass, a

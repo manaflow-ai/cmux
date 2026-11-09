@@ -71,6 +71,7 @@ public final class ReduceTransparency {
     private let changes: NotificationCenter
     private let surfaces = NSHashTable<OverlaySurfaceView>.weakObjects()
     private let cards = NSHashTable<CardSurfaceView>.weakObjects()
+    private let painted = NSHashTable<NSView>.weakObjects()
     private var observer: (any NSObjectProtocol)?
 
     /// `system` reads the setting; `changes` posts
@@ -93,6 +94,13 @@ public final class ReduceTransparency {
         observeChanges()
     }
 
+    /// Makes `view`, which paints a role's veil and rim itself (a sidebar group's header and pane, `SurfaceRole.group`),
+    /// draw again when this state changes, until it is deallocated.
+    public func register(repainting view: NSView) {
+        painted.add(view)
+        observeChanges()
+    }
+
     private func observeChanges() {
         guard observer == nil else { return }
         observer = changes.addObserver(
@@ -106,6 +114,7 @@ public final class ReduceTransparency {
     private func refreshSurfaces() {
         for surface in surfaces.allObjects { surface.refreshMaterial() }
         for card in cards.allObjects { card.needsDisplay = true }
+        for view in painted.allObjects { view.needsDisplay = true }
     }
 }
 

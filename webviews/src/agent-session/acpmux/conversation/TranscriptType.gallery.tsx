@@ -109,7 +109,10 @@ function TranscriptType({ signIn, approve = false }: { signIn?: LoginAgent; appr
       <div data-type="tool-output">
         <ToolRow item={tool("Fetch retry log", "fetch", "completed", { output })} />
       </div>
-      <CommandRow item={tool("Run retry tests", "execute", "completed", { command: "bun test", exitCode: 2 })} />
+      {/* A script the verb table does not know (commandActions.ts), so the row draws its line in mono. */}
+      <CommandRow
+        item={tool("Run retry tests", "execute", "completed", { command: "./scripts/retry-check.sh", exitCode: 2 })}
+      />
       <ShellRow
         row={{
           id: "type-shell",
@@ -224,6 +227,16 @@ export default componentEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__code"));
+      },
+    },
+    "claude-sign-in-cancel": {
+      props: { signIn: "claude" },
+      note: "Opening the code form and cancelling resize the card over the shared micro duration; the final card is the original sign-in state.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__input"));
+        await ctx.click({ selector: ".cv-turn-signin__row .cv-turn-auth-action:nth-child(2)" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".cv-turn-signin__input"));
       },
     },
   },

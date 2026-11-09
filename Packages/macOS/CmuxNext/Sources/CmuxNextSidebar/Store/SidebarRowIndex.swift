@@ -104,7 +104,8 @@ extension SidebarListView {
         // A height change lays the list out again (outside the timed patch: `reload` times itself), with no
         // motion unless the user asked for it, and not under the pointer (`showModelChange`, calm-sidebar-movement);
         // provisional rows swap in place, as on any reload (`SidebarView.animatesReload`).
-        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { showModelChange(animates: !model.sections.contains(where: \.hasProvisionalRows)) }
+        // A changed height leaves the shown layout behind the model until that reload: no insert splices onto it.
+        if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { spliceBase = nil; showModelChange(animates: !model.sections.contains(where: \.hasProvisionalRows)) }
     }
 
     /// Patches each row in place; true when one row's height changed.
@@ -173,11 +174,14 @@ nonisolated extension SidebarLayout {
     }
 
     /// Whether `section` keeps its header (and its fold) in the one-list sidebar, where other
-    /// computers' sections draw none: a remote group the person made, and the local Chief's
+    /// computers' sections draw none: a remote group the person made, the local Chief's
     /// workspaces, which read as one collapsible "Chief" group of their own, never as the rows
-    /// after the last group above them (Leo 2026-10-21). The one rule for every header kind.
+    /// after the last group above them (Leo 2026-10-21), and a Cloud machine, whose rows otherwise
+    /// floated under this Mac's last group with no machine over them (Leo 2026-10-29: "why is there
+    /// all this weird stuff at the bottom of the sidebar"). A remote group that draws as one sidebar
+    /// group (``SidebarSection/drawsAsGroup``) has its group bar instead. The one rule for every header kind.
     static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
-        section.isHostGroup && !section.drawsAsGroup
+        (section.isHostGroup || section.machine?.kind == .cloud) && !section.drawsAsGroup
     }
 
     /// The computer a workspace row of `section` names in the one-list sidebar

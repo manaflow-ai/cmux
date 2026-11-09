@@ -113,7 +113,10 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         found.push({
           first: line.firstElementChild?.className ?? "",
           glyph: glyph ? glyph.getBoundingClientRect().left - left : undefined,
-          detail: time?.getAttribute("title") ?? null,
+          // The tooltip's two lines: the exact time (title), then the turn's time and tokens.
+          detail: time
+            ? [time.getAttribute("title"), time.getAttribute("data-tooltip-detail")].filter(Boolean).join(" · ")
+            : null,
           buttons: buttons.map((button) => button.getBoundingClientRect().left - left),
           lastButtonRight: buttons.length ? buttons.at(-1)!.getBoundingClientRect().right - left : 0,
           actionsOpacity: Number(getComputedStyle(actions).opacity),
@@ -132,12 +135,19 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await page.locator(".acpmux-turnSummary .cv-turn-action-group").first().waitFor();
         const measured = await footers(page);
         console.log(`REPLY_FOOTER ${theme.file} footer ${JSON.stringify(measured)}`);
-        // The first turn's footer knows its time and tokens; the folded turn's footer does not.
+        // The first turn's footer knows its time and tokens; the folded turn's footer does not, and its
+        // time's tooltip is the exact date and time, so every reply's time hovers (Leo, 2026-11-08: "for
+        // when things are yours, sometimes it's like I can't hover onto yours").
         const withStats = measured.filter((footer) => footer.detail?.includes("Worked for"));
-        const without = measured.filter((footer) => !footer.detail);
+        const without = measured.filter((footer) => !footer.detail?.includes("Worked for"));
         expect(withStats.length, "a footer with the turn's time and tokens").toBeGreaterThan(0);
         expect(without.length, "a footer without them").toBeGreaterThan(0);
-        for (const footer of withStats) expect(footer.detail).toMatch(/Worked for 5s · ↓ .+ out ↑ .+ in/);
+        for (const footer of measured) expect(footer.detail).toMatch(/\b20\d\d\b/);
+        // The time on its own line, then one token count per row (turnTokensModel.ts `replyTimeDetail`).
+        for (const footer of withStats)
+          expect(footer.detail).toMatch(
+            /Worked for 5s\nOutput .+\nInput across calls .+\u00a0uncached · .+\u00a0cached/,
+          );
         for (const footer of measured) {
           expect(footer.first).toContain("cv-turn-action-group");
           expect(footer.glyph).toBeDefined();
@@ -180,10 +190,18 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         expect(hover!.time!.opacity).toBe(1);
         expect(hover!.time!.left).toBeGreaterThanOrEqual(hover!.lastButtonRight - TOLERANCE);
         expect(hover!.buttons).toEqual(rest!.buttons);
-        // Earlier footers stay hidden at rest: only the last reply's row is in sight.
+        // Earlier footers with a reply show their buttons at rest too, as ChatGPT's (Leo, 2026-11-04:
+        // "the thing always showing at hte bottom"); their time still waits for the pointer.
         await page.mouse.move(1, 1);
-        const earlier = await footers(page, ".acpmux-turnSummary:not(.acpmux-row--final-footer)");
-        for (const footer of earlier) expect(footer.actionsOpacity).toBe(0);
+        const earlier = await footers(
+          page,
+          ".acpmux-turnSummary:not(.acpmux-row--final-footer):not(:has(.cv-turn-actions--empty))",
+        );
+        expect(earlier.length).toBeGreaterThan(0);
+        for (const footer of earlier) {
+          expect(footer.actionsOpacity).toBe(1);
+          expect(footer.time?.opacity ?? 0).toBe(0);
+        }
       } finally {
         await page.close();
       }
@@ -216,14 +234,18 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
             const footer = document.querySelector<HTMLElement>(selector)!;
             const actions = footer.querySelector<HTMLElement>(".cv-turn-actions")!.getBoundingClientRect();
             const box = footer.getBoundingClientRect();
-            const above = [...document.querySelectorAll<HTMLElement>("article.acpmux-row")]
+            const aboveRow = [...document.querySelectorAll<HTMLElement>("article.acpmux-row")]
               .filter((row) => row !== footer && row.getBoundingClientRect().height > 0)
-              .map((row) => row.getBoundingClientRect())
-              .filter((rect) => rect.bottom <= box.top + 0.5)
-              .sort((a, b) => b.bottom - a.bottom)[0]!;
+              .filter((row) => row.getBoundingClientRect().bottom <= box.top + 0.5)
+              .sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom)[0]!;
+            const above = aboveRow.getBoundingClientRect();
+            // Under a closed "Worked for" line the row's own room under its rule stands in for the 8,
+            // so the stack adds none (transcriptGrid.ts MARK_WORKED, #37727).
+            const worked = aboveRow.querySelector(".cv-worked.has-divider") !== null;
             return {
               gap: actions.top - above.bottom,
-              footerGap: length("--grid-gap-footer"),
+              footerGap: worked ? 0 : length("--grid-gap-footer"),
+              worked,
               rowHeight: box.height,
               actionsHeight: actions.height,
               control: length("--grid-transcript-footer-control"),
@@ -248,17 +270,46 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await button.waitFor({ timeout: 10_000 });
         const fit = await button.evaluate((el) => ({
           width: el.getBoundingClientRect().width,
+          height: el.getBoundingClientRect().height,
           scroll: el.scrollWidth,
           client: el.clientWidth,
           glyph: el.querySelector("svg")?.getBoundingClientRect().width ?? 0,
+          fontSize: getComputedStyle(el).fontSize,
+          captionSize: (() => {
+            const probe = document.createElement("span");
+            probe.style.fontSize = "var(--text-caption)";
+            document.body.append(probe);
+            const size = getComputedStyle(probe).fontSize;
+            probe.remove();
+            return size;
+          })(),
+          paddingInline: `${getComputedStyle(el).paddingLeft} ${getComputedStyle(el).paddingRight}`,
+          title: el.getAttribute("title"),
         }));
         console.log(`REPLY_FOOTER ${theme.file} continue ${JSON.stringify(fit)}`);
         expect(fit.width).toBeGreaterThan(40);
+        expect(Math.abs(fit.height - 24)).toBeLessThanOrEqual(TOLERANCE);
         expect(fit.scroll).toBeLessThanOrEqual(fit.client + 1);
         expect(fit.glyph).toBeLessThan(20);
+        expect(fit.fontSize).toBe(fit.captionSize);
+        expect(fit.paddingInline).toBe("2px 2px");
+        expect(fit.title).toBeNull();
+        await still(page, `${theme.file}-stopped-after`);
       } finally {
         await page.close();
       }
     });
+
+    for (const variant of ["footer-before", "footer-chosen", "footer-roomy"]) {
+      test(`captures the stopped footer gallery arm (${variant}, ${theme.name})`, async () => {
+        const page = await open(variant, theme.name, "agent-pane.stopped-turn");
+        try {
+          await page.locator(".cv-turn-continue").waitFor({ timeout: 10_000 });
+          await still(page, `${theme.file}-${variant}`);
+        } finally {
+          await page.close();
+        }
+      });
+    }
   }
 });

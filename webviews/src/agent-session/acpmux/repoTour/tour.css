@@ -1,0 +1,193 @@
+/* The repo tour (repoTour/): the hero's offer line and the reply's card. Quiet as the suggested
+   tasks card (offer/suggestedTasks.css): one tray fill, 28px heads, no bold, dim secondary text. */
+
+/* The offer hangs under the hero's question (.acpmux-empty-title is its anchor), out of the hero's
+   flow: arriving never moves the question. */
+.acpmux-empty-title-anchor {
+  position: relative;
+}
+.acpmux-tour-offer {
+  position: absolute;
+  top: calc(100% + var(--ds-space-3));
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  animation: acpmux-tour-in var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out) both;
+}
+@keyframes acpmux-tour-in {
+  from {
+    opacity: 0;
+  }
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
+  .acpmux-tour-offer {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-tour-offer {
+    animation: none;
+  }
+}
+.acpmux-tour-offer-take,
+.acpmux-tour-offer-dismiss,
+.acpmux-tour-start {
+  border: 0;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  cursor: default;
+}
+.acpmux-tour-offer-take {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: 28px;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-tour-offer-dismiss {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--ds-radius-control);
+  color: var(--acpmux-composer-dim);
+}
+.acpmux-tour-offer-take:hover,
+.acpmux-tour-offer-dismiss:hover {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-text);
+}
+
+/* The card. */
+.acpmux-tour {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: var(--ds-space-1) 0;
+  padding: 0 var(--ds-space-3) var(--ds-space-2);
+  border-radius: var(--grid-cards-radius);
+  background: var(--acpmux-composer-tray);
+  color: var(--agent-text);
+  font-size: var(--text-control);
+  line-height: 18px;
+  letter-spacing: var(--text-control--letter-spacing);
+}
+.acpmux-tour[data-pending] {
+  padding-bottom: 0;
+  color: var(--acpmux-composer-dim);
+}
+.acpmux-tour-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: 28px;
+}
+.acpmux-tour-glyph {
+  flex: none;
+  color: var(--acpmux-composer-dim);
+}
+.acpmux-tour-head-sha {
+  margin-left: auto;
+  color: var(--acpmux-composer-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-detail);
+}
+.acpmux-tour-summary {
+  margin: 0 0 var(--ds-space-1);
+  overflow-wrap: anywhere;
+}
+.acpmux-tour-label {
+  margin: var(--ds-space-2) 0 0;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  font-weight: var(--weight-regular);
+  line-height: 16px;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-tour-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-tour-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  min-height: 24px;
+}
+.acpmux-tour-key {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-tour-about {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--acpmux-composer-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-tour-task {
+  padding: 4px 0;
+  border-top: 1px solid color-mix(in srgb, var(--agent-text) 8%, transparent);
+}
+.acpmux-tour-task:first-child {
+  border-top: 0;
+}
+.acpmux-tour-task-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: 24px;
+}
+.acpmux-tour-task-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-tour-start {
+  flex: none;
+  height: 24px;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-text);
+}
+.acpmux-tour-start:not(:disabled):hover {
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+.acpmux-tour-start:disabled {
+  background: none;
+  color: var(--acpmux-composer-dim);
+}
+.acpmux-tour-task-prompt {
+  display: -webkit-box;
+  margin: 0;
+  padding-right: var(--ds-space-5);
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  line-height: 16px;
+  overflow-wrap: anywhere;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-tour-task-error {
+  margin: var(--ds-space-1) 0 0;
+  color: var(--agent-danger);
+  font-size: var(--text-detail);
+  overflow-wrap: anywhere;
+}

@@ -215,13 +215,13 @@ function leoCapture(): AcpmuxSnapshot {
 }
 
 /// Opens the first send, to show the opened message with Raw under it. In the one-line default
-/// (#34464) Copy stays on the row, shown on hover; only the stacked version moves it under the
+/// (#34464) a sent row has no Copy (cmux#34865); only the stacked version keeps one under the
 /// message beside Raw (`.cv-subsession__actions`), so the play waits for Raw. It clicks the
 /// message's first line on the row, as a person does: the recipient's chip is a button of its own
 /// that opens that chat.
 const openFirstSend: Play = async (ctx) => {
-  await ctx.click({ selector: ".cv-sent .cv-sent__preview" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-subsession__toggle"));
+  await ctx.click({ selector: ".cv-sent-msg .cv-sent__preview" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-sent__raw > .cv-received__more"));
 };
 
 export default agentPaneEntry({
@@ -257,7 +257,7 @@ export default agentPaneEntry({
       snapshot: coordinatorTurn(),
     },
     "leo-capture": {
-      note: "Leo's 2026-11-03 capture redrawn in the default: a bot's received line, sends to long host/lane names, SendMessage rows and a received pair, each name whole and the first line on the same line.",
+      note: "Leo's 2026-11-03 capture redrawn in the default: a bot's received line, sends to long host/lane names, two SendMessages folded into one closed \"Sent 2 messages\" line (cmux#34865) and a received pair, each name whole and the first line on the same line.",
       snapshot: leoCapture(),
     },
     "leo-capture-stacked": {
@@ -271,7 +271,7 @@ export default agentPaneEntry({
       snapshot: coordinatorTurn(),
     },
     opened: {
-      note: "The first send opened in the default one-line look: its message at the row's text column, Raw quiet under it at the same indent; Copy stays on the row, shown on hover.",
+      note: "The first send opened in the default one-line look: its message at the row's text column, Raw quiet under it at the same indent; the row has no Copy.",
       snapshot: coordinatorTurn(),
       play: openFirstSend,
     },
