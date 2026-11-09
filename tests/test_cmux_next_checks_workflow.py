@@ -1066,8 +1066,10 @@ class PathRoutingStructure(unittest.TestCase):
                     with self.subTest(job=name, event=event, attempt=attempt, actor=actor):
                         self.assertEqual(evaluate(expression, context), wanted)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.
-        self.assertIn("The rescue re-admits a queued run after the\n# five-minute queue alarm: placement first uses a free owned GUI/session Mac,\n# then the workflow's Blacksmith macOS route.", text)
-        self.assertIn("Bot attempt 2 and later drop the stale placement output\n# and re-admits it through the same fast-checks/owned-Mac/Blacksmith order", text)
+        # The workflow's notes are in docs/ci/cmux-next-workflow-notes.md (WorkflowFileSize).
+        notes = (ROOT / "docs/ci/cmux-next-workflow-notes.md").read_text(encoding="utf-8")
+        self.assertIn("The rescue re-admits a queued run after the\n# five-minute queue alarm: placement first uses a free owned GUI/session Mac,\n# then the workflow's Blacksmith macOS route.", notes)
+        self.assertIn("Bot attempt 2 and later drop the stale placement output\n# and re-admits it through the same fast-checks/owned-Mac/Blacksmith order", notes)
 
     def test_owned_pool_guard_accepts_an_added_guarded_job(self):
         """A new correctly routed job cannot break the rescue guard's coverage check."""
