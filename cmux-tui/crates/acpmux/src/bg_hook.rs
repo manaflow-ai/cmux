@@ -467,6 +467,7 @@ pub const MCP_CALLS: &[&str] = &[
     "mcp__cmux__acpmux_bg_start",
     "mcp__cmux__acpmux_send",
     "mcp__cmux__cmux_exec",
+    "mcp__cmux__cmux_workflow",
 ];
 
 /// [`MCP_CALLS`] as one hooks.json matcher (a regex of alternatives).

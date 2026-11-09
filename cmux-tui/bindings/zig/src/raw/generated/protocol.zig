@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6d7c92f5b1d9e0b4dd9c06d311825cba9eda6be6868e15d49ef2b233ada00871";
+pub const ir_sha256 = "5ef822cc878dab6ba9ce54b8407eeac042d68f91b1451a12c677cea777789573";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2191,6 +2191,11 @@ pub const SetTerminalKeepResult = struct {
     keep: bool,
     terminal_id: []const u8,
     terminal_resource_id: wire.Field([]const u8) = .absent,
+};
+
+pub const SetTerminalTailPinResult = struct {
+    pinned: bool,
+    terminal: []const u8,
 };
 
 pub const ShownProgramStatus = struct {
@@ -9387,6 +9392,25 @@ pub fn setTerminalKeep(client: anytype, request: SetTerminalKeepRequest) !wire.D
     );
 }
 
+pub const SetTerminalTailPinRequest = struct {
+    pinned: bool,
+    surface: wire.Field(Id) = .absent,
+    terminal: wire.Field([]const u8) = .absent,
+};
+
+pub fn setTerminalTailPin(client: anytype, request: SetTerminalTailPinRequest) !wire.Decoded(SetTerminalTailPinResult) {
+    return client.callTyped(
+        SetTerminalTailPinResult,
+        .{
+            .name = "set-terminal-tail-pin",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-tail-pin-v1",
+        },
+        request,
+    );
+}
+
 pub const SetViewportPaneWidthRequest = struct {
     pane: Id,
     transaction: wire.Field(u64) = .absent,
@@ -12048,7 +12072,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 295;
+pub const command_count: usize = 296;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12302,6 +12326,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-terminal-command-history", .authority = "local-admin", .since = 12, .capability = "terminal-command-history-v1", .stream = null },
     .{ .name = "set-terminal-idle-policy", .authority = "control", .since = 12, .capability = "terminal-idle-close-v1", .stream = null },
     .{ .name = "set-terminal-keep", .authority = "control", .since = 12, .capability = "terminal-reap-v1", .stream = null },
+    .{ .name = "set-terminal-tail-pin", .authority = "control", .since = 12, .capability = "terminal-tail-pin-v1", .stream = null },
     .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },
     .{ .name = "set-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-workspace-metadata", .authority = "control", .since = 12, .capability = "workspace-metadata-v1", .stream = null },

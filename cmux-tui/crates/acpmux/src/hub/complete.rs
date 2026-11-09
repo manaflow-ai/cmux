@@ -199,13 +199,14 @@ impl Hub {
         spawn.env = env;
         // The harness's own command line rules: login env, nested-agent and
         // caller markers scrubbed, profile secrets resolved, route unsets.
-        let mut cmd = crate::agent::harness_command(
+        let mut cmd = crate::agent::harness_command_ready(
             name,
             &spawn,
             &cwd,
             Some((inv.program.clone(), inv.args.clone())),
             None,
         )
+        .await
         .map_err(|e| failed(format!("{e:#}")))?;
         for (key, value) in &inv.env_set {
             cmd.env(key, value);

@@ -1450,6 +1450,12 @@ impl WorkspaceRegistry {
     }
 
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
+        #[cfg(test)]
+        if self.topology_snapshot_failures_remaining.get() > 0 {
+            self.topology_snapshot_failures_remaining
+                .set(self.topology_snapshot_failures_remaining.get() - 1);
+            anyhow::bail!("injected topology snapshot failure");
+        }
         load_resource_topology(
             &self.connection.get(),
             self.session_id.clone(),

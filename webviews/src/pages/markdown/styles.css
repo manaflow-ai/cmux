@@ -698,6 +698,66 @@ body {
   user-select: none;
 }
 
+/* A shell block's Run controls (runButtons.ts) sit in the language row, on its left. They are placed
+   over the row, never in the flow, so mounting them as the block scrolls near and the destructive
+   question that replaces Run never move the code. */
+.md-run {
+  position: absolute;
+  top: 0.35em;
+  left: 0.8em;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  max-width: calc(100% - 6em);
+  line-height: 1.2;
+  font-size: var(--cmux-md-toolbar-font-size);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.md-run-button {
+  border: 0;
+  padding: 0 4px;
+  margin: 0 -4px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cmux-md-faint-color);
+  font: inherit;
+  line-height: inherit;
+}
+
+.md-run-button::before {
+  content: "\25B6\FE0E";
+  margin-inline-end: 4px;
+  font-size: 0.75em;
+}
+
+/* The question's Run and Cancel, and the Sent state, are words only. */
+.md-run[data-state] .md-run-button::before {
+  content: none;
+}
+
+.md-run-button:hover,
+.md-run-button:focus-visible {
+  color: var(--cmux-md-text-color);
+  background: var(--cmux-md-accent-background);
+}
+
+.md-run[data-state="sent"] .md-run-button {
+  color: var(--cmux-md-text-color);
+}
+
+.md-run-ask {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cmux-md-text-color);
+}
+
+.md-run-confirm {
+  font-weight: 600;
+  color: var(--cmux-md-text-color);
+}
+
 .md-code [style*="--md-tok-light"] {
   color: var(--md-tok-light);
 }

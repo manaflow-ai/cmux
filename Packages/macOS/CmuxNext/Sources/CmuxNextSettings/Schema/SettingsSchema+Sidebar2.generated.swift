@@ -217,6 +217,16 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "minimal", "hover", "hide", "show", "controls", "buttons", "search", "profile", "spaces", "footer", "clean"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.floatOnHoverPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.floatOnHover", "Float Hidden Sidebar on Hover"),
+                help: SettingsText.keyed("settings.sidebar.floatOnHover.help", "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.floatOnHoverDefault),
+                keywords: ["sidebar", "float", "floating", "hover", "peek", "edge", "overlay", "reveal", "hidden", "auto hide"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.minimalPath,
                 section: .appearance,
                 group: group,

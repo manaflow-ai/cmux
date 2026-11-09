@@ -695,8 +695,11 @@ frames a previous run left in the WAL, so a reader compares two reads (the
 bytes one change writes). `registry_wal_file_bytes` is the registry's WAL file
 size now and `registry_wal_file_high_water_bytes` the largest size seen since
 the daemon started: a reader that pins an old snapshot keeps every later
-commit in the WAL, and the syncer brings the file back under 64 MiB once the
-WAL is free again. Daemons older than each field omit it.
+commit in the WAL, and the file shrinks to 64 MiB at the first commit after a
+checkpoint copied the whole WAL and the last reader of the old WAL ended (a
+read transaction still open after the checkpoint delays it); an idle registry
+keeps its size. Daemons
+older than each field omit it.
 
 `locks` reports the workspace registry lock (`registry`) and the mux state
 lock (`state`) by acquiring site, so a convoy names the code that holds it.
@@ -5016,6 +5019,53 @@ kept terminal with no tab placement attaches this way and takes geometry
 like a placed one (`set-client-sizing`, `resize-attached-view`,
 `release-attached-view-size`): its attached views are not treated as views of
 a closed tab.
+
+### set-terminal-tail-pin
+
+| Field | Value |
+| --- | --- |
+| name | `set-terminal-tail-pin` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `terminal-tail-pin-v1` |
+
+Pins (`pinned:true`) or unpins one terminal's last output line under its
+workspace in the sidebar. A pin publishes the screen's last non-empty line at
+once; after that the owner keeps the last non-empty line the terminal printed
+(a line ends at LF or CR, so a progress bar redrawn after CR shows its newest
+frame), strips its escapes and control characters, folds runs of spaces, cuts
+it to 160 characters, and writes it as the workspace status entry
+`tail:<term id>` (icon `terminal`, owner and target the terminal) at most twice
+a second. The output reader only updates the line in memory; one owner thread
+makes the commits and runs only while a terminal is pinned. Unpinning removes
+the entry; the terminal's exit removes it through its owner. A tab moved to
+another workspace moves the entry with its next line. Pins live in the owner's
+memory: an owner restart unpins every terminal and removes the tail entries an
+earlier run left. Keys starting with `tail:term_` are reserved for these
+entries: `workspace_status.set` refuses one from any caller but the owner
+itself. An incognito terminal is refused (`terminal_private`), and a pin ends
+once its terminal turns private, so its output never reaches the status store.
+When the tab the pin was made from closes, the pin follows another tab that
+shows the terminal, or ends. The native sidebar draws workspace status entries
+when its Agent Status row element is on (`sidebar.workspaceRow.agentStatus`,
+off by default).
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` or null | exactly one of `surface`/`terminal` | A PTY surface |
+| `terminal` | string or null | exactly one of `surface`/`terminal` | Public `term_` id of a terminal with a tab |
+| `pinned` | boolean | required | true pins, false unpins |
+
+Errors: `surface_not_found`, `terminal_not_found` (no tab shows the terminal),
+`not_a_terminal`, `terminal_not_hosted`, and `bad request` when both or
+neither target is given.
+
+Result:
+
+```text
+object{terminal:string, pinned:bool}
+```
 
 ### terminal-last-command
 
@@ -9595,7 +9645,9 @@ an agent or an MCP server, and every unknown param is
 `agent_session.bad_request`. Other error codes: `agent_session.not_trusted`,
 `agent_session.unavailable` (no acpmux), `agent_session.not_attached`,
 `agent_session.limit` (8 attachments per connection, 64 per daemon, 8 calls in
-flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
+flight per attachment), `agent_session.timeout` (5 s; 30 s for a prompt's
+acceptance, which a chat started a moment before can take longer than 5 s to
+give), `agent_session.refused`
 (acpmux refused), `agent_session.bad_list` (acpmux's session list could not be
 read whole: a bad or repeated cursor, a page with no `sessions`, or a page after
 the first that failed; an attach whose watch list does so is refused, and

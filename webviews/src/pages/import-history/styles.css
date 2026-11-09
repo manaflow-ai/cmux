@@ -213,7 +213,7 @@
 /* A pasted summary opens under its row. */
 .history-paste {
   margin-block: var(--ds-space-2) var(--ds-space-1);
-  margin-inline-start: calc(var(--ds-icon-14) + var(--ds-space-2));
+  margin-inline-start: var(--history-title-inset);
 }
 .history-paste p {
   margin: 0 0 var(--ds-space-2);

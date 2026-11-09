@@ -283,15 +283,24 @@ public struct DaemonLauncher: Sendable {
         return "cmux-app-\(cleaned)"
     }
 
-    /// `~/Library/Application Support/cmux/tags/<tag>/tui`.
+    /// `~/Library/Application Support/cmux-next/tags/<tag>/tui`.
     public static func tagStateDirectory(tag: String) -> URL {
         tagStateDirectory(tag: tag, applicationSupport: applicationSupportDirectory())
     }
 
-    /// `<applicationSupport>/cmux/tags/<tag>/tui`.
+    /// `<applicationSupport>/cmux-next/tags/<tag>/tui`.
     public static func tagStateDirectory(tag: String, applicationSupport: URL) -> URL {
         let component = (try? sessionName(tag: tag).dropFirst("cmux-app-".count)).map(String.init) ?? "default"
-        return applicationSupport.appendingPathComponent("cmux/tags/\(component)/tui", isDirectory: true)
+        return nextSupport(applicationSupport).appendingPathComponent("tags/\(component)/tui", isDirectory: true)
+    }
+
+    /// NEXT's own folder in `applicationSupport`, `cmux-next`, which holds the
+    /// daemon state of every build (``BuildIdentity/daemonStateDirectory(appSupport:)``).
+    /// Classic cmux owns `cmux` beside it: NEXT keeps nothing there, so removing
+    /// classic never removes NEXT's workspaces (``StateFolderMove`` moved what
+    /// older builds kept there).
+    public static func nextSupport(_ applicationSupport: URL = applicationSupportDirectory()) -> URL {
+        applicationSupport.appendingPathComponent("cmux-next", isDirectory: true)
     }
 
     /// The user's `~/Library/Application Support`.

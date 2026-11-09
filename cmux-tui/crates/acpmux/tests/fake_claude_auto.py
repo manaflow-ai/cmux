@@ -11,12 +11,14 @@ anything else runs the call.
 A prompt "auto-tools: <JSON>" runs the calls in the JSON list, each `[tool_name, tool_input]`:
 `Bash` runs `command` with `sh -c` in the working directory, `Write` writes `content` to
 `file_path`, any other tool does nothing. FAKE_AUTO_LOG=<path> gets one JSON line per call:
-`{"tool", "input", "ran", "reason"}`. The turn's result text lists the same.
+`{"tool", "input", "ran", "reason", "hookMs"}` (`hookMs`: each hook callback's id and how long it
+took to be answered, `{"callback", "ms"}`). The turn's result text lists the same.
 """
 import json
 import os
 import subprocess
 import sys
+import time
 
 SESSION = "auto-claude-session"
 for flag in ("--session-id", "--resume"):
@@ -85,9 +87,14 @@ def matches(matcher, tool):
     return matcher in ("*", "") or tool in matcher.split("|")
 
 
+# Each hook callback's id and milliseconds to its answer, for the last call judged.
+GATE_MS = []
+
+
 def judge(tool, tool_input, use_id, cwd):
     """What the registered PreToolUse hooks decide for one call: (runs, reason)."""
     decisions = []
+    del GATE_MS[:]
     for matcher, ids in PRE_TOOL:
         if not matches(matcher, tool):
             continue
@@ -95,8 +102,11 @@ def judge(tool, tool_input, use_id, cwd):
             hook_input = {"session_id": SESSION, "cwd": cwd, "permission_mode": MODE,
                           "hook_event_name": "PreToolUse", "tool_name": tool,
                           "tool_input": tool_input, "tool_use_id": use_id}
+            started = time.monotonic()
             response = request({"subtype": "hook_callback", "callback_id": callback,
                                 "input": hook_input, "tool_use_id": use_id})
+            GATE_MS.append({"callback": callback,
+                            "ms": round((time.monotonic() - started) * 1000, 3)})
             if response.get("subtype") != "success":
                 decisions.append(("deny", "hook failed: %s" % response.get("error")))
                 continue
@@ -134,7 +144,8 @@ def turn(text):
             runs, reason = judge(tool, tool_input, "toolu_auto_%d" % i, cwd)
             if runs:
                 run(tool, tool_input, cwd)
-            record = {"tool": tool, "input": tool_input, "ran": runs, "reason": reason}
+            record = {"tool": tool, "input": tool_input, "ran": runs, "reason": reason,
+                      "hookMs": list(GATE_MS)}
             lines.append(json.dumps(record))
             if os.environ.get("FAKE_AUTO_LOG"):
                 with open(os.environ["FAKE_AUTO_LOG"], "a") as f:

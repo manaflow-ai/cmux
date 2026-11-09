@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6d7c92f5b1d9e0b4dd9c06d311825cba9eda6be6868e15d49ef2b233ada00871.
+// cmux-tui mux protocol 12, IR 5ef822cc878dab6ba9ce54b8407eeac042d68f91b1451a12c677cea777789573.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3665,6 +3665,16 @@ pub struct SetTerminalKeepRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTerminalTailPinRequest {
+    pub pinned: bool,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetViewportPaneWidthRequest {
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5677,6 +5687,10 @@ impl CmuxClient {
 
     pub fn set_terminal_keep(&mut self, request: SetTerminalKeepRequest) -> Result<T::SetTerminalKeepResult> {
         self.execute(&SET_TERMINAL_KEEP_METADATA, &request)
+    }
+
+    pub fn set_terminal_tail_pin(&mut self, request: SetTerminalTailPinRequest) -> Result<T::SetTerminalTailPinResult> {
+        self.execute(&SET_TERMINAL_TAIL_PIN_METADATA, &request)
     }
 
     pub fn set_viewport_pane_width(&mut self, request: SetViewportPaneWidthRequest) -> Result<SetViewportPaneWidthResult> {

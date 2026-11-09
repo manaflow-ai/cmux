@@ -60,7 +60,6 @@ jobs:
           - group: mobile-core
             packages: >-
               Packages/Shared/CMUXMobileCore
-              Packages/Shared/CmuxSyncStore
               Packages/Shared/CmuxTheme
               Packages/iOS/CmuxMobilePairedMac
               Packages/iOS/CmuxMobileShellModel

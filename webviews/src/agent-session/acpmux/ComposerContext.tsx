@@ -54,7 +54,7 @@ import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
-import { isAgentHome, projectLabel } from "./sessionList";
+import { isAgentHome, projectLabel, SessionsBy } from "./sessionList";
 import { translate as t, useT } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { CloudEnvironmentChip, useCloudEnvironmentControl, type CloudEnvironmentDropUp } from "./CloudEnvironmentChip";
@@ -82,6 +82,14 @@ export type StripLayout = "where-machine" | "where-machine-always" | "cloud-togg
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Session = AcpmuxSnapshot["sessions"][number];
+const NO_SESSIONS: readonly Session[] = [];
+/// What the machine and folder lists read of a chat (`availableComputers`, `availableFolders`).
+const placeFields = (session: Session): readonly unknown[] => [
+  session.cwd,
+  session.peer,
+  session.hostKind,
+  session.host,
+];
 /// `section`: a machine list's section name; `disabled`: listed, but not a pick (still connecting or down).
 type Location = {
   id: string;
@@ -112,7 +120,7 @@ const NO_OFFLOADS: readonly OffloadKind[] = [];
 /// height, so a project chosen later or a host name that arrives late moves nothing.
 export function ComposerContext({
   summary,
-  sessions = [],
+  sessions: listedSessions = NO_SESSIONS,
   peers = [],
   peerKinds = NO_PEER_KINDS,
   peerConnected = NO_PEER_CONNECTED,
@@ -156,7 +164,7 @@ export function ComposerContext({
   cloudEnvironmentDropUp,
 }: {
   summary?: Summary;
-  sessions?: Session[];
+  sessions?: readonly Session[];
   peers?: string[];
   /// Each peer's transport (`AcpmuxSnapshot.peerKinds`): its section in the environment picker.
   peerKinds?: Record<string, "ssh" | "cloud">;
@@ -264,6 +272,12 @@ export function ComposerContext({
   /// Gallery seam: how the Environment chip's drop-up draws its rows (`list` ships).
   cloudEnvironmentDropUp?: CloudEnvironmentDropUp;
 }) {
+  // The machines and folders read only where each chat runs (`placeFields`): another chat's status,
+  // unread, title or cost changing leaves the list they are made from as it is, so they are not made
+  // again from every listed chat (sessionList.ts `SessionsBy`).
+  const placeLists = useRef<SessionsBy | null>(null);
+  placeLists.current ??= new SessionsBy(placeFields);
+  const sessions = placeLists.current.of(listedSessions);
   const t = useT();
   const composerSettings = useComposerSettings();
   const newChat = !started && onProject !== undefined;
@@ -1157,7 +1171,7 @@ const computerId = (summary?: Summary): string => chatComputerId(summary);
 
 function availableComputers(
   summary: Summary | undefined,
-  sessions: Session[],
+  sessions: readonly Session[],
   peers: string[],
   peerKinds: Record<string, "ssh" | "cloud">,
   localName: string | undefined,
@@ -1184,7 +1198,7 @@ function formatFreeMemory(gb: number): string {
   return Number.isInteger(gb) ? String(gb) : gb.toFixed(1);
 }
 
-function availableFolders(summary: Summary | undefined, sessions: Session[], computer: string): Location[] {
+function availableFolders(summary: Summary | undefined, sessions: readonly Session[], computer: string): Location[] {
   const seen = new Set<string>();
   const folders: Location[] = [];
   const add = (cwd?: string) => {

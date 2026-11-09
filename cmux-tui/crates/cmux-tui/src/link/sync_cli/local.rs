@@ -3,7 +3,7 @@
 //!
 //! In a git working copy (its top folder; a subfolder is refused): the
 //! files `git ls-files --cached --others --exclude-standard` names (tracked,
-//! and untracked ones that are not ignored, minus untracked `.env*` files,
+//! and untracked ones that are not ignored, minus untracked `.env*` and credential files,
 //! which are shared only on purpose), plus the repository itself as
 //! `.git/`, so the branch, HEAD, index, stash and uncommitted changes
 //! arrive exactly. What goes of the repository is allow-listed
@@ -23,7 +23,8 @@
 //!
 //! Outside git, every regular file of the folder goes, except for a chat's
 //! copy the dependency and build folders its project rebuilds on the
-//! machine ([`skips::heavy`]) and secrets (`.env*`, key files: [`skips::secret`]).
+//! machine ([`skips::heavy`]) and secrets (`.env*`, key files: [`skips::secret`];
+//! credential folders and files at any depth: [`skips::credential`]).
 //! A symlink whose target stays inside the folder goes as a symlink
 //! ([`super::links`]); other symlinks, special files and names the machine
 //! cannot hold (control characters, over 255 bytes, not UTF-8) are skipped. Every skip is
@@ -33,12 +34,14 @@
 use cmux_process::Command;
 use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::ffi::OsStrExt as _;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, bail};
 
+use super::place;
 use super::skips::{self, Skips, Why};
+
+pub(super) use super::listed::{add_entry, add_working, entry_in, git_text, open_listed, walk_in};
 
 /// Where one file to push comes from.
 #[derive(Clone, Debug)]
@@ -68,6 +71,10 @@ pub(super) struct LocalFile {
     /// 0644, 0755, 0600 or 0700: the executable bit and whether group and
     /// others could read it here.
     pub permissions: u32,
+    /// The device and inode a [`Source::File`] had when it was listed: the
+    /// read refuses another file found at its path since (a folder above it
+    /// swapped for a symlink), see [`open_listed`].
+    pub id: Option<(u64, u64)>,
 }
 
 /// The files to push and what was skipped.
@@ -177,32 +184,45 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
         return Ok(set);
     };
     set.git = true;
+    let top = place::Dir::open(folder)?;
     for (path, untracked) in working_files(folder, &mut set.skipped)? {
-        if untracked && path.rsplit('/').next().is_some_and(|name| name.starts_with(".env")) {
+        // An untracked credential file never goes either (tracked ones were committed on purpose).
+        if untracked
+            && (path.rsplit('/').next().is_some_and(|name| name.starts_with(".env"))
+                || skips::credential(&path, false).is_some())
+        {
             set.skipped += 1;
             continue;
         }
-        add(&mut set, path.clone(), &folder.join(&path))?;
+        add_working(&mut set, &top, folder, &path)?;
+    }
+    // A share of files sends no git state (`cmux link access` keeps no `.git` path), so it reads none:
+    // an unreadable reflog or config never fails it.
+    if rules == Rules::Share {
+        return Ok(set);
     }
     let linked = git.own != git.common;
-    walk(&git.common, &git.common, &mut |relative, path| {
+    let common = place::Dir::open(&git.common)?;
+    walk_in(&common, "", &mut |relative, dir, name, entry| {
         if linked && is_per_worktree(relative) {
             return Ok(());
         }
-        add_git(&mut set, relative, path)
+        add_git(&mut set, relative, &git.common.join(relative), dir, name, entry)
     })?;
     if linked {
-        walk(&git.own, &git.own, &mut |relative, path| {
+        let own = place::Dir::open(&git.own)?;
+        walk_in(&own, "", &mut |relative, dir, name, entry| {
             if relative == "commondir" || relative == "gitdir" {
                 return Ok(());
             }
-            add_git(&mut set, relative, path)
+            add_git(&mut set, relative, &git.own.join(relative), dir, name, entry)
         })?;
     }
     // Borrowed objects go after the repository's own, which win a name both
     // hold (a loose object or pack of the same hash is the same data).
     for borrowed in borrowed_objects(&git.common.join("objects"))? {
-        walk(&borrowed, &borrowed, &mut |relative, path| {
+        let handle = place::Dir::open(&borrowed)?;
+        walk_in(&handle, "", &mut |relative, dir, name, entry| {
             if borrowed_skipped(relative) {
                 return Ok(());
             }
@@ -216,7 +236,7 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
             if set.files.contains_key(&target) {
                 return Ok(());
             }
-            add(&mut set, target, path)
+            add_entry(&mut set, target, &borrowed.join(relative), dir, name, entry)
         })?;
     }
     Ok(set)
@@ -318,6 +338,7 @@ fn listed_files(folder: &Path, enter: &dyn Fn(&str) -> bool) -> anyhow::Result<L
         bail!("{} is not in its repository's working copy {}", folder.display(), top.display());
     }
     set.git = true;
+    let handle = place::Dir::open(folder)?;
     // Run in the folder, git lists only what is under it, by paths from it.
     let mut refused: BTreeSet<String> = BTreeSet::new();
     for (path, untracked) in working_files(folder, &mut set.skipped)? {
@@ -337,7 +358,7 @@ fn listed_files(folder: &Path, enter: &dyn Fn(&str) -> bool) -> anyhow::Result<L
             }
             continue;
         }
-        add(&mut set, path.clone(), &folder.join(&path))?;
+        add_working(&mut set, &handle, folder, &path)?;
     }
     Ok(set)
 }
@@ -561,7 +582,14 @@ fn is_per_worktree(relative: &str) -> bool {
 
 /// Adds the file at `relative` of a git folder as `.git/<relative>`, by the
 /// rules in the module doc.
-fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()> {
+fn add_git(
+    set: &mut LocalSet,
+    relative: &str,
+    path: &Path,
+    dir: &place::Dir,
+    name: &str,
+    entry: place::Entry,
+) -> anyhow::Result<()> {
     let parts: Vec<&str> = relative.split('/').collect();
     if !GIT_TOP.contains(&parts[0]) || relative.ends_with(".lock") {
         return Ok(());
@@ -579,52 +607,25 @@ fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()
         return Ok(());
     }
     let target = format!(".git/{relative}");
-    let name = parts.last().copied().unwrap_or_default();
+    let read = || git_text(dir, name, &entry, path);
     if data_at.is_none() && matches!(name, "config" | "config.worktree") {
-        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let Some(bytes) = read()? else { return Ok(()) };
+        let text = String::from_utf8_lossy(&bytes).into_owned();
         let source = Source::Bytes(clean_config(&text).into_bytes());
-        set.files.insert(target, LocalFile { source, permissions: 0o644 });
+        set.files.insert(target, LocalFile { source, permissions: 0o644, id: None });
         return Ok(());
     }
     if data_at.is_some_and(|index| parts[index] == "logs") {
-        let text = String::from_utf8_lossy(&std::fs::read(path).unwrap_or_default()).into_owned();
+        let Some(bytes) = read()? else { return Ok(()) };
+        let text = String::from_utf8_lossy(&bytes).into_owned();
         let cleaned: String = text.split_inclusive('\n').map(without_user_info).collect();
         set.files.insert(
             target,
-            LocalFile { source: Source::Bytes(cleaned.into_bytes()), permissions: 0o644 },
+            LocalFile { source: Source::Bytes(cleaned.into_bytes()), permissions: 0o644, id: None },
         );
         return Ok(());
     }
-    add(set, target, path)
-}
-
-/// Adds the regular file at `path` as `relative`; anything else is named
-/// as skipped (a symlink, a socket, a name the machine cannot hold). A file
-/// deleted from the working tree is left out.
-fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> {
-    match std::fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_file() && holdable(&relative) => {
-            let permissions = permissions_of(meta.permissions().mode());
-            set.files.insert(
-                relative,
-                LocalFile { source: Source::File(path.to_path_buf()), permissions },
-            );
-        }
-        Ok(meta) if meta.file_type().is_symlink() && holdable(&relative) => {
-            match super::links::local(set.skips.top(), &relative, path)
-                .with_context(|| format!("cannot read {}", path.display()))?
-            {
-                super::links::Local::Keep(kept) => {
-                    set.links.insert(relative, kept);
-                }
-                super::links::Local::Skip(why) => set.skips.note(&relative, why),
-            }
-        }
-        Ok(meta) => set.skips.note_entry(&relative, path, &meta),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
-    }
-    Ok(())
+    add_entry(set, target, path, dir, name, entry)
 }
 
 /// Whether the machine's file owner can hold a file at `relative`: no name
@@ -648,7 +649,12 @@ pub(super) fn permissions_of(mode: u32) -> u32 {
 }
 
 /// Adds every file below `dir` of a folder outside git (`top`), by the
-/// module doc's rules. Folders are entered without following symlinks.
+/// module doc's rules. Each folder is opened by name in the folder that
+/// listed it, never through a symlink ([`place::Dir::child`]), and listed
+/// through that handle: a folder swapped for a symlink after its parent was
+/// listed is never walked through, so nothing outside `top` is listed. A
+/// folder `enter` refuses (by its path from `top`) is never entered and counts
+/// once as skipped.
 fn walk_plain(
     set: &mut LocalSet,
     rules: Rules,
@@ -656,11 +662,42 @@ fn walk_plain(
     top: &Path,
     dir: &Path,
 ) -> anyhow::Result<()> {
-    let entries =
-        std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))?;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
+    let mut handle =
+        place::Dir::open(top).with_context(|| format!("cannot list {}", top.display()))?;
+    let below =
+        dir.strip_prefix(top).with_context(|| format!("{} is not in the folder", dir.display()))?;
+    for name in below.iter() {
+        let Some(name) = name.to_str() else { return Ok(()) };
+        match handle.child(name) {
+            Ok(Some(child)) => handle = child,
+            Ok(None) => return Ok(()),
+            Err(error) if swapped(&error) => return Ok(()),
+            Err(error) => {
+                return Err(error).with_context(|| format!("cannot list {}", dir.display()));
+            }
+        }
+    }
+    walk_plain_in(set, rules, enter, top, dir, &handle)
+}
+
+/// Whether opening a folder failed because something else is at its name
+/// now (a symlink, a file).
+pub(super) fn swapped(error: &std::io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR))
+}
+
+/// [`walk_plain`] in the folder `dir` that `handle` holds open.
+fn walk_plain_in(
+    set: &mut LocalSet,
+    rules: Rules,
+    enter: &dyn Fn(&str) -> bool,
+    top: &Path,
+    dir: &Path,
+    handle: &place::Dir,
+) -> anyhow::Result<()> {
+    let names = handle.names().with_context(|| format!("cannot list {}", dir.display()))?;
+    for name in names {
+        let path = dir.join(&name);
         let Ok(relative) = path.strip_prefix(top) else { continue };
         let Some(relative) = relative.to_str() else {
             set.skips.note(&relative.to_string_lossy(), Why::NameNotUtf8);
@@ -670,46 +707,38 @@ fn walk_plain(
             continue;
         }
         let name = relative.rsplit('/').next().unwrap_or(relative);
-        if entry.file_type()?.is_dir() {
-            if rules == Rules::Copy && skips::heavy(dir, name) {
-                set.skips.note(&format!("{relative}/"), Why::Heavy);
-            } else if !enter(relative) {
-                set.skipped = set.skipped.saturating_add(1);
-            } else {
-                walk_plain(set, rules, enter, top, &path)?;
+        let entry =
+            handle.entry(name).with_context(|| format!("cannot read {}", path.display()))?;
+        match entry {
+            place::Entry::Missing => {}
+            place::Entry::Dir => {
+                if let Some(why) =
+                    skips::credential(relative, true).filter(|_| rules == Rules::Copy)
+                {
+                    set.skips.note(&format!("{relative}/"), why);
+                } else if rules == Rules::Copy && skips::heavy(dir, name) {
+                    set.skips.note(&format!("{relative}/"), Why::Heavy);
+                } else if !enter(relative) {
+                    set.skipped = set.skipped.saturating_add(1);
+                } else {
+                    match handle.child(name) {
+                        Ok(Some(child)) => walk_plain_in(set, rules, enter, top, &path, &child)?,
+                        Ok(None) => {}
+                        // A symlink or file there since it was listed: as any entry.
+                        Err(error) if swapped(&error) => {
+                            let now = handle.entry(name)?;
+                            if !matches!(now, place::Entry::Dir) {
+                                entry_in(set, rules, relative, &path, handle, name, now)?;
+                            }
+                        }
+                        Err(error) => {
+                            return Err(error)
+                                .with_context(|| format!("cannot list {}", path.display()));
+                        }
+                    }
+                }
             }
-        } else if let Some(why) = skips::secret(name).filter(|_| rules == Rules::Copy) {
-            set.skips.note(relative, why);
-        } else {
-            add(set, relative.to_string(), &path)?;
-        }
-    }
-    Ok(())
-}
-
-/// Calls `visit(relative, path)` for every non-folder entry below `dir`
-/// (`relative` to `top`). Folders are entered without following symlinks.
-fn walk(
-    top: &Path,
-    dir: &Path,
-    visit: &mut dyn FnMut(&str, &Path) -> anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    let entries =
-        std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))?;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        let Some(relative) = path.strip_prefix(top).ok().and_then(Path::to_str).map(str::to_string)
-        else {
-            continue;
-        };
-        if relative == ".DS_Store" {
-            continue;
-        }
-        if entry.file_type()?.is_dir() {
-            walk(top, &path, visit)?;
-        } else {
-            visit(&relative, &path)?;
+            other => entry_in(set, rules, relative, &path, handle, name, other)?,
         }
     }
     Ok(())
@@ -828,134 +857,5 @@ fn without_user_info(text: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use cmux_process::Command;
-    use std::path::Path;
-
-    use super::{Rules, below, borrowed_object, borrowed_skipped, collect, unquote};
-
-    /// Only a plain path below the folder is one of its files: a crafted
-    /// git index naming a root, `..` or an empty part names none.
-    #[test]
-    fn only_a_plain_path_is_below_the_folder() {
-        for kept in ["a.txt", "docs/guide.md", "a/.b/c"] {
-            assert!(below(kept), "{kept}");
-        }
-        for refused in ["", "/etc/passwd", "../x", "a/../../x", "a//b", "./a", "a/."] {
-            assert!(!below(refused), "{refused}");
-        }
-    }
-
-    #[test]
-    fn only_git_object_files_of_a_borrowed_store_go() {
-        let loose = format!("ab/{}", "c".repeat(38));
-        let loose_sha256 = format!("ab/{}", "c".repeat(62));
-        for goes in [
-            loose.as_str(),
-            loose_sha256.as_str(),
-            "pack/pack-0123abcd.pack",
-            "pack/pack-0123abcd.idx",
-            "pack/pack-0123abcd.rev",
-            "pack/pack-0123abcd.promisor",
-            "pack/pack-0123abcd.bitmap",
-            "pack/pack-0123abcd.mtimes",
-            "pack/pack-0123abcd.keep",
-            "info/commit-graph",
-            "info/commit-graphs/commit-graph-chain",
-            "info/commit-graphs/graph-0123abcd.graph",
-        ] {
-            assert!(borrowed_object(goes), "{goes}");
-        }
-        for stays in [
-            ".env",
-            "ab/.env",
-            "ab/cdef",
-            "AB/CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
-            "zz/cccccccccccccccccccccccccccccccccccccc",
-            "pack/.env",
-            "pack/pack-0123abcd.pack.lock",
-            "pack/pack-.pack",
-            "pack/notes.txt",
-            "info/exclude",
-            "info/commit-graphs/secret.txt",
-            "deep/er/file",
-        ] {
-            assert!(!borrowed_object(stays), "{stays}");
-        }
-    }
-
-    fn git(dir: &Path, args: &[&str]) {
-        let status = Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?}");
-    }
-
-    /// A stray file in a borrowed object folder (a `.env`, a note) never
-    /// goes; its loose objects and packs do.
-    #[test]
-    fn a_stray_file_in_a_borrowed_store_stays_here() {
-        let root = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(root.path()).unwrap();
-        let base = root.join("base");
-        std::fs::create_dir(&base).unwrap();
-        git(&base, &["init", "-q"]);
-        std::fs::write(base.join("a.txt"), "a\n").unwrap();
-        git(&base, &["add", "a.txt"]);
-        git(&base, &["commit", "-q", "-m", "packed"]);
-        git(&base, &["repack", "-q", "-a", "-d"]);
-        std::fs::write(base.join("b.txt"), "b\n").unwrap();
-        git(&base, &["add", "b.txt"]);
-        git(&base, &["commit", "-q", "-m", "loose"]);
-        let objects = base.join(".git/objects");
-        std::fs::write(objects.join(".env"), "TOKEN=x\n").unwrap();
-        std::fs::write(objects.join("pack/notes.txt"), "x\n").unwrap();
-        std::fs::create_dir(objects.join("stray")).unwrap();
-        std::fs::write(objects.join("stray/id_rsa"), "x\n").unwrap();
-        git(&root, &["clone", "-q", "--shared", "base", "copy"]);
-        let copy = root.join("copy");
-
-        let set = collect(&copy, Rules::Copy).unwrap();
-        let borrowed: Vec<&str> =
-            set.files.keys().filter_map(|path| path.strip_prefix(".git/objects/")).collect();
-        assert!(
-            borrowed.iter().any(|path| path.starts_with("pack/pack-") && path.ends_with(".pack")),
-            "no pack went: {borrowed:?}"
-        );
-        assert!(
-            borrowed.iter().any(|path| path.len() == 41 && path.as_bytes()[2] == b'/'),
-            "no loose object went: {borrowed:?}"
-        );
-        for stray in [".env", "pack/notes.txt", "stray/id_rsa", "info/alternates"] {
-            assert!(!borrowed.contains(&stray), "{stray} went: {borrowed:?}");
-        }
-        assert!(set.skipped >= 3, "the stray files were not counted: {}", set.skipped);
-    }
-
-    #[test]
-    fn an_alternates_line_is_a_path_plain_or_c_quoted() {
-        assert_eq!(unquote(b"/a/b/objects"), b"/a/b/objects");
-        assert_eq!(unquote(br#""/a b/\"q\"/\\/x\tz/\303\251""#), b"/a b/\"q\"/\\/x\tz/\xc3\xa9");
-        assert_eq!(unquote(b"\"unterminated"), b"\"unterminated");
-    }
-
-    #[test]
-    fn a_borrowed_store_keeps_its_own_alternates_and_indexes() {
-        for kept_here in [
-            "info/alternates",
-            "info/commit-graphs/commit-graph-chain",
-            "pack/multi-pack-index",
-            "pack/tmp_pack_x",
-            "pack/pack-1.idx.lock",
-        ] {
-            assert!(borrowed_skipped(kept_here), "{kept_here}");
-        }
-        for goes in ["pack/pack-1.pack", "pack/pack-1.idx", "pack/pack-1.promisor", "ab/cdef"] {
-            assert!(!borrowed_skipped(goes), "{goes}");
-        }
-    }
-}
+#[path = "local_tests.rs"]
+mod tests;
