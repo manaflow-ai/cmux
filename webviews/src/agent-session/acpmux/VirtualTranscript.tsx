@@ -3489,7 +3489,10 @@ function TranscriptView({
               rows.at(-2)?.id === oldRows.at(-2)?.id &&
               (tailNew?.id !== tailOld?.id || tailNew?.version !== tailOld?.version);
             const stepped = grewOnly && !(room > 0) && !held && !cardCleared;
-            const atOnce = dockMoved || !live || stepped || (slimFollow && !sentRows);
+            // The slim arm moves every pass's rows at once, the send's own among them: the sent prompt is
+            // in place in the frame after Return, and nothing settles after it (Leo, 2026-11-09: "the
+            // scroll up is extremely sluggish").
+            const atOnce = dockMoved || !live || stepped || slimFollow;
             // A row that came above the live line (not the reply's own growth) holds back up to the
             // trail bound, while the live line glides under it (followChase CHASE_ARRIVAL_HOLD_LINES).
             // The arrived row's room often lands a pass later (its measured height), so the passes
@@ -4130,7 +4133,8 @@ function TranscriptView({
     // Sent while scrolled up: the view glides down to the latest message on Jump to latest's ride
     // (one viewport at most, its curve and duration) instead of cutting there in one frame, and the
     // prompt's row and reply land on the moving end. Reduce Motion and motion off still cut.
-    if (!fromLatest && !reduce) {
+    // The slim arm cuts there too: the send's view is the latest message in the frame after Return.
+    if (!fromLatest && !reduce && !slimFollow) {
       rideToLatest(node, latest, false, false, true);
       followRequest.current = userScrollIntent(node).request();
       follow(true, "send");
@@ -4150,7 +4154,7 @@ function TranscriptView({
       // Rows this commit added that the placement pass left unfollowed (a held follow): they rise on
       // the send's glide too.
       if (chasing) {
-        if (fromLatest) chaseFollow(node, layout, rows);
+        if (fromLatest) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, slimFollow);
       } else if (fromLatest && top - before > 0.5) followGlide.current?.sent(thread.current, top - before);
     }
     // The kept place is the latest message again: a relaunch opens there.
@@ -4820,6 +4824,11 @@ function TranscriptView({
           ref={ref}
           className="acpmux-scroll"
           role="feed"
+          // The slim arm's send: the bubble only fades in where it lands, on a send step of at most
+          // 120 ms (conversation.css SEND-SLIM), never opening from the right on a clip the main thread
+          // paints (Leo, 2026-11-09: "the scroll up is extremely sluggish ... if I send in a prompt like
+          // this and it just lags, it's not a good look").
+          data-send-entrance={slimFollow ? "fade" : undefined}
           // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
           data-read-only-transcript={readOnly ? "" : undefined}
           // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).

@@ -27,6 +27,13 @@
 //                                      the rows changed (a row drawn below it is now above, or the other way). Leo,
 //                                      2026-11-09: "i hate the way when i send off a message it seems to move up and
 //                                      under your current running tool call or whatever". Target 0.
+//   ui.transcript.send.settled_ms      Return to the last frame, before the agent's first output, in which a row in view
+//                                      moved or the sent bubble first drew: the send's whole motion, end to end. Leo,
+//                                      2026-11-09: "the scroll up is extremely sluggish". Target 150 ms or less.
+//   ui.transcript.send.settle_steps    the frames in that span in which a row in view moved: one is the rise in one
+//                                      frame; more is a motion in steps (a glide, a settle after it).
+//   ui.transcript.send.place_frames    painted frames from the Return to the first one that draws the sent bubble where
+//                                      it rests (within 1 px in view). Target 1.
 //   ui.transcript.send.live_last_violations  frames in which the running turn's status line (the live zone's row,
 //                                      drawn below) is drawn and is not the transcript's last row. Target 0.
 // And a log of each jump: its frame, its time since the Return, what moved and by how much.
@@ -39,7 +46,9 @@
 //               busy-waits MS ms, and a 120 ms long task runs every 500 ms ("everything's just a bit slow rn").
 // The mode ("open", "mid-turn", either with "+loadMS") is in the report's header and the JSON; the metric names stay.
 //   bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms 1500] [--mid-turn]
-//     [--load MS] [--arm NAME] [--chat-motion full|minimal] [--json FILE]
+//     [--load MS] [--arm NAME] [--chat-motion full|minimal] [--history N] [--json FILE]
+//   --history N  the chat holds N finished turns before the send (4 by default): `--history 1000` is a chat of
+//               Leo's real size, about 3000 rows (Leo, 2026-11-09: "the scroll up is extremely sluggish").
 //   --chat-motion  pins the chat's motion on the page (frameBudget.ts): `full` keeps the frame budget from turning
 //               minimal motion on, `minimal` starts in it, to measure the budget's own cost and the minimal mode.
 //   --arm NAME  the follow-motion experiment's arm for the page (followMotion.experiment.ts), so one checkout can
@@ -65,24 +74,27 @@ const MID_TURN = argv.includes("--mid-turn");
 const LOAD_MS = Number(flag("--load") ?? 0);
 const ARM = flag("--arm");
 const CHAT_MOTION = flag("--chat-motion");
+const HISTORY = Number(flag("--history") ?? 4);
 /// The flags that take a value: a number after one of them is that value, not the rounds.
-const VALUED = new Set(["--engines", "--think-ms", "--json", "--load", "--arm", "--chat-motion"]);
+const VALUED = new Set(["--engines", "--think-ms", "--json", "--load", "--arm", "--chat-motion", "--history"]);
 const ROUNDS = Number(argv.find((arg, index) => /^\d+$/.test(arg) && !VALUED.has(argv[index - 1] ?? "")) ?? 3);
 if (
   !Number.isInteger(ROUNDS) ||
   ROUNDS < 1 ||
   !Number.isFinite(LOAD_MS) ||
+  !Number.isInteger(HISTORY) ||
+  HISTORY < 1 ||
   (CHAT_MOTION !== undefined && CHAT_MOTION !== "full" && CHAT_MOTION !== "minimal") ||
   LOAD_MS < 0 ||
   ENGINES.some((name) => name !== "chromium" && name !== "webkit")
 ) {
   console.error(
-    "usage: bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms N] [--mid-turn] [--load MS] [--arm NAME] [--chat-motion full|minimal]",
+    "usage: bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms N] [--mid-turn] [--load MS] [--arm NAME] [--chat-motion full|minimal] [--history N]",
   );
   process.exit(2);
 }
 /// What the round sends into, for the report and the JSON: "open" (an idle chat) or "mid-turn", "+loadN" under load.
-export const MODE = `${MID_TURN ? "mid-turn" : "open"}${LOAD_MS > 0 ? `+load${LOAD_MS}` : ""}${ARM ? `+arm=${ARM}` : ""}${CHAT_MOTION ? `+${CHAT_MOTION}` : ""}`;
+export const MODE = `${MID_TURN ? "mid-turn" : "open"}${LOAD_MS > 0 ? `+load${LOAD_MS}` : ""}${ARM ? `+arm=${ARM}` : ""}${CHAT_MOTION ? `+${CHAT_MOTION}` : ""}${HISTORY !== 4 ? `+history${HISTORY}` : ""}`;
 /// A row that moves more than this in one frame jumped; under it, a step of a motion.
 export const JUMP_PX = 2;
 
@@ -109,7 +121,7 @@ const summary = () => ({
   queuePaused: false,
   queued: 0,
   queue: [],
-  turnCount: 4,
+  turnCount: HISTORY,
   updatedAt: Date.now(),
 });
 const update = (body: Record<string, unknown>) => ({
@@ -125,7 +137,7 @@ const record = (dir: string, kind: string, msg: Record<string, unknown>): Event 
   events.push(event);
   return event;
 };
-for (let turn = 0; turn < 4; turn++) {
+for (let turn = 0; turn < HISTORY; turn++) {
   record("mux", "user_message", { text: `Check step ${turn + 1} of the retry plan`, promptId: `p-${turn}` });
   record("mux", "turn_started", {});
   record(
@@ -429,6 +441,12 @@ export type Round = {
   bubbleMoves: BubbleMove[];
   /** The frames in which the running turn's status line is drawn and is not the last row. */
   liveLast: LiveLast[];
+  /** Return to the send's last motion before the agent's first output (ms). */
+  settledMs: number | null;
+  /** Frames in that span in which a row in view moved. */
+  settleSteps: number;
+  /** Painted frames from the Return to the first that draws the bubble where it rests. */
+  placeFrames: number | null;
 };
 /// A frame in which the sent bubble moved in the thread by `dy`, or rows went from one side of it to the other
 /// (`crossed`: the rows that did).
@@ -552,7 +570,41 @@ export function measure(
     frame.order.some((row) => row.id.startsWith("summary-") && !earlier.has(row.id)),
   );
   const running = ended < 0 ? frames : frames.slice(0, ended);
+  // The send's own motion: from the Return to the agent's first output (the first thought, or the think time), the
+  // frames in which a row in view moved, and where the bubble rests at the span's end.
+  const quietUntil = thoughtAt || sentAt + THINK_MS;
+  const from = frames.findIndex((frame) => frame.at >= sentAt);
+  const span = from < 0 ? [] : frames.slice(Math.max(0, from - 1)).filter((frame) => frame.at < quietUntil);
+  // The frame before the Return, the first one moves are read against; not one of the send's own.
+  const opening = from > 0 ? 1 : 0;
+  const sentIn = (frame: Frame) => {
+    const id = frame.order.find((row) => row.sent)?.id;
+    return id === undefined ? undefined : frame.rows.find((row) => row.id === id);
+  };
+  let settledAt: number | undefined;
+  let settleSteps = 0;
+  for (let index = 1; index < span.length; index++) {
+    const before = new Map(span[index - 1]!.rows.map((row) => [row.id, row]));
+    // The transcript's rows: the composer's card shrinking as it lets the prompt go is the composer's own.
+    const moved = span[index]!.rows.some((row) => {
+      if (row.id === "composer") return false;
+      const was = before.get(row.id);
+      return was !== undefined && (Math.abs(row.y - was.y) > 0.5 || Math.abs(row.height - was.height) > 0.5);
+    });
+    if (moved) {
+      settleSteps += 1;
+      settledAt = span[index]!.at;
+    }
+  }
+  const sent = span.slice(opening);
+  const firstSent = sent.find((frame) => sentIn(frame) !== undefined);
+  if (firstSent && (settledAt === undefined || firstSent.at > settledAt)) settledAt = firstSent.at;
+  const rest = sent.length ? sentIn(sent.at(-1)!) : undefined;
+  const placedAt = rest ? sent.findIndex((frame) => Math.abs((sentIn(frame)?.y ?? Number.NaN) - rest.y) <= 1) : -1;
   return {
+    settledMs: settledAt === undefined ? null : settledAt - sentAt,
+    settleSteps,
+    placeFrames: placedAt < 0 ? null : placedAt + 1,
     rowMs: bubble ? bubble.at - sentAt : null,
     bubbleMoves: bubbleMoves(running, sentAt),
     liveLast: liveLastViolations(running, sentAt),
@@ -755,9 +807,11 @@ if (import.meta.main) {
         );
       if (process.env.SEND_SHIFT_TRACE) for (const line of rounds.at(-1)!.trace) console.log(`  ${line}`);
       console.log(`send-status-shift: ${engine}, mode ${MODE}`);
-      console.log("round | row ms | bubble moves | live-last violations");
+      console.log("round | row ms | bubble moves | live-last violations | settled ms | settle steps | place frames");
       for (const [index, r] of rounds.entries())
-        console.log(`${index + 1} | ${r.rowMs} | ${r.bubbleMoves.length} | ${r.liveLast.length}`);
+        console.log(
+          `${index + 1} | ${r.rowMs} | ${r.bubbleMoves.length} | ${r.liveLast.length} | ${r.settledMs} | ${r.settleSteps} | ${r.placeFrames}`,
+        );
       for (const move of rounds.at(-1)!.bubbleMoves)
         console.log(
           `  bubble frame ${move.frame} +${move.ms} ms dy ${move.dy}${move.crossed.length ? ` crossed ${move.crossed.join(",")}` : ""}`,
@@ -765,6 +819,27 @@ if (import.meta.main) {
       for (const each of rounds.at(-1)!.liveLast)
         console.log(`  live-last frame ${each.frame} +${each.ms} ms under it: ${each.last}`);
       const name = `ui.transcript.send${isChromium ? "" : ".webkit"}`;
+      perfRow({
+        name: `${name}.settled_ms`,
+        ...stat(rounds.map((r) => r.settledMs ?? 9999)),
+        unit: "ms",
+        target: 150,
+        floor: 17,
+      });
+      perfRow({
+        name: `${name}.settle_steps`,
+        ...stat(rounds.map((r) => r.settleSteps)),
+        unit: "count",
+        target: 1,
+        floor: 0.5,
+      });
+      perfRow({
+        name: `${name}.place_frames`,
+        ...stat(rounds.map((r) => r.placeFrames ?? 999)),
+        unit: "count",
+        target: 1,
+        floor: 0.5,
+      });
       perfRow({
         name: `${name}.jumps`,
         ...stat(rounds.map((r) => r.jumps.length)),

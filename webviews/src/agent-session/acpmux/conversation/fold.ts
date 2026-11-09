@@ -22,6 +22,12 @@ export const FOLD_FALLBACK_MS = MOTION_SETTLE_MS;
 
 /// A CSS time ("190ms", ".19s") in milliseconds; undefined when it is not one.
 export function cssTimeMs(value: string): number | undefined {
+  // A token capped with `min()` (composerStates.css SEND-SLIM): the least of its times.
+  const capped = /^\s*min\((.*)\)\s*$/.exec(value);
+  if (capped) {
+    const times = capped[1]!.split(",").map(cssTimeMs);
+    return times.some((time) => time === undefined) ? undefined : Math.min(...(times as number[]));
+  }
   const match = /^\s*(-?[\d.]+)(ms|s)\s*$/.exec(value);
   if (!match) return undefined;
   const amount = Number(match[1]);

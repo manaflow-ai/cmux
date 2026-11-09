@@ -27,9 +27,22 @@
      shared/theme.ts scales it as the host scaled the move step). */
   --agent-motion-send: var(--cmux-motion-send, 180ms);
   --agent-motion-send-fade: var(--agent-motion-send);
+  /* The send tokens as the root holds them (the host's inline value, or the minimal motion's 0), for
+     a part of the page that caps them below (SEND-SLIM) without reading its own value. */
+  --agent-motion-send-root: var(--agent-motion-send);
+  --agent-motion-send-fade-root: var(--agent-motion-send-fade);
   --agent-ease-send: var(--cmux-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+}
+
+/* SEND-SLIM: the slim follow arm's send (VirtualTranscript `data-send-entrance="fade"`): the sent
+   prompt's one motion runs at most 120 ms, the host's speed scaling it down but never up, so the
+   bubble, its fade and any composer-to-bubble flight rest within 150 ms of Return (Leo, 2026-11-09:
+   "the scroll up is extremely sluggish, and it doesn't look great when it's so slow"). */
+.acpmux-scroll[data-send-entrance="fade"] {
+  --agent-motion-send: min(var(--agent-motion-send-root, 120ms), 120ms);
+  --agent-motion-send-fade: min(var(--agent-motion-send-fade-root, 120ms), 120ms);
 }
 
 /* MINIMAL-MOTION: the chat missed its frame budget (conversation/frameBudget.ts marks the page, or
@@ -42,6 +55,10 @@
   --agent-motion-arrive: 0ms !important;
   --agent-motion-out: 0ms !important;
   --agent-motion-move: 0ms !important;
+  --agent-motion-send: 0ms !important;
+  --agent-motion-send-fade: 0ms !important;
+}
+[data-chat-motion="minimal"] .acpmux-scroll[data-send-entrance] {
   --agent-motion-send: 0ms !important;
   --agent-motion-send-fade: 0ms !important;
 }

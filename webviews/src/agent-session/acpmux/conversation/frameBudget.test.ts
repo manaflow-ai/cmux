@@ -90,7 +90,11 @@ test("a page that pins its motion is never marked minimal", () => {
   const doc = dom.window.document;
   const queue: ((time: number) => void)[] = [];
   let now = 0;
-  const budget = createFrameBudget(doc, { now: () => now, frame: (callback) => queue.push(callback), cancel: () => {} });
+  const budget = createFrameBudget(doc, {
+    now: () => now,
+    frame: (callback) => queue.push(callback),
+    cancel: () => {},
+  });
   budget.poke();
   for (let index = 0; index < 20; index += 1) {
     now += 60;
