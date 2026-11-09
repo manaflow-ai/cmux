@@ -507,3 +507,15 @@ fn a_daemon_socket_reads_the_setting_from_its_owning_app() {
             .is_some()
     );
 }
+
+#[test]
+fn a_chat_here_takes_a_repository() {
+    let parsed = start(&["--repo", "https://gitlab.com/gitlab-org/gitlab-test", "hi"]);
+    let repo = parsed.repo.unwrap();
+    assert_eq!((repo.host.as_str(), repo.name.as_str()), ("gitlab.com", "gitlab-test"));
+    assert!(parse(&words(&["--repo", "nope"]), None).is_err());
+    assert!(parse(&words(&["--repo", "o/n", "--repo", "o/m"]), None).is_err());
+    assert!(TAKES_VALUE.contains(&"--repo"));
+    // The local start matrix reads the usage block for `[--repo` (hq local_chat_probe.py takes_repo).
+    assert!(USAGE.split("\n\n").next().unwrap().contains("[--repo URL]"));
+}
