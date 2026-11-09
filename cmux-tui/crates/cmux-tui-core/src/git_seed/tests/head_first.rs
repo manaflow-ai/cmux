@@ -26,7 +26,7 @@ fn held_at_head(
 ) -> (GitSeedService, String, mpsc::Sender<()>) {
     let (reached, at_head) = mpsc::channel();
     let (release, released) = mpsc::channel();
-    super::super::run::hold::at(folder, reached, released);
+    run::hold::at(folder, reached, released);
     let service = world.service();
     let job = start(&service, params).unwrap();
     at_head.recv_timeout(Duration::from_secs(120)).expect("the seed reached its head");
@@ -160,7 +160,7 @@ fn nothing_reads_a_filling_tree_back_and_a_failed_fill_stays_incomplete() {
         "bundle": world.home.join("back.bundle"),
     });
     let mut delta = world.start_params(&folder, &first);
-    delta["since"] = first.work.clone().into();
+    delta["since"] = first.work.into();
     let (service, job, release) = held_at_head(&world, &params, &folder);
     assert_eq!(service.call("git.seed.export", &export).unwrap_err().code, "seed.filling");
     assert_eq!(start(&service, &delta).unwrap_err().code, "seed.filling");

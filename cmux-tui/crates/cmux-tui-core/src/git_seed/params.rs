@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn a_head_first_start_is_only_a_whole_seed_with_a_literal_subpath() {
         let sha = "a".repeat(40);
-        let parse = |extra: serde_json::Value| {
+        let parse = |extra: Value| {
             let mut params = serde_json::json!({
                 "folder": "/h/p", "url": "https://github.com/o/n.git", "repo": "o/n",
                 "base": sha, "bundle": "/h/b", "head": sha, "index": sha, "work": sha,
