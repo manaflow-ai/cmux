@@ -1022,7 +1022,7 @@ impl Hub {
             || (team_enabled && self.has_team_work(session, &team_prompt_ids))
             || super::inbox::is_notice(provenance.as_ref());
         if session.rehydrate.swap(false, Ordering::SeqCst)
-            && let Some(transcript) = self.transcript(session, 24_000)
+            && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
         {
             blocks.insert(
                     0,
@@ -1267,7 +1267,7 @@ impl Hub {
                         // starts fresh: it gets the restored transcript first.
                         let mut blocks = blocks;
                         if session.rehydrate.swap(false, Ordering::SeqCst)
-                            && let Some(transcript) = self.transcript(session, 24_000)
+                            && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
                         {
                             blocks.insert(
                                 0,
