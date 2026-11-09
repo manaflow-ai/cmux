@@ -102,6 +102,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// button, spaces strip, profile control and Search button show only while the pointer is over
     /// the sidebar. Off by default: they always show.
     public var controlsOnHover = false
+    /// `sidebar.floatOnHover` (Lawrence 2026-11-08): with the sidebar hidden, the pointer resting on
+    /// the window's sidebar edge floats the sidebar over the content until the pointer leaves it.
+    /// On by default.
+    public var floatOnHover = true
     /// Minimal mode (`sidebar.minimal`, cx-w1r5; Lawrence 2026-10-09: "some
     /// people like minimal mode"): workspace rows draw only their icon, name,
     /// unread mark and attention state (no second line, no counts or badges,

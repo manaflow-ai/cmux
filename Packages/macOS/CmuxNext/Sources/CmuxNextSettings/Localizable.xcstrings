@@ -200528,6 +200528,58 @@
         }
       }
     },
+    "settings.sidebar.floatOnHover": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار الشريط الجانبي المخفي عائمًا عند التمرير"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Plutajuća skrivena bočna traka pri prelasku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis skjult sidepanel svævende ved markør"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ausgeblendete Seitenleiste beim Überfahren schwebend zeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Float Hidden Sidebar on Hover"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar la barra lateral oculta flotando al pasar el puntero"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher la barre latérale masquée en survol"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra la barra laterale nascosta fluttuante al passaggio"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "非表示のサイドバーをポインタでフロート表示"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញរបារចំហៀងដែលលាក់ជាអណ្ដែតពេលដាក់ទស្សន៍ទ្រនិច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "호버 시 숨긴 사이드바를 떠 있게 표시"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis skjult sidepanel flytende ved peker"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuj ukryty pasek boczny jako pływający po najechaniu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar a barra lateral oculta flutuando ao passar o ponteiro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывать скрытую боковую панель поверх при наведении"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงแถบด้านข้างที่ซ่อนแบบลอยเมื่อวางเมาส์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Gizli kenar çubuğunu üzerine gelince yüzer göster"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показувати приховану бічну панель поверх при наведенні"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiện thanh bên đã ẩn dạng nổi khi di chuột"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "悬停时浮动显示隐藏的侧边栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "懸停時浮動顯示隱藏的側邊欄"}}
+      }
+    },
+    "settings.sidebar.floatOnHover.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عندما يكون الشريط الجانبي مخفيًا، اترك المؤشر على حافة الشريط الجانبي في النافذة لإظهاره فوق المحتوى. يختفي مجددًا عندما يغادره المؤشر. عند الإيقاف، يظهر الشريط الجانبي فقط عندما تُظهره."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dok je bočna traka skrivena, zadržite pokazivač na rubu prozora s bočnom trakom da se prikaže iznad sadržaja. Ponovo se sakrije kad pokazivač ode s nje. Isključeno: bočna traka se prikazuje samo kad je vi prikažete."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Når sidepanelet er skjult, så hvil markøren ved vinduets sidepanelkant for at vise sidepanelet over indholdet. Det skjules igen, når markøren forlader det. Slået fra vises sidepanelet kun, når du viser det."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ist die Seitenleiste ausgeblendet, ruhe den Zeiger am Seitenleistenrand des Fensters aus, um sie über dem Inhalt zu zeigen. Sie verschwindet wieder, wenn der Zeiger sie verlässt. Aus: Die Seitenleiste erscheint nur, wenn du sie einblendest."}},
+        "en": {"stringUnit": {"state": "translated", "value": "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Con la barra lateral oculta, deja el puntero en el borde de la barra lateral de la ventana para mostrarla sobre el contenido. Se oculta de nuevo cuando el puntero sale de ella. Desactivado, la barra lateral solo se muestra cuando tú la muestras."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Quand la barre latérale est masquée, laissez le pointeur sur le bord de la fenêtre côté barre latérale pour l’afficher par-dessus le contenu. Elle se masque de nouveau quand le pointeur la quitte. Désactivé, la barre latérale ne s’affiche que lorsque vous l’affichez."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Con la barra laterale nascosta, lascia il puntatore sul bordo della finestra dal lato della barra laterale per mostrarla sopra il contenuto. Si nasconde di nuovo quando il puntatore la lascia. Disattivato, la barra laterale si mostra solo quando la mostri tu."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーが非表示のとき、ウインドウのサイドバー側の端にポインタを置くと、サイドバーがコンテンツの上に表示されます。ポインタが離れると再び隠れます。オフのときは、サイドバーを表示したときだけ表示されます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពេលរបារចំហៀងត្រូវបានលាក់ ដាក់ទស្សន៍ទ្រនិចលើគែមរបារចំហៀងនៃបង្អួច ដើម្បីបង្ហាញរបារចំហៀងលើខ្លឹមសារ។ វាលាក់វិញពេលទស្សន៍ទ្រនិចចាកចេញ។ បិទ៖ របារចំហៀងបង្ហាញតែពេលអ្នកបង្ហាញវាប៉ុណ្ណោះ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바가 숨겨져 있을 때 창의 사이드바 쪽 가장자리에 포인터를 두면 사이드바가 콘텐츠 위에 표시됩니다. 포인터가 벗어나면 다시 숨겨집니다. 끄면 사이드바는 직접 표시할 때만 나타납니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Når sidepanelet er skjult, hvil pekeren på vinduets sidepanelkant for å vise sidepanelet over innholdet. Det skjules igjen når pekeren forlater det. Av: sidepanelet vises bare når du viser det."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Gdy pasek boczny jest ukryty, przytrzymaj wskaźnik przy krawędzi okna po stronie paska, aby pokazać go nad zawartością. Znika ponownie, gdy wskaźnik go opuści. Wyłączone: pasek boczny pokazuje się tylko wtedy, gdy go pokażesz."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Com a barra lateral oculta, deixe o ponteiro na borda da janela do lado da barra lateral para mostrá-la sobre o conteúdo. Ela some de novo quando o ponteiro sai dela. Desativado, a barra lateral só aparece quando você a mostra."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Когда боковая панель скрыта, задержите указатель у края окна со стороны панели, чтобы показать её поверх содержимого. Она снова скрывается, когда указатель уходит. Выключено: панель появляется, только когда вы её показываете."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เมื่อซ่อนแถบด้านข้าง ให้วางตัวชี้ไว้ที่ขอบหน้าต่างด้านแถบด้านข้างเพื่อแสดงแถบด้านข้างเหนือเนื้อหา แถบจะซ่อนอีกครั้งเมื่อตัวชี้ออกไป เมื่อปิด แถบด้านข้างจะแสดงเฉพาะเมื่อคุณสั่งแสดง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu gizliyken, işaretçiyi pencerenin kenar çubuğu kenarında bekletin; kenar çubuğu içeriğin üzerinde görünür. İşaretçi ayrılınca yeniden gizlenir. Kapalıyken kenar çubuğu yalnızca siz gösterdiğinizde görünür."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Коли бічну панель приховано, затримайте вказівник біля краю вікна з боку панелі, щоб показати її поверх вмісту. Вона знову ховається, коли вказівник іде. Вимкнено: панель з’являється, лише коли ви її показуєте."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khi thanh bên bị ẩn, đặt con trỏ ở cạnh cửa sổ phía thanh bên để hiện thanh bên trên nội dung. Thanh bên ẩn lại khi con trỏ rời đi. Khi tắt, thanh bên chỉ hiện khi bạn cho hiện."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏隐藏时，将指针停在窗口的侧边栏边缘，侧边栏会浮在内容上方显示。指针离开后它会再次隐藏。关闭时，侧边栏只在你显示它时出现。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄隱藏時，將指標停在視窗的側邊欄邊緣，側邊欄會浮在內容上方顯示。指標離開後它會再次隱藏。關閉時，側邊欄只在你顯示它時出現。"}}
+      }
+    },
     "settings.sidebar.controlsOnHover": {
       "extractionState": "manual",
       "localizations": {

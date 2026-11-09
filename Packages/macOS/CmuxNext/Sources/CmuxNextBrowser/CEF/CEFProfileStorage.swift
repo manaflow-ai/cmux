@@ -34,8 +34,11 @@ public nonisolated struct CEFProfileStorage: Hashable, Sendable {
     /// The directory name Chromium starts in (`CEFSwitches.initialProfileDirectory`): the default cmux
     /// profile's, so Chromium opens no separate `Default` profile at launch.
     public var initialProfileDirectory: String {
-        cachePath(for: .default).lastPathComponent
+        cachePath(for: startupProfile).lastPathComponent
     }
+
+    /// The profile `initialProfileDirectory` names: Chromium has it open from startup on.
+    public var startupProfile: BrowserProfileID { .default }
 
     /// The remote-localhost derived store of `profile` for one machine
     /// (plans/cmux-next/remote-localhost.md section 3), a sibling of the

@@ -37,7 +37,7 @@ extension SettingsSchema {
         "sidebar.rowHeight", "sidebar.rowPadding", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
         "sidebar.showColors", "sidebar.showLocalMachine", "workspaceColors.indicatorStyle",
         // Sidebar control visibility (looks only)
-        "sidebar.controlsOnHover",
+        "sidebar.controlsOnHover", "sidebar.floatOnHover",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
         "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping",
         "sidebar.steppingWraps", "sidebar.side", "sidebar.style", "sidebar.spacesPosition", "sidebar.spacesVisibility",

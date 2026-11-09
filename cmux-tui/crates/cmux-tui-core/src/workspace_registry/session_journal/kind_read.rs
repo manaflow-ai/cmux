@@ -194,7 +194,9 @@ fn active_kinds_after(
 /// the caller takes the validating legacy path). A segment whose kind map
 /// names no accepted kind is skipped without loading its content; one that
 /// does is decoded whole and consumed whole, so the next page never decodes
-/// it again. The page ends after the segment that brings it to `limit`.
+/// it again. Up to [`segment_decode_workers`] such segments decode at once
+/// (`consume_batch`); the page ends after the batch that brings it to
+/// `limit`.
 fn archived_kinds_after(
     connection: &Connection,
     sequence: u64,
@@ -230,8 +232,10 @@ fn archived_kinds_after(
     }
     let mut segment_kinds =
         connection.prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1")?;
-    let mut reached = sequence;
-    let mut records = Vec::new();
+    let mut page = Page { sequence, through, kinds, records: Vec::new(), reached: sequence };
+    let workers = segment_decode_workers();
+    // Segments in order, each with its id when it holds an accepted kind.
+    let mut batch: Vec<(u64, Option<String>)> = Vec::new();
     for (segment_id, _, end) in segments {
         let mapped = segment_kinds
             .query_map([&segment_id], |row| row.get::<_, String>(0))?
@@ -240,17 +244,120 @@ fn archived_kinds_after(
             return Ok(None);
         }
         let end = u64::try_from(end)?.min(through);
-        if mapped.iter().any(|kind| kinds(kind)) {
-            let segment = load_journal_segment(connection, &segment_id)?;
-            let decoded = decode_journal_segment(connection, segment)?;
-            records.extend(decoded.records.into_iter().filter(|record| {
-                record.sequence > sequence && record.sequence <= through && kinds(&record.kind)
-            }));
+        batch.push((end, mapped.iter().any(|kind| kinds(kind)).then_some(segment_id)));
+        if batch.iter().filter(|(_, decode)| decode.is_some()).count() < workers {
+            continue;
         }
-        reached = reached.max(end);
-        if records.len() >= limit {
-            break;
+        if !page.consume_batch(connection, std::mem::take(&mut batch))?
+            || page.records.len() >= limit
+        {
+            return Ok(Some((page.records, page.reached)));
         }
     }
-    Ok(Some((records, reached)))
+    page.consume_batch(connection, batch)?;
+    Ok(Some((page.records, page.reached)))
+}
+
+/// A sealed page being read: its range, its kinds, what it holds so far.
+struct Page {
+    sequence: u64,
+    through: u64,
+    kinds: JournalKinds,
+    records: Vec<SessionJournalRecord>,
+    reached: u64,
+}
+
+impl Page {
+    /// Inflates the batch's segments on parallel threads, then checks their
+    /// gaps and adds their records in sequence order. A segment that fails
+    /// ends the page before it: what the page already covers still counts,
+    /// and the next page meets the error at its start (and the roster's
+    /// salvaging read skips it), as a read one segment at a time would.
+    /// Returns whether the whole batch was consumed; the error itself when
+    /// the page covers nothing yet.
+    fn consume_batch(
+        &mut self,
+        connection: &Connection,
+        batch: Vec<(u64, Option<String>)>,
+    ) -> anyhow::Result<bool> {
+        let mut rows = Vec::new();
+        for segment_id in batch.iter().filter_map(|(_, segment_id)| segment_id.as_deref()) {
+            rows.push(load_journal_segment(connection, segment_id));
+        }
+        let mut inflated = inflate_segments(rows, self.kinds).into_iter();
+        for (end, segment_id) in batch {
+            if segment_id.is_some() {
+                let decoded = inflated
+                    .next()
+                    .context("a segment batch lost a segment")?
+                    .and_then(|segment| check_segment_gaps(connection, segment));
+                match decoded {
+                    Ok(decoded) => {
+                        let (sequence, through) = (self.sequence, self.through);
+                        self.records.extend(decoded.records.into_iter().filter(|record| {
+                            record.sequence > sequence && record.sequence <= through
+                        }));
+                    }
+                    Err(error) if self.reached == self.sequence => return Err(error),
+                    Err(_) => return Ok(false),
+                }
+            }
+            self.reached = self.reached.max(end);
+        }
+        Ok(true)
+    }
+}
+
+/// How many sealed segments a kind-scoped read inflates at once: half the
+/// cores, at most 8, so the person's own work keeps the rest. Each one in
+/// flight holds one segment's JSON (at most
+/// MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES) and its kept records.
+fn segment_decode_workers() -> usize {
+    #[cfg(test)]
+    if let Some(workers) = SEGMENT_DECODE_WORKERS.with(Cell::get) {
+        return workers;
+    }
+    std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get).div_ceil(2).min(8)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Overrides [`segment_decode_workers`] on this thread, so a test can
+    /// time the same read one segment at a time.
+    pub(crate) static SEGMENT_DECODE_WORKERS: Cell<Option<usize>> =
+        const { Cell::new(None) };
+}
+
+/// Inflates each loaded row on a scoped thread of its own (inline when
+/// there is one), keeping only `kinds`; results come back in row order.
+fn inflate_segments(
+    rows: Vec<anyhow::Result<JournalSegmentRow>>,
+    kinds: JournalKinds,
+) -> Vec<anyhow::Result<InflatedJournalSegment>> {
+    let inflate = move |row: anyhow::Result<JournalSegmentRow>| {
+        row.and_then(|row| inflate_journal_segment(row, Some(kinds)))
+    };
+    if rows.len() <= 1 {
+        return rows.into_iter().map(inflate).collect();
+    }
+    std::thread::scope(|scope| {
+        let handles = rows
+            .into_iter()
+            .map(|row| {
+                std::thread::Builder::new()
+                    .name("cmux-journal-inflate".into())
+                    .spawn_scoped(scope, move || inflate(row))
+            })
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle.map_err(anyhow::Error::from).and_then(|handle| {
+                    handle.join().unwrap_or_else(|_| {
+                        Err(anyhow::anyhow!("a journal segment inflate panicked"))
+                    })
+                })
+            })
+            .collect()
+    })
 }
