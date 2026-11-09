@@ -40,7 +40,11 @@ import Testing
     @Test func failedFirstLoadIsTheErrorPage() {
         #expect(state(.failed, macs: false, workspaces: false) == .failed(offline: false))
         #expect(state(.failed, macs: false, workspaces: false, offline: true) == .failed(offline: true))
-        #expect(state(.failed, macs: true, workspaces: false) == .failed(offline: false))
+    }
+
+    @Test func failedRefreshWithKnownMacsKeepsTheList() {
+        // The rows come from the Macs' links: their per-Mac states, not the error page.
+        #expect(state(.failed, macs: true, workspaces: false) == .content(refreshFailed: true))
     }
 
     @Test func updatingSubtitleOnlyOverRows() {

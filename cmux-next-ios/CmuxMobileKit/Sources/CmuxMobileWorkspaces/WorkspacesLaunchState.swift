@@ -23,12 +23,13 @@ public enum WorkspacesLaunchState: Equatable, Sendable {
 
     public static func resolve(team: AppStore.LoadState, hasMacs: Bool, hasWorkspaces: Bool,
                                isOffline: Bool) -> WorkspacesLaunchState {
-        let hasContent = hasMacs && hasWorkspaces
         switch team {
         case .loading:
-            return hasContent ? .content(refreshFailed: false) : .firstLoad(offline: isOffline)
+            return hasMacs && hasWorkspaces ? .content(refreshFailed: false) : .firstLoad(offline: isOffline)
         case .failed:
-            return hasContent ? .content(refreshFailed: true) : .failed(offline: isOffline)
+            // Macs known (a snapshot's): the list, whose rows come from the Macs'
+            // own links and keep their per-Mac states.
+            return hasMacs ? .content(refreshFailed: true) : .failed(offline: isOffline)
         case .loaded:
             return hasMacs ? .content(refreshFailed: false) : .noMacs
         }

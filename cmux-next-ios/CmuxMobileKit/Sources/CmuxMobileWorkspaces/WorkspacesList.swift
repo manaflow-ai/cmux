@@ -280,7 +280,10 @@ public struct WorkspacesList: View {
         let state = launchState
         // One loading indicator at a time: over the placeholder rows the page already says it loads.
         if showsUpdating && isRefreshing && state.allowsUpdatingSubtitle && !listShowsPlaceholder { return "Updating…" }
-        if case .content(refreshFailed: true) = state { return store.isOffline ? "Offline · last known" : "Couldn't refresh · last known" }
+        // Rows are the last known only while none of their Macs is live (a live Mac's rows are current).
+        if case .content(refreshFailed: true) = state, !inbox.rowMacIDs.isEmpty, liveRowMacs(inbox).isEmpty {
+            return store.isOffline ? "Offline · last known" : "Couldn't refresh · last known"
+        }
         let waiting = inbox.needsYouCount
         if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
         if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
@@ -347,7 +350,8 @@ public struct WorkspacesList: View {
             EmptyState(symbol: offline ? "wifi.slash" : "cloud", title: "Couldn't load workspaces",
                        message: offline ? "This iPhone is offline. Workspaces load when it's back online."
                            : "cmux couldn't reach the service. It tries again on its own.",
-                       retry: retryLoad == nil ? nil : retry)
+                       // Offline, the connection banner owns Retry (one Retry on screen).
+                       retry: retryLoad == nil || offline ? nil : retry)
                 .accessibilityIdentifier("workspaces.retry")
         case .noMacs, .content:
             if macs.isEmpty {
@@ -384,7 +388,7 @@ public struct WorkspacesList: View {
             .overlay(alignment: .topLeading) { closeAnchor }
             .overlay {
                 if inbox.isLoading {
-                    if inbox.folds.isEmpty { skeleton("Loading workspaces…") }
+                    if inbox.folds.isEmpty { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
                 } else if inbox.isEmpty {
                     emptyState
                 }
