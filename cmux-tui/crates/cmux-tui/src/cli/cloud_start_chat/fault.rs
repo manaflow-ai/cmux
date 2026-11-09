@@ -8,8 +8,9 @@
 //! 3. The app's signed-in account (`cloud diagnostics`' `email`) is a probe account, else
 //!    `carrier_fault.not_probe` (the same refusal, so it tells a person nothing more).
 //! 4. The fault leaves the turn another carrier to go on over, else
-//!    `carrier_fault.no_other_route`. A build whose only route is the relay (no ssh until plan
-//!    slice S6) always ends here for `kill-route=relay`.
+//!    `carrier_fault.no_other_route`. A device whose only route is the relay (ssh unavailable
+//!    in `carrier capabilities`: no tunnel hub, or no carrier key) always ends here for
+//!    `kill-route=relay`.
 //!
 //! A refusal at step 4 or later carries the drill record in `error.details`: `capabilities`
 //! (`routes`, `faults`), `fault`, `kill`, `events` and `resumes`, the fields the probe's judge reads
@@ -23,7 +24,8 @@ use super::{
 };
 use crate::carrier::drill::Drill;
 use crate::carrier::fault::{
-    FaultPlan, FaultSpec, capabilities, parse_spec, probe_gate, probe_run, routes, this_build,
+    Carrier, FaultPlan, FaultSpec, capabilities, parse_spec, probe_gate, probe_run, routes,
+    this_device,
 };
 
 /// The flag.
@@ -62,7 +64,8 @@ pub(super) fn run_if_requested(global: &GlobalArgs, rest: &[String]) -> Option<i
     };
     let mut runner = SelfRunner { globals: forwarded_globals(&global) };
     let env = std::env::var(crate::carrier::fault::PROBE_ENV).ok();
-    Some(report(&start(&mut runner, &request, spec, env.as_deref()), global.output))
+    let outcome = start(&mut runner, &request, spec, env.as_deref(), || this_device(None));
+    Some(report(&outcome, global.output))
 }
 
 /// `words` without `--carrier-fault SPEC` (or `--carrier-fault=SPEC`), and the spec. The flag is
@@ -114,12 +117,14 @@ fn account_email(runner: &mut dyn Runner) -> Option<String> {
     details.get("email").and_then(Value::as_str).map(str::to_owned)
 }
 
-/// The drill for `request` with `spec`; `env` is `CMUX_CARRIER_PROBE_FAULTS`' value.
+/// The drill for `request` with `spec`; `env` is `CMUX_CARRIER_PROBE_FAULTS`' value, and
+/// `carriers` this device's ([`this_device`]), asked only once the gates passed.
 pub(super) fn start(
     runner: &mut dyn Runner,
     request: &Request,
     spec: FaultSpec,
     env: Option<&str>,
+    carriers: impl FnOnce() -> [Carrier; 2],
 ) -> Outcome {
     let not_probe = || failed("carrier_fault.not_probe", NOT_PROBE, json!({}), 2);
     if !probe_run(env) {
@@ -137,12 +142,12 @@ pub(super) fn start(
     if probe_gate(env, email.as_deref()).is_err() {
         return not_probe();
     }
-    let carriers = this_build();
+    let carriers = carriers();
     let caps = capabilities(&carriers);
     match FaultPlan::new(spec, routes(&carriers), &caps) {
         Err(refused) => failed(refused.code, refused.message, refused.record, 2),
-        // No build has two carriers before plan slice S6, nor a turn's events over them before
-        // slice S1 (the Cloud dial on the route runner): say so rather than run half a drill.
+        // No build follows a turn's events over its carriers before slice S1 (the drill's
+        // event source on the Cloud dial): say so rather than run half a drill.
         Ok(plan) => failed(
             "carrier_fault.no_event_source",
             "this build cannot follow a turn's events over its carriers yet",
