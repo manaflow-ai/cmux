@@ -315,9 +315,10 @@ pub(super) fn reports_only(provenance: Option<&Value>) -> bool {
 const WAITING: &str = r"(?i)\b(still (waiting|running|in progress|pending|going|queued)|waiting (on|for)|nothing new|no news|no change|not (done|finished|back) yet|keeps? waiting|wait(ing)? again)\b";
 
 /// Words that make a turn's reply news for its parent even while it says it waits: an end, a
-/// failure, a block, an ask, or a request to act (module docs). A false match only sends a
+/// failure, a block, an ask, a request to act, or a wait on the reader ("waiting for you to
+/// upload the credentials", review of #39105 at e8aeb72, F1) (module docs). A false match only sends a
 /// report, as before.
-const DECISIVE: &str = r"(?i)\b(merged|landed|shipped|done|finished|completed?|passed|passing|green|succeeded|ready|fail(?:ed|s|ing|ure|ures)?|errors?|blocked|stuck|needs?|question|approve|approval|refused|denied|cancell?ed|broken|red|timed out|time ?outs?|please|rebase|restart|retry|retrying|can you|could you|should|must|want)\b|\?|!";
+const DECISIVE: &str = r"(?i)\b(merged|landed|shipped|done|finished|completed?|passed|passing|green|succeeded|ready|fail(?:ed|s|ing|ure|ures)?|errors?|blocked|stuck|needs?|question|approve|approval|refused|denied|cancell?ed|broken|red|timed out|time ?outs?|please|rebase|restart|retry|retrying|can you|could you|should|must|want|you|your|yours|input|reply|answer|confirm|confirmation|decision|decide|permission|access|credentials?|token|login|sign in|upload)\b|\?|!";
 
 static WAITING_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(WAITING).ok());
 static DECISIVE_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(DECISIVE).ok());
@@ -580,7 +581,7 @@ impl Hub {
             let report = self.lane_capture(session, turn, started);
             self.lane_links(|links| {
                 if let Some(l) = links.get_mut(&session.id) {
-                    l.ready = Some(replace_ready(report, l.ready.take()));
+                    l.ready = Some(replace_ready_seen(report, l.ready.take(), &l.prs));
                 }
             });
         } else {
@@ -976,13 +977,19 @@ fn delivered(l: &mut Link, report: &Report, key: String, now: u64) {
 /// A newer turn's report replaces one still queued, keeping the pull requests only that one
 /// named, and counting a still-waiting one it folds in. A still-waiting turn's report never
 /// replaces one that is news: that one stays queued, to go as it is.
-fn replace_ready(mut newer: Report, queued: Option<Report>) -> Report {
+fn replace_ready(newer: Report, queued: Option<Report>) -> Report {
+    replace_ready_seen(newer, queued, &[])
+}
+
+/// [`replace_ready`] on a link whose reports already named `reported`: a still-waiting turn
+/// naming only those is no news (review of #39105 at e8aeb72, F2).
+fn replace_ready_seen(mut newer: Report, queued: Option<Report>, reported: &[String]) -> Report {
     let Some(queued) = queued else { return newer };
     if newer.interim && !queued.interim {
         // A still-waiting turn that names a pull request the news does not is news itself: it
         // replaces the news as any newer report does, under its own turn and id (review of
         // #39105 at bfdb6cd, F2). One that names none leaves the news queued as it is.
-        if newer.prs.iter().all(|pr| queued.prs.contains(pr)) {
+        if newer.prs.iter().all(|pr| queued.prs.contains(pr) || reported.contains(pr)) {
             return queued;
         }
         newer.interim = false;
@@ -1707,6 +1714,9 @@ mod tests {
             "The deployment timed out; please restart it.",
             "Still waiting, but the deployment timed out; please restart it.",
             "The preview is up at http://localhost:3000.",
+            "Still waiting for you to upload the credentials.",
+            "Still waiting on your answer about the schema.",
+            "Waiting for permission to push to the mirror.",
             "",
         ] {
             assert!(!says_only_waiting(news), "{news:?} read as no news");
@@ -1747,6 +1757,10 @@ mod tests {
             (7, false, [pr.to_owned()].as_slice())
         );
         let kept = replace_ready(Report { interim: true, ..report(8, &[]) }, Some(report(4, &[])));
+        assert_eq!((kept.turn, kept.interim), (4, false));
+        // ...nor one naming only a pull request an earlier report named (review at e8aeb72, F2).
+        let waiting_old = Report { interim: true, ..report(9, &[pr]) };
+        let kept = replace_ready_seen(waiting_old, Some(report(4, &[])), &[pr.to_owned()]);
         assert_eq!((kept.turn, kept.interim), (4, false));
         // News on its way when a still-waiting turn adds a pull request: its delivery leaves the
         // added one queued, and that goes next.
