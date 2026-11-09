@@ -3,7 +3,18 @@
 cmux's pages (Settings, History, Cloud, the viewers) and the agent chat are React. Edit them in a
 cmux checkout and the app you're using right now changes as you save: no build, no relaunch, your
 windows, chats and terminals stay where they are. It works in every cmux build, in WebKit and in
-Chromium, and it's on by default.
+Chromium, and it's on by default. The feature is called **cmux Live**.
+
+### Is cmux Live the same as Live Web Reload?
+
+Yes. It is one feature, and Live Web Reload was its old name. The setting Settings > General >
+**cmux Live** (`updates.liveWebReload`) is its on switch: on, the app may load your checkout's web
+UI; off, it shows the web UI it shipped with. `cmux live start` (or **Edit cmux Live…**) is the
+web path: it runs your checkout's dev server for the React pages and chat under `webviews/`.
+The other paths are flags: `cmux live start --swift` restarts a tagged DEV build into a live code
+build for the app's Swift ([live-code.md](live-code.md)), and `cmux live start --rust` swaps the
+daemon's Rust ([below](#the-daemons-rust-live)). When pages go blank or stop changing,
+`cmux live status` says first what the app loads its web UI from and why.
 
 ## Start in 30 seconds
 
@@ -43,13 +54,13 @@ below are for slots, pull requests and built bundles. Agents in cmux learn all o
 | Stop your dev server | `cmux live stop`, or **Stop Editing cmux Live** (an installed overlay, if any, still serves) |
 | The shipped pages back | `scripts/cmux-next/web-overlay.sh off` (ignores the file; run `server off` first to stop the server) |
 | Your Rust edits to the daemon live, terminals kept | `cmux live start --rust [--build-host HOST]` ([below](#the-daemons-rust-live)) |
-| What's running | `cmux live status` |
+| What the app loads its web UI from, and why | `cmux live status` |
 | Your Swift live too, in a tagged build | `cmux live start --swift` restarts it into the live code build of its commit, sessions kept, and patches your edits in and every save; `cmux live stop --swift` restarts into the optimized build of your edits ([live-code.md](live-code.md#live-mode-restart-into-the-live-code-build-and-back)) |
-| Turn the feature off | Settings > General > **Live Web Reload**, or `cmux settings set updates.liveWebReload false` |
+| Turn the feature off | Settings > General > **cmux Live**, or `cmux settings set updates.liveWebReload false` |
 
 ## On and off
 
-**Live Web Reload** (`updates.liveWebReload` in `~/.config/cmux/cmux-next.json`) is on by default.
+**cmux Live** (`updates.liveWebReload` in `~/.config/cmux/cmux-next.json`) is on by default.
 On, cmux reads `~/.config/cmux/web-dev.json` and serves what it names; with no such file nothing
 changes. Off, cmux ignores the file without touching it. Flip it from Settings > General, or from
 any terminal:
@@ -520,8 +531,8 @@ Built bundles carry none of this. The code is `webviews/src/devkit/perfBudgets.t
 | A page loads, then stops updating | The dev server stopped. The page falls back to the overlay, then the bundle. Run `server --local` again. |
 | `the dev server did not start` | Another process holds the port (the server won't move to another one). Use `--port N`; the app follows `web-dev.json`. |
 | You see another tree's edits | A dev server that `web-overlay.sh` didn't start already answers on the port, and `server --local` reuses it. Stop it where it was started, or use `--port N` for a free port. |
-| You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`, or turn **Live Web Reload** off (`cmux settings set updates.liveWebReload false`). |
-| Nothing changes, and `status` says the server runs | `cmux settings get updates.liveWebReload` says `true`. The app's commit includes this change (older NIGHTLYs also needed Debug Settings > Pages > Live web reload on). |
+| You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`, or turn **cmux Live** off (`cmux settings set updates.liveWebReload false`). |
+| Nothing changes, and `status` says the server runs | The first lines of `cmux live status` say what the app loads and why. `cmux settings get updates.liveWebReload` says `true`. The app's commit includes this change (older NIGHTLYs also needed Debug Settings > Pages > Live web reload on). |
 | `status` says `refused by <app>` | The overlay was built for another page bridge (`abi` in its `manifest.json`, from `webviews/src/web-abi.json`) than the app has, so the app serves its own pages instead of calling host ops it lacks. Build the overlay from a tree at the app's ABI (near its `CMUXCommit`), or run a build of that tree. A web update is refused the same way. |
 | Unstyled pages with no override running | Not the live loop. With no `web-dev.json`, the app serves its bundled files unchanged. Report it with the app's commit. |
 

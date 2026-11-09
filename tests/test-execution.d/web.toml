@@ -31,6 +31,11 @@ lane = "manual"
 reason = "Run by the lane that changes web-overlay.sh (no new CI tests): python3 tests/test_web_overlay_manifest_commit.py; needs only bash, git and python3."
 
 [[test]]
+path = "tests/test_web_overlay_status_explains.py"
+lane = "manual"
+reason = "Run by the lane that changes web-overlay.sh status (no new CI tests): python3 tests/test_web_overlay_status_explains.py; needs only bash, python3 and a loopback port."
+
+[[test]]
 path = "tests/test_web_perf_validation_boundary.py"
 lane = "linux-guard"
 

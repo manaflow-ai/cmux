@@ -158,7 +158,7 @@ a save while on, and a stop into the optimized build, counted in pixels.
 
 ## What a NIGHTLY can and can't do
 
-- Can: Live Web Reload (`cmux live start`), and a pull request's Swift in a copy
+- Can: cmux Live for the web UI (`cmux live start`), and a pull request's Swift in a copy
   (`scripts/cmux-next/try-pr.sh <PR> --live-code <log>`).
 - Can't: live mode. `cmux live start --swift` refuses a NIGHTLY, and so do the palette and Settings
   buttons: no live code build of its commit is built or signed for it to restart into, and a

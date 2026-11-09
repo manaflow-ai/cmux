@@ -9,7 +9,7 @@ import Foundation
 import os
 
 /// Edit cmux Live… and Stop Editing cmux Live (docs/cmux-next/hot-reload.md): the palette and
-/// Settings > General face of `cmux live start|stop`, so a person finds Live Web Reload without
+/// Settings > General face of `cmux live start|stop`, so a person finds cmux Live without
 /// knowing the script. Leo (2026-11-05): "it should be like enableable in the GUI ... accessible,
 /// visible, usable, and nice to use". Both run the bundled `cmux live` (one implementation with
 /// the CLI and the `cmux-live` agent skill), off the main actor, and show the outcome as a toast.
@@ -33,7 +33,7 @@ enum LiveWebHandlers {
             if let path = invocation["path"]?.stringValue, !path.isEmpty {
                 show(LiveWebStrings.starting(path), in: window, duration: startTimeout)
                 return .applied(result: {
-                    // With Live Web Reload off the app ignores web-dev.json: the server runs, pages stay bundled.
+                    // With cmux Live off the app ignores web-dev.json: the server runs, pages stay bundled.
                     await run(cli, ["live", "start", "--worktree", path], timeout: startTimeout,
                               done: WebDevOverride.isAllowed ? LiveWebStrings.started(path) : LiveWebStrings.startedButOff,
                               in: window)
@@ -162,14 +162,14 @@ enum LiveWebStrings {
 
     static var startedButOff: String {
         text("liveWeb.startedButOff",
-             "The dev server is running, but Live Web Reload is off. Turn it on in Settings > Updates to see your edits.")
+             "The dev server is running, but cmux Live is off. Turn it on in Settings > General to see your edits.")
     }
     static func started(_ path: String) -> String {
         format("liveWeb.started", "cmux now loads its web UI from %@. Save a file under webviews/ to see it change.",
                (path as NSString).lastPathComponent)
     }
 
-    static func failed(_ why: String) -> String { format("liveWeb.failed", "Live Web Reload: %@", why) }
+    static func failed(_ why: String) -> String { format("liveWeb.failed", "cmux Live: %@", why) }
 
     static var swiftNotTagged: String {
         text("liveSwift.notTagged", "Swift live mode switches a tagged DEV build. A NIGHTLY has no live code build of its commit to restart into yet.")

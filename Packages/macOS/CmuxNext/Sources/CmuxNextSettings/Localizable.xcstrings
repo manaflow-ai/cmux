@@ -188659,128 +188659,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إعادة تحميل الويب المباشرة"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Uživo ponovno učitavanje weba"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Live genindlæsning af web"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Live-Web-Neuladen"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Live Web Reload"
+            "value": "cmux Live"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Recarga web en vivo"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Rechargement web en direct"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ricaricamento web dal vivo"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Web のライブリロード"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទុកវេបឡើងវិញផ្ទាល់"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "웹 실시간 다시 로드"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Direkte nettinnlasting"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Przeładowanie weba na żywo"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Recarga web ao vivo"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Живая перезагрузка веба"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "รีโหลดเว็บแบบสด"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Canlı Web Yenileme"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Живе перезавантаження вебу"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tải lại web trực tiếp"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "网页实时重载"
+            "state": "translated",
+            "value": "cmux Live"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "網頁即時重新載入"
+            "state": "translated",
+            "value": "cmux Live"
           }
         }
       }
@@ -188790,128 +188790,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تظهر تعديلاتك على واجهة الويب في cmux من نسختك الخاصة في هذا التطبيق فور الحفظ، دون بناء أو إعادة تشغيل. ابدأ بالأمر scripts/cmux-next/web-overlay.sh server --local. عند الإيقاف: يتجاهل cmux الملف ~/.config/cmux/web-dev.json ويعرض واجهة الويب التي شُحن بها."
+            "state": "translated",
+            "value": "المفتاح الذي يتيح لـ cmux live start و«تحرير cmux مباشرة…» عرض واجهة الويب من نسختك الخاصة في هذا التطبيق: يظهر كل تعديل محفوظ فورًا، دون بناء أو إعادة تشغيل. متوقف: يتجاهل cmux الملف ~/.config/cmux/web-dev.json ويعرض واجهة الويب التي شُحن بها. مسار Swift هو cmux live start --swift (المختبر > الكود المباشر)."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Izmjene web sučelja cmuxa iz vaše kopije pojavljuju se u ovoj aplikaciji čim sačuvate, bez buildanja i ponovnog pokretanja. Pokrenite s scripts/cmux-next/web-overlay.sh server --local. Isključeno: cmux zanemaruje ~/.config/cmux/web-dev.json i prikazuje web sučelje s kojim je isporučen."
+            "state": "translated",
+            "value": "Prekidač koji omogućava da cmux live start i „Uređuj cmux uživo…” prikažu web sučelje iz vaše kopije u ovoj aplikaciji: svaka sačuvana izmjena odmah se vidi, bez buildanja i ponovnog pokretanja. Isključeno: cmux zanemaruje ~/.config/cmux/web-dev.json i prikazuje web sučelje s kojim je isporučen. Put za Swift je cmux live start --swift (Laboratorij > Kod uživo)."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ændringer i cmux' webbrugerflade fra din egen checkout vises i appen, så snart du gemmer, uden build og genstart. Start med scripts/cmux-next/web-overlay.sh server --local. Fra: cmux ignorerer ~/.config/cmux/web-dev.json og viser den webbrugerflade, den blev leveret med."
+            "state": "translated",
+            "value": "Kontakten, der lader cmux live start og »Rediger cmux live…« vise webbrugerfladen fra din egen checkout i denne app: hver gemt ændring vises med det samme, uden build og genstart. Fra: cmux ignorerer ~/.config/cmux/web-dev.json og viser den webbrugerflade, den blev leveret med. Vejen til Swift er cmux live start --swift (Laboratorium > Live-kode)."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Änderungen an der Web-UI von cmux aus deinem eigenen Checkout erscheinen beim Speichern in dieser App, ohne Build und ohne Neustart. Starte es mit scripts/cmux-next/web-overlay.sh server --local. Aus: cmux ignoriert ~/.config/cmux/web-dev.json und zeigt die mitgelieferte Web-UI."
+            "state": "translated",
+            "value": "Der Schalter, mit dem cmux live start und „cmux live bearbeiten…“ die Web-UI deines eigenen Checkouts in dieser App zeigen: Jede gespeicherte Änderung erscheint sofort, ohne Build und ohne Neustart. Aus: cmux ignoriert ~/.config/cmux/web-dev.json und zeigt die mitgelieferte Web-UI. Der Weg für Swift ist cmux live start --swift (Labor > Live-Code)."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with."
+            "value": "The switch that lets cmux live start and Edit cmux Live… show your own checkout's web UI in this app: each saved edit shows at once, with no build and no relaunch. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. cmux live start --swift is the Swift path (Labs > Live Code)."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Los cambios en la interfaz web de cmux desde tu propia copia aparecen en esta app al guardar, sin compilar ni reiniciar. Empieza con scripts/cmux-next/web-overlay.sh server --local. Desactivado: cmux ignora ~/.config/cmux/web-dev.json y muestra la interfaz web con la que se distribuyó."
+            "state": "translated",
+            "value": "El interruptor que permite que cmux live start y «Editar cmux en vivo…» muestren en esta app la interfaz web de tu propia copia: cada cambio guardado aparece al instante, sin compilar ni reiniciar. Desactivado: cmux ignora ~/.config/cmux/web-dev.json y muestra la interfaz web con la que se distribuyó. La vía para Swift es cmux live start --swift (Laboratorio > Código en vivo)."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Les modifications de l'interface web de cmux faites dans votre propre copie apparaissent dans cette app dès l'enregistrement, sans build ni relance. Lancez-le avec scripts/cmux-next/web-overlay.sh server --local. Désactivé : cmux ignore ~/.config/cmux/web-dev.json et affiche l'interface web livrée avec l'app."
+            "state": "translated",
+            "value": "L'interrupteur qui permet à cmux live start et à « Modifier cmux en direct… » d'afficher dans cette app l'interface web de votre propre copie : chaque modification enregistrée apparaît aussitôt, sans build ni relance. Désactivé : cmux ignore ~/.config/cmux/web-dev.json et affiche l'interface web fournie avec l'app. Pour Swift, c'est cmux live start --swift (Labo > Code en direct)."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Le modifiche all'interfaccia web di cmux dalla tua copia compaiono in questa app appena salvi, senza build e senza riavvio. Avvialo con scripts/cmux-next/web-overlay.sh server --local. Disattivato: cmux ignora ~/.config/cmux/web-dev.json e mostra l'interfaccia web con cui è stato distribuito."
+            "state": "translated",
+            "value": "L'interruttore che consente a cmux live start e a «Modifica cmux in tempo reale…» di mostrare in questa app l'interfaccia web della tua copia: ogni modifica salvata compare subito, senza build e senza riavvio. Disattivato: cmux ignora ~/.config/cmux/web-dev.json e mostra l'interfaccia web con cui è stato distribuito. La via per Swift è cmux live start --swift (Laboratorio > Codice dal vivo)."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "自分のチェックアウトで cmux の Web UI を編集すると、保存した時点でこのアプリに反映されます。ビルドも再起動も不要です。scripts/cmux-next/web-overlay.sh server --local で開始します。オフ：cmux は ~/.config/cmux/web-dev.json を無視し、同梱の Web UI を表示します。"
+            "state": "translated",
+            "value": "cmux live start と「cmux をライブで編集…」で、自分のチェックアウトの Web UI をこのアプリに表示できるようにするスイッチです。保存した編集はビルドも再起動もなしにすぐ反映されます。オフ: cmux は ~/.config/cmux/web-dev.json を無視し、同梱の Web UI を表示します。Swift 向けは cmux live start --swift です (ラボ > ライブコード)。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ការកែប្រែ UI វេបរបស់ cmux ពីច្បាប់ចម្លងផ្ទាល់ខ្លួនរបស់អ្នក បង្ហាញក្នុងកម្មវិធីនេះពេលអ្នករក្សាទុក ដោយមិនចាំបាច់ build ឬបើកឡើងវិញ។ ចាប់ផ្តើមដោយ scripts/cmux-next/web-overlay.sh server --local។ បិទ៖ cmux មិនអើពើ ~/.config/cmux/web-dev.json ហើយបង្ហាញ UI វេបដែលភ្ជាប់មកជាមួយ។"
+            "state": "translated",
+            "value": "កុងតាក់ដែលអនុញ្ញាតឱ្យ cmux live start និង «កែ cmux ផ្ទាល់…» បង្ហាញ UI វេបពីច្បាប់ចម្លងផ្ទាល់ខ្លួនរបស់អ្នកក្នុងកម្មវិធីនេះ៖ ការកែដែលបានរក្សាទុកនីមួយៗបង្ហាញភ្លាមៗ ដោយមិនចាំបាច់ build ឬបើកឡើងវិញ។ បិទ៖ cmux មិនអើពើ ~/.config/cmux/web-dev.json ហើយបង្ហាញ UI វេបដែលភ្ជាប់មកជាមួយ។ ផ្លូវសម្រាប់ Swift គឺ cmux live start --swift (មន្ទីរពិសោធន៍ > កូដផ្ទាល់)។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "내 체크아웃에서 cmux 웹 UI를 수정하면 저장하는 즉시 이 앱에 반영됩니다. 빌드나 재실행이 필요 없습니다. scripts/cmux-next/web-overlay.sh server --local 로 시작하세요. 끄면: cmux는 ~/.config/cmux/web-dev.json 를 무시하고 함께 배포된 웹 UI를 표시합니다."
+            "state": "translated",
+            "value": "cmux live start와 'cmux 실시간 편집…'이 내 체크아웃의 웹 UI를 이 앱에 표시하도록 허용하는 스위치입니다. 저장한 편집은 빌드나 재실행 없이 바로 반영됩니다. 끄면: cmux는 ~/.config/cmux/web-dev.json을 무시하고 기본 제공 웹 UI를 표시합니다. Swift용 경로는 cmux live start --swift입니다(실험실 > 라이브 코드)."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Endringer i cmux sitt nettgrensesnitt fra din egen checkout vises i appen når du lagrer, uten bygg og omstart. Start med scripts/cmux-next/web-overlay.sh server --local. Av: cmux ignorerer ~/.config/cmux/web-dev.json og viser nettgrensesnittet den ble levert med."
+            "state": "translated",
+            "value": "Bryteren som lar cmux live start og «Rediger cmux live…» vise nettgrensesnittet fra din egen checkout i denne appen: hver lagrede endring vises med en gang, uten bygg og omstart. Av: cmux ignorerer ~/.config/cmux/web-dev.json og viser nettgrensesnittet den ble levert med. Veien for Swift er cmux live start --swift (Laboratorium > Live-kode)."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zmiany w interfejsie webowym cmux z twojej kopii pojawiają się w tej aplikacji po zapisaniu, bez budowania i ponownego uruchamiania. Uruchom przez scripts/cmux-next/web-overlay.sh server --local. Wyłączone: cmux ignoruje ~/.config/cmux/web-dev.json i pokazuje dostarczony interfejs webowy."
+            "state": "translated",
+            "value": "Przełącznik, który pozwala cmux live start i „Edytuj cmux na żywo…” pokazać w tej aplikacji interfejs webowy z twojej kopii: każda zapisana zmiana pojawia się od razu, bez budowania i ponownego uruchamiania. Wyłączone: cmux ignoruje ~/.config/cmux/web-dev.json i pokazuje dołączony interfejs webowy. Droga dla Swift to cmux live start --swift (Laboratorium > Kod na żywo)."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Edições na interface web do cmux feitas na sua própria cópia aparecem neste app ao salvar, sem build e sem reiniciar. Comece com scripts/cmux-next/web-overlay.sh server --local. Desligado: o cmux ignora ~/.config/cmux/web-dev.json e mostra a interface web com que foi distribuído."
+            "state": "translated",
+            "value": "O interruptor que permite que cmux live start e “Editar o cmux ao vivo…” mostrem neste app a interface web da sua própria cópia: cada edição salva aparece na hora, sem build e sem reiniciar. Desligado: o cmux ignora ~/.config/cmux/web-dev.json e mostra a interface web com que foi distribuído. O caminho para Swift é cmux live start --swift (Laboratório > Código ao vivo)."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Правки веб-интерфейса cmux из вашей копии появляются в этом приложении при сохранении, без сборки и перезапуска. Запустите scripts/cmux-next/web-overlay.sh server --local. Выключено: cmux игнорирует ~/.config/cmux/web-dev.json и показывает встроенный веб-интерфейс."
+            "state": "translated",
+            "value": "Переключатель, который позволяет cmux live start и «Редактировать cmux вживую…» показывать в этом приложении веб-интерфейс из вашей копии: каждая сохранённая правка видна сразу, без сборки и перезапуска. Выключено: cmux игнорирует ~/.config/cmux/web-dev.json и показывает встроенный веб-интерфейс. Путь для Swift: cmux live start --swift (Лаборатория > Живой код)."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "การแก้ไข UI เว็บของ cmux จากสำเนาของคุณจะแสดงในแอปนี้ทันทีที่บันทึก โดยไม่ต้อง build หรือเปิดใหม่ เริ่มด้วย scripts/cmux-next/web-overlay.sh server --local ปิด: cmux จะละเว้น ~/.config/cmux/web-dev.json และแสดง UI เว็บที่มาพร้อมแอป"
+            "state": "translated",
+            "value": "สวิตช์ที่ให้ cmux live start และ \"แก้ไข cmux แบบสด…\" แสดง UI เว็บจากสำเนาของคุณเองในแอปนี้ การแก้ไขที่บันทึกแต่ละครั้งจะแสดงทันที โดยไม่ต้อง build หรือเปิดใหม่ ปิด: cmux จะไม่สนใจ ~/.config/cmux/web-dev.json และแสดง UI เว็บที่มากับแอป ทางสำหรับ Swift คือ cmux live start --swift (ห้องทดลอง > โค้ดสด)"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kendi kopyanızda cmux web arayüzünde yaptığınız değişiklikler, kaydettiğiniz anda bu uygulamada görünür; derleme ve yeniden başlatma gerekmez. scripts/cmux-next/web-overlay.sh server --local ile başlatın. Kapalı: cmux ~/.config/cmux/web-dev.json dosyasını yok sayar ve birlikte gelen web arayüzünü gösterir."
+            "state": "translated",
+            "value": "cmux live start ve \"cmux'u canlı düzenle…\" komutlarının kendi kopyanızın web arayüzünü bu uygulamada göstermesine izin veren anahtar: kaydedilen her değişiklik derleme ve yeniden başlatma olmadan hemen görünür. Kapalı: cmux ~/.config/cmux/web-dev.json dosyasını yok sayar ve birlikte geldiği web arayüzünü gösterir. Swift yolu cmux live start --swift'tir (Laboratuvar > Canlı Kod)."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Зміни веб-інтерфейсу cmux з вашої копії з'являються в цьому застосунку під час збереження, без збирання й перезапуску. Запустіть scripts/cmux-next/web-overlay.sh server --local. Вимкнено: cmux ігнорує ~/.config/cmux/web-dev.json і показує вбудований веб-інтерфейс."
+            "state": "translated",
+            "value": "Перемикач, який дозволяє cmux live start і «Редагувати cmux наживо…» показувати в цьому застосунку веб-інтерфейс із вашої копії: кожна збережена зміна видна одразу, без збирання й перезапуску. Вимкнено: cmux ігнорує ~/.config/cmux/web-dev.json і показує вбудований веб-інтерфейс. Шлях для Swift: cmux live start --swift (Лабораторія > Живий код)."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Các chỉnh sửa giao diện web của cmux từ bản checkout của bạn hiện trong ứng dụng này ngay khi lưu, không cần build hay khởi động lại. Bắt đầu bằng scripts/cmux-next/web-overlay.sh server --local. Tắt: cmux bỏ qua ~/.config/cmux/web-dev.json và hiển thị giao diện web đi kèm."
+            "state": "translated",
+            "value": "Công tắc cho phép cmux live start và \"Chỉnh sửa cmux trực tiếp…\" hiển thị giao diện web từ bản sao của bạn trong ứng dụng này: mỗi chỉnh sửa đã lưu hiện ngay, không cần build hay khởi động lại. Tắt: cmux bỏ qua ~/.config/cmux/web-dev.json và hiển thị giao diện web đi kèm. Đường cho Swift là cmux live start --swift (Phòng thử nghiệm > Mã trực tiếp)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "在你自己的检出中修改 cmux 的网页界面，保存后即在此应用中生效，无需构建或重新启动。用 scripts/cmux-next/web-overlay.sh server --local 启动。关闭：cmux 忽略 ~/.config/cmux/web-dev.json，显示随附的网页界面。"
+            "state": "translated",
+            "value": "让 cmux live start 和“实时编辑 cmux…”在此应用中显示你自己检出副本的网页 UI 的开关：每次保存的修改都会立即显示，无需构建或重新启动。关闭：cmux 忽略 ~/.config/cmux/web-dev.json，显示随附的网页 UI。Swift 的路径是 cmux live start --swift（实验室 > 实时代码）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "在你自己的檢出中修改 cmux 的網頁介面，儲存後即在此 App 中生效，無需建置或重新啟動。用 scripts/cmux-next/web-overlay.sh server --local 啟動。關閉：cmux 會忽略 ~/.config/cmux/web-dev.json，顯示隨附的網頁介面。"
+            "state": "translated",
+            "value": "讓 cmux live start 和「即時編輯 cmux…」在此 App 中顯示你自己簽出副本的網頁 UI 的開關：每次儲存的修改都會立即顯示，無需建置或重新啟動。關閉：cmux 忽略 ~/.config/cmux/web-dev.json，顯示隨附的網頁 UI。Swift 的路徑是 cmux live start --swift（實驗室 > 即時程式碼）。"
           }
         }
       }

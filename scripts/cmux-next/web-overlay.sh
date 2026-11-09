@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Point a running cmux at live web code, without an app build or relaunch (docs/cmux-next/hot-reload.md,
 # plans/cmux-next/web-live-reload.md). It edits web-dev.json next to cmux-next.json, which every
-# build watches while Settings > General > Live Web Reload (updates.liveWebReload) is on, the
+# build watches while Settings > General > cmux Live (updates.liveWebReload) is on, the
 # default (WebDevOverride.swift); every open page and agent pane, WebKit or Chromium, reloads on a change.
 #
 #   web-overlay.sh server --local [--worktree DIR] [--port N]
@@ -273,6 +273,136 @@ point_at() {
   set_key server "$(json_string "http://127.0.0.1:$1/")" token "$(json_string "$(ensure_token "${2:-}")")" enabled true
 }
 
+# The first lines of `status`: what the app loads its web UI from right now, and why, in the order
+# the app decides (WebDevOverride.swift): the cmux Live setting ($1, `cmux settings get`'s answer),
+# then web-dev.json, then whether its server answers with the proof of its token (a server that
+# does not answer, or answers without the proof, is skipped for the overlay, else the shipped UI).
+# $2 is the pid of the dev server `cmux live start` runs, empty when none runs.
+explain() {
+  python3 - "$1" "$2" "$web_dev" "$state" <<'PY'
+import hashlib, hmac, json, os, secrets, sys, urllib.request
+
+setting_raw, pid, web_dev, state = sys.argv[1:5]
+SHIPPED = "the web UI it shipped with"
+
+def setting(raw):
+    raw = raw.strip()
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        # Human output: the value is its last word.
+        value = raw.split()[-1].strip(".,'\"").lower() if raw else raw
+    if isinstance(value, dict):
+        value = value.get("value")
+    if value in (True, "true"):
+        return True
+    if value in (False, "false"):
+        return False
+    return None
+
+def read(path):
+    try:
+        with open(path) as handle:
+            return handle.read().strip()
+    except OSError:
+        return None
+
+def say(source, why=()):
+    print(f"cmux loads its web UI from {source}.")
+    for line in why:
+        print(f"  {line}")
+
+on = setting(setting_raw)
+switch = {True: "on", False: "off", None: "unknown (`cmux settings get updates.liveWebReload` did not answer)"}[on]
+print(f"cmux Live (Settings > General, updates.liveWebReload): {switch}")
+if on is False:
+    say(SHIPPED, ["Why: cmux Live is off, so the app ignores web-dev.json.",
+                  "Turn it on in Settings > General, or: cmux settings set updates.liveWebReload true"])
+    sys.exit(0)
+
+raw = read(web_dev)
+if raw is None:
+    say(SHIPPED, [f"Why: there is no {web_dev}. `cmux live start` writes it."])
+    sys.exit(0)
+try:
+    config = json.loads(raw)
+except ValueError:
+    config = None
+if not isinstance(config, dict):
+    say(SHIPPED, [f"Why: {web_dev} is not a JSON object."])
+    sys.exit(0)
+if config.get("enabled", True) is False:
+    say(SHIPPED, [f'Why: {web_dev} says "enabled": false. `cmux live start` turns it back on.'])
+    sys.exit(0)
+
+def overlay_or_shipped(why):
+    overlay = config.get("overlay")
+    if isinstance(overlay, str) and overlay:
+        folder = os.path.expanduser(overlay)
+        try:
+            commit = json.load(open(os.path.join(folder, "manifest.json"))).get("commit") or "unknown"
+        except (OSError, ValueError, AttributeError):
+            commit = "unknown"
+        why.append("So the app uses the overlay web-dev.json names, where it has the files.")
+        say(f"the overlay at {folder} (commit {commit})", why)
+    else:
+        say(SHIPPED, why)
+
+server = config.get("server")
+if not isinstance(server, str) or not server:
+    overlay_or_shipped([f"Why: {web_dev} names no dev server. `cmux live start` runs one."])
+    sys.exit(0)
+token = config.get("token")
+if not isinstance(token, str) or len(token) < 32:
+    overlay_or_shipped([f"Why: {web_dev} names {server} but no token, so the app does not trust it.",
+                        "`cmux live start` writes a fresh one."])
+    sys.exit(0)
+
+root = server if server.endswith("/") else server + "/"
+tree = read(os.path.join(state, "dev-server.tree"))
+checkout = None
+if pid and tree and ":" in tree:
+    path, _, port = tree.rpartition(":")
+    if root.rstrip("/").endswith(":" + port):
+        checkout = path
+
+nonce = secrets.token_hex(16)
+request = urllib.request.Request(root + "agent-pane/index.html", headers={"X-Cmux-Dev-Nonce": nonce})
+try:
+    with urllib.request.urlopen(request, timeout=3) as response:
+        proof = response.headers.get("X-Cmux-Dev-Proof")
+    answered = True
+except Exception:
+    answered, proof = False, None
+
+if not answered:
+    why = [f"Why: the dev server web-dev.json names, {root}, does not answer."]
+    stopped = read(os.path.join(state, "dev-server.exit")) if not pid else None
+    if stopped:
+        when, _, reason = stopped.partition(" ")
+        why.append(f"It stopped on its own at {when}" + (f": {reason}" if reason else "") + ".")
+        why.append(f"Its log: {os.path.join(state, 'dev-server.log')}")
+    why.append("`cmux live start` starts it again.")
+    overlay_or_shipped(why)
+    sys.exit(0)
+
+want = hmac.new(token.encode(), nonce.encode(), hashlib.sha256).hexdigest()
+if not proof or not hmac.compare_digest(proof.strip().lower(), want):
+    overlay_or_shipped([
+        f"Why: something answers on {root}, but not with the token in web-dev.json"
+        + (" (it sent no proof)." if not proof else "."),
+        "Another checkout's dev server or another program holds the port. `cmux live start` replaces it.",
+    ])
+    sys.exit(0)
+
+source = f"the dev server at {root}" + (f", from the checkout {checkout}" if checkout else "")
+why = ["Why: cmux Live is on, web-dev.json names this server, and it answers with its token."]
+if not checkout:
+    why.append("`cmux live start` did not start it here, so its checkout is unknown.")
+say(source, why)
+PY
+}
+
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
 case "$cmd" in
   server)
@@ -458,6 +588,13 @@ PY
     set_key enabled false
     ;;
   status)
+    # First the answer (what the app loads its web UI from, and why), then the details.
+    setting=unknown
+    if command -v cmux >/dev/null 2>&1; then
+      setting="$(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
+    fi
+    explain "$setting" "$(live_pid dev-server)"
+    echo
     for name in dev-server tunnel; do
       pid="$(live_pid "$name")"
       [[ -n "$pid" ]] && echo "running: $name (pid $pid)"
@@ -487,10 +624,6 @@ elif want is not None:
     print(f"served by {app}: web ABI {have}")
 PY
     done
-    # The app's switch for all of this: off means the file above is ignored.
-    if command -v cmux >/dev/null 2>&1; then
-      echo "Live Web Reload (updates.liveWebReload): $(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
-    fi
     ;;
   -h|--help) usage ;;
   *) echo "unknown command: $cmd" >&2; usage 1 ;;
