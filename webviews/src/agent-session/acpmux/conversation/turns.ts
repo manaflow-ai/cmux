@@ -50,7 +50,7 @@ import { turnCopyParts } from "./turnCopy";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { hidesEveryCall } from "./mcpPresentation";
-import { isThought, QUIET_THOUGHT_CHARS, thoughtDuration } from "./thoughts";
+import { isQuietThought, isThought, thoughtDuration } from "./thoughts";
 import {
   BACKGROUND_TURN,
   backgroundTurnRowId,
@@ -2486,11 +2486,13 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
     // A thought still coming stays in the run from its first line, in its live viewport
     // (ThoughtRow `streaming`, the row's `live`), not only once the next step ends it (Leo,
     // 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the thinking ... I
-    // only started seeing your thinking bit, like, seven seconds in"). Not before it is past a quiet
-    // thought's length: one that ends that short draws no row (thoughts.ts `isQuietThought`), so it
-    // would show and then leave.
+    // only started seeing your thinking bit, like, seven seconds in"). Not while it is still quiet by
+    // the rule a finished thought draws by (thoughts.ts `isQuietThought`): its text and its time only
+    // grow, so one shown here never leaves when it ends, and a short thought that has run a second
+    // shows now, as it does once the turn ends or the chat reloads (Leo, 2026-11-09: "oh i guess the
+    // service or something must have crashed in between cuz now i see it").
     const tail = all.at(-1);
-    const thinking = tail !== undefined && isThought(tail) && tail.text.trim().length >= QUIET_THOUGHT_CHARS;
+    const thinking = tail !== undefined && isThought(tail) && !isQuietThought(tail);
     const items = all.filter(
       (item, at) =>
         !(item.tool ? isRunning(item.tool) : at === all.length - 1 && item.kind !== "tool" && !thinking),

@@ -119,4 +119,59 @@ test("a running turn draws its thought from its first line, then keeps it in the
     { now: 3_000, working: true },
   );
   expect(short.some((row) => row.id === "act")).toBe(false);
+  // One that has run a second draws now, as it does once the turn ends or the chat reloads: live and
+  // restored agree (Leo, 2026-11-09: "now i see it", after a reload).
+  const slow = turnView(
+    [
+      user(1_000),
+      {
+        id: "act",
+        version: 1,
+        at: 2_000,
+        kind: "activity",
+        items: [{ ...thought, text: "Three loops.", endedAt: 3_200 }],
+      },
+    ],
+    new Set(),
+    { now: 3_300, working: true },
+  );
+  expect(slow.find((row) => row.id === "act")?.items?.map((item) => item.text)).toEqual(["Three loops."]);
+});
+
+// Leo, 2026-11-09, on a coordinator chat: "and your thinking disappeared?" when another agent's
+// message (acpmux's inbox notice, sent into the running turn as a steer) came in under a streaming
+// thought. Guard: the shaping keeps the thought in its run whether the notice still waits (it
+// leaves for the group of waiting messages) or has landed, and a view built on the previous one
+// draws what a fresh one does (a reload).
+test("an inbox notice that lands mid-thought leaves the thought in its run", () => {
+  const text = "Checking whether the lane's PR merged and whether the nightly picked it up yet";
+  const thought = { kind: "thought", text, startedAt: 2_000, endedAt: 4_000 };
+  const act: AcpmuxRow = { id: "act", version: 1, at: 2_000, kind: "activity", items: [thought], streaming: true };
+  const notice = (steer: "waiting" | "landed"): AcpmuxRow => ({
+    id: "inbox",
+    version: steer === "waiting" ? 1 : 2,
+    at: 5_000,
+    kind: "user",
+    text: "[inbox] New messages from other agents in 1 thread.",
+    untyped: true,
+    steer,
+    incoming: {
+      kind: "message",
+      message: { name: "lane-10", sessionId: "s10", text: "cmuxterm-hq#8471 merged", raw: "" },
+    },
+  });
+  const options = { now: 6_000, working: true };
+  const before = turnViewFrom([user(1_000), act], new Set(), options);
+  expect(before.rows.find((row) => row.id === "act")?.live).toBe(true);
+  for (const steer of ["waiting", "landed"] as const) {
+    const rows = [user(1_000), act, notice(steer)];
+    const built = turnViewFrom(rows, new Set(), options, before);
+    const fresh = turnViewFrom(rows, new Set(), options);
+    const run = built.rows.find((row) => row.id === "act");
+    expect(run?.items?.map((item) => item.text)).toEqual([text]);
+    expect(run?.liveRun).toBe(true);
+    expect(built.rows.map((row) => `${row.id}:${row.version}`)).toEqual(
+      fresh.rows.map((row) => `${row.id}:${row.version}`),
+    );
+  }
 });
