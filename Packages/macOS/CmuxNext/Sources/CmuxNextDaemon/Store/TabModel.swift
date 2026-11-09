@@ -274,10 +274,16 @@ public final class TabModel: Identifiable {
     public internal(set) var resourceID: ResourceID?
 
     /// The acpmux session record of an agent chat tab (a conversation tab with an agent session
-    /// source, `agent-session-tabs-v1`); nil for every other tab.
+    /// source, `agent-session-tabs-v1`); nil for every other tab. Its host as this Mac names it now
+    /// when its store is this Mac's own and it was saved under a former one (``formerLocalHosts``).
     public var agentSession: AgentSessionRef? {
-        kind == .conversation ? conversation?.agentSession : nil
+        guard kind == .conversation, var record = conversation?.agentSession else { return nil }
+        if let host = formerLocalHosts[record.host] { record.host = host }
+        return record
     }
+    /// Its store's ``DaemonStore/formerLocalHosts`` (written on a change only): observed, so a reader
+    /// of ``agentSession`` hears ids read after the tree arrived.
+    var formerLocalHosts: [String: String] = [:]
 
     /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
     public var appTab: AppTabRef? {
