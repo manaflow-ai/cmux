@@ -3,7 +3,6 @@ import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
-import CmuxNextPages
 import Foundation
 import Testing
 
@@ -30,16 +29,12 @@ struct ReservedWorkspaceKeepsFocusTests {
             controller.reservedContent.fill()
             try await PinnedPageTests.until({ controller.reservedContent.ready != nil }, within: .seconds(20),
                                             report: { "the window built no next Cmd-N view" })
-            // A page that loads in the hidden view may ask for the keyboard as it finishes (its composer's own focus()):
-            // wait for each page's load, then a script round trip, so an ask the page sent has reached the window.
+            // A page in the hidden view may ask for the keyboard once it loads (its composer's own focus()). WebKit sends
+            // that ask as the window's makeFirstResponder on the page's view, outside an input event: send the same ask
+            // for each page now, so the window's refusal is checked whenever the page would ask (no load wait).
             let reserved = try #require(controller.reservedContent.ready)
-            for pane in Self.descendants(of: reserved.contentView).compactMap({ $0 as? AgentPaneView }) {
-                if let page = pane.page {
-                    await page.waitUntilLoaded()
-                } else {
-                    try await PinnedPageTests.until({ !pane.webView.isLoading }, report: { "the reserved view's page never loaded" })
-                }
-                _ = try? await pane.webView.evaluateJavaScript("0")
+            for page in Self.descendants(of: reserved.contentView).compactMap({ $0 as? AgentPaneView }) {
+                #expect(!window.makeFirstResponder(page.focusTarget), "the window gave the reserved view's hidden page the keyboard")
             }
             #expect(window.firstResponder === responder,
                     "the reserved workspace's refill took the keyboard: \(String(describing: window.firstResponder)), was \(responder)")
