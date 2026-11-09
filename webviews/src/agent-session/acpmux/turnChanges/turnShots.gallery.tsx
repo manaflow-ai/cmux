@@ -19,7 +19,10 @@ const EDIT = {
   oldText: "export const theme = 'light';\n",
   newText: "export const theme = 'dark';\nexport const highlight = 'team';\n",
 };
-const ROW = { ...activity([tool("Edit src/pages/Pricing.tsx", "edit", "completed", { diffs: [EDIT] })], 2), ended: true };
+const ROW = {
+  ...activity([tool("Edit src/pages/Pricing.tsx", "edit", "completed", { diffs: [EDIT] })], 2),
+  ended: true,
+};
 const PAIR: TurnShotPair = { before: PAGE_BEFORE, after: PAGE_AFTER };
 
 function TurnShotsGallery({ mode, arriveMs }: Props) {

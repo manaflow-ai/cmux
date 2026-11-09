@@ -2,8 +2,10 @@
 // TurnShotsPair.tsx; acpmux hub/turn_shots.rs): the reply reads as a pair only with both pictures, the
 // pair belongs to the turn's ending summary, reads stay bounded, and the card draws the shared
 // before/after split with both fixture pictures.
-import { expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { JSDOM } from "jsdom";
+import { act } from "react";
+import type { Root } from "react-dom/client";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { PAGE_AFTER, PAGE_BEFORE } from "../src/agent-session/acpmux/turnChanges/turnShotFixtures";
 import {
@@ -100,31 +102,75 @@ const reader = (pair?: TurnShotPair): TurnShotsReader => ({
   read: () => Promise.resolve(pair),
 });
 
-test("an ended turn's card draws the split with both pictures", async () => {
+// The card reads stores that only a client render has: draw it in jsdom, as the pane does.
+const scope = globalThis as Record<string, unknown>;
+const keys = ["window", "document", "navigator", "HTMLElement", "Element", "Node", "MutationObserver", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+let root: Root | undefined;
+let host: HTMLElement;
+setDefaultTimeout(30_000);
+
+beforeAll(() => {
+  const { window } = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
+  Object.assign(scope, {
+    window,
+    document: window.document,
+    navigator: window.navigator,
+    HTMLElement: window.HTMLElement,
+    Element: window.Element,
+    Node: window.Node,
+    MutationObserver: window.MutationObserver,
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: window.requestAnimationFrame.bind(window),
+    cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  host = window.document.getElementById("root")!;
+});
+
+afterEach(() => {
+  act(() => root?.unmount());
+  root = undefined;
+});
+
+afterAll(() => {
+  for (const [key, had, value] of saved) {
+    if (had) scope[key] = value;
+    else delete scope[key];
+  }
+});
+
+async function renderCard(row: AcpmuxRow, shots: TurnShotsReader) {
+  const { createRoot } = await import("react-dom/client");
   const { EditedFilesCard } = await import("../src/agent-session/acpmux/conversation/EditedFilesCard");
-  const html = renderToStaticMarkup(
-    <TurnShotsContext.Provider value={reader({ before: PAGE_BEFORE, after: PAGE_AFTER })}>
-      <EditedFilesCard row={edit(true)} sessionId="s" />
-    </TurnShotsContext.Provider>,
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <TurnShotsContext.Provider value={shots}>
+        <EditedFilesCard row={row} sessionId="s" />
+      </TurnShotsContext.Provider>,
+    ),
   );
-  expect(html).toContain('class="ui-compare" data-mode="slider"');
-  expect(html).toContain('type="range"');
-  expect(html).toContain(`src="${PAGE_BEFORE.replace(/&/g, "&amp;")}"`);
-  expect(html).toContain(`src="${PAGE_AFTER.replace(/&/g, "&amp;")}"`);
+}
+
+test("an ended turn's card draws the split with both pictures", async () => {
+  await renderCard(edit(true), reader({ before: PAGE_BEFORE, after: PAGE_AFTER }));
+  const pair = host.querySelector(".acpmux-turn-shots .ui-compare");
+  expect(pair?.getAttribute("data-mode")).toBe("slider");
+  const sources = [...host.querySelectorAll(".ui-compare img")].map((img) => img.getAttribute("src"));
+  expect(sources).toEqual([PAGE_AFTER, PAGE_BEFORE]);
+  const range = host.querySelector<HTMLInputElement>(".ui-compare-range");
+  expect(range?.value).toBe("50");
 });
 
 test("no pair, or a turn still running, draws no pictures", async () => {
-  const { EditedFilesCard } = await import("../src/agent-session/acpmux/conversation/EditedFilesCard");
-  const none = renderToStaticMarkup(
-    <TurnShotsContext.Provider value={reader(undefined)}>
-      <EditedFilesCard row={edit(true)} sessionId="s" />
-    </TurnShotsContext.Provider>,
-  );
-  expect(none).not.toContain("acpmux-turn-shots");
-  const running = renderToStaticMarkup(
-    <TurnShotsContext.Provider value={reader({ before: PAGE_BEFORE, after: PAGE_AFTER })}>
-      <EditedFilesCard row={edit(false)} sessionId="s" />
-    </TurnShotsContext.Provider>,
-  );
-  expect(running).not.toContain("acpmux-turn-shots");
+  await renderCard(edit(true), reader(undefined));
+  expect(host.querySelector(".acpmux-turn-shots")).toBeNull();
+  act(() => root?.unmount());
+  await renderCard(edit(false), reader({ before: PAGE_BEFORE, after: PAGE_AFTER }));
+  expect(host.querySelector(".acpmux-turn-shots")).toBeNull();
 });
