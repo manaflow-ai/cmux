@@ -925,6 +925,19 @@ pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
 #[path = "views_lane_tests.rs"]
 mod lane_tests;
 
+/// `true` when this daemon runs in the user's login session (its agents read the
+/// login keychain), `false` when it does not, `"unknown"` when its security session
+/// could not be read; null off macOS.
+fn daemon_login_session() -> Value {
+    #[cfg(target_os = "macos")]
+    return match crate::daemon::login_session::in_login_session() {
+        Some(here) => Value::Bool(here),
+        None => Value::String("unknown".into()),
+    };
+    #[cfg(not(target_os = "macos"))]
+    Value::Null
+}
+
 #[cfg(test)]
 mod time_breakdown_tests {
     use super::*;
@@ -1005,17 +1018,4 @@ mod time_breakdown_tests {
         assert_eq!(summary["timeBreakdown"]["totalMs"], 250);
         assert_eq!(summary["timeBreakdown"]["totalTokens"], 12);
     }
-}
-
-/// `true` when this daemon runs in the user's login session (its agents read the
-/// login keychain), `false` when it does not, `"unknown"` when its security session
-/// could not be read; null off macOS.
-fn daemon_login_session() -> Value {
-    #[cfg(target_os = "macos")]
-    return match crate::daemon::login_session::in_login_session() {
-        Some(here) => Value::Bool(here),
-        None => Value::String("unknown".into()),
-    };
-    #[cfg(not(target_os = "macos"))]
-    Value::Null
 }
