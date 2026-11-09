@@ -129,6 +129,7 @@ impl Client {
         // or whatever listens on a path the agent pointed the CLI at).
         let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
+        let mut meta = serde_json::Map::new();
         if include_caller
             && let (Some(id), Some(token), true) = (
                 caller("ACPMUX_SESSION_ID"),
@@ -136,13 +137,15 @@ impl Client {
                 issuer.is_some_and(|socket| Path::new(&socket) == path),
             )
         {
-            let mut meta = serde_json::Map::new();
             meta.insert(
                 crate::hub::person::CALLER_FIELD.to_owned(),
                 json!({"sessionId": id, "token": token}),
             );
-            hello.set("_meta", json!({"acpmux": meta}));
         }
+        // Whether it runs in an acpmux session's environment, said positively: only a terminal
+        // declaration may be the owner's own send (`cli_caller.rs`).
+        crate::cli_caller::declare(&mut meta, caller);
+        hello.set("_meta", json!({"acpmux": meta}));
         let init = client.request(method::INITIALIZE, hello).await?;
         if let Some(session) = init.pointer("/_meta/acpmux/callerSessionId").and_then(Value::as_str)
         {

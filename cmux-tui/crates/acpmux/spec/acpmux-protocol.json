@@ -2103,6 +2103,8 @@
         "argv": true,
         "author": true,
         "beforePromptId": true,
+        "callerKind": true,
+        "callerProtocol": true,
         "callerSession": true,
         "cancelToken": true,
         "class": true,
