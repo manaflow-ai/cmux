@@ -756,6 +756,64 @@ mod tests {
     }
 
     #[test]
+    fn a_replacement_shell_keeps_the_live_grace_past_an_older_incarnations_exit_sidecar() {
+        use crate::terminal_host::{HostIncarnation, TerminalId};
+        use crate::terminal_host_runtime::{TerminalHostExitRecord, TerminalHostIdentity};
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let (dir, own, roots) = state_with_sessions("sidecar", &["cmux-app-replaced"]);
+        let root = roots[0].clone();
+        let terminal_id = TerminalId::random().unwrap().to_hex();
+        let current = HostIncarnation::random().unwrap().to_hex();
+        let record_path = root.join(format!("{terminal_id}.json"));
+        let record = crate::terminal_host_runtime::TerminalHostRecord {
+            record_version: 4,
+            terminal_id: terminal_id.clone(),
+            incarnation: current.clone(),
+            ..Default::default()
+        };
+        let write_sidecar = |incarnation: &str| {
+            let exit = TerminalHostExitRecord::new(
+                &TerminalHostIdentity {
+                    terminal_id: terminal_id.clone(),
+                    incarnation: incarnation.to_string(),
+                },
+                crate::terminal_host_protocol::TerminalExit {
+                    outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+                    exited_at_ms: 1,
+                },
+            );
+            let path = record_path.with_extension("exit");
+            std::fs::write(&path, serde_json::to_vec(&exit).unwrap()).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        };
+        let ended = std::cell::Cell::new(0);
+        let records =
+            |_: &Path| -> LoadedRecords { Ok(vec![(record_path.clone(), record.clone())]) };
+        let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, _: &Path| {
+            ended.set(ended.get() + 1);
+            true
+        };
+        let hosts =
+            HostOps { load: &records, liveness: &|_, _| TerminalHostLiveness::Live, end: &end };
+        let timing = Timing { ended_grace: Duration::ZERO, ..Timing::STANDARD };
+        let store = dir.join(STORE_FILE);
+        let never = || false;
+
+        // The shell of an older incarnation ended; the running one did not.
+        write_sidecar(&HostIncarnation::random().unwrap().to_hex());
+        reap_pass_with(&hosts, &own, &store, 1_000_000, timing, &never);
+        reap_pass_with(&hosts, &own, &store, 1_000_000 + 11 * 60_000, timing, &never);
+        assert_eq!(ended.get(), 0, "a live replacement shell was ended on an old exit sidecar");
+
+        // The current incarnation's own sidecar does take the shorter grace.
+        write_sidecar(&current);
+        reap_pass_with(&hosts, &own, &store, 1_000_000 + 12 * 60_000, timing, &never);
+        assert_eq!(ended.get(), 1, "the current shell's end did not take the ended-shell grace");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn passes_resume_after_the_last_root_so_every_root_is_seen_past_the_cap() {
         let roots = (0..MAX_ROOTS_PER_PASS + 6)
             .map(|index| PathBuf::from(format!("/roots/r{index:03}")))
