@@ -103,6 +103,16 @@ const runDiffs: PlanBuildReply = {
     },
   ],
 };
+// Opus's run was done, then got another message: its later turn works, so its Keep waits.
+const runsLaterTurn: PlanBuild = {
+  ...runs,
+  builds: runs.builds.map((b, i) => (i === 0 ? { ...b, state: "running", seenAt: 4 } : b)),
+  records: 4,
+};
+const laterTurnDiffs: PlanBuildReply = {
+  ...runDiffs,
+  builds: runDiffs.builds.map((b, i) => (i === 0 ? { ...b, status: "working" } : b)),
+};
 const runsKept: PlanBuild = {
   ...runs,
   keptSessionId: codex.sessionId,
@@ -178,6 +188,10 @@ export default componentEntry<Props>({
     runs: {
       note: "Run on 3 agents from the composer: one column per agent with its model, side by side when wide, stacked when narrow; Keep this one on each.",
       props: { build: runs, diffs: runDiffs },
+    },
+    "runs-later-turn": {
+      note: "Opus's run finished, then the person sent it another message: its column says Working again and its Keep is off until that turn ends; the other two keep Done and Keep this one.",
+      props: { build: runsLaterTurn, diffs: laterTurnDiffs },
     },
     "runs-kept": {
       note: "Codex's run kept: the other two say Removed (closed, worktrees archived and removed), the heading says so. Same height as before.",
