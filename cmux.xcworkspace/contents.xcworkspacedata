@@ -44,6 +44,9 @@
          location = "group:CmuxSimulatorStreamKit">
       </FileRef>
       <FileRef
+         location = "group:CmuxSpinner">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSyncStore">
       </FileRef>
       <FileRef
