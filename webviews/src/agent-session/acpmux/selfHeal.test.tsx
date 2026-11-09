@@ -279,8 +279,10 @@ test("a quiet working chat whose acpmux holds nothing newer keeps its connection
     run.live().touch(run.target, { status: "running", indicator: "working" });
     run.live().emit(run.target, { mux: "turn_started" });
     await time.advance(100);
-    // The model thinks for half an hour without a word; the stream is fine.
-    await time.advance(30 * 60_000);
+    // The model thinks for half an hour without a word; the stream is fine. The clock moves a
+    // second at a time, so acpmux's answers (microtasks) land between timers as they do in a page:
+    // one 30-minute jump would fire the request's liveness timers before its answer could arrive.
+    for (let second = 0; second < 30 * 60; second++) await time.advance(1_000);
     expect(run.sockets()).toBe(1);
   } finally {
     run.client.close();
