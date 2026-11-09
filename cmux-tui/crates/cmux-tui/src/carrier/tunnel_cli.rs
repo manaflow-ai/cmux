@@ -142,6 +142,21 @@ fn vm_api_of(platform: &str) -> Option<&'static str> {
         .map(|d| d.vm_origin)
 }
 
+/// The supervisor's timing; `CMUX_CARRIER_TUNNEL_REFRESH_MS` (1 ms to 1 h)
+/// shortens the refresh for tests, as `CMUX_CARRIER_SERVE_IDLE_MS` does for
+/// serve.
+fn timing() -> tunnel::TunnelTiming {
+    let mut timing = tunnel::TunnelTiming::default();
+    if let Some(ms) = std::env::var("CMUX_CARRIER_TUNNEL_REFRESH_MS")
+        .ok()
+        .and_then(|text| text.trim().parse::<u64>().ok())
+        .filter(|ms| (1..=3_600_000).contains(ms))
+    {
+        timing.refresh_every = std::time::Duration::from_millis(ms);
+    }
+    timing
+}
+
 /// The JSON line for a status.
 pub(crate) fn status_line(status: &TunnelStatus) -> Value {
     match status {
@@ -252,7 +267,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         vm_api,
         socket: args.socket,
         launcher,
-        timing: tunnel::TunnelTiming::default(),
+        timing: timing(),
         jitter: super::jitter,
     };
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {

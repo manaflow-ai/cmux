@@ -602,3 +602,63 @@ async fn the_supervisor_lock_is_its_own_private_file_not_the_hubs_socket_lock() 
     assert!(file.try_lock().is_ok(), "the supervisor must not hold the hub's lock");
     handle.stop().await;
 }
+
+#[tokio::test]
+async fn a_changed_read_ends_the_failure_streak() {
+    let mut timing = quick();
+    timing.refresh_every = Duration::from_millis(20);
+    timing.max_failures = 8;
+    let mut rig = rig("streak", timing).await;
+    rig.platform.answer("/attach", vec![mesh_only(), enrolled(&rig.wg_public, "gw.example:51820")]);
+    let down = (503, json!({"code": "unavailable"}));
+    let mut reads = vec![down.clone(); 7];
+    reads.push(tunnel_read("gw2.example"));
+    reads.push(down);
+    reads.push(tunnel_read("gw2.example"));
+    rig.vm.answer("/signed/tunnel", reads);
+    let handle = start(rig.plan.take().unwrap()).unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while rig.vm.requests("/signed/tunnel").len() < 11 {
+        assert!(tokio::time::Instant::now() < deadline, "eleven reads in time");
+        assert!(!handle.status().borrow().is_final(), "{:?}", *handle.status().borrow());
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    wait_status(&handle, |s| matches!(s, TunnelStatus::Ready { .. })).await;
+    assert_eq!(rig.hubs.configs.lock().unwrap().len(), 2, "one restart, for the changed read");
+    assert_eq!(rig.platform.requests("/attach").len(), 2);
+    assert_eq!(handle.stop().await, TunnelStatus::Stopped);
+}
+
+/// A VM API that takes every read and never answers; each read is counted.
+async fn stalling() -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = Arc::clone(&hits);
+    let app = axum::Router::new().fallback(move || {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        std::future::pending::<StatusCode>()
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (origin, hits)
+}
+
+#[tokio::test]
+async fn stop_during_a_stalled_read_stops_the_hub_and_ends_stopped() {
+    let mut timing = quick();
+    timing.refresh_every = Duration::from_millis(20);
+    let mut rig = rig("stalled", timing).await;
+    rig.platform.answer("/attach", vec![mesh_only(), enrolled(&rig.wg_public, "gw.example:51820")]);
+    let (origin, hits) = stalling().await;
+    let mut plan = rig.plan.take().unwrap();
+    plan.vm_api = origin;
+    let handle = start(plan).unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while hits.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+        assert!(tokio::time::Instant::now() < deadline, "a read in flight");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let stopped = tokio::time::timeout(Duration::from_secs(2), handle.stop()).await;
+    assert_eq!(stopped.expect("stop cancels the read"), TunnelStatus::Stopped);
+    assert_eq!(*rig.hubs.stopped.lock().unwrap(), 1);
+}

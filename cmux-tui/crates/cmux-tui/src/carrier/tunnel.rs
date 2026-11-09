@@ -682,7 +682,16 @@ impl Supervisor {
                         return HubEnd::Final(TunnelStatus::Failed(why));
                     }
                 }
-                match self.refresh(&client, &identity, &tunnel).await {
+                // A stop cancels a read in flight: the hub stops and the
+                // supervisor ends `Stopped`, never `Failed`.
+                let read = tokio::select! {
+                    read = self.refresh(&client, &identity, &tunnel) => read,
+                    _ = self.stop.wait_for(|stop| *stop) => {
+                        hub.stop().await;
+                        return HubEnd::Stopped;
+                    }
+                };
+                match read {
                     Ok(fresh) if fresh == tunnel => {
                         // A read that works again after a failure: the
                         // tunnel the hub serves is current, so it is ready.
@@ -691,7 +700,12 @@ impl Supervisor {
                             self.ready(&tunnel);
                         }
                     }
-                    Ok(fresh) => break Some(fresh),
+                    // A read that worked ends the failure streak, changed or
+                    // not; the restarted hub publishes Ready.
+                    Ok(fresh) => {
+                        failures = 0;
+                        break Some(fresh);
+                    }
                     Err(Miss::Reattach(_) | Miss::NoMesh(_)) => {
                         hub.stop().await;
                         return HubEnd::Reattach;
@@ -721,7 +735,10 @@ impl Supervisor {
                     tunnel = fresh;
                 }
                 // The hub ended: read the tunnel before starting another.
-                None => match self.refresh(&client, &identity, &tunnel).await {
+                None => match tokio::select! {
+                    read = self.refresh(&client, &identity, &tunnel) => read,
+                    _ = self.stop.wait_for(|stop| *stop) => return HubEnd::Stopped,
+                } {
                     Ok(fresh) => tunnel = fresh,
                     Err(Miss::Reattach(_) | Miss::NoMesh(_)) => return HubEnd::Reattach,
                     Err(Miss::Fatal(why)) => return HubEnd::Final(TunnelStatus::Failed(why)),
@@ -760,34 +777,79 @@ impl ProcessHubLauncher {
     }
 }
 
+/// What the hub's owner thread is asked to do with its child.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HubSignal {
+    /// SIGTERM: the hub removes its socket and exits.
+    Term,
+    /// SIGKILL, through the owned `Child`.
+    Kill,
+}
+
+/// How often the owner thread looks for a signal request while it waits on
+/// the child's exit event (the wait itself is an event, not a poll).
+const HUB_OWNER_TICK: Duration = Duration::from_millis(50);
+
+/// The owner thread: the one place that holds the `Child`, waits on it, and
+/// signals it. A signal goes out only after `try_wait` said the child still
+/// runs and before this same thread reaps it, so its pid cannot have been
+/// reused; nothing else ever signals the hub. A dropped `ProcessHub` (its
+/// sender gone) counts as `Term`.
+fn own_hub(
+    mut child: cmux_process::Child,
+    requests: std::sync::mpsc::Receiver<HubSignal>,
+    done: watch::Sender<Option<String>>,
+) {
+    use std::sync::mpsc::TryRecvError;
+    let mut asked_term = false;
+    let why = loop {
+        let request = match requests.try_recv() {
+            Ok(signal) => Some(signal),
+            Err(TryRecvError::Disconnected) if !asked_term => Some(HubSignal::Term),
+            Err(_) => None,
+        };
+        if let Some(signal) = request {
+            match child.try_wait() {
+                Ok(Some(status)) => break status.to_string(),
+                Err(e) => break format!("{:?}", e.kind()),
+                Ok(None) => match signal {
+                    HubSignal::Kill => {
+                        let _ = child.kill();
+                    }
+                    HubSignal::Term if !asked_term => {
+                        asked_term = true;
+                        if let Ok(pid) = libc::pid_t::try_from(child.id()) {
+                            // SAFETY: this thread owns the unreaped child
+                            // (try_wait just saw it running) and is the only
+                            // one that reaps it, so `pid` is still the hub's.
+                            unsafe { libc::kill(pid, libc::SIGTERM) };
+                        }
+                    }
+                    HubSignal::Term => {}
+                },
+            }
+        }
+        match child.wait_timeout(HUB_OWNER_TICK) {
+            Ok(Some(status)) => break status.to_string(),
+            Ok(None) => {}
+            Err(e) => break format!("{:?}", e.kind()),
+        }
+    };
+    done.send_replace(Some(why));
+}
+
 struct ProcessHub {
-    pid: libc::pid_t,
-    /// Set once the reaper thread has waited the child out.
+    requests: std::sync::mpsc::Sender<HubSignal>,
+    /// Set once the owner thread has reaped the child.
     ended: watch::Receiver<Option<String>>,
 }
 
 impl ProcessHub {
-    fn signal(&self, signal: libc::c_int) {
-        // Never after the reaper's wait: the pid could be another process's.
-        if self.ended.borrow().is_none() {
-            // SAFETY: `pid` is this supervisor's own child, not yet reaped.
-            unsafe { libc::kill(self.pid, signal) };
-        }
-    }
-
     async fn wait_ended(&mut self) -> String {
         match self.ended.wait_for(Option::is_some).await {
             Ok(why) => why.clone().unwrap_or_default(),
-            Err(_) => "the hub's reaper ended".into(),
+            Err(_) => "the hub's owner ended".into(),
         }
-    }
-}
-
-impl Drop for ProcessHub {
-    fn drop(&mut self) {
-        // A supervisor dropped without `stop` still ends its hub (the hub's
-        // `--exit-with-parent` covers this process ending).
-        self.signal(libc::SIGTERM);
     }
 }
 
@@ -798,9 +860,9 @@ impl RunningHub for ProcessHub {
     }
 
     async fn stop(mut self: Box<Self>) {
-        self.signal(libc::SIGTERM);
+        let _ = self.requests.send(HubSignal::Term);
         if tokio::time::timeout(Duration::from_secs(5), self.wait_ended()).await.is_err() {
-            self.signal(libc::SIGKILL);
+            let _ = self.requests.send(HubSignal::Kill);
             self.wait_ended().await;
         }
     }
@@ -823,20 +885,14 @@ impl HubLauncher for ProcessHubLauncher {
             .stderr(cmux_process::Stdio::inherit())
             .spawn()
             .map_err(|e| format!("could not start wg hub ({:?})", e.kind()))?;
-        let pid = libc::pid_t::try_from(child.id()).map_err(|_| "wg hub has no pid")?;
+        // Both pipes leave the child before its owner thread waits on it
+        // (a wait closes stdin, and the config still has to go in).
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let (done, ended) = watch::channel(None);
-        // The reaper: the only wait on the child, so the pid stays ours
-        // until it reports.
-        std::thread::spawn(move || {
-            let why = match child.wait() {
-                Ok(status) => status.to_string(),
-                Err(e) => format!("{:?}", e.kind()),
-            };
-            done.send_replace(Some(why));
-        });
-        let hub = ProcessHub { pid, ended };
+        let (requests, asked) = std::sync::mpsc::channel();
+        std::thread::spawn(move || own_hub(child, asked, done));
+        let hub = ProcessHub { requests, ended };
         let mut input = Zeroizing::new(Vec::with_capacity(self.token.len() + 1 + config.len()));
         input.extend_from_slice(self.token.as_bytes());
         input.push(b'\n');
