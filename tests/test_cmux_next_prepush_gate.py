@@ -316,6 +316,35 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("pre-push: refused in cmux-next gate", result.stderr)
         self.assertIn("do not retry", result.stderr)
 
+    def test_the_ui_font_check_runs_only_on_a_push_that_changes_what_it_reads(self):
+        # 2026-11-09 (push-reliability): check-ui-font.py reads every webviews/src and Native/OptChat source at the
+        # base and again at the head (4268 files on feat-cmux-next). On a push that changed one Python file it took
+        # 9.6 s of the gate's 18.8 s, and in this blob:none clone each source blob the clone lacks costs one
+        # on-demand fetch (5-8 s measured, 16 missing at the feat tip). A push that changes none of the files it
+        # reads cannot change what it finds.
+        snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
+        installed = snapshot.resolve() / "check-ui-font.py"
+        runs = self.root / "ui-font-runs"
+        entry = 'if __name__ == "__main__":'
+        text = installed.read_text()
+        self.assertIn(entry, text)
+        installed.write_text(text.replace(entry, f"open({str(runs)!r}, 'a').write('ran\\n')\n\n\n{entry}", 1))
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("a Swift change only")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(runs.exists(), "the hook ran the UI font check on a push that changes none of its inputs")
+
+        self.write("webviews/src/pages/shared/desktop.css", "/* a webviews change */\n")
+        self.commit("a webviews change")
+
+        result = self.push()
+
+        self.assertTrue(runs.exists(), "a push that changes a file the UI font check reads must run it\n"
+                        + result.stdout + result.stderr)
+
     def kit(self, name, text):
         self.write(f"{PKG}/Sources/CmuxNextKit/{name}.swift", text)
 
