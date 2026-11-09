@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 @testable import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -33,7 +34,7 @@ struct HomeHeaderPanelsTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let suite = "cmux-home-header-panels-test-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         services.rightSidebarDefaults = defaults
         services.windows.ordersWindowsIn = false
         AppActions.bind(services)

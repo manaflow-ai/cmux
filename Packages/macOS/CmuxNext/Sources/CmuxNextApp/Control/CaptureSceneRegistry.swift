@@ -449,7 +449,7 @@ extension CaptureSceneRegistry {
         for (id, name, workspace) in [(Self.openedMachineID, "my-vm", "my-project"), (Self.agentMachineIDs[0], "lane-vm-1", "workspace-1"),
                                       (Self.agentMachineIDs[1], "test-vm-2", "workspace-1")] {
             // Never connected: the scene sets the tree itself, and no connect runs its op.
-            let resolver = CloudTerminalLinkResolver()
+            let resolver = CloudEndedLinkResolver(error: .unsupported)
             let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: name),
                                               appLink: CloudLinkSession(key: CloudLinkKey(machine: id), resolver: resolver),
                                               localIdentity: { nil }, mainWork: services.mainWork)

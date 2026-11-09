@@ -382,7 +382,11 @@ so a restart can delay a close but never make it early.
 When `identify` advertises `terminal-reap-v1`, the owner also ends a terminal
 that has had no tab placement for the reap grace period and emits
 `terminal-reaped`, but only when the owner was started with
-`--terminal-reap-grace-seconds` (reaping is opt-in). Mark a
+`--terminal-reap-grace-seconds` (`identify` then also advertises
+`terminal-reaper-active-v1`). Every owner a local client starts (`cmux`,
+`cmux-tui`, `cmux daemon ensure`) gets the option, 30 seconds unless the
+client names another; a daemon started directly with `--headless` and no
+option does not reap. Mark a
 terminal that must outlive its tabs with
 `{"cmd":"set-terminal-keep","terminal_id":"term_...","keep":true}` or pass
 `"keep":true` to `new-tab`, `split`, or `create-terminal`. A close commits and

@@ -1600,6 +1600,9 @@ fn code_mode_lists_exec_and_workflow_and_a_script_reaches_every_tool() {
     // Scripts search the underlying catalog with cmux.docs; durable runs
     // also have a direct lifecycle tool beside the code-mode entry point.
     assert_eq!(names, ["cmux_exec", "cmux_workflow"]);
+    // cmux_exec stays in Claude Code's prompt; the workflow tool stays behind tool search.
+    assert_eq!(tools[0]["_meta"]["anthropic/alwaysLoad"], json!(true), "{}", tools[0]);
+    assert!(tools[1].get("_meta").is_none(), "{}", tools[1]);
     let bytes = serde_json::to_vec(&tools).unwrap().len();
     assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
     let all = server.list();
@@ -1652,6 +1655,13 @@ fn code_mode_lists_exec_and_workflow_and_a_script_reaches_every_tool() {
     let sent = runs.iter().rev().find(|sent| sent["method"] == "action.run").expect("a run");
     assert_eq!(sent["params"]["origin"], "mcp");
     assert_eq!(sent["params"]["action"], "workspace rename");
+    // `code` is the script under the name other code-mode tools use; any other name is refused.
+    let aliased = call(&mut server, "cmux_exec", json!({"code": "return 1 + 1;"}));
+    assert_eq!(aliased["structuredContent"]["result"], 2, "{aliased}");
+    let both = call(&mut server, "cmux_exec", json!({"script": "return 1;", "code": "return 2;"}));
+    assert_eq!(both["isError"], true, "{both}");
+    let other = call(&mut server, "cmux_exec", json!({"source": "return 1;"}));
+    assert_eq!(other["isError"], true, "{other}");
 }
 
 #[test]

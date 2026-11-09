@@ -199,6 +199,26 @@ fn a_gone_chat_leaves_the_saved_copy_at_once_and_the_first_pass_marks_it_filled(
     let _ = std::fs::remove_file(&text.path);
 }
 
+#[test]
+fn a_damaged_or_oversized_saved_copy_is_left_out() {
+    let text = index();
+    text.update(&[chat("a", 1)], &|_| Some(vec![turn("x", "kept")]));
+    let saved = std::fs::read_to_string(&text.path).expect("saved");
+    // A message that starts past its text: that doc is left out, the rest of the copy is read.
+    let damaged = saved.replacen("\"start\":0", "\"start\":999", 1);
+    std::fs::write(&text.path, damaged).expect("write");
+    let again = ChatText::new(text.path.clone());
+    again.load();
+    assert_eq!(again.held().0, 0);
+    // A file past the bound is not read at all.
+    let file = std::fs::File::create(&text.path).expect("file");
+    file.set_len(SAVED_BYTES + 1).expect("grow");
+    let big = ChatText::new(text.path.clone());
+    big.load();
+    assert_eq!(big.held(), (0, 0));
+    let _ = std::fs::remove_file(&text.path);
+}
+
 /// A pseudo-random word list (an LCG: the same in every run).
 fn words(seed: &mut u64, count: usize, vocabulary: &[String]) -> String {
     let mut out = String::new();

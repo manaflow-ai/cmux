@@ -137,10 +137,20 @@ fn another_host_uses_only_its_own_sealed_token() {
 fn a_checkout_cloned_through_cmux_keeps_its_helper_for_push() {
     let step = Repo::new("o", "r").step();
     let at = |needle: &str| step.find(needle).unwrap_or_else(|| panic!("{needle}"));
-    let keep = at(r#"if { [ "$cred" = cmux-github ] || [ "$cred" = cmux-gitlab ]; }"#);
+    let defined = at("keep_helper() {");
+    let kept = at(r#"if { [ "$cred" = cmux-github ] || [ "$cred" = cmux-gitlab ]; }"#);
+    assert!(defined < kept, "the helper is kept by keep_helper");
+    // A start keeps it after its clone or update, before its record; a warm update behind the
+    // chat keeps it after its fetch (review F2, cmux#38997 aafeae5053e).
+    let keep = at("\nkeep_helper\n");
     let cloned = at("status=cloned");
-    let result = at(r#"sha=$(g -C "$dir" rev-parse"#);
+    // The step's own record, the last read of its commit (an inline warm update reads it too).
+    let result = step.rfind(r#"sha=$(g -C "$dir" rev-parse"#).unwrap();
     assert!(cloned < keep && keep < result);
+    let fetched = at(r#"if g -C "$dir" fetch --quiet --tags origin; then"#);
+    assert!(
+        step[fetched..].trim_start_matches(|c| c != '\n').trim_start().starts_with("keep_helper")
+    );
     assert!(
         step.contains(r#"git -C "$dir" config --local --add "$key.helper" """#),
         "a global helper is dropped first"
@@ -794,4 +804,109 @@ fn a_symlink_at_the_history_lock_is_not_followed() {
     machine.settle();
     assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
     assert!(!lock.is_symlink(), "the symlink is gone");
+}
+
+#[cfg(unix)]
+/// cmuxterm-hq goals/cloud-no-network-wait.md step 5: a start on a whole checkout with nothing of
+/// its own (no ref, no script) ran `git fetch` and a fast-forward before the chat, a network round
+/// trip in front of every warm first reply. They now run behind it under `repo hold`: the hold is
+/// taken on the checkout as it was, and the update ends under it.
+#[test]
+fn a_warm_start_fetches_behind_the_hold() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, _) = machine.run();
+    assert_eq!(code, 0);
+    machine.settle();
+    let before = machine.git(&["rev-parse", "HEAD"]);
+    machine.commit_upstream("z.txt");
+    machine.cmux(
+        "#!/bin/sh\ncase \"$1 $2\" in\n\
+         \"repo wait\") exit 0 ;;\n\
+         \"repo hold\") [ \"$3\" = --help ] && exit 0; git -C \"$3\" rev-parse HEAD > \"$HOME/head-at-hold\"\n\
+         echo \"$5 $6\" > \"$HOME/hold-mode\"; shift 4; exec \"$@\" ;;\n\
+         esac\nexit 2\n",
+    );
+    let (code, record) = machine.run();
+    assert_eq!(
+        (code, record["status"].as_str(), record["fill"].as_str()),
+        (0, Some("updated"), Some("background")),
+        "{record}"
+    );
+    let at_hold = std::fs::read_to_string(machine.0.join("home/head-at-hold")).unwrap();
+    assert_eq!(at_hold.trim(), before, "nothing fetched or forwarded before the hold");
+    let mode = std::fs::read_to_string(machine.0.join("home/hold-mode")).unwrap();
+    assert!(mode.trim().ends_with("/repo refresh"), "the hold runs the update: {mode}");
+    assert!(machine.checkout().join("z.txt").is_file(), "forwarded under the hold");
+}
+
+#[cfg(unix)]
+/// The warm update keeps a checkout with local changes as it is, as the inline update did.
+#[test]
+fn a_warm_start_keeps_local_changes() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, _) = machine.run();
+    assert_eq!(code, 0);
+    machine.settle();
+    let before = machine.git(&["rev-parse", "HEAD"]);
+    std::fs::write(machine.checkout().join("AGENTS.md"), "mine").unwrap();
+    machine.commit_upstream("z.txt");
+    let (code, record) = machine.run();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("background")), "{record}");
+    assert_eq!(machine.git(&["rev-parse", "HEAD"]), before, "not forwarded");
+    assert_eq!(std::fs::read_to_string(machine.checkout().join("AGENTS.md")).unwrap(), "mine");
+}
+
+#[cfg(unix)]
+/// Review F1 (cmux#38997, aafeae5053e): a warm update whose fetch no path could make ended by
+/// `net`'s exit, which left the barrier failed (the chat's tools waited for good) and rewrote
+/// repo-status.json. It now keeps the checkout as it was, ends well, and leaves the record alone.
+#[test]
+fn a_warm_update_that_cannot_fetch_keeps_the_checkout() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, _) = machine.run();
+    assert_eq!(code, 0);
+    machine.settle();
+    let before = machine.git(&["rev-parse", "HEAD"]);
+    // The hold runs the update detached in production: record how it ended, answer held.
+    machine.cmux(
+        "#!/bin/sh\ncase \"$1 $2\" in\n\
+         \"repo wait\") exit 0 ;;\n\
+         \"repo hold\") [ \"$3\" = --help ] && exit 0; shift 4\n\
+         mv \"$HOME/../src\" \"$HOME/../gone\"; \"$@\"; echo $? > \"$HOME/update-exit\"\n\
+         mv \"$HOME/../gone\" \"$HOME/../src\"; exit 0 ;;\n\
+         esac\nexit 2\n",
+    );
+    let (code, record) = machine.run();
+    assert_eq!(
+        (code, record["status"].as_str(), record["fill"].as_str()),
+        (0, Some("updated"), Some("background")),
+        "{record}"
+    );
+    let exit = std::fs::read_to_string(machine.0.join("home/update-exit")).unwrap();
+    assert_eq!(exit.trim(), "0", "the update ends well, so the barrier opens");
+    assert_eq!(machine.git(&["rev-parse", "HEAD"]), before);
+}
+
+#[cfg(unix)]
+/// Review F1 (cmux#38997, d8bce39df2d): a warm start whose update could not run behind the chat
+/// updated inline after the step had read its commit, so the record named the commit before the
+/// update. It now reads it again after the update.
+#[test]
+fn a_warm_update_made_inline_records_the_updated_commit() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, _) = machine.run();
+    assert_eq!(code, 0);
+    machine.settle();
+    machine.commit_upstream("z.txt");
+    // A hold that is there but cannot start: the update falls back to inline.
+    std::fs::write(machine.0.join("bin/systemd-run"), "#!/bin/sh\nexit 1\n").unwrap();
+    let (code, record) = machine.run();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("none")), "{record}");
+    let head = machine.git(&["rev-parse", "HEAD"]);
+    assert!(machine.checkout().join("z.txt").is_file(), "updated inline");
+    assert_eq!(record["sha"].as_str(), Some(head.as_str()), "the record names the updated commit");
 }

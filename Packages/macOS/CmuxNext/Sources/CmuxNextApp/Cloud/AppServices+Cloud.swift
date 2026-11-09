@@ -162,7 +162,8 @@ extension AppServices {
               let team = MacInstallIdentity.team(ofToken: token) else { return MobileHostCloudLinks() }
         var result: [MobileHostCloudLink] = []
         for session in machines.cloud {
-            guard let link = session.appLink, !session.machine.isGoneForPhones else { continue }
+            guard !session.machine.isGoneForPhones else { continue }
+            let link = session.appLink
             let socket = await link.currentLinkSocket
             guard machines.session(session.machineID) === session, !session.machine.isGoneForPhones else { continue }
             result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket, cachedOwner: link.ownership.callerOwnsVM, user: cloud.auth.platformUserID ?? user))
