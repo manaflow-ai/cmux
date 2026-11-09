@@ -613,7 +613,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>previousNeighbor</string>
+			<string>mostRecent</string>
 			<key>pfm_description</key>
 			<string>Which pane gets focus when the focused pane closes.</string>
 			<key>pfm_name</key>
