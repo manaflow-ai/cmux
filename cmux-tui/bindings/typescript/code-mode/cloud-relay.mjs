@@ -26,34 +26,48 @@ function guestPath(params, operation) {
   return params.path;
 }
 function bodyWithout(params, ...names) { const body = { ...params }; for (const name of names) delete body[name]; return body; }
-// Each cloud.* op's fields (backend/catalog/cloud-operations.json; the ops take no extra field).
-const OP_FIELDS = {
-  "cloud.machine.list": [], "cloud.machine.get": ["machine"],
-  "cloud.machine.create": ["name", "size", "image", "from_snapshot", "expected_revision"],
-  "cloud.machine.rename": ["machine", "name", "expected_revision"],
-  "cloud.machine.start": ["machine", "expected_revision"], "cloud.machine.pause": ["machine", "expected_revision"],
-  "cloud.machine.resize": ["machine", "size", "expected_revision"], "cloud.machine.delete": ["machine", "expected_revision"],
-  "cloud.snapshot.list": ["machine"], "cloud.snapshot.create": ["machine", "name", "expected_revision"],
-  "cloud.snapshot.restore": ["snapshot", "name", "expected_revision"], "cloud.snapshot.delete": ["snapshot", "expected_revision"],
+// Each aliased cloud.* op's params fields (backend/catalog/cloud-operations.json, `extra: false`). An op's
+// `expected_revision` is not a param: it rides the /v1/ops envelope (cmux-platform CloudOps.ts OpRequest).
+// cloud-relay.test.mjs checks this table against the catalog.
+export const OP_FIELDS = {
+  "cloud.machine.list": ["cursor", "limit"], "cloud.machine.get": ["machine"],
+  "cloud.machine.create": ["name", "size", "image", "from_snapshot"],
+  "cloud.machine.rename": ["machine", "name"],
+  "cloud.machine.start": ["machine"], "cloud.machine.pause": ["machine"],
+  "cloud.machine.resize": ["machine", "size"], "cloud.machine.delete": ["machine"],
+  "cloud.snapshot.list": ["machine"], "cloud.snapshot.create": ["machine", "name"],
+  "cloud.snapshot.restore": ["snapshot", "name"], "cloud.snapshot.delete": ["snapshot"],
 };
+// cmux-platform's own defaults for a create that names no size (Plan.ts DEFAULT_SIZE); memory is the plan's.
+const DEFAULT_CREATE_SIZE = { cpu: 2, disk_mb: 16384 };
 // A size as the relay names took it, flat or nested (`cpu`, `memoryMb`, `diskMb`), as cloud.*'s `size`.
 const SIZE_NAMES = { cpu: "cpu", vcpus: "cpu", cpus: "cpu", memoryMb: "memory_mb", memory_mb: "memory_mb", memoryMB: "memory_mb", diskMb: "disk_mb", disk_mb: "disk_mb", diskMB: "disk_mb" };
 function sizeOf(params) {
   const size = {};
   for (const source of [params, typeof params.size === "object" && params.size ? params.size : {}]) {
-    for (const [name, value] of Object.entries(source)) if (SIZE_NAMES[name] && value !== undefined) size[SIZE_NAMES[name]] = value;
+    for (const [name, value] of Object.entries(source)) if (SIZE_NAMES[name] && value !== undefined && value !== null) size[SIZE_NAMES[name]] = value;
   }
   return size;
 }
-/** A relay op's params as its cloud.* op takes them: `vm_id` is `machine`, `snapshot_id` is `snapshot`, a
- * create's or resize's sizing is `size` (empty: the plan's default), and nothing the op does not take. */
+/** A relay op's params as its cloud.* op takes them: `vm_id` is `machine`, `snapshot_id` is `snapshot`,
+ * `displayName` is `name`, a create's or resize's sizing is `size` (never empty: a create with none gets the
+ * platform's default, a resize with none sends none and is refused), and nothing the op does not take. */
 function aliasParams(op, params) {
-  const named = { ...params, machine: params.machine ?? params.vm_id, snapshot: params.snapshot ?? params.snapshot_id };
-  if (op === "cloud.machine.create" || op === "cloud.machine.resize") named.size = sizeOf(params);
-  if (op === "cloud.machine.create" && named.from_snapshot === undefined && params.snapshot_id !== undefined) named.from_snapshot = params.snapshot_id;
+  const named = { ...params, machine: params.machine ?? params.vm_id, snapshot: params.snapshot ?? params.snapshot_id,
+    name: params.name ?? params.displayName };
+  if (op === "cloud.machine.create" || op === "cloud.machine.resize") {
+    const size = sizeOf(params);
+    named.size = Object.keys(size).length ? size : op === "cloud.machine.create" ? { ...DEFAULT_CREATE_SIZE } : undefined;
+  }
+  if (op === "cloud.machine.create") named.from_snapshot = params.from_snapshot ?? params.fromSnapshot ?? params.snapshot_id;
   const out = {};
-  for (const field of OP_FIELDS[op] ?? Object.keys(named)) if (named[field] !== undefined) out[field] = named[field];
+  for (const field of OP_FIELDS[op]) if (named[field] !== undefined && named[field] !== null) out[field] = named[field];
   return out;
+}
+/** The envelope's `expected_revision`: the caller's, in either spelling, as the decimal string Revision is. */
+function expectedRevision(params) {
+  const value = params.expected_revision ?? params.expectedRevision;
+  return value === undefined || value === null ? undefined : String(value);
 }
 
 /**
@@ -81,12 +95,16 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
       }
     } else {
       // A protocol op: its catalog class picks /v1/ops (a mutation, with a key and the script origin) or /v1/read.
-      const op = OP_ALIASES[operation] ?? operation;
-      const opParams = OP_ALIASES[operation] ? aliasParams(op, params) : params;
+      const aliased = Object.hasOwn(OP_ALIASES, operation);
+      const op = aliased ? OP_ALIASES[operation] : operation;
+      const opParams = aliased ? aliasParams(op, params) : params;
       const descriptor = catalog.operations?.[operation];
       const isMutation = descriptor ? descriptor.class === "mutation" : MUTATIONS.has(operation);
+      const revision = aliased && isMutation ? expectedRevision(params) : undefined;
       path = isMutation ? "/v1/ops" : "/v1/read";
-      payload = isMutation ? { op, params: opParams, idempotency_key: requestIdempotencyKey ?? randomUUID(), origin: "script" } : { op, params: opParams };
+      payload = isMutation
+        ? { op, params: opParams, idempotency_key: requestIdempotencyKey ?? randomUUID(), origin: "script", ...(revision === undefined ? {} : { expected_revision: revision }) }
+        : { op, params: opParams };
     }
     const response = await fetchImpl(`${apiUrl.replace(/\/$/, "")}${path}${query}`, {
       method,
