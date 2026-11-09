@@ -720,6 +720,13 @@
   visibility: hidden;
   pointer-events: none;
 }
+/* A chip with its logo hidden (modelChipIcon.ts): its shortest name is its icon form, so a row at
+   its icon step still names the model. It comes after the hiders above, which it must beat. */
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-model="icon"] [data-fit-part="model"][data-fit-forms~="icon"] {
+  position: static;
+  visibility: visible;
+  pointer-events: auto;
+}
 /* The width steps below skip the plain quiet row only: ComposerFoot draws the same
    `.acpmux-composer-bar.acpmux-composer-foot` in both footer looks and marks only the plain one
    `data-footer-look="plain"`, so with the plain footer off its row takes these steps as the one row

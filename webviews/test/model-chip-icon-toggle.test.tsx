@@ -155,3 +155,42 @@ test("with its logo hidden, the chip's shortest name stands in for the narrow ro
   expect(iconForms()).toHaveLength(1);
   expect(host.querySelector(".acpmux-model")?.getAttribute("data-chip-icon")).toBe("off");
 });
+
+test("in a row at its icon step, a chip without its logo still shows its family; with its logo, only the logo", async () => {
+  const { readFileSync } = await import("node:fs");
+  const style = document.createElement("style");
+  style.textContent = readFileSync(
+    new URL("../src/agent-session/acpmux/composerLocation.css", import.meta.url),
+    "utf8",
+  ).replace(/@container[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
+  document.head.append(style);
+  try {
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    const claude = { id: "claude", name: "Claude Code", models: [{ id: "claude-opus-5-5", name: "Opus 5.5" }] };
+    await render(
+      <div className="acpmux-composer-bar" data-fit-model="icon">
+        <ModelPicker
+          catalog={[claude]}
+          harness="claude"
+          model="claude-opus-5-5"
+          label="Opus 5.5"
+          chip={{ short: "Opus 5.5", family: "Opus", title: "Claude Opus 5.5" }}
+          efforts={[]}
+          recents={[]}
+          onLand={() => undefined}
+          onEffort={() => undefined}
+        />
+      </div>,
+    );
+    const shown = () =>
+      [...host.querySelectorAll<HTMLElement>('.acpmux-model [data-fit-part="model"]')]
+        .filter((part) => getComputedStyle(part).visibility !== "hidden")
+        .map((part) => part.dataset.label ?? part.textContent);
+    expect(shown()).toEqual([]);
+    const { setModelChipIcon } = await import("../src/agent-session/acpmux/modelChipIcon");
+    await act(async () => setModelChipIcon(false));
+    expect(shown()).toEqual(["Opus"]);
+  } finally {
+    style.remove();
+  }
+});
