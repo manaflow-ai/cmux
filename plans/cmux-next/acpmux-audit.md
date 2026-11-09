@@ -349,12 +349,14 @@ the subagent was "waiting for it" (the outbox's delivery keeps a request open, s
 From tui-parity bench round 4, friction 6-10 (owner W5-S). CLI only; no daemon change.
 - Policy note (`question_answer.rs` `app_allow_note`): a chat on a daemon default of ask,
   approve-reads or approve-edits, in a mode that runs every tool unasked
-  (`web_modes::runs_everything_unasked`: Claude `bypassPermissions`, Codex `agent-full-access`,
-  opencode `build`), said it "asks before some tools run". It does not (chats start in full
-  access, `hub/policy_gate.rs`). The note now says so and gives `acpmux session set NAME
-  policy=P`; Japanese for a Japanese locale. The other non-asking modes (`acceptEdits`,
-  `dontAsk`, `auto`, Codex `read-only` and `agent`) keep the asking note: they still ask for or
-  deny some tools, and the default answers those (review of #39057). Not a refusal: W5-L's rule
+  (`web_modes::runs_everything_unasked`, keyed by the harness's mode family: Claude
+  `bypassPermissions`, Codex `agent-full-access`), said it "asks before some tools run". It does
+  not (chats start in full access, `hub/policy_gate.rs`). The note now says so and gives `acpmux
+  session set NAME policy=P`; Japanese for a Japanese locale. The other non-asking modes
+  (`acceptEdits`, `dontAsk`, `auto`, Codex `read-only` and `agent`, opencode `build`, which
+  still asks outside the project, for `*.env` and for repeated calls) and a mode of the same
+  name in another harness keep the asking note: they still ask for or deny some tools, and the
+  default answers those (review of #39057). Not a refusal: W5-L's rule
   refuses a chat's own unenforceable policy, and a default is not the chat's own.
 - Host warning (`cli/host_budget.rs`): once per caller (session or person) and host per 10
   minutes, kept in `ACPMUX_HOME/host-warnings` (one file per caller and host, named by a stable
