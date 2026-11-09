@@ -57,6 +57,7 @@ export const MessageRow = memo(
                   from: [row.inboxThread.sender],
                   count: row.inboxThread.count,
                   preview: row.inboxThread.preview,
+                  ...(row.inboxThread.newest !== undefined ? { newest: row.inboxThread.newest } : {}),
                   blocker: false,
                   promptIds: [...row.inboxThread.promptIds],
                   ...(row.inboxThread.fromSession ? { fromSession: row.inboxThread.fromSession } : {}),
