@@ -164,9 +164,13 @@ import Testing
         #expect(said.lines == [ImportBrowser.chrome.displayName])
         #expect(await fixture.store.cookieSyncedSources().isEmpty)
         #expect(await sync.watched.isEmpty)
-        // Another write asks the Keychain nothing more.
+        // Another write asks the Keychain nothing more: nothing watches the file, and a reconcile (an
+        // import or a settings change) does not start watching it again.
         try Self.cookies(fixture.file, hosts: [".one.example", ".two.example", ".three.example"])
-        try await Task.sleep(for: .milliseconds(500))
+        await sync.reconcile()
+        await Self.until { await sync.isSettled }
+        #expect(await sync.isSettled, "an import or a stop never ended")
+        #expect(await sync.watched.isEmpty)
         #expect(keys.asked == 1)
         #expect(said.lines.count == 1)
     }
@@ -192,7 +196,9 @@ import Testing
         try Self.cookies(fixture.file, hosts: [".one.example", ".two.example"])
         try Self.cookies(workFile, hosts: [".one.example", ".two.example"])
         await Self.until { await fixture.store.cookieSyncedSources().isEmpty }
-        try await Task.sleep(for: .milliseconds(500))
+        // Told once the stop ended; every import and stop the second profile started ended too.
+        await Self.until { if said.lines.isEmpty { return false }; return await sync.isSettled }
+        #expect(await sync.isSettled, "an import or a stop never ended")
         #expect(said.lines == [ImportBrowser.chrome.displayName])
         #expect(await sync.watched.isEmpty)
     }
@@ -212,7 +218,9 @@ import Testing
         await Self.until { keys.asked > 0 }
         #expect(keys.asked == 1, "the change reached the Keychain read")
         await sync.setPaused(true)
-        try await Task.sleep(for: .milliseconds(1_000))
+        // The Keychain answers and the import ends: what it wrote is all there.
+        await Self.until { await sync.isSettled }
+        #expect(await sync.isSettled, "the import never ended")
         #expect(await jar.hosts.isEmpty, "off mid-import, the import wrote cookies")
     }
 

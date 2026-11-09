@@ -75,6 +75,31 @@ impl WorkspaceRegistry {
         Ok(u64::try_from(end)?)
     }
 
+    /// Deletes up to `JOURNAL_CHECKPOINT_PRUNE_BATCH` checkpoints that a
+    /// sealed segment already covers and that are not among the newest
+    /// `JOURNAL_CHECKPOINTS_KEPT`. Each one holds the whole reduced state, so
+    /// keeping all of them grew the registry by about 1.5 MB per checkpoint.
+    /// The newest checkpoints stay for restore (terminal respawn reads the
+    /// newest 16) and every unsealed one stays for the next seal. Returns how
+    /// many it deleted.
+    pub(crate) fn prune_journal_checkpoints(&mut self) -> anyhow::Result<usize> {
+        let deleted = self.connection.get().execute(
+            "DELETE FROM journal_checkpoints WHERE checkpoint_id IN (
+               SELECT checkpoint_id FROM journal_checkpoints
+               WHERE source_sequence
+                       <= (SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments)
+                 AND source_sequence < (
+                   SELECT source_sequence FROM journal_checkpoints
+                   ORDER BY source_sequence DESC LIMIT 1 OFFSET ?1)
+               ORDER BY source_sequence ASC LIMIT ?2)",
+            params![
+                JOURNAL_CHECKPOINT_OLDEST_KEPT_OFFSET as i64,
+                JOURNAL_CHECKPOINT_PRUNE_BATCH as i64
+            ],
+        )?;
+        Ok(deleted)
+    }
+
     pub(crate) fn begin_journal_segment_seal(
         &mut self,
         requested_through: u64,
@@ -191,7 +216,7 @@ impl WorkspaceRegistry {
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
                    uncompressed_bytes, sha256, sealed_at_ms, actors_json
-                 ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, ?8, ?9)",
+                 ) VALUES(?1, ?2, ?3, ?4, ?10, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     segment.metadata.segment_id,
                     i64::try_from(segment.metadata.start_sequence)?,
@@ -206,6 +231,7 @@ impl WorkspaceRegistry {
                         segment.metadata.start_sequence,
                         segment.metadata.end_sequence,
                     )?,
+                    segment.metadata.codec,
                 ],
             )?;
             for kind in kinds {
@@ -214,6 +240,11 @@ impl WorkspaceRegistry {
                     params![segment.metadata.segment_id, kind],
                 )?;
             }
+            session_journal::reducer_records::insert_reducer_records(
+                &tx,
+                &segment.metadata.segment_id,
+                &segment.reducer_records,
+            )?;
         }
         tx.execute_batch("DROP TRIGGER IF EXISTS session_journal_reject_delete;")?;
         let deleted = tx.execute(
@@ -300,6 +331,7 @@ impl JournalSegmentSealPlan {
             let mut start_sequence = None;
             let mut record_count = 0_u64;
             let mut kinds = BTreeSet::new();
+            let mut reducer_records = Vec::new();
             'segment: while cursor < self.through_sequence
                 && record_count < u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT)?
             {
@@ -334,6 +366,13 @@ impl JournalSegmentSealPlan {
                     {
                         break 'segment;
                     }
+                    if session_journal::reducer_records::kept_for_reducers(&kind) {
+                        reducer_records.push((
+                            sequence,
+                            kind.clone(),
+                            std::str::from_utf8(&record_bytes)?.to_owned(),
+                        ));
+                    }
                     kinds.insert(kind);
                     if separator != 0 {
                         uncompressed.push(b',');
@@ -357,10 +396,7 @@ impl JournalSegmentSealPlan {
                 start_sequence.context("journal segment range contains no records")?;
             let digest: [u8; 32] = Sha256::digest(&uncompressed).into();
             let digest_hex = encode_hex(&digest);
-            let mut encoder =
-                flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
-            encoder.write_all(&uncompressed)?;
-            let compressed = encoder.finish()?;
+            let compressed = segment_codec::encode(&uncompressed)?;
             let segment_id = format!("segment_{start_sequence}_{cursor}_{digest_hex}");
             segments.push(PreparedJournalSegment {
                 metadata: JournalSegment {
@@ -368,7 +404,7 @@ impl JournalSegmentSealPlan {
                     start_sequence,
                     end_sequence: cursor,
                     record_count,
-                    codec: "gzip-json-v1".into(),
+                    codec: segment_codec::SEAL_CODEC.into(),
                     uncompressed_bytes: u64::try_from(uncompressed.len())?,
                     sha256: digest_hex,
                     sealed_at_ms,
@@ -376,6 +412,7 @@ impl JournalSegmentSealPlan {
                 compressed,
                 digest,
                 kinds: kinds.into_iter().collect(),
+                reducer_records,
             });
         }
         validate_prepared_journal_segments(&self, &segments)?;
@@ -401,7 +438,7 @@ fn validate_prepared_journal_segments(
             "prepared journal segment record count is invalid"
         );
         anyhow::ensure!(
-            metadata.codec == "gzip-json-v1"
+            metadata.codec == segment_codec::SEAL_CODEC
                 && metadata.sha256 == encode_hex(&segment.digest)
                 && metadata.uncompressed_bytes
                     <= u64::try_from(MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES)?,

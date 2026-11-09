@@ -66,10 +66,15 @@ impl LocalView {
         Self { socket, networks, candidates, read_at: now }
     }
 
-    fn refresh(&mut self, now: Instant) {
-        if now >= self.read_at + LOCAL_REFRESH {
-            *self = Self::read(self.socket, now);
+    /// Read the interfaces again once [`LOCAL_REFRESH`] has passed. True
+    /// when the table changed, so held paths' media must be read again.
+    fn refresh(&mut self, now: Instant) -> bool {
+        if now < self.read_at + LOCAL_REFRESH {
+            return false;
         }
+        let before = std::mem::take(&mut self.networks);
+        *self = Self::read(self.socket, now);
+        self.networks != before
     }
 }
 
@@ -361,6 +366,7 @@ impl MeshDriver {
     fn run_probes(&mut self) -> Option<Instant> {
         let now = Instant::now();
         let mut next = None;
+        let mut networks_changed = false;
         for peer in self.table.peers_mut() {
             if !peer.schedule.is_active(now) || peer.tunn.time_since_last_handshake().is_none() {
                 continue;
@@ -370,7 +376,7 @@ impl MeshDriver {
             };
             let (advertise, again) = peer.advertise_due(now);
             if advertise {
-                self.local.refresh(now);
+                networks_changed |= self.local.refresh(now);
             }
             if advertise && !self.local.candidates.is_empty() {
                 let list = encode_candidates(&self.local.candidates);
@@ -404,6 +410,15 @@ impl MeshDriver {
                 }
             }
             next = earliest(next, due.next);
+        }
+        if networks_changed {
+            // An interface came or went (a Thunderbolt cable plugged in):
+            // paths learned before it are ranked on the new table, and the
+            // ones whose medium changed are probed at once.
+            for peer in self.table.peers_mut() {
+                peer.paths.reclassify(&self.local.networks, now);
+            }
+            next = Some(now);
         }
         next
     }

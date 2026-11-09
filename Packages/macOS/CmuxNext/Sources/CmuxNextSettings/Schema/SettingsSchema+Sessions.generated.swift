@@ -5,6 +5,9 @@ extension SessionSettings {
     /// `sessions.keepAwake`: Idle system sleep stays off while a local agent works (KeepAwakeService). The display can still sleep, and closing the lid still sleeps the Mac.
     public nonisolated static let keepAwakePath = ["sessions", "keepAwake"]
     public nonisolated static let keepAwakeDefault: SessionKeepAwakeSetting = .pluggedIn
+    /// `sessions.keepAwakeForCommands`: On: a terminal command on this Mac that has run a minute and printed in the last ten minutes also keeps the Mac awake, under the same Off, While Plugged In or Always choice as sessions.keepAwake (KeepAwakeService; the rule is Rust keep_awake_plan). Off by default: Leo has not said whether it should be on.
+    public nonisolated static let keepAwakeForCommandsPath = ["sessions", "keepAwakeForCommands"]
+    public nonisolated static let keepAwakeForCommandsDefault = false
     /// `sessions.resumeAgents`: On: a terminal brought back after a crash or restart runs its agent's resume (claude --resume <id>, codex resume <id>) at the new shell's empty prompt. Off, or a settings file that does not parse: nothing runs, and the restored line shows the command. The daemon reads it at each respawn (cmux-tui-util user_settings::resume_agents). Commands other than agents never run again.
     public nonisolated static let resumeAgentsPath = ["sessions", "resumeAgents"]
     public nonisolated static let resumeAgentsDefault = true
@@ -55,7 +58,17 @@ nonisolated enum SessionSettingsSchema {
                     SettingChoice(SessionKeepAwakeSetting.always.rawValue, SettingsText.keyed("settings.choice.keepAwakeAlways", "Always")),
                 ]),
                 default: .string(SessionSettings.keepAwakeDefault.rawValue),
-                keywords: ["sleep", "awake", "caffeinate", "battery", "power", "agents"]
+                keywords: ["sleep", "awake", "keep awake", "stay awake", "prevent sleep", "no sleep", "idle", "caffeinate", "battery", "power", "agents"]
+            ),
+            SettingDescriptor(
+                SessionSettings.keepAwakeForCommandsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.keepAwakeForCommands", "Also While Terminal Commands Run"),
+                help: SettingsText.keyed("settings.sessions.keepAwakeForCommands.help", "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."),
+                kind: .toggle,
+                default: .bool(SessionSettings.keepAwakeForCommandsDefault),
+                keywords: ["sleep", "awake", "keep awake", "stay awake", "prevent sleep", "no sleep", "caffeinate", "terminal", "command", "build"]
             ),
             SettingDescriptor(
                 SessionSettings.resumeAgentsPath,

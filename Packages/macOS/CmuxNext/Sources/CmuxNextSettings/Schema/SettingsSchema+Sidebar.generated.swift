@@ -74,6 +74,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.controlsOnHover`.
     public nonisolated static let controlsOnHoverPath = ["sidebar", "controlsOnHover"]
     public nonisolated static let controlsOnHoverDefault = false
+    /// `sidebar.floatOnHover`.
+    public nonisolated static let floatOnHoverPath = ["sidebar", "floatOnHover"]
+    public nonisolated static let floatOnHoverDefault = true
     /// `sidebar.minimal`.
     public nonisolated static let minimalPath = ["sidebar", "minimal"]
     public nonisolated static let minimalDefault = false

@@ -364,9 +364,10 @@ async fn answer_http(stream: &mut tokio::net::TcpStream, head: &str, ice: &[crat
 pub const TEST_RELAY_PORTS_START: u16 = 61_000;
 static NEXT_RELAY_PORTS: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
 
-/// Every relayed address a [`TestTurn`] in this process has allocated and
-/// not yet dropped. A relay socket holds its port while the allocation
-/// lives, so no tunnel socket can have an address in this set.
+/// Every relayed address of a live [`TestTurn`] allocation in this process.
+/// A relay socket holds its port while the allocation lives, so no tunnel
+/// socket can have an address in this set; an address leaves it when its
+/// relay socket closes, before the OS can give the port to another socket.
 static RELAYED: Mutex<Vec<std::net::SocketAddr>> = Mutex::new(Vec::new());
 
 /// Whether `addr` is a relayed address of a live [`TestTurn`] allocation.
@@ -398,7 +399,76 @@ impl webrtc::turn::relay::RelayAddressGenerator for RecordedRelays {
         // (also 127.0.0.1): both spellings are the same socket.
         RELAYED.lock().unwrap_or_else(PoisonError::into_inner).push(relayed);
         self.allocated.lock().unwrap_or_else(PoisonError::into_inner).push(relayed);
-        Ok((conn, relayed))
+        let conn = RecordedConn { inner: conn, relayed, allocated: Arc::clone(&self.allocated) };
+        Ok((Arc::new(conn), relayed))
+    }
+}
+
+/// A relay socket that leaves the registries when it closes (the
+/// allocation was released or expired) or drops.
+struct RecordedConn {
+    inner: Arc<dyn webrtc::util::Conn + Send + Sync>,
+    relayed: std::net::SocketAddr,
+    allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
+}
+
+impl RecordedConn {
+    fn forget(&self) {
+        let forget = |list: &Mutex<Vec<std::net::SocketAddr>>| {
+            let mut list = list.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(index) = list.iter().position(|addr| *addr == self.relayed) {
+                list.swap_remove(index);
+            }
+        };
+        forget(&RELAYED);
+        forget(&self.allocated);
+    }
+}
+
+impl Drop for RecordedConn {
+    fn drop(&mut self) {
+        self.forget();
+    }
+}
+
+#[async_trait::async_trait]
+impl webrtc::util::Conn for RecordedConn {
+    async fn connect(&self, addr: std::net::SocketAddr) -> webrtc::util::Result<()> {
+        self.inner.connect(addr).await
+    }
+
+    async fn recv(&self, buf: &mut [u8]) -> webrtc::util::Result<usize> {
+        self.inner.recv(buf).await
+    }
+
+    async fn recv_from(&self, buf: &mut [u8]) -> webrtc::util::Result<(usize, std::net::SocketAddr)> {
+        self.inner.recv_from(buf).await
+    }
+
+    async fn send(&self, buf: &[u8]) -> webrtc::util::Result<usize> {
+        self.inner.send(buf).await
+    }
+
+    async fn send_to(&self, buf: &[u8], target: std::net::SocketAddr) -> webrtc::util::Result<usize> {
+        self.inner.send_to(buf, target).await
+    }
+
+    fn local_addr(&self) -> webrtc::util::Result<std::net::SocketAddr> {
+        self.inner.local_addr()
+    }
+
+    fn remote_addr(&self) -> Option<std::net::SocketAddr> {
+        self.inner.remote_addr()
+    }
+
+    async fn close(&self) -> webrtc::util::Result<()> {
+        // Leave first: once the socket is closed its port is free to reuse.
+        self.forget();
+        self.inner.close().await
+    }
+
+    fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
+        self
     }
 }
 
@@ -641,5 +711,38 @@ impl Drop for TestTurn {
                 }
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use webrtc::turn::relay::RelayAddressGenerator;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn a_released_relay_address_is_direct_again_when_reused() {
+        let allocated = Arc::new(Mutex::new(Vec::new()));
+        let relays = RecordedRelays {
+            inner: webrtc::turn::relay::relay_range::RelayAddressGeneratorRanges {
+                relay_address: "127.0.0.1".parse().expect("ip"),
+                min_port: TEST_RELAY_PORTS_START + 4_500,
+                max_port: u16::MAX,
+                max_retries: 10,
+                address: "127.0.0.1".into(),
+                net: Arc::new(webrtc::util::vnet::net::Net::new(None)),
+            },
+            allocated: Arc::clone(&allocated),
+        };
+        let (conn, relayed) = relays.allocate_conn(true, 0).await.expect("allocate");
+        assert!(is_test_relay(&relayed), "a live allocation is a relay");
+        // The allocation is released: its socket closes, and the OS may
+        // hand the port to a direct socket.
+        conn.close().await.expect("close");
+        drop(conn);
+        assert!(!is_test_relay(&relayed), "a released allocation is not a relay");
+        assert!(allocated.lock().unwrap_or_else(PoisonError::into_inner).is_empty());
+        let direct = std::net::UdpSocket::bind(relayed).expect("rebind the released address");
+        assert!(!is_test_relay(&direct.local_addr().expect("addr")), "the reused address is direct");
     }
 }

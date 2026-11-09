@@ -84,6 +84,8 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "argv",
     "author",
     "beforePromptId",
+    "callerKind",
+    "callerProtocol",
     "callerSession",
     "cancelToken",
     "class",
@@ -217,7 +219,7 @@ keyed! {
     /// `_acpmux/mcp/reconnect`.
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.
-    ModelsParams: ["refresh", "probe"];
+    ModelsParams: ["refresh", "probe", "localOnly"];
     /// `_acpmux/native_history`.
     NativeHistoryParams: ["sessionId", "before", "mark"];
     /// `_acpmux/offer_respond`.

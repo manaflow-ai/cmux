@@ -136,9 +136,9 @@ impl Command {
     /// [`Command::stderr`] set them). With [`Command::new_session`] and a
     /// terminal path (a PTY slave), that terminal becomes the child's
     /// controlling terminal: a session leader with none acquires the first
-    /// terminal it opens (macOS and Linux). The shell spawn of a PTY uses it,
-    /// as `cmux-mux2`'s `spawn_pty` does (`posix_spawn_file_actions_addopen`
-    /// on 0, then `adddup2` 0 to 1 and 2 on macOS). A failed open is the
+    /// terminal it opens (macOS and Linux). The shell spawn of a PTY uses it
+    /// (`posix_spawn_file_actions_addopen` on 0, then `adddup2` 0 to 1 and 2
+    /// on macOS). A failed open is the
     /// spawn's error. Replaces an earlier [`Command::stdin`].
     pub fn open_stdin_path(&mut self, path: impl AsRef<Path>) -> &mut Self {
         self.stdin_path = Some(path.as_ref().to_owned());

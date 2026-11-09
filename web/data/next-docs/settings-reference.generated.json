@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 617,
+  "count": 619,
   "sections": [
     {
       "id": "general",
@@ -1230,6 +1230,14 @@
           ]
         },
         {
+          "key": "sessions.keepAwakeForCommands",
+          "title": "Also While Terminal Commands Run",
+          "help": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Sessions"
+        },
+        {
           "key": "sessions.promptSuggestions",
           "title": "Suggest Follow-Up Tasks",
           "help": "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.",
@@ -2135,8 +2143,8 @@
         },
         {
           "key": "app.uiScale",
-          "title": "Interface Scale",
-          "help": "",
+          "title": "App Zoom",
+          "help": "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app.",
           "kind": "number",
           "default": 1,
           "group": "Density and Motion",
@@ -2565,9 +2573,9 @@
         {
           "key": "appearance.density",
           "title": "Density",
-          "help": "Row height, padding, corners, icons and text size together. Compact is the default.",
+          "help": "Row height, padding, corners, icons and text size together.",
           "kind": "choice",
-          "default": "compact",
+          "default": "cozy",
           "group": "Density and Motion",
           "values": [
             "ultraCompact",
@@ -2659,8 +2667,8 @@
         },
         {
           "key": "appearance.metrics.chromeFontSize",
-          "title": "Interface Size",
-          "help": "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
+          "title": "Text Size",
+          "help": "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size.",
           "kind": "number",
           "default": null,
           "group": "Density and Motion",
@@ -3677,6 +3685,14 @@
           "help": "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you.",
           "kind": "toggle",
           "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.floatOnHover",
+          "title": "Float Hidden Sidebar on Hover",
+          "help": "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it.",
+          "kind": "toggle",
+          "default": true,
           "group": "Sidebar"
         },
         {

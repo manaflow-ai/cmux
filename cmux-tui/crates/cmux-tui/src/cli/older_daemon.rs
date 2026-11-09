@@ -37,6 +37,7 @@ const ENVELOPE_REFUSAL: &str = "invalid request envelope";
 const IDENTIFY_LINES: usize = 64;
 
 /// How long the refused connection may take to answer `identify`.
+// timeout: a wedged daemon is named without its identity; the refusal still ends the command.
 const IDENTIFY_BUDGET: Duration = Duration::from_secs(2);
 
 /// Whether `error` is a daemon's refusal of the request envelope itself.

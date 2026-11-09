@@ -11,13 +11,66 @@
 //! egress, a firewall, no candidate pair), media stays on the stream.
 
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 /// What the host needs to offer `link.udp` (systemd mode; `--no-udp-link` turns it off).
 #[derive(Debug, Clone, Default)]
 pub struct LinkCfg {
-    /// STUN servers for the host's reflexive candidate (`--link-stun`).
+    /// STUN servers for the host's reflexive candidate (`--link-stun`), as named.
+    names: Vec<String>,
+    /// Their IPv4 addresses once resolved; `None` before the first session that
+    /// negotiated `link.udp` asked. Shared by every session of this host.
     #[cfg_attr(not(feature = "link"), allow(dead_code))]
-    pub stun: Vec<SocketAddr>,
+    resolved: Arc<Mutex<Option<Vec<SocketAddr>>>>,
+}
+
+impl LinkCfg {
+    pub fn new(names: Vec<String>) -> Self {
+        Self { names, resolved: Arc::default() }
+    }
+
+    /// Resolves the STUN names once, on their own thread, so neither a slow
+    /// resolver nor an unresolvable name holds a session or stops the host. A
+    /// name that does not resolve is left out. Nothing resolves (no socket
+    /// opens) until a session negotiated `link.udp`.
+    pub fn resolve_stun(&self) {
+        let Ok(mut slot) = self.resolved.lock() else { return };
+        if slot.is_some() {
+            return;
+        }
+        if self.names.is_empty() {
+            *slot = Some(Vec::new());
+            return;
+        }
+        *slot = Some(Vec::new());
+        let (names, resolved) = (self.names.clone(), self.resolved.clone());
+        let spawned = std::thread::Builder::new().name("rd-link-stun".into()).spawn(move || {
+            let found: Vec<SocketAddr> = names
+                .iter()
+                .filter_map(|name| {
+                    let found = std::net::ToSocketAddrs::to_socket_addrs(name.as_str())
+                        .ok()
+                        .and_then(|mut a| a.find(SocketAddr::is_ipv4));
+                    if found.is_none() {
+                        eprintln!("cmux-rd: link: --link-stun {name} did not resolve; left out");
+                    }
+                    found
+                })
+                .collect();
+            if let Ok(mut slot) = resolved.lock() {
+                *slot = Some(found);
+            }
+        });
+        if spawned.is_err() {
+            eprintln!("cmux-rd: link: no thread to resolve --link-stun; no reflexive candidate");
+        }
+    }
+
+    /// The STUN servers resolved so far (none while they are still resolving).
+    #[cfg_attr(not(feature = "link"), allow(dead_code))]
+    pub fn stun(&self) -> Vec<SocketAddr> {
+        self.resolved.lock().ok().and_then(|s| s.clone()).unwrap_or_default()
+    }
 }
 
 /// Datagrams larger than this stay on the stream (the link seals each one).
@@ -129,7 +182,7 @@ mod with_link {
                 session: session.into_bytes(),
                 local: keys,
                 expected_remote,
-                stun: self.cfg.stun.clone(),
+                stun: self.cfg.stun(),
                 bind: SocketAddr::from(([0, 0, 0, 0], 0)),
                 turn: Vec::new(),
                 relay_only: false,
@@ -250,8 +303,10 @@ mod with_link {
     }
 }
 
-/// Parses `--link-stun HOST:PORT[,HOST:PORT...]` (IPv4; an unresolvable one is an error).
-pub fn parse_stun(list: Option<&str>) -> Result<Vec<SocketAddr>, String> {
+/// Parses `--link-stun HOST:PORT[,HOST:PORT...]`. Only the form is checked
+/// here (a malformed entry is an error); names resolve later
+/// ([`LinkCfg::resolve_stun`]), and one that does not is left out.
+pub fn stun_names(list: Option<&str>) -> Result<Vec<String>, String> {
     let Some(list) = list else {
         return Ok(Vec::new());
     };
@@ -259,10 +314,10 @@ pub fn parse_stun(list: Option<&str>) -> Result<Vec<SocketAddr>, String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| {
-            std::net::ToSocketAddrs::to_socket_addrs(s)
-                .ok()
-                .and_then(|mut a| a.find(SocketAddr::is_ipv4))
-                .ok_or_else(|| format!("--link-stun {s}: not an IPv4 HOST:PORT"))
+            let ok = s.rsplit_once(':').is_some_and(|(host, port)| {
+                !host.is_empty() && host.len() <= 253 && port.parse::<u16>().is_ok_and(|p| p > 0)
+            });
+            ok.then(|| s.to_owned()).ok_or_else(|| format!("--link-stun {s}: not HOST:PORT"))
         })
         .collect()
 }
@@ -483,9 +538,22 @@ mod tests {
 
     #[test]
     fn link_stun_takes_a_list_and_refuses_a_bad_entry() {
-        assert_eq!(parse_stun(None).expect("none"), Vec::<SocketAddr>::new());
-        let list = parse_stun(Some("127.0.0.1:3478, 127.0.0.2:3478")).expect("list");
-        assert_eq!(list.len(), 2);
-        assert!(parse_stun(Some("nope")).is_err());
+        assert_eq!(stun_names(None).expect("none"), Vec::<String>::new());
+        let list = stun_names(Some("127.0.0.1:3478, stun.example.com:3478")).expect("list");
+        assert_eq!(list, vec!["127.0.0.1:3478", "stun.example.com:3478"]);
+        assert!(stun_names(Some("nope")).is_err());
+        assert!(stun_names(Some("host:0")).is_err());
+    }
+
+    #[test]
+    fn link_stun_resolves_only_when_asked_and_leaves_out_a_name_that_does_not_resolve() {
+        let cfg = LinkCfg::new(vec!["127.0.0.1:3478".into(), "stun.invalid:3478".into()]);
+        assert!(cfg.stun().is_empty(), "nothing resolves before a session asks");
+        cfg.resolve_stun();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while cfg.stun().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(cfg.stun(), vec!["127.0.0.1:3478".parse::<SocketAddr>().unwrap()]);
     }
 }

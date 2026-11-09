@@ -468,6 +468,7 @@
               "appearance.density",
               "appearance.customDensity",
               "appearance.customDensities",
+              "appearance.metrics.chromeFontSize",
               "appearance.borders",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
@@ -486,7 +487,6 @@
             "key" : "appearance.2",
             "rows" : [
               "app.uiScale",
-              "appearance.metrics.chromeFontSize",
               "appearance.metrics.sidebarWidth",
               "appearance.metrics.columnGap",
               "appearance.metrics.dividerThickness",
@@ -646,7 +646,8 @@
               "sidebar.chromeGroups",
               "sidebar.sideBySide",
               "sidebar.groupPalette",
-              "sidebar.groupGradient"
+              "sidebar.groupGradient",
+              "sidebar.floatOnHover"
             ],
             "title" : {
               "key" : "settings.pageGroup.sidebarLayout",
@@ -1320,6 +1321,7 @@
             "key" : "settings.group.sessions",
             "rows" : [
               "sessions.keepAwake",
+              "sessions.keepAwakeForCommands",
               "sessions.resumeAgents",
               "sessions.allowFullAccess",
               "sessions.promptSuggestions",
@@ -1406,7 +1408,8 @@
           "computerUse",
           "harnesses",
           "agentHarnesses",
-          "agentIntegrations"
+          "agentIntegrations",
+          "worktreeSetup"
         ]
       },
       {
@@ -11396,6 +11399,11 @@
       "keywords" : [
         "sleep",
         "awake",
+        "keep awake",
+        "stay awake",
+        "prevent sleep",
+        "no sleep",
+        "idle",
         "caffeinate",
         "battery",
         "power",
@@ -11501,6 +11509,143 @@
       "title" : {
         "key" : "settings.sessions.keepAwake",
         "text" : "Keep Mac Awake While Agents Work"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.keepAwakeForCommands.help",
+        "text" : "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.keepAwakeForCommands",
+      "keywords" : [
+        "sleep",
+        "awake",
+        "keep awake",
+        "stay awake",
+        "prevent sleep",
+        "no sleep",
+        "caffeinate",
+        "terminal",
+        "command",
+        "build"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "keepAwakeForCommands"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:sessions.keepAwakeForCommands"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sessions.keepAwakeForCommands",
+        "text" : "Also While Terminal Commands Run"
       },
       "validation" : "portable"
     },
@@ -30040,8 +30185,8 @@
         },
         {
           "title" : {
-            "key" : "settings.choice.cozy",
-            "text" : "Cozy"
+            "key" : "settings.choice.default",
+            "text" : "Default"
           },
           "value" : "cozy"
         },
@@ -30063,7 +30208,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "compact",
+      "default" : "cozy",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -30071,7 +30216,7 @@
       },
       "help" : {
         "key" : "settings.appearance.density.help",
-        "text" : "Row height, padding, corners, icons and text size together. Compact is the default."
+        "text" : "Row height, padding, corners, icons and text size together."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.density",
@@ -30081,6 +30226,8 @@
         "compact",
         "comfortable",
         "cozy",
+        "default",
+        "normal",
         "spacious",
         "dense",
         "font"
@@ -30492,7 +30639,10 @@
         "key" : "settings.group.densityMotion",
         "text" : "Density and Motion"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.uiScale.help",
+        "text" : "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app."
+      },
       "kept_on_reset_all" : false,
       "key" : "app.uiScale",
       "keywords" : [
@@ -30502,7 +30652,8 @@
         "chrome",
         "web",
         "bigger",
-        "smaller"
+        "smaller",
+        "interface scale"
       ],
       "kind" : "number",
       "page_hidden" : false,
@@ -30612,7 +30763,7 @@
       },
       "title" : {
         "key" : "settings.appearance.uiScale",
-        "text" : "Interface Scale"
+        "text" : "App Zoom"
       },
       "validation" : "portable"
     },
@@ -30637,8 +30788,8 @@
         "text" : "Density and Motion"
       },
       "help" : {
-        "key" : "settings.appearance.interfaceSize.help",
-        "text" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+        "key" : "settings.appearance.textSize.help",
+        "text" : "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.metrics.chromeFontSize",
@@ -30646,6 +30797,8 @@
         "font",
         "text",
         "size",
+        "density",
+        "interface size",
         "chromeFontSize"
       ],
       "kind" : "number",
@@ -30756,8 +30909,8 @@
         }
       },
       "title" : {
-        "key" : "settings.appearance.interfaceSize",
-        "text" : "Interface Size"
+        "key" : "settings.appearance.textSize",
+        "text" : "Text Size"
       },
       "validation" : "portable"
     },
@@ -59373,6 +59526,145 @@
       "title" : {
         "key" : "settings.sidebar.controlsOnHover",
         "text" : "Show Sidebar Controls Only on Hover"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.floatOnHover.help",
+        "text" : "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.floatOnHover",
+      "keywords" : [
+        "sidebar",
+        "float",
+        "floating",
+        "hover",
+        "peek",
+        "edge",
+        "overlay",
+        "reveal",
+        "hidden",
+        "auto hide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "floatOnHover"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.floatOnHover"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.floatOnHover",
+        "text" : "Float Hidden Sidebar on Hover"
       },
       "validation" : "portable"
     },
