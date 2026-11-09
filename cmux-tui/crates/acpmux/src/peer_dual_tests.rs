@@ -285,3 +285,142 @@ async fn the_extra_bytes_while_in_doubt_are_one_copy_of_each_frame() {
     assert!(copied.abs_diff(link_bytes as u64) <= PROMPTS as u64 * 4, "{copied} vs {link_bytes}");
     assert!(per_frame_stamp < 100, "{per_frame_stamp}");
 }
+
+/// F1: a `session/load` (and an attach) replays its chat on the connection it went on, so it
+/// goes only on the link's path, never raced on the shadow: the link gets the load and its
+/// replay, and the hub gets the replay. The daemon ignores a dual id on it too.
+#[tokio::test]
+async fn a_load_goes_on_the_links_path_alone_and_its_replay_reaches_the_hub() {
+    let mut rig = rig().await;
+    answer_shadow_attach(&mut rig, &[]).await;
+    assert_eq!(rig.peer.dual_via(), Some(Via::Url));
+    let peer = rig.peer.clone();
+    let loading = tokio::spawn(async move {
+        peer.request(method::SESSION_LOAD, json!({"sessionId": "s1", "cwd": "/"})).await
+    });
+    let on_link = next_text(&mut rig.primary).await;
+    assert_eq!(on_link["method"], method::SESSION_LOAD);
+    assert_eq!(on_link.pointer("/params/_meta/acpmux/dualId"), None, "{on_link}");
+    assert_eq!(reads_text_within(&mut rig.shadow, Duration::from_millis(500)).await, None);
+    // The load's history, replayed on the link, reaches the hub, seqs below the cursor too.
+    for seq in [1, 2, 3] {
+        send(&mut rig.primary, event(seq)).await;
+    }
+    assert_eq!(delivered(&mut rig.notices, 3).await, vec![1, 2, 3]);
+    send(&mut rig.primary, json!({"jsonrpc": "2.0", "id": on_link["id"], "result": {}})).await;
+    tokio::time::timeout(WAIT, loading).await.unwrap().unwrap().unwrap();
+    // The daemon runs a load or an attach that carries a dual id each time it comes.
+    let stamped = json!({"sessionId": "s1", "_meta": {"acpmux": {"dualId": "n:1:1"}}});
+    for m in [method::SESSION_LOAD, method::MUX_ATTACH, method::SESSION_RESUME] {
+        assert_eq!(crate::server::dual_requests::key_for(m, Some(&stamped)), None, "{m}");
+    }
+    assert!(
+        crate::server::dual_requests::key_for(method::SESSION_PROMPT, Some(&stamped)).is_some()
+    );
+}
+
+/// F1: a load whose link switched paths before it answered is sent again on the next link,
+/// with its caller still waiting; one whose link just dropped fails as before.
+#[tokio::test]
+async fn a_load_the_switch_cut_off_is_sent_again_on_the_next_link() {
+    let (tx, _notices) = mpsc::channel(16);
+    let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let line = r#"{"jsonrpc":"2.0","id":7,"method":"session/load","params":{"sessionId":"s1"}}"#;
+    for switched in [true, false] {
+        let (reply, mut waiting) = oneshot::channel();
+        peer.pending.lock().await.insert("7".to_owned(), reply);
+        peer.switch_retry.lock().unwrap().insert("7".to_owned(), line.to_owned());
+        peer.switched.store(switched, Ordering::SeqCst);
+        peer.fail_link_requests(&mut out_rx).await;
+        assert_eq!(peer.pending.lock().await.contains_key("7"), switched);
+        peer.resend_switched(3).await;
+        match out_rx.try_recv() {
+            Ok(again) => {
+                assert!(switched);
+                assert_eq!(
+                    (again.epoch, again.key.as_deref(), again.line.as_str()),
+                    (3, Some("7"), line)
+                );
+                assert!(waiting.try_recv().is_err(), "its caller still waits");
+            }
+            Err(_) => {
+                assert!(!switched);
+                assert!(waiting.try_recv().unwrap().is_err(), "it failed");
+            }
+        }
+        peer.pending.lock().await.clear();
+    }
+}
+
+/// F2: the shadow missed seq 6 and brought 7. The 7 waits; the link's 6 lets both through, in
+/// order, and the cursor never skips 6.
+#[tokio::test]
+async fn an_event_past_a_gap_on_the_shadow_waits_for_the_seq_before_it() {
+    let mut rig = rig().await;
+    answer_shadow_attach(&mut rig, &[]).await;
+    send(&mut rig.shadow, event(7)).await;
+    assert_eq!(delivered(&mut rig.notices, 0).await, Vec::<u64>::new(), "7 waits for 6");
+    assert_eq!(*rig.peer.cursors.lock().unwrap().get("s1").unwrap(), 5);
+    send(&mut rig.primary, event(6)).await;
+    send(&mut rig.primary, event(7)).await;
+    assert_eq!(delivered(&mut rig.notices, 2).await, vec![6, 7]);
+    assert_eq!(*rig.peer.cursors.lock().unwrap().get("s1").unwrap(), 7);
+}
+
+/// F2: the shadow says it lagged and brings 7 without 6: its stream is not trusted until it is
+/// attached again from the cursor, and that attach brings 6 before 7. The same for a gap that
+/// outlives its bound without a word from the daemon.
+#[tokio::test]
+async fn a_shadow_that_lagged_or_kept_a_gap_is_attached_again_from_the_cursor() {
+    let mut rig = rig().await;
+    answer_shadow_attach(&mut rig, &[]).await;
+    send(
+        &mut rig.shadow,
+        json!({"jsonrpc": "2.0", "method": "_acpmux/lagged", "params": {"dropped": 1}}),
+    )
+    .await;
+    send(&mut rig.shadow, event(7)).await;
+    answer_shadow_attach(&mut rig, &[6, 7]).await;
+    assert_eq!(delivered(&mut rig.notices, 2).await, vec![6, 7]);
+    // Live again: 9 past a gap waits, and past the bound the chat is attached again after 7.
+    send(&mut rig.shadow, event(9)).await;
+    assert_eq!(delivered(&mut rig.notices, 0).await, Vec::<u64>::new());
+    let attach =
+        tokio::time::timeout(dual::GAP_BOUND + WAIT, next_text(&mut rig.shadow)).await.unwrap();
+    assert_eq!(attach["method"], method::MUX_ATTACH);
+    assert_eq!(attach["params"]["afterSeq"], 7);
+    let id = attach["id"].clone();
+    let events: Vec<Value> = [8, 9]
+        .iter()
+        .map(|seq| json!({"sessionId": "s1", "seq": seq, "kind": "agent_message_chunk"}))
+        .collect();
+    send(&mut rig.shadow, json!({"jsonrpc": "2.0", "id": id, "result": {"events": events}})).await;
+    assert_eq!(delivered(&mut rig.notices, 2).await, vec![8, 9]);
+}
+
+/// F3: a fast shadow and a slow link race on every event: the hub gets each seq once, strictly
+/// in order, with no gap.
+#[tokio::test]
+async fn a_fast_shadow_and_a_slow_link_deliver_strictly_in_order() {
+    let mut rig = rig().await;
+    answer_shadow_attach(&mut rig, &[]).await;
+    const LAST: u64 = 300;
+    let mut primary = std::mem::replace(&mut rig.primary, ws_pair().await.1);
+    let slow = tokio::spawn(async move {
+        for seq in 6..=LAST {
+            send(&mut primary, event(seq)).await;
+            if seq % 7 == 0 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        }
+        primary
+    });
+    for seq in 6..=LAST {
+        send(&mut rig.shadow, event(seq)).await;
+    }
+    let got = delivered(&mut rig.notices, (LAST - 5) as usize).await;
+    let _primary = slow.await.unwrap();
+    assert_eq!(got, (6..=LAST).collect::<Vec<_>>());
+    assert_eq!(*rig.peer.cursors.lock().unwrap().get("s1").unwrap(), LAST);
+}

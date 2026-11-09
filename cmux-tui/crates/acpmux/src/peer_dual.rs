@@ -10,10 +10,19 @@
 //!   `server::dual_requests::FEATURE` runs a request once whichever copy came first, answering
 //!   the other with the same answer (`server/dual_requests.rs`); a prompt is also kept once by
 //!   the prompt ledger's `promptId`. A peer that does not list the feature gets no copies.
+//! - Only requests with no effect bound to the connection go on both paths
+//!   (`server::dual_requests::METHODS`: a prompt and a cancel, keyed by their ids, and reads).
+//!   A `session/load`, an attach or anything else that replays or subscribes goes only on the
+//!   link's path; when that path dies under it, it is sent again on the next link
+//!   (`Peer::resend_switched`), never raced.
 //! - Each reply is taken once: the first to come settles its caller, the other finds no caller.
-//! - Each chat event is taken once, by its seq: either reader delivers a chat's event only past
-//!   the chat's cursor, and moves the cursor as it does. The shadow delivers a chat's events
-//!   only while its own stream of the chat has no gap, so the cursor never skips one.
+//! - Each chat event is taken once and in order, by one merger (`Peer::merge_event`) that both
+//!   readers go through and that holds its lock from the claim through the hand-off to the hub.
+//!   It delivers a chat's next seq only: the link's stream is ordered, so an event it brings
+//!   lets through what the shadow brought below it first; the shadow's events wait past a gap
+//!   until the seq before them comes. A shadow stream that lags (`_acpmux/lagged`) or whose gap
+//!   outlives [`GAP_BOUND`] is not trusted until it is attached again from the cursor. The
+//!   cursor never skips a seq.
 //! - A pong on the link's path ends the doubt: the shadow detaches its chats, takes no more
 //!   copies and is a plain probe again, still open. When the link's path dies instead, the link
 //!   moves to the path that already answers, and its chats resume from their cursors.
@@ -26,7 +35,7 @@ use crate::no_panic::LockExt;
 use crate::peer_paths::Via;
 use crate::rpc::{Message, method};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -39,6 +48,68 @@ pub(super) const DOUBT_CHECK: Duration = Duration::from_millis(500);
 const SHADOW_QUEUE: usize = 256;
 /// How long a shadow whose link ended keeps reading answers to the copies it carried.
 const ANSWER_GRACE: Duration = Duration::from_secs(5);
+/// How long the events the shadow brought past a gap in a chat wait for the seq before them:
+/// past it, the shadow's stream of the chat is attached again from the cursor.
+pub(super) const GAP_BOUND: Duration = Duration::from_secs(2);
+/// Events held past a gap in one chat at most; one more and the chat is attached again.
+const MOST_AHEAD: usize = 1024;
+/// The notification a daemon sends a connection that missed some of what it streamed.
+const LAGGED: &str = "_acpmux/lagged";
+
+/// Events the shadow brought past a gap in a chat's stream, waiting for the seq before them.
+/// One per peer, behind one lock (`Peer::dual_merge`) that both readers hold from a claim
+/// through its hand-off to the hub.
+#[derive(Default)]
+pub(super) struct Merger {
+    ahead: HashMap<String, BTreeMap<u64, (String, Value)>>,
+    /// Since when each chat has a gap.
+    since: HashMap<String, tokio::time::Instant>,
+}
+
+impl Merger {
+    fn forget(&mut self, sid: &str) {
+        self.ahead.remove(sid);
+        self.since.remove(sid);
+    }
+}
+
+/// Where a chat event came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Source {
+    /// The link's own stream: ordered, so nothing before one of its events is still to come.
+    Link,
+    /// The shadow's live stream of a chat: its events go only in order from the cursor.
+    Shadow,
+    /// A page the shadow's attach answered with: every event after the attach's cursor.
+    ShadowPage,
+}
+
+/// What became of an event the merger got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Merged {
+    /// Delivered, or dropped as delivered already.
+    Done,
+    /// Held past a gap.
+    Ahead,
+    /// The shadow's stream of the chat has a gap too long to hold: attach it again.
+    Gap,
+    /// The hub is gone.
+    Closed,
+}
+
+/// Whether a request `m` is bound to the connection it went on: it replays or subscribes a
+/// chat there, so it goes only on the link's path, and again on the next link after a switch.
+pub(super) fn bound(m: &str) -> bool {
+    matches!(m, method::SESSION_LOAD | method::SESSION_RESUME | method::MUX_ATTACH)
+}
+
+/// Whether `line` is a request or notification sent on both paths (`dual_requests::METHODS`).
+pub(super) fn copied(line: &str) -> bool {
+    let Ok(msg) = serde_json::from_str::<Value>(line) else { return false };
+    msg.get("method")
+        .and_then(Value::as_str)
+        .is_some_and(|m| crate::server::dual_requests::METHODS.contains(&m))
+}
 
 /// The shadow the live link copies its frames to.
 pub(super) struct Shadow {
@@ -143,13 +214,18 @@ impl Peer {
     /// The probe on `via` becomes the link's shadow: copies go to it from now, and every chat
     /// with a cursor is attached on it after that cursor. Returns its state and the attach
     /// frames to send on it.
-    pub(super) fn shadow_start(&self, via: Via) -> (ShadowRun, Vec<String>) {
+    pub(super) async fn shadow_start(&self, via: Via) -> (ShadowRun, Vec<String>) {
+        // The merger first: an event the link is handing to the hub is through before a cursor
+        // is read here, so the shadow never brings the next one ahead of it.
+        let mut merger = self.dual_merge.lock().await;
+        merger.ahead.clear();
+        merger.since.clear();
         let link = self.link_epoch();
         let (tx, rx) = mpsc::channel(SHADOW_QUEUE);
         let mut streams = HashMap::new();
         let mut frames = Vec::new();
         {
-            // Both locks, in the order `dual_claim` takes them: no event is delivered between
+            // Both locks, in the order `merge_event` takes them: no event is delivered between
             // reading a chat's cursor and marking it, so the shadow's attach after that cursor
             // and the link's stream never both deliver one event.
             let mut members = self.dual_sessions.lock_or_recover();
@@ -165,6 +241,7 @@ impl Peer {
             }
         }
         *self.shadow.lock_or_recover() = Some(Shadow { via, link, tx });
+        drop(merger);
         self.dual_stats.episodes.fetch_add(1, Ordering::Relaxed);
         for frame in &frames {
             self.dual_stats.sent(frame.len());
@@ -180,6 +257,10 @@ impl Peer {
         let Some(shadow) = shadow.as_ref().filter(|shadow| shadow.link == link) else {
             return text;
         };
+        // One bound to its connection (a load, an attach) goes on the link's path alone.
+        if !copied(&text) {
+            return text;
+        }
         let n = self.dual_frames.fetch_add(1, Ordering::Relaxed);
         let dual_id = format!("{}:{link}:{n}", self.dual_nonce);
         // Without object params a copy could not be told from the first: it goes on the link only.
@@ -193,37 +274,143 @@ impl Peer {
         stamped
     }
 
-    /// Whether the event `seq` of chat `sid` is delivered: false when either path already
-    /// delivered it (dual send ran on this link and its seq is not past the chat's cursor).
-    /// Moves the chat's cursor before it is delivered, so the other path never delivers it too.
-    pub(super) fn dual_claim(&self, sid: &str, seq: u64, from_shadow: bool) -> bool {
-        let mut members = self.dual_sessions.lock_or_recover();
-        let mut cursors = self.cursors.lock_or_recover();
-        let cursor = cursors.get_mut(sid);
-        if !members.contains(sid) || cursor.is_none() {
-            members.remove(sid);
-            // The link alone streams this chat (the shadow drops it). Its cursor moves here,
-            // before the event is delivered, so a shadow that starts meanwhile attaches after it.
-            if let Some(cursor) = cursor.filter(|_| !from_shadow) {
+    /// The chat event `seq` of chat `sid` (`method`, `params`) from `source`, read on link
+    /// `link`: handed to the hub once and in order, under the merger's lock from the claim to
+    /// the hand-off.
+    ///
+    /// A chat no shadow streams goes as before: from the link only, its cursor moved first (so
+    /// a shadow that starts meanwhile attaches after it). A chat both stream is delivered only
+    /// past its cursor: the link's event and what the shadow held below it, in seq order; the
+    /// shadow's only as the cursor's next seq, else held past the gap.
+    pub(super) async fn merge_event(
+        &self,
+        sid: &str,
+        seq: u64,
+        method: String,
+        params: Value,
+        source: Source,
+        link: u64,
+    ) -> Merged {
+        let mut merger = self.dual_merge.lock().await;
+        let cursor = {
+            let mut members = self.dual_sessions.lock_or_recover();
+            let mut cursors = self.cursors.lock_or_recover();
+            match cursors.get_mut(sid) {
+                Some(cursor) if members.contains(sid) => Some(*cursor),
+                cursor => {
+                    members.remove(sid);
+                    merger.forget(sid);
+                    if source != Source::Link {
+                        return Merged::Done;
+                    }
+                    if let Some(cursor) = cursor {
+                        *cursor = (*cursor).max(seq);
+                    }
+                    None
+                }
+            }
+        };
+        let Some(cursor) = cursor else {
+            return if self.deliver(link, method, params).await {
+                Merged::Done
+            } else {
+                Merged::Closed
+            };
+        };
+        if seq > 0 && seq <= cursor {
+            self.dual_stats.repeats.fetch_add(1, Ordering::Relaxed);
+            return Merged::Done;
+        }
+        if source == Source::Shadow && seq != cursor + 1 {
+            let ahead = merger.ahead.entry(sid.to_owned()).or_default();
+            if ahead.len() >= MOST_AHEAD {
+                merger.forget(sid);
+                return Merged::Gap;
+            }
+            ahead.insert(seq, (method, params));
+            merger.since.entry(sid.to_owned()).or_insert_with(tokio::time::Instant::now);
+            return Merged::Ahead;
+        }
+        // In seq order: what the shadow held below this event, this event, then what it held
+        // right after.
+        let mut ready: Vec<(u64, (String, Value))> = Vec::new();
+        if let Some(ahead) = merger.ahead.get_mut(sid) {
+            let rest = ahead.split_off(&seq);
+            ready.extend(std::mem::replace(ahead, rest));
+        }
+        ready.push((seq, (method, params)));
+        let mut last = seq;
+        if let Some(ahead) = merger.ahead.get_mut(sid) {
+            ahead.remove(&seq);
+            while let Some(next) = ahead.remove(&(last + 1)) {
+                last += 1;
+                ready.push((last, next));
+            }
+        }
+        if merger.ahead.get(sid).is_some_and(BTreeMap::is_empty) {
+            merger.forget(sid);
+        } else if merger.ahead.contains_key(sid) {
+            // A gap past the new cursor: its wait starts now.
+            merger.since.insert(sid.to_owned(), tokio::time::Instant::now());
+        }
+        for (seq, (method, params)) in ready {
+            if let Some(cursor) = self.cursors.lock_or_recover().get_mut(sid) {
                 *cursor = (*cursor).max(seq);
             }
-            return !from_shadow;
+            if !self.deliver(link, method, params).await {
+                return Merged::Closed;
+            }
         }
-        let Some(cursor) = cursor else { return !from_shadow };
-        if seq > 0 && seq <= *cursor {
-            self.dual_stats.repeats.fetch_add(1, Ordering::Relaxed);
-            return false;
-        }
-        *cursor = (*cursor).max(seq);
         // The link is past everything a shadow gave this chat: it alone streams it again.
-        if !from_shadow && self.shadow.lock_or_recover().is_none() {
-            members.remove(sid);
+        if source == Source::Link && self.shadow.lock_or_recover().is_none() {
+            self.dual_sessions.lock_or_recover().remove(sid);
+            merger.forget(sid);
         }
-        true
+        Merged::Done
     }
 
-    /// A request about chat `sid` went out (a `session/load` sends its history again, which is no
-    /// repeat): the link alone streams it from now.
+    /// The chats whose gap outlived [`GAP_BOUND`]: what the shadow held past it is dropped, and
+    /// each is to be attached again on the shadow from its cursor.
+    pub(super) async fn dual_gaps(&self) -> Vec<String> {
+        let mut merger = self.dual_merge.lock().await;
+        let members = self.dual_sessions.lock_or_recover().clone();
+        let stale: Vec<String> = merger
+            .since
+            .iter()
+            .filter(|(_, at)| at.elapsed() >= GAP_BOUND)
+            .map(|(sid, _)| sid.clone())
+            .collect();
+        for sid in &stale {
+            merger.forget(sid);
+        }
+        stale.into_iter().filter(|sid| members.contains(sid)).collect()
+    }
+
+    /// Attach `sid` again on the shadow from its cursor: its stream there is not trusted until
+    /// the attach answers. The frame to send on the shadow, if the chat still has a cursor.
+    pub(super) async fn shadow_resubscribe(
+        &self,
+        run: &mut ShadowRun,
+        sid: &str,
+    ) -> Option<String> {
+        self.dual_merge.lock().await.forget(sid);
+        let after = self.cursors.lock_or_recover().get(sid).copied().filter(|c| *c > 0);
+        let Some(after) = after else {
+            run.streams.insert(sid.to_owned(), Stream::Off);
+            return None;
+        };
+        let attach = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let line =
+            Message::request(attach, method::MUX_ATTACH, hidden_attach_after(sid, after)).to_line();
+        let line = line.trim_end_matches('\n').to_owned();
+        self.dual_stats.sent(line.len());
+        run.streams.insert(sid.to_owned(), Stream::Attaching { attach, after, seen: 0 });
+        tracing::debug!(peer = %self.name, chat = sid, after, "the shadow's stream of a chat has a gap; attaching it again");
+        Some(line)
+    }
+
+    /// A request that replays chat `sid` went out (a `session/load` or an attach sends its
+    /// history again, which is no repeat): the link alone streams it from now.
     pub(super) fn dual_forget(&self, sid: &str) {
         self.dual_sessions.lock_or_recover().remove(sid);
     }
@@ -303,8 +490,10 @@ impl Peer {
 
     /// A text frame the shadow read. Replies settle their callers (the first of the two copies
     /// to answer); chat events past their cursor are delivered; everything else is the link's.
-    pub(super) async fn shadow_frame(&self, run: &mut ShadowRun, text: &str) {
-        let Ok(msg) = Message::parse(text) else { return };
+    /// Returns frames to send on the shadow: attaches again of chats whose stream there lagged
+    /// or has a gap.
+    pub(super) async fn shadow_frame(&self, run: &mut ShadowRun, text: &str) -> Vec<String> {
+        let Ok(msg) = Message::parse(text) else { return Vec::new() };
         match msg {
             Message::Response { id, result, error } => {
                 let attaching = run.streams.iter().find_map(|(sid, stream)| match stream {
@@ -318,38 +507,60 @@ impl Peer {
                         (None, Some(page)) => page,
                         _ => {
                             run.streams.insert(sid, Stream::Off);
-                            return;
+                            return Vec::new();
                         }
                     };
-                    self.shadow_page(run, &sid, after, seen, &page).await;
-                    return;
+                    return self.shadow_page(run, &sid, after, seen, &page).await;
                 }
                 let key = id.to_string();
                 let tx = self.pending.lock().await.remove(&key);
                 self.on_wire.lock_or_recover().remove(&key);
                 self.dual_keys.lock_or_recover().remove(&key);
-                let Some(tx) = tx else { return };
-                let _ = tx.send(match error {
-                    Some(e) => Err(e),
-                    None => Ok(result.unwrap_or(Value::Null)),
-                });
+                if let Some(tx) = tx {
+                    let _ = tx.send(match error {
+                        Some(e) => Err(e),
+                        None => Ok(result.unwrap_or(Value::Null)),
+                    });
+                }
+                Vec::new()
+            }
+            Message::Notification { method: m, params } if m == LAGGED => {
+                // The shadow missed some of what it streamed: the lagged chat, or without one
+                // named every chat, is attached again from its cursor.
+                let named = params
+                    .as_ref()
+                    .and_then(|p| p.get("sessionId"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                let chats: Vec<String> = match named {
+                    Some(sid) => {
+                        run.streams.contains_key(&sid).then_some(sid).into_iter().collect()
+                    }
+                    None => run.streams.keys().cloned().collect(),
+                };
+                let mut frames = Vec::new();
+                for sid in chats {
+                    frames.extend(self.shadow_resubscribe(run, &sid).await);
+                }
+                frames
             }
             Message::Notification { method: m, params } => {
                 let p = params.unwrap_or(Value::Null);
-                let Some((sid, seq)) = event_seq(&m, &p) else { return };
+                let Some((sid, seq)) = event_seq(&m, &p) else { return Vec::new() };
                 match run.streams.get_mut(&sid) {
                     Some(Stream::Live) => {}
                     Some(Stream::Attaching { seen, .. }) => {
                         *seen = (*seen).max(seq);
-                        return;
+                        return Vec::new();
                     }
-                    _ => return,
+                    _ => return Vec::new(),
                 }
-                if self.dual_claim(&sid, seq, true) {
-                    self.deliver(run.link, m, p).await;
+                match self.merge_event(&sid, seq, m, p, Source::Shadow, run.link).await {
+                    Merged::Gap => self.shadow_resubscribe(run, &sid).await.into_iter().collect(),
+                    Merged::Done | Merged::Ahead | Merged::Closed => Vec::new(),
                 }
             }
-            Message::Request { .. } => {}
+            Message::Request { .. } => Vec::new(),
         }
     }
 
@@ -362,28 +573,30 @@ impl Peer {
         after: u64,
         seen: u64,
         page: &Value,
-    ) {
+    ) -> Vec<String> {
         let through = page_max_seq(page).unwrap_or(after).max(after);
         let whole = page.get("hasMore") != Some(&Value::Bool(true)) && seen <= through;
         if let Some(events) = page.get("events").and_then(Value::as_array) {
             for event in events {
                 let Some(seq) = event.get("seq").and_then(Value::as_u64) else { continue };
-                if self.dual_claim(sid, seq, true) {
-                    self.deliver(run.link, method::MUX_EVENT.to_owned(), event.clone()).await;
-                }
+                let method = method::MUX_EVENT.to_owned();
+                self.merge_event(sid, seq, method, event.clone(), Source::ShadowPage, run.link)
+                    .await;
             }
         }
         run.streams.insert(sid.to_owned(), if whole { Stream::Live } else { Stream::Off });
+        Vec::new()
     }
 
-    async fn deliver(&self, link: u64, method: String, params: Value) {
-        let _ = self
-            .notices
+    /// Hand a chat event to the hub; false when the hub is gone.
+    async fn deliver(&self, link: u64, method: String, params: Value) -> bool {
+        self.notices
             .send((
                 self.name.clone(),
                 self.generation,
                 super::PeerNotice::Notification { method, params, link },
             ))
-            .await;
+            .await
+            .is_ok()
     }
 }

@@ -191,8 +191,16 @@ pub struct Peer {
     /// While the link's path is in doubt, the probe of another path that gets a copy of each
     /// frame (`peer_dual.rs`).
     shadow: StdMutex<Option<dual::Shadow>>,
-    /// The chats whose events either path may deliver, each once by its seq (`Peer::dual_claim`).
+    /// The chats whose events either path may deliver, each once by its seq
+    /// (`Peer::merge_event`).
     dual_sessions: StdMutex<HashSet<String>>,
+    /// The one merger both paths' chat events go through (`peer_dual.rs`).
+    dual_merge: Mutex<dual::Merger>,
+    /// Requests bound to the link's connection (a `session/load`, an attach), by pending key:
+    /// the line to send again on the next link when this one switches paths under them.
+    switch_retry: StdMutex<HashMap<String, String>>,
+    /// The link ended to switch paths; its bound requests go again on the next link.
+    switched: AtomicBool,
     /// The pending keys of requests sent on both paths.
     dual_keys: StdMutex<HashSet<String>>,
     /// This peer's own part of each dual id, and the frames copied so far.
@@ -449,6 +457,9 @@ impl Peer {
             last_good: std::sync::OnceLock::new(),
             shadow: StdMutex::new(None),
             dual_sessions: StdMutex::new(HashSet::new()),
+            dual_merge: Mutex::new(dual::Merger::default()),
+            switch_retry: StdMutex::new(HashMap::new()),
+            switched: AtomicBool::new(false),
             dual_keys: StdMutex::new(HashSet::new()),
             dual_nonce: uuid::Uuid::now_v7().simple().to_string(),
             dual_frames: AtomicU64::new(0),
@@ -1271,11 +1282,14 @@ impl Peer {
     ) -> Result<Value, RpcError> {
         // Read before the check: `run` moves the epoch on before it fails what
         // waits, so a request that is registered after that sees the change.
+        // One of any link that is bound to its connection goes again on the next link when
+        // this one switches paths under it (`resend_switched`).
+        let retry = epoch.is_none() && dual::bound(m);
         let epoch = epoch.unwrap_or_else(|| self.link_epoch());
         if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
         }
-        self.link_request_on(m, params, Some(epoch)).await
+        self.send_request_with(m, params, Some(epoch), ListKey::None, retry).await
     }
 
     /// Sends `m` on the link of epoch `epoch` (any link when None), with no check that the
@@ -1302,6 +1316,19 @@ impl Peer {
         epoch: Option<u64>,
         list: ListKey,
     ) -> Result<Value, RpcError> {
+        self.send_request_with(m, params, epoch, list, false).await
+    }
+
+    /// [`Self::send_request`]; `retry`: sent again on the next link if this one switches paths
+    /// before it answers (`switch_retry`).
+    async fn send_request_with(
+        &self,
+        m: &str,
+        params: Value,
+        epoch: Option<u64>,
+        list: ListKey,
+        retry: bool,
+    ) -> Result<Value, RpcError> {
         // One deadline from here: a request that waits for room in the queue (a stalled link,
         // or a full queue ahead of it) times out on the schedule of one the peer is slow to
         // answer, never later.
@@ -1326,7 +1353,9 @@ impl Peer {
         self.pending.lock().await.insert(key.clone(), tx);
         if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
             self.replay_tail.lock_or_recover().remove(session);
-            self.dual_forget(session);
+            if dual::bound(m) {
+                self.dual_forget(session);
+            }
         }
         if m == method::SESSION_PROMPT
             && let (Some(session), Some(prompt)) = (
@@ -1373,6 +1402,12 @@ impl Peer {
         // One frame larger than the peer reads with would drop the link and every chat on it.
         let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
         let tag = epoch.unwrap_or_else(|| self.link_epoch());
+        // Bound to the link's connection: sent again on the next link if this one switches
+        // paths before it answers, never raced on two (`Peer::resend_switched`).
+        let _retry = retry.then(|| {
+            self.switch_retry.lock_or_recover().insert(key.clone(), line.clone());
+            ForgetRetry { peer: self, key: key.clone() }
+        });
         let frame = Outbound { epoch: tag, key: Some(key), line };
         match tokio::time::timeout_at(deadline, self.out.send(frame)).await {
             Ok(Ok(())) => {}
@@ -1410,6 +1445,23 @@ impl Peer {
                 self.name,
                 started.elapsed().as_secs()
             ))),
+        }
+    }
+
+    /// After a link that switched paths: the requests bound to the old link's connection that
+    /// it never answered, sent again on link `link` (`switch_retry`).
+    async fn resend_switched(&self, link: u64) {
+        let lines: Vec<(String, String)> = {
+            let pending = self.pending.lock().await;
+            let mut retry = self.switch_retry.lock_or_recover();
+            retry.retain(|key, _| pending.contains_key(key));
+            retry.iter().map(|(key, line)| (key.clone(), line.clone())).collect()
+        };
+        for (key, line) in lines {
+            tracing::debug!(peer = %self.name, key = %key, "sending a bound request again after a path switch");
+            if self.out.send(Outbound { epoch: link, key: Some(key), line }).await.is_err() {
+                return;
+            }
         }
     }
 
@@ -1514,6 +1566,7 @@ impl Peer {
             // Another path of this peer answers: like a restart, its rows stay usable and the
             // next connect runs at once, but the remote's tokens are still good, and the backoff
             // stays as it is.
+            self.switched.store(true, Ordering::SeqCst);
             self.link_ending(true);
             self.link_ended();
             self.open.store(false, Ordering::SeqCst);
@@ -1553,6 +1606,12 @@ impl Peer {
         let mut pending = self.pending.lock().await;
         while out_rx.try_recv().is_ok() {}
         let on_wire = std::mem::take(&mut *self.on_wire.lock_or_recover());
+        // A link that switched paths keeps the requests bound to its connection: the next link
+        // sends them again (`resend_switched`).
+        let switched = self.switched.swap(false, Ordering::SeqCst);
+        if !switched {
+            self.switch_retry.lock_or_recover().clear();
+        }
         let mut survivors = HashMap::new();
         for (key, tx) in pending.drain() {
             // An accepted prompt is recovered on the next link; a request sent on both paths
@@ -1560,7 +1619,8 @@ impl Peer {
             if !self.stop.load(Ordering::SeqCst)
                 && !tx.is_closed()
                 && (self.prompts.lock_or_recover().get(&key).is_some_and(|p| p.accepted)
-                    || self.dual_carried(&key))
+                    || self.dual_carried(&key)
+                    || (switched && self.switch_retry.lock_or_recover().contains_key(&key)))
             {
                 survivors.insert(key, tx);
                 continue;
@@ -2026,6 +2086,8 @@ impl Peer {
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             // The path it is ready on is the one to dial first next time, also after a restart.
             me.note_ready_path();
+            // What the last link bound to its connection and never answered, on this one.
+            me.resend_switched(link).await;
             // Several at once: a chat the peer is slow on holds up no other's stream, and a
             // link with many chats does not fill its send queue with them.
             // Chats with a cursor were replayed above; the rest have no baseline yet.
@@ -2409,11 +2471,16 @@ impl Peer {
                                     None => {}
                                 }
                                 drop(tails);
-                                // Sent on two paths while this one was in doubt: the other path
-                                // may have delivered it already (`peer_dual.rs`).
-                                if !self.dual_claim(id, *seq, false) {
-                                    continue;
+                                // Sent on two paths while this one was in doubt: one merger
+                                // hands each event to the hub once and in order, and moves the
+                                // cursor as it does (`peer_dual.rs`).
+                                let link = self.link_epoch();
+                                let merged =
+                                    self.merge_event(id, *seq, m, p, dual::Source::Link, link).await;
+                                if merged == dual::Merged::Closed {
+                                    break Ok(LinkEnd::Stopped);
                                 }
+                                continue;
                             }
                             let notice = if m == method::MUX_SESSION_CHANGED {
                                 let session = p.get("session").cloned().unwrap_or(Value::Null);
@@ -3044,6 +3111,18 @@ struct ForgetPending {
     on_wire: OnWire,
     prompts: Arc<StdMutex<HashMap<String, PendingPrompt>>>,
     key: Option<String>,
+}
+
+/// Drops a bound request's line from `switch_retry` once its caller has its answer or left.
+struct ForgetRetry<'a> {
+    peer: &'a Peer,
+    key: String,
+}
+
+impl Drop for ForgetRetry<'_> {
+    fn drop(&mut self) {
+        self.peer.switch_retry.lock_or_recover().remove(&self.key);
+    }
 }
 
 impl Drop for ForgetPending {

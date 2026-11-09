@@ -71,6 +71,27 @@ fn book() -> std::sync::MutexGuard<'static, Book> {
     BOOK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// The methods a peer link sends on two paths: each runs once whichever copy came first, and
+/// none has an effect bound to the connection that ran it. A `session/load`, an attach or a
+/// subscription replays or subscribes on its own connection: the copy that lost would get the
+/// first one's answer with nothing streamed to it, so those go only on the link's chosen path
+/// (`peer_dual.rs`), and a `dualId` on one is ignored here.
+pub const METHODS: [&str; 4] = [
+    crate::rpc::method::SESSION_PROMPT,
+    crate::rpc::method::SESSION_CANCEL,
+    crate::rpc::method::MUX_WAIT,
+    crate::rpc::method::MUX_STATS,
+];
+
+/// The `dualId` of a request's or notification's params, if it has a usable one and `method`
+/// is one sent on two paths ([`METHODS`]).
+pub(crate) fn key_for(method: &str, params: Option<&Value>) -> Option<String> {
+    if !METHODS.contains(&method) {
+        return None;
+    }
+    key_of(params)
+}
+
 /// The `dualId` of a request's or notification's params, if it has a usable one.
 pub(super) fn key_of(params: Option<&Value>) -> Option<String> {
     let key = params?.pointer("/_meta/acpmux/dualId")?.as_str()?;

@@ -753,15 +753,22 @@ impl Peer {
                     let done = shadow.as_mut().is_some_and(|run| self.shadow_done(run));
                     let frames = match shadow.take() {
                         None if self.dual_wanted(via) => {
-                            let (run, frames) = self.shadow_start(via);
+                            let (run, frames) = self.shadow_start(via).await;
                             shadow = Some(run);
                             frames
                         }
                         Some(run) if done => self.shadow_end(run).await,
-                        kept => {
-                            shadow = kept;
-                            Vec::new()
+                        Some(mut run) => {
+                            // A chat whose gap outlived its bound is attached again from its
+                            // cursor.
+                            let mut frames = Vec::new();
+                            for sid in self.dual_gaps().await {
+                                frames.extend(self.shadow_resubscribe(&mut run, &sid).await);
+                            }
+                            shadow = Some(run);
+                            frames
                         }
+                        None => Vec::new(),
                     };
                     if !send_texts(&mut ws, frames).await {
                         self.path_failed(via);
@@ -782,7 +789,11 @@ impl Peer {
                     }
                     Some(Ok(Frame::Text(text))) => {
                         if let Some(run) = shadow.as_mut() {
-                            self.shadow_frame(run, text.as_str()).await;
+                            let frames = self.shadow_frame(run, text.as_str()).await;
+                            if !send_texts(&mut ws, frames).await {
+                                self.path_failed(via);
+                                break;
+                            }
                         }
                     }
                     Some(Ok(Frame::Close(_)) | Err(_)) | None => {

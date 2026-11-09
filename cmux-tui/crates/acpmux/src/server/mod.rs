@@ -1696,7 +1696,7 @@ async fn serve_connection_from(
                 }
                 // A peer link sent this request on two paths (`dual_requests.rs`): in order, so
                 // the copy read first runs it and the other answers with its answer.
-                let dual = dual_requests::key_of(params.as_ref()).map(dual_requests::admit);
+                let dual = dual_requests::key_for(&m, params.as_ref()).map(dual_requests::admit);
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
@@ -1741,8 +1741,8 @@ async fn serve_connection_from(
                 tracing::debug!(conn = %conn.id, method = %m, "ignoring notification on trigger connection");
             }
             // The second copy of a notification a peer link sent on two paths.
-            Message::Notification { params, .. }
-                if dual_requests::key_of(params.as_ref())
+            Message::Notification { method: m, params }
+                if dual_requests::key_for(m.as_str(), params.as_ref())
                     .is_some_and(|key| !dual_requests::first_notification(key)) => {}
             Message::Notification { method: m, params } => {
                 let params = params.unwrap_or(Value::Null);
