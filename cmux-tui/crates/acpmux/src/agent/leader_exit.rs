@@ -17,10 +17,33 @@ pub(crate) struct LeaderExit {
     fd: Option<tokio::io::unix::AsyncFd<OwnedFd>>,
 }
 
+/// Tests only: this thread's agents start as if the kernel had no exit event, so their readers
+/// keep the timed check (`agent_idle_tests.rs`).
+#[cfg(test)]
+pub(crate) mod timed_check_only {
+    thread_local! {
+        static ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    pub(crate) fn set(on: bool) {
+        ON.with(|o| o.set(on));
+    }
+    pub(super) fn on() -> bool {
+        ON.with(std::cell::Cell::get)
+    }
+}
+
 impl LeaderExit {
     /// The exit event of child `pid`, unreaped; `None` when this kernel has none.
-    #[cfg(target_os = "linux")]
     pub(crate) fn open(pid: u32) -> Option<Self> {
+        #[cfg(test)]
+        if timed_check_only::on() {
+            return None;
+        }
+        Self::open_native(pid)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn open_native(pid: u32) -> Option<Self> {
         let pid = libc::pid_t::try_from(pid).ok()?;
         // SAFETY: pidfd_open takes a pid and flags and returns a new descriptor or -1.
         let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0 as libc::c_uint) };
@@ -32,7 +55,7 @@ impl LeaderExit {
     }
 
     #[cfg(target_os = "macos")]
-    pub(crate) fn open(pid: u32) -> Option<Self> {
+    fn open_native(pid: u32) -> Option<Self> {
         use std::os::fd::AsRawFd;
         let pid = libc::pid_t::try_from(pid).ok()?;
         // SAFETY: kqueue has no preconditions.
@@ -63,7 +86,7 @@ impl LeaderExit {
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    pub(crate) fn open(_pid: u32) -> Option<Self> {
+    fn open_native(_pid: u32) -> Option<Self> {
         None
     }
 
