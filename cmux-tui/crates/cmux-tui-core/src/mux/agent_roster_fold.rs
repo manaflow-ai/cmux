@@ -621,8 +621,22 @@ impl Mux {
         // An agent record past the roster's cursor holds the reconcile for
         // another pass; a journal that cannot be read holds it for the next
         // request or maintenance tick.
-        if reconciled == Some(Some(false)) {
-            self.continue_agent_roster_replay_later();
+        match reconciled {
+            Some(Some(false)) => self.continue_agent_roster_replay_later(),
+            // A journal that cannot be read: retried after the roster's read
+            // backoff, with no request needed, as the replay's own reads are.
+            // Until then guarded sends stay refused.
+            Some(None) => {
+                let worker = &self.agent_roster_worker;
+                let failed = worker.replay_failed_reads.fetch_add(1, Ordering::AcqRel) + 1;
+                self.retry_agent_roster_replay_after(
+                    agent_roster_rebuild::roster_read_retry_delay(failed),
+                );
+            }
+            Some(Some(true)) => {
+                self.agent_roster_worker.replay_failed_reads.store(0, Ordering::Release);
+            }
+            None => {}
         }
         for (delta, kind) in deltas {
             self.apply_roster_delta(delta, &kind);
@@ -736,7 +750,6 @@ impl Mux {
                 return None;
             }
         }
-        self.agent_roster_worker.reconcile_pending.store(false, Ordering::Release);
         #[cfg(test)]
         if let Some(seam) = self
             .agent_roster_worker
@@ -751,6 +764,10 @@ impl Mux {
             let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { continue };
             self.reconcile_agent_roster_projection_with(&terminal_id, entry, true);
         }
+        // Only now, with the writes committed and the lock still held: a
+        // guarded send (`expect_agent`) that sees the roster settled must see
+        // the reconciled rows, never the ones about to be rewritten.
+        self.agent_roster_worker.reconcile_pending.store(false, Ordering::Release);
         drop(fences);
         Some(true)
     }
