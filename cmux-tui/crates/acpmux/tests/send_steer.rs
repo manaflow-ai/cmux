@@ -336,9 +336,15 @@ async fn a_sub_sessions_send_to_its_busy_parent_steers() {
     ));
     let token = acpmux::hub::person::caller_token(&b.id);
     let calls = [
-        ("initialize", json!({"protocolVersion": 1,
-            "_meta": {"acpmux": {"callerSession": {"sessionId": b.id, "token": token}}}})),
-        ("_acpmux/subsession/start", json!({"prompt": "echo drain the queue", "name": "queue-drain"})),
+        (
+            "initialize",
+            json!({"protocolVersion": 1,
+            "_meta": {"acpmux": {"callerSession": {"sessionId": b.id, "token": token}}}}),
+        ),
+        (
+            "_acpmux/subsession/start",
+            json!({"prompt": "echo drain the queue", "name": "queue-drain"}),
+        ),
     ];
     let mut started = Value::Null;
     for (n, (m, params)) in calls.into_iter().enumerate() {
@@ -358,7 +364,10 @@ async fn a_sub_sessions_send_to_its_busy_parent_steers() {
     assert_eq!(info.unwrap()["startedBy"], json!(b.id), "not the busy session's sub-session");
     // Its first turn ends before it sends.
     b.person
-        .request("_acpmux/wait", json!({"sessions": [child], "until": ["ready"], "timeoutMs": 20000}))
+        .request(
+            "_acpmux/wait",
+            json!({"sessions": [child], "until": ["ready"], "timeoutMs": 20000}),
+        )
         .await
         .unwrap();
 
@@ -375,7 +384,8 @@ async fn a_sub_sessions_send_to_its_busy_parent_steers() {
         if wait {
             b.open_gate();
         }
-        let out = tokio::time::timeout(Duration::from_secs(60), send).await.unwrap().unwrap().unwrap();
+        let out =
+            tokio::time::timeout(Duration::from_secs(60), send).await.unwrap().unwrap().unwrap();
         assert!(out.status.success(), "{mode}: {}", String::from_utf8_lossy(&out.stderr));
     }
 }

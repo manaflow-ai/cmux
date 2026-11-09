@@ -601,7 +601,9 @@ async fn lane_report_a_report_steers_into_an_agents_turn_and_waits_behind_the_pe
     let got = person.exactly(&coord, 1).await;
     assert_eq!(got[0]["steer"], true, "the report waited behind an agent's turn: {got:#?}");
     person.ok("session/cancel", json!({"sessionId": coord})).await;
-    person.ok("_acpmux/wait", json!({"sessions": [coord], "until": ["ready"], "timeoutMs": 20000})).await;
+    person
+        .ok("_acpmux/wait", json!({"sessions": [coord], "until": ["ready"], "timeoutMs": 20000}))
+        .await;
 
     // The person's own turn: the report waits for its end and goes in after it.
     let mut busy = Client::new(&hub);
