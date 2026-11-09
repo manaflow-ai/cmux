@@ -137,10 +137,14 @@ async fn several_holes_in_one_window_are_repaired_together() {
     assert_eq!(dropped.load(Ordering::Relaxed), DROPPED.len(), "the datagrams were dropped");
     assert!(body.iter().all(|&byte| byte == 7), "the body arrived intact");
     eprintln!("512 KiB with {} holes in one window: {took:?} (simulated)", DROPPED.len());
-    assert!(took < Duration::from_millis(SACK_BOUND_MS), "the download took {took:?}");
+    assert!(
+        took < Duration::from_millis(SACK_BOUND_MS),
+        "the download took {took:?}: no SACK recovery"
+    );
     client.shutdown().await;
     server.shutdown().await;
 }
 
-/// Set from the run that measured this test with and without SACK; see the PR.
-const SACK_BOUND_MS: u64 = 60_000;
+/// Measured on fleet Linux: 241 ms with SACK, 337 ms without (the base's
+/// fast retransmits and tail-loss probe, one hole per round trip).
+const SACK_BOUND_MS: u64 = 300;
