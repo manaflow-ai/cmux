@@ -857,6 +857,7 @@ while True:
                                "cloudMlRegion": os.environ.get("CLOUD_ML_REGION"),
                                "vertexRegions": sorted(k for k in os.environ if k.startswith("VERTEX_REGION_")),
                                "awsKeys": sorted(k for k in os.environ if k.startswith("AWS_")),
+                               "googleKeys": sorted(k for k in os.environ if k.startswith("GOOGLE_")),
                                "promptCache": {k: v for k, v in os.environ.items()
                                                if k.startswith(("DISABLE_PROMPT_CACHING", "ENABLE_PROMPT_CACHING_1H"))
                                                or k == "FORCE_PROMPT_CACHING_5M"},
