@@ -50,6 +50,7 @@ mod base;
 mod git_back;
 mod history;
 mod links;
+mod listed;
 mod local;
 mod merge;
 mod names;
@@ -63,7 +64,7 @@ mod seed_pull;
 pub(super) use seed_pull::{
     SeedBase, SeedPulled, failure_code as seed_pull_failure_code, is_sha, seed_pull,
 };
-mod skips;
+pub(crate) mod skips;
 mod store;
 
 pub(crate) use store::{Config as StoreConfig, configure as configure_store};
@@ -538,6 +539,11 @@ pub(super) fn remote_kind(socket: &Path, path: &str) -> anyhow::Result<Option<St
     Remote::connect(socket)?.kind(path)
 }
 
+/// The file at `path` on the machine, read whole; None when it is not there.
+pub(super) fn remote_read(socket: &Path, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
+    Remote::connect(socket)?.read(path)
+}
+
 /// Copies the one regular file at `local` (never through a symlink) to
 /// `target` on the machine, making its folder.
 pub(super) fn copy_file(socket: &Path, local: &Path, target: &str) -> anyhow::Result<()> {
@@ -553,16 +559,12 @@ pub(super) fn copy_file_with_progress(
     target: &str,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
     let meta = std::fs::symlink_metadata(local)
         .with_context(|| format!("cannot read {}", local.display()))?;
     if !meta.file_type().is_file() {
         anyhow::bail!("{} is not a regular file", local.display());
     }
-    let file = LocalFile {
-        source: Source::File(local.to_path_buf()),
-        permissions: local::permissions_of(meta.permissions().mode()),
-    };
+    let file = LocalFile::listed(local, &meta);
     let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
@@ -687,6 +689,7 @@ pub(super) fn copy_folder_with_progress(
                 identity: found,
             }),
             permissions: file.permissions,
+            id: None,
         };
         let at = format!("{target}/{relative}");
         let (parent, _) = remote::split(&at)?;
@@ -1611,7 +1614,7 @@ impl Listings {
 /// in since it was listed; anything but a regular file is refused.
 fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
     Ok(match &file.source {
-        Source::File(path) => Box::new(open_regular(path)?.0),
+        Source::File(path) => Box::new(local::open_listed(path, file.id)?),
         Source::Checked(checked) => {
             let (opened, identity, root) = place::open_beneath(&checked.root, &checked.relative)?;
             if identity != checked.identity || root != checked.root_identity {
@@ -1627,26 +1630,9 @@ fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
     })
 }
 
-/// `path` opened without following a symlink at its end or blocking on a
-/// FIFO, with the device and inode it opened; anything but a regular file
-/// is refused.
-fn open_regular(path: &Path) -> anyhow::Result<(std::fs::File, (u64, u64))> {
-    use std::os::unix::fs::MetadataExt as _;
-    let opened = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-        .with_context(|| format!("cannot read {}", path.display()))?;
-    let meta = opened.metadata()?;
-    if !meta.is_file() {
-        anyhow::bail!("{} is no longer a regular file", path.display());
-    }
-    Ok((opened, (meta.dev(), meta.ino())))
-}
-
 fn size(file: &LocalFile) -> anyhow::Result<u64> {
     Ok(match &file.source {
-        Source::File(path) => std::fs::metadata(path)?.len(),
+        Source::File(path) => local::open_listed(path, file.id)?.metadata()?.len(),
         Source::Checked(checked) => {
             place::open_beneath(&checked.root, &checked.relative)?.0.metadata()?.len()
         }
@@ -1697,6 +1683,7 @@ mod checked_source_tests {
                 identity: (meta.dev(), meta.ino()),
             }),
             permissions: 0o644,
+            id: None,
         };
         assert!(open(&file).is_ok());
         std::fs::rename(&inside, dir.path().join("moved")).unwrap();

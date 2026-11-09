@@ -470,10 +470,12 @@ class Run:
         import pwd
         homes = [os.path.join(self.scratch or "", "home"), pwd.getpwuid(os.getuid()).pw_dir]
         found = []
+        # NEXT's own folder, and classic's for a build from before it (its link there is not followed).
         for home in homes:
-            for folder, _dirs, files in os.walk(os.path.join(home, "Library", "Application Support", "cmux")):
-                if os.path.basename(folder) == "agent-pane-images" and TAG_DIR in folder:
-                    found += sorted(files)
+            for parent in ("cmux-next", "cmux"):
+                for folder, _dirs, files in os.walk(os.path.join(home, "Library", "Application Support", parent)):
+                    if os.path.basename(folder) == "agent-pane-images" and TAG_DIR in folder:
+                        found += sorted(files)
         return found
 
     def end(self):

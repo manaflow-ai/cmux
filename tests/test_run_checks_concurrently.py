@@ -54,11 +54,19 @@ class RunChecksConcurrently(unittest.TestCase):
 
     def test_the_checks_job_runs_its_script_tests_through_it(self):
         document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        step = next(step for step in document["jobs"]["checks"]["steps"] if step.get("id") == "script-tests")
-        self.assertIn("scripts/ci/run-checks-concurrently.sh <<'CHECKS'", step["run"])
+        checks = document["jobs"]["checks"]["steps"]
+        step = next(step for step in checks if step.get("id") == "script-tests")
+        self.assertIn('scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" script-tests',
+                      step["run"])
+        # The background start lists them under the step's id, before that step.
+        start = next(s for s in checks if "run-checks-concurrently.sh --start" in str(s.get("run", "")))
+        self.assertLess(checks.index(start), checks.index(step))
+        self.assertIn("""scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" """,
+                      start["run"])
+        listed = start["run"].split("[script-tests]", 1)[1]
         # The waits these two assert run on a virtual clock, so the wide pool cannot slow them into a failure.
         for script in ("pin-cmux-tui-run-check.test.sh", "pin-cmux-tui-probe.test.sh"):
-            self.assertIn(f"bash scripts/cmux-next/tests/{script}", step["run"])
+            self.assertIn(f"bash scripts/cmux-next/tests/{script}", listed.split("[", 1)[0])
             source = (ROOT / "scripts/cmux-next/tests" / script).read_text(encoding="utf-8")
             self.assertIn('fake_clock_install "$TMP/clock"', source)
 

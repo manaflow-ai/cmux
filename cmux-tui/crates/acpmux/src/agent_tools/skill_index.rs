@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn the_index_lists_the_skills_the_sessions_tools_serve() {
         let state = tempfile::tempdir().unwrap();
-        let plugin = materialize(state.path(), true).unwrap();
+        let plugin = materialize(state.path(), |_| true).unwrap();
         let full = AgentTools {
             servers: vec![
                 server("cmux"),
