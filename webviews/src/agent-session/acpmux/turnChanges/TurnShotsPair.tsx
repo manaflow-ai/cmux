@@ -7,26 +7,28 @@ import { useContext, useEffect, useState } from "react";
 import { MediaCompare } from "../../../ui/MediaCompare";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { useT } from "../i18n";
-import { TurnShotsContext } from "./turnShots";
+import { TurnShotsContext, type TurnShotPair } from "./turnShots";
 
 export function TurnShots({ rowId }: { rowId: string }) {
   const reader = useContext(TurnShotsContext);
   const openImage = useContext(ImageViewerContext);
   const t = useT();
-  // The row whose pair was read while this card showed: it grows in once; a pair read before draws
-  // at once.
-  const [arrived, setArrived] = useState<string>();
+  // The pair read while this card showed, kept in state: it grows in once; a pair read before draws
+  // at once from `peek`. The read's answer is state, never a second `peek`: the compiler memoizes
+  // `peek(rowId)` on the reader and row, so a later call would draw the answer cached before it.
+  const [arrived, setArrived] = useState<{ rowId: string; pair?: TurnShotPair }>();
   useEffect(() => {
     if (!reader || reader.peek(rowId)) return;
     let live = true;
-    void reader.read(rowId).then(() => {
-      if (live) setArrived(rowId);
+    void reader.read(rowId).then((pair) => {
+      if (live) setArrived({ rowId, pair });
     });
     return () => {
       live = false;
     };
   }, [reader, rowId]);
-  const pair = reader?.peek(rowId)?.pair;
+  const fresh = arrived?.rowId === rowId ? arrived : undefined;
+  const pair = fresh ? fresh.pair : reader?.peek(rowId)?.pair;
   if (!pair) return null;
   const labels = {
     before: t("turnShots.before"),
@@ -36,7 +38,7 @@ export function TurnShots({ rowId }: { rowId: string }) {
   };
   const afterAlt = t("turnShots.alt.after");
   return (
-    <div className="acpmux-turn-shots" data-arrived={arrived === rowId ? "" : undefined}>
+    <div className="acpmux-turn-shots" data-arrived={fresh ? "" : undefined}>
       <div className="acpmux-turn-shots-frame">
         <MediaCompare
           after={{ src: pair.after, alt: afterAlt }}

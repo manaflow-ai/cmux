@@ -202,20 +202,18 @@ test("a card the setting collapses shows its pictures only once opened", async (
   }
 });
 
+// The build's compiler memoizes `peek(rowId)` on the reader and row, so after the read the card
+// sees what `peek` said before it: here `peek` never learns of the read, and the card must draw the
+// read's answer anyway.
 test("a pair read while the card shows arrives and is marked to grow in", async () => {
-  let settled: { pair?: TurnShotPair } | undefined;
   const pair = { before: PAGE_BEFORE, after: PAGE_AFTER };
   const arriving: TurnShotsReader = {
-    peek: () => settled,
-    read: () =>
-      Promise.resolve().then(() => {
-        settled = { pair };
-        return pair;
-      }),
+    peek: () => undefined,
+    read: () => Promise.resolve(pair),
   };
   await renderCard(edit(true), arriving);
   await act(async () => {
     await Promise.resolve();
   });
-  expect(host.querySelector(".acpmux-turn-shots[data-arrived]")).not.toBeNull();
+  expect(host.querySelector(".acpmux-turn-shots[data-arrived] .ui-compare")).not.toBeNull();
 });
