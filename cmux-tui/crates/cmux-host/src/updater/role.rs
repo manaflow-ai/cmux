@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 
 use super::carrier::{CARRIER_MAX_HOLD, CarrierHold, CarrierLook};
 use super::channel::{self, CHANNEL_MAX_BYTES, CHANNEL_URL, CMUX_TUI, CMUX_TUI_HOOK};
-use super::gate::Gate;
+use super::gate::{Gate, HoldKind, Honor};
 use super::store::{self, STORE_DIR};
 use super::{
     DOWNLOAD_DIR, Decision, Pending, Plan, clear_pending, decide, load_pending, load_state,
@@ -75,21 +75,23 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// one waits for it (a rename and a few `--no-block` systemctl calls).
 static COMMIT: Mutex<()> = Mutex::new(());
 
-fn wall_ms() -> u64 {
+pub(super) fn wall_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
-/// Starts (or extends) the connect hold now: a role start, a bind, a resume,
-/// a restore or a new carrier session. The Cloud role calls it before a bind
-/// goes out, which the supervisor's `Bound` (an instance id change) does not see.
+/// Starts (or extends) the connect hold now, as a hold of `kind`: a role
+/// start, a resume or a restore ([`HoldKind::Resume`]), a bind or a new
+/// carrier session ([`HoldKind::Connect`]). The Cloud role's bind takes it
+/// before the bind goes out, which the supervisor's `Bound` (an instance id
+/// change) does not see.
 ///
 /// The hold lives in the state dir ([`Gate`]), so every process that flips or
 /// restarts the services sees it: this service's updater, the operator's
 /// `cmux host update check` and the guard. False when a restart of the
 /// service is pending: the caller's link would be cut, so a bind leaves
 /// `bind.json` for the restarted service, which clears the mark at its start.
-pub(crate) fn hold_connects(paths: &Paths) -> bool {
-    super::gate::hold_connects(paths, wall_ms())
+pub(crate) fn hold_connects(paths: &Paths, kind: HoldKind) -> bool {
+    super::gate::hold_connects(paths, wall_ms(), kind)
 }
 
 /// What the flip answers when the connect hold is on: a bind or resume that
@@ -136,7 +138,7 @@ fn hold_after_restore(paths: &Paths) {
         let now = crate::linux::realtime_minus_boottime_ns();
         let mut last = CLOCK_OFFSET.lock().unwrap_or_else(|e| e.into_inner());
         if restore_look(&mut last, now) {
-            hold_connects(paths);
+            hold_connects(paths, HoldKind::Resume);
             log("a snapshot restore: no flip during the connect hold");
         }
     }
@@ -223,7 +225,7 @@ impl Role for UpdaterRole {
         if !self.paths.at(store::CURRENT_LINK).exists() {
             return Ok(());
         }
-        hold_connects(&self.paths);
+        hold_connects(&self.paths, HoldKind::Resume);
         hold_after_restore(&self.paths);
         let (tx, rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel::<()>();
@@ -248,8 +250,15 @@ impl Role for UpdaterRole {
     fn on_event(&mut self, event: &HostEvent) -> Result<(), RoleError> {
         match event {
             HostEvent::Resumed | HostEvent::Bound { .. } | HostEvent::ChannelChanged => {
-                if !matches!(event, HostEvent::ChannelChanged) {
-                    hold_connects(&self.paths);
+                // A resume is the machine's own wake; `Bound` is a person's machine.
+                match event {
+                    HostEvent::Resumed => {
+                        hold_connects(&self.paths, HoldKind::Resume);
+                    }
+                    HostEvent::Bound { .. } => {
+                        hold_connects(&self.paths, HoldKind::Connect);
+                    }
+                    _ => {}
                 }
                 if let Some(worker) = &self.worker {
                     let _ = worker.tx.send(Msg::Check);
@@ -291,7 +300,7 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
             }
             continue;
         }
-        let outcome = check(paths);
+        let (outcome, _) = check(paths, Honor::All);
         let next = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
         if !wait(rx, next) {
             return;
@@ -325,7 +334,9 @@ impl Outcome {
         }
     }
 
-    fn json(&self) -> Value {
+    /// The operator verb's answer; `skipped_hold` names the hold the check
+    /// went past (`--skip-resume-hold`), so the Scaler can count them.
+    pub(super) fn json(&self, skipped_hold: Option<HoldKind>) -> Value {
         let state = match self {
             Outcome::Off(_) => "off",
             Outcome::Current(_) => "current",
@@ -335,7 +346,11 @@ impl Outcome {
             Outcome::Updating(_) => "updating",
             Outcome::Failed(_) => "failed",
         };
-        json!({"state": state, "detail": self.line()})
+        let mut v = json!({"state": state, "detail": self.line()});
+        if let Some(kind) = skipped_hold {
+            v["skipped_hold"] = json!(kind.name());
+        }
+        v
     }
 }
 
@@ -363,24 +378,31 @@ impl Lock {
     }
 }
 
-/// One check; on an update this ends with `cmux-host.service` restarting.
-pub fn check(paths: &Paths) -> Outcome {
+/// One check, honoring the holds `honor` names; on an update this ends with
+/// `cmux-host.service` restarting. With the outcome, the hold the flip went
+/// past, if it went past one.
+pub fn check(paths: &Paths, honor: Honor) -> (Outcome, Option<HoldKind>) {
     let Some(_lock) = Lock::take(paths, false) else {
-        return Outcome::Failed("another update check runs".to_owned());
+        return (Outcome::Failed("another update check runs".to_owned()), None);
     };
-    let outcome = check_inner(paths);
+    let mut skipped = None;
+    let outcome = check_inner(paths, honor, &mut skipped);
     let mut state = load_state(paths);
     let line = outcome.line();
     if state.last.as_deref() != Some(line.as_str()) {
         log(&line);
     }
+    if let Some(kind) = skipped {
+        log(&format!("went past a {} hold (--skip-resume-hold): {line}", kind.name()));
+    }
     state.last = Some(line);
     state.last_at = now();
     let _ = save_state(paths, &state);
-    outcome
+    (outcome, skipped)
 }
 
-fn check_inner(paths: &Paths) -> Outcome {
+/// [`check`]'s work; `skipped` gets the hold the flip's gate went past.
+fn check_inner(paths: &Paths, honor: Honor, skipped: &mut Option<HoldKind>) -> Outcome {
     if let Some(why) = off_reason(paths) {
         return Outcome::Off(why);
     }
@@ -432,10 +454,11 @@ fn check_inner(paths: &Paths) -> Outcome {
     }
     // Everything is staged: the last look is right before the flip and the
     // restarts, so a turn can only start in the milliseconds between them,
-    // and acpmux's restart keeps and adopts even that one's agent.
+    // and acpmux's restart keeps and adopts even that one's agent. The
+    // carrier sessions' last look is inside the gate ([`flip_in_gate`]).
     let last = match off_reason(paths) {
         Some(why) => Some(Outcome::Off(why)),
-        None => match busy_sessions(paths) {
+        None => match acpmux_busy_sessions() {
             Ok(busy) if busy.is_empty() => None,
             Ok(busy) => Some(Outcome::Busy(busy)),
             Err(e) => Some(Outcome::Busy(vec![e])),
@@ -451,10 +474,11 @@ fn check_inner(paths: &Paths) -> Outcome {
         clear_pending(paths);
         return outcome;
     }
-    // The connect hold's last look, the flip and the queued restarts run
-    // inside the gate (`Gate::run`, shared with every process): a bind or a new session that
-    // takes the hold before the restart is seen here, and one after waits.
-    let flipped = Gate::new(paths).run(wall_ms(), true, |queued| {
+    // The connect hold's last look, the carrier sessions' last look, the flip
+    // and the queued restarts run inside the gate (`Gate::run`, shared with
+    // every process): a bind or a new session that takes the hold before the
+    // restart is seen here, and one after waits.
+    let (flipped, went_past) = flip_in_gate(paths, wall_ms(), honor, carrier_sessions, |inside| {
         store::flip(paths, plan.to)?;
         log(&format!(
             "profile {} -> {}: cmux-tui {} ({}); restarting the services",
@@ -463,24 +487,72 @@ fn check_inner(paths: &Paths) -> Outcome {
             short_hex(&plan.cmux_tui.sha256),
             short_hex(&plan.commit)
         ));
-        queued();
+        inside.restart_queued();
         restart_after_flip(&store_binary(&plan.old_cmux_tui));
         Ok::<(), std::io::Error>(())
     });
     drop(commit);
-    match flipped {
-        Ok(Ok(())) => Outcome::Updating(plan.commit),
-        Err(left) => {
-            disarm_guard();
-            clear_pending(paths);
-            connect_hold_busy(left)
-        }
-        Ok(Err(e)) => {
-            disarm_guard();
-            clear_pending(paths);
-            Outcome::Failed(format!("flipping to profile {}: {e}", plan.to))
-        }
+    *skipped = went_past;
+    if !matches!(flipped, Gated::Flipped) {
+        disarm_guard();
+        clear_pending(paths);
     }
+    match flipped {
+        Gated::Flipped => Outcome::Updating(plan.commit),
+        Gated::Held(left) => connect_hold_busy(left),
+        Gated::Busy(why) => Outcome::Busy(vec![why]),
+        Gated::Off(why) => Outcome::Off(why),
+        Gated::Failed(e) => Outcome::Failed(format!("flipping to profile {}: {e}", plan.to)),
+    }
+}
+
+/// What the flip's step inside the gate did.
+#[derive(Debug)]
+pub(super) enum Gated<E> {
+    Flipped,
+    /// A hold the check honors is on (also one a new carrier session just took).
+    Held(Duration),
+    /// Attached carrier sessions hold the update.
+    Busy(String),
+    /// [`super::OFF_FILE`] appeared.
+    Off(String),
+    Failed(E),
+}
+
+/// The flip's last step, inside the gate (its flock held, [`Gate::run`]): the
+/// holds `honor` honors, [`super::OFF_FILE`], then a live look at the
+/// carrier sessions (`carrier`), then `flip` (the flip and its restarts; it calls
+/// `restart_queued` between them). The carrier look is under the flock, so a
+/// session that attached after the hold was read is seen here, and a new one
+/// takes its connect hold under the same flock and stops this flip. With the
+/// hold the run went past (`--skip-resume-hold`), if any.
+pub(super) fn flip_in_gate<E>(
+    paths: &Paths,
+    now_ms: u64,
+    honor: Honor,
+    carrier: impl FnOnce() -> Result<Vec<String>, String>,
+    flip: impl FnOnce(&super::gate::Inside) -> Result<(), E>,
+) -> (Gated<E>, Option<HoldKind>) {
+    let ran = Gate::new(paths).run(now_ms, honor, |inside| {
+        if paths.at(super::OFF_FILE).exists() {
+            return (Gated::Off(format!("{} exists", super::OFF_FILE)), inside.skipped());
+        }
+        let new_session = Cell::new(false);
+        let busy = carrier_look(carrier(), || {
+            inside.hold_connects();
+            new_session.set(true);
+        });
+        let gated = match busy {
+            Some(why) => Gated::Busy(why),
+            None if new_session.get() => Gated::Held(super::gate::CONNECT_HOLD),
+            None => match flip(inside) {
+                Ok(()) => Gated::Flipped,
+                Err(e) => Gated::Failed(e),
+            },
+        };
+        (gated, inside.skipped())
+    });
+    ran.unwrap_or_else(|left| (Gated::Held(left), None))
 }
 
 /// The first 12 characters of a hash for a log line; a shorter or non-ASCII text is logged whole, never sliced
@@ -639,12 +711,21 @@ pub(super) fn carrier_busy_from(
     paths: &Paths,
     sessions: Result<Vec<String>, String>,
 ) -> Option<String> {
+    carrier_look(sessions, || {
+        hold_connects(paths, HoldKind::Connect);
+    })
+}
+
+/// One look at the carrier sessions through the hold between looks
+/// ([`CARRIER`]); a new session calls `start_hold`.
+fn carrier_look(
+    sessions: Result<Vec<String>, String>,
+    start_hold: impl FnOnce(),
+) -> Option<String> {
     let mut hold = CARRIER.lock().unwrap_or_else(|e| e.into_inner());
     let look = hold.get_or_insert_with(CarrierHold::default).look(Instant::now(), sessions);
     drop(hold);
-    act_on_look(look, || {
-        hold_connects(paths);
-    })
+    act_on_look(look, start_hold)
 }
 
 /// What one carrier look does: a new session starts the connect hold
@@ -876,7 +957,7 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
     log(&format!("rolling {} back to profile {}: {why}", pending.commit, pending.from));
     // The flip back and its restarts go through the gate, so no bind goes out
     // between them; the hold does not stop a rollback.
-    let _ = Gate::new(paths).run(wall_ms(), false, |queued| {
+    let _ = Gate::new(paths).run(wall_ms(), Honor::Nothing, |inside| {
         if let Err(e) = store::flip(paths, pending.from) {
             log(&format!("flipping back to profile {}: {e}", pending.from));
             return;
@@ -890,7 +971,7 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) {
         if in_host {
             disarm_guard();
         }
-        queued();
+        inside.restart_queued();
         restart_after_flip(&store_binary(&pending.cmux_tui));
     });
 }
@@ -998,7 +1079,10 @@ fn services_running(binary: &Path) -> Vec<String> {
     units
 }
 
-/// `cmux host update status [--json] | check | guard --to N`.
+/// `cmux host update status [--json] | check [--skip-resume-hold] | guard --to N`.
+/// `--skip-resume-hold` is for the Scaler's refresh of a spare it just
+/// warmed: the resume it made holds no person's link, and every other hold
+/// still holds the flip ([`Honor::AllButResume`]).
 pub fn verb(args: &[String]) -> u8 {
     let paths = Paths::new("/");
     match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
@@ -1017,9 +1101,10 @@ pub fn verb(args: &[String]) -> u8 {
             println!("{value}");
             0
         }
-        ["check"] => {
-            let outcome = check(&paths);
-            println!("{}", outcome.json());
+        ["check"] | ["check", "--skip-resume-hold"] => {
+            let honor = if args.len() > 1 { Honor::AllButResume } else { Honor::All };
+            let (outcome, skipped) = check(&paths, honor);
+            println!("{}", outcome.json(skipped));
             if matches!(outcome, Outcome::Failed(_)) { 1 } else { 0 }
         }
         ["guard", "--to", to] => {
@@ -1039,7 +1124,9 @@ pub fn verb(args: &[String]) -> u8 {
             0
         }
         _ => {
-            eprintln!("usage: cmux host update status [--json] | check | guard --to GENERATION");
+            eprintln!(
+                "usage: cmux host update status [--json] | check [--skip-resume-hold] | guard --to GENERATION"
+            );
             2
         }
     }
