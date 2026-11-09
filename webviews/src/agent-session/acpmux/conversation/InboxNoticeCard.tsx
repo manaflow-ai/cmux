@@ -47,7 +47,7 @@ import {
   type InboxThread,
 } from "./inboxNotice";
 import { foldsThreads, useInboxNoticeLook } from "./inboxNoticeLook";
-import { newestWholeKey, readForIds, setThreadRead, THREAD_PAGE, threadRead } from "./inboxThreadRead";
+import { fitsLine, newestWholeKey, readForIds, setThreadRead, THREAD_PAGE, threadRead } from "./inboxThreadRead";
 import { useInboxThreadLook } from "./inboxThreadLook";
 import { Markdown } from "./Markdown";
 import { inboxHover } from "./MessageGroupHover";
@@ -292,7 +292,11 @@ function InboxThreadLine({
   // Where the newest message says it came from (`sender_claim`), under it as under an opened one.
   const newestPrompt = newest?.promptId ?? (thread.promptIds.length === 1 ? thread.promptIds[0] : undefined);
   const newestFrom = newestPrompt ? thread.sentFrom?.[newestPrompt] : undefined;
-  const preview = thread.preview || (newest ? messagePreview(newest.text) : "");
+  // A short one-line message, known whole, reads on the line as another agent's received line
+  // does, and the line keeps the one-line rows' pitch; anything longer reads in the card under it.
+  const known = newest?.text ?? thread.newest;
+  const onLine = fitsLine(known);
+  const preview = onLine ? known.trim() : thread.preview || (newest ? messagePreview(newest.text) : "");
   // The one message row (AgentMessageRow.tsx), as a received message draws: the sender's name after
   // its family's mark, the thread's label and "+N more" after the name. Shut, the card under it holds
   // the newest message (Leo, 2026-11-07: "why can't I see the full excerpt of its message?"); "+N
@@ -333,7 +337,9 @@ function InboxThreadLine({
       open={open}
       onToggle={() => show(!open)}
       actions={actions}
+      keepsPreviewOpen={onLine}
       peek={
+        onLine ? undefined : (
         <>
           <CardCopy text={newestText} />
           <ClampedText
@@ -350,6 +356,7 @@ function InboxThreadLine({
           </ClampedText>
           {newestFrom && <SentFromLine from={newestFrom} />}
         </>
+        )
       }
       body={
         <>

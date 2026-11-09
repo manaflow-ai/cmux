@@ -19,7 +19,6 @@
   font: inherit;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
-  cursor: pointer;
 }
 .cv-inbox__more:is(:hover, :focus-visible, [aria-expanded="true"]) {
   color: var(--cv-text);
@@ -95,7 +94,6 @@
   border-radius: 4px;
   background: none;
   color: var(--cv-text-muted);
-  cursor: pointer;
 }
 .cv-inbox__back:hover {
   background: var(--ds-color-hover);
@@ -129,7 +127,6 @@
   color: var(--cv-text);
   font: inherit;
   text-align: start;
-  cursor: pointer;
 }
 .cv-inbox__row:hover {
   background: var(--ds-color-hover);

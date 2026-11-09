@@ -4,6 +4,7 @@
 // read at once, with no second read and no first line growing into the whole message again, and
 // the row estimator (model.ts) measures the same text the line draws. Bounded: the oldest reads go
 // first past `KEEP`.
+import { plainLine } from "./agentMessageRowModel";
 import type { InboxMessage } from "./inboxNotice";
 
 /// An opened thread draws its newest messages this many at a time, and "Show earlier messages" the
@@ -48,4 +49,17 @@ export function setThreadRead(
 /// Forgets every read (tests).
 export function resetThreadReads(): void {
   reads.clear();
+}
+
+/// The longest newest message a shut line holds on itself.
+const ON_LINE_CHARS = 60;
+
+/// Whether a shut line's newest message, known whole, reads on the line itself, as another
+/// agent's short received line does: one plain line of at most `ON_LINE_CHARS`. The line then keeps
+/// the one-line rows' pitch (Leo, 2026-11-01: "doesn't make sense for these to be spaced
+/// differently"); anything longer reads in the card under it. The row estimator (model.ts) asks
+/// the same, so the row is measured as it draws.
+export function fitsLine(whole: string | undefined): whole is string {
+  const text = whole?.trim();
+  return Boolean(text) && !text!.includes("\n") && text!.length <= ON_LINE_CHARS && plainLine(text!) === text;
 }

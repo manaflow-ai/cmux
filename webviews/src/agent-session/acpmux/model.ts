@@ -1727,7 +1727,10 @@ function inboxThreadCard(
   messages: readonly { text: string }[] | undefined,
   preview: string,
   width: number,
+  newest?: string,
 ): number {
+  // A short one-line newest message reads on the line, with no card (inboxThreadRead.ts `fitsLine`).
+  if (!messageOpened(sessionId, key) && fitsLine(messages?.at(-1)?.text ?? newest)) return messagePreviewLine(true);
   const { lineHeight } = metrics();
   if (receivedPrepared.size > 256) receivedPrepared.clear();
   const measure = (text: string) => (text ? textHeight(text, Math.max(80, width - 44), receivedPrepared) : lineHeight);
@@ -2664,7 +2667,7 @@ function measuredRowHeight(
     // Its card is always under it, shut or open (inboxThreadCard).
     if (row.inboxThread) {
       const read = threadRead(sessionId, openKey, readForIds(row.inboxThread.promptIds)) ?? undefined;
-      return finish(line + inboxThreadCard(sessionId, openKey, read, row.incoming.message.text, width));
+      return finish(line + inboxThreadCard(sessionId, openKey, read, row.incoming.message.text, width, row.inboxThread.newest));
     }
     const message = row.incoming.message;
     // The `card` look's message row (conversation/receivedLook.ts; not a tool's notice or a lane's
@@ -2699,7 +2702,7 @@ function measuredRowHeight(
       const messages = thread.messages?.length
         ? thread.messages
         : (threadRead(sessionId, key, readForIds(thread.promptIds)) ?? undefined);
-      height += line + inboxThreadCard(sessionId, key, messages, thread.preview, width - (grouped ? 24 : 0));
+      height += line + inboxThreadCard(sessionId, key, messages, thread.preview, width - (grouped ? 24 : 0), thread.newest);
     }
     return finish(height + LINE_FRAME);
   }
@@ -3439,7 +3442,7 @@ import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
-import { newestWholeKey, readForIds, THREAD_PAGE, threadRead } from "./conversation/inboxThreadRead";
+import { fitsLine, newestWholeKey, readForIds, THREAD_PAGE, threadRead } from "./conversation/inboxThreadRead";
 import { inboxThreadLook } from "./conversation/inboxThreadLook";
 import { CLAMP_MORE_HEIGHT, CLAMPED_LINES } from "./conversation/lineCut";
 import { laneNotice } from "./conversation/laneReport";

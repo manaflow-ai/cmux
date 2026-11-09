@@ -167,6 +167,48 @@ test('"+N more" opens every message in place, oldest first, each with sender and
   expect(container.querySelector(".cv-inbox__newest")?.textContent).toContain("Merged as #2231.");
 });
 
+test("shut, a short one-line newest message reads on the line, with no card, and measures as one line", async () => {
+  const { layoutConversation } = await import("../src/agent-session/acpmux/model");
+  const notice = (newest: string): InboxNotice => ({
+    threads: [
+      {
+        threadId: "pr:31",
+        label: "#31",
+        from: ["lane-a"],
+        count: 1,
+        preview: newest.split("\n")[0]!,
+        newest,
+        blocker: false,
+        promptIds: ["s1"],
+      },
+    ],
+  });
+  const container = await render(
+    <InboxNoticeCard rowId="row-short" notice={notice("Ready for review.")} onOpen={() => undefined} />,
+  );
+  expect(container.querySelector(".cv-agentmsg__preview")?.textContent).toBe("Ready for review.");
+  expect(container.querySelector(".cv-inbox__newest")).toBeNull();
+  // Two lines, or Markdown, read in the card under the line.
+  const longer = await render(
+    <InboxNoticeCard rowId="row-two" notice={notice("Ready for review.\n\nSHIP at abc.")} onOpen={() => undefined} />,
+  );
+  expect(longer.querySelector(".cv-inbox__newest")?.textContent).toContain("SHIP at abc.");
+  // The estimator measures the short one as a one-line row and the other with its card.
+  const row = (id: string, newest: string): AcpmuxRow => ({
+    id,
+    version: 1,
+    at: 1,
+    kind: "user",
+    text: newest,
+    untyped: true,
+    incoming: { kind: "inbox", notice: notice(newest) },
+  } as AcpmuxRow);
+  const height = (r: AcpmuxRow) => layoutConversation([r], 720, new Map()).heights[0]!;
+  expect(height(row("est-one", "Ready for review."))).toBeLessThan(
+    height(row("est-two", "Ready for review.\n\nSHIP at abc.")),
+  );
+});
+
 test("a click on the line opens the whole thread too", async () => {
   const container = await render(
     <InboxNoticeCard rowId="row-line" notice={threadOf("topic:rail-line", RAIL)} onOpen={() => undefined} />,

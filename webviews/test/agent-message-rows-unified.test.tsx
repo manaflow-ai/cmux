@@ -251,7 +251,9 @@ test("a thread with no messages and no preview reads them from acpmux before it 
   );
   await act(async () => undefined);
   expect(reads).toEqual(["pr:9"]);
-  expect(container.querySelector(".cv-inbox__newest")?.textContent).toBe("The whole message.");
+  // One short line, read whole: on the line, as a received line reads (inboxThreadRead.ts `fitsLine`).
+  expect(container.querySelector(".cv-agentmsg__preview")?.textContent).toBe("The whole message.");
+  expect(container.querySelector(".cv-inbox__newest")).toBeNull();
   await openAll(container);
   expect(container.querySelector(".cv-received__text")?.textContent).toBe("The whole message.");
 });
