@@ -14,6 +14,15 @@ export function supportsBtwInline(capabilities: ReadonlySet<string> | undefined)
   return capabilities?.has(BTW_INLINE) === true;
 }
 
+/** The daemon capability for a read-only guest from another harness (`targetHarness`). */
+export const BTW_GUEST = "btw-guest-v1";
+
+/** Whether this daemon answers a guest from another harness inline. An older one would ask the
+ *  chat's own harness instead, or refuse `inline`, so the pane offers no guest there. */
+export function supportsBtwGuest(capabilities: ReadonlySet<string> | undefined): boolean {
+  return supportsBtwInline(capabilities) && capabilities?.has(BTW_GUEST) === true;
+}
+
 interface BtwClient {
   capabilities: ReadonlySet<string> | undefined;
   readonly selectedSession: string | undefined;
@@ -22,7 +31,7 @@ interface BtwClient {
   /// A Cloud chat's own inline answer on its machine (`agent-session-btw`), when its wire names
   /// `btw_inline`: the app host's `chat.btw.inline` reaches only this Mac's acpmux.
   readonly answersBtwInline?: boolean;
-  btwInline?(question: string, sessionId: string): Promise<string>;
+  btwInlineHere?(question: string, sessionId: string): Promise<string>;
   routeTrustRefusal?(refusal: TrustRefusal, again?: () => void): boolean;
 }
 
@@ -44,8 +53,8 @@ export async function askBtwQuestion(
   if (!current()) throw new Error(actions.staleMessage());
   try {
     // A Cloud chat: its machine answers inline. No legacy side session: none opens beside it here.
-    if (client.answersBtwInline && client.btwInline) {
-      const answer = await client.btwInline(question, sessionId);
+    if (client.answersBtwInline && client.btwInlineHere) {
+      const answer = await client.btwInlineHere(question, sessionId);
       if (!current()) throw new Error(actions.staleMessage());
       return answer;
     }

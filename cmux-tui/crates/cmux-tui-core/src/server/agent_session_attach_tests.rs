@@ -170,6 +170,8 @@ pub(super) struct Fixture {
     /// most [`WAIT`], or until its sender is gone).
     pub(super) events_gate: Option<Arc<Mutex<Receiver<()>>>>,
     pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    /// When set, each prompt's acceptance comes this long after the prompt (a cold chat's).
+    pub(super) accept_after: Option<Duration>,
     /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
     pub(super) phone: Option<PhoneFloor>,
 }
@@ -343,6 +345,8 @@ fn serve(
                 })
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
+            // The media reader (agent_session_media_tests.rs): one video, [`FAKE_VIDEO`].
+            "_acpmux/media_open" | "_acpmux/media_range" => Some(media_reply(&frame)),
             // A fork through turn 7 makes a copy acpmux then refuses to tag (side chat tests).
             "acp.session.fork" => Some(json!({"sessionId":
                 if params["throughSeq"] == json!(7) { "acp_untaggable" } else { "acp_side_1" }})),
@@ -406,6 +410,9 @@ fn serve(
             "session/prompt" => {
                 if let Some(gate) = &fixture.prompt_gate {
                     let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
+                if let Some(delay) = fixture.accept_after {
+                    std::thread::sleep(delay);
                 }
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
                     "sessionId": params["sessionId"], "promptId": params["_meta"]["acpmux"]["promptId"],
@@ -602,7 +609,12 @@ impl Client {
 
     /// The answer to request `id`.
     pub(super) fn answer(&mut self, id: u64) -> Value {
-        let deadline = Instant::now() + WAIT;
+        self.answer_within(id, WAIT)
+    }
+
+    /// The answer to request `id`, waiting at most `timeout`.
+    pub(super) fn answer_within(&mut self, id: u64, timeout: Duration) -> Value {
+        let deadline = Instant::now() + timeout;
         loop {
             let line = self.read_line(deadline).expect("no response before the deadline");
             if line.get("event").is_some() {
@@ -726,6 +738,7 @@ include!("agent_session_observe_tests.rs");
 include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
 include!("agent_session_context_tests.rs");
+include!("agent_session_media_tests.rs");
 
 // MARK: Capability and trust
 
@@ -1068,6 +1081,26 @@ fn a_prompt_is_one_text_block_on_the_pinned_session() {
         assert_code(&client.request(frame), "agent_session.bad_request");
     }
     fake.no_frame();
+}
+
+#[test]
+fn a_prompt_acpmux_accepts_after_a_cold_start_is_sent_not_timed_out() {
+    // HQ run 42617701877's phone-start row: the first prompt of a chat started a moment before
+    // was accepted after more than 5 s, and the phone was told `agent_session.timeout`.
+    let late = Duration::from_secs(6);
+    assert!(late < agent_session_attach::PROMPT_ACCEPT_TIMEOUT);
+    let fixture = Fixture { accept_after: Some(late), ..Fixture::default() };
+    let fake = FakeAcpmux::start_with("prompt-late", fixture);
+    let mux = mux_with(&fake, "asa-prompt-late");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "prompt-late");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let id = client.send(json!({"cmd":"agent-session-prompt","surface":surface,
+                                "prompt_id":"prompt-late","text":"hello"}));
+    let reply = client.answer_within(id, late + WAIT);
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(reply["data"]["turn_id"], json!("turn_1"));
 }
 
 #[test]
@@ -1782,10 +1815,13 @@ fn a_side_chat_forks_the_pinned_session_tags_it_and_prompts_it() {
     fake.no_frame();
 }
 
-/// A phone on the Cloud carrier keeps its asking policy in a side chat, as in the chat itself
-/// (`agent-session-prompt`): the daemon marks the side chat's first prompt `via: cloud-mobile`.
+/// A phone on the Cloud carrier never gets a side chat with a looser asking policy than its chat:
+/// its channel reaches only hostd's adapter commands (`phone_carrier.rs`, cmux-next-ios/SECURITY.md),
+/// and `agent-session-side` is not one of them (a side chat is a fork, which that channel is
+/// refused). The side chat is refused `remote_denied` and nothing reaches acpmux. Should a phone's
+/// side chat be allowed later, `submit_prompt` already marks its first prompt `via: cloud-mobile`.
 #[test]
-fn a_phones_side_chat_prompt_keeps_the_phones_asking_policy() {
+fn a_phones_side_chat_is_refused_on_its_carrier_channel() {
     let fake = FakeAcpmux::start("side-phone");
     let mux = mux_with(&fake, "asa-side-phone");
     let surface = agent_tab(&mux, Some(SESSION));
@@ -1798,14 +1834,6 @@ fn a_phones_side_chat_prompt_keeps_the_phones_asking_policy() {
     let _ = fake.frame();
     let reply = client.request(json!({"cmd":"agent-session-side","surface":surface,"live":true,
                                       "prompt":"Try it in Rust","prompt_id":"side-p2"}));
-    assert_eq!(reply["data"], json!({"sessionId": "acp_side_1", "prompted": true}), "{reply}");
-    let _ = fake.frame();
-    let _ = fake.frame();
-    let prompt = fake.frame();
-    assert_eq!(prompt["method"], json!("session/prompt"));
-    assert_eq!(prompt["params"]["sessionId"], json!("acp_side_1"));
-    assert_eq!(
-        prompt["params"]["_meta"],
-        json!({"acpmux": {"promptId": "side-p2", "via": "cloud-mobile"}})
-    );
+    assert_code(&reply, "remote_denied");
+    fake.no_frame();
 }
