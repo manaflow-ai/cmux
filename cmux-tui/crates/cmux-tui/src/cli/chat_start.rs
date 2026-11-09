@@ -164,6 +164,9 @@ pub(super) struct Start {
     pub timeout: Option<String>,
 }
 
+// Parsed once per `cmux chat` run and matched at once: the size of `Run` costs nothing, and a
+// box would only add an allocation.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Parsed {
     Help,
