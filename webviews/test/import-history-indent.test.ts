@@ -5,7 +5,10 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-const css = readFileSync(new URL("../src/pages/import-history/styles.css", import.meta.url), "utf8");
+const css = readFileSync(new URL("../src/pages/import-history/styles.css", import.meta.url), "utf8").replace(
+  /\/\*[\s\S]*?\*\//g,
+  "",
+);
 
 /** The `margin-inline-start` of the first top-level rule whose selector list names `selector`. */
 function inlineStart(selector: string): string | undefined {
