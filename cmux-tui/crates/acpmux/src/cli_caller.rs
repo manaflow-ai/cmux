@@ -386,6 +386,50 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// Review of #39613: a wrapper already in place (an older build wrote it, or the folder was
+    /// opened later) does not skip the folder check: a `bin` folder another user can write is
+    /// refused even when the script there holds the same text.
+    #[cfg(unix)]
+    #[test]
+    fn w5s_an_existing_wrapper_in_a_folder_others_can_write_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("w5s-wrapper-reopen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let path = wrapper_path(&home);
+        let script = "#!/bin/sh\nexec '/a/cmux' 'acp' \"$@\"\n";
+        install_wrapper(&path, script).unwrap();
+        let bin = path.parent().unwrap();
+        std::fs::set_permissions(bin, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let again = install_wrapper(&path, script);
+        std::fs::set_permissions(bin, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let _ = std::fs::remove_dir_all(&home);
+        assert!(again.is_err(), "the same wrapper was accepted in a world-writable folder");
+    }
+
+    /// Review of #39613: a new daemon may get the pid of a dead writer whose temporary file is
+    /// still there (`.acpmux.<pid>.<n>.tmp`, the pid now its own, so it is not removed as dead):
+    /// its write still succeeds.
+    #[cfg(unix)]
+    #[test]
+    fn w5s_a_leftover_temporary_with_this_processs_pid_does_not_block_the_write() {
+        let home = std::env::temp_dir().join(format!("w5s-wrapper-reuse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let path = wrapper_path(&home);
+        install_wrapper(&path, "#!/bin/sh\nexec '/a/cmux' 'acp' \"$@\"\n").unwrap();
+        let bin = path.parent().unwrap();
+        // A dead writer had this process's pid: every name this process's next writes could
+        // take (the tests of this binary write a few wrappers between them).
+        for n in 0..256 {
+            let name = format!(".{CLI_ALIAS}.{}.{n}.tmp", std::process::id());
+            std::fs::write(bin.join(name), "half").unwrap();
+        }
+        let written = install_wrapper(&path, "#!/bin/sh\nexec '/b/cmux' 'acp' \"$@\"\n");
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&home);
+        assert!(written.is_ok(), "a leftover temporary file blocked the write: {written:?}");
+        assert!(text.contains("/b/cmux"), "the wrapper was not written: {text}");
+    }
+
     /// F2 of #39020: `ACPMUX_BIN` is run from an agent's own working folder, so the wrapper's
     /// path is absolute even when the acpmux home is named relative to the daemon's.
     #[test]
