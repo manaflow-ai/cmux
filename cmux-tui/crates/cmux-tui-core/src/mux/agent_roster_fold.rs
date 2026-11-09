@@ -426,7 +426,16 @@ impl Mux {
                 let reader = fold.reader(&self.journal_kernel);
                 let journal = BackgroundRosterJournal { mux: self, reader };
                 let slice = Instant::now() + agent_roster_restore::BACKGROUND_SLICE;
-                match replay.fold(&journal, &mut &self.agent_roster, Some(slice)) {
+                #[cfg(test)]
+                let injected = rebuild_faults::take_failing_replay_read(&self.session);
+                #[cfg(not(test))]
+                let injected = false;
+                let progress = if injected {
+                    Err(anyhow::anyhow!("an injected replay read failure"))
+                } else {
+                    replay.fold(&journal, &mut &self.agent_roster, Some(slice))
+                };
+                match progress {
                     Ok(agent_roster_restore::ReplayProgress::Paused) => {
                         drop(slot);
                         drop(fold);

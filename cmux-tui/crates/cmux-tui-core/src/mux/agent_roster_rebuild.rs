@@ -290,6 +290,7 @@ pub(in crate::mux) mod rebuild_faults {
     struct Faults {
         held: bool,
         failing_reads: u32,
+        failing_replay_reads: u32,
     }
 
     static FAULTS: Mutex<BTreeMap<String, Faults>> = Mutex::new(BTreeMap::new());
@@ -309,6 +310,19 @@ pub(in crate::mux) mod rebuild_faults {
 
     pub(super) fn held(session: &str) -> bool {
         with(session, |faults| faults.held)
+    }
+
+    /// The start's background replay fails its next `reads` slices.
+    pub(in crate::mux) fn fail_replay_reads(session: &str, reads: u32) {
+        with(session, |faults| faults.failing_replay_reads = reads);
+    }
+
+    pub(in crate::mux) fn take_failing_replay_read(session: &str) -> bool {
+        with(session, |faults| {
+            let failing = faults.failing_replay_reads > 0;
+            faults.failing_replay_reads = faults.failing_replay_reads.saturating_sub(1);
+            failing
+        })
     }
 
     pub(super) fn take_failing_read(session: &str) -> bool {

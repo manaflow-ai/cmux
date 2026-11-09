@@ -426,8 +426,20 @@ pub(crate) fn sealed_registry_of(
     per_segment: u64,
     output_bytes: usize,
 ) -> (WorkspaceRegistry, Vec<u64>) {
-    use std::io::Write as _;
     let registry = WorkspaceRegistry::in_memory("journal-output-heavy").unwrap();
+    let expected = fill_sealed_registry(&registry, segments, per_segment, output_bytes);
+    (registry, expected)
+}
+
+/// Replaces `registry`'s journal with [`sealed_registry_of`]'s segments;
+/// returns the non-output sequences.
+pub(crate) fn fill_sealed_registry(
+    registry: &WorkspaceRegistry,
+    segments: u64,
+    per_segment: u64,
+    output_bytes: usize,
+) -> Vec<u64> {
+    use std::io::Write as _;
     registry
         .connection
         .get()
@@ -529,7 +541,7 @@ pub(crate) fn sealed_registry_of(
             .unwrap();
         }
     }
-    (registry, expected)
+    expected
 }
 
 /// A kind backfill an older build stopped partway (marker `0`) resumes after
@@ -815,6 +827,54 @@ fn a_kind_read_over_many_sparse_sealed_segments_decodes_one_slice() {
     read_all(&registry, 2 * per_segment);
     kind_read::SEGMENT_DECODE_WORKERS.with(|workers| workers.set(None));
     BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
+}
+
+/// router-review on #39096 at b9e8947 (F1): the roster's background replay
+/// reads through the read-only reader, where the kind backfill cannot run.
+/// After a downgrade (this build's run recorded its progress, then an older
+/// build mapped the rest one kind at a time and stopped), a segment past
+/// that progress can have a kind map without its agent kind. The read
+/// trusted the map, skipped the segment, and the replay saved its cursor
+/// past those records for good. A map the backfill has not proven whole is
+/// not trusted: the segment is decoded, one per page.
+#[test]
+fn a_read_only_kind_read_decodes_a_segment_whose_map_is_not_proven_whole() {
+    let root = std::env::temp_dir().join(format!("cmux-kind-untrusted-{}", new_uuid_v4()));
+    let registry = WorkspaceRegistry::open(&root, "untrusted").unwrap();
+    let per_segment = 12_u64;
+    let expected = fill_sealed_registry(&registry, 4, per_segment, 64);
+    let head = registry.session_journal_head().unwrap();
+    // This build's run finished the first segment; an older build then
+    // mapped the second without its agent kind and stopped.
+    registry
+        .connection
+        .get()
+        .execute_batch(&format!(
+            "DELETE FROM journal_segment_kinds
+               WHERE segment_id = 'segment_13_24' AND kind = 'agent.test.noop';
+             DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';
+             INSERT INTO meta(key, value) VALUES
+               ('journal_segment_kinds_backfill', '2'),
+               ('journal_segment_kinds_backfill_through', '1'),
+               ('journal_segment_kinds_backfill_end', '{}');",
+            3 * per_segment + 1
+        ))
+        .unwrap();
+    let reader =
+        SessionJournalReader::open(&registry.session_journal_database_path().unwrap()).unwrap();
+    let kinds: kind_read::JournalKinds = |kind| kind == "agent.test.noop";
+    let mut cursor = 0;
+    let mut seen = Vec::new();
+    while cursor < head {
+        let (records, reached) = reader.kinds_after(cursor, head, kinds, 512).unwrap();
+        assert!(reached > cursor, "each read makes progress");
+        seen.extend(records.iter().map(|record| record.sequence));
+        cursor = reached;
+    }
+    drop(reader);
+    drop(registry);
+    let _ = fs::remove_dir_all(&root);
+    assert_eq!(seen, expected, "the read-only read returns the partly mapped segment's records");
 }
 
 /// The same on a synthetic registry of a long-lived owner's shape

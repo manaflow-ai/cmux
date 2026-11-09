@@ -300,6 +300,47 @@ fn a_replay_the_start_budget_leaves_finishes_in_the_background() {
     let _ = std::fs::remove_dir_all(&store.root);
 }
 
+/// router-review on #39096 at b9e8947 (F2): a background replay slice whose
+/// read failed left the replay running with no pass scheduled, so the roster
+/// stayed behind (and `expect_agent` sends refused) until an unrelated
+/// request or tick woke the owner. It is now retried after a backoff, as the
+/// rebuild's reads are.
+#[test]
+fn a_replay_read_failure_is_retried_without_another_request() {
+    use crate::mux::agent_roster_fold::rebuild_faults;
+    use crate::mux::agent_roster_restore::STARTUP_BUDGET_FOR_TEST;
+    let session = "roster-replay-retry";
+    let store = sealed_roster_store(session);
+    let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
+    registry
+        .put_journal_reducer_state(
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+            0,
+            "",
+        )
+        .unwrap();
+    drop(registry);
+    rebuild_faults::fail_replay_reads(session, 1);
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(Some(Duration::ZERO)));
+    let reopened = open_persistent_test_mux(store.session, &store.root);
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(None));
+    reopened.stop_journal_maintenance();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while reopened.agent_roster_settling() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let settled = !reopened.agent_roster_settling();
+    rebuild_faults::fail_replay_reads(session, 0);
+    assert!(settled, "the replay stopped at its failed read");
+    for terminal_id in &store.terminals {
+        assert_eq!(roster_agent_state(&reopened, terminal_id).as_deref(), Some("idle"));
+    }
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(&store.root);
+}
+
 /// The start's roster cost stays flat as the journal grows: a replay from
 /// zero over 6 and over 60 output-heavy sealed segments (10x the output and
 /// the records). Prints the time with no budget (the whole replay on the
