@@ -159,7 +159,7 @@ import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { SinceJump } from "./conversation/SinceDivider";
 import { experimentArm } from "../../experiments/experiment";
-import { MOTION_MS } from "../../motion/scale.generated";
+import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
@@ -683,6 +683,8 @@ const SCROLL_LEAD_IDLE_MS = 120;
 
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
+/// How recent an empty chat's first prompt is when its transcript mounts for it to enter (above).
+const FIRST_SEND_FRESH_MS = 2000;
 
 /// Viewports from the top of the loaded rows within which a page of older history came late: the
 /// reader reached rows that were not loaded yet, so the page fades in. Pages ask well ahead
@@ -1867,7 +1869,22 @@ function TranscriptView({
   loadFade.current.phase(loading);
   // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
   // Keyed by frame (model.ts `rowFrameKey`): a row drawn in a frame already on screen is not new.
-  if (knownRows.current === null || sessionChanged) knownRows.current = new Set(rows.map(rowFrameKey));
+  if (knownRows.current === null || sessionChanged) {
+    const mounting = knownRows.current === null;
+    knownRows.current = new Set(rows.map(rowFrameKey));
+    // An empty chat draws no transcript: it mounts with the first prompt the reader just sent (and
+    // its thinking line), and those rows enter on the send's clock as every later prompt's do
+    // (conversation.css SEND-ENTRANCE). A transcript mounted again over an older chat does not.
+    if (
+      mounting &&
+      sends > 0 &&
+      coldOpen === undefined &&
+      rows.length <= LIVE_ROWS_PER_UPDATE &&
+      rows.some((row) => row.kind === "user" && Date.now() - row.at < FIRST_SEND_FRESH_MS) &&
+      entranceAllowed()
+    )
+      for (const row of rows) enteringRows.current.add(rowFrameKey(row));
+  }
   // Scroll frames render the same rows: only a new row list can bring new rows.
   else if (knownFor.current !== rows) {
     // Rows before the first one that changed were all there last time.
@@ -1887,10 +1904,14 @@ function TranscriptView({
     // view, so it fades in rather than popping. A cold open's first rows fade with the whole
     // transcript instead (fadeInOpenedChat), so they take no row fade on top of it.
     const loadArrival = loadFade.current.open && coldOpen === undefined;
+    // The running turn's live line keeps one id from turn to turn (turns.ts LIVE_THINKING): a line
+    // the last rows did not end with came now, with the prompt that opened it, so it enters on the
+    // send's clock with the prompt (conversation.css SEND-ENTRANCE). O(1): the last rows' tail only.
+    const liveBefore = previous.at(-1)?.below ? rowFrameKey(previous.at(-1)!) : undefined;
     for (let index = from; index < rows.length; index += 1) {
       const row = rows[index]!;
       const key = rowFrameKey(row);
-      if (knownRows.current.has(key)) continue;
+      if (knownRows.current.has(key) && !(row.below && index === rows.length - 1 && key !== liveBefore)) continue;
       if (index < oldFirst) {
         olderLate ??= readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
         if (olderLate) olderRows.current.add(row.id);
@@ -3979,7 +4000,7 @@ function TranscriptView({
     // (one viewport at most, its curve and duration) instead of cutting there in one frame, and the
     // prompt's row and reply land on the moving end. Reduce Motion and motion off still cut.
     if (!fromLatest && !reduce) {
-      rideToLatest(node, latest, false, false);
+      rideToLatest(node, latest, false, false, true);
       followRequest.current = userScrollIntent(node).request();
       follow(true, "send");
     } else {
@@ -4011,11 +4032,13 @@ function TranscriptView({
   /// Jump to latest's ride from where the view is to `target` (the latest row's end), following the
   /// end as it moves: the button's, and a send's while scrolled up. `flush` mounts a skipped middle's
   /// rows at once from an event handler; a layout effect's own update already renders before paint.
-  const rideToLatest = (node: HTMLDivElement, target: number, reduce: boolean, flush: boolean) => {
-    // Use the rail's shared curve and distance duration, scaled by the host's move token.
-    const move = cssTimeMs(
-      node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "",
-    );
+  const rideToLatest = (node: HTMLDivElement, target: number, reduce: boolean, flush: boolean, send = false) => {
+    // Use the rail's shared curve and distance duration, scaled by the host's move token. A send's
+    // ride is the send motion instead (`--agent-motion-send`, its settling curve): the clock the sent
+    // prompt's bubble and the thinking row come in on (conversation.css SEND-ENTRANCE).
+    const style = node.ownerDocument.defaultView?.getComputedStyle(node);
+    const move = cssTimeMs(style?.getPropertyValue("--agent-motion-move") ?? "");
+    const sendMs = send ? (cssTimeMs(style?.getPropertyValue("--agent-motion-send") ?? "") ?? MOTION_SEND_MS) : 0;
     jumpTarget.current = target;
     // A long way from the end: skip the middle at once and glide only the last viewport, so the rows
     // in between never mount (jumpGlideStart). Set after jumpTarget, so its scroll reads as a glide step.
@@ -4030,7 +4053,9 @@ function TranscriptView({
     }
     const duration = reduce
       ? 0
-      : jumpDuration(target - node.scrollTop) * ((move ?? MOTION_MS.standard) / MOTION_MS.standard);
+      : send
+        ? sendMs
+        : jumpDuration(target - node.scrollTop) * ((move ?? MOTION_MS.standard) / MOTION_MS.standard);
     animateScroll(
       node,
       () =>
@@ -4041,7 +4066,7 @@ function TranscriptView({
             : latestLayout.current.layout.totalHeight - node.clientHeight,
         ),
       duration,
-      JUMP_CURVE,
+      send ? MOTION_SEND_CURVE : JUMP_CURVE,
       () => {
         jumpTarget.current = undefined;
         // What streams on after the landing keeps the latest row over the bottom stack.
