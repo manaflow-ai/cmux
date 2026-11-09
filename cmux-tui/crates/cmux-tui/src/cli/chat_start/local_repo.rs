@@ -157,13 +157,14 @@ fn clone_into(url: &str, reference: Option<&str>, dir: &Path, claim: &Path) -> R
     let names: Vec<_> = entries.flatten().map(|entry| entry.file_name()).collect();
     let publish = |name: &OsStr, from: &Path| {
         let to = dir.join(name);
-        // Never over anything: the claim keeps other starts out, so a path that is there now is
-        // someone else's.
-        if std::fs::symlink_metadata(&to).is_ok() {
-            return Err(failed(dir, format!("{} appeared while cloning", to.display())));
-        }
-        std::fs::rename(from.join(name), &to).map_err(|err| {
-            failed(dir, format!("could not move {} into place: {err}", name.to_string_lossy()))
+        // Never over anything: the claim keeps only other starts out, so a path that is there
+        // now is someone else's, and the move refuses it in the same call (no check-then-move).
+        rename_no_replace(&from.join(name), &to).map_err(|err| {
+            if err.kind() == std::io::ErrorKind::AlreadyExists {
+                failed(dir, format!("{} appeared while cloning", to.display()))
+            } else {
+                failed(dir, format!("could not move {} into place: {err}", name.to_string_lossy()))
+            }
         })
     };
     let (last, first): (Vec<_>, Vec<_>) =
@@ -190,6 +191,42 @@ fn clone_into(url: &str, reference: Option<&str>, dir: &Path, claim: &Path) -> R
     // The claim (or the claim moved aside) holds only the emptied checkout now.
     let _ = std::fs::remove_dir_all(from.parent().unwrap_or(&from));
     Ok(())
+}
+
+/// `from` moved to `to` in one call that fails `AlreadyExists` when anything is at `to`, never
+/// replacing it (Linux `renameat2(RENAME_NOREPLACE)`, macOS `renamex_np(RENAME_EXCL)`).
+pub(super) fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        use std::os::unix::ffi::OsStrExt as _;
+        let c = |path: &Path| {
+            std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "a NUL in a path")
+            })
+        };
+        let (from, to) = (c(from)?, c(to)?);
+        #[cfg(target_os = "linux")]
+        // SAFETY: both are NUL-terminated paths that live past the call; renameat2 only reads them.
+        let code = unsafe {
+            libc::renameat2(
+                libc::AT_FDCWD,
+                from.as_ptr(),
+                libc::AT_FDCWD,
+                to.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        };
+        #[cfg(target_os = "macos")]
+        // SAFETY: both are NUL-terminated paths that live past the call; renamex_np only reads them.
+        let code = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) };
+        if code == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        // No no-replace rename here: a hard link refuses an existing path (files only).
+        std::fs::hard_link(from, to)?;
+        std::fs::remove_file(from)
+    }
 }
 
 /// Whether `dir` holds nothing but the claim.

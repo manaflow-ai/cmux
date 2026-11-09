@@ -203,3 +203,24 @@ fn a_clone_that_appears_while_claiming_is_reused_not_written_over() {
     assert_eq!(ensure(&url, None, &dir), Ok(Ready::Reused));
     assert_eq!(std::fs::read_to_string(dir.join("AGENTS.md")).unwrap(), "edited");
 }
+
+#[test]
+fn a_move_into_place_never_replaces_what_is_there() {
+    let root = tempfile::tempdir().unwrap();
+    let (from, to) = (root.path().join("from"), root.path().join("to"));
+    std::fs::write(&from, "clone").unwrap();
+    // What another process wrote at the destination between any check and the move stays.
+    std::fs::write(&to, "theirs").unwrap();
+    let err = super::rename_no_replace(&from, &to).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+    assert_eq!(std::fs::read_to_string(&to).unwrap(), "theirs");
+    assert!(from.is_file());
+    // A folder too, onto an empty folder (which a plain rename replaces).
+    let (dir_from, dir_to) = (root.path().join("dir-from"), root.path().join("dir-to"));
+    std::fs::create_dir(&dir_from).unwrap();
+    std::fs::create_dir(&dir_to).unwrap();
+    assert!(super::rename_no_replace(&dir_from, &dir_to).is_err());
+    std::fs::remove_dir(&dir_to).unwrap();
+    super::rename_no_replace(&dir_from, &dir_to).unwrap();
+    assert!(dir_to.is_dir() && !dir_from.exists());
+}
