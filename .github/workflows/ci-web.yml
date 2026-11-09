@@ -1264,20 +1264,25 @@ jobs:
 
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
+          # One call with every result (scripts/ci/needs_verdict.py): a broken route or subarea is a red, a job that judged
+          # nothing is no verdict, and a failure anywhere wins.
+          results = {}
           for route in ("web", "macos", "agent_session_web"):
               if inputs.get(route) not in {"true", "false"}:
-                  print(f"invalid route {route}={inputs.get(route)!r}", file=sys.stderr)
-                  sys.exit(1)
+                  results[route] = f"invalid route {route}={inputs.get(route)!r}"
 
           scope = needs["web-subarea-scope"]
           scope_required = inputs["web"] == "true" or inputs["macos"] == "true"
-          if scope_required:
-              exit_with_verdict({"web-subarea-scope": scope["result"]}, "Web status")
-              subareas = scope.get("outputs", {})
-              for name in ("db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests"):
+          subarea_names = ("db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests")
+          if scope_required and scope.get("outputs"):
+              subareas = scope["outputs"]
+              for name in subarea_names:
                   if subareas.get(name) not in {"true", "false"}:
-                      print(f"invalid web subarea {name}={subareas.get(name)!r}", file=sys.stderr)
-                      sys.exit(1)
+                      results[f"subarea {name}"] = f"invalid web subarea {name}={subareas.get(name)!r}"
+          elif scope_required:
+              # A scope that wrote no outputs (its result, in the call below, says why) names no job as required:
+              # each may skip, and its failure is still a red.
+              subareas = {name: "unknown" for name in subarea_names}
           else:
               subareas = {
                   "db": "false",
@@ -1299,8 +1304,8 @@ jobs:
               "diff-sidecar-check": scope_required and subareas["diff_sidecar"] == "true",
               "web-db-migrations": inputs["web"] == "true" and subareas["db"] == "true",
           }
-          exit_with_verdict({job: needs[job]["result"] for job in sorted(required)}, "Web status",
-                            {job for job, is_required in required.items() if not is_required})
+          results.update({job: needs[job]["result"] for job in sorted(required)})
+          exit_with_verdict(results, "Web status", {job for job, is_required in required.items() if not is_required})
           for job, is_required in sorted(required.items()):
               print(f"{job}: required={str(is_required).lower()} result={needs[job]['result']}")
           PY
