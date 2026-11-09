@@ -331,6 +331,26 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// F1 of #39020: the wrapper's folder is private state. A `bin` folder another user can
+    /// write (group or world writable) could swap the script every agent runs: it is refused,
+    /// and no wrapper is written there.
+    #[cfg(unix)]
+    #[test]
+    fn w5s_a_wrapper_folder_others_can_write_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("w5s-wrapper-open-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let path = wrapper_path(&home);
+        let bin = path.parent().unwrap();
+        std::fs::create_dir_all(bin).unwrap();
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(bin, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let written = install_wrapper(&path, "#!/bin/sh\nexec '/a/cmux' 'acp' \"$@\"\n");
+        assert!(written.is_err(), "a wrapper was written in a world-writable folder");
+        assert!(!path.exists(), "a wrapper was left in a world-writable folder");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     #[test]
     fn this_cli_declares_terminal_outside_a_session_and_agent_inside_one() {
         let mut mux = Map::new();
