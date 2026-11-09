@@ -323,10 +323,10 @@ pub(crate) fn decode_off_path(packet: &[u8]) -> Option<Vec<u64>> {
     if destination.port() != HELLO_PORT {
         return None;
     }
-    let (head, rest) = payload.split_at_checked(6)?;
-    let count = usize::from(head[5]);
-    if head[..4] != OFF_PATH_MAGIC
-        || head[4] != OFF_PATH_VERSION
+    let ([m0, m1, m2, m3, version, count], rest) = payload.split_first_chunk::<6>()?;
+    let count = usize::from(*count);
+    if [*m0, *m1, *m2, *m3] != OFF_PATH_MAGIC
+        || *version != OFF_PATH_VERSION
         || count == 0
         || count > OFF_PATH_MAX
         || rest.len() != 8 * count
