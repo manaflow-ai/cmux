@@ -10,13 +10,16 @@ use serde_json::{Map, Value, json};
 use super::*;
 
 /// Steps whose task ends as `outcome` (or, `None`, only at a cancel) and whose removals answer
-/// `removals` in turn (then `Gone`). Its scope is `team:team_1`, and every remove's is kept.
+/// `removals` in turn (then `Gone`). Its start scope is `start_scope` (`team:team_1` unless a test
+/// sets it), and every remove's scope is kept.
 struct Fake {
     outcome: Mutex<Option<Outcome>>,
     removals: Mutex<Vec<Removal>>,
     ran: Mutex<Vec<Task>>,
     removed: Mutex<Vec<(String, Option<String>)>>,
     scopes: Mutex<Vec<Option<String>>>,
+    /// What [`Steps::scope`] answers at the start.
+    start_scope: Mutex<Option<String>>,
     removes: AtomicUsize,
 }
 
@@ -28,6 +31,7 @@ impl Fake {
             ran: Mutex::new(Vec::new()),
             removed: Mutex::new(Vec::new()),
             scopes: Mutex::new(Vec::new()),
+            start_scope: Mutex::new(Some("team:team_1".into())),
             removes: AtomicUsize::new(0),
         })
     }
@@ -35,7 +39,7 @@ impl Fake {
 
 impl Steps for Fake {
     fn scope(&self) -> Option<String> {
-        Some("team:team_1".into())
+        self.start_scope.lock().unwrap().clone()
     }
 
     fn run(&self, task: &Task, cancel: &AtomicBool) -> Outcome {
@@ -331,4 +335,35 @@ fn times_are_iso_8601() {
     assert_eq!(iso(Some(0)), json!("1970-01-01T00:00:00.000Z"));
     assert_eq!(iso(Some(1_762_646_400_123)), json!("2025-11-09T00:00:00.123Z"));
     assert_eq!(iso(None), Value::Null);
+}
+
+#[test]
+fn a_run_with_no_start_scope_learns_it_before_any_gone_counts() {
+    let fake = Fake::new(
+        Some(Outcome::Replied { reply: "ok".into(), machine: None }),
+        vec![Removal::Scoped("user:u1|personal".into())],
+    );
+    *fake.start_scope.lock().unwrap() = None;
+    let engine = Engine::open(None, fake.clone(), quick());
+    let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
+    settled(&engine, &id, "destroyed");
+    let scopes = fake.scopes.lock().unwrap().clone();
+    assert_eq!(scopes[0], None, "the first pass has no scope");
+    assert!(
+        scopes[1..].iter().all(|scope| scope.as_deref() == Some("user:u1|personal")),
+        "every later pass is judged against the learned scope: {scopes:?}"
+    );
+    assert!(scopes.len() >= 2);
+}
+
+#[test]
+fn a_gone_for_a_run_with_no_scope_never_ends_its_cleanup() {
+    // Steps that answer Gone without a scope (none known, none learned) are not believed.
+    let fake = Fake::new(Some(Outcome::Replied { reply: "ok".into(), machine: None }), vec![]);
+    *fake.start_scope.lock().unwrap() = None;
+    let engine = Engine::open(None, fake.clone(), quick());
+    let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
+    let snapshot = settled(&engine, &id, "destroyed");
+    assert_eq!(snapshot["receipt"]["cleanup"], "pending");
+    assert!(fake.removes.load(Ordering::Acquire) >= 2, "it keeps reading");
 }

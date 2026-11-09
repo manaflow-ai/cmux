@@ -9,7 +9,9 @@
 //!   Cloud chat on a new small machine with the task as its prompt (on stdin, never in argv) and
 //!   the turn's reply as its answer. The machine, the agent's login and the send take the same
 //!   path a person's `cmux chat --on vm:new` takes, checks and approvals included;
-//! - the scope, before the task: `cloud list-machines`' `account` (signed in, and the team);
+//! - the scope, before the task: `cloud list-machines`' `account` (signed in, the person and the
+//!   team). A Run whose start read none learns it from its first authoritative list, and only a
+//!   list of that same person and team can end its cleanup;
 //! - the cleanup: `cloud list-machines` finds the machine by its id or its title, then
 //!   `cloud kill-machine --target machine:ID --confirm` asks for its delete. A delete's answer
 //!   only says the delete started (`pending`, `deleting`), so the machine counts as gone only once
@@ -160,16 +162,19 @@ impl AppVerbs {
     }
 }
 
-/// The account and team a `cloud list-machines` answer is for: `team:<id>` or `personal`, `None`
-/// when signed out (or an answer with no account).
+/// The account and team a `cloud list-machines` answer is for: `user:<id>|team:<id>` or
+/// `user:<id>|personal`. `None` when signed out or when the answer names no user (an app older
+/// than `account.user_id`): then no list can be matched to a Run's machines.
 pub(super) fn scope_of(list: &Value) -> Option<String> {
     let account = list.get("account")?;
     if account.get("signed_in").and_then(Value::as_bool) != Some(true) {
         return None;
     }
-    Some(match account.get("team_id").and_then(Value::as_str).filter(|team| !team.is_empty()) {
-        Some(team) => format!("team:{team}"),
-        None => "personal".into(),
+    let present = |name: &str| account.get(name).and_then(Value::as_str).filter(|v| !v.is_empty());
+    let user = present("user_id")?;
+    Some(match present("team_id") {
+        Some(team) => format!("user:{user}|team:{team}"),
+        None => format!("user:{user}|personal"),
     })
 }
 
@@ -182,11 +187,15 @@ pub(super) enum Judgement {
     Kill(String),
     /// Read again later, for this reason.
     Wait(String),
+    /// The Run's start read no scope: this authoritative list's becomes the Run's, and the next
+    /// pass judges against it.
+    Learn(String),
 }
 
 /// Judges a `cloud list-machines` answer (`CloudHandlers.machineListFields`: `loaded`,
 /// `machines` of `listedMachine` rows with `machine_id`, `title` and `status`, `creating` rows
-/// with the `name` asked for, and `account`) for the Run's machine.
+/// with the `name` asked for, and `account`) for the Run's machine. Only a list whose scope is
+/// known and equal to the Run's says anything; a Run with no scope yet learns it first.
 pub(super) fn judge(
     list: &Value,
     machine_name: &str,
@@ -199,9 +208,12 @@ pub(super) fn judge(
     let Some(listed_scope) = scope_of(list) else {
         return Judgement::Wait("the app is not signed in to Cloud".into());
     };
-    if let Some(scope) = scope
-        && scope != listed_scope
-    {
+    // A scope stored before it named the person (`team:<id>`, `personal`) matches no list now:
+    // it is learned again, as a Run with none is.
+    let Some(scope) = scope.filter(|scope| scope.starts_with("user:")) else {
+        return Judgement::Learn(listed_scope);
+    };
+    if scope != listed_scope {
         return Judgement::Wait(format!("the app lists {listed_scope}'s machines, not {scope}'s"));
     }
     let rows = |name: &str| list.get(name).and_then(Value::as_array).into_iter().flatten();
@@ -345,6 +357,7 @@ impl Steps for AppVerbs {
         let id = match judge(&list, machine_name, machine, scope) {
             Judgement::Gone => return Removal::Gone,
             Judgement::Wait(reason) => return Removal::Later(reason),
+            Judgement::Learn(scope) => return Removal::Scoped(scope),
             Judgement::Kill(id) => id,
         };
         let target = format!("machine:{id}");
@@ -427,9 +440,10 @@ mod tests {
     /// `cloud list-machines` as `CloudHandlers.machineListFields` answers it: `listedMachine`
     /// rows (`machine_id`, `target`, `title`, `status`, `owner`, …), `listedCreation` rows and the
     /// account.
+    /// `user` None: signed out.
     fn list(
         loaded: bool,
-        signed_in: bool,
+        user: Option<&str>,
         team: Option<&str>,
         machines: Value,
         creating: Value,
@@ -440,7 +454,7 @@ mod tests {
             "machines": if loaded { machines } else { json!([]) },
             "count": count,
             "creating": creating,
-            "account": { "signed_in": signed_in, "team_id": team },
+            "account": { "signed_in": user.is_some(), "user_id": user, "team_id": team },
         })
     }
 
@@ -455,12 +469,12 @@ mod tests {
     fn a_run_machine_is_found_by_its_title_or_its_id_and_deleted() {
         let machines =
             json!([listed("m-other", "other", "running"), listed("m-9", NAME, "running")]);
-        let answer = list(true, true, Some("t1"), machines, json!([]));
-        assert_eq!(judge(&answer, NAME, None, Some("team:t1")), Judgement::Kill("m-9".into()));
+        let answer = list(true, Some("u1"), Some("t1"), machines, json!([]));
+        assert_eq!(judge(&answer, NAME, None, Some("user:u1|team:t1")), Judgement::Kill("m-9".into()));
         let renamed =
-            list(true, true, Some("t1"), json!([listed("m-9", "renamed", "paused")]), json!([]));
+            list(true, Some("u1"), Some("t1"), json!([listed("m-9", "renamed", "paused")]), json!([]));
         assert_eq!(
-            judge(&renamed, NAME, Some("m-9"), Some("team:t1")),
+            judge(&renamed, NAME, Some("m-9"), Some("user:u1|team:t1")),
             Judgement::Kill("m-9".into())
         );
     }
@@ -469,53 +483,87 @@ mod tests {
     fn only_a_loaded_signed_in_list_of_the_runs_own_team_says_gone() {
         let empty = json!([]);
         let gone =
-            list(true, true, Some("t1"), json!([listed("m-x", "x", "running")]), empty.clone());
-        assert_eq!(judge(&gone, NAME, Some("m-9"), Some("team:t1")), Judgement::Gone);
+            list(true, Some("u1"), Some("t1"), json!([listed("m-x", "x", "running")]), empty.clone());
+        assert_eq!(judge(&gone, NAME, Some("m-9"), Some("user:u1|team:t1")), Judgement::Gone);
         // Not loaded yet (a relaunch, a slow first list): its empty list says nothing.
-        let not_loaded = list(false, true, Some("t1"), empty.clone(), empty.clone());
+        let not_loaded = list(false, Some("u1"), Some("t1"), empty.clone(), empty.clone());
         assert!(matches!(
-            judge(&not_loaded, NAME, Some("m-9"), Some("team:t1")),
+            judge(&not_loaded, NAME, Some("m-9"), Some("user:u1|team:t1")),
             Judgement::Wait(_)
         ));
         // Signed out: loaded is false and the list is empty.
-        let signed_out = list(false, false, None, empty.clone(), empty.clone());
+        let signed_out = list(false, None, None, empty.clone(), empty.clone());
         assert!(matches!(
-            judge(&signed_out, NAME, Some("m-9"), Some("team:t1")),
+            judge(&signed_out, NAME, Some("m-9"), Some("user:u1|team:t1")),
             Judgement::Wait(_)
         ));
         // Signed in to another team (or personal): that list is not the Run's.
-        let other = list(true, true, Some("t2"), empty.clone(), empty.clone());
-        assert!(matches!(judge(&other, NAME, Some("m-9"), Some("team:t1")), Judgement::Wait(_)));
-        let personal = list(true, true, None, empty.clone(), empty);
-        assert!(matches!(judge(&personal, NAME, None, Some("team:t1")), Judgement::Wait(_)));
-        assert_eq!(judge(&personal, NAME, None, Some("personal")), Judgement::Gone);
-        // A Run whose start read no scope takes any authoritative list.
-        assert_eq!(judge(&personal, NAME, None, None), Judgement::Gone);
+        let other = list(true, Some("u1"), Some("t2"), empty.clone(), empty.clone());
+        assert!(matches!(judge(&other, NAME, Some("m-9"), Some("user:u1|team:t1")), Judgement::Wait(_)));
+        let personal = list(true, Some("u1"), None, empty.clone(), empty);
+        assert!(matches!(judge(&personal, NAME, None, Some("user:u1|team:t1")), Judgement::Wait(_)));
+        assert_eq!(judge(&personal, NAME, None, Some("user:u1|personal")), Judgement::Gone);
+        // A Run whose start read no scope learns this list's, and says nothing else yet.
+        assert_eq!(
+            judge(&personal, NAME, None, None),
+            Judgement::Learn("user:u1|personal".into())
+        );
     }
 
     #[test]
     fn a_machine_being_deleted_or_still_being_created_is_read_again() {
-        let deleting = list(true, true, None, json!([listed("m-9", NAME, "deleting")]), json!([]));
+        let deleting = list(true, Some("u1"), None, json!([listed("m-9", NAME, "deleting")]), json!([]));
         assert!(matches!(
-            judge(&deleting, NAME, Some("m-9"), Some("personal")),
+            judge(&deleting, NAME, Some("m-9"), Some("user:u1|personal")),
             Judgement::Wait(_)
         ));
         let creating = json!([{ "creation_id": "c1", "name": NAME, "status": "creating" }]);
-        let on_its_way = list(true, true, None, json!([]), creating);
-        assert!(matches!(judge(&on_its_way, NAME, None, Some("personal")), Judgement::Wait(_)));
+        let on_its_way = list(true, Some("u1"), None, json!([]), creating);
+        assert!(matches!(judge(&on_its_way, NAME, None, Some("user:u1|personal")), Judgement::Wait(_)));
     }
 
     #[test]
     fn the_scope_is_the_lists_account_and_team() {
         assert_eq!(
-            scope_of(&list(true, true, Some("t1"), json!([]), json!([]))).as_deref(),
-            Some("team:t1")
+            scope_of(&list(true, Some("u1"), Some("t1"), json!([]), json!([]))).as_deref(),
+            Some("user:u1|team:t1")
         );
         assert_eq!(
-            scope_of(&list(true, true, None, json!([]), json!([]))).as_deref(),
-            Some("personal")
+            scope_of(&list(true, Some("u1"), None, json!([]), json!([]))).as_deref(),
+            Some("user:u1|personal")
         );
-        assert_eq!(scope_of(&list(false, false, None, json!([]), json!([]))), None);
+        assert_eq!(scope_of(&list(false, None, None, json!([]), json!([]))), None);
+    }
+
+    #[test]
+    fn another_account_or_a_list_naming_no_user_never_says_gone() {
+        // Switched to another person's personal account before the cleanup: two personal
+        // accounts are two scopes, and the other one's empty list is not the Run's.
+        let theirs = list(true, Some("u2"), None, json!([]), json!([]));
+        assert!(matches!(
+            judge(&theirs, NAME, Some("m-9"), Some("user:u1|personal")),
+            Judgement::Wait(_)
+        ));
+        // The same team under another person is another scope too.
+        let teammate = list(true, Some("u2"), Some("t1"), json!([]), json!([]));
+        assert!(matches!(
+            judge(&teammate, NAME, None, Some("user:u1|team:t1")),
+            Judgement::Wait(_)
+        ));
+        // Switched back: the Run's own list decides again.
+        let back = list(true, Some("u1"), None, json!([]), json!([]));
+        assert_eq!(judge(&back, NAME, Some("m-9"), Some("user:u1|personal")), Judgement::Gone);
+        // A list with no user (an older app) is no one's: it neither decides nor is learned.
+        let mut nameless = list(true, Some("u1"), None, json!([]), json!([]));
+        nameless["account"].as_object_mut().unwrap().remove("user_id");
+        assert_eq!(scope_of(&nameless), None);
+        assert!(matches!(judge(&nameless, NAME, None, None), Judgement::Wait(_)));
+        assert!(matches!(judge(&nameless, NAME, None, Some("user:u1|personal")), Judgement::Wait(_)));
+        // A scope stored before scopes named the person is learned again.
+        assert_eq!(
+            judge(&back, NAME, None, Some("personal")),
+            Judgement::Learn("user:u1|personal".into())
+        );
     }
 
     #[test]

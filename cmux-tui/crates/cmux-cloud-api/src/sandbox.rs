@@ -87,14 +87,19 @@ pub enum Removal {
     /// or the name, and no create of that name on its way.
     Gone,
     /// Not yet: the machine is still listed (a delete was asked for, or is under way), or no list
-    /// could say (the app not running, signed out, not loaded, another team). Read again later.
+    /// could say (the app not running, signed out, not loaded, another account or team). Read
+    /// again later.
     Later(String),
+    /// The Run had no scope the steps can match (its start read none): this authoritative list's
+    /// is the Run's from now on. Nothing was judged; read again soon.
+    Scoped(String),
 }
 
 /// What a Run does on Cloud. Each call may block for its whole bound; `cancel` set means stop now.
 pub trait Steps: Send + Sync {
     /// The account and team the app makes machines for now (`None`: unknown), read before the
-    /// task starts. The cleanup trusts only a list for that same scope.
+    /// task starts. The cleanup trusts only a list for that same scope; a Run with none learns it
+    /// from its first authoritative list ([`Removal::Scoped`]) and never skips the comparison.
     fn scope(&self) -> Option<String>;
     fn run(&self, task: &Task, cancel: &AtomicBool) -> Outcome;
     /// Asks for the machine's delete when it is still listed; [`Removal::Gone`] only once an
@@ -537,7 +542,16 @@ impl Engine {
             };
             let removal = self.steps.remove(&name, machine.as_deref(), scope.as_deref());
             let now = now_ms();
-            let done = removal == Removal::Gone && now >= settle;
+            if let Removal::Scoped(learned) = &removal {
+                let mut state = self.lock();
+                if let Some(run) = state.runs.get_mut(id) {
+                    run.scope = Some(learned.clone());
+                    run.updated_ms = now;
+                }
+                self.save(&state);
+            }
+            // Gone counts only for a Run whose scope is known: a list is matched to it by that.
+            let done = removal == Removal::Gone && scope.is_some() && now >= settle;
             let given_up = finished.is_some_and(|at| now - at >= ms(self.timing.give_up));
             if done || given_up {
                 let mut state = self.lock();
@@ -552,9 +566,13 @@ impl Engine {
             }
             let wait = match removal {
                 // Gone before the settle time: read again then.
-                Removal::Gone => Duration::from_millis(u64::try_from(settle - now).unwrap_or(0))
-                    .min(self.timing.retry_max),
-                Removal::Later(_) => {
+                Removal::Gone if scope.is_some() => {
+                    Duration::from_millis(u64::try_from(settle - now).unwrap_or(0))
+                        .min(self.timing.retry_max)
+                }
+                Removal::Scoped(_) => self.timing.retry_first,
+                // A Gone for a Run with no scope says nothing: as a Later.
+                Removal::Gone | Removal::Later(_) => {
                     let wait = pause;
                     pause = (pause * 2).min(self.timing.retry_max);
                     wait
