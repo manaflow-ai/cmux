@@ -4,6 +4,9 @@
 //! (export, import), `views` (summaries), `handoff` (a reviewed first message to another harness),
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
+// A reply's checkable claims against the turn's runs (`claim_checks`).
+mod claim_check;
+
 mod activity;
 // A foreground shell still running after a minute goes to the background (Claude Code).
 mod auto_background;
@@ -190,7 +193,6 @@ pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
-mod claim_check;
 mod elevation;
 mod git_watch;
 mod github_owner;
@@ -1605,6 +1607,7 @@ impl Hub {
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
+            claim_runs: StdMutex::new(Default::default()),
             start_retry_wake: Notify::new(),
             start_retry_waits: AtomicBool::new(false),
             start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),
@@ -1637,7 +1640,6 @@ impl Hub {
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
             loop_detector: StdMutex::new(Default::default()),
-            claim_runs: StdMutex::new(Default::default()),
             harness_sandbox_calls: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
