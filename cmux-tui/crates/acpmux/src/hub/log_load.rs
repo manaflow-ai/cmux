@@ -67,7 +67,15 @@ impl Hub {
         // A cold-archived chat's log is not read (`cold_archive.rs`): it holds nothing to restore,
         // and a read would bring it back. Its first open reads it. A preview whose log is back
         // (a crash between the rehydrate and its preview's drop) goes now, and the log is read.
-        sessions.retain(|s| !self.cold_at_start(s));
+        // A chat left here waits for its own read once it is back, not for this pass's end
+        // (`session_log_loaded`).
+        sessions.retain(|s| {
+            let cold = self.cold_at_start(s);
+            if cold {
+                s.log_skipped.store(true, Ordering::SeqCst);
+            }
+            !cold
+        });
         sessions.sort_by_cached_key(|s| {
             let m = s.meta();
             (m.status == SessionStatus::Closed, std::cmp::Reverse(m.updated_at))
@@ -160,9 +168,13 @@ impl Hub {
         }
     }
 
-    /// Whether `session`'s log is read, or every log is (or their load failed).
+    /// Whether `session`'s log is read, or every log is (or their load failed). The pass's end
+    /// does not count for a chat it left cold: decompressed after it, by a request or a read
+    /// through the store, its log is still to be read (second review of #39141: its transfer
+    /// authority stayed unset, and the ownership checks refused the chat).
     pub(crate) fn session_log_loaded(&self, session: &Session) -> bool {
-        session.log_loaded.load(Ordering::SeqCst) || self.logs_loaded()
+        session.log_loaded.load(Ordering::SeqCst)
+            || (self.logs_loaded() && !session.log_skipped.load(Ordering::SeqCst))
     }
 
     /// Reads one chat's log, once: its tail, a permission wait or turn the restart cut off, its

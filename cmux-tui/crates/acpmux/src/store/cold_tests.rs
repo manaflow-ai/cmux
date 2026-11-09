@@ -337,6 +337,38 @@ fn a_second_archive_waits_for_a_commit_between_its_renames() {
     assert_eq!(Store::events(&*store, "c", 0, usize::MAX).unwrap(), records);
 }
 
+/// Second review of #39141 (F1): an archive task of a daemon that handed the home over (its
+/// store sealed) settled while the next daemon's commit was between its archive's rename into
+/// place and the rename of `events/` aside. The two stores' cold locks are their own, so the old
+/// one took the archive for a crash's leftover the log covers and removed it, and the new one then
+/// removed the log.
+#[test]
+fn a_sealed_store_does_not_settle_the_next_daemons_archive() {
+    let (_home, old) = Home::new();
+    closed(&old, "c");
+    let records = chat(&old, "c", 4);
+    Store::seal(&old);
+    let next = std::sync::Arc::new(LocalStore::new(old.root.clone(), 64 * 1024).unwrap());
+    let staged = next.stage_cold("c").unwrap().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel::<Stop>();
+    let commit = {
+        let next = next.clone();
+        std::thread::spawn(move || {
+            tx.send(stop_at(&HOLD_AFTER_COLD_PUBLISH)).unwrap();
+            next.commit_cold("c", staged).unwrap()
+        })
+    };
+    let (arrived, release) = rx.recv().unwrap();
+    arrived.recv().unwrap();
+    assert!(next.cold_path("c").exists() && next.dir("c").join("events").exists());
+    assert!(old.stage_cold("c").is_err(), "the sealed store settles nothing");
+    assert!(old.cold_path("c").exists(), "the next daemon's archive is still there");
+    release.send(()).unwrap();
+    assert!(commit.join().unwrap());
+    assert!(next.is_cold("c"));
+    assert_eq!(Store::events(&*next, "c", 0, usize::MAX).unwrap(), records);
+}
+
 /// Review of #39141 (F2): an append that found no segment while another thread rehydrated the
 /// log got false from its own rehydrate (the archive was gone by then) and kept its empty
 /// listing, so it went on in `000001` of a log whose last segment is later.

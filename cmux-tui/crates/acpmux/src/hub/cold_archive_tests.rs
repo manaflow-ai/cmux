@@ -245,3 +245,73 @@ async fn a_preview_left_by_a_crash_goes_at_the_next_start() {
     assert_eq!(hub.events("old", 0, 100).unwrap(), records);
     hub.shutdown_all().await;
 }
+
+/// Second review of #39141 (F2): the startup pass leaves a cold chat's log unread. Decompressed
+/// after the pass, the chat took the pass's end for its own read, so its log was never read: its
+/// transfer authority stayed unset, and the ownership checks refused it.
+#[tokio::test]
+async fn a_chat_decompressed_after_a_restart_reads_its_log() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        chat(&*store, "old", 2, 3);
+        store.flush().unwrap();
+    }
+    let (_, hub) = open(&root.0);
+    hub.cold_archive_request(hub.resolve("old").unwrap(), true).await.unwrap();
+    hub.store.flush().unwrap();
+    hub.shutdown_all().await;
+    drop(hub);
+    // A daemon's restart: the logs are read after its ready line, the archived one's not.
+    let store = crate::store::open(&cfg.store, &root.0).unwrap();
+    let hub = Hub::new_deferred(cfg.clone(), store, crate::mailbox::Mailbox::memory());
+    hub.load_logs();
+    assert!(hub.logs_loaded());
+    let session = hub.resolve("old").unwrap();
+    assert!(session.meta().cold.is_some() && session.transfer_blocked().is_none());
+    hub.cold_archive_request(session.clone(), false).await.unwrap();
+    assert!(session.meta().cold.is_none() && !hub.store.is_cold("old"));
+    assert!(!hub.session_log_loaded(&session), "decompressed, its log is still to be read");
+    // The next request reads it, as `_acpmux/info` does.
+    hub.session_log(&session).await;
+    assert!(hub.session_log_loaded(&session));
+    assert_eq!(session.transfer_blocked(), Some(false), "its transfer authority is restored");
+    hub.shutdown_all().await;
+}
+
+/// Second review of #39141 (F3): a read that brought the log back between an archive's commit
+/// and its preview going in left the worker no preview to drop; the preview then went in, and the
+/// hot chat stayed marked archived, refused for another archive.
+#[tokio::test]
+async fn a_rehydrate_before_the_preview_goes_in_leaves_no_preview() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let records = {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        let records = chat(&*store, "old", 2, 3);
+        store.flush().unwrap();
+        records
+    };
+    let (_, hub) = open(&root.0);
+    let session = hub.resolve("old").unwrap();
+    // Right after the commit: a read straight through the store brings the log back, and the
+    // worker drains its hook.
+    AFTER_COLD_COMMIT.set(Some(|hub: &Hub, session: &Session| {
+        assert!(hub.store.is_cold(&session.id));
+        assert_eq!(hub.store.events(&session.id, 0, 100).unwrap().len(), 6);
+        assert_eq!(hub.settle_rehydrated(), 0, "no preview yet");
+    }));
+    let hosted = std::collections::HashSet::new();
+    assert_eq!(hub.cold_archive_chat(&session, None, &hosted).unwrap_err(), "changed");
+    assert!(!hub.store.is_cold("old"));
+    assert!(session.meta().cold.is_none(), "no preview for a hot chat");
+    assert!(hub.session_summary(&session).get("coldArchive").is_none());
+    assert_eq!(hub.events("old", 0, 100).unwrap(), records);
+    // It archives again.
+    hub.cold_archive_chat(&session, None, &hosted).unwrap();
+    assert!(hub.store.is_cold("old") && session.meta().cold.is_some());
+    hub.shutdown_all().await;
+}

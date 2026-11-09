@@ -235,12 +235,33 @@ impl LocalStore {
     /// An archive beside a log ([module docs](self)): removed when every file it holds is in the
     /// log at least as long, else kept as `cold.zst.orphan-<ms>` and never read. Leftovers of a
     /// crash (a temporary archive of another process, a rehydrate's folder, a folder renamed
-    /// aside) go too. Nothing to do for an archived chat or one with no archive.
+    /// aside) go too. Nothing to do for an archived chat or one with no archive. Refused once the
+    /// store is sealed.
     pub(super) fn settle_cold(&self, id: &str) -> Result<()> {
         #[cfg(test)]
         super::log_sync::note(&NOTE_BEFORE_COLD_LOCK, "settle");
         let cold = self.cold.lock_or_recover();
+        // Held through the settlement, so a seal waits for it: an archive task that outlives a
+        // handover would otherwise take the next daemon's archive, published but with `events/`
+        // not yet moved aside, for a crash's leftover and remove it (review of #39141).
+        let _sealed = self.unsealed(id)?;
         self.settle_cold_locked(id, &cold)
+    }
+
+    /// The seal's read side, for work that removes a file of the chat's folder: refused once the
+    /// store is sealed, since the next daemon may already own the home. `try_read`: an append
+    /// holds the read side already, and a second read on the same thread may wait forever behind
+    /// a seal that waits for the first; a seal under way refuses it too.
+    fn unsealed(&self, id: &str) -> Result<std::sync::RwLockReadGuard<'_, bool>> {
+        let sealed = match self.sealed.try_read() {
+            Ok(sealed) => sealed,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                anyhow::bail!("the store is sealing: {id} stays as it is")
+            }
+        };
+        anyhow::ensure!(!*sealed, "the store is sealed: the daemon has shut down");
+        Ok(sealed)
     }
 
     /// [`Self::settle_cold`] under the cold lock, which a commit holds from the archive's rename
@@ -390,16 +411,7 @@ impl LocalStore {
         if std::fs::symlink_metadata(&archive).is_err() {
             return Ok(false);
         }
-        // `try_read`: an append holds the seal's read side already, and a second read on the same
-        // thread may wait forever behind a seal that waits for the first.
-        let sealed = match self.sealed.try_read() {
-            Ok(sealed) => sealed,
-            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => {
-                anyhow::bail!("the store is sealing: {id} stays archived")
-            }
-        };
-        anyhow::ensure!(!*sealed, "the store is sealed: the daemon has shut down");
+        let _sealed = self.unsealed(id)?;
         if !self.segment_files(id)?.is_empty() {
             self.settle_cold_locked(id, &cold)?;
             return Ok(false);

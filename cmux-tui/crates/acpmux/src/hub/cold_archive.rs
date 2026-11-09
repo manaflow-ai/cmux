@@ -161,6 +161,8 @@ impl Hub {
                 return Err("error");
             }
         }
+        #[cfg(test)]
+        after_cold_commit(self, session);
         let preview = ColdPreview {
             archived_at: now_ms(),
             messages,
@@ -169,6 +171,15 @@ impl Hub {
             last,
         };
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold = Some(preview.clone());
+        // A read may have brought the log back since the commit, and the worker found no preview
+        // to drop then (second review of #39141: the chat stayed marked archived with its log
+        // back). The preview is in before this look: a rehydrate that removes the archive after
+        // it wakes the worker after it too, which drops the preview then.
+        if !self.store.is_cold(&session.id) {
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold = None;
+            self.cold_changed(session);
+            return Err("changed");
+        }
         // A failed save leaves the chat archived without its preview: it lists as before, and its
         // first read brings it back.
         self.save_meta(session);
@@ -405,6 +416,22 @@ impl Hub {
             tracing::info!("cold archive: {archived} idle chats, {before} bytes to {after_bytes}");
         }
         archived
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam (second review of #39141): runs right after an archive's commit, before its
+    /// preview goes in.
+    pub(super) static AFTER_COLD_COMMIT: std::cell::Cell<Option<fn(&Hub, &Session)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Runs the `AFTER_COLD_COMMIT` seam, once.
+#[cfg(test)]
+fn after_cold_commit(hub: &Hub, session: &Session) {
+    if let Some(f) = AFTER_COLD_COMMIT.take() {
+        f(hub, session);
     }
 }
 
