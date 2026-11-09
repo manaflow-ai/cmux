@@ -218,12 +218,13 @@ jobs:
 
       # A 502/504 from the package host while build.rs fetches the Ghostty packages
       # failed every cmux-tui job on 2026-11-08: fetch them first, cached and retried.
-      # cmux-tui.yml calls this on a dispatch: save then, as on a push (not on an owned mini).
+      # On a cmux-tui.yml dispatch, save only on an owned mini (GitHub store): a Blacksmith
+      # save was not restored by later dispatch runs.
       - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
           source: ghostty
-          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -453,12 +454,13 @@ jobs:
 
       # A 502/504 from the package host while build.rs fetches the Ghostty packages
       # failed every cmux-tui job on 2026-11-08: fetch them first, cached and retried.
-      # cmux-tui.yml calls this on a dispatch: save then, as on a push (not on an owned mini).
+      # On a cmux-tui.yml dispatch, save only on an owned mini (GitHub store): a Blacksmith
+      # save was not restored by later dispatch runs.
       - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
           source: ghostty
-          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

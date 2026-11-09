@@ -109,6 +109,18 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_shallow_dev_fetch.py
 
+      - name: Validate each shared-HOME runner gets its own CARGO_HOME
+        if: ${{ matrix.group == 'ci' }}
+        run: ./tests/test_setup_cmux_tui_rust_cargo_home.sh
+
+      - name: Validate verify-cmux-tui-hosted.sh leaves its hosted run alone when the wait ends
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_verify_cmux_tui_hosted.py
+
+      - name: Validate every self-hosted rust-cache step cleans only its runner's CARGO_HOME
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_cache_runner_cargo_home.py
+
       # Fleet rules as a shrink-only ratchet: no fleet sudo keychain reads, no
       # new kill by process name or pattern, nothing depends on the personal
       # Linux workstation (tests/fleet-rule-allowlist.json).
@@ -1410,6 +1422,10 @@ jobs:
           python3 tests/test_nightly_next_canary_runs_installed_app.py
           python3 tests/test_nightly_next_canary_cadence.py
           python3 tests/test_nightly_next_canary_feed_origin.py
+
+      - name: Validate the cmux NEXT DEV publisher cancels only superseded runs
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_dev_publish_supersede.py
 
       - name: Validate the cmux NEXT DEV daily dispatcher
         if: ${{ matrix.group == 'release-notary' }}

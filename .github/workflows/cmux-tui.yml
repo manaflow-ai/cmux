@@ -107,18 +107,23 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      # cmux-tui runs are dispatch-only: save-on-dispatch lets a run save what it
-      # fetched, so the next run on this branch needs no package host (502s at
-      # deps.files.ghostty.org failed every Linux job on 2026-11-08). An owned mini
-      # keeps ~/.cache/zig and never saves to the shared store.
+      # cmux-tui runs are dispatch-only. A 502/504 at deps.files.ghostty.org failed
+      # every Linux job on 2026-11-08; the fetch's curl seed and retries carry a short
+      # outage. On Blacksmith, only this job restored a dispatch save in a later run
+      # (run 42482435964), so only it saves there; elsewhere a job saves only on an
+      # owned mini, whose GitHub store restores per branch.
       - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
           source: ghostty
-          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
+          save-on-dispatch: "true"
 
       - name: Install Rust 1.91
         run: rustup toolchain install 1.91.0 --profile minimal
+
+      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
+      - name: Give this runner instance its own CARGO_HOME
+        uses: ./.github/actions/runner-cargo-home
 
       # Keep cargo's registry and the MSRV target dir between runs, as lint and test
       # do: without it every run checked the whole workspace from an empty target.
@@ -221,7 +226,7 @@ jobs:
         uses: ./.github/actions/ghostty-zig-packages
         with:
           source: ghostty
-          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -296,7 +301,7 @@ jobs:
         uses: ./.github/actions/ghostty-zig-packages
         with:
           source: ghostty
-          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -520,7 +525,7 @@ jobs:
         uses: ./.github/actions/ghostty-zig-packages
         with:
           source: ghostty
-          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Ghostty VT cursor replay checks
         if: inputs.mode == 'full'
@@ -911,7 +916,7 @@ jobs:
         uses: ./.github/actions/ghostty-zig-packages
         with:
           source: ghostty
-          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

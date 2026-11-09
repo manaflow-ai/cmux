@@ -96,6 +96,20 @@ pub(crate) struct TerminalScreenSnapshot {
     pub(crate) osc_progress: String,
 }
 
+/// Which text a [`TerminalScreenSnapshot`] carries (`terminal.screen.read`
+/// fields `unwrap` and `lines`, `terminal-read-unwrap-v1`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ScreenText {
+    /// The rendered viewport, one line per row (the default).
+    #[default]
+    Rows,
+    /// The rendered viewport with soft wraps joined into logical lines.
+    Unwrapped,
+    /// The last `count` lines of scrollback and screen together; logical
+    /// lines when `unwrap`, else rows.
+    LastLines { count: usize, unwrap: bool },
+}
+
 /// Nonblocking probe for the terminal mouse protocol and reporting mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerSemanticProbe {
@@ -1451,6 +1465,19 @@ type PtyGeometryTestHook = Arc<dyn Fn(PtyGeometryTestStep) + Send + Sync>;
 #[cfg(test)]
 type DeferredCellPixelAckTestHook = Arc<dyn Fn() + Send + Sync>;
 
+/// A step of the child-reaper join in `finish_terminal_reader` (tests).
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReaperShutdownTestStep {
+    /// The reaper thread itself runs the teardown and skips its own join.
+    SelfJoinSkipped,
+    /// Another thread is about to join the reaper.
+    JoiningReaper,
+}
+
+#[cfg(test)]
+type ReaperShutdownTestHook = Arc<dyn Fn(ReaperShutdownTestStep) + Send + Sync>;
+
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     terminal: Arc<PtyTerminalRuntime>,
@@ -1569,6 +1596,10 @@ impl PtyTerminalRuntime {
 
     fn terminal_osc_progress(&self) -> String {
         self.terminal_metadata.lock().unwrap().osc_progress().to_string()
+    }
+
+    fn terminal_last_command(&self) -> Option<crate::terminal_command::LastCommand> {
+        self.terminal_metadata.lock().unwrap().last_command()
     }
 
     fn begin_terminal_journal_update(&self) -> Option<TerminalJournalUpdateGuard<'_>> {
@@ -1702,6 +1733,8 @@ pub struct PtyTerminalRuntime {
     geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
     #[cfg(test)]
     deferred_cell_pixel_ack_test_hook: Mutex<Option<DeferredCellPixelAckTestHook>>,
+    #[cfg(test)]
+    reaper_shutdown_test_hook: Mutex<Option<ReaperShutdownTestHook>>,
     #[cfg(test)]
     test_master_control: Option<Arc<TestMasterPtyControl>>,
     #[cfg(test)]
@@ -2627,6 +2660,8 @@ impl Surface {
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
                 #[cfg(test)]
+                reaper_shutdown_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
@@ -2774,6 +2809,7 @@ impl Surface {
                         }
                         drop(journal_update);
                         surface.publish_pending_directory();
+                        surface.publish_pending_last_command();
                         pty.stream_progress.notify();
                         pty.request_frame(generation);
                         if let Some((offset, at_bottom)) = scroll_changed
@@ -3151,6 +3187,8 @@ impl Surface {
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
                 #[cfg(test)]
+                reaper_shutdown_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
@@ -3381,6 +3419,7 @@ impl Surface {
                                 }
                                 drop(journal_update.take());
                                 surface.publish_pending_directory();
+                                surface.publish_pending_last_command();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
@@ -3823,7 +3862,13 @@ impl Surface {
                         let generation = {
                             let mut term = pty.term.lock().unwrap();
                             **term = replacement_term;
-                            *pty.terminal_metadata.lock().unwrap() = replacement_metadata;
+                            {
+                                // A reconnect replaces the parser, not the
+                                // shell: keep its command state.
+                                let mut metadata = pty.terminal_metadata.lock().unwrap();
+                                replacement_metadata.keep_command_state_of(&metadata);
+                                *metadata = replacement_metadata;
+                            }
                             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                             *geometry = next_geometry;
                             *pty.title.lock().unwrap() = title.clone();
@@ -4238,6 +4283,8 @@ impl Surface {
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
                 #[cfg(test)]
+                reaper_shutdown_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
@@ -4472,6 +4519,8 @@ impl Surface {
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
                 geometry_test_hook: Mutex::new(None),
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                reaper_shutdown_test_hook: Mutex::new(None),
                 test_master_control: Some(test_master_control),
                 vt_replay_builds: AtomicUsize::new(0),
                 mux,
@@ -4512,12 +4561,28 @@ impl Surface {
 
     pub(crate) fn finish_terminal_reader(&self, deadline: Instant) -> Option<TerminalJournalGap> {
         let pty = self.as_pty()?;
-        let reaper = pty.reaper_thread.lock().unwrap().take();
-        if let Some(reaper) = reaper {
-            if reaper.thread().id() == std::thread::current().id() {
-                *pty.reaper_thread.lock().unwrap() = Some(reaper);
+        // Decide self-join under the lock and leave the reaper's own handle
+        // in place: taking it and putting it back let a concurrent caller
+        // see an empty slot and return while the handle was restored later.
+        let reaper = {
+            let mut slot = pty.reaper_thread.lock().unwrap();
+            if slot
+                .as_ref()
+                .is_some_and(|reaper| reaper.thread().id() == std::thread::current().id())
+            {
                 eprintln!("cmux-tui: child reaper skipped self-join during shutdown");
-            } else if pty.reaper_completion.wait_until(deadline) {
+                drop(slot);
+                #[cfg(test)]
+                pty.run_reaper_shutdown_test_hook(ReaperShutdownTestStep::SelfJoinSkipped);
+                None
+            } else {
+                slot.take()
+            }
+        };
+        if let Some(reaper) = reaper {
+            if pty.reaper_completion.wait_until(deadline) {
+                #[cfg(test)]
+                pty.run_reaper_shutdown_test_hook(ReaperShutdownTestStep::JoiningReaper);
                 if reaper.join().is_err() {
                     eprintln!("cmux-tui: child reaper thread panicked during shutdown");
                 }
@@ -4880,15 +4945,30 @@ impl Surface {
         Ok(pty.stream_progress.revision())
     }
 
-    /// Capture the viewport, generic terminal metadata, and stream revision
-    /// while the parser lock is held. This is the only screen-read path that
-    /// can safely use the revision as a scheduling watermark.
+    /// [`Self::terminal_screen_snapshot_with`] of the viewport's rows.
+    #[cfg(test)]
     pub(crate) fn terminal_screen_snapshot(&self) -> anyhow::Result<TerminalScreenSnapshot> {
+        self.terminal_screen_snapshot_with(ScreenText::Rows)
+    }
+
+    /// Capture the `text` a `terminal.screen.read` asked for (the viewport's
+    /// rows or logical lines, or the last N lines of scrollback and screen),
+    /// generic terminal metadata, and stream revision while the parser lock
+    /// is held. This is the only screen-read path that can safely use the
+    /// revision as a scheduling watermark.
+    pub(crate) fn terminal_screen_snapshot_with(
+        &self,
+        text: ScreenText,
+    ) -> anyhow::Result<TerminalScreenSnapshot> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         let mut term = pty.term.lock().unwrap();
-        let text = term.viewport_text()?;
+        let text = match text {
+            ScreenText::Rows => term.viewport_text()?,
+            ScreenText::Unwrapped => term.viewport_text_unwrapped()?,
+            ScreenText::LastLines { count, unwrap } => term.last_lines_text(count, unwrap)?,
+        };
         let (cursor_col, cursor_row) = term.cursor_position().unwrap_or((0, 0));
         let cursor_visible = term.mode(25, false);
         // Match the parser's lock order, term -> metadata -> stream progress.
@@ -4905,6 +4985,12 @@ impl Surface {
             revision,
             osc_progress,
         })
+    }
+
+    /// The last command the terminal's shell finished (OSC 133 `D`):
+    /// `extra.last_command` (`terminal-exit-status-v1`).
+    pub(crate) fn terminal_last_command(&self) -> Option<crate::terminal_command::LastCommand> {
+        self.as_pty()?.terminal_last_command()
     }
 
     pub(crate) fn subscribe_terminal_stream_change(
@@ -6891,6 +6977,14 @@ impl PtySurface {
     }
 
     #[cfg(test)]
+    fn run_reaper_shutdown_test_hook(&self, step: ReaperShutdownTestStep) {
+        let hook = self.reaper_shutdown_test_hook.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(step);
+        }
+    }
+
+    #[cfg(test)]
     fn run_geometry_test_hook(&self, step: PtyGeometryTestStep) {
         let hook = self.geometry_test_hook.lock().unwrap().clone();
         if let Some(hook) = hook {
@@ -7630,6 +7724,65 @@ mod tests {
         let pty = surface.as_pty().unwrap();
         surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
         assert!(pty.reaper_thread.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn a_concurrent_teardown_returns_only_after_the_self_finishing_reaper_is_joined() {
+        let mux = Mux::new_for_test("reaper-self-join-race", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
+            .expect("test PTY should spawn");
+        let pty = surface.as_pty().unwrap();
+        // The reaper's own teardown reports its self-join step and then waits
+        // there until the concurrent teardown either returned or is about to
+        // join the reaper. That holds the race window open without a sleep.
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (step_tx, step_rx) = std::sync::mpsc::channel::<&'static str>();
+        let step_rx = Mutex::new(step_rx);
+        let joining_tx = step_tx.clone();
+        *pty.reaper_shutdown_test_hook.lock().unwrap() = Some(Arc::new(move |step| match step {
+            ReaperShutdownTestStep::SelfJoinSkipped => {
+                let _ = entered_tx.try_send(());
+                step_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(30))
+                    .expect("the concurrent teardown neither returned nor joined the reaper");
+            }
+            ReaperShutdownTestStep::JoiningReaper => {
+                let _ = joining_tx.send("joining");
+            }
+        }));
+        let (started_tx, started_rx) = sync_channel(0);
+        let (proceed_tx, proceed_rx) = sync_channel(0);
+        let (finished_tx, finished_rx) = sync_channel(1);
+        pty.reaper_completion.reset();
+        let reaper_completion = pty.reaper_completion.clone();
+        let reaper_surface = surface.clone();
+        let reaper = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            proceed_rx.recv().unwrap();
+            reaper_completion.complete();
+            reaper_surface.finish_terminal_reader(Instant::now() + Duration::from_secs(30));
+            finished_tx.send(()).unwrap();
+        });
+        assert!(pty.reaper_thread.lock().unwrap().replace(reaper).is_none());
+        started_rx.recv().unwrap();
+        proceed_tx.send(()).unwrap();
+        entered_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the reaper did not reach its self-join step");
+
+        surface.finish_terminal_reader(Instant::now() + Duration::from_secs(30));
+        let _ = step_tx.send("returned");
+        finished_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the reaper's own teardown did not finish");
+
+        assert!(
+            pty.reaper_thread.lock().unwrap().is_none(),
+            "a teardown returned while the reaper put its own handle back after it"
+        );
+        *pty.reaper_shutdown_test_hook.lock().unwrap() = None;
     }
 
     #[test]

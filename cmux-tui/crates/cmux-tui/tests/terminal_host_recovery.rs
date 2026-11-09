@@ -51,6 +51,11 @@ struct RecoveryHarness {
     adoption_insert_failures: Option<u64>,
     template_completion_failures: Option<u64>,
     adopt_template_terminal: bool,
+    /// `false` launches shells without Ghostty shell integration, so they
+    /// emit no OSC 7 or OSC 133 reports that commit registry revisions.
+    shell_integration: bool,
+    /// Extra daemon options, passed on every start.
+    extra_args: Vec<String>,
 }
 
 impl RecoveryHarness {
@@ -69,8 +74,17 @@ impl RecoveryHarness {
             adoption_insert_failures: None,
             template_completion_failures: None,
             adopt_template_terminal: false,
+            shell_integration: true,
+            extra_args: Vec::new(),
             dir,
         };
+        harness.restart();
+        harness
+    }
+
+    fn start_with_args(name: &str, args: &[&str]) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        harness.extra_args = args.iter().map(|arg| (*arg).to_string()).collect();
         harness.restart();
         harness
     }
@@ -129,6 +143,8 @@ impl RecoveryHarness {
             adoption_insert_failures: None,
             template_completion_failures: None,
             adopt_template_terminal: false,
+            shell_integration: true,
+            extra_args: Vec::new(),
             dir,
         }
     }
@@ -147,6 +163,7 @@ impl RecoveryHarness {
             .arg(&self.socket)
             .arg("--state")
             .arg(&self.state)
+            .args(&self.extra_args)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         if let Some(delay_ms) = self.host_ready_delay_ms {
@@ -161,6 +178,14 @@ impl RecoveryHarness {
         }
         if let Some(failures) = self.template_completion_failures {
             command.env("CMUX_TUI_TEST_TEMPLATE_COMPLETION_FAILURES", failures.to_string());
+        }
+        if !self.shell_integration {
+            command.env("CMUX_TUI_SHELL_INTEGRATION", "none");
+            // The host user's own shell startup files can report a cwd too
+            // (zsh precmd hooks on the macOS build hosts add an OSC 7 commit
+            // that these exact revision counts do not expect): run a plain
+            // POSIX sh that reads no startup file.
+            command.env("SHELL", "/bin/sh").env_remove("ENV").env_remove("BASH_ENV");
         }
         if self.adopt_template_terminal {
             command.env("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL", "1");
@@ -3519,7 +3544,12 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
 
 #[test]
 fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts() {
-    let mut harness = RecoveryHarness::start_with_host_ready_delay("public-create-recovery", 2_000);
+    // The exact revision assertions below count creation commits only; a
+    // shell's cwd report would add its own revision.
+    let mut harness = RecoveryHarness::start_unstarted("public-create-recovery");
+    harness.host_ready_delay_ms = Some(2_000);
+    harness.shell_integration = false;
+    harness.restart();
     let create = serde_json::json!({
         "protocol":"cmux.protocol/2",
         "type":"request",
@@ -5064,3 +5094,6 @@ fn detached_template_terminal_survives_a_daemon_restart_without_wedging_mutation
 
 #[path = "terminal_host_recovery/idle_template.rs"]
 mod idle_template;
+
+#[path = "terminal_host_recovery/restart_host_leak.rs"]
+mod restart_host_leak;

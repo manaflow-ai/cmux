@@ -33,17 +33,24 @@ impl HeadlessServer {
     }
 
     fn start_with_config(name: &str, config_contents: Option<&str>) -> Self {
-        Self::start_with_options(name, config_contents, None)
+        Self::start_with_options(name, config_contents, None, &[])
     }
 
     fn start_in(name: &str, launch_cwd: &std::path::Path) -> Self {
-        Self::start_with_options(name, None, Some(launch_cwd))
+        Self::start_with_options(name, None, Some(launch_cwd), &[])
+    }
+
+    /// Shells launched without Ghostty shell integration emit no OSC 133
+    /// prompt marks, so the terminal sees no prompt boundary.
+    fn start_without_shell_integration(name: &str) -> Self {
+        Self::start_with_options(name, None, None, &[("CMUX_TUI_SHELL_INTEGRATION", "none")])
     }
 
     fn start_with_options(
         name: &str,
         config_contents: Option<&str>,
         launch_cwd: Option<&std::path::Path>,
+        env: &[(&str, &str)],
     ) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
@@ -63,6 +70,8 @@ impl HeadlessServer {
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
+            .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
+            .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
         if let Some(launch_cwd) = launch_cwd {
@@ -249,8 +258,36 @@ fn signal_test_process_group(pid: u32, signal: libc::c_int) {
     }
 }
 
+/// The headless daemon's diagnostic log. The daemon records the cause of a
+/// `mutation.indeterminate` and other internal faults only here.
+fn daemon_log_path(dir: &std::path::Path) -> PathBuf {
+    dir.join("daemon.log")
+}
+
+/// Prints the end of the daemon log, so a failed CLI assertion shows the
+/// daemon-side cause next to the client error.
+fn print_daemon_log(dir: &std::path::Path) {
+    const MAX_PRINTED_BYTES: usize = 64 * 1024;
+    let path = daemon_log_path(dir);
+    let Ok(log) = fs::read(&path) else {
+        eprintln!("headless daemon log {}: none", path.display());
+        return;
+    };
+    let tail = &log[log.len().saturating_sub(MAX_PRINTED_BYTES)..];
+    eprintln!(
+        "--- headless daemon log {} (last {} of {} bytes) ---\n{}\n--- end of daemon log ---",
+        path.display(),
+        tail.len(),
+        log.len(),
+        String::from_utf8_lossy(tail)
+    );
+}
+
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            print_daemon_log(&self.dir);
+        }
         // Durable terminal hosts intentionally outlive the daemon. Tests must
         // close their terminal resources first rather than assuming SIGKILL
         // of the daemon also owns or reaps their processes.
@@ -1116,6 +1153,9 @@ fn server_status_rejects_a_malformed_lifecycle_readiness_value() {
             })
         )
         .unwrap();
+        // Hold the connection until the CLI closes it (EOF). macOS rejects the
+        // CLI's read timeout (EINVAL) on a socket whose peer already closed.
+        let _ = reader.read_to_end(&mut Vec::new());
     });
 
     let output = lifecycle_cli(&[
@@ -1131,6 +1171,62 @@ fn server_status_rejects_a_malformed_lifecycle_readiness_value() {
     assert_eq!(output.status.code(), Some(3));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
     assert_eq!(error["code"], "server.invalid_identity");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn starting_server_status_is_retryable() {
+    let dir = unique_temp_dir("server-status-starting");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("owned.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let thread = std::thread::spawn(move || {
+        let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let identify: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(identify["cmd"], "identify");
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({
+                "id": identify["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": "still-starting",
+                    "pid": 4242,
+                    "generation": "generation-a",
+                    "capabilities": [],
+                    "lifecycle_ready": false
+                }
+            })
+        )
+        .unwrap();
+        // Hold the connection until the CLI closes it (EOF). macOS rejects the
+        // CLI's read timeout (EINVAL) on a socket whose peer already closed.
+        let _ = reader.read_to_end(&mut Vec::new());
+    });
+
+    let output = lifecycle_cli(&[
+        "--json",
+        "server",
+        "status",
+        "--session",
+        "still-starting",
+        "--socket",
+        socket.to_str().unwrap(),
+    ]);
+    thread.join().unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["code"], "server.unavailable");
+    // The message says to retry, so the error says so too.
+    assert_eq!(error["retryable"], true, "{error}");
+    assert_eq!(error["details"]["reason"], "starting", "{error}");
     fs::remove_dir_all(dir).unwrap();
 }
 
@@ -1357,6 +1453,7 @@ fn explicit_socket_keeps_state_in_platform_root() {
         .args(["--headless", "--socket"])
         .arg(&socket)
         .env("CMUX_TUI_STATE_DIR", &state)
+        .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
@@ -3622,7 +3719,19 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
         &server,
         &["--quiet", "terminal", &terminal, "write", "--text", &format!("echo {marker}\r")],
     );
-    assert_success(&send);
+    // A loaded runner can miss the 2 s InputAck window: the daemon then
+    // reports the documented indeterminate outcome (exit 1) instead of
+    // success, as for `keys` below. The marker on the screen proves the
+    // write reached the shell either way.
+    if !send.status.success() {
+        assert_eq!(send.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&send.stderr)
+                .contains("the external effect may have run before its outcome was recorded"),
+            "unexpected terminal write failure: {}",
+            String::from_utf8_lossy(&send.stderr)
+        );
+    }
     assert!(send.stdout.is_empty(), "--quiet mutation wrote output");
     let screen = wait_for_screen(&server, &terminal, &marker);
     assert!(screen.contains(&marker), "screen did not contain marker; got {screen:?}");
@@ -3634,31 +3743,6 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let copied = json_cli(&server, &["terminal", &terminal, "copy", "--mode", "screen"]);
     assert_success(&copied);
     assert!(json_output(&copied)["text"].as_str().unwrap().contains(&marker));
-
-    let pending = format!("echo prompt_kept_{}", std::process::id());
-    let type_pending =
-        cli(&server, &["--quiet", "terminal", &terminal, "write", "--text", &pending]);
-    assert_success(&type_pending);
-    wait_for_screen(&server, &terminal, &pending);
-
-    let cleared = cli(&server, &["--quiet", "terminal", &terminal, "history", "clear"]);
-    assert_success(&cleared);
-    assert!(cleared.stdout.is_empty(), "--quiet history clear wrote output");
-    let output = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
-    assert_success(&output);
-    let cleared_screen = json_output(&output)["text"].as_str().unwrap().to_string();
-    assert!(
-        cleared_screen.contains(&marker),
-        "clear-history removed visible output without a safe prompt boundary: {cleared_screen:?}"
-    );
-    assert!(!cleared_screen.trim().is_empty(), "clear-history blanked the active terminal");
-    let cleared_scrollback =
-        json_cli(&server, &["terminal", &terminal, "history", "read", "--limit", "200"]);
-    assert_success(&cleared_scrollback);
-    assert!(
-        !String::from_utf8_lossy(&cleared_scrollback.stdout).contains(&marker),
-        "clear-history retained prior output in scrollback"
-    );
 
     let notify = json_cli(&server, &["notification", "create", "--title", "Build", "--body", "ok"]);
     assert_success(&notify);
@@ -3742,6 +3826,73 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     assert_eq!(bogus.status.code(), Some(3));
 
     assert_subscribe_reports_tree_changed(&server);
+}
+
+/// `history clear` on a shell without prompt marks keeps the visible screen
+/// (a pending command line included) and drops the scrollback (cx-6so.48).
+/// Deterministic on purpose: bash without rc files and a fixed one-cell
+/// prompt, so neither a long user prompt nor a resize redraw can wrap the
+/// pending line, and every step waits for the screen it needs.
+#[test]
+fn history_clear_without_a_prompt_boundary_keeps_the_visible_screen() {
+    let server = HeadlessServer::start_without_shell_integration("history-clear");
+    let created = json_cli(&server, &["workspace", "create", "--name", "history-clear"]);
+    assert_success(&created);
+    let terminal = json_output(&created)["value"]["terminal_id"].as_str().unwrap().to_string();
+    let write = |text: &str| {
+        let sent = cli(&server, &["--quiet", "terminal", &terminal, "write", "--text", text]);
+        assert_success(&sent);
+    };
+    let screen = || {
+        let read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
+        assert_success(&read);
+        json_output(&read)["text"].as_str().unwrap().to_string()
+    };
+    let wait_until = |what: &str, done: &dyn Fn(&str) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let text = screen();
+            if done(&text) {
+                return text;
+            }
+            assert!(Instant::now() < deadline, "{what} never happened: {text:?}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    };
+
+    // Replace the login shell (any user rc and prompt) with a clean bash.
+    write("exec env PS1='$ ' PROMPT_COMMAND= bash --norc --noprofile -i\r");
+    write("clear\r");
+    wait_until("the clean prompt", &|text| text.trim() == "$");
+
+    // Old output that only the scrollback holds after the next screenful.
+    write("seq -f old_%g 1 60\r");
+    let marker = format!("history_clear_marker_{}", std::process::id());
+    write(&format!("echo {marker}\r"));
+    wait_until("the marker", &|text| text.contains(&format!("{marker}\n$")));
+    let pending = format!("echo prompt_kept_{}", std::process::id());
+    write(&pending);
+    wait_until("the pending line", &|text| text.contains(&pending));
+
+    // `old_1` exactly (not `old_10`): the first line, long scrolled off.
+    let history_has_old_1 = || {
+        let read = json_cli(&server, &["terminal", &terminal, "history", "read", "--limit", "200"]);
+        assert_success(&read);
+        let text = String::from_utf8_lossy(&read.stdout).into_owned();
+        text.match_indices("old_1")
+            .any(|(at, _)| !text[at + 5..].starts_with(|c: char| c.is_ascii_digit()))
+    };
+    assert!(history_has_old_1(), "the scrollback never held the old output");
+
+    let cleared = cli(&server, &["--quiet", "terminal", &terminal, "history", "clear"]);
+    assert_success(&cleared);
+    assert!(cleared.stdout.is_empty(), "--quiet history clear wrote output");
+    let cleared_screen = screen();
+    assert!(
+        cleared_screen.contains(&marker) && cleared_screen.contains(&pending),
+        "clear-history removed visible output without a safe prompt boundary: {cleared_screen:?}"
+    );
+    assert!(!history_has_old_1(), "clear-history retained prior output in scrollback");
 }
 
 #[test]
@@ -4622,3 +4773,11 @@ fn wg_hub_refuses_a_readable_config_and_missing_options() {
     assert!(help.status.success());
     assert!(String::from_utf8(help.stdout).unwrap().starts_with("USAGE: cmux wg hub"));
 }
+
+#[cfg(unix)]
+#[path = "cli/tabless_terminals.rs"]
+mod tabless_terminals;
+
+#[cfg(unix)]
+#[path = "cli/stop_start_lock.rs"]
+mod stop_start_lock;

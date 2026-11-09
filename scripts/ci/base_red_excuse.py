@@ -97,6 +97,21 @@ test (it names the test, not the bug), an error line or a red step naming no fil
 PR changing check code, workflows, baselines or allowlists, and a file list GitHub
 cut short are never excused this way.
 
+A step-A Rust change (feat-cmux-next's rule from cmux#37292, ported here because
+gh-merge-green runs this copy; 2026-11-09, cmux#38923): the app links one pinned
+release of the app FFI, and scripts/cmux-next/check-app-ffi-pin.sh fails "Check
+the app FFI pin" on any PR that changes the FFI inputs. app-ffi-release.yml
+publishes only from a feat-cmux-next push, so such a PR can never carry its own
+pin. With `--pull N`, the cmux-next checks job is excused when its red steps are
+only that check and the rollup naming it, the check printed the pin error and no
+other error, and the PR changes FFI inputs but not the pin (Package.swift,
+app-ffi-pin.json), no Swift and none of the files that decide the pin verdict
+(FFI_PIN_CHECK_CODE), so no app code calls what the pinned library lacks and
+the PR cannot make the pin error print itself. Only the red steps' own output
+is read: a green step's line is no red
+(tests/test_next_batch.py prints a fixture line ending "error error: y" from a
+passing step). Anything else is judged as before.
+
 Exit 0: excused (audit lines on stdout); 1: not excused; 3: GitHub rate-limited
 a read (the reset time on stderr).
 """
@@ -358,6 +373,106 @@ def printed(job: dict, log: str) -> Counter[str]:
         text = STRING_SET.sub("{…}", text)
         found[re.sub(r"(?<![A-Za-z0-9_])\d+", "#", RUN_NOISE.sub("…", text.replace("##[error]", "").strip()))] += 1
     return found
+
+
+# The step-A rule (module docstring; feat-cmux-next's cmux#37292, same semantics).
+FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+FFI_PIN_CHECK = "Check the app FFI pin"
+FFI_PIN_ROLLUP_STEP = "Fail on any red check"  # the job's last step, red when a continue-on-error check is
+FFI_PIN_ERROR = "error: the app FFI sources changed since the pinned source"
+FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+FFI_PIN_PATHS = ("Packages/macOS/CmuxNext/app-ffi-pin.json", FFI_PIN_MANIFEST)  # a PR changing either moves the pin
+FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh")
+# The files that decide the pin check's verdict: the check, the pin reader it runs, every step's BASH_ENV, this
+# classifier and the workflow holding the pin step and its rollup (the checks job uses no .github/actions/). A PR
+# changing one could make the pin error print for any change, so it is never excused this way (review of cmux#39194).
+# Only these: a new FFI crate also changes app-ffi-release.yml, the router and the licence list (cmux#37869), which do
+# not decide the verdict (review of cmux#39471).
+FFI_PIN_CHECK_CODE = ("scripts/cmux-next/check-app-ffi-pin.sh", "scripts/ci/app_ffi_pin.py", "scripts/ci/api_call_log/",
+                      "scripts/ci/base_red_excuse.py", ".github/workflows/cmux-next.yml")
+FFI_PIN_BASE = "feat-cmux-next"  # app-ffi-release.yml publishes only from a push to it
+
+
+def named_step_lines(job: dict, log: str) -> list[tuple[str, str]] | None:
+    """step_lines() with each `UNKNOWN STEP N` block named by the Nth step of the job that ran, or None when the
+    blocks do not match those steps one for one (printed() refuses the same log)."""
+    lines = step_lines(log)
+    blocks = {step for step, _ in lines if step.startswith(f"{UNKNOWN_STEP} ")}
+    if not blocks:
+        return lines
+    ran = [step.get("name") or "" for step in job.get("steps") or []
+           if step.get("conclusion") not in (None, "skipped") and not RUNNER_STEPS.match(step.get("name") or "")]
+    if len(blocks) != len(ran):
+        return None
+    names = {f"{UNKNOWN_STEP} {index}": name for index, name in enumerate(ran, 1)}
+    return [(names.get(step, step), raw) for step, raw in lines]
+
+
+def red_step_output(job: dict, log: str) -> dict[str, list[str]] | None:
+    """Each red step's own output lines, by step: a step the API calls failed, or one that logged `##[error]` (a
+    continue-on-error check), without the stamp, colour codes and the `##[group]Run` echo of its script. A green
+    step's lines are not read. None when a log with no step names cannot be split into the job's steps."""
+    lines = named_step_lines(job, log)
+    if lines is None:
+        return None
+    red = {step["name"] for step in job.get("steps") or []
+           if step.get("conclusion") not in (None, "success", "skipped")}
+    red |= {step for step, raw in lines if "##[error]" in raw}
+    output: dict[str, list[str]] = {step: [] for step in red}
+    opened: set[str] = set()
+    echo: set[str] = set()
+    for step, raw in lines:
+        if step not in red:
+            continue
+        text = ANSI.sub("", STAMP.sub("", raw.lstrip("\ufeff"))).strip()
+        if text.startswith("##[group]Run ") and step not in opened:
+            opened.add(step)
+            echo.add(step)
+            continue
+        if text.startswith("##[endgroup]"):
+            echo.discard(step)
+            continue
+        if step not in echo and text:
+            output[step].append(text)
+    return output
+
+
+def touches(path: str, read: str) -> bool:
+    """Whether PATH is the input READ names: a directory prefix (ending in `/`) or one file or folder."""
+    return path.startswith(read) if read.endswith("/") else path == read or path.startswith(read + "/")
+
+
+def ffi_pin_step_a(base: str, job: dict, log: str, changed: set[str] | None, pr: int | None) -> str | None:
+    """The audit line excusing a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR
+    into feat-cmux-next, or None, so the job is judged as before: when the base or the job is another, its red steps
+    are not exactly the pin check and the rollup naming only it, the pin check printed no pin error or another error,
+    a red step shows a crash, or the PR (CHANGED, its paths) moves the pin, changes Swift, changes the check code
+    (FFI_PIN_CHECK_CODE) or changes no FFI input."""
+    if base != FFI_PIN_BASE or job.get("name") != FFI_PIN_JOB or changed is None or pr is None:
+        return None
+    output = red_step_output(job, log)
+    if output is None or set(output) != {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP}:
+        return None
+    errors = [text for text in output[FFI_PIN_CHECK] if ERROR.search(text) and not GENERIC.search(text)]
+    if len(errors) != 1 or not errors[0].startswith(FFI_PIN_ERROR):
+        return None
+    rollup = output[FFI_PIN_ROLLUP_STEP]
+    # The rollup must name the pin as its one red check and print no other error.
+    if [text for text in rollup if RED_CHECK.match(text)] != [f"##[error]red check: {FFI_PIN_CHECK}"]:
+        return None
+    if any(ERROR.search(text) and not GENERIC.search(text) and not RED_CHECK.match(text) for text in rollup):
+        return None
+    if any(CRASH.search(text) or CRASH_LINE.search(text) for texts in output.values() for text in texts):
+        return None
+    if any(path in FFI_PIN_PATHS or path.endswith(".swift") for path in changed):
+        return None
+    if any(touches(path, code) for path in changed for code in FFI_PIN_CHECK_CODE):
+        return None
+    if not any(touches(path, read) for path in changed for read in FFI_INPUTS):
+        return None
+    return (f"excused '{FFI_PIN_JOB}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{pr} changes app "
+            f"FFI inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned by the release its "
+            "merge publishes")
 
 
 def crash_signals(log: str) -> set[str]:
@@ -1060,6 +1175,17 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             refusals.append(f"'{name}' at {short(sha)} ({head.url}): " + "; ".join(head.own.crashes + head.own.truncated[:1])[:800]
                             + " (a crash or a cut-short run is never a base red)")
             continue
+        if pr is not None and base == FFI_PIN_BASE and name == FFI_PIN_JOB:
+            try:
+                if changed is None:
+                    changed = changed_files(repo, pr, github)
+            except RateLimited:
+                raise
+            except (Refused, ValueError, KeyError, TypeError, AttributeError):
+                pass  # an unread file list excuses nothing here; the outside-the-diff check reads it again
+            if (step_a := ffi_pin_step_a(base, job, head_log, changed, pr)) is not None:
+                audit.append(step_a)
+                continue
         if head.lint and not head.printed:
             refusals.append(f"'{name}' at {short(sha)} ({head.url}): its failed steps printed nothing to compare "
                             "with the base")

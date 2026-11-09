@@ -12,6 +12,19 @@ cmux agent hook install claude
 cmux agent hook status
 ```
 
+`status` reports each provider on its own row. A provider whose config cannot
+be read gets `state: unavailable`, `reason: unreadable` and the cause in
+`detail`; the other providers still answer and the command exits 0. A failed
+install or uninstall names each cause in its message.
+
+Hook reports outrank the screen-detection plugin for 30 s, with one
+exception: a blocked state ends when the screen proves the dialog gone, after
+the hook reported it. The proof is one plugin process seeing the dialog and
+then not (a restarted plugin starts with no such proof), or the plugin seeing
+the agent's own idle prompt (a dismissal faster than its scan). Claude Code
+sends no hook when a permission dialog is dismissed with Esc, so the screen is
+the only evidence that the agent stopped waiting.
+
 ## Agents in a tmux session started elsewhere
 
 An agent can run in a tmux session whose server was started outside
@@ -36,10 +49,18 @@ Claude Code started in a cmux-tui terminal gets the session's hooks even when
 config directory and passes its own `--settings` (for example a proxy or
 account-switching launcher).
 
-At startup the server writes a `claude` shim to
-`$XDG_DATA_HOME/cmux-tui/shims/claude` (default
-`~/.local/share/cmux-tui/shims/claude`) and puts that directory first on each
-terminal's `PATH`. The shim runs `cmux-tui agent claude-wrapper`, which:
+At startup the server writes `claude` and `codex` shims to a folder of its
+own build, `$XDG_DATA_HOME/cmux-tui/builds/<key>/shims` (default
+`~/.local/share/cmux-tui/builds/<key>/shims`), and puts that folder first on
+each terminal's `PATH` and in `CMUX_TUI_AGENT_SHIMS`. The key is a hash of the
+build's resolved executable path, so two installs on one machine (the npm
+package, the app, a dev build) never run each other's wrapper, and two
+daemons of one build share the folder. The server also points each
+terminal's `CMUX_TUI_HOOK` at its own build's helper: the `cmux-tui-hook`
+beside its executable, else `builds/<key>/bin/cmux-tui-hook`, a launcher that
+runs the executable's hook mode. The shared `cmux-tui/bin/cmux-tui-hook` that
+`agent hook install` writes is not used for these terminals. The shim runs
+`cmux-tui agent claude-wrapper`, which:
 
 1. Finds the next `claude` on `PATH`, skipping the shim.
 2. Folds every `--settings` argument, inline JSON or a file, into one private
@@ -73,10 +94,74 @@ another name that look up `claude` on PATH are not affected.
 
 With `agent hook install claude` also in place and its `cmux-tui-hook`
 helper present, both copies use the same command, and Claude Code runs it
-once. When the wrapper finds no helper (neither the installed copy nor one
-beside the cmux-tui binary), its hooks call `cmux-tui agent hook emit`
-instead. If `CMUX_TUI_HOOK` still names a working helper in that case, the
-installed hooks run as well and each event is delivered twice.
+once. The wrapper keeps a `CMUX_TUI_HOOK` it inherits when that is an
+absolute path to an executable file other than the shared installed helper
+(the terminal's own build helper, or one you set for a launch). Otherwise it
+uses its own build's helper. When it cannot write that helper, its hooks call
+`cmux-tui agent hook emit` instead. If `CMUX_TUI_HOOK` still names a working
+helper in that case, the installed hooks run as well and each event is
+delivered twice.
+
+### Claude started by full path or by a launcher
+
+The shim only covers a `claude` found on `PATH`. A launcher that runs Claude
+by its full path (`sr2 claude` when a login shell has put `~/.local/bin`
+ahead of the shim, a version manager's shim, an alias to the full path, or a
+typed `/path/to/claude`) skips it. For those launches each terminal also
+names this build's Claude Code plugin in `CLAUDE_CODE_PLUGIN_DIRS`, which
+Claude Code 2.1 reads under any config directory and beside any
+`--settings`:
+
+- The server writes the plugin to
+  `$XDG_DATA_HOME/cmux-tui/builds/<key>/claude-plugin` and appends that
+  folder to the `CLAUDE_CODE_PLUGIN_DIRS` the server inherited. Folders of
+  other cmux-tui plugins are dropped (found by their manifest, or by the
+  `cmux-tui/builds/<key>/claude-plugin` place, which also finds the folder
+  of a build deleted since), so a server started in another build's
+  terminal does not load two.
+- The plugin's hooks are the installed hooks plus the `SessionStart` session
+  context. They run `CMUX_TUI_HOOK`, or this build's helper when a launcher
+  removed that variable.
+- Claude Code does not merge plugin hooks with settings hooks. When the user
+  settings of the config directory Claude runs with already hold the hooks
+  from `agent hook install claude`, the plugin's copy of each such event does
+  nothing.
+- Limit: when Claude is started with `--setting-sources` that leaves `user`
+  out, the installed copy does not load, but the plugin's copy still does
+  nothing beside it (no hook tells the plugin which settings loaded). That
+  terminal then gets no hook events, so `agent list` shows no hook state for
+  it (only what screen detection finds). Remove the installed hooks
+  (`agent hook uninstall claude`) or keep `user` in the sources to get the
+  plugin's hooks.
+- Claude Code gives its tool commands its environment: the plugin folder,
+  `CMUX_TUI_HOOK` and the terminal's variables. A Claude that a tool command
+  starts (`claude -p` in a Bash call) would report to the same terminal
+  through the plugin, the installed hooks or the shim's hooks. So the copy
+  of the hooks that reports `SessionStart` (whichever it is) appends
+  `export CMUX_TUI_CLAUDE_OWNER=<terminal>/<session>` to Claude Code's
+  `CLAUDE_ENV_FILE` (creating it), which Claude Code sources before each Bash
+  tool command. Every copy of the Claude hooks reports nothing in a Claude
+  whose environment names its terminal and another session, so the
+  terminal's session, state and journal stay the outer Claude's (the
+  session context still goes to that Claude's model). A Claude started with
+  `cmux agent start` from a tool command runs in its own terminal and
+  reports there. The shim's fallback when no hook helper is found
+  (`cmux-tui agent hook emit`) records events only and does not read the
+  claim; the terminal keeps its first live session.
+- The wrapper removes the plugin from the folders it passes on, because its
+  `--settings` already carries the same hooks. Other plugin folders stay.
+- `CMUX_TUI_CLAUDE_HOOKS_DISABLED=1` turns the plugin's hooks off. Set in the
+  server's environment, it also keeps the folder out of new terminals.
+- Claude Code refuses to start while `CLAUDE_CODE_PLUGIN_DIRS` names a folder
+  under an organization policy with `disableSideloadFlags`. The server adds no
+  folder when this machine's managed settings, managed preferences, or the
+  cached remote settings of the server's Claude config directory set that
+  policy. A policy that only Anthropic's server delivers, and that is not
+  cached there, is not seen; Claude then names `CLAUDE_CODE_PLUGIN_DIRS` in
+  its error, and unsetting it in the terminal starts Claude without the
+  plugin.
+- Claude Code versions without `CLAUDE_CODE_PLUGIN_DIRS` ignore it; for them
+  only the shim adds hooks.
 
 ## Codex without an install
 
@@ -105,6 +190,35 @@ daemon's authorization for direct `cmux notify` calls.
 cmux-tui journal. Native cmux mirrors now subscribe to that transport for
 agent badges; the cmux-tui wrapper itself does not provide those badges.
 
+## Session context
+
+Claude Code and Codex started through the shims, and Claude Code started any
+other way in a terminal that carries the Claude Code plugin, learn where they
+run when their session starts: that they run in a cmux-tui terminal, the
+ids of the session, workspace, screen, pane, tab and terminal, that `current`
+names the session's focused object rather than their own pane, and that
+`skill show` prints the agent guide. The text names the cmux-tui binary that spawned the
+pane by its absolute path (for example `/opt/cmux/cmux-tui skill show`),
+because the `cmux` on PATH can be another program, such as the cmux app's CLI
+when cmux-tui runs in a cmux app terminal. The text reaches the model as the
+`SessionStart` hook's `additionalContext`:
+
+- The Claude wrapper adds one more `SessionStart` hook after the session's
+  hook groups, `cmux-tui agent session-context`, run by the cmux-tui binary
+  that spawned the pane. A binary path that is not UTF-8 drops only this
+  hook; the session's other hooks stay. A Claude that skipped the shim gets
+  the same hook from the terminal's Claude Code plugin (see
+  [Claude started by full path or by a
+  launcher](#claude-started-by-full-path-or-by-a-launcher)).
+- The Codex wrapper's own `SessionStart` hook (the one that carries
+  `CMUX_TUI_HOOK_ROUTE=launch`) prints the context after it hands the event
+  to the journal, and prints `{}` only when the helper fails, so Codex reads
+  one JSON object.
+
+Hooks installed with `agent hook install` add no context, so no agent gets it
+twice. The read takes at most 1.5 s; a session that does not answer leaves
+only the terminal id in the text.
+
 ## Shell startup files and the shim
 
 The shim only works while its directory stays ahead of the real `claude` and
@@ -119,9 +233,10 @@ and the wrappers still start the first `claude` or `codex` after the shim.
 Shells started without the integration (`CMUX_TUI_SHELL_INTEGRATION=none`,
 Apple's `/bin/bash`, or a nested shell typed at the prompt) keep the old
 behavior, and an alias or function named `codex` or `claude` still runs
-instead of the shim. For Claude, `cmux agent hook install claude` covers
-those cases too. `CMUX_TUI_CODEX_HOOKS_DISABLED=1` and
-`CMUX_TUI_CLAUDE_HOOKS_DISABLED=1` leave the agents unchanged.
+instead of the shim. For Claude, the terminal's Claude Code plugin and
+`cmux agent hook install claude` cover those cases too.
+`CMUX_TUI_CODEX_HOOKS_DISABLED=1` and `CMUX_TUI_CLAUDE_HOOKS_DISABLED=1`
+leave the agents unchanged.
 
 Codex needs the shim. Codex 0.162 runs hooks in a shared app-server daemon
 that keeps the environment of whichever shell started it, so an installed
