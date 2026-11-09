@@ -107,7 +107,8 @@ fn host_socket() -> PathBuf {
         let daemon = PathBuf::from(daemon);
         let digest = format!("{:x}", Sha256::digest(daemon.as_os_str().as_encoded_bytes()));
         let parent = daemon.parent().map(Path::to_path_buf).unwrap_or_else(|| "/tmp".into());
-        return parent.join(format!("bh-{}", &digest[..12])).join("browser-host.sock");
+        let leaf: String = digest.chars().take(12).collect();
+        return parent.join(format!("bh-{leaf}")).join("browser-host.sock");
     }
     let base = match env("XDG_RUNTIME_DIR") {
         Some(dir) => PathBuf::from(dir).join("cmux"),
@@ -146,7 +147,7 @@ fn host_call(socket: &Path, method: &str, params: Value) -> Option<Value> {
             return None;
         }
         let Ok(reply) = serde_json::from_str::<Value>(&answer) else { continue };
-        if reply["id"] != json!(id) {
+        if reply.get("id") != Some(&json!(id)) {
             continue;
         }
         if reply.get("error").is_some_and(|e| !e.is_null()) {
@@ -170,9 +171,10 @@ fn capture(socket: &Path, base: &Path, workspace: &str, out: &Path) -> bool {
         "timeoutMs": CAPTURE_LIMIT.as_millis() as u64 - 2_000,
     });
     let taken = host_call(socket, "browser.repl.eval", params).is_some_and(|result| {
-        result["error"].is_null()
-            && result["output"]
-                .as_str()
+        result.get("error").is_none_or(Value::is_null)
+            && result
+                .get("output")
+                .and_then(Value::as_str)
                 .is_some_and(|text| text.lines().any(|l| l.starts_with("TURN_SHOT ")))
     });
     taken && std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() as usize <= MAX_SHOT_BYTES)
@@ -204,7 +206,7 @@ fn prune(dir: &Path, keep: usize) {
     if folders.len() <= keep {
         return;
     }
-    folders.sort_by(|a, b| b.0.cmp(&a.0));
+    folders.sort_by_key(|folder| std::cmp::Reverse(folder.0));
     for (_, path) in folders.into_iter().skip(keep) {
         let _ = std::fs::remove_dir_all(path);
     }
@@ -327,8 +329,10 @@ pub(crate) async fn turn_shots(session: &str, turn: &str) -> Value {
         }
     };
     let mut reply = tokio::task::spawn_blocking(read).await.unwrap_or_else(|_| json!({}));
-    reply["sessionId"] = json!(session);
-    reply["turnId"] = json!(turn);
+    if let Some(fields) = reply.as_object_mut() {
+        fields.insert("sessionId".into(), json!(session));
+        fields.insert("turnId".into(), json!(turn));
+    }
     reply
 }
 
