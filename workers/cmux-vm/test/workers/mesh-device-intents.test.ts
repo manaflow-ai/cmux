@@ -77,9 +77,8 @@ it("refuses a create that commits after the revoke and deletes the tunnel it alr
   await h.mesh.tunnelCreateHeld();
   expect(liveTunnels()).toBe(1);
 
-  const revoked = await revoke(admin, mesh, "slow-intent");
-  expect(revoked.status).toBe(200);
-  expect(Schema.decodeUnknownSync(Revocation)(await revoked.json())).toEqual({ deleted: false });
+  // The create is between its claim and its commit: the tombstone is written, and the answer says to retry.
+  expect((await revoke(admin, mesh, "slow-intent")).status).toBe(503);
   release();
 
   const late = await pending;
@@ -89,8 +88,53 @@ it("refuses a create that commits after the revoke and deletes the tunnel it alr
   expect(await listed(admin, mesh)).toEqual([]);
   expect(h.mesh.store.devices).toHaveLength(0);
   expect(h.resources.filter((row) => row.kind === "device" || row.kind === "tunnel").every((row) => h.isDeleted(row.cmuxId))).toBe(true);
-  // The tombstone holds: another try with the intent still refuses.
+  // Now the revoke's answer is final, and the tombstone holds.
+  expect(Schema.decodeUnknownSync(Revocation)(await (await revoke(admin, mesh, "slow-intent")).json())).toEqual({ deleted: false });
   expect(await codeOf(await enroll(admin, mesh, "slow-intent"))).toBe("mesh.device.intent_revoked");
+});
+
+it("keeps a late create's tunnel for the revoke to delete when the provider refuses its delete", async () => {
+  const { admin, mesh } = await setup();
+  const release = h.mesh.holdTunnelCreates();
+  const pending = enroll(admin, mesh, "flaky-intent");
+  await h.mesh.tunnelCreateHeld();
+  expect((await revoke(admin, mesh, "flaky-intent")).status).toBe(503);
+  h.mesh.failTunnelDeletes(500);
+  release();
+  expect(await codeOf(await pending)).toBe("mesh.device.intent_revoked");
+  // The tunnel is still up, and its ownership rows stay live so a revoke can delete it.
+  expect(liveTunnels()).toBe(1);
+  expect(h.resources.filter((row) => row.kind === "device" || row.kind === "tunnel").some((row) => !h.isDeleted(row.cmuxId))).toBe(true);
+  expect(await listed(admin, mesh)).toEqual([]);
+  // Every revoke retries the delete and answers 503 until it works, never a final 200 with the tunnel up.
+  expect((await revoke(admin, mesh, "flaky-intent")).status).toBe(503);
+  expect(liveTunnels()).toBe(1);
+  h.mesh.failTunnelDeletes(null);
+  const cleaned = await revoke(admin, mesh, "flaky-intent");
+  expect(cleaned.status).toBe(200);
+  expect(Schema.decodeUnknownSync(Revocation)(await cleaned.json())).toEqual({ deleted: true });
+  expect(liveTunnels()).toBe(0);
+  expect(h.resources.filter((row) => row.kind === "device" || row.kind === "tunnel").every((row) => h.isDeleted(row.cmuxId))).toBe(true);
+  expect(Schema.decodeUnknownSync(Revocation)(await (await revoke(admin, mesh, "flaky-intent")).json())).toEqual({ deleted: false });
+});
+
+it("never lets one member tombstone an intent another member claimed after it looked", async () => {
+  const { mesh } = await setup();
+  const a = await h.addKey(A, ["mesh:read", "mesh:join"]);
+  const b = await h.addKey(A, ["mesh:read", "mesh:join"]);
+  // A finds the intent unused; B claims it (its create is in flight); then A's revoke lands.
+  expect(h.mesh.store.deviceIntents().find((row) => row.intentId === "shared")).toBeUndefined();
+  const release = h.mesh.holdTunnelCreates();
+  const pending = enroll(b, mesh, "shared");
+  await h.mesh.tunnelCreateHeld();
+  expect((await revoke(a, mesh, "shared")).status).toBe(404);
+  expect(h.mesh.store.deviceIntents().find((row) => row.intentId === "shared")?.revokedAt).toBeNull();
+  release();
+  expect((await pending).status).toBe(201);
+  expect(liveTunnels()).toBe(1);
+  // The other order is the intended one: an intent A tombstoned first is refused to B.
+  expect(Schema.decodeUnknownSync(Revocation)(await (await revoke(a, mesh, "first-a")).json())).toEqual({ deleted: false });
+  expect(await codeOf(await enroll(b, mesh, "first-a", KEY_2))).toBe("mesh.device.intent_revoked");
 });
 
 it("answers the same device for a repeat with the same intentId, and 409 for other keys", async () => {
