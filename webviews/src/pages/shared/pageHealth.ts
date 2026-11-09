@@ -57,6 +57,16 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   if (!view || installed.has(doc)) return;
   installed.add(doc);
   installScrollingMarks(doc);
+  // A field's text right before the person's first edit (a page's own prefill fires no beforeinput,
+  // so it stays the base however late it comes).
+  doc.addEventListener(
+    "beforeinput",
+    (event) => {
+      const field = draftField(event.target as Element | null);
+      if (field && isTextArea(field) && !loadedText.has(field)) loadedText.set(field, field.value);
+    },
+    { capture: true },
+  );
 
   let handled = 0;
   const count = () => void handled++;
@@ -162,17 +172,23 @@ export function captureState(doc: Document): KeptState {
   if (field) {
     const path = elementPath(field);
     const text = isTextArea(field) ? field.value : (field.textContent ?? "");
-    if (path && text.trim()) {
+    const base = isTextArea(field) ? (loadedText.get(field) ?? field.defaultValue) : "";
+    // A cleared prefilled field is an edit too: kept when it differs from what the page loaded.
+    if (path && (text.trim() || (base && text !== base))) {
       state.draft = { path, text };
       if (isTextArea(field)) {
         state.draft.start = field.selectionStart;
         state.draft.end = field.selectionEnd;
-        if (field.defaultValue) state.draft.base = field.defaultValue;
+        if (base) state.draft.base = base;
       }
     }
   }
   return state;
 }
+
+/** Each draft field's text as the page loaded it, kept apart from `defaultValue`, which a React
+ * controlled textarea keeps equal to its current value. */
+const loadedText = new WeakMap<HTMLTextAreaElement, string>();
 
 // Element checks by name, not `instanceof`: the page's constructors belong to its own window.
 const isTextArea = (element: Element): element is HTMLTextAreaElement => element.localName === "textarea";
@@ -246,6 +262,8 @@ function putDraft(field: HTMLElement, draft: NonNullable<KeptState["draft"]>): v
   const view = field.ownerDocument.defaultView;
   if (isTextArea(field)) {
     if (!view || (field.value && field.value !== draft.base) || field.value === draft.text) return;
+    // The page's own text stays the field's base after the edit comes back.
+    if (!loadedText.has(field)) loadedText.set(field, field.value);
     // The prototype's setter, not the property: React tracks the property and would drop the event.
     Object.getOwnPropertyDescriptor(view.HTMLTextAreaElement.prototype, "value")?.set?.call(field, draft.text);
     field.dispatchEvent(new view.Event("input", { bubbles: true }));

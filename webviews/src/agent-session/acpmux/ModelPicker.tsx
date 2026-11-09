@@ -511,9 +511,11 @@ export function ModelPicker(props: ModelPickerProps) {
   );
   const harnessFixed = props.harnessFixed === true && ownHarness.length > 0 && !forkHarnesses;
   const harnesses = harnessFixed ? ownHarness : (forkHarnesses ?? allHarnesses);
-  // A started chat that can fork marks what it ran (UsedMark), and the pick its next message forks to.
-  const used = forkHarnesses ? (fork?.used ?? "glyph") : undefined;
+  // A started chat that can fork holds the pick its next message forks to, and while one is held marks
+  // what it ran (UsedMark). With nothing held the running row's check says it, and a second mark beside
+  // the check reads as an unexplained clock (Leo 2026-11-09, relaying Lucas: "What's this new clock icon?").
   const held = forkHarnesses ? fork?.held : undefined;
+  const used = held ? (fork?.used ?? "glyph") : undefined;
   // A launch profile folded into its family's tab (pickerProfiles.ts) is no entry of its own: its tab
   // is the family's.
   const heldEntry = held

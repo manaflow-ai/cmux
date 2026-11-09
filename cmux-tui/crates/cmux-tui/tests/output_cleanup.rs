@@ -170,10 +170,12 @@ impl Owner {
     }
 
     /// `server stop`, then waits for the process to exit (blocking, bounded).
+    /// A plain stop: the tests read and reopen the saved state after it (a
+    /// stop with `--end-terminals` removes it). These owners run no terminal.
     fn stop(mut self) {
         for _ in 0..3 {
             let _ = command(&self.dir)
-                .args(["server", "stop", "--session", &self.session, "--end-terminals", "--socket"])
+                .args(["server", "stop", "--session", &self.session, "--socket"])
                 .arg(self.socket())
                 .output();
             if self.child.wait_timeout(Duration::from_secs(20)).unwrap().is_some() {
@@ -600,8 +602,8 @@ fn assert_structural_tables_equal(new: &Path, old: &Path) {
         "journal_event_index",
         "journal_pruned_ranges",
     ];
-    const CLEANUP_META: &str = "'output_cleanup_v1', 'journal_segment_kinds_backfill', 'output_cleanup_full_starts', \
-         'output_cleanup_swap'";
+    const CLEANUP_META: &str = "'output_cleanup_v1', 'output_cleanup_v2', \
+         'journal_segment_kinds_backfill', 'output_cleanup_full_starts', 'output_cleanup_swap'";
     let db = read_only(new);
     db.execute("ATTACH DATABASE ?1 AS old", [old.to_str().unwrap()]).unwrap();
     let tables: Vec<(String, String)> = db

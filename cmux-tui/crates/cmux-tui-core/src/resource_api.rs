@@ -765,6 +765,7 @@ fn session_snapshot_with_journal_head(
             })
             .map(|agent| agent.into_public_snapshot(&topology.session_id))
             .map(|agent| crate::mux::with_last_reply(agent, &last_replies))
+            .map(|agent| crate::mux::with_kept_session(agent, &last_sessions))
             .collect::<Vec<_>>();
         agents.sort_by(|left, right| {
             left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
