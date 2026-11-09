@@ -179,6 +179,7 @@ impl Mux {
             host: agent_roster,
             diagnostic: agent_roster_diagnostic,
             rebuild: agent_roster_rebuild,
+            unmarked_from: agent_roster_unmarked_from,
         } = agent_roster_restore::restore_agent_roster(&registry)?;
         let feed_local = Mutex::new(registry.open_feed_local()?);
         let presentation = registry.presentation_snapshot()?;
@@ -382,6 +383,7 @@ impl Mux {
             pending_diagnostics: Mutex::new(Vec::new()),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
+            journal_seal: Mutex::new(()),
             #[cfg(test)]
             screen_created_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -459,6 +461,9 @@ impl Mux {
             session,
         });
         mux.exit_settles.bind(Arc::downgrade(&mux));
+        if let Some(from_version) = agent_roster_unmarked_from {
+            mux.agent_roster_worker.unmarked_from.store(from_version, Ordering::Release);
+        }
         // The agent roster's one owner: every fold and snapshot save runs there.
         mux.start_agent_roster_worker()?;
         // A stale roster (a reducer version bump) is served now and rebuilt

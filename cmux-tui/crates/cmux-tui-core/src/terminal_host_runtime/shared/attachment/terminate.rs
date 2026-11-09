@@ -167,15 +167,3 @@ impl HostAttachment {
         }
     }
 }
-
-/// Sets the read timeout of a host link, where a link the host already closed
-/// counts as set. macOS fails setsockopt with EINVAL (or ENOTCONN) once both
-/// directions of the socket are shut down, as after the host ended. A read on
-/// that link returns its queued frames and then EOF without a wait, so no
-/// timeout is needed, and the exit frame or record still decides the result.
-fn set_link_read_timeout(link: &HostStream, timeout: Option<Duration>) -> std::io::Result<()> {
-    match link.set_read_timeout(timeout) {
-        Err(error) if matches!(error.raw_os_error(), Some(libc::EINVAL | libc::ENOTCONN)) => Ok(()),
-        result => result,
-    }
-}

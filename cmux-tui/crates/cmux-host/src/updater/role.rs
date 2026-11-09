@@ -24,6 +24,7 @@ use super::{
     DOWNLOAD_DIR, Decision, Pending, Plan, clear_pending, decide, load_pending, load_state,
     off_reason, record_installed, record_rollback, save_pending, save_state,
 };
+use crate::agent::PauseSeen;
 use crate::config::Paths;
 use crate::daemon_spec::{WORK_HOME, WORK_USER};
 
@@ -89,6 +90,11 @@ pub(super) fn wall_ms() -> u64 {
 /// `cmux host update check` and the guard. False when a restart of the
 /// service is pending: the caller's link would be cut, so a bind leaves
 /// `bind.json` for the restarted service, which clears the mark at its start.
+///
+/// It takes the gate's flock ([`super::gate::hold_connects`]): never call it
+/// (or [`hold_if_paused`], [`flip_look`], [`carrier_busy_from`]) inside
+/// [`Gate::run`] or [`flip_in_gate`], which would deadlock on that flock.
+/// Inside, use `Inside::hold_connects(now)`.
 pub(crate) fn hold_connects(paths: &Paths, kind: HoldKind) -> bool {
     super::gate::hold_connects(paths, wall_ms(), kind)
 }
@@ -178,7 +184,19 @@ pub(super) fn hold_if_paused(
     handled: &AtomicU64,
     now: (i128, u64),
 ) -> bool {
-    if !paused_since(watch, handled, now) {
+    hold_if_paused_past(paths, watch, handled, None, now)
+}
+
+/// [`hold_if_paused`], where the pause `own` is the check's own wake
+/// ([`own_wake_covers`]) and starts no hold.
+fn hold_if_paused_past(
+    paths: &Paths,
+    watch: &crate::agent::PauseWatch,
+    handled: &AtomicU64,
+    own: Option<PauseSeen>,
+    now: (i128, u64),
+) -> bool {
+    if !paused_since(watch, handled, own, now) {
         return false;
     }
     // A stop is the machine's own wake (as a resume is): a person's link takes its own connect hold.
@@ -187,31 +205,56 @@ pub(super) fn hold_if_paused(
     true
 }
 
-/// The last look before a flip: a pause the watch counted or is waking from
-/// ([`hold_if_paused`]), or a restore `realtime - boottime` shows from `last`
-/// to `offset_now` ([`restore_look`]), starts the connect hold. True when it did.
 /// Whether `watch` counted a pause after the last one `handled` holds (which
-/// it then takes), or is still waking from one; it starts no hold, so it can
-/// run inside the gate's flock ([`flip_in_gate`]).
+/// it then takes), or is still waking from one, other than the wake `own`
+/// ([`own_wake_covers`]); it starts no hold, so it can run inside the gate's
+/// flock ([`flip_in_gate`]).
 pub(super) fn paused_since(
     watch: &crate::agent::PauseWatch,
     handled: &AtomicU64,
+    own: Option<PauseSeen>,
     now: (i128, u64),
 ) -> bool {
     let seen = watch.seen();
+    // Taken first, also for the own wake's count: a later pause counts past it.
     let counted = seen.pauses > handled.fetch_max(seen.pauses, Ordering::SeqCst);
+    if own.is_some_and(|own| own_wake_covers(own, seen, now.0)) {
+        return false;
+    }
     counted || seen.waking(now.0)
 }
 
+/// Whether `seen` (a look at boot time `now_ns`) is still the wake `own`,
+/// the watch as a `--skip-resume-hold` check found it at its start, still
+/// waking from the resume the Scaler's refresh made: the watch has not looked
+/// since (the same count and last look), or it counted exactly one pause
+/// since, that pause is the one after `own`'s last look (the gap the refresh's
+/// resume ended), and it has not been stopped again (it is not waking). A
+/// pause counted after any later look names that look, not `own`'s, so it is
+/// a new stop, whether or not the first look since counted one (review F1 on
+/// ffbe82dc, #39366). A new stop before that first look reads as the same
+/// wake (one gap to the watch; the check itself was stopped in it).
+pub(super) fn own_wake_covers(own: PauseSeen, seen: PauseSeen, now_ns: i128) -> bool {
+    seen == own
+        || (seen.pauses == own.pauses.saturating_add(1)
+            && seen.pause_from_ns == own.last_look_ns
+            && !seen.waking(now_ns))
+}
+
+/// The last look before a flip: a pause the watch counted or is waking from
+/// other than the check's own wake `own` ([`hold_if_paused`]), or a restore
+/// `realtime - boottime` shows from `last` to `offset_now` ([`restore_look`]),
+/// starts the connect hold. True when it did.
 pub(super) fn flip_look(
     paths: &Paths,
     watch: &crate::agent::PauseWatch,
     handled: &AtomicU64,
+    own: Option<PauseSeen>,
     last: &mut Option<i128>,
     offset_now: i128,
     now: (i128, u64),
 ) -> bool {
-    let paused = hold_if_paused(paths, watch, handled, now);
+    let paused = hold_if_paused_past(paths, watch, handled, own, now);
     let restored = restore_look(last, offset_now);
     if restored {
         super::gate::hold_connects(paths, now.1, HoldKind::Resume);
@@ -221,17 +264,85 @@ pub(super) fn flip_look(
 }
 
 /// The pause and restore looks one check makes: the record it reads, the
-/// pause count it handled and its last `realtime - boottime`.
+/// pause count it handled, its last `realtime - boottime` and the watch as
+/// the check found it at its start.
 pub(super) struct Looks<'a> {
     pub(super) watch: &'a crate::agent::PauseWatch,
     pub(super) handled: &'a AtomicU64,
     pub(super) offset: &'a Mutex<Option<i128>>,
+    pub(super) start: PauseSeen,
 }
 
 impl Looks<'static> {
     /// The service's worker: the supervisor's own watch, kept across steps.
     fn worker() -> Looks<'static> {
-        Looks { watch: &crate::agent::PAUSES, handled: &HANDLED, offset: &CLOCK_OFFSET }
+        Looks {
+            watch: &crate::agent::PAUSES,
+            handled: &HANDLED,
+            offset: &CLOCK_OFFSET,
+            start: crate::agent::PAUSES.seen(),
+        }
+    }
+}
+
+/// The stops one check looks for before its flip and inside its gate.
+///
+/// Review F1 of #39032 at 51f0d38f: with `--skip-resume-hold`, the Scaler's
+/// refresh runs right after the resume it made, and the pause watch can still
+/// be waking from that resume (or count it) during the check. That is the
+/// wake whose hold the flag skips, so it is no stop ([`own_wake_covers`]). A
+/// new pause or restore during the check still is: a look before the gate
+/// that finds one starts a resume hold, which the flag would skip, so the
+/// stop is kept here and stops the flip inside the gate whatever `honor` is.
+pub(super) struct Stops<'l, 'a> {
+    looks: &'l Looks<'a>,
+    /// The wake the check's skipped resume hold covers.
+    own: Option<PauseSeen>,
+    /// A stop a look before the gate found.
+    found: Cell<bool>,
+}
+
+impl<'l, 'a> Stops<'l, 'a> {
+    /// At the check's start (boot time `now_ns`): with `honor`
+    /// [`Honor::AllButResume`] and the watch still waking, that wake is the
+    /// refresh's own.
+    pub(super) fn new(looks: &'l Looks<'a>, honor: Honor, now_ns: i128) -> Self {
+        let own =
+            (honor == Honor::AllButResume && looks.start.waking(now_ns)).then_some(looks.start);
+        Stops { looks, own, found: Cell::new(false) }
+    }
+
+    /// The look before the gate ([`flip_look`]).
+    pub(super) fn before_gate(&self, paths: &Paths, offset_now: i128, now: (i128, u64)) -> bool {
+        let mut last = self.looks.offset.lock().unwrap_or_else(|e| e.into_inner());
+        let looks = self.looks;
+        let stop =
+            flip_look(paths, looks.watch, looks.handled, self.own, &mut last, offset_now, now);
+        self.note(stop)
+    }
+
+    /// The pause count read again right before the gate ([`hold_if_paused`]).
+    pub(super) fn recount(&self, paths: &Paths, now: (i128, u64)) -> bool {
+        let looks = self.looks;
+        let stop = hold_if_paused_past(paths, looks.watch, looks.handled, self.own, now);
+        self.note(stop)
+    }
+
+    /// Inside the gate, after the carrier look: whether a look before found
+    /// a stop, or a pause or restore came since (its query can take
+    /// seconds). It starts no hold: the gate's flock is held.
+    pub(super) fn in_gate(&self, offset_now: i128, now: (i128, u64)) -> bool {
+        let paused = paused_since(self.looks.watch, self.looks.handled, self.own, now);
+        let mut last = self.looks.offset.lock().unwrap_or_else(|e| e.into_inner());
+        let restored = restore_look(&mut last, offset_now);
+        self.found.get() || paused || restored
+    }
+
+    fn note(&self, stop: bool) -> bool {
+        if stop {
+            self.found.set(true);
+        }
+        stop
     }
 }
 
@@ -243,17 +354,25 @@ pub(super) struct OtherLook {
     watch: crate::agent::PauseWatch,
     handled: AtomicU64,
     offset: Mutex<Option<i128>>,
+    start: PauseSeen,
 }
 
 impl OtherLook {
     pub(super) fn start(paths: &Paths, offset_now: i128) -> OtherLook {
         let watch = crate::agent::PauseWatch::load(&paths.at(super::PAUSE_FILE));
-        let handled = AtomicU64::new(watch.pause_seq());
-        OtherLook { watch, handled, offset: Mutex::new(Some(offset_now)) }
+        // One look for the count handled and the start ([`Stops::new`]).
+        let start = watch.seen();
+        let handled = AtomicU64::new(start.pauses);
+        OtherLook { watch, handled, offset: Mutex::new(Some(offset_now)), start }
     }
 
     pub(super) fn looks(&self) -> Looks<'_> {
-        Looks { watch: &self.watch, handled: &self.handled, offset: &self.offset }
+        Looks {
+            watch: &self.watch,
+            handled: &self.handled,
+            offset: &self.offset,
+            start: self.start,
+        }
     }
 }
 
@@ -517,9 +636,10 @@ pub fn check(paths: &Paths, honor: Honor) -> (Outcome, Option<HoldKind>) {
         other = OtherLook::start(paths, crate::linux::realtime_minus_boottime_ns());
         other.looks()
     };
+    let stops = Stops::new(&looks, honor, clocks().0);
     let mut skipped = None;
     let outcome = check_step(paths, looks.watch, looks.handled, &clocks, || {
-        check_inner(paths, &looks, honor, &mut skipped)
+        check_inner(paths, &stops, honor, &mut skipped)
     });
     let mut state = load_state(paths);
     let line = outcome.line();
@@ -553,11 +673,11 @@ pub(super) fn check_step(
     outcome
 }
 
-/// [`check`]'s work, honoring the holds `honor` names; `skipped` gets the
-/// hold the flip's gate went past.
+/// [`check`]'s work, honoring the holds `honor` names, with its pause and
+/// restore looks (`stops`); `skipped` gets the hold the flip's gate went past.
 fn check_inner(
     paths: &Paths,
-    looks: &Looks<'_>,
+    stops: &Stops<'_, '_>,
     honor: Honor,
     skipped: &mut Option<HoldKind>,
 ) -> Outcome {
@@ -624,17 +744,7 @@ fn check_inner(
     };
     let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
     // A stop during this check (its download, its busy look) holds its flip.
-    {
-        let mut last = looks.offset.lock().unwrap_or_else(|e| e.into_inner());
-        flip_look(
-            paths,
-            looks.watch,
-            looks.handled,
-            &mut last,
-            crate::linux::realtime_minus_boottime_ns(),
-            clocks(),
-        );
-    }
+    stops.before_gate(paths, crate::linux::realtime_minus_boottime_ns(), clocks());
     let last =
         last.or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())));
     if let Some(outcome) = last {
@@ -646,32 +756,29 @@ fn check_inner(
     // The pause count read again right before the gate, which then sees the
     // hold a pause found since the look above starts (a resume-kind hold:
     // the machine's own wake).
-    hold_if_paused(paths, looks.watch, looks.handled, clocks());
+    stops.recount(paths, clocks());
     // The connect hold's last look, the carrier sessions' last look, the flip
     // and the queued restarts run inside the gate (`Gate::run`, shared with
     // every process): a bind or a new session that takes the hold before the
     // restart is seen here, and one after waits.
-    // After the carrier look (inside the gate): a pause or restore during its query.
-    let stopped = || {
-        let now = clocks();
-        let mut last = looks.offset.lock().unwrap_or_else(|e| e.into_inner());
-        let paused = paused_since(looks.watch, looks.handled, now);
-        restore_look(&mut last, crate::linux::realtime_minus_boottime_ns()) || paused
-    };
-    let (flipped, went_past) =
-        flip_in_gate(paths, wall_ms, honor, carrier_sessions, stopped, |inside| {
-            store::flip(paths, plan.to)?;
-            log(&format!(
-                "profile {} -> {}: cmux-tui {} ({}); restarting the services",
-                plan.from,
-                plan.to,
-                short_hex(&plan.cmux_tui.sha256),
-                short_hex(&plan.commit)
-            ));
-            inside.restart_queued(wall_ms());
-            restart_after_flip(&store_binary(&plan.old_cmux_tui));
-            Ok::<(), std::io::Error>(())
-        });
+    // After the carrier look (inside the gate): a stop a look above found
+    // (its resume hold is one `--skip-resume-hold` skips), or a pause or
+    // restore during the query.
+    let stopped = || stops.in_gate(crate::linux::realtime_minus_boottime_ns(), clocks());
+    let carrier = || carrier_sessions_within(CARRIER_READ_IN_GATE);
+    let (flipped, went_past) = flip_in_gate(paths, wall_ms, honor, carrier, stopped, |inside| {
+        store::flip(paths, plan.to)?;
+        log(&format!(
+            "profile {} -> {}: cmux-tui {} ({}); restarting the services",
+            plan.from,
+            plan.to,
+            short_hex(&plan.cmux_tui.sha256),
+            short_hex(&plan.commit)
+        ));
+        inside.restart_queued(wall_ms());
+        restart_after_flip(&store_binary(&plan.old_cmux_tui));
+        Ok::<(), std::io::Error>(())
+    });
     drop(commit);
     *skipped = went_past;
     if !matches!(flipped, Gated::Flipped) {
@@ -706,7 +813,8 @@ pub(super) enum Gated<E> {
 /// `restart_queued` between them). The carrier look is under the flock, so a
 /// session that attached after the hold was read is seen here, and a new one
 /// takes its connect hold under the same flock and stops this flip. The
-/// carrier look can take seconds (its query's bound is 20 s), so `stopped`
+/// carrier look can take seconds (its query's bound inside the gate is
+/// [`CARRIER_READ_IN_GATE`]; one past it is busy), so `stopped`
 /// looks for a pause or restore again after it: one during the query starts
 /// the hold (resume kind) and stops this flip whatever `honor` is, as a pause
 /// found before the gate would. Each hold starts at `clock()` when it is
@@ -716,7 +824,7 @@ pub(super) fn flip_in_gate<E>(
     paths: &Paths,
     clock: impl Fn() -> u64,
     honor: Honor,
-    carrier: impl FnOnce() -> Result<Vec<String>, String>,
+    carrier: impl FnOnce() -> Result<Vec<String>, Unread>,
     stopped: impl FnOnce() -> bool,
     flip: impl FnOnce(&super::gate::Inside) -> Result<(), E>,
 ) -> (Gated<E>, Option<HoldKind>) {
@@ -725,10 +833,19 @@ pub(super) fn flip_in_gate<E>(
             return (Gated::Off(format!("{} exists", super::OFF_FILE)), inside.skipped());
         }
         let new_session = Cell::new(false);
-        let busy = carrier_look(carrier(), || {
-            inside.hold_connects(clock());
-            new_session.set(true);
-        });
+        let busy = match carrier() {
+            // No answer within the in-gate bound: busy, and no carrier look
+            // (it starts no bound and forgets no session), so a slow channel
+            // never reads as no sessions, also past the carrier hold's bound.
+            Err(Unread::TimedOut(limit)) => Some(format!(
+                "carrier sessions unknown (no answer within {} s inside the gate)",
+                limit.as_secs()
+            )),
+            read => carrier_look(read.map_err(Unread::why), || {
+                inside.hold_connects(clock());
+                new_session.set(true);
+            }),
+        };
         let gated = match busy {
             Some(why) => Gated::Busy(why),
             None if new_session.get() => Gated::Held(CONNECT_HOLD),
@@ -937,16 +1054,61 @@ pub(super) fn act_on_look(look: CarrierLook, start_hold: impl FnOnce()) -> Optio
     look.busy
 }
 
+/// The bound of a carrier read outside the gate.
+const CARRIER_READ: Duration = Duration::from_secs(20);
+
+/// The bound of the flip's carrier read inside the gate ([`flip_in_gate`]):
+/// the gate's flock is held meanwhile, so every bind and hold on the machine
+/// waits on it. A read that runs past it holds the flip as busy
+/// ([`Unread::TimedOut`]), never as no sessions.
+pub(super) const CARRIER_READ_IN_GATE: Duration = Duration::from_secs(4);
+
+/// Why one read of the carrier sessions has no list.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Unread {
+    /// The query ran past its bound (`timeout`'s exit status 124).
+    TimedOut(Duration),
+    /// Any other failure.
+    Failed(String),
+}
+
+impl Unread {
+    /// The failure an exited query's `status` shows, run under `limit`.
+    pub(super) fn of(status: std::process::ExitStatus, limit: Duration) -> Unread {
+        if status.code() == Some(124) {
+            Unread::TimedOut(limit)
+        } else {
+            Unread::Failed(format!("its admin channel answered {status}"))
+        }
+    }
+
+    fn why(self) -> String {
+        match self {
+            Unread::TimedOut(limit) => {
+                format!("its admin channel did not answer within {} s", limit.as_secs())
+            }
+            Unread::Failed(why) => why,
+        }
+    }
+}
+
+/// [`carrier_sessions_within`] the bound outside the gate.
+fn carrier_sessions() -> Result<Vec<String>, String> {
+    carrier_sessions_within(CARRIER_READ).map_err(Unread::why)
+}
+
 /// The attached carrier sessions, from the session host's admin channel
-/// (`cmux-tui remote enroll connections --json`, at most 20 s), run as the
+/// (`cmux-tui remote enroll connections --json`, at most `limit`), run as the
 /// user and home the session host runs with (the layout marker), since the
 /// channel answers only its own user.
-fn carrier_sessions() -> Result<Vec<String>, String> {
+fn carrier_sessions_within(limit: Duration) -> Result<Vec<String>, Unread> {
     let marker = fs::read_to_string(Paths::new("/").at(crate::config::LAYOUT_MARKER_FILE)).ok();
-    let home = crate::cloud::daemon_noise_key::session_home(marker.as_deref())
-        .ok_or("the session host's layout is not recorded yet")?;
+    let home =
+        crate::cloud::daemon_noise_key::session_home(marker.as_deref()).ok_or_else(|| {
+            Unread::Failed("the session host's layout is not recorded yet".to_owned())
+        })?;
     let mut cmd = Command::new("timeout");
-    cmd.arg("20");
+    cmd.arg(limit.as_secs().max(1).to_string());
     if home != Path::new(crate::daemon_spec::ROOT_HOME) {
         cmd.args(["runuser", "-u", WORK_USER, "--"]);
     }
@@ -959,12 +1121,12 @@ fn carrier_sessions() -> Result<Vec<String>, String> {
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
-        .map_err(|e| format!("cmux-tui: {e}"))?;
+        .map_err(|e| Unread::Failed(format!("cmux-tui: {e}")))?;
     if !output.status.success() {
-        return Err(format!("its admin channel answered {}", output.status));
+        return Err(Unread::of(output.status, limit));
     }
     super::carrier::attached_sessions_in(&String::from_utf8_lossy(&output.stdout))
-        .ok_or_else(|| "its connection list is unreadable".to_owned())
+        .ok_or_else(|| Unread::Failed("its connection list is unreadable".to_owned()))
 }
 
 /// The acpmux sessions that run a turn or wait on a permission, by name
@@ -1300,7 +1462,7 @@ pub fn verb(args: &[String]) -> u8 {
             if matches!(outcome, Outcome::Failed(_)) { 1 } else { 0 }
         }
         // The guard reads no pause record: its rollback flips past the connect
-        // hold on purpose (`rollback` runs the gate with `honor_hold` false,
+        // hold on purpose (`rollback` runs the gate with `Honor::Nothing`,
         // #37280: keeping a build that never proved itself is worse than a
         // restart) and waits only for attached carrier sessions, so a pause's
         // hold could not change what it does.
