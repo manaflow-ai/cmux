@@ -239,9 +239,7 @@ export function AgentIntegrations({ focus }: { focus: string | null }) {
         )}
         {links.length > 0 && (
           <div className="rows" data-integrations-links="">
-            <div className="row-title" role="heading" aria-level={3}>
-              {t("settingsWindow.agentIntegrations.links.title")}
-            </div>
+            <h3 className="row-title m-0">{t("settingsWindow.agentIntegrations.links.title")}</h3>
             <div className="row-help">{t("settingsWindow.agentIntegrations.links.help")}</div>
             {links.map(row)}
             <div className="row-help">{t("settingsWindow.agentIntegrations.links.restart")}</div>
