@@ -284,3 +284,13 @@ test("a session listed twice, then once, drops what only the copy it lost said",
   expect(store.host("s1")).toBeUndefined();
   expect(store.byAgentSession("x1")).toBeUndefined();
 });
+
+test("two chats of one agent session, reordered, link to the one now first", () => {
+  const store = new SessionHoverStore();
+  const a = counted(1, { agentSessionId: "x" });
+  const b = counted(2, { agentSessionId: "x" });
+  store.set([a, b]);
+  store.set([b, a]);
+  expect(store.byAgent("claude", "x")).toBe("s2");
+  expect(store.byAgentSession("x")).toBe("s2");
+});
