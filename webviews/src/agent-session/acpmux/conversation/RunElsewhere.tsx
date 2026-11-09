@@ -306,7 +306,9 @@ function RunElsewhereStream({
     if (!live) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let from = 0;
+    // A row shown again (the transcript is virtual) goes on where its reads stopped.
+    const at = runs.store.get(toolCallId);
+    let from = at?.phase === "running" ? (at.read ?? 0) : 0;
     let delay = 250;
     let failures = 0;
     const decoder = new TextDecoder();
@@ -325,6 +327,7 @@ function RunElsewhereStream({
             ...current,
             phase: ended ? "ended" : "running",
             output: appendOutput(current.output, text + (ended ? decoder.decode() : "")),
+            read: from,
             exitCode: out.exitCode,
             state: out.state,
           });

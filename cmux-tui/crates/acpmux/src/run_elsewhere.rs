@@ -151,11 +151,23 @@ fn example(name: &str) -> bool {
 /// The files whose added lines in `patch` carry a private key or a well-known token shape.
 fn secret_content(patch: &[u8]) -> Vec<String> {
     let text = String::from_utf8_lossy(patch);
-    let mut current: Option<&str> = None;
+    let mut current: Option<String> = None;
+    let mut in_header = false;
     let mut out: Vec<String> = Vec::new();
     for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("diff --git a/") {
-            current = rest.rsplit_once(" b/").map(|(_, b)| b);
+        // A file's header runs from `diff --git` to its first hunk; its `+++ b/<path>` line names
+        // the file, quoted the way git quotes a name with a quote, backslash or control character.
+        if line.starts_with("diff --git ") {
+            current = None;
+            in_header = true;
+            continue;
+        }
+        if in_header {
+            if line.starts_with("@@") {
+                in_header = false;
+            } else if let Some(name) = line.strip_prefix("+++ ") {
+                current = unquote(name).and_then(|n| n.strip_prefix("b/").map(str::to_owned));
+            }
             continue;
         }
         let Some(added) = line.strip_prefix('+') else { continue };
@@ -170,13 +182,48 @@ fn secret_content(patch: &[u8]) -> Vec<String> {
                     && w.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
             });
         if hit
-            && let Some(path) = current
+            && let Some(path) = &current
             && !out.iter().any(|p| p == path)
         {
-            out.push(path.to_owned());
+            out.push(path.clone());
         }
     }
     out
+}
+
+/// A path as git's diff header writes it: as is, or in double quotes with C escapes (`\"`,
+/// `\\`, `\t`, octal bytes). None for a quoted name that doesn't parse.
+fn unquote(name: &str) -> Option<String> {
+    let Some(inner) = name.strip_prefix('"') else { return Some(name.to_owned()) };
+    let inner = inner.strip_suffix('"')?;
+    let mut bytes = Vec::with_capacity(inner.len());
+    let mut it = inner.bytes().peekable();
+    while let Some(b) = it.next() {
+        if b != b'\\' {
+            bytes.push(b);
+            continue;
+        }
+        let c = it.next()?;
+        bytes.push(match c {
+            b'a' => 7,
+            b'b' => 8,
+            b't' => b'\t',
+            b'n' => b'\n',
+            b'v' => 11,
+            b'f' => 12,
+            b'r' => b'\r',
+            b'0'..=b'7' => {
+                let mut v = u32::from(c - b'0');
+                for _ in 0..2 {
+                    let d = it.next().filter(u8::is_ascii_digit)?;
+                    v = v * 8 + u32::from(d - b'0');
+                }
+                u8::try_from(v).ok()?
+            }
+            other => other,
+        });
+    }
+    Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// Whether `line` has `prefix` followed by at least 20 token characters.
@@ -196,6 +243,11 @@ pub fn without_login(url: &str) -> String {
     let Some((scheme, rest)) = url.split_once("://") else { return url.to_owned() };
     let host_end = rest.find('/').unwrap_or(rest.len());
     match rest[..host_end].rsplit_once('@') {
+        // An ssh user names the account, not a secret (`ssh://git@host/x`); a password goes.
+        Some((user, host)) if scheme.eq_ignore_ascii_case("ssh") || scheme.contains("+ssh") => {
+            let user = user.split_once(':').map_or(user, |(u, _)| u);
+            format!("{scheme}://{user}@{host}{}", &rest[host_end..])
+        }
         Some((_, host)) => format!("{scheme}://{host}{}", &rest[host_end..]),
         None => url.to_owned(),
     }

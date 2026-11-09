@@ -247,6 +247,23 @@ test("the run's output streams in under the row in order, drains its tail and st
   expect(calls.reads.length).toBe(4);
 });
 
+test("a row shown again goes on reading where it stopped, without repeating output", async () => {
+  const { runs, calls } = harness([
+    { data: b64("one\n"), nextByte: 4, state: "running" },
+    { data: b64("two\n"), nextByte: 8, state: "running" },
+  ]);
+  runs.store.set("t1", { phase: "running", machine: "build-box", taskId: "bg-7", output: "" });
+  jest.useFakeTimers();
+  await render(call("in_progress", Date.now() - 30_000), runs);
+  await flush();
+  // The virtual transcript drops the row off screen, then shows it again.
+  await act(async () => root!.unmount());
+  const host = await render(call("in_progress", Date.now() - 30_000), runs);
+  await flush();
+  expect(calls.reads).toEqual([0, 4]);
+  expect(host.querySelector(".cv-run-elsewhere__output")?.textContent).toBe("one\ntwo\n");
+});
+
 test("Stop stops the task on the other machine", async () => {
   const { runs, calls } = harness();
   runs.store.set("t1", { phase: "running", machine: "build-box", taskId: "bg-7", output: "" });

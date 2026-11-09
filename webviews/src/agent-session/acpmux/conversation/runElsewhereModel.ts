@@ -68,6 +68,8 @@ export type RunState =
       machine: string;
       taskId: string;
       output: string;
+      /** The next byte of the task's output to read: a row shown again goes on from here. */
+      read?: number;
       exitCode?: number | null;
       state?: string;
     };

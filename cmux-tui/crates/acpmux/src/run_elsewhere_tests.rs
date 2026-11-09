@@ -62,10 +62,26 @@ fn secret_looking_names_are_flagged_and_examples_are_not() {
 
 #[test]
 fn a_private_key_in_added_lines_flags_its_file() {
-    let patch = b"diff --git a/src/a.rs b/src/a.rs\n+fn a() {}\n\
-        diff --git a/notes.txt b/notes.txt\n+-----BEGIN OPENSSH PRIVATE KEY-----\n\
-        diff --git a/cfg.toml b/cfg.toml\n-old AKIAABCDEFGHIJKLMNOP\n+new = 1\n";
+    let patch = b"diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -0,0 +1 @@\n+fn a() {}\n\
+        diff --git a/notes.txt b/notes.txt\n--- /dev/null\n+++ b/notes.txt\n@@ -0,0 +1 @@\n+-----BEGIN OPENSSH PRIVATE KEY-----\n\
+        diff --git a/cfg.toml b/cfg.toml\n--- a/cfg.toml\n+++ b/cfg.toml\n@@ -1 +1 @@\n-old AKIAABCDEFGHIJKLMNOP\n+new = 1\n";
     assert_eq!(secret_content(patch), vec!["notes.txt".to_owned()]);
+}
+
+#[tokio::test]
+async fn a_secret_in_a_file_git_quotes_the_name_of_is_still_flagged() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = dirty_clone(tmp.path());
+    // git quotes a name with a quote, a backslash or a tab in its diff header.
+    for name in ["config\"local.txt", "back\\slash.txt", "tab\there.txt", "caf\u{e9}.txt"] {
+        write(&work.join(name), b"-----BEGIN RSA PRIVATE KEY-----\nabc\n");
+        git_in(&work, &["add", "--", name]);
+    }
+    let plan = plan(&work).await.unwrap();
+    for name in ["config\"local.txt", "back\\slash.txt", "tab\there.txt", "caf\u{e9}.txt"] {
+        let file = plan.files.iter().find(|f| f.path == name).unwrap_or_else(|| panic!("{name} listed"));
+        assert!(file.secret, "{name} is flagged");
+    }
 }
 
 #[test]
@@ -87,7 +103,8 @@ fn a_login_in_the_origin_url_never_leaves_this_machine() {
     assert_eq!(without_login("https://token@host:8443/a@b/c"), "https://host:8443/a@b/c");
     assert_eq!(without_login("https://github.com/acme/app"), "https://github.com/acme/app");
     assert_eq!(without_login("git@github.com:acme/app.git"), "git@github.com:acme/app.git");
-    assert_eq!(without_login("ssh://git@host/acme/app"), "ssh://host/acme/app");
+    assert_eq!(without_login("ssh://git@host/acme/app"), "ssh://git@host/acme/app");
+    assert_eq!(without_login("ssh://git:pw@host/acme/app"), "ssh://git@host/acme/app");
 }
 
 #[test]
