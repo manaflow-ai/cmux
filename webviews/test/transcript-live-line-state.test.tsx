@@ -158,7 +158,7 @@ test("a call in flight still names the call, over any subagent wait", () => {
   expect(line.liveState).toBeUndefined();
 });
 
-test("a finished step gives the line back to Thinking, with the turn's clock named after a dot", () => {
+test('a finished step gives the line back to Thinking, with the turn\'s clock beside it, never named "turn"', () => {
   const user = row("u", "user");
   const started = user.at + 4_950_000;
   const line = codex([
@@ -177,7 +177,7 @@ test("a finished step gives the line back to Thinking, with the turn's clock nam
   ]).at(-1)!;
   // Leo, 2026-11-07: "Why don't we just immediately switch to the thinking?"
   expect(line.doing).toBeUndefined();
-  expect(drawn(line, user.at + 4_951_000)).toBe("Thinking · turn 1h 22m 31s");
+  expect(drawn(line, user.at + 4_951_000)).toBe("Thinking 1h 22m 31s");
 });
 
 test("an answer paused mid-stream reads Writing, not Thinking", () => {
@@ -213,7 +213,7 @@ test("the long-wait gallery entry's live line names its subagents and the turn's
   expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 3 });
   expect(drawn(line, GALLERY_NOW)).toBe("Waiting on 3 subagents 1h 24m 7s");
   const step = codex(longWait.variants["finished-step"]!.snapshot.rows).at(-1)!;
-  expect(drawn(step, GALLERY_NOW)).toBe("Thinking · turn 1h 24m 7s");
+  expect(drawn(step, GALLERY_NOW)).toBe("Thinking 1h 24m 7s");
 });
 
 test("a running call reads the turn's clock as its total, never a clock that starts at the call", () => {

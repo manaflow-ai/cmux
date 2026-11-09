@@ -78,6 +78,16 @@ pub const AGENT_SESSION_SETTINGS_CAPABILITY: &str = "agent-session-settings-v1";
 pub const AGENT_SESSION_LOGIN_CAPABILITY: &str = "agent-session-login-v1";
 /// Owner-only context inventory and cmux-added overrides on the attached session.
 pub const AGENT_SESSION_CONTEXT_CAPABILITY: &str = "agent-session-context-v1";
+/// `agent-session-btw`: the composer's `/btw <question>` on a Cloud chat, as acpmux's inline
+/// `_acpmux/btw` on the attached session (`hub/btw.rs`): a read-only answer about the chat that
+/// never touches it. The side question approves reads on this machine, so only the chat's owner
+/// asks one: never a teammate or link guest, the Cloud mobile carrier (its prompts keep the Web's
+/// asking policy, which this would widen) or a read-only attachment.
+pub const AGENT_SESSION_BTW_CAPABILITY: &str = "agent-session-btw-v1";
+/// How long a side question may wait for its answer: acpmux gives an inline one 110 seconds.
+const BTW_TIMEOUT: Duration = Duration::from_secs(120);
+/// The longest side question, in bytes (a question about the chat, not a prompt).
+const MAX_QUESTION_BYTES: usize = 16 * 1024;
 /// How long a login's finish may wait: Codex's waits for the person's approval in the browser.
 const LOGIN_FINISH_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// The longest login id, code or API key a login step carries, in bytes.
@@ -99,6 +109,13 @@ const MAX_KINDS: usize = 32;
 /// Worker calls (pages, prompts, permission answers) per attachment.
 const MAX_CALLS: usize = 8;
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a prompt waits for acpmux's `prompt_accepted`. acpmux accepts before it starts the
+/// agent, but the first prompt of a chat started a moment ago first waits for that chat's log and
+/// adoption on a daemon that just started, which took over 5 s on a fresh Cloud machine (HQ's
+/// cloud-start-matrix phone-start row, run 42617701877: `agent_session.timeout` 1.4 s after the
+/// start). The prompt was already sent then, so a refusal there was a turn that might still run
+/// while the phone said it failed. Bounded as the login start is.
+pub(super) const PROMPT_ACCEPT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Notifications held while the attach call waits for its reply.
 const MAX_EARLY: usize = 256;
 /// Largest attach or events page sent to the client (a control message);
@@ -420,6 +437,7 @@ enum AgentSessionCommand {
     SetConfig(SetConfigParams),
     Login(LoginParams),
     Context(context::Params),
+    Btw(BtwParams),
 }
 
 impl AgentSessionCommand {
@@ -446,6 +464,7 @@ impl AgentSessionCommand {
             "agent-session-set-config" => Self::SetConfig(from_value(params).ok()?),
             "agent-session-login" => Self::Login(from_value(params).ok()?),
             "agent-session-context" => Self::Context(from_value(params).ok()?),
+            "agent-session-btw" => Self::Btw(from_value(params).ok()?),
             _ => return None,
         })
     }
@@ -507,6 +526,14 @@ struct SetConfigParams {
     value: String,
 }
 
+/// `agent-session-btw`: the person's side question about the attached chat.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BtwParams {
+    surface: SurfaceId,
+    question: String,
+}
+
 /// `agent-session-login`: one step of the chat's agent's own sign-in on this machine (`op`
 /// `start` with `agent`, `finish` with `login_id` and Claude's `code`, `api_key` with `agent` and
 /// `key`, `cancel` with `login_id`).
@@ -566,6 +593,41 @@ fn login(attachment: &Attachment, params: LoginParams) -> Result<Value, Refusal>
         login_request(&attachment.session, params).ok_or(Refusal::BadRequest)?;
     match attachment.link.call(&method, attachment.stamp(body), timeout) {
         Ok(result) => Ok(result),
+        Err(LinkError::Rpc(_, data)) => {
+            let reason = data.get("reason").and_then(Value::as_str).unwrap_or("failed");
+            Ok(json!({"refused": {"reason": reason}}))
+        }
+        Err(LinkError::MethodNotFound(_)) => Ok(json!({"refused": {"reason": "unsupported"}})),
+        Err(error) => Err(Refusal::of(error)),
+    }
+}
+
+/// The person's side question on the attached session's acpmux, answered inline (`{text}`).
+/// acpmux's refusal is an answer, as a login step's is: `{"refused": {"reason": ...}}` with its
+/// `data.reason` (`btw.no_read_only_mode`, `trust.pending`, `unsupported` from an acpmux without
+/// the method). acpmux's message stays in this daemon.
+///
+/// It is the app's pane asking (`via: app`), so acpmux's folder-trust gate holds it as it holds
+/// the app's own inline `/btw` (`trust_gate.rs`): no side question starts an agent in a folder
+/// that is pending or untrusted. An acpmux from before inline answers ignores `inline` and opens
+/// a lasting side session (`{sessionId}`): that session is ended at once and the answer is
+/// `unsupported`, so no hidden work is left running.
+fn btw(attachment: &Attachment, question: String) -> Result<Value, Refusal> {
+    let question = question.trim();
+    if question.is_empty() || question.len() > MAX_QUESTION_BYTES {
+        return Err(Refusal::BadRequest);
+    }
+    let params = json!({"sessionId": attachment.session, "question": question, "inline": true,
+                        "_meta": {"acpmux": {"via": "app"}}});
+    match attachment.link.call("_acpmux/btw", attachment.stamp(params), BTW_TIMEOUT) {
+        Ok(result) if result.get("text").is_some_and(Value::is_string) => Ok(result),
+        Ok(result) => {
+            if let Some(side) = result.get("sessionId").and_then(Value::as_str) {
+                let kill = json!({"sessionId": side, "purge": true});
+                let _ = attachment.link.call("_acpmux/kill", kill, CALL_TIMEOUT);
+            }
+            Ok(json!({"refused": {"reason": "unsupported"}}))
+        }
         Err(LinkError::Rpc(_, data)) => {
             let reason = data.get("reason").and_then(Value::as_str).unwrap_or("failed");
             Ok(json!({"refused": {"reason": reason}}))
@@ -958,6 +1020,7 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         AgentSessionCommand::SetConfig(params) => params.surface,
         AgentSessionCommand::Login(params) => params.surface,
         AgentSessionCommand::Context(params) => params.surface(),
+        AgentSessionCommand::Btw(params) => params.surface,
     }
 }
 
@@ -1202,6 +1265,7 @@ fn run_on_worker(
                 | AgentSessionCommand::SetConfig(_)
                 | AgentSessionCommand::Login(_)
                 | AgentSessionCommand::Context(_)
+                | AgentSessionCommand::Btw(_)
         )
     {
         return refuse(writer, id, Refusal::ReadOnly);
@@ -1209,8 +1273,10 @@ fn run_on_worker(
     // A teammate or link guest never changes the owner's chat's model, mode or options: a mode
     // can stop the agent asking before it acts on the owner's machine. Nor does it sign the
     // owner's agent in: that sets whose account the machine's agent runs as. Context includes
-    // the owner's instructions and saved overrides, beyond what sharing a chat grants.
-    if attachment.author.is_some()
+    // the owner's instructions and saved overrides, beyond what sharing a chat grants. A side
+    // question approves reads on the owner's machine without asking, which a guest's prompt
+    // never does; for the Cloud mobile carrier it would widen the Web's asking policy.
+    if (attachment.author.is_some()
         && matches!(
             &command,
             AgentSessionCommand::SetModel(_)
@@ -1218,7 +1284,9 @@ fn run_on_worker(
                 | AgentSessionCommand::SetConfig(_)
                 | AgentSessionCommand::Login(_)
                 | AgentSessionCommand::Context(_)
-        )
+                | AgentSessionCommand::Btw(_)
+        ))
+        || (attachment.cloud_mobile && matches!(&command, AgentSessionCommand::Btw(_)))
     {
         return refuse(writer, id, Refusal::NotTrusted);
     }
@@ -1473,6 +1541,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         }
         AgentSessionCommand::Login(params) => login(attachment, params),
         AgentSessionCommand::Context(params) => context::call(attachment, params),
+        AgentSessionCommand::Btw(BtwParams { question, .. }) => btw(attachment, question),
         AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
     }
 }
@@ -1593,7 +1662,7 @@ fn submit_prompt(
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
         return Err(refusal);
     }
-    let accepted = receiver.recv_timeout(CALL_TIMEOUT);
+    let accepted = receiver.recv_timeout(PROMPT_ACCEPT_TIMEOUT);
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
     match accepted {
         Ok(accepted) => Ok(json!({

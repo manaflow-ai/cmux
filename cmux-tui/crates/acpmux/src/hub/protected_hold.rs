@@ -6,7 +6,10 @@
 //! all of that waiting, in place, until the person shows it (`_acpmux/attach` or `_acpmux/view`
 //! visible), types into it, or sends it a prompt. A hidden attach (a restored tab the app holds)
 //! asks for nothing. Only the start is held: a prompt a person or an agent sends now queues
-//! behind what waits, as it would behind a running turn.
+//! behind what waits, as it would behind a running turn. Off macOS the home folder itself is
+//! not held (`protected_folders::restored_work_refusal`): no privacy prompt guards it there, and
+//! on a fleet machine whose chats all run in it no person ever opens them, so their queues never
+//! drained after a daemon update.
 
 use super::*;
 
@@ -18,7 +21,7 @@ impl Hub {
             return false;
         }
         let cwd = session.meta().cwd.clone();
-        let Some(reason) = crate::protected_folders::unasked_refusal(&cwd) else {
+        let Some(reason) = crate::protected_folders::restored_work_refusal(&cwd) else {
             return false;
         };
         if !session.protected_hold.swap(true, Ordering::SeqCst) {
