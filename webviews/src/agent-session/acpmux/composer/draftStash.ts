@@ -209,6 +209,13 @@ async function moveNow(from: string, to: string): Promise<void> {
       pending.read = true;
       for (const entry of stacks.get(from) ?? NONE) pending.ids.add(entry.id);
     }
+    // Nothing to bring, now or from an earlier try: done, with no move asked.
+    if (pending?.read && !pending.ids.size && !(stacks.get(from) ?? NONE).length) {
+      const sources = moves.get(to);
+      sources?.delete(from);
+      if (!sources?.size) moves.delete(to);
+      return;
+    }
     changed(from);
     changed(to);
     const answer = await link.move(from, to).catch(() => undefined);

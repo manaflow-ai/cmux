@@ -759,6 +759,8 @@ function ComposerFrame({
   attachmentsRef.current = attachments;
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
+  const originalUploadsRef = useRef(originalUploads);
+  originalUploadsRef.current = originalUploads;
   /// A new chat's text as the host keeps it (`onUnsentDraft`): the person's words only. The host keeps
   /// no attachment with it, so each attachment's token goes, a placeholder still being read included.
   const unsentText = (value: string) =>
@@ -908,7 +910,9 @@ function ComposerFrame({
       text: field.current?.value() ?? textRef.current,
       attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
     }),
-    loading: () => pendingRef.current.length > 0,
+    // A chip still loading, or an image's original still uploading under its preview (a send waits
+    // for both): clearing would cancel it.
+    loading: () => pendingRef.current.length > 0 || originalUploadsRef.current.size > 0,
     clear: () => {
       notTyped();
       if (!field.current?.type("")) {
@@ -921,12 +925,17 @@ function ComposerFrame({
     restore: (restoredText, restoredAttachments) => restoreDraft(restoredText, restoredAttachments),
     focus: () => field.current?.focus(),
   });
-  // A new chat's stack follows it to its session, and to the tab's key once the tab is known.
+  // A new chat's stack follows the chat the tab shows: into its session once it has one, and to
+  // the tab's key once the tab is known. Every time the composer shows a session (a page opened
+  // or reloaded too), drafts left under the tab's new-chat key move into it, so a move that failed
+  // before a reload never leaves them where no composer looks; with none left it is one list.
   const stashedFor = useRef({ sessionId, newChatKey });
   useEffect(() => {
     const before = stashedFor.current;
-    if (!before.sessionId && sessionId) void moveStash(before.newChatKey, sessionId);
-    else if (!sessionId && before.newChatKey !== newChatKey) void moveStash(before.newChatKey, newChatKey);
+    if (sessionId) {
+      void moveStash(newChatKey, sessionId);
+      if (before.newChatKey !== newChatKey) void moveStash(before.newChatKey, sessionId);
+    } else if (before.newChatKey !== newChatKey) void moveStash(before.newChatKey, newChatKey);
     stashedFor.current = { sessionId, newChatKey };
   }, [sessionId, newChatKey]);
   useImperativeHandle(

@@ -282,6 +282,18 @@ describe("draft stash", () => {
     expect(daemon.get("new-a")).toBeUndefined();
   });
 
+  test("a page opened on a session brings the tab's leftover drafts, and asks no move when there are none", async () => {
+    const calls: string[] = [];
+    setStashTransport({ ...fake, move: (...args) => (calls.push("move"), fake.move(...args)) });
+    await moveStash("new-tab:t", "session-1");
+    expect(calls).toEqual([]);
+    // A move that failed before a reload left a draft under the tab's key: the next show takes it.
+    daemon.set("new-tab:t", [{ id: "stash-left", text: "left behind", attachments: [], at: 1 }]);
+    await moveStash("new-tab:t", "session-1");
+    expect(calls).toEqual(["move"]);
+    expect(texts("session-1")).toEqual(["left behind"]);
+  });
+
   test("an answer that is not a stack reads as none", () => {
     expect(draftsFrom(undefined)).toEqual([]);
     expect(draftsFrom({ drafts: [{ id: 1 }, "x", null] })).toEqual([]);

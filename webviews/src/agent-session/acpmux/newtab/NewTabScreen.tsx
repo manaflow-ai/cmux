@@ -524,6 +524,7 @@ export function NewTabScreen(props: Props) {
     setAttachments,
     pending: reading,
     originalFailures,
+    originalUploads,
     unsettled,
     videoReading,
     cancel,
@@ -577,6 +578,8 @@ export function NewTabScreen(props: Props) {
   const stashChat = NEW_TAB_STASH;
   const readingRef = useRef(reading);
   readingRef.current = reading;
+  const originalUploadsRef = useRef(originalUploads);
+  originalUploadsRef.current = originalUploads;
   const touchedRef = useRef(touched);
   touchedRef.current = touched;
   const {
@@ -588,7 +591,8 @@ export function NewTabScreen(props: Props) {
       const value = field.current?.value() ?? text;
       return { text: touchedRef.current ? value : "", attachments: attachmentsRef.current };
     },
-    loading: () => readingRef.current.length > 0,
+    // A chip still loading, or an image's original still uploading under its preview.
+    loading: () => readingRef.current.length > 0 || originalUploadsRef.current.size > 0,
     clear: () => {
       if (!field.current?.type("")) setText("");
       attachmentsRef.current = [];
