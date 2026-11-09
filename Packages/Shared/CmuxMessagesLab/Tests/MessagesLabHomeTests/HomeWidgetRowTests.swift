@@ -152,6 +152,19 @@ final class FakeWidgets: HomeWidgetHosting {
         return part
     }
 
+    @Test func aRowSymbolPutsInkInTheRow() throws {
+        // On a white canvas, so the corner is the background and the symbol is the ink.
+        let ctx = try #require(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
+                                         space: CGColorSpaceCreateDeviceRGB(),
+                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        HomeWidgetSymbols().draw("checkmark.circle", in: CGRect(x: 8, y: 8, width: 48, height: 48),
+                                 color: .black, ctx: ctx)
+        let image = try #require(ctx.makeImage())
+        #expect(Self.inkedPixels(image) > 200)
+    }
+
     /// Pixels that differ from the canvas corner (the background): the bubble and what is drawn on it.
     static func inkedPixels(_ image: CGImage) -> Int {
         guard let data = image.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else { return 0 }
