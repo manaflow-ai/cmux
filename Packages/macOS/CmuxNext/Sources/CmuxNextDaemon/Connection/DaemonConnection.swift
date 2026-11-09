@@ -219,7 +219,7 @@ public actor DaemonConnection {
     /// another transport, maybe to a daemon that numbers surfaces anew, took its place.
     func request<R: DaemonRequest>(_ request: R, timeout: Duration?, on serial: UInt64?) async throws -> R.Response {
         await waitOutHandoff()
-        guard let ready, serial.map({ $0 == ready.serial }) ?? true else { throw DaemonError.notConnected }
+        guard let ready, serial.map({ _ in true }) ?? true else { throw DaemonError.notConnected }
         requestStarted()
         defer { requestEnded() }
         try R.requireServed(by: identity)

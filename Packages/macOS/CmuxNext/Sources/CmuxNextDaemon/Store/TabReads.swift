@@ -74,7 +74,7 @@ import Foundation
         guard sending.insert(key).inserted else { return nil }
         return send(stands: { tab.readingNotification == reading && alive() }, current: current,
                     refused: { _ in tab.dropExpectedNotificationRead() }, answered: answered,
-                    ended: { [weak self] in self?.sending.remove(key) }) {
+                    ended: { _ = key }) {
             // The tab's surface as it is at this try: a daemon that came back may number it anew.
             try await ack(tab.surface)
         }
