@@ -40,23 +40,59 @@ export const OP_FIELDS = {
 };
 // cmux-platform's own defaults for a create that names no size (Plan.ts DEFAULT_SIZE); memory is the plan's.
 const DEFAULT_CREATE_SIZE = { cpu: 2, disk_mb: 16384 };
-// A size as the relay names took it, flat or nested (`cpu`, `memoryMb`, `diskMb`), as cloud.*'s `size`.
-const SIZE_NAMES = { cpu: "cpu", vcpus: "cpu", cpus: "cpu", memoryMb: "memory_mb", memory_mb: "memory_mb", memoryMB: "memory_mb", diskMb: "disk_mb", disk_mb: "disk_mb", diskMB: "disk_mb" };
-function sizeOf(params) {
+// A size field as the classic routes and the protocol spell it (the classic resize took cpu, memoryMb and
+// storageMb; the classic create memoryMb), as cloud.*'s `size`.
+const SIZE_NAMES = { cpu: "cpu", memoryMb: "memory_mb", memory_mb: "memory_mb", storageMb: "disk_mb", diskMb: "disk_mb", disk_mb: "disk_mb" };
+const REVISION = ["expected_revision", "expectedRevision"];
+// Every field each aliased relay op takes: its old classic /api/vm body's fields (the relay passed them
+// through before cmux-platform) and the protocol's own names. A field outside its op's list is refused
+// before any request, never dropped (cloud-relay.test.mjs holds every old field to a protocol field).
+export const ACCEPTED = {
+  "vm.list": ["cursor", "limit"],
+  "vm.get": ["vm_id", "machine"],
+  "vm.create": ["name", "displayName", "size", ...Object.keys(SIZE_NAMES), "image", "from_snapshot", "fromSnapshot", "snapshot_id", ...REVISION],
+  "vm.update": ["vm_id", "machine", "name", "displayName", ...REVISION],
+  "vm.start": ["vm_id", "machine", ...REVISION], "vm.resume": ["vm_id", "machine", ...REVISION],
+  "vm.pause": ["vm_id", "machine", ...REVISION], "vm.delete": ["vm_id", "machine", ...REVISION],
+  "vm.resize": ["vm_id", "machine", "size", ...Object.keys(SIZE_NAMES), ...REVISION],
+  "vm.snapshot.list": ["vm_id", "machine"],
+  "vm.snapshot.create": ["vm_id", "machine", "name", ...REVISION],
+  "vm.snapshot.restore": ["vm_id", "snapshot_id", "snapshotId", "snapshot", "name", ...REVISION],
+  "vm.snapshot.delete": ["vm_id", "snapshot_id", "snapshotId", "snapshot", ...REVISION],
+};
+// Old classic fields this Cloud has no protocol field for: refused with why, not dropped.
+const NOT_ON_THIS_CLOUD = {
+  autosize: "the create's autosize is not available on this Cloud yet; pass memoryMb",
+  idlePauseMinutes: "set the idle pause with cloud.machine.idle_policy.set after the create",
+};
+function sizeOf(operation, params) {
   const size = {};
-  for (const source of [params, typeof params.size === "object" && params.size ? params.size : {}]) {
-    for (const [name, value] of Object.entries(source)) if (SIZE_NAMES[name] && value !== undefined && value !== null) size[SIZE_NAMES[name]] = value;
+  const nested = params.size === undefined || params.size === null ? {} : params.size;
+  if (typeof nested !== "object" || Array.isArray(nested)) throw new Error(`${operation}: size must be an object`);
+  for (const [source, at] of [[params, ""], [nested, "size."]]) {
+    for (const [name, value] of Object.entries(source)) {
+      if (source === params && !SIZE_NAMES[name]) continue;
+      if (!SIZE_NAMES[name]) throw new Error(`${operation} takes no ${at}${name}`);
+      if (value !== undefined && value !== null) size[SIZE_NAMES[name]] = value;
+    }
   }
   return size;
 }
-/** A relay op's params as its cloud.* op takes them: `vm_id` is `machine`, `snapshot_id` is `snapshot`,
- * `displayName` is `name`, a create's or resize's sizing is `size` (never empty: a create with none gets the
- * platform's default, a resize with none sends none and is refused), and nothing the op does not take. */
-function aliasParams(op, params) {
-  const named = { ...params, machine: params.machine ?? params.vm_id, snapshot: params.snapshot ?? params.snapshot_id,
-    name: params.name ?? params.displayName };
+/** A relay op's params as its cloud.* op takes them: `vm_id` is `machine`, `snapshot_id` or `snapshotId` is
+ * `snapshot`, `displayName` is `name`, a create's or resize's sizing is `size` (never empty: a create with none
+ * gets the platform's default, a resize with none sends none and is refused). Any other field is refused. */
+function aliasParams(operation, op, params) {
+  for (const field of Object.keys(params)) {
+    if (NOT_ON_THIS_CLOUD[field]) throw new Error(`${operation}: ${NOT_ON_THIS_CLOUD[field]}`);
+    if (!ACCEPTED[operation].includes(field)) throw new Error(`${operation} takes no ${field}`);
+  }
+  const named = { machine: params.machine ?? params.vm_id, snapshot: params.snapshot ?? params.snapshot_id ?? params.snapshotId,
+    name: params.name ?? params.displayName, image: params.image, cursor: params.cursor, limit: params.limit };
+  if (op === "cloud.machine.rename" && (named.name === undefined || named.name === null || named.name === "")) {
+    throw new Error(`${operation} needs a name; this Cloud cannot clear one`);
+  }
   if (op === "cloud.machine.create" || op === "cloud.machine.resize") {
-    const size = sizeOf(params);
+    const size = sizeOf(operation, params);
     named.size = Object.keys(size).length ? size : op === "cloud.machine.create" ? { ...DEFAULT_CREATE_SIZE } : undefined;
   }
   if (op === "cloud.machine.create") named.from_snapshot = params.from_snapshot ?? params.fromSnapshot ?? params.snapshot_id;
@@ -97,7 +133,7 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
       // A protocol op: its catalog class picks /v1/ops (a mutation, with a key and the script origin) or /v1/read.
       const aliased = Object.hasOwn(OP_ALIASES, operation);
       const op = aliased ? OP_ALIASES[operation] : operation;
-      const opParams = aliased ? aliasParams(op, params) : params;
+      const opParams = aliased ? aliasParams(operation, op, params) : params;
       const descriptor = catalog.operations?.[operation];
       const isMutation = descriptor ? descriptor.class === "mutation" : MUTATIONS.has(operation);
       const revision = aliased && isMutation ? expectedRevision(params) : undefined;

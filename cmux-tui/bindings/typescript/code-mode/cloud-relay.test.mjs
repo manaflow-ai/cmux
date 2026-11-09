@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createCloudBroker, serveCloudRelay, OP_FIELDS } from "./cloud-relay.mjs";
+import { createCloudBroker, serveCloudRelay, OP_FIELDS, ACCEPTED } from "./cloud-relay.mjs";
 import { createConnection } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -169,7 +169,7 @@ test("every aliased relay op sends a valid /v1/ops or /v1/read envelope, whateve
     ["vm.get", { vm_id: "vm_x" }],
     ["vm.create", {}], ["vm.create", { name: "box" }], ["vm.create", { displayName: "box", cpu: 4, memoryMb: 8192, diskMb: 32768 }],
     ["vm.create", { name: "box", size: { memory_mb: 8192 }, image: "img_x", snapshot_id: "snap_x", expected_revision: 7 }],
-    ["vm.update", { vm_id: "vm_x", displayName: "renamed", expectedRevision: "12" }], ["vm.update", { vm_id: "vm_x", name: "n", stray: 1 }],
+    ["vm.update", { vm_id: "vm_x", displayName: "renamed", expectedRevision: "12" }], ["vm.update", { vm_id: "vm_x", name: "n" }],
     ["vm.start", { vm_id: "vm_x" }], ["vm.resume", { vm_id: "vm_x", expected_revision: "3" }], ["vm.pause", { vm_id: "vm_x" }],
     ["vm.resize", { vm_id: "vm_x", memoryMb: 8192 }], ["vm.resize", { vm_id: "vm_x", size: { cpu: 2 }, expected_revision: "4" }],
     ["vm.delete", { vm_id: "vm_x" }], ["vm.snapshot.list", { vm_id: "vm_x" }], ["vm.snapshot.create", { vm_id: "vm_x", name: "s" }],
@@ -192,6 +192,52 @@ test("every aliased relay op sends a valid /v1/ops or /v1/read envelope, whateve
   assert.equal(sent(13).expected_revision, "4");
   assert.deepEqual(sent(17).params, { snapshot: "snap_x", name: "back" });
   assert.equal("expected_revision" in sent(0), false, "a read has no expected_revision");
+});
+
+// Every field each relay op's old classic /api/vm body took (the relay passed params through before this
+// change; the shapes are the deleted callers': CloudAPIClient.swift's createMachine, renameMachine, resize,
+// snapshot and restore, and cmux-cloud-api classic.rs's vm.resize pick of cpu, memoryMb and storageMb), and
+// the protocol field it is now. null: refused loudly, with why.
+const OLD_SURFACE = {
+  "vm.create": { displayName: ["name", "box"], memoryMb: ["size.memory_mb", 8192], autosize: [null, { taskKind: "chat" }], idlePauseMinutes: [null, 30] },
+  "vm.update": { displayName: ["name", "renamed"] },
+  "vm.resize": { cpu: ["size.cpu", 4], memoryMb: ["size.memory_mb", 8192], storageMb: ["size.disk_mb", 32768] },
+  "vm.snapshot.create": { name: ["name", "s"] },
+  "vm.snapshot.restore": { snapshotId: ["snapshot", "snap_x"], snapshot_id: ["snapshot", "snap_x"] },
+  "vm.snapshot.delete": { snapshot_id: ["snapshot", "snap_x"] },
+};
+const ID = { "vm.create": {}, "vm.snapshot.restore": {}, "vm.snapshot.delete": { vm_id: "vm_x", snapshot_id: "snap_x" } };
+
+test("every field a relay op took before cmux-platform maps onto a protocol field or is refused, never dropped", async () => {
+  for (const [operation, fields] of Object.entries(OLD_SURFACE)) {
+    for (const [field, [target, value]] of Object.entries(fields)) {
+      const { broker, calls } = recordingBroker();
+      const base = ID[operation] ?? { vm_id: "vm_x" };
+      const outcome = await broker.request(operation, { ...base, [field]: value }, "k").then(() => null, (error) => error);
+      if (target === null) {
+        assert.ok(outcome, `${operation}.${field} is refused`);
+        assert.equal(calls.length, 0, `${operation}.${field}: nothing sent`);
+        continue;
+      }
+      assert.equal(outcome, null, `${operation}.${field}: ${outcome?.message}`);
+      const [head, tail] = target.split(".");
+      const sent = tail ? calls[0].body.params[head]?.[tail] : calls[0].body.params[head];
+      assert.deepEqual(sent, value, `${operation}.${field} -> ${target}`);
+      assert.deepEqual(envelopeProblems(calls[0].body, calls[0].url), [], `${operation}.${field}`);
+    }
+  }
+  // Every old field is in its op's accepted list (or refused by name), so none can fall through unlisted.
+  for (const [operation, fields] of Object.entries(OLD_SURFACE)) {
+    for (const [field, [target]] of Object.entries(fields)) if (target !== null) assert.ok(ACCEPTED[operation].includes(field), `${operation}.${field}`);
+  }
+});
+
+test("a field an aliased relay op does not take is refused before any request", async () => {
+  const { broker, calls } = recordingBroker();
+  await assert.rejects(broker.request("vm.update", { vm_id: "vm_x", name: "n", stray: 1 }, "k"), /takes no stray/);
+  await assert.rejects(broker.request("vm.resize", { vm_id: "vm_x", size: { gpu: 1 } }, "k"), /takes no size\.gpu/);
+  await assert.rejects(broker.request("vm.update", { vm_id: "vm_x", displayName: null }, "k"), /needs a name/);
+  assert.equal(calls.length, 0);
 });
 
 test("a resize that names no size sends none, so the platform refuses it instead of an empty one", async () => {
@@ -347,7 +393,9 @@ test("every relay operation calls the method and path that its catalog binding d
         return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
       },
     });
-    await broker.request(operation, { ...params }, entry.class === "mutation" ? `key-${operation}` : undefined);
+    // An aliased op takes only its own fields (ACCEPTED); the rest take the shared set.
+    const own = ACCEPTED[operation] ? Object.fromEntries(Object.entries(params).filter(([field]) => ACCEPTED[operation].includes(field))) : params;
+    await broker.request(operation, { ...own }, entry.class === "mutation" ? `key-${operation}` : undefined);
     const expected = binding.path.replace(/:([a-z_]+)/g, (_, field) => encodeURIComponent(values[field]));
     const actual = new URL(calls[0].url);
     assert.equal(`${calls[0].init.method} ${actual.pathname}`, `${binding.method} ${expected}`, operation);
