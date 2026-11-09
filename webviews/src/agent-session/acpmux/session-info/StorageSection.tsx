@@ -377,6 +377,7 @@ export function StorageSection({
         <div className="acpmux-session-info-storage__bar">
           {summary || selectAll || <span />}
           <span className="acpmux-session-info-storage__end">
+            {summary && selectAll}
             {measuring ? (
               <span className="acpmux-session-info-storage__measuring" aria-live="polite">
                 {t("sessionInfo.storage.measuring")}
@@ -447,7 +448,6 @@ export function StorageSection({
                     : t(label.key, label.values)}
             </Button>
           )}
-          {summary && selectAll}
         </div>
       )}
       {view.kept.length > 0 && (

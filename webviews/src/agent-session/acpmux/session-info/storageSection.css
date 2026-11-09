@@ -23,9 +23,10 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* Select all sits at the foot's end on one line; the Free button gives way first. */
-.acpmux-session-info-storage__foot > .acpmux-session-info-link {
-  margin-left: auto;
+/* Select all sits on the summary line, beside Refresh, on one line; the disk text gives way. */
+.acpmux-session-info-storage__end {
+  flex: none;
+  gap: var(--grid-gap);
   white-space: nowrap;
 }
 .acpmux-session-info-storage__foot > .acpmux-session-info-storage__free {
