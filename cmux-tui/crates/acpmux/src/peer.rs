@@ -211,7 +211,9 @@ pub struct Peer {
     replaying: StdMutex<HashMap<String, u32>>,
     /// Requests bound to the link's connection (a `session/load`, an attach), by pending key:
     /// the line to send again on the next link when this one switches paths under them.
-    switch_retry: StdMutex<HashMap<String, String>>,
+    /// Each with the link epoch it last went out on: only one sent on an earlier link is sent
+    /// again, never one the new link already carries.
+    switch_retry: StdMutex<HashMap<String, (String, u64)>>,
     /// The link ended to switch paths; its bound requests go again on the next link.
     switched: AtomicBool,
     /// The pending keys of requests sent on both paths.
@@ -1429,7 +1431,7 @@ impl Peer {
         // Bound to the link's connection: sent again on the next link if this one switches
         // paths before it answers, never raced on two (`Peer::resend_switched`).
         let _retry = retry.then(|| {
-            self.switch_retry.lock_or_recover().insert(key.clone(), line.clone());
+            self.switch_retry.lock_or_recover().insert(key.clone(), (line.clone(), tag));
             ForgetRetry { peer: self, key: key.clone() }
         });
         let frame = Outbound { epoch: tag, key: Some(key), line };
@@ -1483,7 +1485,15 @@ impl Peer {
             let pending = self.pending.lock().await;
             let mut retry = self.switch_retry.lock_or_recover();
             retry.retain(|key, _| pending.contains_key(key));
-            retry.iter().map(|(key, line)| (key.clone(), line.clone())).collect()
+            // Only those the earlier link carried: one made on this link went out on it already.
+            retry
+                .iter_mut()
+                .filter(|(_, (_, sent_on))| *sent_on < link)
+                .map(|(key, (line, sent_on))| {
+                    *sent_on = link;
+                    (key.clone(), line.clone())
+                })
+                .collect()
         };
         for (key, line) in lines {
             tracing::debug!(peer = %self.name, key = %key, "sending a bound request again after a path switch");

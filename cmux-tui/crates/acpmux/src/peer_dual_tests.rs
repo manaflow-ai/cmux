@@ -384,7 +384,7 @@ async fn a_load_the_switch_cut_off_is_sent_again_on_the_next_link() {
     for switched in [true, false] {
         let (reply, mut waiting) = oneshot::channel();
         peer.pending.lock().await.insert("7".to_owned(), reply);
-        peer.switch_retry.lock().unwrap().insert("7".to_owned(), line.to_owned());
+        peer.switch_retry.lock().unwrap().insert("7".to_owned(), (line.to_owned(), 2));
         peer.switched.store(switched, Ordering::SeqCst);
         peer.fail_link_requests(&mut out_rx).await;
         assert_eq!(peer.pending.lock().await.contains_key("7"), switched);
@@ -598,4 +598,34 @@ async fn an_error_from_the_shadow_leaves_the_caller_to_the_links_answer() {
     send(&mut rig.primary, json!({"jsonrpc": "2.0", "id": id, "result": {"from": "link"}})).await;
     let answer = tokio::time::timeout(WAIT, asking).await.unwrap().unwrap().unwrap();
     assert_eq!(answer, json!({"from": "link"}));
+}
+
+/// A load made on the new link right after a switch (registered before the handshake resends
+/// what the old link left) goes out once: only a load the old link carried is sent again, and
+/// once only.
+#[tokio::test]
+async fn a_load_made_right_after_a_switch_is_sent_once() {
+    let (tx, _notices) = mpsc::channel(16);
+    let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let old = r#"{"jsonrpc":"2.0","id":7,"method":"session/load","params":{"sessionId":"s1"}}"#;
+    let new = r#"{"jsonrpc":"2.0","id":8,"method":"session/load","params":{"sessionId":"s2"}}"#;
+    for key in ["7", "8"] {
+        let (reply, _waiting) = oneshot::channel();
+        std::mem::forget(_waiting);
+        peer.pending.lock().await.insert(key.to_owned(), reply);
+    }
+    {
+        let mut retry = peer.switch_retry.lock().unwrap();
+        retry.insert("7".to_owned(), (old.to_owned(), 2));
+        // Sent on link 3 already, by its caller.
+        retry.insert("8".to_owned(), (new.to_owned(), 3));
+    }
+    peer.resend_switched(3).await;
+    let again = out_rx.try_recv().expect("the old link's load goes again");
+    assert_eq!(again.key.as_deref(), Some("7"));
+    assert!(out_rx.try_recv().is_err(), "the new link's load is not sent twice");
+    // A second resend on the same link sends nothing more.
+    peer.resend_switched(3).await;
+    assert!(out_rx.try_recv().is_err());
 }
