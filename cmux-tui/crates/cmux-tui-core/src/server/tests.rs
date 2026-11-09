@@ -556,6 +556,7 @@ mod session_streams;
 mod sizing;
 mod socket_and_render;
 mod subscribe_scroll_on_attach;
+mod terminal_close_if_unplaced;
 mod test_socket_path;
 mod tree_selection_deltas;
 mod view_leases;

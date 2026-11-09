@@ -170,6 +170,9 @@ PARTS = [
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
     {"name": "web-ui", "where": "linux", "kind": "webui", "needs": "web-ui"},
+    # The update-one bench (webviews/bench/update-one.bench.ts): one session's change at 100, 1,000 and 3,000 listed
+    # sessions, its cost and its growth. Its own part, so the suite's other benches keep their 30-minute cap.
+    {"name": "web-ui-scale", "where": "linux", "kind": "webui", "needs": "web-ui-scale"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -178,7 +181,7 @@ ROW_PARTS = [
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
-    (r"^diff\.", "diff-viewer"), (r"^webui\.", "web-ui"),
+    (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"), (r"^webui\.", "web-ui"),
 ]
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
@@ -717,6 +720,8 @@ def linux_bench_runs(root, part="diff-viewer"):
     budget env. web-ui: the shared web UI perf harness, which runs the web UI benches and prints one JSON report."""
     if part == "web-ui":
         return {"suite": (["bun", "bench/web-ui-suite.ts"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-scale":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "update-one"], os.path.join(root, "webviews"), {})}
     return {
         "sidecar": ([os.path.join(root, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
                      "--manifest-path", os.path.join(root, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",
@@ -1514,6 +1519,8 @@ def supported_parts_at(sha):
                      for path in ("Native/DiffSidecar/Cargo.toml", "webviews/bench/diff-stream.bench.ts"))
         elif need == "web-ui":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{WEBUI_SUITE}"], capture_output=True).returncode == 0
+        elif need == "web-ui-scale":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{UPDATE_ONE_BENCH}"], capture_output=True).returncode == 0
         elif need in ("perf-gate", "launch"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -1552,6 +1559,7 @@ LEGACY_MEASURE_VERSION = 2  # the version of every row stored before rows carrie
 DIFF_LEGACY_VERSION = 1
 # The web-ui part's runner; a commit without it does not run the part. Its rows are webui.<the bench's PERF_ROW name>.
 WEBUI_SUITE = "webviews/bench/web-ui-suite.ts"
+UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
 WEBUI_ROW_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_-]+)*$")
 DIFF_BENCH_FILES = {"sidecar": "Native/DiffSidecar/src/benchmark.rs", "stream": "webviews/bench/diff-stream.bench.ts"}
 DIFF_BENCH_VERSION_RE = re.compile(r"\bDIFF_BENCH_VERSION\s*(?::\s*u32\s*)?=\s*(\d+)")
@@ -2773,7 +2781,7 @@ def cmd_run_linux_part(o):
         tail += [f"{name}: exit {code}"] + stderr.splitlines()[-10:]
         if before:
             load[name] = contention_factor(before + host_contention())
-        if part == "web-ui":
+        if PART_BY_NAME[part]["kind"] == "webui":
             if isinstance(value, dict):
                 report = value
                 failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
@@ -2785,7 +2793,7 @@ def cmd_run_linux_part(o):
             ok = False
         else:
             report[name] = value
-    if part == "web-ui":
+    if PART_BY_NAME[part]["kind"] == "webui":
         for line in webui_summary(report):
             print(f"perf-cron web-ui: {line}")
     else:
