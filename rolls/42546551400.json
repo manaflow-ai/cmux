@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42546551400",
+  "recorded_at": "2026-11-09T01:49:15Z",
+  "reason": "cmux-tui 2fe255259469 changes the image's cmux-tui (pinned c6ba53b047e1)",
+  "dry_run": false,
+  "cmux_tui": "2fe2552594698d391b98d25dc6b43a5563400600",
+  "fixes": [
+    {
+      "sha": "659657c809131791cbda26f838e7bb2931f03d83",
+      "mergedAt": "2026-11-08T17:19:09-08:00",
+      "subject": "Warm start inline fallback: keep the helper and record the updated commit (#39044)"
+    },
+    {
+      "sha": "48045dd77893ef186283d962827fd82e39031d7b",
+      "mergedAt": "2026-11-08T17:17:39-08:00",
+      "subject": "cmux-host: the supervisor sees a resume when the boot clock runs through the pause (#39050)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T01:49:15Z",
+    "snapshot_id": "sh-0a055ce736f8479a97f6907b4d66f127",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42546551400): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "56402dae921ca0c1633d3cb77f3f110a2a240b43",
+    "image": "cloud-native-auto-2fe25525-42546551400-1",
+    "revision": "ci-42546551400-1",
+    "at": "2026-11-09T01:49:15Z"
+  },
+  "rolled_back": false
+}
