@@ -137,7 +137,13 @@ impl Peer {
         }
         let Some(install) = overlay_install_in(link_dir, health) else { return false };
         self.set_link_host(install);
-        if self.link_host.get().is_none() || !self.with_paths(|paths| paths.add(Via::Link)) {
+        if self.link_host.get().is_none() {
+            return false;
+        }
+        // Paths made before now gain the link; paths made from here on have it already
+        // (`path_vias` reads the link host).
+        self.with_paths(|paths| paths.add(Via::Link));
+        if !self.with_paths(|paths| paths.vias().any(|via| via == Via::Link)) {
             return false;
         }
         tracing::info!(peer = %self.name, "the cmux link reaches this machine too: a backup path to ssh");
