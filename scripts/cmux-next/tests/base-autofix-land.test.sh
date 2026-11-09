@@ -11,6 +11,11 @@ script="$here/../base-autofix-land.sh"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+# Each push into remote.git ends with an automatic, detached `git maintenance` (git 2.55), which can
+# still write into remote.git while the next setup removes it: `rm -rf` then fails with "Directory
+# not empty" (PR #39474's checks job, 2026-11-09). The test's own git config turns it off.
+printf '[receive]\n\tautogc = false\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n' > "$tmp/gitconfig"
+export GIT_CONFIG_GLOBAL="$tmp/gitconfig" GIT_CONFIG_NOSYSTEM=1
 fail() { echo "FAIL: $*" >&2; exit 1; }
 manifest=Packages/macOS/CmuxNext/Package.swift
 graph=Packages/macOS/CmuxNext/ci-target-graph.json
