@@ -521,6 +521,35 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
+  // Leo, 11-07: the profile menu's Personalization…, every visual choice on one page under a jump bar.
+  "personalization-background": variant("personalization", {
+    focus: "personalization.background",
+    workspace: "ws-1",
+    options: {
+      values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 },
+      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
+    },
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [wait('[data-part="background"] [data-card="backdrop"]')],
+    note: "Change Background… opens Personalization on its Background part: the same art picker, Material and Opacity as Appearance.",
+  }),
+  "personalization-chief": variant("personalization", {
+    focus: "personalization.chief",
+    options: { values: { "home.chiefPetEnabled": true, "home.chiefPetMascot": "fox" } },
+    note: "Personalization on the Chief's look: the Chief Pet card, shown, with the Fox picked.",
+  }),
+  "personalization-text": variant("personalization", {
+    focus: "personalization.text",
+    options: { values: { "appearance.density": "cozy", "agentPane.display.transcriptView": "thinking" } },
+    note: "Personalization on Text and Density: the density tiles, the chat fonts and the transcript view.",
+  }),
+  "personalization-sounds": variant("personalization", {
+    focus: "personalization.sounds",
+    note: "Personalization on Sounds: the notification sound, its volume and when it plays.",
+  }),
   // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
   "appearance-undo-bar": variant("appearance", {
     host: {

@@ -51,6 +51,7 @@ use crate::remote_runtime::{
     acknowledge_legacy_shutdown_state, client_provider_registry, complete_verified_daemon_stop,
     daemon_paths, inactive_daemon_needs_legacy_acknowledgement, load_runtime_info,
     load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
+    start_recovering_client_runtime,
 };
 use crate::session::{RemoteSession, Session};
 mod acpmux_peer;
@@ -257,6 +258,8 @@ struct ConnectFlags {
     agent_hooks: Vec<String>,
     auto_install: bool,
     upgrade: bool,
+    /// `--ssh-forced-command`: see `SshBootstrapOptions::forced_command`.
+    ssh_forced_command: bool,
     forward_workspace: Option<String>,
     forward_host: Option<String>,
     forward_port: Option<u16>,
@@ -495,6 +498,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 flags.agent_hooks.extend(agent_hook_providers(&value("--agent-hooks")?));
             }
             "--no-install" => flags.auto_install = false,
+            "--ssh-forced-command" => flags.ssh_forced_command = true,
             "--upgrade" => flags.upgrade = true,
             "--workspace-root" => flags.forward_workspace = Some(value("--workspace-root")?),
             "--host" => flags.forward_host = Some(value("--host")?),
@@ -538,6 +542,9 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     }
     if flags.upgrade && !flags.auto_install {
         return Err(anyhow!(catalog().remote_client.upgrade_no_install));
+    }
+    if flags.upgrade && flags.ssh_forced_command {
+        return Err(anyhow!(catalog().remote_client.upgrade_forced_command));
     }
     if flags.json && !flags.headless {
         return Err(anyhow!(catalog().remote_client.json_requires_headless));
@@ -668,6 +675,7 @@ struct ConnectedRuntime {
 
 fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
+    let owner = flags.exit_with_parent.then(current_parent_process_id);
     let invitation = flags
         .invitation
         .take()
@@ -827,7 +835,11 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
     let session = SessionId(*uuid::Uuid::new_v4().as_bytes());
     let startup_timeout = remaining_startup_timeout(startup_started, total_startup_timeout)?;
     let ssh_bootstrap = initial_ssh_bootstrap_options(&flags, startup_timeout);
-    let runtime = start_client_runtime(ClientRuntimeOptions {
+    // A headless link (the app's machine link) outlives a failed first connect: it redials it
+    // like a later drop, and its PATH.admin answers meanwhile (cmuxterm-hq#7766). An enrollment
+    // keeps its approval window, and an upgrade its one bootstrap.
+    let recover_first_connect = flags.headless && invitation.is_none() && !flags.upgrade;
+    let options = ClientRuntimeOptions {
         routes,
         providers,
         identity: store.identity(),
@@ -842,7 +854,12 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         local_socket: flags.local_socket,
         ssh,
         ssh_bootstrap,
-    })?;
+    };
+    let runtime = if recover_first_connect {
+        start_recovering_client_runtime(options, move || owner.is_none_or(parent_process_is))?
+    } else {
+        start_client_runtime(options)?
+    };
 
     if let Some(invitation) = &invitation {
         async_runtime.block_on(store.pin_daemon(
@@ -880,6 +897,7 @@ fn initial_ssh_bootstrap_options(
         auto_install: flags.auto_install,
         upgrade: flags.upgrade,
         attempt_timeout: startup_timeout,
+        forced_command: flags.ssh_forced_command,
     }
 }
 
@@ -1878,11 +1896,18 @@ fn start_wireguard(
     runtime: &tokio::runtime::Runtime,
     path: &Path,
 ) -> anyhow::Result<Arc<cmux_wg::WgNet>> {
-    let config = read_wireguard_config(path)?;
+    let mut config = read_wireguard_config(path)?;
+    config.ultra = ultra_setting();
     let net = runtime.block_on(cmux_wg::WgNet::start_with_new_socket(config)).map_err(|error| {
         anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string()))
     })?;
     Ok(Arc::new(net))
+}
+
+/// The ultra mode Settings asks for (`remote.ultraMode`, read at each tunnel
+/// start); `CMUX_WG_ULTRA` still wins over it ([`cmux_wg::UltraMode::resolve`]).
+fn ultra_setting() -> Option<cmux_wg::UltraMode> {
+    cmux_tui_core::user_settings::ultra_mode().then_some(cmux_wg::UltraMode::SETTING)
 }
 
 fn read_wireguard_config(path: &Path) -> anyhow::Result<cmux_wg::WgConfig> {
@@ -3414,6 +3439,22 @@ mod tests {
         assert_ne!(bootstrap.attempt_timeout, flags.reconnect.attempt_timeout);
         assert!(bootstrap.auto_install);
         assert!(bootstrap.upgrade);
+    }
+
+    #[test]
+    fn ssh_forced_command_reaches_the_bootstrap_and_refuses_upgrade() {
+        let flags = parse_connect_flags(&["--ssh-forced-command".into()]).unwrap();
+        let bootstrap = initial_ssh_bootstrap_options(&flags, Duration::from_secs(2));
+        assert!(bootstrap.forced_command);
+        assert!(
+            !initial_ssh_bootstrap_options(&ConnectFlags::default(), Duration::from_secs(2))
+                .forced_command
+        );
+
+        let error = parse_connect_flags(&["--ssh-forced-command".into(), "--upgrade".into()])
+            .err()
+            .expect("--upgrade over a forced-command key must be refused");
+        assert!(error.to_string().contains("--ssh-forced-command"), "{error:#}");
     }
 
     #[test]

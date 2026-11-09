@@ -69,6 +69,7 @@ import { setNowPlaying } from "./newtab/nowPlaying";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
+import { historyPages } from "./queue/historyPages";
 import type { AllChatsPage } from "./newtab/allChatsListModel";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
@@ -11573,6 +11574,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               onOpen={(key) => callNative("chats.open", { key })}
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
               onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
+              // Waiting on you and Costs read this Mac's acpmux, which answers them to its own app only
+              // (an older acpmux that names no origin says on the tab that it keeps neither yet).
+              {...(snapshot.origin !== "remote" && snapshot.origin !== "peer"
+                ? historyPages({
+                    client: () => directClient.current,
+                    callNative,
+                    selectSession,
+                    asks: snapshot.asks ?? [],
+                    sessions: snapshot.sessions,
+                  })
+                : {})}
             />
           ) : showNewTab ? (
             <NewTabPage
