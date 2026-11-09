@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42707954987",
+  "recorded_at": "2026-11-09T22:10:40Z",
+  "reason": "cmux-tui 3747293ebbc3 changes the image's cmux-tui (pinned def1d13a3a8e)",
+  "dry_run": false,
+  "cmux_tui": "3747293ebbc36d47a51a5375df9073e4cd4b57b6",
+  "fixes": [
+    {
+      "sha": "3747293ebbc36d47a51a5375df9073e4cd4b57b6",
+      "mergedAt": "2026-11-09T13:38:42-08:00",
+      "subject": "cmux NEXT diff: Plain English reads each hunk as one sentence (#39749)"
+    },
+    {
+      "sha": "56b370b203ac88886674f54da592b382fc14e5af",
+      "mergedAt": "2026-11-09T13:31:10-08:00",
+      "subject": "Rehome: read the resource ledger with the new id instead of rewriting it at start (#39819)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T22:10:40Z",
+    "snapshot_id": "sh-b12c858b005b4e498476428208f66af5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42707954987): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bec6a7ecf0aeb971486932c60c16b635e6beb8b0",
+    "image": "cloud-native-auto-3747293e-42707954987-1",
+    "revision": "ci-42707954987-1",
+    "at": "2026-11-09T22:10:40Z"
+  },
+  "rolled_back": false
+}
