@@ -12,7 +12,8 @@
 // test/focus-modality-browser.test.ts drives the same rule in real Chromium and WebKit.
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { Window } from "happy-dom";
 import postcss from "postcss";
@@ -101,6 +102,16 @@ describe("the focus-ring owner", () => {
       expect(p.mode()).toBe("keyboard");
       p.key(k);
       expect([k, p.mode()]).toEqual([k, "pointer"]);
+    }
+  });
+
+  test("a focus move right after a clear, still inside the key's window, earns nothing back", () => {
+    const p = page();
+    for (const clear of [() => p.pointer("pointerdown"), () => p.key("Escape"), () => p.key("Enter")]) {
+      p.tabTo("a");
+      clear();
+      p.el("b").focus(); // a click's focus, or an Escape or Enter handler's, within EARN_WINDOW_MS
+      expect(p.mode()).toBe("pointer");
     }
   });
 
@@ -242,6 +253,36 @@ describe("detectors", () => {
         /matches\(\s*["'`]:focus-visible["'`]\s*\)/.test(readFileSync(path.join(webviews, file), "utf8")),
     );
     expect(offenders).toEqual([]);
+  });
+
+  test("every app bundle script runs the gate on the CSS it ships", () => {
+    // These build with esbuild or join sheets, so postcss.config.mjs never runs for them.
+    const repo = path.resolve(webviews, "..");
+    const scripts = execFileSync("git", ["ls-files", "scripts/cmux-next/build-*-web.sh"], {
+      cwd: repo,
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter(Boolean);
+    const offenders = scripts.filter((file) => {
+      const text = readFileSync(path.join(repo, file), "utf8");
+      const shipsStyles = /app\.css|styles\.css/.test(text) && /<style>/.test(text);
+      const ownsDesktopPage = !/optchat-inspector/.test(file); // the inspector installs no owner
+      return shipsStyles && ownsDesktopPage && !text.includes("scripts/postcss/gate-css.mjs");
+    });
+    expect(scripts.length).toBeGreaterThan(0);
+    expect(offenders).toEqual([]);
+  });
+
+  test("the gate script gates a sheet in place", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gate-css-"));
+    const file = path.join(dir, "a.css");
+    writeFileSync(file, ".b:focus-visible{outline:1px solid}.c:has(:focus-visible){color:red}");
+    execFileSync("bun", ["scripts/postcss/gate-css.mjs", file], { cwd: webviews });
+    expect(readFileSync(file, "utf8")).toBe(
+      `.b:focus-visible${FOCUS_RING_GATE}{outline:1px solid}.c:has(:focus-visible)${FOCUS_RING_GATE}{color:red}`,
+    );
+    rmSync(dir, { recursive: true });
   });
 
   test("every page that boots the desktop layer installs the owner", () => {

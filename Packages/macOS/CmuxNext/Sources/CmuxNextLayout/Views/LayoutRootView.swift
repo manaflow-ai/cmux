@@ -363,8 +363,11 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     func syncBatched(_ snapshot: Snapshot) {
         let previous = lastSnapshot
         lastSnapshot = snapshot
-        // A newly earned ring measures pointer travel from zero (``handlePointerTravel(_:)``).
-        if snapshot.focusRingEarned, previous?.focusRingEarned != true { pointerTravelSinceRing = 0 }
+        // A newly earned ring, or the ring moving to another pane by key, measures pointer travel from
+        // zero (``handlePointerTravel(_:)``).
+        if snapshot.focusRingEarned, previous?.focusRingEarned != true || previous?.focused != snapshot.focused {
+            pointerTravelSinceRing = 0
+        }
         // Chrome (focus ring, dim) fades whenever motion is allowed; pane frames, the strip's
         // reveal and the screen slide move only with `ui.paneAnimations` (motion.md rule 9).
         let chromeAnimated = previous != nil && canAnimate && !snapshot.gestureActive

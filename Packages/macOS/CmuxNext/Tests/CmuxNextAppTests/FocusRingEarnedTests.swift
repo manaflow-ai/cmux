@@ -132,6 +132,9 @@ struct FocusRingEarnedTests {
             #expect(w.ring("p2") == true)
             w.root.handlePointerTravel(5)
             #expect(w.ring("p2") == true, "travel from before Escape counted against the next ring")
+            w.model.focus("p1", source: .keyboard) // the ring moves by key while it is earned
+            w.root.handlePointerTravel(5)
+            #expect(w.ring("p1") == true, "travel on the previous pane counted against the ring's new pane")
         }
     }
 

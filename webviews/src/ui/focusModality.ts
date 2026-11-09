@@ -104,7 +104,7 @@ export function installFocusModality(doc: Document = document): () => void {
       anchor = { x: event.clientX, y: event.clientY };
       return;
     }
-    if (Math.abs(event.clientX - anchor.x) + Math.abs(event.clientY - anchor.y) > POINTER_SLOP_PX) set("pointer");
+    if (Math.abs(event.clientX - anchor.x) + Math.abs(event.clientY - anchor.y) > POINTER_SLOP_PX) clear();
   };
   const set = (next: FocusModality) => {
     if (root.getAttribute(FOCUS_MODALITY_ATTRIBUTE) === next) return;
@@ -114,16 +114,21 @@ export function installFocusModality(doc: Document = document): () => void {
     else view.removeEventListener("pointermove", onPointerMove, true);
   };
 
+  // Taking the ring away also forgets the last navigation key, so a focus move that follows (a
+  // click's, or an Escape handler's within the key's window) cannot earn it back.
+  const clear = () => {
+    navigationKeyAt = Number.NEGATIVE_INFINITY;
+    set("pointer");
+  };
   const onKeyDown = (event: KeyboardEvent) => {
     if (isNavigationKey(event)) navigationKeyAt = now();
-    else if (!MODIFIER_KEYS.has(event.key)) set("pointer");
+    else if (!MODIFIER_KEYS.has(event.key)) clear();
   };
   // Every focus change decides afresh: a navigation key just before it earns the ring; anything
   // else (a click, a shortcut, code) clears it, even while the ring was on.
   const onFocusIn = () => set(now() - navigationKeyAt <= EARN_WINDOW_MS ? "keyboard" : "pointer");
   // A navigation key that keeps focus where it is (an arrow in a list that only moves its
   // highlight) leaves the ring as it was; a later key that does move focus earns it then.
-  const clear = () => set("pointer");
 
   installed.set(doc, set);
   set("pointer");
