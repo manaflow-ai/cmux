@@ -324,10 +324,17 @@ impl Hub {
 
     /// The commit of the change just made to `session`'s metadata (module text).
     fn commit_meta(&self, session: &Session, wait: Wait, keep: ShowAfter) -> Result<()> {
-        // A metadata change can affect another closed row too (for example a child's count in its
-        // parent). Mark every cached projection stale before the writer is scheduled; the next
-        // full build then observes the in-memory change even while this write is queued.
-        self.events.summary_generation.fetch_add(1, Ordering::SeqCst);
+        // Mark the cached rows the change may reach stale before the writer is scheduled; the
+        // next full build then observes the in-memory change even while this write is queued.
+        // Its own row always. Every row only when what other rows read of it changed (whether it
+        // is a listed parent, its lineage: `views::parent_print_of`); a child's count in its
+        // parent follows the status (`subsessions.generation`). Before, every commit (each turn's
+        // end, title and usage) rebuilt every closed row on the next list: ~3,000 of them.
+        let print = session.read_meta(super::views::parent_print_of);
+        if session.parent_print.swap(print, Ordering::SeqCst) != print {
+            self.events.summary_generation.fetch_add(1, Ordering::SeqCst);
+        }
+        session.summary_gen.fetch_add(1, Ordering::SeqCst);
         session.meta_writer.commit_as(wait, keep, &|keep| self.write_snapshot(session, keep))
     }
 

@@ -5,9 +5,10 @@
 //!   exclude?, keys?}` opens the window or replaces its spec, and answers `{window, ready}`. The
 //!   rows travel as `_acpmux/chats_window_changed {window, revision, full: true, keys, rows,
 //!   hasMore}`, queued before the answer, on the same ordered path as every later diff.
-//! - Each index change or chat activity change then recomputes the connection's windows, and each
-//!   window that shows something new gets `_acpmux/chats_window_changed {window, revision,
-//!   full: false, keys, rows, hasMore}`: its keys in order and only the rows whose value changed.
+//! - Each index change, and each chat activity change a window may show, then recomputes the
+//!   connection's windows, and each window that shows something new gets
+//!   `_acpmux/chats_window_changed {window, revision, full: false, keys, rows, hasMore}`: its
+//!   keys in order and only the rows whose value changed.
 //!   The revision goes up by one per message of that window. A client that sees a revision gap,
 //!   or an `_acpmux/lagged` (the connection dropped a notification), opens the window again.
 //! - `_acpmux/chats_window_close {window, gen?}` stops it.
@@ -46,6 +47,11 @@ pub(super) struct ConnWindows {
     refreshing: tokio::sync::Mutex<()>,
     /// Wakes the connection's task after a chat activity change or a close.
     wake: tokio::sync::Notify,
+    /// The chat each session continued at its last activity change here (`activity_changed`):
+    /// a session whose chat changed (a cold start that replaced or cleared its agent session id)
+    /// changes the old chat's row too, which no window's rows name any more. One entry per
+    /// session with an activity change while a window was open; a purge drops its entry.
+    chat_of: StdMutex<HashMap<String, Option<String>>>,
 }
 
 #[derive(Default)]
@@ -151,10 +157,51 @@ pub(super) fn close(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     Ok(json!({"window": window, "closed": closed}))
 }
 
-/// A chat's activity changed (`chats::push_activity`): the connection's windows recompute.
-pub(super) fn activity_changed(conn: &Conn) {
-    // No lock: with no task the stored permit only wakes the next task once more.
-    conn.chat_windows.wake.notify_one();
+/// A session record of `kind` changed a chat's activity (`chats::push_activity`): the
+/// connection's windows recompute when one of them may show the change
+/// (`WindowState::shows_activity_of`). `chat` reads the session's chat key, only when a window is
+/// open. A session whose chat changed since its last activity here, a `tags` or `purged` record,
+/// and any record once a tag the window's rows read has expired (an `archived` or `spawnedBy`
+/// lapses with no record and folds or unfolds another chat) recompute every window. A recompute
+/// under way may have read the activity before this record, so it is always followed by
+/// another; else the windows' last rows decide.
+pub(super) fn activity_changed(
+    conn: &Conn,
+    session: &str,
+    kind: &str,
+    chat: impl FnOnce() -> Option<String>,
+) {
+    if lock(&conn.chat_windows.windows).by_name.is_empty() {
+        // Nothing is shown: what each session continued is learned again once a window opens.
+        lock(&conn.chat_windows.chat_of).clear();
+        return;
+    }
+    // Any window may show these: no lookup (a purged session is not found by its id).
+    if matches!(kind, "tags" | "purged") {
+        if kind == "purged" {
+            lock(&conn.chat_windows.chat_of).remove(session);
+        }
+        conn.chat_windows.wake.notify_one();
+        return;
+    }
+    // Read with no windows lock held: it takes the hub's session and metadata locks.
+    let chat = chat();
+    // A session first heard here, or one that moved to another chat: its earlier chat's row may
+    // change too, and only a recompute reads which that was. Kept on every path, a recompute
+    // under way included, so the next record compares with what the session continues now.
+    let moved = lock(&conn.chat_windows.chat_of)
+        .insert(session.to_owned(), chat.clone())
+        .is_none_or(|before| before != chat);
+    let running = conn.chat_windows.refreshing.try_lock().is_err();
+    let shown = moved
+        || running
+        || lock(&conn.chat_windows.windows)
+            .by_name
+            .values()
+            .any(|state| state.shows_activity_of(chat.as_deref(), kind));
+    if shown {
+        conn.chat_windows.wake.notify_one();
+    }
 }
 
 /// Starts the connection's task unless it runs: it recomputes the windows after each index change
@@ -222,6 +269,7 @@ async fn refresh(
         return Ok(());
     }
     let activity = hub.chat_activity();
+    let read_with = activity.clone();
     let service = service.clone();
     let rows = tokio::task::spawn_blocking(move || {
         specs
@@ -238,6 +286,7 @@ async fn refresh(
         else {
             continue;
         };
+        state.read_with(&read_with);
         if let Some(message) = state.next(rows) {
             conn.send(&Message::notification("_acpmux/chats_window_changed", message));
         }

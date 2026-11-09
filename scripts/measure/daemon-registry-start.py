@@ -132,6 +132,10 @@ def start(args, label, bumped):
         child.kill()
         child.wait()
     log.close()
+    if exited is not None:
+        # The daemon's own last word (an error, never row contents); the log goes with the scratch.
+        lines = Path(log.name).read_text(errors="replace").splitlines()
+        print(f"DRS-OWNER-EXIT {label} {exited}: {lines[-1] if lines else ''}", file=sys.stderr, flush=True)
     ms = lambda value: None if value is None else round(value * 1000, 1)  # noqa: E731
     result = {
         "label": label,

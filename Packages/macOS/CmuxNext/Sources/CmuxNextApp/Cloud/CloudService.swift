@@ -182,7 +182,7 @@ final class CloudService {
         let machineIO = CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work)
         machineAPI = CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                                    teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
-                                                   machineIO: machineIO)
+                                                   machineIO: machineIO, installToken: { try await identity.installToken() })
         let build = LaunchIdentity.current().build
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         let environment = ProcessInfo.processInfo.environment

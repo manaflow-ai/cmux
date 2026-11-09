@@ -36935,6 +36935,14 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "if_unplaced": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "When true, end the terminal only if it has no tab, is not marked keep and has no attach stream (the reaper's rule, without the grace). Otherwise the close fails with operation.failed (extra.terminal_retained: true) and nothing changes. Omitted or false: end it with its tabs, as before. A daemon whose identify lacks terminal-close-if-unplaced-v1 refuses it as an unknown parameter (validation.invalid, before the request is keyed)."
           }
         },
         "extra": false

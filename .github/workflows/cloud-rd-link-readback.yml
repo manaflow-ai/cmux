@@ -1,0 +1,171 @@
+name: Cloud desktop UDP link readback (staging, Mac behind NAT)
+
+# One manual readback of the Cloud desktop's UDP link (cmux-rd-link, cmuxterm-hq#7976) from a Mac behind
+# NAT: an ephemeral macOS VM builds cmux-tui from the dispatched commit, signs in to staging as the agent test
+# account and runs the Cloud journey with --desktop-link (scripts/cmux-next/cloud-journey.ts): it makes a
+# machine, dials its desktop (`cmux carrier dial --service desktop`) as a viewer, and reads every
+# `cloud.desktop_link machine=vm_… <note>` line of the dial's connect log. It passes on `up` or `host_up`.
+# No line means the platform sent no rd_link: the account's team is not one CLOUD_RD_LINK turns on.
+#
+# The run summary holds the API origin, the account's team id, the notes and the journey's step table
+# (never a key or an address). The machine is deleted by the journey and again, by its run tag, in an
+# always() step. Nothing gates on this run.
+#
+# Secrets: the staging agent test account (CMUX_JOURNEY_DEV_STACK_*) in cmux-next-cloud-journey, the
+# environment cloud-chat-proof.yml reads. Manual dispatch on feat-cmux-next only.
+on:
+  workflow_dispatch:
+    inputs:
+      team:
+        description: A team id to act as (--team); empty is the account's own team
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-rd-link-readback-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  readback:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    # Holds the stack pair: an ephemeral Blacksmith macOS VM from the declared pool, as cloud-chat-proof.yml.
+    environment: cmux-next-cloud-journey
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 75
+    steps:
+      - name: Refuse any ref but feat-cmux-next, and a malformed team
+        env:
+          REF: ${{ github.ref }}
+          TEAM: ${{ inputs.team }}
+        run: |
+          if [ "$REF" != refs/heads/feat-cmux-next ]; then
+            echo "::error::cloud-rd-link-readback runs on feat-cmux-next only (got $REF)"
+            exit 1
+          fi
+          if [ -n "$TEAM" ] && ! printf '%s' "$TEAM" | grep -Eqx 'team_[0-9a-z]{8,64}'; then
+            echo "::error::team must look like team_<lowercase id>"
+            exit 1
+          fi
+
+      - name: Checkout cmux
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Initialize Ghostty protocol submodules
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The Zig ghostty-next's build.zig.zon names: the libghostty-vt source cmux-tui builds from.
+      - name: Install Zig
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Build this commit's macOS cmux-tui
+        id: build-cmux-tui
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          set -euo pipefail
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          binary="${CARGO_TARGET_DIR:-$PWD/target}/debug/cmux-tui"
+          case "$binary" in /*) ;; *) binary="$PWD/$binary" ;; esac
+          test -x "$binary"
+          file "$binary" | grep -q 'Mach-O'
+          echo "path=$binary" >> "$GITHUB_OUTPUT"
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Desktop link readback (staging)
+        timeout-minutes: 25
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
+          TEAM: ${{ inputs.team }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ]; then
+            echo "::error::the staging agent Stack pair is missing from cmux-next-cloud-journey"
+            exit 1
+          fi
+          OUT="$RUNNER_TEMP/rd-link"
+          mkdir -p "$OUT"
+          args=(--backend staging --out "$OUT" --cmux "$CMUX_PATH" --desktop-link)
+          if [ -n "$TEAM" ]; then args+=(--team "$TEAM"); fi
+          bun scripts/cmux-next/cloud-journey.ts "${args[@]}"
+
+      - name: Summarize the readback
+        if: always()
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/rd-link"
+          file="$OUT/desktop-link.json"
+          {
+            echo '## Cloud desktop UDP link readback (staging)'
+            echo
+            if [ -s "$file" ]; then
+              if grep -Eiq '(cmvm|cmk|crt|crk|cmm|cmj)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer[[:space:]]+[A-Za-z0-9._~+/=-]+|((api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret|credential)"?[[:space:]]*[:=])' "$file"; then
+                echo 'The readback holds a secret-shaped value; it is not shown.'
+              else
+                python3 -I - "$file" <<'PY'
+          import json
+          import sys
+
+          d = json.load(open(sys.argv[1]))
+          print(f"- API origin: `{d.get('api')}`")
+          print(f"- team: `{d.get('team')}` (team ids named: {', '.join(d.get('team_ids_named') or []) or 'none'})")
+          print(f"- machine: `{d.get('machine')}`")
+          print(f"- result: {'up' if d.get('up') else 'not up'}: {d.get('why')}")
+          if d.get("error"):
+              print(f"- dial: {d['error']}")
+          print(f"- path (direct or STUN srflx): {d.get('path')}")
+          print(f"- host controls: {', '.join(d.get('controls') or []) or 'none'}; datagrams to the viewer: {d.get('datagrams')}")
+          print()
+          print("`cloud.desktop_link` lines:")
+          print()
+          print("```")
+          for line in d.get("lines") or ["(none: the platform sent no rd_link for this team)"]:
+              print(line)
+          print("```")
+          PY
+              fi
+            else
+              echo 'No readback was written (the run stopped before the desktop dial).'
+            fi
+            echo
+            if [ -s "$OUT/summary.md" ]; then cat "$OUT/summary.md"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete the run's machine
+        if: always()
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          TEAM: ${{ inputs.team }}
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/rd-link"
+          tag="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["meta"]["tag"])' "$OUT/journey.json" 2>/dev/null || true)"
+          if [ -z "$tag" ]; then echo "no journey tag: the run made no machine"; exit 0; fi
+          if ! command -v bun >/dev/null 2>&1; then echo "::warning::no bun: the journey's own cleanup is the only delete"; exit 0; fi
+          args=(--backend staging --cleanup-tag "$tag")
+          if [ -n "$TEAM" ]; then args+=(--team "$TEAM"); fi
+          bun scripts/cmux-next/cloud-journey.ts "${args[@]}"

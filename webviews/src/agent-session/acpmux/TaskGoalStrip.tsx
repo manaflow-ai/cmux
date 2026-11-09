@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../experiments/experiment";
 import { Tooltip } from "../../ui/Tooltip";
+import { Clock as ClockText } from "../../ui/Typography";
 import { usePageNow } from "../../ui/pageClock";
 import type { TaskGoal } from "./goal";
 import { usePaneLanguage, useT } from "./i18n";
@@ -453,7 +454,8 @@ function keepTrailWidth(trail: HTMLElement | null | undefined) {
 }
 
 /** The goal's elapsed time, a leaf of its own: the page clock's tick re-renders only this text, never
- *  the row, the hat or the composer around it. Its width changes only when a unit is added. */
+ *  the row, the hat or the composer around it. A `Clock` like the running lines' times, so its width
+ *  changes only when a unit is added. */
 function GoalTime({ goal, live }: { goal: TaskGoal; live: boolean }) {
   const node = useRef<HTMLTimeElement>(null);
   const current = useNow(live);
@@ -468,7 +470,7 @@ function GoalTime({ goal, live }: { goal: TaskGoal; live: boolean }) {
   useLayoutEffect(() => keepTrailWidth(node.current?.parentElement), [text]);
   return text === undefined ? null : (
     <time ref={node} className="acpmux-goal-time">
-      {text}
+      <ClockText text={text} />
     </time>
   );
 }

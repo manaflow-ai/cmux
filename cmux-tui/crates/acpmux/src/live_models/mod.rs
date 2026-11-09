@@ -227,12 +227,7 @@ impl Cache {
     }
 
     fn path(&self, harness: &str) -> PathBuf {
-        // Profile ids are `[a-z0-9-]`; anything else is kept out of the path.
-        let safe: String = harness
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
-            .collect();
-        self.dir.join(format!("{safe}.json"))
+        cache_path(&self.dir, harness)
     }
 
     /// Every cached list whose program is unchanged, by harness.
@@ -278,6 +273,109 @@ impl Cache {
         let tmp = path.with_extension("json.tmp");
         let body = serde_json::to_vec(&CacheFile { key: key.clone(), models })?;
         std::fs::write(&tmp, body)?;
+        std::fs::rename(&tmp, &path)
+    }
+}
+
+/// `<dir>/<harness>.json`. Profile ids are `[a-z0-9-]`; anything else is kept out of the path.
+fn cache_path(dir: &Path, harness: &str) -> PathBuf {
+    let safe: String = harness
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+        .collect();
+    dir.join(format!("{safe}.json"))
+}
+
+/// A cached ACP list's file: the profile it was probed under and its `(id, name)` pairs.
+#[derive(Serialize, Deserialize)]
+struct AcpCacheFile {
+    profile: String,
+    models: Vec<AcpModel>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct AcpModel {
+    id: String,
+    name: String,
+}
+
+/// The last list each ACP harness's model probe reported (OpenCode, Gemini, any ACP agent;
+/// `hub/model_probe.rs`), one file per harness under `$ACPMUX_HOME/acp-models/`. Those agents
+/// name their models only in a live `session/new`, which waits for the login environment, so
+/// until it answered the picker showed only "default" (Leo, 2026-11-08: "we know what the
+/// models are"). A list is keyed by its profile ([`AcpCache::profile_key`]): one probed under
+/// another argv, env or family is never served. A stale list (the agent updated under the same
+/// profile) lasts only until the fresh probe replaces it.
+pub struct AcpCache {
+    dir: PathBuf,
+}
+
+impl AcpCache {
+    pub fn new(dir: PathBuf) -> Self {
+        Self { dir }
+    }
+
+    /// `$ACPMUX_HOME/acp-models`.
+    pub fn default_dir() -> PathBuf {
+        crate::config::home().join("acp-models")
+    }
+
+    /// The profile's identity in a cache file: the SHA-256 of its JSON, so the file names no
+    /// env value (an API key) of the profile's.
+    pub fn profile_key(profile: &crate::config::HarnessProfile) -> String {
+        crate::sha256::sha256_hex(&serde_json::to_vec(profile).unwrap_or_default())
+    }
+
+    /// Every cached list, by harness: `(profile key, models)`. Matched to the profiles later
+    /// ([`AcpCache::profile_key`]), since a profile may appear only after the login environment.
+    pub fn load_all(&self) -> BTreeMap<String, (String, Vec<(String, String)>)> {
+        let mut out = BTreeMap::new();
+        let Ok(entries) = std::fs::read_dir(&self.dir) else { return out };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(harness) = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .filter(|_| path.extension().is_some_and(|e| e == "json"))
+            else {
+                continue;
+            };
+            let Some(file) = std::fs::read(&path)
+                .ok()
+                .and_then(|body| serde_json::from_slice::<AcpCacheFile>(&body).ok())
+            else {
+                continue;
+            };
+            if file.models.is_empty() {
+                continue;
+            }
+            let models = file.models.into_iter().map(|m| (m.id, m.name)).collect();
+            out.insert(harness.to_owned(), (file.profile, models));
+        }
+        out
+    }
+
+    /// Keeps `models` for `harness`, probed under the profile `profile_key` (write to a
+    /// temporary file, then rename).
+    pub fn store(
+        &self,
+        harness: &str,
+        profile_key: &str,
+        models: &[(String, String)],
+    ) -> std::io::Result<()> {
+        // A probe that ends after the home was lost never makes it again (`config::mark_home_lost`).
+        crate::config::refuse_lost_home(&self.dir).map_err(std::io::Error::other)?;
+        std::fs::create_dir_all(&self.dir)?;
+        let path = cache_path(&self.dir, harness);
+        let tmp = path.with_extension("json.tmp");
+        let file = AcpCacheFile {
+            profile: profile_key.to_owned(),
+            models: models
+                .iter()
+                .map(|(id, name)| AcpModel { id: id.clone(), name: name.clone() })
+                .collect(),
+        };
+        std::fs::write(&tmp, serde_json::to_vec(&file)?)?;
         std::fs::rename(&tmp, &path)
     }
 }

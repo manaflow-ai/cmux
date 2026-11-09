@@ -616,6 +616,9 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
     ensure_session_journal_content_schema(transaction)?;
     ensure_journal_event_index_schema(transaction)?;
     transaction.execute_batch(output_cleanup::PRUNED_RANGES_SCHEMA)?;
+    // Additive: an older build ignores the table and its sealed segments
+    // stay complete without it (`reducer_records`).
+    transaction.execute_batch(reducer_records::REDUCER_RECORDS_SCHEMA)?;
     Ok(())
 }
 
@@ -1282,6 +1285,73 @@ impl WorkspaceRegistry {
         let snapshot =
             value.get("snapshot").and_then(Value::as_str).map(str::to_string).unwrap_or_default();
         Ok(Some((version, cursor, snapshot)))
+    }
+
+    /// The reducer version a reducer's saved state was migrated from, while
+    /// its rebuild from the whole journal has not finished; `None` when the
+    /// state is the current reducer's own fold. A separate `meta` row, so an
+    /// older build, which reads only `journal_reducer.<id>`, ignores it.
+    pub(crate) fn journal_reducer_rebuild_pending(
+        &self,
+        reducer_id: &str,
+    ) -> anyhow::Result<Option<u32>> {
+        let raw = self
+            .connection
+            .get()
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?1",
+                [journal_reducer_rebuild_key(reducer_id)],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(raw.map(|raw| {
+            serde_json::from_str::<Value>(&raw)
+                .ok()
+                .and_then(|value| value.get("from_version").and_then(Value::as_u64))
+                .and_then(|version| u32::try_from(version).ok())
+                .unwrap_or(0)
+        }))
+    }
+
+    /// Save a reducer state migrated from `from_version` and mark it stale
+    /// until a rebuild finishes
+    /// ([`RegistryConnection::finish_journal_reducer_rebuild`]), in one
+    /// transaction: a migrated snapshot is never saved at the current version
+    /// without its mark, or a later start would trust it as the current
+    /// reducer's fold.
+    pub(crate) fn start_journal_reducer_rebuild(
+        &self,
+        reducer_id: &str,
+        from_version: u32,
+        version: u32,
+        cursor: u64,
+        snapshot: &str,
+    ) -> anyhow::Result<()> {
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![
+                journal_reducer_rebuild_key(reducer_id),
+                serde_json::json!({"from_version": from_version}).to_string()
+            ],
+        )?;
+        write_journal_reducer_state(&tx, reducer_id, version, cursor, snapshot)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// [`RegistryConnection::finish_journal_reducer_rebuild`] on this
+    /// registry's connection.
+    pub(crate) fn finish_journal_reducer_rebuild(
+        &self,
+        reducer_id: &str,
+        version: u32,
+        cursor: u64,
+        snapshot: &str,
+    ) -> anyhow::Result<()> {
+        self.connection.finish_journal_reducer_rebuild(reducer_id, version, cursor, snapshot)
     }
 
     /// Durably record a reducer's fold position and state snapshot
@@ -2640,6 +2710,7 @@ mod digest_reader;
 pub(crate) mod kind_read;
 #[cfg(test)]
 pub(crate) mod kind_read_tests;
+pub(crate) mod reducer_records;
 use digest_reader::DigestReader;
 #[cfg(test)]
 mod actor_tests;
@@ -2669,6 +2740,27 @@ impl RegistryConnection {
     ) -> anyhow::Result<()> {
         write_journal_reducer_state(&self.get(), reducer_id, version, cursor, snapshot)
     }
+
+    /// Save a reducer state rebuilt from the whole journal and clear its
+    /// stale mark, in one transaction.
+    pub(crate) fn finish_journal_reducer_rebuild(
+        &self,
+        reducer_id: &str,
+        version: u32,
+        cursor: u64,
+        snapshot: &str,
+    ) -> anyhow::Result<()> {
+        let db = self.get();
+        let tx = db.unchecked_transaction()?;
+        write_journal_reducer_state(&tx, reducer_id, version, cursor, snapshot)?;
+        tx.execute("DELETE FROM meta WHERE key = ?1", [journal_reducer_rebuild_key(reducer_id)])?;
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+fn journal_reducer_rebuild_key(reducer_id: &str) -> String {
+    format!("journal_reducer_rebuild.{reducer_id}")
 }
 
 /// The `meta` row of a reducer's fold position and snapshot, written on

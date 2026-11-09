@@ -539,6 +539,7 @@ fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
 }
 
 mod classic_import_transport;
+mod agent_reply_append;
 mod detach_and_browser;
 mod event_shape_tests;
 mod host_size_policy;
@@ -557,6 +558,7 @@ mod session_streams;
 mod sizing;
 mod socket_and_render;
 mod subscribe_scroll_on_attach;
+mod terminal_close_if_unplaced;
 mod test_socket_path;
 mod tree_selection_deltas;
 mod view_leases;

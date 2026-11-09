@@ -120,6 +120,11 @@
       "what": "one key in the agent chat composer: the prompt's markdown written from each top-level block's kept markdown (MarkdownField.tsx blockwiseMarkdown), so only the block the key changed is serialized",
       "bench": "CMUX_LATENCY_DRAFTS=1 bun webviews/scripts/latency/run.ts --page \"chat draft typing\" (10k and 200k-character drafts, 3,000-turn chat)",
       "owner": "agent chat composer"
+    },
+    "session-list-change": {
+      "what": "one session_changed while the agent pane is open (direct.ts sessionChanged, then App's per-snapshot projections of snapshot.sessions: hover info, sub-session store, Waiting on you, folders). Its cost must not grow with the number of listed sessions.",
+      "bench": "webviews/bench/update-one.bench.ts (update_one.<surface>.<kind>.n100|n1000|n3000 and .growth; cmux-ci test -- bun bench/update-one.bench.ts)",
+      "owner": "acpmux pane"
     }
   }
 }

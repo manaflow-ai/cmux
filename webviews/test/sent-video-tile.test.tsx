@@ -388,6 +388,31 @@ try {
       proto.play = original;
     }
   });
+  // Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop up anymore :(". In a
+  // chat on another machine the host granted no stream and Quick Look refused too, and the click
+  // did nothing at all. When nothing can play it, the tile says so.
+  test("a video nothing can play says so on the tile instead of a click that does nothing", async () => {
+    const path = "/home/dev/project/remote-demo.mp4";
+    await grantedVideo("user-9", path, "unused");
+    const refusal = { ok: false, error: { code: "media_refused", message: "refused" } };
+    setChipHost(async (method, params) => {
+      calls.push({ method, params });
+      return method === "media.load" || method === "video.quickLook" ? refusal : null;
+    });
+    calls.length = 0;
+    const tile = host.querySelector<HTMLElement>(".cv-user__video")!;
+    expect(tile.querySelector(".cv-user__video-unplayable")).toBeNull();
+    await act(async () => tile.click());
+    await settle();
+    expect(calls.map((call) => call.method)).toEqual(["media.load", "video.quickLook"]);
+    const note = host.querySelector(".cv-user__video .cv-user__video-unplayable");
+    expect(note?.textContent).toBe("Can't play this video here");
+    // The tile stays, and a later click asks again.
+    calls.length = 0;
+    await act(async () => host.querySelector<HTMLElement>(".cv-user__video")!.click());
+    await settle();
+    expect(calls.map((call) => call.method)).toEqual(["media.load", "video.quickLook"]);
+  });
 } finally {
   afterAll(() => {
     setChipHost(undefined);

@@ -34,6 +34,8 @@ nonisolated enum AppsStrings {
     static var failureCopied: String { t("apps.failure.copied", "Copied") }
     static var failureDetails: String { t("apps.failure.details", "Details") }
     static var failureHideDetails: String { t("apps.failure.hideDetails", "Hide Details") }
+    /// The marker under a kept app view whose last save did not load; the file and line follow it.
+    static var reloadFailed: String { t("apps.mount.reloadFailed", "Not reloaded") }
     /// The second line of an app's toast detail (`cmux.toast`): the app that showed it.
     static func toastSource(_ app: String) -> String { String(format: t("apps.toast.source", "From %@"), app) }
     static var discover: String { t("store.tab.discover", "Discover") }

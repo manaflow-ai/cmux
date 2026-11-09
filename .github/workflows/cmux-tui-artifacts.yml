@@ -3820,9 +3820,10 @@ jobs:
     needs: [publish, verify-publish]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.verify-publish.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 15
+    timeout-minutes: 35  # 15 for the Cloud machine channel, at most 15 more for the Linux release file
     permissions:
       contents: read
+      actions: read  # the Linux release file: this run's own build artifacts (gh run download)
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -3835,6 +3836,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          GH_TOKEN: ${{ github.token }}  # gh run download, for the Linux release file
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/machine-channel"
@@ -3844,6 +3846,28 @@ jobs:
             --committed-at "$(git show -s --format=%ct HEAD)" --download-dir "$dir/binaries" --out "$dir/payload.json"
           rm -rf "$dir/binaries"
           scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
+          # Then the signed Linux release files (cmuxterm-hq docs/design/linux-signed-packages.md):
+          # cmux-tui/<sha>/release.json (written once) and cmux-tui/channels/linux-feat-cmux-next.json
+          # (forward only), the same envelope and key with purpose cmux-linux-release, so neither file
+          # stands in for a Cloud machine update. A bucket writer controls every byte in the bucket, the
+          # manifest included, and publish adopts (and attests) whatever Linux bytes the prefix already
+          # serves, so CI signs only bytes equal to this run's own build artifacts (GitHub's artifact store,
+          # --binaries-dir). Bytes another run uploaded first are not signed by this one. Delivery for the
+          # installers, not a gate: a failure is a warning and never holds the Cloud machine channel above.
+          lr="$dir/linux-release"
+          mkdir -p "$lr" && chmod 700 "$lr"
+          export lr GITHUB_SHA GITHUB_RUN_ID GITHUB_REPOSITORY
+          if ! timeout 900 bash -euo pipefail -c '
+                 gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+                   --pattern "cmux-tui-*-unknown-linux-musl" --dir "$lr/artifacts"
+                 mkdir -p "$lr/built" && find "$lr/artifacts" -type f -exec mv -t "$lr/built" {} +
+                 python3 scripts/ci/cmux-machine-channel.py payload --purpose linux-release --channel feat-cmux-next \
+                   --binaries-dir "$lr/built" --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
+                   --download-dir "$lr/binaries" --out "$lr/payload.json"
+                 rm -rf "$lr/binaries"
+                 scripts/ci/cmux-machine-channel-point.sh "$lr/payload.json" "$lr"'; then
+            echo "::warning::the signed Linux release file of $GITHUB_SHA was not published; the next push signs its own"
+          fi
 
   # The fallback for publish's "Request the Cloud VM image roll": only when that dispatch failed, after the
   # read-back of the same commit manifests point-machine-channel reads. The roll's plan decides whether the
