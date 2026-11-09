@@ -10,12 +10,13 @@ use serde_json::{Map, Value, json};
 use super::*;
 
 /// Steps whose task ends as `outcome` (or, `None`, only at a cancel) and whose removals answer
-/// `removals` in turn (then `Deleted`).
+/// `removals` in turn (then `Gone`). Its scope is `team:team_1`, and every remove's is kept.
 struct Fake {
     outcome: Mutex<Option<Outcome>>,
     removals: Mutex<Vec<Removal>>,
     ran: Mutex<Vec<Task>>,
     removed: Mutex<Vec<(String, Option<String>)>>,
+    scopes: Mutex<Vec<Option<String>>>,
     removes: AtomicUsize,
 }
 
@@ -26,12 +27,17 @@ impl Fake {
             removals: Mutex::new(removals),
             ran: Mutex::new(Vec::new()),
             removed: Mutex::new(Vec::new()),
+            scopes: Mutex::new(Vec::new()),
             removes: AtomicUsize::new(0),
         })
     }
 }
 
 impl Steps for Fake {
+    fn scope(&self) -> Option<String> {
+        Some("team:team_1".into())
+    }
+
     fn run(&self, task: &Task, cancel: &AtomicBool) -> Outcome {
         self.ran.lock().unwrap().push(task.clone());
         if let Some(outcome) = self.outcome.lock().unwrap().clone() {
@@ -45,11 +51,12 @@ impl Steps for Fake {
         Outcome::Cancelled { machine: Some("m-1".into()) }
     }
 
-    fn remove(&self, machine_name: &str, machine: Option<&str>) -> Removal {
+    fn remove(&self, machine_name: &str, machine: Option<&str>, scope: Option<&str>) -> Removal {
         self.removes.fetch_add(1, Ordering::AcqRel);
+        self.scopes.lock().unwrap().push(scope.map(str::to_owned));
         self.removed.lock().unwrap().push((machine_name.to_owned(), machine.map(str::to_owned)));
         let mut removals = self.removals.lock().unwrap();
-        if removals.is_empty() { Removal::Deleted } else { removals.remove(0) }
+        if removals.is_empty() { Removal::Gone } else { removals.remove(0) }
     }
 }
 
@@ -220,6 +227,11 @@ fn a_restart_ends_a_run_that_was_going_and_resumes_its_cleanup() {
     assert_eq!(snapshot["run"]["status"], "failed");
     assert!(snapshot["receipt"]["error"].as_str().unwrap().contains("restarted"));
     assert_eq!(fake.removed.lock().unwrap()[0].0, format!("{MACHINE_PREFIX}{id}"));
+    assert_eq!(
+        fake.scopes.lock().unwrap()[0].as_deref(),
+        Some("team:team_1"),
+        "the scope read at the start is the cleanup's after a restart"
+    );
     assert!(fake.ran.lock().unwrap().is_empty(), "nothing runs again");
     first.perform("runs.cancel", None, &args(json!({ "id": id }))).unwrap();
 }

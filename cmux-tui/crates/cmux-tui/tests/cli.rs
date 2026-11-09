@@ -3789,6 +3789,9 @@ mod conversation_tree;
 #[path = "cli/dock_tab_placement.rs"]
 mod dock_tab_placement;
 #[cfg(unix)]
+#[path = "cli/cloud_runs_app_route.rs"]
+mod cloud_runs_app_route;
+#[cfg(unix)]
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;
 #[cfg(unix)]

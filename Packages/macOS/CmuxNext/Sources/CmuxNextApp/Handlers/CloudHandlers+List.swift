@@ -61,7 +61,7 @@ extension CloudHandlers {
     /// team's list) the store's list says nothing about which machines exist, so the answer has no machines: a caller never reads
     /// "not loaded yet" as "none" and creates a second one.
     ///
-    /// `account` holds only what the store knows: it keeps no plan limits
+    /// `account` holds only what the store knows (signed in, and the team the list is for): it keeps no plan limits
     /// (`max_active_vms`), and a count of machines is no entitlement (0 is a
     /// closed plan, null an uncapped one), so the answer leaves `limits` out.
     static func machineListFields(_ context: AppActionContext, loaded: Bool) -> [String: ActionResultValue] {
@@ -75,7 +75,7 @@ extension CloudHandlers {
             "machines": .array(machines),
             "count": .int(machines.count),
             "creating": .array(cloud.creations.all.filter { $0.session == nil }.map(listedCreation)),
-            "account": .object(["signed_in": .bool(cloud.isSignedIn)]),
+            "account": .object(["signed_in": .bool(cloud.isSignedIn), "team_id": cloud.auth.teamID.map(ActionResultValue.string) ?? .null]),
         ]
     }
 

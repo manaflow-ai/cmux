@@ -80,20 +80,26 @@ pub enum Outcome {
     Cancelled { machine: Option<String> },
 }
 
-/// One delete of a Run's machine.
+/// One cleanup pass over a Run's machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Removal {
-    Deleted,
-    /// No machine has the name (or the id).
+    /// An authoritative list (loaded, signed in, the Run's own scope) shows no machine with the id
+    /// or the name, and no create of that name on its way.
     Gone,
-    /// Not now (the app not running, a refusal): try again later.
+    /// Not yet: the machine is still listed (a delete was asked for, or is under way), or no list
+    /// could say (the app not running, signed out, not loaded, another team). Read again later.
     Later(String),
 }
 
 /// What a Run does on Cloud. Each call may block for its whole bound; `cancel` set means stop now.
 pub trait Steps: Send + Sync {
+    /// The account and team the app makes machines for now (`None`: unknown), read before the
+    /// task starts. The cleanup trusts only a list for that same scope.
+    fn scope(&self) -> Option<String>;
     fn run(&self, task: &Task, cancel: &AtomicBool) -> Outcome;
-    fn remove(&self, machine_name: &str, machine: Option<&str>) -> Removal;
+    /// Asks for the machine's delete when it is still listed; [`Removal::Gone`] only once an
+    /// authoritative list for `scope` no longer shows it.
+    fn remove(&self, machine_name: &str, machine: Option<&str>, scope: Option<&str>) -> Removal;
 }
 
 /// The engine's pauses and ages.
@@ -147,6 +153,9 @@ struct Run {
     cleanup: String,
     /// "Gone" counts only from this time on.
     settle_ms: i64,
+    /// The app's account and team when the task started ([`Steps::scope`]).
+    #[serde(default)]
+    scope: Option<String>,
 }
 
 impl Run {
@@ -408,6 +417,7 @@ impl Engine {
             cancel_requested_ms: None,
             cleanup: "pending".into(),
             settle_ms: now,
+            scope: None,
         };
         let answer = created(&run);
         let cancel = Arc::new(AtomicBool::new(false));
@@ -429,12 +439,14 @@ impl Engine {
 
     /// The Run's whole life on its own thread: the task, its end, then the cleanup.
     fn drive(&self, id: &str, prompt: String, cancel: &AtomicBool) {
+        let scope = if cancel.load(Ordering::Acquire) { None } else { self.steps.scope() };
         let task = {
             let mut state = self.lock();
             let Some(run) = state.runs.get_mut(id) else { return };
             if cancel.load(Ordering::Acquire) {
                 None
             } else {
+                run.scope = scope;
                 run.status = "running".into();
                 run.started_ms = Some(now_ms());
                 run.updated_ms = now_ms();
@@ -514,17 +526,18 @@ impl Engine {
     fn clean(&self, id: &str) {
         let mut pause = self.timing.retry_first;
         loop {
-            let (name, machine, settle, finished) = {
+            let (name, machine, scope, settle, finished) = {
                 let state = self.lock();
                 let Some(run) = state.runs.get(id) else { return };
                 if run.cleanup != "pending" {
                     return;
                 }
-                (run.machine_name.clone(), run.machine.clone(), run.settle_ms, run.finished_ms)
+                let run = run.clone();
+                (run.machine_name, run.machine, run.scope, run.settle_ms, run.finished_ms)
             };
-            let removal = self.steps.remove(&name, machine.as_deref());
+            let removal = self.steps.remove(&name, machine.as_deref(), scope.as_deref());
             let now = now_ms();
-            let done = matches!(removal, Removal::Deleted | Removal::Gone) && now >= settle;
+            let done = removal == Removal::Gone && now >= settle;
             let given_up = finished.is_some_and(|at| now - at >= ms(self.timing.give_up));
             if done || given_up {
                 let mut state = self.lock();
@@ -538,8 +551,8 @@ impl Engine {
                 return;
             }
             let wait = match removal {
-                // Deleted or gone, before the settle time: read again then.
-                Removal::Deleted | Removal::Gone => {
+                // Gone before the settle time: read again then.
+                Removal::Gone => {
                     Duration::from_millis(u64::try_from(settle - now).unwrap_or(0))
                         .min(self.timing.retry_max)
                 }
