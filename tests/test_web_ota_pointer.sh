@@ -116,7 +116,8 @@ value = {"schema": 1, "purpose": "cmux-linux-release", "channel": "feat-cmux-nex
          # 1794207612 is 2026-11-09 07:00:12 UTC.
          "version": f"1.0.0+20261109070012.{commit[:12]}", "commit": commit, "committed_at": 1794207612,
          "published_at": now, "expires_at": now + 30 * 86400,
-         "targets": {t: files(t) for t in ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-musl")}}
+         "targets": {t: files(t) for t in ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
+                                           "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")}}
 for change in sys.argv[2:]:
     field, _, raw = change.partition("=")
     node, *path = field.split(".")
@@ -195,6 +196,11 @@ signed extra 'targets.x86_64-unknown-linux-gnu.deb={"url":"https://files.cmux.co
 accepts "a package under the commit prefix" "$TMP/extra.json" "${LR[@]}"
 signed badsha 'targets.x86_64-unknown-linux-gnu.cmux-tui.sha256="nothex"'
 refuses "a bad sha256" "$TMP/badsha.json" "${LR[@]}"
+# Every Linux target an installer may ask for, with both binaries (review of #39452, F1).
+signed notarget 'targets.aarch64-unknown-linux-gnu=null'
+refuses "a release file without one Linux target" "$TMP/notarget.json" "${LR[@]}"
+signed nohook 'targets.x86_64-unknown-linux-musl={"cmux-tui":{"url":"https://files.cmux.com/cmux-tui/cccccccccccccccccccccccccccccccccccccccc/cmux-tui-x86_64-unknown-linux-musl","sha256":"'"$(printf 'd%.0s' {1..64})"'","size":7}}'
+refuses "a release file whose target lacks cmux-tui-hook" "$TMP/nohook.json" "${LR[@]}"
 signed badversion 'version="1.0.0+20261109070013.cccccccccccc"'
 refuses "a version that is not the commit time" "$TMP/badversion.json" "${LR[@]}"
 

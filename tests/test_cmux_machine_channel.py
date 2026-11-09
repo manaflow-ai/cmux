@@ -207,6 +207,8 @@ class EarlyUploadAndAnotherPublisher(unittest.TestCase):
 RELEASE_COMMIT = "c" * 40
 # 2026-11-09 07:00:12 UTC.
 COMMITTED_AT = 1794207612
+SIGNER = "manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml"
+RELEASE = ("--purpose", "linux-release", "--channel", "feat-cmux-next", "--attest-signer-workflow", SIGNER)
 
 
 def served_linux_build(directory, generation="1"):
@@ -234,8 +236,16 @@ class LinuxReleasePayload(unittest.TestCase):
         self.manifest.write_text(json.dumps({"commit": RELEASE_COMMIT, "binaries": {
             **self.sha, "cmux-tui-aarch64-apple-darwin": "0" * 64, "cmux-tui-acpmux-x86_64-unknown-linux-gnu": "1" * 64}}))
         self.downloads = []
+        self.attested = None  # None: GitHub attests every file the fixture serves
+        self.verified = []
 
-    def download(self, argv, check):
+    def download(self, argv, check=False, **kwargs):
+        if argv[0] == "gh":  # gh attestation verify FILE --repo R --signer-workflow W --source-digest SHA
+            path = argv[3]
+            self.verified.append((os.path.basename(path), argv[argv.index("--signer-workflow") + 1],
+                                  argv[argv.index("--source-digest") + 1]))
+            ok = self.attested is None or channel.sha256_file(path) in self.attested
+            return subprocess.CompletedProcess(argv, 0 if ok else 1, "", "" if ok else "no matching attestation")
         url, out = argv[-1], argv[argv.index("-o") + 1]
         self.downloads.append(url.split("?")[0])
         shutil.copyfile(self.served / url.split("/")[-1].split("?")[0], out)
@@ -253,7 +263,7 @@ class LinuxReleasePayload(unittest.TestCase):
         return value
 
     def test_the_payload_names_every_linux_binary_and_a_commit_time_version(self):
-        value = self.run_payload("--purpose", "linux-release", "--channel", "feat-cmux-next", "--cargo-version", "1.0.0")
+        value = self.run_payload(*RELEASE, "--cargo-version", "1.0.0")
         self.assertEqual(sorted(value), ["channel", "commit", "committed_at", "expires_at", "published_at", "purpose",
                                          "schema", "targets", "version"])
         self.assertEqual((value["schema"], value["purpose"], value["channel"]), (1, "cmux-linux-release", "feat-cmux-next"))
@@ -270,9 +280,26 @@ class LinuxReleasePayload(unittest.TestCase):
         # Every URL was downloaded and checked; nothing is left on disk.
         self.assertEqual(sorted(self.downloads), sorted(e["url"] for f in value["targets"].values() for e in f.values()))
         self.assertEqual(list((self.tmp / "dl").iterdir()), [])
+        # And every one carried this workflow's attestation for this commit before it was signed.
+        self.assertEqual(sorted(self.verified), sorted((f"{n}-{t}", SIGNER, RELEASE_COMMIT)
+                                                       for t in channel.LINUX_RELEASE_TARGETS for n in channel.NAMES))
+
+    def test_a_bucket_writer_cannot_get_its_bytes_signed(self):
+        # Review of #39452: the writer replaces a GNU binary and its manifest checksum after publish. The
+        # checksum then matches the bytes, but no attestation by this workflow covers them: refused.
+        self.attested = set(self.sha.values())
+        evil = b"attacker build"
+        (self.served / "cmux-tui-x86_64-unknown-linux-gnu").write_bytes(evil)
+        forged = dict(self.sha, **{"cmux-tui-x86_64-unknown-linux-gnu": hashlib.sha256(evil).hexdigest()})
+        self.manifest.write_text(json.dumps({"commit": RELEASE_COMMIT, "binaries": forged}))
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            self.run_payload(*RELEASE)
+        self.assertIn("cmux-tui-x86_64-unknown-linux-gnu", err.getvalue())
+        self.assertIn("has no build-provenance attestation", err.getvalue())
+        self.assertFalse((self.tmp / "payload.json").exists())
 
     def test_the_version_defaults_to_the_cmux_tui_cargo_version(self):
-        value = self.run_payload("--purpose", "linux-release", "--channel", "feat-cmux-next")
+        value = self.run_payload(*RELEASE)
         base = channel.nightly_version.next_base(str(ROOT))
         self.assertEqual(value["version"], f"{base}+20261109070012.cccccccccccc")
 
@@ -289,7 +316,10 @@ class LinuxReleasePayload(unittest.TestCase):
             (("--purpose", "linux-release"), "needs --channel"),
             (("--purpose", "linux-release", "--channel", "every-merge"), "needs --channel"),
             (("--channel", "feat-cmux-next"), "are for --purpose linux-release"),
-            (("--purpose", "linux-release", "--channel", "nightly", "--cargo-version", "1.0"), "not MAJOR.MINOR.PATCH"),
+            (("--purpose", "linux-release", "--channel", "nightly", "--attest-signer-workflow", SIGNER,
+              "--cargo-version", "1.0"), "not MAJOR.MINOR.PATCH"),
+            (("--purpose", "linux-release", "--channel", "feat-cmux-next"), "needs --attest-signer-workflow"),
+            (("--attest-signer-workflow", SIGNER), "are for --purpose linux-release"),
         ]
         for extra, message in cases:
             with self.subTest(extra=extra), self.assertRaises(SystemExit), \
@@ -300,7 +330,7 @@ class LinuxReleasePayload(unittest.TestCase):
         del missing["cmux-tui-hook-aarch64-unknown-linux-gnu"]
         self.manifest.write_text(json.dumps({"commit": RELEASE_COMMIT, "binaries": missing}))
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
-            self.run_payload("--purpose", "linux-release", "--channel", "feat-cmux-next")
+            self.run_payload(*RELEASE)
         self.assertIn("no sha256 for cmux-tui-hook-aarch64-unknown-linux-gnu", err.getvalue())
 
 
@@ -365,12 +395,12 @@ class LinuxReleasePoint(unittest.TestCase):
     def payload(self, commit=RELEASE_COMMIT, committed_at=COMMITTED_AT, published_at=1794208000, sha="d" * 64,
                 purpose="cmux-linux-release"):
         stamp = time.strftime("%Y%m%d%H%M%S", time.gmtime(committed_at))
-        target = "x86_64-unknown-linux-gnu"
         value = {"schema": 1, "purpose": purpose, "channel": "feat-cmux-next",
                  "version": f"1.0.0+{stamp}.{commit[:12]}", "commit": commit, "committed_at": committed_at,
                  "published_at": published_at, "expires_at": int(time.time()) + 86400,
                  "targets": {target: {n: {"url": f"https://files.cmux.com/cmux-tui/{commit}/{n}-{target}",
-                                          "sha256": sha, "size": 5} for n in channel.NAMES}}}
+                                          "sha256": sha, "size": 5} for n in channel.NAMES}
+                             for target in channel.LINUX_RELEASE_TARGETS}}
         if purpose == "cmux-cloud-machine-update":
             value.update(channel="cloud-machine", key="e" * 64)
             del value["version"]

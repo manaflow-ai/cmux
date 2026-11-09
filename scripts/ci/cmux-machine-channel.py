@@ -109,14 +109,38 @@ def release_version(cargo_version, commit, committed_at):
     return f"{cargo_version}+{time.strftime('%Y%m%d%H%M%S', time.gmtime(committed_at))}.{commit[:12]}"
 
 
+def attested(path, commit, signer_workflow):
+    """True when GitHub holds a build-provenance attestation for the file's bytes, signed by
+    signer_workflow (owner/repo/.github/workflows/name.yml) building commit. The manifest's sha256
+    comes from the same bucket as the binaries, so it proves nothing about who built them: only the
+    attestation, which publish makes for every binary it uploads, does (as install-cmux-tui-client.sh
+    checks the manifest). A rate-limited answer is retried; any other refusal is final."""
+    repo = signer_workflow.split("/.github/", 1)[0]
+    argv = ["gh", "attestation", "verify", path, "--repo", repo, "--signer-workflow", signer_workflow,
+            "--source-digest", commit]
+    for attempt in range(4):
+        result = subprocess.run(argv, capture_output=True, text=True)
+        if result.returncode == 0:
+            return True
+        if "rate limit" not in (result.stdout + result.stderr).lower() or attempt == 3:
+            sys.stderr.write(result.stdout + result.stderr)
+            return False
+        time.sleep(30 * 2 ** attempt)
+    return False
+
+
 def payload(args):
     if not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         fail(f"bad commit {args.commit!r}")
     release = args.purpose == "linux-release"
     if release and args.channel not in LINUX_RELEASE_CHANNELS:
         fail(f"--purpose linux-release needs --channel, one of {', '.join(LINUX_RELEASE_CHANNELS)}")
-    if not release and (args.channel or args.cargo_version):
-        fail("--channel and --cargo-version are for --purpose linux-release")
+    if not release and (args.channel or args.cargo_version or args.attest_signer_workflow):
+        fail("--channel, --cargo-version and --attest-signer-workflow are for --purpose linux-release")
+    if release and not re.fullmatch(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/\.github/workflows/[A-Za-z0-9._-]+\.ya?ml",
+                                    args.attest_signer_workflow or ""):
+        fail("--purpose linux-release needs --attest-signer-workflow owner/repo/.github/workflows/name.yml: "
+             "CI signs only bytes its own build attested")
     args.targets = LINUX_RELEASE_TARGETS if release else TARGETS
     binaries = expected_sha256(args)
     os.makedirs(args.download_dir, exist_ok=True)
@@ -134,6 +158,9 @@ def payload(args):
                            check=True)
             if sha256_file(path) != sha:
                 fail(f"{url} does not have the expected sha256 {sha}")
+            if release and not attested(path, args.commit, args.attest_signer_workflow):
+                fail(f"{url} (sha256 {sha}) has no build-provenance attestation by {args.attest_signer_workflow} "
+                     f"for {args.commit}; not signing bytes this CI did not build")
             targets.setdefault(target, {})[name] = {"url": url, "sha256": sha, "size": os.path.getsize(path)}
             os.remove(path)  # one binary on disk at a time
             lines.append(f"{published}:{sha}")
@@ -173,6 +200,8 @@ def main(argv):
     p.add_argument("--purpose", choices=("cloud-machine", "linux-release"), default="cloud-machine")
     p.add_argument("--channel", help="--purpose linux-release: the channel this build publishes to")
     p.add_argument("--cargo-version", help="--purpose linux-release: default cmux-tui/Cargo.toml's version")
+    p.add_argument("--attest-signer-workflow",
+                   help="--purpose linux-release: the workflow whose attestation every binary must carry")
     args = parser.parse_args(argv[1:])
     payload(args)
     return 0

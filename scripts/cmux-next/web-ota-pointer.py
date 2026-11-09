@@ -203,6 +203,11 @@ def is_int(value):
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+# scripts/ci/cmux-machine-channel.py LINUX_RELEASE_TARGETS: the targets every release file carries.
+LINUX_RELEASE_TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
+                         "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
+
+
 def check_linux_release(path, value):
     """The shape of a Linux release payload; Refused on anything an installer must not act on."""
     commit = value.get("commit")
@@ -221,6 +226,13 @@ def check_linux_release(path, value):
     targets = value.get("targets")
     if not isinstance(targets, dict) or not targets:
         raise Refused(f"{path}: no targets")
+    # Every Linux target an installer may ask for, each with both binaries; other entries (packages,
+    # later) may sit beside them.
+    for target in LINUX_RELEASE_TARGETS:
+        files = targets.get(target)
+        missing = [name for name in ("cmux-tui", "cmux-tui-hook") if not isinstance(files, dict) or name not in files]
+        if missing:
+            raise Refused(f"{path}: target {target} has no {' or '.join(missing)}")
     prefix = f"{FILES}{commit}/"
     for target, files in targets.items():
         if not isinstance(files, dict) or not files:
