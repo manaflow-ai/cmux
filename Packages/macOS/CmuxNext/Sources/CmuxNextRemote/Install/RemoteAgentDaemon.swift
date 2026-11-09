@@ -28,15 +28,17 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
     /// The status of a Cloud machine's daemon, through the authenticated Cloud machine route (`api`'s exec), for older
     /// cmux-tui builds that do not serve `agent-session-start-keyed-reason-v1`. Nil when it could not be read.
     public static func read(cloudMachine machine: String, api: CloudAPIClient) async -> RemoteAgentDaemonStatus? {
-        let command = [
-            "set -eu",
-            #"b="$HOME/.cmux/bin/cmux-tui""#,
-            #"[ -x "$b" ] || exit 82"#,
-            #""$b" acp --json daemon status </dev/null""#,
-        ].joined(separator: "; ")
-        guard let result = try? await api.exec(machine, command: command, timeoutMs: 10_000), result.exitCode == 0 else { return nil }
+        guard let result = try? await api.exec(machine, command: cloudStatusCommand, timeoutMs: 10_000), result.exitCode == 0 else { return nil }
         return RemoteAgentDaemonStatus(json: result.stdout)
     }
+
+    /// The machine's exec script of ``read(cloudMachine:api:)``: the status as `cmux-tui` prints it; exit 82 with no cmux-tui.
+    public static let cloudStatusCommand = [
+        "set -eu",
+        #"b="$HOME/.cmux/bin/cmux-tui""#,
+        #"[ -x "$b" ] || exit 82"#,
+        #""$b" acp --json daemon status </dev/null""#,
+    ].joined(separator: "; ")
 
     public static func read(_ host: SSHHost, environment: [String: String]) async -> RemoteAgentDaemonStatus? {
         guard let status = try? await SSHProcessRunner.run(
