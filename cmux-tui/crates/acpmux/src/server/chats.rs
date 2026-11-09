@@ -151,6 +151,9 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::bg_tasks::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    if let Some(reply) = heap(|| super::run_elsewhere::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
         return reply;
     }

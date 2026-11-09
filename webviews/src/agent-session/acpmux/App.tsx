@@ -557,6 +557,13 @@ import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
 import { type WorkingCounts, WorkingCountsContext } from "./conversation/workingForModel";
 import { type PreviewChips, PreviewChipsContext, previewsOf } from "./conversation/previewChipModel";
+import {
+  type RunElsewhere,
+  RunElsewhereContext,
+  type RunOutput,
+  type RunPlan,
+  RunElsewhereStore,
+} from "./conversation/runElsewhereModel";
 import { NewestSteerContext, SteerChatContext, takeBackSteer, takesSteersBack } from "./conversation/pendingSteerModel";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
@@ -5480,6 +5487,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `previews` is new on every process update; its key is not
     [quick, previewsKey, latestPreview, cloudPreviewChat],
   );
+  // "Run on a bigger machine" on this chat's slow commands (conversation/RunElsewhere.tsx): a
+  // chat on this machine only (a Cloud chat's commands already run on its machine; Quick Chat has
+  // no rows to put it under). One store per chat, so another chat's runs never show here.
+  const runChat = snapshot.sessionId;
+  const runElsewhere = useMemo<RunElsewhere | undefined>(() => {
+    if (quick || cloudPreviewChat || !runChat) return undefined;
+    const call = <T,>(use: (c: NonNullable<typeof directClient.current>) => Promise<unknown>) => {
+      const c = directClient.current;
+      return (c ? use(c) : Promise.reject(new Error("acpmux is not connected"))) as Promise<T>;
+    };
+    return {
+      store: new RunElsewhereStore(),
+      client: {
+        plan: (command) => call<RunPlan>((c) => c.planRunElsewhere(runChat, command)),
+        start: (command, machine, digest, send) =>
+          call<{ task: { id: string } }>((c) => c.startRunElsewhere(runChat, command, machine, digest, send)).then(
+            (r) => r.task,
+          ),
+        output: (taskId, fromByte) => call<RunOutput>((c) => c.bgOutput(runChat, taskId, fromByte)),
+        stop: (taskId) => call((c) => c.bgStop(runChat, taskId)),
+      },
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new client is a new source
+  }, [quick, cloudPreviewChat, runChat, clientEpoch]);
   const workingCounts = useMemo<WorkingCounts>(() => {
     return {
       agents: runningAgents.length,
@@ -10316,6 +10347,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                     <SubagentPaneContext.Provider value={showSubagent}>
                                       <WorkingCountsContext.Provider value={workingCounts}>
                                         <PreviewChipsContext.Provider value={previewChips}>
+                                        <RunElsewhereContext.Provider value={runElsewhere}>
                                           <WaitingOnContext.Provider value={waiting}>
                                             <SubagentStopContext.Provider value={stopSubagent}>
                                               <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
@@ -10489,6 +10521,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                               </SubagentClockContext.Provider>
                                             </SubagentStopContext.Provider>
                                           </WaitingOnContext.Provider>
+                                        </RunElsewhereContext.Provider>
                                         </PreviewChipsContext.Provider>
                                       </WorkingCountsContext.Provider>
                                     </SubagentPaneContext.Provider>

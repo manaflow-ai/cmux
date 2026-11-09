@@ -1,0 +1,239 @@
+// l10n-allow-file: test fixture commands, paths and machine names, not shipped UI.
+// "Run on a bigger machine": the chip shows on a running shell row from 20 s on and never on a
+// finished one or a non-shell; a click shows exactly what goes (secret-looking files left out
+// until ticked, untracked files staying) and starts the run with the plan's digest; the run's
+// output streams in under the row in order, and the reads stop when it ends.
+import { afterEach, expect, test } from "bun:test";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { JSDOM } from "jsdom";
+import { translate } from "../i18n";
+import type { AcpmuxActivity } from "../model";
+import { CommandRow } from "./CommandRow";
+import { ToolRow } from "./ToolRow";
+import {
+  RUN_ELSEWHERE_AFTER_MS,
+  RunElsewhereContext,
+  RunElsewhereStore,
+  appendOutput,
+  chipDueAt,
+  firstMachine,
+  nextReadDelay,
+  RUN_OUTPUT_KEEP,
+  type RunElsewhere,
+  type RunOutput,
+  type RunPlan,
+} from "./runElsewhereModel";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+
+let dom: JSDOM | undefined;
+let root: Root | undefined;
+const scope = globalThis as Record<string, unknown>;
+const saved = new Map<string, unknown>();
+
+function installDom(): HTMLElement {
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
+    saved.set(key, scope[key]);
+  Object.assign(scope, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    Node: dom.window.Node,
+    HTMLElement: dom.window.HTMLElement,
+    Element: dom.window.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  return dom.window.document.getElementById("root")!;
+}
+
+afterEach(async () => {
+  if (root) await act(async () => root!.unmount());
+  resetTranscriptDisclosure();
+  root = undefined;
+  dom?.window.close();
+  dom = undefined;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
+  saved.clear();
+});
+
+const call = (status: string, startedAt: number, command = "cargo test", kind = "execute"): AcpmuxActivity => ({
+  kind: "tool",
+  text: command,
+  tool: { id: "t1", title: command, kind, status, command, startedAt },
+});
+
+const PLAN: RunPlan = {
+  eligible: true,
+  machines: [
+    { name: "laptop", ok: false, why: "not connected now" },
+    { name: "build-box", ok: true },
+  ],
+  tree: {
+    base: "4f1c2a9be03d7e51a2c6f0b8d9e4a7c3b1f05e62",
+    prefix: "",
+    files: [
+      { path: "src/lib.rs", status: "M", secret: false },
+      { path: ".env", status: "A", secret: true },
+    ],
+    untracked: ["scratch.txt"],
+    untrackedTotal: 1,
+    patchBytes: 900,
+    digest: "d1",
+  },
+};
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function harness(outputs: RunOutput[] = []) {
+  const calls: { started?: unknown[]; reads: number[]; stopped: string[] } = { reads: [], stopped: [] };
+  const runs: RunElsewhere = {
+    store: new RunElsewhereStore(),
+    client: {
+      plan: async () => PLAN,
+      start: async (...args) => {
+        calls.started = args;
+        return { id: "bg-7" };
+      },
+      output: async (_task, from) => {
+        calls.reads.push(from);
+        return outputs.shift() ?? { data: "", nextByte: from, state: "running" };
+      },
+      stop: async (id) => void calls.stopped.push(id),
+    },
+  };
+  return { runs, calls };
+}
+
+async function render(item: AcpmuxActivity, runs: RunElsewhere, Row: typeof CommandRow = CommandRow) {
+  const host = installDom();
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <RunElsewhereContext.Provider value={runs}>
+        <div className="cv-tools">
+          <Row item={item} />
+        </div>
+      </RunElsewhereContext.Provider>,
+    ),
+  );
+  return host;
+}
+
+const b64 = (text: string) => Buffer.from(text, "utf8").toString("base64");
+
+test("the chip is due 20 s into a running shell command and never otherwise", () => {
+  const base = { kind: "execute", command: "make", startedAt: 1000, running: true };
+  expect(chipDueAt(base)).toBe(1000 + RUN_ELSEWHERE_AFTER_MS);
+  expect(chipDueAt({ ...base, running: false })).toBeUndefined();
+  expect(chipDueAt({ ...base, kind: "read" })).toBeUndefined();
+  expect(chipDueAt({ ...base, command: "  " })).toBeUndefined();
+  expect(chipDueAt({ ...base, startedAt: undefined })).toBeUndefined();
+});
+
+test("a machine that can take the run is picked first, the last one used before others", () => {
+  const machines = [
+    { name: "a", ok: false },
+    { name: "b", ok: true },
+    { name: "c", ok: true },
+  ];
+  expect(firstMachine(machines)).toBe("b");
+  expect(firstMachine(machines, "c")).toBe("c");
+  expect(firstMachine(machines, "a")).toBe("b");
+  expect(firstMachine([{ name: "a", ok: false }])).toBeUndefined();
+});
+
+test("output keeps its newest bytes from a line start, and quiet reads back off to 2 s", () => {
+  const long = "x".repeat(RUN_OUTPUT_KEEP - 2) + "\nnext line\n";
+  const kept = appendOutput(long, "more\n");
+  expect(kept.length).toBeLessThanOrEqual(RUN_OUTPUT_KEEP);
+  expect(kept).toBe("next line\nmore\n");
+  let delay = 250;
+  for (let i = 0; i < 6; i++) delay = nextReadDelay(delay, false);
+  expect(delay).toBe(2000);
+  expect(nextReadDelay(delay, true)).toBe(250);
+});
+
+test("a command running under 20 s, a finished one and a non-shell show no chip", async () => {
+  const { runs } = harness();
+  let host = await render(call("in_progress", Date.now() - 5_000), runs);
+  expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
+  await act(async () => root!.unmount());
+  root = undefined;
+  host = await render(call("completed", Date.now() - 60_000), runs);
+  expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
+  await act(async () => root!.unmount());
+  root = undefined;
+  host = await render(call("in_progress", Date.now() - 60_000, "Read src/lib.rs", "read"), runs, ToolRow);
+  expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
+});
+
+test("a click shows what goes, leaves the secret out, and starts with the plan's digest", async () => {
+  const { runs, calls } = harness();
+  const host = await render(call("in_progress", Date.now() - 30_000), runs);
+  const chip = host.querySelector<HTMLElement>(".cv-run-elsewhere-chip");
+  expect(chip?.textContent).toBe(translate("runElsewhere.chip"));
+  const row = host.querySelector<HTMLButtonElement>(".cv-command")!;
+  await act(async () => chip!.click());
+  await act(async () => wait(0));
+  expect(row.getAttribute("aria-expanded")).toBe("false");
+  const panel = host.querySelector(".cv-run-elsewhere")!;
+  expect(panel.textContent).toContain("src/lib.rs");
+  expect(panel.textContent).toContain(".env");
+  expect(panel.textContent).toContain("scratch.txt");
+  expect(panel.textContent).toContain("4f1c2a9be");
+  const radios = [...panel.querySelectorAll<HTMLInputElement>("input[type=radio]")];
+  expect(radios.map((r) => [r.value, r.checked, r.disabled])).toEqual([
+    ["laptop", false, true],
+    ["build-box", true, false],
+  ]);
+  const run = panel.querySelector<HTMLButtonElement>(".cv-run-elsewhere__run")!;
+  expect(run.textContent).toContain(translate("runElsewhere.run", { machine: "build-box" }));
+  await act(async () => run.click());
+  await act(async () => wait(0));
+  expect(calls.started).toEqual(["cargo test", "build-box", "d1", []]);
+  expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
+});
+
+test("ticking a secret-looking file sends it", async () => {
+  const { runs, calls } = harness();
+  const host = await render(call("in_progress", Date.now() - 30_000), runs);
+  await act(async () => host.querySelector<HTMLElement>(".cv-run-elsewhere-chip")!.click());
+  await act(async () => wait(0));
+  const box = host.querySelector<HTMLInputElement>(".cv-run-elsewhere input[type=checkbox]")!;
+  await act(async () => box.click());
+  await act(async () => host.querySelector<HTMLButtonElement>(".cv-run-elsewhere__run")!.click());
+  await act(async () => wait(0));
+  expect(calls.started).toEqual(["cargo test", "build-box", "d1", [".env"]]);
+});
+
+test("the run's output streams in under the row in order and the reads stop when it ends", async () => {
+  // A multi-byte character split across two reads arrives whole.
+  const bytes = Buffer.from("line 1\nné\n", "utf8");
+  const { runs, calls } = harness([
+    { data: bytes.subarray(0, 9).toString("base64"), nextByte: 9, state: "running" },
+    { data: bytes.subarray(9).toString("base64"), nextByte: bytes.length, state: "running" },
+    { data: b64("done\n"), nextByte: bytes.length + 5, state: "exited", exitCode: 3 },
+  ]);
+  runs.store.set("t1", { phase: "running", machine: "build-box", taskId: "bg-7", output: "" });
+  const host = await render(call("in_progress", Date.now() - 30_000), runs);
+  for (let i = 0; i < 4; i++) await act(async () => wait(300));
+  const out = host.querySelector(".cv-run-elsewhere__output");
+  expect(out?.textContent).toBe("line 1\nné\ndone\n");
+  expect(calls.reads).toEqual([0, 9, bytes.length]);
+  const status = host.querySelector(".cv-run-elsewhere__title")!;
+  expect(status.textContent).toBe(translate("runElsewhere.ended", { machine: "build-box", code: "3" }));
+  await act(async () => wait(600));
+  expect(calls.reads.length).toBe(3);
+});
+
+test("Stop stops the task on the other machine", async () => {
+  const { runs, calls } = harness();
+  runs.store.set("t1", { phase: "running", machine: "build-box", taskId: "bg-7", output: "" });
+  const host = await render(call("in_progress", Date.now() - 30_000), runs);
+  await act(async () => host.querySelector<HTMLButtonElement>(".cv-run-elsewhere__link")!.click());
+  expect(calls.stopped).toEqual(["bg-7"]);
+});
