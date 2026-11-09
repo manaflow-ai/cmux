@@ -240,8 +240,9 @@ export default diffPageEntry({
       summaries: {
         delayMs: 300,
         sentences: {
-          withRetry: "Retries each request up to three times before giving up.",
+          // The first key a hunk's patch contains names its sentence: the helper's own file first.
           "attempt >= attempts": "Adds a helper that reruns a failing task until it runs out of attempts.",
+          withRetry: "Retries each request up to three times before giving up.",
           "retries: 5": "Raises retries to five, the timeout to 15 seconds, and moves to the v2 API.",
           describeConfig: "Renames describe to describeConfig and can add the timeout to its text.",
         },
@@ -265,8 +266,9 @@ export default diffPageEntry({
       ],
       summaries: {
         sentences: {
-          withRetry: "Retries each request up to three times before giving up.",
+          // The first key a hunk's patch contains names its sentence: the helper's own file first.
           "attempt >= attempts": "Adds a helper that reruns a failing task until it runs out of attempts.",
+          withRetry: "Retries each request up to three times before giving up.",
         },
       },
       play: async (ctx) => {

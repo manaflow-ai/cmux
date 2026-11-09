@@ -1,7 +1,7 @@
 public import CmuxNextAgentPane
 public import CmuxNextPages
 public import CmuxNextSettings
-import Foundation
+public import Foundation
 
 /// Who writes a diff tab's hunk sentences (Plain English, webviews/src/diff-viewer/hunkSummaries.ts):
 /// this Mac's acpmux (`_acpmux/hunk_summary`), on the harness of the chat that opened the tab
