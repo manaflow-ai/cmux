@@ -42,10 +42,11 @@ struct SplitDuringSplitCrossAxisTests {
             root.syncWithModel()
         }
 
-        // Cmd-D on p2 (even sizing: p2 shrinks and p3 grows in from the right), then 16 frames of it.
+        // Cmd-D on p2 (even sizing: p2 shrinks and p3 grows in from the right), then 6 frames of it (50 ms: the split
+        // spring, 0.085 s, is about nine tenths of the way, so p3 still moves).
         _ = model.showSplitSizing(model.splitSizingChanges(splitting: "p2", axis: .horizontal))
         show(Self.three)
-        for _ in 0..<16 { root.advanceFrame(1.0 / 120) }
+        for _ in 0..<6 { root.advanceFrame(1.0 / 120) }
         let moving = try #require(screen.paneFrames["p3"])
         #expect(abs(moving.rect.minX - moving.targetRect.minX) > 10, "p3 still moves sideways (\(moving.rect.minX) -> \(moving.targetRect.minX))")
 
