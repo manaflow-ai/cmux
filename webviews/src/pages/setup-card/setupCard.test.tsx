@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { Window } from "happy-dom";
 import type { SetupState } from "../home-messages/cards/setup/setupModel";
 import type { PageClient } from "../shared/pageClient";
 import { SetupCardPage } from "./SetupCardPage";
@@ -66,5 +69,35 @@ describe("the Set Up cmux page", () => {
       [SETUP_OPS.run, { action: { kind: "installCLI" } }],
       [SETUP_OPS.hide, {}],
     ]);
+  });
+
+  test("reports its height once rendered, with no ResizeObserver callback (a hidden page gets none)", async () => {
+    const window = new Window();
+    const globals = globalThis as Record<string, unknown>;
+    const names = ["document", "window", "ResizeObserver", "HTMLElement", "Element", "Node", "navigator"] as const;
+    const saved = Object.fromEntries(names.map((name) => [name, globals[name]]));
+    Object.assign(globals, {
+      document: window.document,
+      window,
+      ResizeObserver: undefined,
+      HTMLElement: window.HTMLElement,
+      Element: window.Element,
+      Node: window.Node,
+      navigator: window.navigator,
+      IS_REACT_ACT_ENVIRONMENT: true,
+    });
+    try {
+      const { client, calls } = host(fresh);
+      const store = new SetupCardStore(client);
+      const root = window.document.createElement("div");
+      window.document.body.appendChild(root);
+      await act(async () => {
+        createRoot(root as unknown as HTMLElement).render(<SetupCardPage store={store} />);
+        await store.start();
+      });
+      expect(calls.some(([op]) => op === SETUP_OPS.size)).toBe(true);
+    } finally {
+      Object.assign(globals, saved);
+    }
   });
 });

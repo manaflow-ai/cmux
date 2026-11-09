@@ -68,10 +68,11 @@ extension HomeNativeTranscriptView {
             if shown > 0 { bottom = frame.maxY; top = frame.maxY + 8 }
         }
         if let card = setupCard {
+            // Before its first size the page stays in the window at 1 pt (never hidden): a hidden web view
+            // stops measuring, and the card would never report the height that shows it.
             let shown = min(card.height, max(0, transcript.fieldTop - top - 8))
-            let frame = CGRect(x: x, y: top, width: width, height: shown)
+            let frame = CGRect(x: x, y: top, width: width, height: max(shown, 1))
             if card.view.frame != frame { card.view.frame = frame }
-            card.view.isHidden = shown <= 0
             if shown > 0 { bottom = frame.maxY }
         }
         // The oldest message scrolls clear of the cards (only the top of the scroll range moves).
