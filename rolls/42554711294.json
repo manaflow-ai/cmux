@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42554711294",
+  "recorded_at": "2026-11-09T03:18:04Z",
+  "reason": "cmux-tui 0ee67db0f28d changes the image's cmux-tui (pinned 357f5522ff4a)",
+  "dry_run": false,
+  "cmux_tui": "0ee67db0f28dae50381e01e015fcd36a1b1d1958",
+  "fixes": [
+    {
+      "sha": "0ee67db0f28dae50381e01e015fcd36a1b1d1958",
+      "mergedAt": "2026-11-08T18:53:12-08:00",
+      "subject": "cmux-next: Cmd-W pane close focus matches classic Bonsplit (#38194)"
+    },
+    {
+      "sha": "0c11295c6e4878c0e9c2904e814a212cb948cb1d",
+      "mergedAt": "2026-11-08T18:51:25-08:00",
+      "subject": "cmux-wg: ultra hello acknowledgements name the instance they acknowledge (#39062)"
+    },
+    {
+      "sha": "a0ffa9f95ec18f5711084f62325e073b483831f7",
+      "mergedAt": "2026-11-08T18:50:06-08:00",
+      "subject": "mobile link: route choice by the shared path selector, with quiet-path failover (#38989)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T03:18:04Z",
+    "snapshot_id": "sh-25b9c0ae68be4fbc828bde4f75658849",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42554711294): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4192f4237da81b520e4622ff82750b81b4ec2631",
+    "image": "cloud-native-auto-0ee67db0-42554711294-1",
+    "revision": "ci-42554711294-1",
+    "at": "2026-11-09T03:18:04Z"
+  },
+  "rolled_back": false
+}
