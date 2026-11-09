@@ -109,9 +109,18 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
     };
   }, [range, group, read]);
 
+  // Download saves the table on screen: only once the reply for the picked range and grouping is in,
+  // and for that reply's own days and grouping (never a newer pick still loading).
+  const shownAudit = state.phase === "answered" && state.answer.kind === "ready" ? state.answer.reply : undefined;
   const download = () => {
+    if (!shownAudit || state.phase !== "answered") return;
+    const { since, until } = shownAudit.range;
+    const params =
+      since && until
+        ? { since, until, groupBy: state.group, format: "csv" }
+        : teamAuditParams(range, state.group, now ?? Date.now(), "csv");
     setSaved(undefined);
-    loadRef.current(teamAuditParams(range, group, now ?? Date.now(), "csv")).then(
+    loadRef.current(params).then(
       (value) => {
         const answer = readTeamAuditSaved(value);
         setSaved(answer.kind === "saved" ? t("teamAudit.saved", { path: answer.path }) : t(REASON_KEY[answer.kind]));
@@ -162,7 +171,7 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
           options={TEAM_AUDIT_GROUPS.map((each) => ({ value: each, label: t(GROUP_KEY[each]) }))}
           onChange={(value) => setGroup(value as TeamAuditGroup)}
         />
-        <button type="button" className="cst-link" disabled={!reply} onClick={download}>
+        <button type="button" className="cst-link" disabled={!shownAudit} onClick={download}>
           {t("teamAudit.export")}
         </button>
       </div>
