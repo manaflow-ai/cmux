@@ -34,6 +34,7 @@ PUSHED_REFS="$(cat)"
 # pipe blocks for good (git_batch.py), and pushes hung in this hook for up to an hour on 2026-10-28.
 REFS_FILE="$(mktemp "${TMPDIR:-/tmp}/cmux-pre-push-refs.XXXXXX")"
 # Phase times, reported by the EXIT trap (header). Whole seconds: /bin/bash 3.2 on macOS has no EPOCHREALTIME.
+# Phase names are single hyphenated words: the tests read "web lint" in the output as the web lint having run.
 HOOK_STARTED=$SECONDS
 TIMED=0
 PHASE=""
@@ -99,7 +100,7 @@ PUSHED_REMOTE="${1:-origin}"
 CHECKS="$HOOK_DIR/cmux-next-checks"
 
 # Clone-local extras first (header, step 0): a clone's own rule refuses before the slower checks run.
-phase "clone-local extras"
+phase extras
 EXTRAS_STATUS=0
 EXTRAS="$(git config --path --get-all cmux.prePushExtra)" || EXTRAS_STATUS=$?
 if (( EXTRAS_STATUS > 1 )); then  # 1 is "not set"; anything else is a config git cannot read
@@ -131,7 +132,7 @@ fi
 # The checks copy is refreshed from the fetched feat-cmux-next before a push to it (refresh_checks.py says why);
 # it never refuses a push.
 REFRESH="$HOOK_DIR/refresh_checks.py"
-phase "checks refresh"
+phase checks-refresh
 if [[ -f "$REFRESH" ]]; then
     "$PYTHON3_BIN" -I "$REFRESH" --hook-dir "$HOOK_DIR" --repo "$REPO_ROOT" \
         --remote-url "${2:-}" < "$REFS_FILE" || true
@@ -142,11 +143,11 @@ WEB_LINT="$HOOK_DIR/web_lint_prepush.py"
 # Its installed reviewed copy reads commit blobs; candidate tests run only in its disposable sandbox.
 # A deadline or missing warm tool is deferred to the existing mandatory checks, never called a pass.
 FAST_TIER="$CHECKS/prepush_fast_tier.py"
-phase "fast tier"
+phase fast-tier
 if [[ -f "$FAST_TIER" ]]; then
     "$PYTHON3_BIN" -I "$FAST_TIER" --repo "$REPO_ROOT" --remote "$PUSHED_REMOTE" < "$REFS_FILE"
 fi
-phase "web lint"
+phase web-lint
 if [[ -f "$WEB_LINT" ]]; then
     "$PYTHON3_BIN" -I "$WEB_LINT" --pre-push --repo "$REPO_ROOT" \
         --remote "$PUSHED_REMOTE" --trusted-scripts-dir "$CHECKS" < "$REFS_FILE"
@@ -156,7 +157,7 @@ else
 fi
 
 GATE="$HOOK_DIR/cmux_next_prepush_gate.py"
-phase "cmux-next gate"
+phase cmux-next-gate
 if [[ -f "$GATE" ]]; then
     # The remote's URL ($2): the compile trailer rule applies only to a push to manaflow-ai/cmux's feat-cmux-next.
     CMUX_PREPUSH_REMOTE_URL="${2:-}" "$PYTHON3_BIN" -I "$GATE" --pre-push \
@@ -168,7 +169,7 @@ fi
 
 # A base merge pushed while the old head's CI runs cancels it: warn, never refuse.
 BASE_MERGE_WARNING="$HOOK_DIR/base_merge_warning.py"
-phase "base-merge warning"
+phase base-merge-warning
 if [[ -f "$BASE_MERGE_WARNING" ]]; then
     "$PYTHON3_BIN" -I "$BASE_MERGE_WARNING" --pre-push --repo "$REPO_ROOT" < "$REFS_FILE" || true
 fi
@@ -180,7 +181,7 @@ if [[ ! -f "$SCANNER" || ! -f "$MASKER" ]]; then
     exit 0  # the namespace autofix is opt-in (install-git-hooks.sh --namespace-fix)
 fi
 
-phase "namespace autofix"
+phase namespace-autofix
 before="$(git status --porcelain --untracked-files=normal)"
 enum_roots=()
 for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* ios/cmux; do

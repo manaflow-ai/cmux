@@ -299,7 +299,7 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         times = [line for line in result.stderr.splitlines() if line.startswith("pre-push: hook times: ")]
         self.assertEqual(len(times), 1, result.stderr)
-        for phase in ("fast tier", "web lint", "cmux-next gate", "base-merge warning", "total"):
+        for phase in ("fast-tier", "web-lint", "cmux-next-gate", "base-merge-warning", "total"):
             self.assertIn(phase, times[0])
         self.assertIn("a failure after this line is git or GitHub", result.stderr)
         self.assertIn("Retry a failed push", result.stderr)
@@ -312,8 +312,8 @@ class PrePushGateTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         times = [line for line in result.stderr.splitlines() if line.startswith("pre-push: hook times: ")]
         self.assertEqual(len(times), 1, result.stderr)
-        self.assertIn("cmux-next gate", times[0], "the phase that refused is named with its time")
-        self.assertIn("pre-push: refused in cmux-next gate", result.stderr)
+        self.assertIn("cmux-next-gate", times[0], "the phase that refused is named with its time")
+        self.assertIn("pre-push: refused in cmux-next-gate", result.stderr)
         self.assertIn("do not retry", result.stderr)
 
     def test_the_ui_font_check_runs_only_on_a_push_that_changes_what_it_reads(self):
