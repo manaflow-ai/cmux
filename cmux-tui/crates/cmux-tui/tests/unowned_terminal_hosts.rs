@@ -38,7 +38,8 @@ const SLOW_TO_END: [&str; 3] = ["/bin/sh", "-c", "trap '' HUP; exec /bin/cat"];
 
 /// A headless owner of `session` on its own socket in `dir`.
 struct Owner<'a> {
-    dir: &'a FaultDir,
+    /// Keeps the test's directory alive past every owner (Drop ends hosts there).
+    _dir: &'a FaultDir,
     /// Its `CMUX_TUI_STATE_DIR`.
     state_root: PathBuf,
     session: String,
@@ -48,10 +49,6 @@ struct Owner<'a> {
 }
 
 impl<'a> Owner<'a> {
-    fn spawn(dir: &'a FaultDir, session: &str, env: &[(&str, &str)]) -> Self {
-        Self::spawn_in(dir, dir.state_root(), session, env)
-    }
-
     fn spawn_in(
         dir: &'a FaultDir,
         state_root: PathBuf,
@@ -74,7 +71,7 @@ impl<'a> Owner<'a> {
             .stderr(fs::OpenOptions::new().create(true).append(true).open(&log).unwrap())
             .spawn()
             .unwrap();
-        Self { dir, state_root, session: session.into(), socket, child: Some(child), log }
+        Self { _dir: dir, state_root, session: session.into(), socket, child: Some(child), log }
     }
 
     /// Spawns the owner and returns it once `identify` says ready, with the
