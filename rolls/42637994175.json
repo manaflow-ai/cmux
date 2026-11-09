@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42637994175",
+  "recorded_at": "2026-11-09T15:00:29Z",
+  "reason": "cmux-tui 9b73c8c5f61a changes the image's cmux-tui (pinned 8a35dd822474)",
+  "dry_run": false,
+  "cmux_tui": "9b73c8c5f61a71cdbc6109dac912e1d7d345eba2",
+  "fixes": [
+    {
+      "sha": "9b73c8c5f61a71cdbc6109dac912e1d7d345eba2",
+      "mergedAt": "2026-11-09T06:18:49-08:00",
+      "subject": "cmux-tui: the mux owner remote-link starts reaps tabless terminals; #39092 review follow-ups (W5-O) (#39516)"
+    },
+    {
+      "sha": "fd8e3b6c750952726b88afec6e3afe10623003fe",
+      "mergedAt": "2026-11-09T06:14:20-08:00",
+      "subject": "Cloud start-chat: the clone wait reads a pre-step bootstrap status's repository failure (#39644)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T15:00:29Z",
+    "snapshot_id": "sh-5b2c4d97c27f4ed9ac56d6b039fa18ee",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42637994175): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "758f424c8524e0bee32eca6dd22be28e633602ab",
+    "image": "cloud-native-auto-9b73c8c5-42637994175-1",
+    "revision": "ci-42637994175-1",
+    "at": "2026-11-09T15:00:29Z"
+  },
+  "rolled_back": false
+}
