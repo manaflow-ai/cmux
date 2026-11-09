@@ -402,6 +402,72 @@ fn agent_binds_parks_adopts_and_restarts() {
     terminate(&mut agent);
 }
 
+/// With carrier.json, the session host's relay ticket command is the host
+/// entry's `cloud carrier-ticket` (here the standalone `cmux-host`), not
+/// the session host's own binary, which has no `host` verbs: the command
+/// runs the verb, which answers a refusal with its code because no Cloud
+/// agent listens here.
+#[test]
+fn the_relay_ticket_command_runs_the_host_entrys_carrier_ticket_verb() {
+    let h = Harness::new();
+    let carrier = h.at("/var/lib/cmux/carrier.json");
+    fs::create_dir_all(carrier.parent().unwrap()).unwrap();
+    fs::write(
+        &carrier,
+        r#"{"relay": "relay+do://relay.cmux.dev", "machine": "vm_0123456789abcdefghij",
+            "slot": "AAAAAAAAAAAAAAAAAAAAAA", "team": "team_0123456789abcdefghij",
+            "issuer": "cmux:cloud:production",
+            "keyset": {"version": "0123456789abcdef", "keys": {"k1": {
+                "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": "k1",
+                "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}}}"#,
+    )
+    .unwrap();
+    fs::set_permissions(&carrier, fs::Permissions::from_mode(0o600)).unwrap();
+    let log = h.root.parent().unwrap().join("actions.log");
+    let mut agent = AgentProc(h.start(&log));
+    wait_until("daemon argv with the carrier flags", || {
+        fs::read_to_string(&h.daemon_log).unwrap_or_default().contains("--relay-ticket-command")
+    });
+    let line = fs::read_to_string(&h.daemon_log).unwrap();
+    let words: Vec<&str> = line.split_whitespace().collect();
+    let flag = |name: &str| {
+        words
+            .windows(2)
+            .filter(|pair| pair[0] == name)
+            .map(|pair| pair[1].to_owned())
+            .collect::<Vec<_>>()
+    };
+    let program = flag("--relay-ticket-command");
+    let args = flag("--relay-ticket-command-arg");
+    assert_eq!(program.len(), 1, "{line}");
+    assert_ne!(
+        Path::new(&program[0]),
+        h.bin,
+        "the ticket command is the session host's binary, which has no host verbs: {line}"
+    );
+    assert_eq!(program[0], env!("CARGO_BIN_EXE_cmux-host"), "{line}");
+    assert_eq!(args, ["cloud", "carrier-ticket"], "{line}");
+    terminate(&mut agent);
+
+    let ticket = Command::new(&program[0])
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pid = ticket.id();
+    wait_until("the ticket command to exit", || !alive(pid));
+    let out = ticket.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{stderr}");
+    assert!(out.stdout.is_empty());
+    assert!(
+        stderr.starts_with("cmux host cloud carrier-ticket: vm.agent_unreachable: "),
+        "the verb did not run: {stderr}"
+    );
+}
+
 /// Without host.json the session host binds loopback with enrolled auth,
 /// even when the agent's environment asks for the trusted carrier.
 #[test]
@@ -457,63 +523,6 @@ fn a_shared_writable_host_config_is_refused() {
     let out = fs::read_to_string(h.root.parent().unwrap().join("agent.out")).unwrap();
     assert!(out.contains("host.json refused") && out.contains("writable"), "{out}");
     terminate(&mut agent);
-}
-
-/// Native receiving cannot silently become a user-owned service. This invokes
-/// the actual production parser and startup path, before any metadata request.
-#[test]
-fn receiver_native_cli_refuses_unprivileged_activation() {
-    use std::os::unix::process::CommandExt as _;
-    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-host"));
-    command.args(["run", "--native-receiver", "--no-announce"]);
-    // SAFETY: geteuid only reads the current effective uid.
-    if unsafe { libc::geteuid() } == 0 {
-        command.uid(65534).gid(65534);
-    }
-    let output = command.output().unwrap();
-    assert_eq!(output.status.code(), Some(4));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("--native-receiver requires root"));
-}
-
-#[test]
-fn receiver_native_cli_rejects_roles_only_activation() {
-    let output = Command::new(env!("CARGO_BIN_EXE_cmux-host"))
-        .args(["run", "--roles-only", "--native-receiver"])
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(2));
-}
-
-/// The image's actual host entrypoint must request Native authority. Calling
-/// Host::new_native in a fixture alone would miss a production activation bug.
-#[test]
-#[ignore = "requires hosted Linux root; scripts/ci/verify-link-root-boundary.py"]
-fn receiver_root_privileged_host_run_activates_native_bootstrap() {
-    assert_eq!(std::env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
-    // SAFETY: geteuid only reads the current effective uid.
-    assert_eq!(unsafe { libc::geteuid() }, 0);
-    for native in [false, true] {
-        let h = Harness::new();
-        let count = if native { 8 } else { 4 };
-        fs::write(&h.bin, format!(
-            "#!/bin/sh\nd=$(dirname \"$0\")/..\ndd bs=1 count={count} of=\"$d/bootstrap.bin\" 2>/dev/null\necho \"$$ $*\" >> \"$d/daemon.log\"\ntrap 'kill $! 2>/dev/null; exit 0' TERM\nsleep 600 &\nwait\n"
-        )).unwrap();
-        let log = h.root.parent().unwrap().join("actions.log");
-        let extra = if native { vec!["--native-receiver"] } else { Vec::new() };
-        let mut agent = AgentProc(h.start_with_args(&log, &extra));
-        let captured = h.daemon_log.with_file_name("bootstrap.bin");
-        wait_until("root startup capability", || {
-            fs::read(&captured).is_ok_and(|v| v.len() == count)
-        });
-        let bytes = fs::read(captured).unwrap();
-        if native {
-            assert_eq!(bytes, b"CMR\x01NVR2");
-        } else {
-            assert_eq!(bytes, b"CMR\x01");
-        }
-        terminate(&mut agent);
-    }
-    println!("ROOT_BOUNDARY_EXECUTED native_host_run_activation");
 }
 
 /// `cloud clone-mark` writes acpmux's marker where acpmux reads it: `clone-boot` in the work

@@ -14,6 +14,7 @@ import {
   backgroundTurnRowId,
 } from "../src/agent-session/acpmux/conversation/backgroundTurns";
 import {
+  BACKGROUND_END,
   messageRevealTarget,
   turnFoldFor,
   turnView,
@@ -23,7 +24,8 @@ import { withSubagentLines } from "../src/agent-session/acpmux/subagents/running
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
 import { OrderedRows } from "../src/agent-session/acpmux/direct";
-import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { gridMark, type AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { TRANSCRIPT_TURN_GAP, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
 
 const update = (update: Record<string, unknown>) => ({ method: "session/update", params: { update } });
@@ -118,9 +120,14 @@ test("a background turn with something to say draws its rows as today, with no l
   try {
     const view = drawn(rows());
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
-    expect(view.at(-1)?.text).toBe("The deploy failed: see https://example.com/run/1. Should I roll back?");
-    // No "Worked for" and no footer of its own: the turn before it keeps its one footer.
-    expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(1);
+    expect(view.at(-2)?.text).toBe("The deploy failed: see https://example.com/run/1. Should I roll back?");
+    // No "Worked for"; acpmux sends it no turn_result, yet its reply ends on its own footer (copy,
+    // fork, read aloud), as the turn before it does (conversation/backgroundTurnFooter.test.ts).
+    expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(2);
+    expect(view.at(-1)).toMatchObject({
+      kind: "turnSummary",
+      text: "The deploy failed: see https://example.com/run/1. Should I roll back?",
+    });
     expect(view.some((row) => row.kind === "worked")).toBe(false);
   } finally {
     client.close();
@@ -969,6 +976,74 @@ test("a subagent done line's reply is text under the line, not only a tooltip", 
     const html = renderToStaticMarkup(createElement(SubagentDoneLine, { row }));
     expect(html).toContain('<p class="cv-reaction-reply">Reviewer says SHIP at the head.</p>');
     expect(html).not.toMatch(/title="[^"]*Reviewer says SHIP/);
+  } finally {
+    client.close();
+  }
+});
+
+// Leo, 2026-11-08: "idk what happened here like the text in this situation isn't from the
+// subagent?". A subagent's interim end and its later steps (acpmux weighs them silent, each with the
+// subagent's call as origin) started three turns of the chat's own: each reply went onto the
+// subagent's done line, joined into one block under "Subagent finished". Only a short note goes
+// there; a reply with more to say is the main agent's own turn: its rows draw at the reply column,
+// each turn with its own footer, and the first row of each stands the turn gap from the row above.
+test("a background turn's long reply is the agent's own turn, never the subagent's words", async () => {
+  const silent = (id: string, kind: string): Step =>
+    weighed(id, {
+      kind,
+      status: kind === "subagent" ? "interim" : "completed",
+      weight: "silent",
+      origin: "fixer-call",
+    });
+  const replies = [
+    "I started a re-review of #38357 at eb367413 and told the lane I'll send them the verdict.\n\nThis head fixes the BLOCK: the direct-link race starts right away.",
+    "Hourly pass done. Every unmet goal now has a live owner.\n\n19 lanes are running. One shows as stuck, and its PR has already merged.",
+    "#38812 got a BLOCK. Its export now includes an action the Rust catalog doesn't have yet, which breaks the catalog's count check.",
+  ];
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Fix the nightly macOS build red with a subagent", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      spawned("fixer"),
+      say("Started a subagent on it."),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      spawned("fixer", "completed"),
+      silent("bg-1", "subagent"),
+      say(replies[0]!),
+      ended("bg-1", false),
+      silent("bg-2", "subagent_step"),
+      say(replies[1]!),
+      ended("bg-2", false),
+      silent("bg-3", "subagent_step"),
+      say(replies[2]!),
+      ended("bg-3", false),
+      silent("bg-4", "subagent_step"),
+      say("Still waiting on the fleet."),
+      ended("bg-4", true),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const agent = rows()
+      .flatMap((row) => row.subagents ?? [])
+      .find((entry) => entry.id === "fixer");
+    // The subagent's line keeps only the short note.
+    expect(agent?.reaction?.text).toBe("Still waiting on the fleet.");
+    const view = drawn([...withSubagentLines(rows(), new Map())]);
+    expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+    const own = view.flatMap((row, at) =>
+      row.kind === "assistant" && row.inBackground?.startsWith("bg-") ? [{ row, at }] : [],
+    );
+    expect(own.map(({ row }) => row.text)).toEqual(replies);
+    for (const [index, { row, at }] of own.entries()) {
+      // Its own footer right under it, the turn's end, as a prompt's turn ends.
+      expect(view[at + 1]).toMatchObject({ kind: "turnSummary", id: `${BACKGROUND_END}-bg-${index + 1}` });
+      // It opens a turn: the turn gap over it, from whatever row is above.
+      const prev = view[at - 1]!;
+      expect(transcriptGap(gridMark(prev, view[at - 2]), gridMark(row, prev))).toBe(TRANSCRIPT_TURN_GAP);
+    }
+    // The first follows the subagent's done line, not inside it.
+    expect(view[own[0]!.at - 1]?.kind).toBe(SUBAGENT_DONE);
   } finally {
     client.close();
   }

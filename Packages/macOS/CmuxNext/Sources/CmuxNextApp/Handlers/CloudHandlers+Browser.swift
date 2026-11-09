@@ -32,7 +32,6 @@ extension CloudHandlers {
         bind("cloudPortList", registry, reason: reason) { invocation in
             let invocation = effective(invocation)
             let session = try machine(invocation, context), names = CloudPortNames(session, port: nil)
-            guard session.appLink != nil else { throw ActionFailure(message: CloudPortStrings.classicLink(names)) }
             answer("list machine ports", invocation, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID)]) {
                 let listed = try await portOp("cloud.port.list", ["machine": .string(session.machineID)], key: nil, names, invocation, context)
                 let forwards = (listed["forwards"]?.arrayValue ?? []).map(forwardFields)
@@ -47,7 +46,6 @@ extension CloudHandlers {
         bind("cloudPortForward", registry, reason: reason) { invocation in
             let invocation = effective(invocation)
             let session = try machine(invocation, context), port = try port(invocation, session, verb: "port-forward"), names = CloudPortNames(session, port: port)
-            guard session.appLink != nil else { throw ActionFailure(message: CloudPortStrings.classicLink(names)) }
             answer("forward machine port", invocation, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID), "port": .int(port)]) {
                 let args: [String: JSONValue] = ["machine": .string(session.machineID), "port": .number(Double(port))]
                 let forward = forwardFields(try await portOp("cloud.port.forward", args, key: UUID().uuidString.lowercased(), names, invocation, context))
@@ -58,7 +56,6 @@ extension CloudHandlers {
         bind("cloudPortClose", registry, reason: reason) { invocation in
             let invocation = effective(invocation)
             let session = try machine(invocation, context), port = try port(invocation, session, verb: "port-close"), names = CloudPortNames(session, port: port)
-            guard session.appLink != nil else { throw ActionFailure(message: CloudPortStrings.classicLink(names)) }
             result("close machine port", context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID), "port": .int(port)]) {
                 let args: [String: JSONValue] = ["machine": .string(session.machineID), "port": .number(Double(port))]
                 let closed = try await portOp("cloud.port.close", args, key: UUID().uuidString.lowercased(), names, invocation, context)
@@ -70,14 +67,9 @@ extension CloudHandlers {
             let invocation = effective(invocation)
             let session = try machine(invocation, context), port = try port(invocation, session, verb: "preview-share")
             let names = CloudPortNames(session, port: port)
-            guard session.appLink != nil else { throw ActionFailure(message: CloudPortStrings.classicLink(names)) }
             answer("share machine preview", invocation, context, pendingAfter: answerWithin,
                    pending: ["machine_id": .string(session.machineID), "port": .int(port)]) {
-                guard let api = context.services.cloud.previewAPI else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
-                let created = try await wrapped(names) { try await api.createPreviewShareLink(session.machineID, port: port) }
-                guard let url = URL(string: created.url), url.scheme == "https", url.user == nil, url.password == nil else {
-                    throw ActionFailure(message: CloudPortStrings.failed(names, detail: "the platform returned an invalid share URL"))
-                }
+                let created = try await previewShareLink(context.services.cloud.previewAPI, machine: session.machineID, port: port, names: names)
                 context.copy(created.url)
                 return CloudAnswer(title: CloudPortStrings.previewLinkCopied, text: created.url, fields: [
                     "machine_id": .string(session.machineID), "port": .int(port),
@@ -93,7 +85,6 @@ extension CloudHandlers {
                 throw ActionFailure(message: CloudPortStrings.failed(CloudPortNames(session, port: port), detail: "linkId is required"))
             }
             let names = CloudPortNames(session, port: port)
-            guard session.appLink != nil else { throw ActionFailure(message: CloudPortStrings.classicLink(names)) }
             answer("revoke machine preview link", invocation, context, pendingAfter: answerWithin,
                    pending: ["machine_id": .string(session.machineID), "port": .int(port), "linkId": .string(linkID)]) {
                 guard let api = context.services.cloud.previewAPI else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
@@ -110,7 +101,6 @@ extension CloudHandlers {
             let session = try machine(invocation, context)
             let port = invocation["port"] == nil ? nil : try Self.port(invocation, session, verb: "machine-link")
             let names = CloudPortNames(session, port: port)
-            let cloud = context.services.cloud
             answer("machine link", invocation, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID)]) {
                 var fields: [String: ActionResultValue] = ["machine_id": .string(session.machineID), "target": .string("machine:\(session.machineID)")]
                 let address = session.machine.address?.ipv4
@@ -121,20 +111,32 @@ extension CloudHandlers {
                 fields["port"] = .int(port)
                 if let address { fields["private_url"] = .string("http://\(address):\(port)") }
                 guard session.machine.allows(.ports) else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
-                let link = try await wrapped(names) { try await cloud.api.openPort(session.machineID, port: port) }
+                let link = try await previewShareLink(context.services.cloud.previewAPI, machine: session.machineID, port: port, names: names)
                 fields["url"] = .string(link.url)
-                if let open = link.openUrl { fields["open_url"] = .string(open) }
-                return CloudAnswer(title: CloudPortStrings.title, text: link.openUrl ?? link.url, fields: fields)
+                fields["linkId"] = .string(link.link.linkId)
+                fields["expiresAt"] = .int(link.link.expiresAt)
+                return CloudAnswer(title: CloudPortStrings.title, text: link.url, fields: fields)
             }
         }
     }
 
+    /// `port`'s link (Copy Link, `cloud machine-link --port`, `cloud preview-share`): the platform's
+    /// anonymous, expiring share link (`POST /v1/cloud/machines/{id}/previews/{port}/links`), https
+    /// only. With no platform preview origin (`api` nil) there is none.
+    @MainActor
+    static func previewShareLink(_ api: CloudAPIClient?, machine: String, port: Int, names: CloudPortNames) async throws -> CloudPreviewShareLinkCreated {
+        guard let api else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
+        let created = try await wrapped(names) { try await api.createPreviewShareLink(machine, port: port) }
+        guard let url = URL(string: created.url), url.scheme == "https", url.user == nil, url.password == nil else {
+            throw ActionFailure(message: CloudPortStrings.failed(names, detail: "the platform returned an invalid share URL"))
+        }
+        return created
+    }
+
     /// Opens `port` (at `path`) of the machine in a Chromium tab and answers the URL and the tab.
     ///
-    /// - A machine on the Cloud app server's link: its authenticated platform preview URL, opened
-    ///   in the active window's focused pane.
-    /// - A machine on the classic link: a tab in the machine's first workspace, whose `localhost`
-    ///   the machine's loopback forward serves (remote localhost); the machine connects first.
+    /// With the platform's preview API, its authenticated preview URL, opened in the active
+    /// window's focused pane; else the app server's `cloud.browser.open` route.
     @MainActor
     static func openBrowser(_ session: CloudMachineSession, port: Int, path: String, names: CloudPortNames, viewChange: Bool,
                             _ invocation: ActionInvocation, _ context: AppActionContext) async throws -> [String: ActionResultValue] {
@@ -143,44 +145,19 @@ extension CloudHandlers {
             throw ActionFailure(message: CloudPortStrings.browserFailed(names, detail: BrowserTabService.message(reason)))
         }
         var fields: [String: ActionResultValue] = ["machine_id": .string(session.machineID), "port": .int(port)]
-        if session.appLink != nil, services.cloud.previewAPI != nil {
+        if services.cloud.previewAPI != nil {
             let inventory = try await refreshPreviews(session, names, context)
             guard let preview = inventory.previews.first(where: { $0.port == port }) else {
                 throw ActionFailure(message: CloudPortStrings.failed(names, detail: CloudPortStrings.noPreviews))
             }
             return try await openPreview(preview, session: session, path: path, viewChange: viewChange, context)
         }
-        if session.appLink != nil {
-            let args: [String: JSONValue] = ["machine": .string(session.machineID), "port": .number(Double(port)), "path": .string(path)]
-            let route = try await portOp("cloud.browser.open", args, key: UUID().uuidString.lowercased(), names, invocation, context)
-            let opened = try await openRoute(route, names: names, background: !viewChange, services: services)
-            fields["url"] = route["url"]?.stringValue.map(ActionResultValue.string) ?? .null
-            fields["surface_id"] = opened.map { .string(String($0.rawValue)) } ?? .null
-            if opened == nil { fields["pending"] = .bool(true) }
-            return fields
-        }
-        let anchor = try await wrapped(names) {
-            try await attachedAndConnected(session, invocation)
-            return try await terminalAnchor(on: session, context)
-        }
-        switch services.remoteLocalhost.route(daemon: session.daemon, workspace: anchor.id, engine: .cef) {
-        case .machine: break
-        case .thisMacInstead(_, .turnedOff): throw ActionFailure(message: CloudPortStrings.localhostOff(names))
-        case .thisMacInstead, .thisMac: throw ActionFailure(message: CloudPortStrings.updateMachine(names))
-        }
-        guard browserTabs.isAvailable(on: session.daemon) else { throw ActionFailure(message: CloudPortStrings.updateMachine(names)) }
-        let url = "http://localhost:\(port)\(path)"
-        let surface: SurfaceID
-        do {
-            surface = try await browserTabs.open(BrowserEngineChoice(engine: .cef, pinned: true), in: anchor.pane, url: url,
-                                                 activate: viewChange)
-        } catch {
-            throw ActionFailure(message: CloudPortStrings.browserFailed(names, detail: detail(error)))
-        }
-        if viewChange { reveal(surface, in: anchor.pane, workspaceID: anchor.id, context) }
-        fields["url"] = .string(url)
-        fields["workspace_id"] = .string(anchor.id)
-        fields["surface_id"] = .string(String(surface.rawValue))
+        let args: [String: JSONValue] = ["machine": .string(session.machineID), "port": .number(Double(port)), "path": .string(path)]
+        let route = try await portOp("cloud.browser.open", args, key: UUID().uuidString.lowercased(), names, invocation, context)
+        let opened = try await openRoute(route, names: names, background: !viewChange, services: services)
+        fields["url"] = route["url"]?.stringValue.map(ActionResultValue.string) ?? .null
+        fields["surface_id"] = opened.map { .string(String($0.rawValue)) } ?? .null
+        if opened == nil { fields["pending"] = .bool(true) }
         return fields
     }
 
@@ -329,7 +306,7 @@ extension CloudHandlers {
                 return
             }
             guard let window = window(context) else { throw ActionFailure(message: CloudPortStrings.noWindow(names)) }
-            let choice = await CmuxDialogCenter.shared.present(previewPicker(inventory, machineName: session.machine.title), in: .window(window))
+            let choice = await CmuxDialogCenter.shared.present(CloudPreviewPresentation(inventory).picker(machineName: session.machine.title, cancelTitle: CloudStrings.cancel), in: .window(window))
             guard choice.button == "open", !choice.isDismissal, let port = choice.text("port").flatMap(Int.init),
                   let preview = inventory.previews.first(where: { $0.port == port }) else { return }
             // A person can leave the picker open longer than the bootstrap credential lives.
@@ -351,27 +328,10 @@ extension CloudHandlers {
         return inventory
     }
 
-    static func previewPicker(_ inventory: CloudMachinePreviews, machineName: String) -> CmuxDialogSpec {
-        CmuxDialogSpec(title: CloudPortStrings.title, lines: [machineName], fields: [
-            .choice(id: "port", label: nil,
-                    options: inventory.previews.map { CmuxDialogOption(label: "\($0.port) · \($0.origin)", value: String($0.port)) },
-                    selected: inventory.previews.first.map { String($0.port) }),
-        ], buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "open", title: CloudPortStrings.openPreview, role: .default)],
-        identifier: "cmux.dialog.cloud.livePreviews")
-    }
-
     static func previewAnswer(_ inventory: CloudMachinePreviews) -> CloudAnswer {
-        let lines = inventory.previews.map { "\($0.port) → \($0.url)" }
-        return CloudAnswer(title: CloudPortStrings.title, text: lines.isEmpty ? CloudPortStrings.noPreviews : lines.joined(separator: "\n"),
-                           copyable: !lines.isEmpty, fields: [
-            "machine_id": .string(inventory.machine),
-            "ports": .string(inventory.listening.map(String.init).joined(separator: ",")),
-            "listening": .array(inventory.listening.map(ActionResultValue.int)),
-            "previews": .array(inventory.previews.map { .object([
-                "port": .int($0.port), "url": .string($0.url), "origin": .string($0.origin), "expiresAt": .double($0.expiresAt),
-            ]) }),
-            "unavailable": .array(inventory.unavailable.map { .object(["port": .int($0.port), "code": .string($0.code)]) }),
-        ])
+        let presentation = CloudPreviewPresentation(inventory)
+        return CloudAnswer(title: CloudPortStrings.title, text: presentation.text,
+                           copyable: presentation.copyable, fields: presentation.fields)
     }
 
     /// A platform preview is an HTTPS website, independent of the Mac's loopback proxy routes.

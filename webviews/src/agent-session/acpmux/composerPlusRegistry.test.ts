@@ -10,7 +10,7 @@ import {
   PLUS_SEARCH_ACTIONS,
   runComposerPlusAction,
 } from "./composerPlusRegistry";
-import { composerPlusMenuSections } from "./ComposerPlusMenu";
+import { composerPlusMenuSections } from "./composerPlusMenuModel";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
 import { loadRecentCommandNames, PLUS_RECENT_COMMANDS, recentCommands, rememberRecentCommand } from "./recentCommands";
 
@@ -38,7 +38,7 @@ test("the plus registry puts attach first, then the composer's actions, then the
     "Attach Window…",
     "Plan mode",
     "Goal",
-    "Choose project",
+    "Choose folder",
     "Mention a file or folder",
     "Commands and skills…",
     "Search files",
@@ -50,7 +50,7 @@ test("the plus registry puts attach first, then the composer's actions, then the
   expect(css).not.toMatch(/\.acpmux-composer-plus \.acpmux-menu-header\s*\{/);
   // A bounded panel that scrolls inside, and popupHost.ts keeps it in the page up to that bound.
   expect(css).toMatch(
-    /\.acpmux-composer-plus \.acpmux-menu\s*\{[^}]*--popup-scroll-cap:360px;[^}]*max-height:min\(360px,calc\(100vh - 16px\)\)/,
+    /\.acpmux-composer-plus \.acpmux-menu\s*\{[^}]*--popup-scroll-cap:360px;[^}]*max-height:min\(360px,50vh\)/,
   );
 });
 

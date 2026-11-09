@@ -49,7 +49,13 @@ struct WorkspaceFoldLineModel: Equatable {
     var typeSize: DynamicTypeSize
     var canReconnect: Bool
     var sameNames: MacNameDisambiguation
-    var now: Date
+}
+
+/// A view that reads the minute clock in its own body, so a tick redraws it and not the list
+/// that holds it (a Mac line's "Last seen 4m ago").
+struct OnMinute<Content: View>: View {
+    let content: (Date) -> Content
+    var body: some View { content(MinuteClock.shared.now) }
 }
 
 /// The Workspaces list's sections and items, as the collection shows them.
@@ -178,6 +184,9 @@ final class WorkspacesHeightCache {
     private(set) var hits = 0
 
     func height(_ key: Key, width: CGFloat) -> CGFloat? {
+        // A Mac line's "Last seen 4m ago" moves on in its own view (`OnMinute`) with no new
+        // value, so its height is measured each time, never cached (a few lines, one per Mac).
+        if case .fold = key.item { return nil }
         if let shape = shape(key.item), let known = shapes[shape], known.width == width {
             hits += 1
             return known.height
@@ -188,6 +197,7 @@ final class WorkspacesHeightCache {
     }
 
     func store(_ key: Key, width: CGFloat, height: CGFloat) {
+        if case .fold = key.item { return }
         if let shape = shape(key.item) {
             shapes[shape] = (width, height)
         } else {
@@ -196,13 +206,15 @@ final class WorkspacesHeightCache {
     }
 
     /// A row's shape: what its height depends on below the accessibility sizes
-    /// (one line each for the name and the status). Nil at accessibility sizes,
+    /// (one line each for the name and the status, or the name alone). Nil at accessibility sizes,
     /// where the name and the status wrap to two lines: measured per row.
     private func shape(_ item: WorkspacesListItem) -> String? {
         guard case let .row(model) = item, !textSize.isAccessibilityCategory else { return nil }
         let icon = model.workspace.icon ?? ""
         let iconKind = icon.isEmpty ? "none" : (WorkspaceSwatch.isSymbol(icon) ? "symbol" : "emoji")
-        return "row.\(iconKind)\(model.compact ? ".compact" : "")"
+        // One line (compact, or a blank status line that the row leaves out) or two.
+        let oneLine = !WorkspaceRow.showsStatusLine(model.workspace, status: model.status, macName: model.macName, compact: model.compact)
+        return "row.\(iconKind)\(oneLine ? ".compact" : "")"
     }
 }
 

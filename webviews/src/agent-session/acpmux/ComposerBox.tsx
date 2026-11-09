@@ -1,13 +1,9 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
-import { type ComposerAttachment, inlineCopyId, inlineTokenIds } from "./attachments";
+import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  type MadeFile,
-  type PendingAttachment,
-} from "./composer/attachmentIntake";
+import { AttachmentStrip } from "./composer/attachmentIntake";
+import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
@@ -17,6 +13,7 @@ import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
+import { remember } from "./composer/pasteMarks";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -27,9 +24,14 @@ const CARD_OWN_PRESS =
 export type ComposerBoxHandle = {
   /// Paste as Plain Text is starting (the prompt's menu): its paste goes in as text, never a chip.
   plainPaste(): void;
-  place(chips: readonly PendingAttachment[]): void;
+  place(chips: readonly PendingAttachment[], kind?: DroppedKind): void;
   /// Attachments `ids` went with a prompt: gone from the text for good (composer/inlineAttachments.tsx).
+  /// The draft's remembered pastes went with it too.
   sent(ids: Iterable<string>): void;
+  /// The pastes that went into the draft as text, newest last (composer/pasteMarks.ts).
+  pastes(): readonly string[];
+  /// Remembers `texts` as pastes in the draft (a prompt put back with its pastes as text).
+  rememberPastes(texts: readonly string[]): void;
 };
 
 export type ComposerBoxProps = {
@@ -67,6 +69,9 @@ export type ComposerBoxProps = {
   /// Attaches files pasted from the pasteboard at the caret, as the intake's own paste does: a copy of
   /// a composer's text and attachments pasted back in its order (composer/composerCopy.ts).
   onPasteFiles?(files: File[]): void;
+  /// The box is about to change the prompt for the person's own paste (a Pasted text chip, a copy
+  /// pasted back): the host counts the change as their edit, as it does a key's.
+  onPersonEdit?(): void;
   /// The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows.
   fieldMenu: ContextMenuItem[];
   onFieldMenuOpen?(): void;
@@ -125,6 +130,7 @@ export function ComposerBox({
   onReorderAttachment,
   onPasteFile,
   onPasteFiles,
+  onPersonEdit,
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
@@ -164,8 +170,24 @@ export function ComposerBox({
   );
   const ownAttachments = useRef(attachments);
   if (!attachmentsRef) ownAttachments.current = attachments;
+  /// Set while a file that stays in the strip is attached: its intake places it synchronously
+  /// (attachmentIntake.tsx), so `place` reads this in the same call.
+  const toStrip = useRef(false);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
-  const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt, onPasteFile);
+  const pastedChips = usePastedChips(
+    attachmentsRef ?? ownAttachments,
+    setAttachments,
+    prompt,
+    onPasteFile &&
+      ((file, inText = true) => {
+        toStrip.current = !inText;
+        try {
+          onPasteFile(file);
+        } finally {
+          toStrip.current = false;
+        }
+      }),
+  );
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   const inline = useInlineAttachments({
@@ -183,6 +205,7 @@ export function ComposerBox({
       pastedChips.expand(id);
       prompt.current?.removeInline(id);
     },
+    ...(pastedChips.keepAsFile ? { keepFile: pastedChips.keepAsFile } : {}),
     placing: () => !fieldOverlay,
     codex,
     ...(originalFailures ? { originalFailures } : {}),
@@ -192,13 +215,23 @@ export function ComposerBox({
   useImperativeHandle(
     handle,
     () => ({
-      plainPaste: () => plainPaste.current(),
-      place: (chips) => inline.place(chips, "paste"),
-      sent: (ids) => inline.sent(ids),
+      plainPaste: () => {
+        plainPaste.current();
+        prompt.current?.plainPaste();
+      },
+      place: (chips, kind) => inline.place(chips, kind, toStrip.current),
+      sent: (ids) => {
+        inline.sent(ids);
+        pastedChips.pastes.current = [];
+      },
+      pastes: () => pastedChips.pastes.current,
+      rememberPastes: (texts) => {
+        for (const text of texts) pastedChips.pastes.current = remember(pastedChips.pastes.current, text);
+      },
     }),
-    [inline],
+    [inline, pastedChips.pastes],
   );
-  const placed = new Set(inlineTokenIds(field.value, inline.known));
+  const placed = inline.inText(field.value);
   const { onBeforeInput, onKeyDown } = field;
   // Select All selects the attachments with the text (Leo, 2026-11-01: "i wanna be able to select
   // all in composer which also selects all the attachments as the copy as well"): those placed in
@@ -259,7 +292,7 @@ export function ComposerBox({
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
       <div
         ref={attachBox}
-        className="ui-glass ui-glass-floats acpmux-composer-box"
+        className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
@@ -288,6 +321,7 @@ export function ComposerBox({
           {...(originalFailures ? { originalFailures } : {})}
           onReorder={onReorderAttachment ?? inline.reorder}
           onExpand={inline.expand}
+          {...(pastedChips.keepAsFile ? { onKeepFile: inline.keepFile } : {})}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
         <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen}>
@@ -317,13 +351,15 @@ export function ComposerBox({
               const plan = pastePlan(event.clipboardData, inline.known);
               if (!plan || (!onPasteFiles && plan.some((part) => "file" in part))) return false;
               pastesPlaced.add(event);
+              onPersonEdit?.();
               for (const part of plan) {
                 if ("text" in part) prompt.current?.insertText(part.text);
                 // An attachment the prompt still has comes back as a copy of it; one cut from it, as itself.
                 else if ("id" in part)
-                  prompt.current?.insertInline([
-                    staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id,
-                  ]);
+                  prompt.current?.insertInline(
+                    [staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id],
+                    true,
+                  );
                 else onPasteFiles?.([part.file]);
               }
               return true;
@@ -335,7 +371,10 @@ export function ComposerBox({
             onBeforeInput={(data, state) => {
               // A huge paste is a chip, the prompt as it was (pastedText.ts); a chip's own text going
               // back in is the person's to edit, never the host's (shell mode).
-              if (state.paste && !state.composing && pastedChips.take(data)) return true;
+              if (state.paste && !state.composing && pastedChips.take(data)) {
+                onPersonEdit?.();
+                return true;
+              }
               if (pastedChips.expanding.current) return false;
               return onBeforeInput?.(data, state) ?? false;
             }}

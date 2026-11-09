@@ -6,8 +6,11 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// No agent starts here; the sign-in CLIs are the stand-ins below.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+// No agent starts here; the sign-in CLIs are the stand-ins below. ACPMUX_HOT_MODULE and
+// ACPMUX_HOT_SWAP_TO pass through so crates/acpmux-hot/bench.sh can run this sign-in with the parser
+// from a dev module and swap it live (they do nothing unless the `hot-modules` feature is on).
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::deny().keep(&["ACPMUX_HOT_MODULE", "ACPMUX_HOT_SWAP_TO"]);
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -97,6 +100,7 @@ fn script(path: &Path, text: &str) {
 
 /// A hub whose `claude` and `codex` harnesses are the stand-ins, keeping
 /// their sign-ins under `d`, and whose `/etc/cmux` is `d/root/etc/cmux`.
+#[cfg(unix)]
 fn hub(d: &Path) -> Arc<Hub> {
     let bin = d.join("bin");
     script(&bin.join("claude"), FAKE_CLAUDE);
@@ -365,4 +369,77 @@ async fn claude_with_no_code(hub: &Arc<Hub>, c: &mut C, d: &Path) {
     assert_eq!(reason(&e), "bad_code");
     c.call(method::MUX_AGENT_LOGIN_CANCEL, json!({"loginId": s["loginId"]})).await.unwrap();
     std::fs::remove_file(d.join("no-listener")).unwrap();
+}
+
+/// A module swapped under a running daemon (crates/acpmux-hot/bench.sh, `hot-modules` feature only):
+/// the daemon reads Codex's sign-in link with the module at `ACPMUX_HOT_MODULE`, the file is replaced
+/// by `ACPMUX_HOT_SWAP_TO` (a module that never finds an offer), and the same daemon, with no
+/// restart, stops finding the link; the first module put back finds it again. Skipped unless both
+/// are set, and bench.sh runs it alone: the swap changes the process's one module for every test.
+#[cfg(all(unix, feature = "hot-modules"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hot_module_swaps_under_a_running_daemon() {
+    let (Some(live), Some(swap_to)) =
+        (std::env::var_os("ACPMUX_HOT_MODULE"), std::env::var_os("ACPMUX_HOT_SWAP_TO"))
+    else {
+        eprintln!("acpmux-hot: ACPMUX_HOT_MODULE and ACPMUX_HOT_SWAP_TO unset; nothing to swap");
+        return;
+    };
+    let live = PathBuf::from(live);
+    let first = std::fs::read(&live).unwrap();
+    let other = std::fs::read(&swap_to).unwrap();
+    // Replaced whole by a rename in the same folder, as a build's copy step would.
+    let put = |bytes: &[u8]| {
+        let tmp = live.with_extension("swap-tmp");
+        std::fs::write(&tmp, bytes).unwrap();
+        std::fs::rename(&tmp, &live).unwrap();
+    };
+    let d = dir("hot-swap");
+    let (mut c, _) = C::new(hub(&d), Origin::Local).await;
+    // Ok(user code) when the daemon found the offer, Err(reason) when it did not.
+    let mut codex = async || -> Result<String, String> {
+        match c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "codex"})).await {
+            Ok(s) => {
+                c.call(method::MUX_AGENT_LOGIN_CANCEL, json!({"loginId": s["loginId"]}))
+                    .await
+                    .unwrap();
+                Ok(s["userCode"].as_str().unwrap_or_default().to_owned())
+            }
+            Err(e) => Err(reason(&e).to_owned()),
+        }
+    };
+    // Each attempt runs the stand-in CLI (about 1 s when no offer is found); the watcher polls
+    // every 100 ms, so 15 s is many times what a swap takes.
+    let deadline = Duration::from_secs(15);
+
+    assert_eq!(codex().await, Ok("ABCD-EFGHI".to_owned()), "the first module finds the offer");
+
+    put(&other);
+    let swapped = std::time::Instant::now();
+    loop {
+        match codex().await {
+            Err(r) if r == "no_url" => break,
+            Ok(_) if swapped.elapsed() < deadline => {}
+            got => panic!("the swapped-in module was never asked: {got:?}"),
+        }
+    }
+    eprintln!(
+        "acpmux-hot: swap seen by the running daemon after {} ms",
+        swapped.elapsed().as_millis()
+    );
+
+    put(&first);
+    let back = std::time::Instant::now();
+    loop {
+        match codex().await {
+            Ok(code) => {
+                assert_eq!(code, "ABCD-EFGHI");
+                break;
+            }
+            Err(r) if r == "no_url" && back.elapsed() < deadline => {}
+            got => panic!("the first module never came back: {got:?}"),
+        }
+    }
+    eprintln!("acpmux-hot: swap back seen after {} ms", back.elapsed().as_millis());
+    let _ = std::fs::remove_dir_all(&d);
 }

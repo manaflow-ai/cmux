@@ -2,7 +2,7 @@ import AppKit
 import Observation
 
 /// The sidebar tunables workspace rows draw from (agent mark, presence dots,
-/// row badge, stack size, quiet unnamed rows, the row name),
+/// row badge, stack size, the row name),
 /// observed once for every row. Each `WorkspaceRowView.configure` used to arm
 /// its own observation, so every status tick left one more registration
 /// behind; now a change redraws the live rows from one registration.
@@ -10,27 +10,28 @@ import Observation
 final class SidebarTunablesWatch {
     static let shared = SidebarTunablesWatch()
 
-    typealias Values = (agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap, workspaceTitleMotion: SidebarWorkspaceTitleMotionVariant, quietUnnamedRows: Bool,
+    typealias Values = (agentMark: SidebarAgentMarkVariant, presenceDots: Bool, driveIndicator: SidebarDriveIndicatorVariant, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap, workspaceTitleMotion: SidebarWorkspaceTitleMotionVariant,
                          rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool)
 
     /// Every tunable a listed row draws or lays out from, read together so one pass can tell whether any changed.
     private struct Snapshot: Equatable {
-        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap
-        var workspaceTitleMotion: SidebarWorkspaceTitleMotionVariant, quietUnnamedRows: Bool
+        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, driveIndicator: SidebarDriveIndicatorVariant, rowBadge: SidebarRowBadgeStyle, stackCap: SidebarRowBadgeStackCap
+        var workspaceTitleMotion: SidebarWorkspaceTitleMotionVariant
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
         /// Laid out, not configured: the hover close's spot and glyph size.
         var rowCloseSpot: SidebarRowCloseSpot
 
         static func read() -> Snapshot {
             Snapshot(agentMark: SidebarTunables.agentMark.value, presenceDots: SidebarTunables.presenceDots.value,
+                     driveIndicator: SidebarTunables.driveIndicator.value,
                      rowBadge: SidebarRowBadgeStyle.tunable.value, stackCap: SidebarRowBadgeStackCap.tunable.value,
-                     workspaceTitleMotion: SidebarTunables.workspaceTitleMotion.value, quietUnnamedRows: SidebarTunables.quietUnnamedRows.value,
+                     workspaceTitleMotion: SidebarTunables.workspaceTitleMotion.value,
                      rowTitle: SidebarTunables.rowTitle.value, rowTitleSingleChat: SidebarTunables.rowTitleSingleChat.value,
                      rowCloseSpot: SidebarTunables.rowCloseSpot.value)
         }
 
         var values: Values {
-            (agentMark, presenceDots, rowBadge, stackCap, workspaceTitleMotion, quietUnnamedRows, rowTitle, rowTitleSingleChat)
+            (agentMark, presenceDots, driveIndicator, rowBadge, stackCap, workspaceTitleMotion, rowTitle, rowTitleSingleChat)
         }
     }
 

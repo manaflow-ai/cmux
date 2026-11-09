@@ -24,6 +24,10 @@ const MAX_SIZE: (f64, f64) = (3840.0, 2160.0);
 /// Frames ScreenCaptureKit may have in flight. The session holds one (the newest, so a
 /// recovery keyframe can be encoded with no new capture) and encodes another.
 const QUEUE_DEPTH: c_long = 4;
+/// The frame rate when the display's refresh rate cannot be read.
+pub const FALLBACK_FPS: u32 = 60;
+/// The highest refresh rate taken from a display mode (the viewer's settings allow up to 240).
+const MAX_REFRESH_FPS: u32 = 240;
 /// kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange.
 const PIXEL_420V: u32 = u32::from_be_bytes(*b"420v");
 /// SCStreamOutputTypeScreen and SCFrameStatusComplete.
@@ -59,6 +63,8 @@ impl PixelBuffer {
 #[derive(Default)]
 struct Shared {
     newest: Option<PixelBuffer>,
+    /// The newest frame's display time and its arrival here, on the protocol clock in µs.
+    newest_times: Option<(u64, u64)>,
     dirty: Vec<Rect>,
 }
 
@@ -172,6 +178,36 @@ fn native_size(display: u32) -> (u32, u32) {
     }
 }
 
+/// A display's refresh rate in Hz from its current mode, rounded (59.94 is 60). None when the mode
+/// reads 0, as some built-in panels' modes do, or there is no mode.
+fn refresh_rate(display: u32) -> Option<u32> {
+    // SAFETY: a display id; the copied mode is released here.
+    let hz = unsafe {
+        let mode = cg::CGDisplayCopyDisplayMode(display);
+        if mode.is_null() {
+            return None;
+        }
+        let hz = cg::CGDisplayModeGetRefreshRate(mode);
+        cg::CGDisplayModeRelease(mode);
+        hz
+    };
+    hz_to_fps(hz)
+}
+
+/// A mode's refresh rate as a frame rate: rounded, at most [`MAX_REFRESH_FPS`], None for 0.
+fn hz_to_fps(hz: f64) -> Option<u32> {
+    (hz.is_finite() && hz >= 1.0).then(|| (hz.round() as u32).min(MAX_REFRESH_FPS))
+}
+
+/// The refresh rate of the display `which` names (`main` or an index, as [`Capture::start`] picks
+/// it), else [`FALLBACK_FPS`] when it reads 0 or the display list is not available.
+pub fn refresh_fps(which: &str) -> u32 {
+    let Ok((content, displays)) = shareable_displays() else { return FALLBACK_FPS };
+    let rate = pick(&displays, which).ok().and_then(|(_, id)| refresh_rate(id));
+    release_all(content, &displays);
+    rate.unwrap_or(FALLBACK_FPS)
+}
+
 type ContentAnswer = Result<Id, String>;
 
 extern "C" fn shareable_content_done(
@@ -243,7 +279,9 @@ fn release_all(content: Id, displays: &[(Id, u32)]) {
 }
 
 /// Every display's streamed size (native pixels fitted to the decoder, as a session
-/// captures it), left to right, and the index of the main (menu bar) display.
+/// captures it), left to right, and the index of the main (menu bar) display. Only `serve` (the
+/// `link` feature) asks.
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
 pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
     let (content, displays) = shareable_displays()?;
     // SAFETY: CGMainDisplayID has no preconditions.
@@ -275,6 +313,23 @@ fn pick(displays: &[(Id, u32)], which: &str) -> Res<(Id, u32)> {
     let index: usize =
         which.parse().map_err(|_| format!("--display {which}: use main or an index"))?;
     displays.get(index).copied().ok_or_else(|| format!("no display {index}").into())
+}
+
+/// How long ago, in µs, the mach absolute time `then` was. The Mach timebase and clock calls are
+/// deprecated in favour of the `mach2` crate, which cmux-rd-host does not depend on; they are not
+/// defective.
+#[allow(deprecated)]
+fn mach_age_us(then: u64) -> u64 {
+    static BASE: OnceLock<(u64, u64)> = OnceLock::new();
+    let (numer, denom) = *BASE.get_or_init(|| {
+        let mut base = libc::mach_timebase_info { numer: 1, denom: 1 };
+        // SAFETY: mach_timebase_info writes into a valid struct.
+        unsafe { libc::mach_timebase_info(&mut base) };
+        (u64::from(base.numer), u64::from(base.denom.max(1)))
+    });
+    // SAFETY: mach_absolute_time has no preconditions.
+    let ticks = unsafe { libc::mach_absolute_time() }.saturating_sub(then);
+    (u128::from(ticks) * u128::from(numer) / u128::from(denom) / 1000) as u64
 }
 
 /// The CoreFoundation number at `key` in `dictionary`, as an i64.
@@ -336,9 +391,14 @@ extern "C" fn did_output(
                 }
             }
         }
+        let arrived = crate::clock::now_ns() / 1000;
+        // The display time is in mach absolute time: its age now, taken off the protocol clock.
+        let shown = number(info, sck::SCStreamFrameInfoDisplayTime())
+            .map(|display| arrived.saturating_sub(mach_age_us(display as u64)));
         {
             let mut shared = sink.shared.lock().unwrap_or_else(|p| p.into_inner());
             shared.newest = Some(PixelBuffer(Retained::retain(buffer.cast_const())));
+            shared.newest_times = shown.map(|shown| (shown, arrived));
             // A complete frame with no dirty rectangles still changed something.
             if rects.is_empty() {
                 rects.push(Rect { x: 0, y: 0, width: sink.size.0, height: sink.size.1 });
@@ -562,9 +622,11 @@ impl Capture {
         out.append(&mut self.shared.lock().unwrap_or_else(|p| p.into_inner()).dirty);
     }
 
-    /// The newest complete frame (kept, so a recovery keyframe needs no new capture).
-    pub fn newest(&self) -> Option<PixelBuffer> {
-        self.shared.lock().unwrap_or_else(|p| p.into_inner()).newest.clone()
+    /// The newest complete frame (kept, so a recovery keyframe needs no new capture), with its
+    /// display and arrival times when ScreenCaptureKit gave a display time.
+    pub fn newest(&self) -> Option<(PixelBuffer, Option<(u64, u64)>)> {
+        let shared = self.shared.lock().unwrap_or_else(|p| p.into_inner());
+        shared.newest.clone().map(|frame| (frame, shared.newest_times))
     }
 }
 
@@ -614,6 +676,16 @@ mod tests {
         assert_eq!(fit(3456, 2234, None), (3342, 2160));
         assert_eq!(fit(1920, 1080, Some(1280)), (1280, 720));
         assert_eq!(fit(1366, 768, None), (1366, 768));
+    }
+
+    #[test]
+    fn refresh_rates_round_and_zero_means_unknown() {
+        assert_eq!(hz_to_fps(120.0), Some(120));
+        assert_eq!(hz_to_fps(119.88), Some(120));
+        assert_eq!(hz_to_fps(59.94), Some(60));
+        assert_eq!(hz_to_fps(0.0), None);
+        assert_eq!(hz_to_fps(f64::NAN), None);
+        assert_eq!(hz_to_fps(500.0), Some(MAX_REFRESH_FPS));
     }
 
     #[test]

@@ -10,9 +10,20 @@ import {
   minimapView,
   paintMinimap,
   streamingRow,
+  minimapReserve,
+  minimapWidth,
+  LINE_HEIGHT,
+  LINE_PITCH,
   MAX_SCALE,
+  MINIMAP_EDGE,
+  MINIMAP_MAX_WIDTH,
+  MINIMAP_MIN_PANE,
+  MINIMAP_RESERVE,
+  MINIMAP_WIDTH,
+  MIN_VIEW,
   type MinimapContext,
 } from "../src/agent-session/acpmux/chatMinimap/paint";
+import { COMPUTER_USE_PREVIEW_RESERVE } from "../src/agent-session/acpmux/computerUse/computerUsePreview";
 
 const row = (index: number, kind: string, text?: string): AcpmuxRow => ({
   id: `r${index}`,
@@ -53,11 +64,12 @@ test("each row kind has its place; rows that draw nothing are skipped", () => {
   expect(minimapKind(row(0, "date"))).toBeUndefined();
 });
 
-test("a short chat draws at 1/8 from the top; a long one fits the track", () => {
+test("a short chat draws at 1/4 from the top; a long one fits the track", () => {
+  expect(MAX_SCALE).toBe(1 / 4);
   expect(minimapScale(1000, 600)).toBe(MAX_SCALE);
   expect(minimapScale(100_000, 600)).toBeCloseTo(600 / (100_000 + 16), 8);
   const view = minimapView(50_000, 800, minimapScale(100_000, 600), 600);
-  expect(view.height).toBeGreaterThanOrEqual(14);
+  expect(view.height).toBeGreaterThanOrEqual(MIN_VIEW);
   expect(view.top + view.height).toBeLessThanOrEqual(600);
 });
 
@@ -131,7 +143,7 @@ test("a streaming reply is never painted: its place is the minimap's placeholder
 
 test("a reply's lines keep their lengths when rows are inserted before it", () => {
   const replyLines = (rows: AcpmuxRow[]) => {
-    const { layout } = laid(rows);
+    const { layout } = laid(rows, 160);
     // The reply always sits at the same place, so only its index moves.
     const at = rows.findIndex((row) => row.id === "reply");
     const tops = layout.tops.slice();
@@ -186,4 +198,96 @@ test("streamingRow finds the live reply however many rows follow it, reading onl
   // The reply ends.
   const ended = [first[0]!, named("a", "assistant", { text: "one two" }), ...queued];
   expect(streamingRow(ended, { rows: second, index: 1 }, { base: second, rows: ended, from: 1 })).toBe(-1);
+});
+
+test("the strip is as wide as the right gutter allows, from 56 to 120 px, and absent when it cannot fit", () => {
+  // Leo, 2026-11-05: "this vs code minimap is pretty sh***y it isn't very useful it's so small".
+  expect([MINIMAP_WIDTH, MINIMAP_MAX_WIDTH, MIN_VIEW]).toEqual([56, 120, 24]);
+  // The gutter minus 10 px on each side.
+  expect(minimapWidth(75)).toBe(0);
+  expect(minimapWidth(76)).toBe(56);
+  expect(minimapWidth(100)).toBe(80);
+  expect(minimapWidth(140)).toBe(120);
+  expect(minimapWidth(400)).toBe(120);
+});
+
+test("with its room kept at the column's end, the strip is its full width in every pane from 600 px", async () => {
+  // Chat Text Width's 800px column (#36342) left a 952-1080px pane a 56-120px strip and a narrower
+  // pane none: the column's end keeps MINIMAP_RESERVE instead, as VS Code's minimap takes its own width.
+  const { transcriptColumn } = await import("../src/agent-session/acpmux/model");
+  expect(MINIMAP_RESERVE).toBe(MINIMAP_MAX_WIDTH + 2 * MINIMAP_EDGE);
+  for (let pane = MINIMAP_MIN_PANE; pane <= 2400; pane += 20) {
+    const column = transcriptColumn(pane, undefined, MINIMAP_RESERVE);
+    expect(minimapWidth(column.insetEnd)).toBe(MINIMAP_MAX_WIDTH);
+    // The column's start stays where it was.
+    expect(column.inset).toBe(transcriptColumn(pane).inset);
+  }
+  // chatMinimap.css keeps the same room.
+  const css = await Bun.file(
+    new URL("../src/agent-session/acpmux/chatMinimap/chatMinimap.css", import.meta.url),
+  ).text();
+  // Only in a chat at least MINIMAP_MIN_PANE wide (its own width: one beside an artifact keeps its column).
+  expect([minimapReserve(MINIMAP_MIN_PANE - 1), minimapReserve(MINIMAP_MIN_PANE)]).toEqual([0, MINIMAP_RESERVE]);
+  expect(css).toContain(
+    `--cv-inset-end: max(var(--cv-inset), clamp(0px, (100% - ${MINIMAP_MIN_PANE - 0.5}px) * 1000, ${MINIMAP_RESERVE}px));`,
+  );
+  expect(css).toContain(`--cv-inset-end: max(var(--cv-inset), ${COMPUTER_USE_PREVIEW_RESERVE}px);`);
+  // The strip steps aside for the computer use preview card at the same corner.
+  expect(css).toMatch(/\.acpmux-main\[data-cu-preview\] \.acpmux-chat-minimap \{\s*visibility: hidden;/);
+  // Every band in the column ends where the column does (--cv-inset-end), so neither the strip nor the
+  // computer use preview lies over it: a padding or margin whose right side is the start inset alone
+  // fails here (Glob over the pane's CSS; galleries are fixtures).
+  const values = (value: string) => {
+    const parts: string[] = [];
+    let depth = 0;
+    let part = "";
+    for (const char of value.trim()) {
+      if (char === "(") depth += 1;
+      if (char === ")") depth -= 1;
+      if (char === " " && depth === 0) {
+        if (part) parts.push(part);
+        part = "";
+      } else part += char;
+    }
+    if (part) parts.push(part);
+    return parts;
+  };
+  const startOnly: string[] = [];
+  const root = new URL("../src/agent-session/acpmux/", import.meta.url).pathname;
+  for (const file of new Bun.Glob("**/*.css").scanSync(root)) {
+    if (file.endsWith(".gallery.css")) continue;
+    const text = await Bun.file(root + file).text();
+    for (const [, body] of text.matchAll(/\{([^{}]*)\}/g)) {
+      for (const [, prop, value] of body!.matchAll(/(?:^|[;\s])(padding|margin)\s*:\s*([^;]+)/g)) {
+        const right = values(value!.replace(/\s*,\s*/g, ",").replace(/\s*!important/, ""))[1];
+        const startInset = right?.startsWith("var(--cv-inset,") || right === "var(--cv-inset)";
+        // A longhand after it may give the right side the column's end.
+        if (startInset && !new RegExp(`${prop}-right\\s*:\\s*var\\(--cv-inset-end`).test(body!))
+          startOnly.push(`${file}: ${prop}: ${value!.trim()}`);
+      }
+    }
+  }
+  expect(startOnly).toEqual([]);
+});
+
+test("a reply draws as 2 px text lines every 4 px, as VS Code's minimap at scale 2", () => {
+  expect([LINE_PITCH, LINE_HEIGHT]).toEqual([4, 2]);
+  const reply = laid([named("u", "user"), named("a", "assistant")], 400);
+  const { ctx, all } = rects();
+  paintMinimap(ctx, reply.rows, reply.layout, { ...options, width: 120, scale: MAX_SCALE });
+  const lines = all.filter((rect) => rect.x === 0);
+  // A 400 px reply is 100 px on the map: 25 lines.
+  expect(lines.length).toBe(25);
+  expect(lines.every((rect) => rect.h === 2)).toBe(true);
+  expect(lines[1]!.y - lines[0]!.y).toBe(4);
+  expect(Math.max(...lines.map((rect) => rect.w))).toBeLessThanOrEqual(120 * 0.92);
+});
+
+test("a right rail sits on the wider strip's inner side; a left rail or no minimap reserves nothing", async () => {
+  const { railEdgeReserve } = await import("../src/agent-session/acpmux/threadMinimap/useRailPlacement");
+  expect(railEdgeReserve("right", true, 400)).toBe(120 + 10);
+  expect(railEdgeReserve("right", true, 100)).toBe(80 + 10);
+  expect(railEdgeReserve("right", true, 75)).toBe(0);
+  expect(railEdgeReserve("right", false, 400)).toBe(0);
+  expect(railEdgeReserve("left", true, 400)).toBe(0);
 });

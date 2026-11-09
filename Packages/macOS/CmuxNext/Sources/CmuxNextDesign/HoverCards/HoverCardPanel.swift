@@ -158,7 +158,7 @@ final class HoverCardPanel: NSPanel {
     /// and at rest in this frame; the coordinator has already waited for the dwell.
     func present(body newBody: NSView, anchor: CGRect, placement: HoverCardPlacement, parent: NSWindow,
                  themeAnchor: NSView?, sliding: Bool, interactive: Bool = false, cornerRadius: CGFloat? = nil,
-                 applyTheme: @escaping () -> Void) {
+                 entrance: HoverCardEntrance = .slide, applyTheme: @escaping () -> Void) {
         let wasDismissing = isDismissing
         let wasOnScreen = isVisible && parentWindowRef === parent
         // Where the card is on screen before this show: a visible card (shown, or fading out
@@ -255,8 +255,10 @@ final class HoverCardPanel: NSPanel {
             orderFront(nil)
         } else {
             // A first show: from clear, the card fades in while it moves the last few points
-            // away from its target (`HoverCardMotion`, shared with the update card).
-            Self.motion.enter(self, placement: restingPlacement, leading: isLeading)
+            // away from its target (`HoverCardMotion`, shared with the update card), fades in
+            // where it rests, or grows out of its target (`grow()`; a plain fade when motion is off).
+            Self.motion.enter(self, placement: restingPlacement, leading: isLeading, slides: entrance == .slide)
+            if entrance == .morph { grow() }
         }
     }
 
@@ -340,19 +342,18 @@ final class HoverCardPanel: NSPanel {
         let fitting = glass.fittingSize
         let size = CGSize(width: (fitting.width * scale).rounded(.up) / scale, height: (fitting.height * scale).rounded(.up) / scale)
         let screen = parentWindowRef?.screen ?? NSScreen.main
-        let alignment = HoverCardEscapeGeometry.currentAlignment
         let rest = Self.rest(for: placement, anchor: anchor, size: size, screen: screen?.frame,
                              visible: screen?.visibleFrame, window: parentWindowRef?.frame,
-                             margin: Metrics.space2, scale: scale, rowAlignment: alignment)
+                             margin: Metrics.space2, scale: scale)
         let origin = rest.origin
         isLeading = rest.isLeading
         restingPlacement = rest.placement
-        // A row card keeps its geometry (`HoverCardEscapeGeometry`: its row, frame, gap strip, and the
-        // escape slot under the Debug middle layout); `rest` placed it the same way.
+        // A row card keeps its geometry (`HoverCardEscapeGeometry`: its row, frame and gap strip);
+        // `rest` placed it the same way.
         escapeGeometry = placement == .besideRow
             ? HoverCardEscapeGeometry(anchor: anchor, cardSize: size,
                                       visible: screen.map { HoverCardEscapeGeometry.room(visible: $0.visibleFrame, window: parentWindowRef?.frame, margin: Metrics.space2) },
-                                      scale: scale, alignment: alignment)
+                                      scale: scale)
             : nil
         // R131: the window moves in the same frame (a window-frame slide restarted on every tab
         // trailed the pointer); a retarget's slide runs inside it (`slide(from:)`).

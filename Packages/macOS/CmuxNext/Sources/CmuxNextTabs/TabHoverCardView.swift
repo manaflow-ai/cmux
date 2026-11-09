@@ -12,18 +12,32 @@ import QuartzCore
 /// row (`HoverCardRowView`) each for where it is, what it is doing (a colored dot when the title
 /// shows no indicator), the program's own status words and its memory with the last seconds of
 /// CPU as bars, then the thumbnail (Full previews). 13 pt rows on one leading edge.
+///
+/// Leo 2026-11-07 ("is the length of it based off of anything? ... Or should we have it just be the
+/// same size of the, like max width of a tab?"; "Does this need so many symbols?"): the card is as
+/// wide as a tab at its widest, its leading edge on the tab's (`HoverCardPanel.rest`), and grows
+/// only for a long path, to `maxWidth`. Only the title row has a glyph, the tab's own; the rows
+/// under it are plain text on the title's leading edge.
 final class TabHoverCardView: NSView {
-    private static var padding: CGFloat { Metrics.space4 }
+    private static var padding: CGFloat { HoverCardStyle.shared.padding }
     static var thumbnailSize: CGSize {
-        // 16:10, as wide as a full tab.
-        CGSize(width: Metrics.tabMaxWidth, height: (Metrics.tabMaxWidth * 10 / 16).rounded())
+        // 16:10, inside a card as wide as a full tab.
+        let width = restWidth - 2 * padding
+        return CGSize(width: width, height: (width * 10 / 16).rounded())
     }
 
-    static var cardWidth: CGFloat { thumbnailSize.width + 2 * padding }
+    /// The card's width with no long path: a tab at its widest.
+    static var restWidth: CGFloat { Metrics.tabMaxWidth }
+    /// The widest a long path grows the card; past it the path truncates in its middle.
+    static var maxWidth: CGFloat { (Metrics.tabMaxWidth * 1.5).rounded() }
     private static var iconSize: CGFloat { HoverCardRowView.iconSize }
+    /// The card's width now: `restWidth`, or wider for the shown tab's path.
+    private(set) var cardWidth: CGFloat = TabHoverCardView.restWidth
+    private var widthConstraint: NSLayoutConstraint?
+    private var rowsLeading: NSLayoutConstraint?
 
     let titleLabel = ChromeLabel(wrappingLabelWithString: "")
-    /// The tab's own glyph (its favicon, symbol or agent mark), leading the title on the rows' icon column.
+    /// The tab's own glyph (its favicon, symbol or agent mark), leading the title; the rows under it start on the title's text.
     let kindIcon = NSImageView()
     /// Where the tab is (a page's host, a folder and branch), or a group's member titles.
     let placeRow = HoverCardRowView()
@@ -56,10 +70,10 @@ final class TabHoverCardView: NSView {
     init() {
         super.init(frame: .zero)
         let content = self
-        titleLabel.font = Typography.bodyEmphasized
+        titleLabel.font = HoverCardStyle.shared.titleFont
         titleLabel.maximumNumberOfLines = 2
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding
+        titleLabel.preferredMaxLayoutWidth = Self.restWidth - 2 * Self.padding
         kindIcon.imageScaling = .scaleProportionallyUpOrDown
         thumbnail.wantsLayer = true
         thumbnail.layer?.cornerRadius = Metrics.itemCornerRadius
@@ -68,7 +82,7 @@ final class TabHoverCardView: NSView {
         thumbnail.layer?.contentsGravity = .resizeAspectFill
         rows.orientation = .vertical
         rows.alignment = .leading
-        rows.spacing = Metrics.space2
+        rows.spacing = HoverCardStyle.shared.rowGap
         for row in [placeRow, statusRow, detailRow, memoryRow] {
             row.isHidden = true
             rows.addArrangedSubview(row)
@@ -81,13 +95,11 @@ final class TabHoverCardView: NSView {
         }
         let p = Self.padding
         NSLayoutConstraint.activate([
-            content.widthAnchor.constraint(equalToConstant: Self.cardWidth),
             titleLabel.topAnchor.constraint(equalTo: content.topAnchor, constant: p),
             kindIcon.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             kindIcon.widthAnchor.constraint(equalToConstant: Self.iconSize),
             kindIcon.heightAnchor.constraint(equalToConstant: Self.iconSize),
             kindIcon.centerYAnchor.constraint(equalTo: titleLabel.firstBaselineAnchor, constant: -Self.iconSize / 3),
-            rows.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             rows.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             activity.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             activity.centerYAnchor.constraint(equalTo: titleLabel.firstBaselineAnchor, constant: -Self.indicatorSize / 3),
@@ -98,11 +110,15 @@ final class TabHoverCardView: NSView {
             thumbnail.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
         ])
         let leading = titleLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p)
-        let rowsTop = rows.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: Metrics.space2)
-        let top = thumbnail.topAnchor.constraint(equalTo: rows.bottomAnchor, constant: Metrics.space4)
+        let rowsTop = rows.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: HoverCardStyle.shared.titleGap)
+        let top = thumbnail.topAnchor.constraint(equalTo: rows.bottomAnchor, constant: HoverCardStyle.shared.mediaGap)
         let height = thumbnail.heightAnchor.constraint(equalToConstant: Self.thumbnailSize.height)
         let trailing = titleLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p)
-        NSLayoutConstraint.activate([leading, rowsTop, top, height, trailing])
+        let width = content.widthAnchor.constraint(equalToConstant: Self.restWidth)
+        let rowsLeading = rows.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p)
+        NSLayoutConstraint.activate([leading, rowsTop, top, height, trailing, width, rowsLeading])
+        widthConstraint = width
+        self.rowsLeading = rowsLeading
         titleLeading = leading
         self.rowsTop = rowsTop
         titleTrailing = trailing
@@ -143,8 +159,9 @@ final class TabHoverCardView: NSView {
             var lines = Array(shown)
             if titles.count > shown.count { lines.append(Strings.groupMore(titles.count - shown.count)) }
             titleLabel.stringValue = group.name.isEmpty ? Strings.groupTabCount(titles.count) : group.name
-            set(placeRow, HoverCardRowContent(text: lines.joined(separator: "\n"), lines: lines.count), icon: nil)
-            for row in [statusRow, detailRow, memoryRow] { set(row, nil, icon: nil) }
+            setCardWidth(Self.restWidth)
+            set(placeRow, HoverCardRowContent(text: lines.joined(separator: "\n"), lines: lines.count))
+            for row in [statusRow, detailRow, memoryRow] { set(row, nil) }
             setActivity(.idle, style: nil)
             setThumbnailVisible(false)
         }
@@ -175,22 +192,45 @@ final class TabHoverCardView: NSView {
         guard let item else { return }
         let lines = TabHoverCardLines.make(item, report: report, now: Date())
         titleLabel.stringValue = lines.title
-        let facts = item.hover
-        let placeIcon: NSImage? = switch facts.kind {
-        case .browser: favicon(item) ?? NSImage.icon(.linkWeb, size: Self.iconSize)
-        case .terminal, .agentChat: NSImage.icon(.folder, size: Self.iconSize)
-        case .other: nil
-        }
-        set(placeRow, lines.place.map { HoverCardRowContent(text: $0) }, icon: placeIcon, truncation: .byTruncatingMiddle)
+        setCardWidth(Self.width(forPlace: lines.place, textLeading: textLeading))
+        // Plain text under the title: the title's glyph is the card's one icon.
+        set(placeRow, lines.place.map { HoverCardRowContent(text: $0) }, truncation: .byTruncatingMiddle)
         // The run state as a dot in its color, unless the title's indicator already shows it.
         let tone = TabHoverCardLines.tone(item)
         set(statusRow, lines.status.map {
             HoverCardRowContent(text: $0, accessory: activity.isHidden ? tone.map(HoverCardAccessory.dot) : nil)
-        }, icon: NSImage.icon(facts.kind == .terminal ? .terminal : .agentActivity, size: Self.iconSize))
-        set(detailRow, lines.detail.map { HoverCardRowContent(text: $0, ink: .tertiary) },
-            icon: NSImage.icon(.textDescription, size: Self.iconSize))
-        set(memoryRow, lines.memory.map { HoverCardRowContent(text: $0, accessory: cpuBars()) },
-            icon: NSImage.icon(.serverHealth, size: Self.iconSize))
+        })
+        set(detailRow, lines.detail.map { HoverCardRowContent(text: $0, ink: .tertiary) })
+        set(memoryRow, lines.memory.map { HoverCardRowContent(text: $0, accessory: cpuBars()) })
+    }
+
+    /// The card's width for `place` (a folder and branch, a page's address): `restWidth`, or as
+    /// wide as the path needs up to `maxWidth`.
+    static func width(forPlace place: String?, textLeading: CGFloat) -> CGFloat {
+        guard let place, !place.isEmpty else { return restWidth }
+        let text = (place as NSString).size(withAttributes: [.font: HoverCardStyle.shared.secondaryFont]).width
+        return min(max(restWidth, (textLeading + text + padding).rounded(.up)), maxWidth)
+    }
+
+    /// Where the title's text and the rows under it start: past the title's glyph when it has one.
+    private var textLeading: CGFloat {
+        switch item?.icon {
+        case .none?, nil: Self.padding
+        default: Self.padding + Self.iconSize + Metrics.space2
+        }
+    }
+
+    private func setCardWidth(_ width: CGFloat) {
+        cardWidth = width
+        widthConstraint?.constant = width
+        rowsLeading?.constant = textLeading
+        thumbnailHeight?.constant = thumbnail.isHidden ? 0 : Self.thumbnailHeight(cardWidth: width)
+        updateTitleWidth()
+    }
+
+    /// 16:10 across the card inside its padding.
+    private static func thumbnailHeight(cardWidth: CGFloat) -> CGFloat {
+        ((cardWidth - 2 * padding) * 10 / 16).rounded()
     }
 
     /// The memory row's bars: the tab's CPU over the last seconds, warm at a core, hot at two.
@@ -200,12 +240,6 @@ final class TabHoverCardView: NSView {
         let tone: HoverCardTone = newest >= 2 ? .danger : newest >= 1 ? .attention : .secondary
         let peak = max(1, cpuHistory.max() ?? 0)
         return .bars(cpuHistory.map { $0 / peak }, tone: tone)
-    }
-
-    /// A page's favicon, drawn as is.
-    private func favicon(_ item: TabItem) -> NSImage? {
-        guard case .image(let image) = item.icon else { return nil }
-        return NSImage(cgImage: image.cgImage, size: NSSize(width: Self.iconSize, height: Self.iconSize))
     }
 
     /// The title's leading glyph: the tab's own icon, tinted like the strip draws it (a favicon as is).
@@ -227,21 +261,22 @@ final class TabHoverCardView: NSView {
         kindIcon.image = cg.map { NSImage(cgImage: $0, size: NSSize(width: size, height: size)) }
         kindIcon.isHidden = kindIcon.image == nil
         titleLeading?.constant = Self.padding + (kindIcon.isHidden ? 0 : Self.iconSize + Metrics.space2)
+        rowsLeading?.constant = titleLeading?.constant ?? Self.padding
         updateTitleWidth()
     }
 
     /// A row shows only with content; a stack row that hides gives up its line.
-    private func set(_ row: HoverCardRowView, _ content: HoverCardRowContent?, icon: NSImage?,
-                     truncation: NSLineBreakMode = .byTruncatingTail) {
+    private func set(_ row: HoverCardRowView, _ content: HoverCardRowContent?, truncation: NSLineBreakMode = .byTruncatingTail) {
         if let content, !content.text.isEmpty {
-            let live = Typography.system(.monospacedDigit, size: Typography.body.pointSize, weight: .regular)
-            row.configure(content, image: icon, font: row === statusRow || row === memoryRow ? live : Typography.body,
-                          wrapWidth: Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2, truncation: truncation)
+            let style = HoverCardStyle.shared
+            let live = Typography.system(.monospacedDigit, size: style.secondaryFont.pointSize, weight: .regular)
+            row.configure(content, image: nil, font: row === statusRow || row === memoryRow ? live : style.secondaryFont,
+                          wrapWidth: cardWidth - (rowsLeading?.constant ?? Self.padding) - Self.padding, truncation: truncation)
             row.isHidden = false
         } else {
             row.isHidden = true
         }
-        rowsTop?.constant = rows.arrangedSubviews.allSatisfy(\.isHidden) ? 0 : Metrics.space2
+        rowsTop?.constant = rows.arrangedSubviews.allSatisfy(\.isHidden) ? 0 : HoverCardStyle.shared.titleGap
     }
 
     /// Shows the tab's state trailing the title, which gives up the indicator's width only while it draws.
@@ -255,7 +290,7 @@ final class TabHoverCardView: NSView {
     /// The title wraps between its glyph and the indicator.
     private func updateTitleWidth() {
         let trailing = Self.padding + (activity.isHidden ? 0 : Self.indicatorSize + Metrics.space2)
-        titleLabel.preferredMaxLayoutWidth = Self.cardWidth - (titleLeading?.constant ?? Self.padding) - trailing
+        titleLabel.preferredMaxLayoutWidth = cardWidth - (titleLeading?.constant ?? Self.padding) - trailing
     }
 
     /// What the card's program status line reads ("" when hidden).
@@ -265,8 +300,8 @@ final class TabHoverCardView: NSView {
 
     func setThumbnailVisible(_ visible: Bool) {
         thumbnail.isHidden = !visible
-        thumbnailHeight?.constant = visible ? Self.thumbnailSize.height : 0
-        thumbnailTop?.constant = visible ? Metrics.space4 : 0
+        thumbnailHeight?.constant = visible ? Self.thumbnailHeight(cardWidth: cardWidth) : 0
+        thumbnailTop?.constant = visible ? HoverCardStyle.shared.mediaGap : 0
     }
 
     /// The thumbnail the card shows.

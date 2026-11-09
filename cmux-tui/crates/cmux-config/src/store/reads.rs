@@ -69,7 +69,10 @@ impl RowView<'_> {
     /// The exported row (without conformance samples) plus `value`,
     /// `default`, `customized` and `managed {source, team, reason}`.
     pub fn to_json(&self) -> Value {
-        let mut members: Map<String, Value> = self.row.raw.as_object().cloned().unwrap_or_default();
+        let mut members = match self.row.raw() {
+            Value::Object(members) => members,
+            _ => Map::new(),
+        };
         members.remove("accepts");
         members.remove("refuses");
         members.insert("value".into(), self.value.clone().unwrap_or(Value::Null));

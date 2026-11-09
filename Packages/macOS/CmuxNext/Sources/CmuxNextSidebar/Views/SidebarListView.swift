@@ -18,11 +18,19 @@ typealias SidebarListViewComponents = SidebarListView
 final class SidebarListView: NSView {
     let model: SidebarModel
     var displayed = SidebarLayout.empty
+    /// The model revision and options `displayed` is the full layout of (a plain reload): a one-row insert splices onto
+    /// it (`spliceInsertion`). Nil after any other apply.
+    var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
+    /// The row the apply running now splices in (`spliceInsertion`): its only new row, nothing else added or removed.
+    var splicedRow: SidebarRowKey?
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
+    /// What placed groups draw in under the gradient palette (`SidebarGroup.drawnTints`), set with `groups`; empty
+    /// under every other palette. A header and its line draw this instead of the group's own tint.
+    var drawnTints: [GroupID: GroupTint] = [:]
     /// Each group and the groups under it, in document order (`reload`): a section lists a subgroup
     /// after its parent, not inside it, so a parent's card reads its members through this.
     var groupSubtrees: [GroupID: [GroupID]] = [:]
@@ -90,6 +98,11 @@ final class SidebarListView: NSView {
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover
     /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
     var hoverFollowsScroll = false
+    /// Whether a view over the list covers the window point (the Updated card and its open preview,
+    /// which stand over the rows): the rows under it neither light nor open their hover cards, so the
+    /// card owns the pointer (Leo 2026-11-08: "the cursor propagates to, like, the actual workspace
+    /// stuff on the sidebar"). The list's tracking area hears the pointer whatever is over it.
+    var hoverOccluded: ((NSPoint) -> Bool)?
     /// Bulk projection applies update many rows before the next frame. Hover
     /// paint remains valid, but marquee/layout work must wait for that frame.
     var suppressHoverEffects = false
@@ -100,6 +113,11 @@ final class SidebarListView: NSView {
     /// A click on a group's name waits out the double-click interval before it folds.
     let groupNameClick = SidebarGroupNameClick()
     var drag: Drag?
+    /// The rect the shown group lines were made for (`lineWindow`; nil: the whole list): a scroll past it makes the
+    /// lines it reaches.
+    var lineCover: NSRect?
+    /// Every `reload`, counted: a drag's base (`SidebarDragBaseKey`) is made again after one.
+    var reloads: UInt64 = 0
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
     var openingRows: [SidebarRowKey: SidebarRowOpening] = [:] // Rows still opening their slot (`SidebarRowOpening`).
@@ -115,10 +133,16 @@ final class SidebarListView: NSView {
     var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
     var leaving: Set<WorkspaceID> = []
-    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): view state, kept for this list only.
-    var openDoneFolds: Set<SidebarDoneFoldID> = []
-    /// The lists whose "Show N more" row the person opened: view state, kept for this list only.
-    var openShowMore: Set<SidebarDoneFoldID> = []
+    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): kept on the model, which numbers what they show.
+    var openDoneFolds: Set<SidebarDoneFoldID> {
+        get { model.openDoneFolds }
+        set { model.openDoneFolds = newValue }
+    }
+    /// The lists whose "Show N more" row the person opened: kept on the model, as `openDoneFolds`.
+    var openShowMore: Set<SidebarDoneFoldID> {
+        get { model.openShowMore }
+        set { model.openShowMore = newValue }
+    }
     /// The brief highlight Reveal Workspace in Sidebar draws over the row it revealed (`SidebarListView+RevealInSidebar`).
     var revealFlash: SidebarRevealFlash?
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
@@ -126,7 +150,17 @@ final class SidebarListView: NSView {
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
     let groupEditor = SidebarGroupEditor()
     var groupEditorItems: ((GroupID) -> [[SidebarGroupEditorItem]])?
-    var onGroupEditorItem: ((GroupID, String) -> Void)?
+    /// Runs a group editor row's action; a group header's + and Unpin and the empty group's + exist only with it.
+    /// Live rows take a new one at once (as `contextMenuProvider` does): the rows wire it on dequeue, and a row
+    /// realized before it was set would keep no + (its header lays the + out on its next layout).
+    var onGroupEditorItem: ((GroupID, String) -> Void)? {
+        didSet {
+            for (key, view) in rowViews {
+                wire(view, key: key)
+                view.needsLayout = true
+            }
+        }
+    }
     /// The group editor's Sort menu for a group: the App's `workspaceGroup.setSort` choices, the group's sort checked.
     var groupSortMenu: ((GroupID) -> NSMenu?)?
     var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
@@ -159,6 +193,10 @@ final class SidebarListView: NSView {
     /// workspace row: the app forwards it so that chat is read before the click
     /// (`SidebarListView+HoverPrefetch`). Called only when the hovered row changes.
     var onHoverTab: ((TabID?) -> Void)?
+    /// The workspace of the row under the pointer, nil off every workspace row: the app wakes the pages
+    /// its click would show once the pointer rests (plans/cmux-next/hover-preload-DESIGN.md). Called only
+    /// when the hovered row changes; it records the row and returns (no layout, no model write).
+    var onHoverWorkspace: ((WorkspaceID?) -> Void)?
     /// The tab the pointer's row was last reported as, so a reload that changes that row's focused
     /// tab in place reports it again (`refreshHoverTab`).
     var hoverTabSent: TabID?
@@ -178,6 +216,9 @@ final class SidebarListView: NSView {
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// Makes a row of a workspace's drive indicator menu from a registered action (filled by the App;
+    /// ``SidebarView/driveMenuItem``). Nil, or nil for a row, leaves the row out.
+    var driveMenuItem: ((WorkspaceID, SidebarDriveCommand, String) -> NSMenuItem?)?
     /// Opens a menu a row's button asked for at `anchor` (the button's frame in `view`):
     /// under the button, on the anchor's edge. Tests inject a recorder (popUp tracks modally).
     var menuPresenter: (NSMenu, PopupAnchor, NSView) -> Void = { menu, anchor, view in
@@ -217,6 +258,7 @@ final class SidebarListView: NSView {
                 }
             })
         }
+        BackdropImageStore.shared.desktop.follow(self)
         // A favicon arrived: the link rows draw it (one configure per realized link row).
         faviconObserver = NotificationCenter.default.addObserver(forName: SidebarModel.itemFaviconsChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
@@ -342,6 +384,13 @@ final class SidebarListView: NSView {
     /// scrolled under a possibly still pointer (no point: the coordinator's
     /// pointer location, and the card re-hit-tests as a geometry change).
     func updateHover(_ windowPoint: NSPoint? = nil) {
+        if let window, let hoverOccluded,
+           hoverOccluded(windowPoint ?? window.convertPoint(fromScreen: hoverCards.currentPointer())) {
+            setHovered(nil)
+            // Off the rows, as the pointer leaving the list: a shown row card closes on its grace.
+            hoverCards.pointerMoved(to: nil)
+            return
+        }
         defer {
             if let windowPoint, let window {
                 hoverCards.pointerMoved(to: window.convertPoint(toScreen: windowPoint))
@@ -359,7 +408,7 @@ final class SidebarListView: NSView {
     /// and bottom, corners rounded `Metrics.space1` more (Leo 2026-10-19).
     func hoverHit(at point: CGPoint) -> SidebarRow? {
         displayed.hoverRow(at: point, current: hoveredKey, frame: frame(for:),
-                           cornerRadius: SidebarStyle.rowCornerRadius + Metrics.space1, inset: Metrics.space1)
+                           cornerRadius: Metrics.cornerRadius(nestedIn: SidebarStyle.rowCornerRadius, inset: -Metrics.space1), inset: Metrics.space1)
     }
     /// The row a click at `point` acts on: the hovered row when the pointer
     /// hovers one, so a click never lands on a row other than the lit one;

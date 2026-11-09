@@ -371,6 +371,45 @@ export const mockSessions: MockSession[] = [
     ],
   },
   {
+    // The person corrected the agent, and acpmux offered what it learned for the project's
+    // instructions file: the memory inbox card under that turn (conversation/MemoryOfferCard.tsx).
+    sessionId: "mock-session-memory",
+    title: "Run the webview tests",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9300,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Ran them with bun test from webviews/; all pass.",
+    history: (at) => [
+      { ago: at + 120_000, mux: "user_message", msg: { text: "Run the webview tests." } },
+      { ago: at + 120_000, mux: "turn_started" },
+      { ago: at + 110_000, update: text("Running npm test at the repository root.") },
+      { ago: at + 100_000, mux: "turn_result", msg: { status: "completed" } },
+      {
+        ago: at + 60_000,
+        mux: "user_message",
+        msg: { text: "No, we use bun here, and only from webviews/. Never npm." },
+      },
+      { ago: at + 60_000, mux: "turn_started" },
+      { ago: at + 20_000, update: text("Ran them with bun test from webviews/; all pass.") },
+      { ago: at + 20_000, mux: "turn_result", msg: { status: "completed" } },
+      {
+        ago: at + 19_000,
+        mux: "memory_offer",
+        msg: {
+          offerId: "mock-memory-1",
+          file: "CLAUDE.md",
+          facts: ["Use bun, never npm.", "Run webview tests from webviews/ with bun test."],
+          heading: "## Learned in chats",
+          created: false,
+        },
+      },
+    ],
+  },
+  {
     sessionId: "mock-typing-latency",
     title: "Measure typing latency in split panes",
     harness: "claude",
@@ -893,7 +932,19 @@ export const mockSessions: MockSession[] = [
           ].join("\n"),
         ),
       },
-      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 5_000, mux: "turn_result", msg: { status: "completed" } },
+      // Two lanes' messages sent from a shell (`from: "cli"`), which name their sender only (Leo,
+      // 2026-11-05: "i can't click to go to these for some reason"): the daemon resolves the first
+      // (its chip opens that chat) and has no chat for the second (its click says so).
+      ...["review-box/session-info-lane", "mesh-relay"].map((fromName, index) => ({
+        ago: at + 2_000 - index * 1_000,
+        mux: "user_message",
+        msg: {
+          text: index === 0 ? "the hq#7125 lane is up; Session Info panel next" : "mesh relay reconnected",
+          promptId: `mock-links-msg-${index}`,
+          _meta: { provenance: { kind: "agent_message", from: "cli", fromName, msgId: `mock-links-m-${index}` } },
+        },
+      })),
     ],
   },
   {
@@ -987,6 +1038,12 @@ export const mockResolvable: Record<string, { sessionId: string; name: string; h
     name: "opus-session-info",
     host: "gcp-agent-lane-1",
   },
+  // A lane's shell-sent message names only its sender (SESSION_LINKS_SESSION's received lines).
+  "review-box/session-info-lane": {
+    sessionId: "mock-notice-mid-reply",
+    name: "session-info-lane",
+    host: "review-box",
+  },
 };
 
 /// A session as `_acpmux/watch` and `_acpmux/attach` report it.
@@ -1012,6 +1069,23 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
     indicator: fixtureIndicator(session),
     modes: session.harness === "codex" ? codexModes : claudeModes,
     configOptions: [...sessionOptions(session.harness === "codex"), ...(extraOptions ?? [])],
+  };
+}
+
+/// Listed session `index` of a large list (bench/update-one.bench.ts): an idle finished chat with a
+/// title, a status dot and a cost, no history; every tenth one unread. Five wait on the person at every
+/// size from 100 (the first hundred hold them), so the lists the home draws stay the same as it grows.
+export function listedSession(index: number, now: number): Record<string, unknown> {
+  const waiting = index < 100 && index % 20 === 7;
+  return {
+    ...newSessionSummary(`listed-${index}`, `~/code/listed-${index % 40}`, now - (index + 10) * 60_000),
+    title: `Listed chat ${index}`,
+    status: waiting ? "waiting" : "idle",
+    indicator: waiting ? "input" : "done",
+    inputSince: waiting ? now - index * 1000 : null,
+    unread: index % 10 === 3,
+    turnCount: 1 + (index % 7),
+    usageStats: { costUsd24h: (index % 97) / 10, tokens24h: 1000 * (index % 31), updatedAt: now },
   };
 }
 

@@ -1,8 +1,8 @@
 import CmuxNextDesign
 import CoreGraphics
 
-/// FRAME OWNER REFACTOR S2B: a gesture moves pane and divider edges, never whole frames (`motion.frameOwner.sharedEdges`,
-/// latched per drag in ``DividerDragState/sharedEdges``).
+/// FRAME OWNER REFACTOR S2B: a gesture moves pane and divider edges, never whole frames (per drag,
+/// ``DividerDragState/sharedEdges``; a press that cannot hold turns it off for its drag).
 ///
 /// Two panes that share an edge (a column edge, a split's divider) hold it as two values, one in each frame, and they
 /// agree only because every motion moves both the same way. A drag that starts while a spring runs (a key resize, a
@@ -51,7 +51,7 @@ enum SharedEdgeMotion {
         }
     }
 
-    /// `ScreenContentView.place` during a person's drag on `screen` that latched `motion.frameOwner.sharedEdges` and does
+    /// `ScreenContentView.place` during a person's drag on `screen` that moves edges (`DividerDragState.sharedEdges`) and does
     /// not animate: the drag moves edges, not whole frames. Returns false (the caller places as before S2B) otherwise.
     static func place(_ frame: inout AnimatedFrame, at target: CGRect, animated: Bool, on screen: ScreenContentView) -> Bool { // perf-hot: 4ms motion-frame
         guard !animated, screen.activeDrag?.sharedEdges == true, screen.context.model.isGestureActive, !screen.context.reduceMotion else {

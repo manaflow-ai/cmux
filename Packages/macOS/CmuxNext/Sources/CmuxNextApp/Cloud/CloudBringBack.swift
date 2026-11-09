@@ -50,7 +50,7 @@ struct CloudBringBack {
             return perform(tab: tab) { try await reshow(shown, tab: tab) }
         }
         guard let record = tab.agentSession, record.host.hasPrefix(MachineRegistry.registryHostPrefix),
-              let session = record.session ?? services.agentTabs.sessions[services.agentTabs.resolve(tab.id)],
+              let session = record.session ?? services.agentTabs.sessions[services.agentTabs.tabKey(of: tab)],
               let entry = services.cloud.movedChats.entry(host: record.host, session: session) else {
             throw ActionFailure(message: CloudBringBackStrings.notFromMove)
         }
@@ -64,7 +64,13 @@ struct CloudBringBack {
         let askFirst = invocation[Self.askFirstArgument] == .bool(true)
         // Only the person's "Update Machine" updates the machine first (``CloudMachineUpdate``).
         let update = CloudMachineUpdate.requested(invocation)
-        perform(tab: tab) { try await run(tab: tab, entry: entry, cli: cli, askFirst: askFirst, update: update, invocation: invocation) }
+        // The person's Bring Back updates a machine too old for it first (``CloudMove/updatingFirst(_:_:)``).
+        perform(tab: tab) {
+            try await CloudMove.updatingFirst(invocation) { invocation in
+                try await run(tab: tab, entry: entry, cli: cli, askFirst: askFirst, update: update || CloudMachineUpdate.requested(invocation),
+                              invocation: invocation)
+            }
+        }
     }
 
     /// Runs `body` (which returns the machine's name) behind the toasts. A stop records its retry
@@ -123,6 +129,8 @@ struct CloudBringBack {
     private func run(tab: TabModel, entry: CloudMovedChats.Entry, cli: CloudMoveCLI, askFirst: Bool, update: Bool, invocation: ActionInvocation) async throws -> String {
         let again = CloudMoveRetries.Retry.move(machineID: entry.machineID)
         guard let machine = services.machines.session(entry.machineID) else {
+            // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
+            if services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
             throw Failure(message: CloudMoveStrings.noSuchMachine(entry.machineID), retry: again)
         }
         let name = machine.machine.title
@@ -204,7 +212,7 @@ struct CloudBringBack {
         let daemon = services.daemon, tabs = services.agentTabs
         guard let connection = daemon.connection, let host = tabs.localHost else { throw DaemonError.notConnected }
         let record = AgentSessionRef(host: host, hostName: tabs.localHostName, session: shown.session, harness: shown.harness)
-        let workspace = WorkspaceKey.generate()
+        let workspace = NewWorkspacePlacements.placedKey(in: services.windows) // placed like Cmd-N, not at the daemon's slot
         let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: shown.name, on: connection, repair: services.emptyWorkspaces) { result in
             try await connection.createTerminal(in: result.key, cwd: shown.folder)
             return try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,

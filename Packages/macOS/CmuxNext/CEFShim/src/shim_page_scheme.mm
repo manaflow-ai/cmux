@@ -26,7 +26,10 @@ namespace {
 // host: Open emits CMUX_SHIM_PAGE_RESOURCE on the UI thread and waits for
 // cmux_shim_page_resource_respond(token, ...). CEF calls the handler's
 // methods in sequence on its IO sequence; Respond runs on the main thread,
-// so the answer and the waiting callback are guarded by mutex_.
+// so the answer and the waiting callback are guarded by mutex_. A media
+// chunk shorter than the rest of its file goes to Chromium as the rest of
+// the file (PageRangedStream): Read asks the page host for each next chunk,
+// under a token of its own, and Chunk hands it to the waiting read.
 class DynamicResource : public CefResourceHandler {
  public:
   DynamicResource(int token, int browser_id, std::string url, std::string csp)
@@ -38,40 +41,45 @@ class DynamicResource : public CefResourceHandler {
     response->SetStatus(status_);
     response->SetStatusText(PageStatusText(status_));
     response->SetMimeType(mime_);
+    if (!charset_.empty()) response->SetCharset(charset_);
     CefResponse::HeaderMap headers;
-    for (auto& [name, value] : PageResponseHeaders(csp_)) headers.emplace(name, value);
+    // A live page file (cmux_shim_page_scheme_set_live) carries the policy the page host chose for
+    // it (a dev server's adds its HMR socket); every other answer keeps the page's own.
+    for (auto& [name, value] : PageResponseHeaders(answer_csp_.empty() ? csp_ : answer_csp_)) headers.emplace(name, value);
     for (auto& [name, value] : range_headers_) headers.emplace(name, value);
     headers.emplace("Cache-Control", "no-store");
     response->SetHeaderMap(headers);
-    response_length = static_cast<int64_t>(body_.size());
+    response_length = streaming_ ? stream_.length : static_cast<int64_t>(body_.size());
   }
-  bool Read(void* data_out, int bytes_to_read, int& bytes_read, CefRefPtr<CefResourceReadCallback>) override {
-    std::lock_guard<std::mutex> lock(mutex_);
-    const size_t left = body_.size() - offset_;
-    const size_t count = std::min(left, static_cast<size_t>(std::max(bytes_to_read, 0)));
-    if (count == 0) {
-      bytes_read = 0;
-      return false;
-    }
-    memcpy(data_out, body_.data() + offset_, count);
-    offset_ += count;
-    bytes_read = static_cast<int>(count);
-    return true;
-  }
+  bool Read(void* data_out, int bytes_to_read, int& bytes_read, CefRefPtr<CefResourceReadCallback> callback) override;
   void Cancel() override;
+
+  // The page host's answer to `token` (main thread): the request's own, or the next chunk a
+  // stream asked for. False when that request already ended or was answered.
+  bool Answer(int token, int status, std::string mime, std::string body, std::string range_headers = "",
+              std::string csp = "") {
+    if (token != token_) return Chunk(token, std::move(body), status, range_headers);
+    return Respond(status, std::move(mime), std::move(body), std::move(range_headers), std::move(csp));
+  }
 
   // The page host's answer (main thread). False when the request already
   // ended (cancelled) or was answered.
-  bool Respond(int status, std::string mime, std::string body, std::string range_headers = "") {
+  bool Respond(int status, std::string mime, std::string body, std::string range_headers = "", std::string csp = "") {
     CefRefPtr<CefCallback> callback;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (answered_ || !callback_) return false;
       answered_ = true;
       status_ = status;
-      mime_ = mime.empty() ? "application/octet-stream" : std::move(mime);
+      SplitPageMimeType(mime, &mime_, &charset_);
+      if (mime_.empty()) mime_ = "application/octet-stream";
       body_ = std::move(body);
       range_headers_ = PageRangeHeaders(range_headers);
+      answer_csp_ = PageHeaderValue(csp);
+      if (PlanRangedStream(range_, status_, range_headers_, static_cast<int64_t>(body_.size()), &stream_)) {
+        streaming_ = true;
+        range_headers_ = stream_.headers;
+      }
       callback = callback_;
       callback_ = nullptr;
     }
@@ -81,6 +89,33 @@ class DynamicResource : public CefResourceHandler {
 
   int browser_id() const { return browser_id_; }
   const std::string& url() const { return url_; }
+
+  // The next chunk of a stream (main thread), handed to the read that waits for it; a chunk that
+  // is not the next part of the same file fails the response.
+  bool Chunk(int token, std::string body, int status, const std::string& range_headers) {
+    CefRefPtr<CefResourceReadCallback> callback;
+    int delivered = 0;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (!read_callback_ || token != chunk_token_) return false;
+      callback = read_callback_;
+      read_callback_ = nullptr;
+      chunk_token_ = 0;
+      if (!AcceptRangedChunk(&stream_, status, PageRangeHeaders(range_headers), static_cast<int64_t>(body.size()))) {
+        failed_ = true;
+        delivered = -2;  // net::ERR_FAILED
+      } else {
+        body_ = std::move(body);
+        const size_t count = std::min(body_.size(), static_cast<size_t>(std::max(read_want_, 0)));
+        memcpy(read_out_, body_.data(), count);
+        offset_ = count;
+        delivered = static_cast<int>(count);
+      }
+      read_out_ = nullptr;
+    }
+    callback->Continue(delivered);
+    return true;
+  }
 
  private:
   const int token_;
@@ -92,9 +127,21 @@ class DynamicResource : public CefResourceHandler {
   bool answered_ = false;
   int status_ = 404;
   std::string mime_ = "text/plain";
+  std::string charset_;
   std::string body_;
   std::vector<std::pair<std::string, std::string>> range_headers_;
+  std::string answer_csp_;
   size_t offset_ = 0;
+  // The request's Range header, and the stream its answer became (PlanRangedStream).
+  std::string range_;
+  bool streaming_ = false;
+  bool failed_ = false;
+  PageRangedStream stream_;
+  // A read waiting for the next chunk: its buffer stays valid until read_callback_ runs.
+  int chunk_token_ = 0;
+  CefRefPtr<CefResourceReadCallback> read_callback_;
+  char* read_out_ = nullptr;
+  int read_want_ = 0;
   IMPLEMENT_REFCOUNTING(DynamicResource);
 };
 
@@ -138,6 +185,7 @@ bool DynamicResource::Open(CefRefPtr<CefRequest> request, bool& handle_request, 
   {
     std::lock_guard<std::mutex> lock(mutex_);
     callback_ = callback;
+    range_ = range;
   }
   {
     std::lock_guard<std::mutex> lock(pending_mutex());
@@ -147,14 +195,63 @@ bool DynamicResource::Open(CefRefPtr<CefRequest> request, bool& handle_request, 
   return true;
 }
 
+bool DynamicResource::Read(void* data_out, int bytes_to_read, int& bytes_read,
+                           CefRefPtr<CefResourceReadCallback> callback) {
+  int token = 0;
+  std::string range;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const size_t left = body_.size() - offset_;
+    const size_t count = std::min(left, static_cast<size_t>(std::max(bytes_to_read, 0)));
+    if (count > 0) {
+      memcpy(data_out, body_.data() + offset_, count);
+      offset_ += count;
+      bytes_read = static_cast<int>(count);
+      return true;
+    }
+    if (failed_) {
+      bytes_read = -2;  // net::ERR_FAILED
+      return false;
+    }
+    if (!streaming_ || stream_.next >= stream_.total || bytes_to_read <= 0) {
+      bytes_read = 0;
+      return false;
+    }
+    // The rest of the file comes from the page host one chunk at a time, as the player reads.
+    chunk_token_ = token = NextToken();
+    range = PageRangedStreamNextRange(stream_);
+    read_callback_ = callback;
+    read_out_ = static_cast<char*>(data_out);
+    read_want_ = bytes_to_read;
+  }
+  {
+    std::lock_guard<std::mutex> lock(pending_mutex());
+    pending()[token] = this;
+  }
+  CefPostTask(TID_UI, new EmitResourceTask(token, browser_id_, url_, range));
+  bytes_read = 0;
+  return true;
+}
+
 void DynamicResource::Cancel() {
+  int chunk = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     callback_ = nullptr;
+    read_callback_ = nullptr;
+    read_out_ = nullptr;
+    chunk = chunk_token_;
+    chunk_token_ = 0;
   }
   std::lock_guard<std::mutex> lock(pending_mutex());
   pending().erase(token_);
+  if (chunk) pending().erase(chunk);
 }
+
+// Whether every request of a first-party page goes to the page host, as a dynamic path does
+// (cmux_shim_page_scheme_set_live): the live web loop (web-dev.json) then serves page files from a
+// dev server or an overlay folder instead of the folder fixed at registration. Read per request.
+std::atomic<bool> g_live_pages{false};
 
 // Immutable after construction: Create runs off the UI thread.
 class PageFactory : public CefSchemeHandlerFactory {
@@ -207,6 +304,10 @@ class PageFactory : public CefSchemeHandlerFactory {
       if (browser) return new DynamicResource(NextToken(), browser->GetIdentifier(), request->GetURL().ToString(), csp_);
       static char kBody[] = "Not Found";
       return Respond(404, "Not Found", "text/plain", Headers(), kBody, sizeof(kBody) - 1);
+    }
+    // Live: the page host answers every file (server, then overlay, then web update, then bundle).
+    if (parsed && browser && g_live_pages.load(std::memory_order_relaxed)) {
+      return new DynamicResource(NextToken(), browser->GetIdentifier(), request->GetURL().ToString(), csp_);
     }
     std::string path = parsed ? CefString(&parts.path).ToString() : std::string();
     // "/" is the page's entry document (a shared build folder names its own).
@@ -343,7 +444,7 @@ int cmux_shim_page_resource_respond(int token, int status, const char* mime, con
   }
   std::string bytes;
   if (body && length > 0) bytes.assign(static_cast<const char*>(body), length);
-  return resource->Respond(status, mime ? mime : "", std::move(bytes)) ? 1 : 0;
+  return resource->Answer(token, status, mime ? mime : "", std::move(bytes)) ? 1 : 0;
 }
 
 int cmux_shim_page_resource_respond_ranged(int token, int status, const char* mime, const char* range_headers,
@@ -358,7 +459,27 @@ int cmux_shim_page_resource_respond_ranged(int token, int status, const char* mi
   }
   std::string bytes;
   if (body && length > 0) bytes.assign(static_cast<const char*>(body), length);
-  return resource->Respond(status, mime ? mime : "", std::move(bytes), range_headers ? range_headers : "") ? 1 : 0;
+  return resource->Answer(token, status, mime ? mime : "", std::move(bytes), range_headers ? range_headers : "") ? 1 : 0;
 }
+
+int cmux_shim_page_resource_respond_page(int token, int status, const char* mime, const char* range_headers,
+                                         const char* csp, const void* body, size_t length) {
+  CefRefPtr<DynamicResource> resource;
+  {
+    std::lock_guard<std::mutex> lock(pending_mutex());
+    auto found = pending().find(token);
+    if (found == pending().end()) return 0;
+    resource = found->second;
+    pending().erase(found);
+  }
+  std::string bytes;
+  if (body && length > 0) bytes.assign(static_cast<const char*>(body), length);
+  return resource->Answer(token, status, mime ? mime : "", std::move(bytes), range_headers ? range_headers : "",
+                          csp ? csp : "")
+             ? 1
+             : 0;
+}
+
+void cmux_shim_page_scheme_set_live(int live) { g_live_pages.store(live != 0, std::memory_order_relaxed); }
 
 }  // extern "C"

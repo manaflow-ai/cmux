@@ -61,13 +61,26 @@ await requireBrowserLane("session-info-per-pane.test.ts", async () => {
     });
   const shown = (page: Page) => page.locator('aside.acpmux-session-info[data-presence="shown"]');
   const toggle = (page: Page) => page.locator("button.acpmux-session-info-toggle");
-  /// Waits until `page` sees another page's toggle (the last choice, `open`, in the storage they
-  /// share; its storage event comes with it) and has painted two frames after it, so a pane that
-  /// followed the event would show it.
+  /// Waits until `page` sees another page's toggle (the chat's own saved state, `open`, in the storage
+  /// they share; its storage event comes with it) and has painted two frames after it, so a pane that
+  /// followed the event would show it. Closing is the chat's own choice (sessionInfoState.ts): the
+  /// chat's key under `cmux.agentPane.inspector.pane.` holds it, not one key for every chat.
   const seenAndPainted = async (page: Page, open: "0" | "1") => {
-    await page.waitForFunction((value) => localStorage.getItem("cmux.agentPane.inspector.open") === value, open, {
-      timeout: 5_000,
-    });
+    await page.waitForFunction(
+      (value) =>
+        Object.keys(localStorage).some((key) => {
+          if (!key.startsWith("cmux.agentPane.inspector.pane.")) return false;
+          try {
+            return (
+              (JSON.parse(localStorage.getItem(key) ?? "null") as { open?: unknown } | null)?.open === (value === "1")
+            );
+          } catch {
+            return false;
+          }
+        }),
+      open,
+      { timeout: 5_000 },
+    );
     await page.evaluate(
       () =>
         new Promise<void>((resolve) => {
@@ -87,8 +100,11 @@ await requireBrowserLane("session-info-per-pane.test.ts", async () => {
       try {
         const left = await pane!.open();
         const right = await pane!.open();
+        // A new pane starts with Session Info closed (#37576): each pane opens it itself.
         for (const page of [left, right]) {
           await offer(page);
+          await toggle(page).waitFor({ timeout: 10_000 });
+          if ((await toggle(page).getAttribute("aria-pressed")) !== "true") await toggle(page).click();
           await shown(page).waitFor({ timeout: 10_000 });
         }
         await toggle(left).click();

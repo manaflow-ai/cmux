@@ -202,7 +202,12 @@ pub(super) fn remote_steps(
                     steps.push(JoinStep::fail(
                         "platform",
                         format!("joining is off on {origin}"),
-                        format!("Point at development: --platform {}", machine_join::DEV_ORIGIN),
+                        if origin.trim_end_matches('/') == machine_join::DEFAULT_ORIGIN {
+                            "Joining should be on here; check the platform's deploy, or name another with --platform"
+                                .to_owned()
+                        } else {
+                            format!("Point at production: --platform {}", machine_join::DEFAULT_ORIGIN)
+                        },
                     ));
                     Err(())
                 }
@@ -258,7 +263,7 @@ pub(super) fn remote_steps(
     };
     steps.push(JoinStep::new("listed", StepState::Ok, format!("listed as {}", machine.machine_id)));
     steps.push(match machine.last_heartbeat_ms {
-        Some(at) if now.saturating_sub(at) < machine_join::ONLINE_WITHIN_MS => JoinStep::new(
+        Some(at) if machine.is_online(now) => JoinStep::new(
             "heartbeat",
             StepState::Ok,
             format!("last heartbeat {} ago", doctor::age_words(now.saturating_sub(at))),

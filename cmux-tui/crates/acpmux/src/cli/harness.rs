@@ -70,6 +70,23 @@ pub fn example(name: &str) -> Option<&'static str> {
 
 pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
     match cmd {
+        HarnessCmd::Install { id } => {
+            let installed = crate::harness_install::install(&id, |step, state, detail| {
+                if json_out {
+                    println!("{}", json!({"step": step, "state": state, "detail": detail}));
+                } else {
+                    println!("{step}: {state} {detail}");
+                }
+            })
+            .await?;
+            // A running daemon finds the new CLI without a restart, as after `codex-runtime install`.
+            let value = with_daemon_reloaded(installed, reload_daemon().await);
+            println!(
+                "{}",
+                if json_out { value.to_string() } else { serde_json::to_string_pretty(&value)? }
+            );
+            Ok(())
+        }
         HarnessCmd::CodexRuntime { action } => {
             let value = match action {
                 // A running daemon read its harness profiles before the runtime existed: it
@@ -656,7 +673,7 @@ args = []                 # for example ["acp"]; "${{model}}" becomes the chosen
 # [defaults]
 # model = "model-id"
 # effort = "medium"
-# policy = "ask"          # ask, approve-reads, approve-edits, approve-all, deny-all
+# policy = "ask"          # ask, approve-reads, approve-edits, approve-all, deny-all, review
 
 # [models]
 # list = [{{ id = "model-id", name = "Model Name", short_name = "Short" }}]
@@ -996,7 +1013,7 @@ async fn acp_steps(
     for a in spawn.argv.iter_mut() {
         *a = crate::hub::expand_env_value(a, folder, &home, &model);
     }
-    let mut cmd = match crate::agent::harness_command(id, &spawn, folder, None, None) {
+    let mut cmd = match crate::agent::harness_command_ready(id, &spawn, folder, None, None).await {
         Ok(cmd) => cmd,
         Err(e) => {
             r.push("launch", StepStatus::Fail, &e.to_string(), None);

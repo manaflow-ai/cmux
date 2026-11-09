@@ -90,6 +90,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     cmd.args(&spec.args)
         .env_clear()
         .envs(spec.env.iter().map(|(k, v)| (k, v)))
+        // What this host started is found by it after the host is killed (`end_left_behind`).
+        .env(super::HOST_MARK, &nonce)
         .current_dir(&spec.cwd)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -514,6 +516,16 @@ impl Started {
         }
         // Held for the host's life: dropping it stops the watch.
         let _record_watch = watch_record(&spec, &record.start_nonce, events_tx.clone());
+        // Debug builds only: a test's host ends with the test's process, mid-turn too, as on
+        // SIGTERM (`daemon/owner_exit.rs`). Not a runtime thread: a blocking send never drops the
+        // end when the queue is full.
+        #[cfg(debug_assertions)]
+        {
+            let tx = events_tx.clone();
+            crate::daemon::owner_exit::follow_test_owner(move |_| {
+                let _ = tx.blocking_send(Event::Term);
+            });
+        }
         {
             let tx = events_tx.clone();
             tokio::spawn(async move {
@@ -525,6 +537,9 @@ impl Started {
             });
         }
 
+        // This process never sees the daemon's `_acpmux/chat_settings` push: the forced
+        // `agents.promptSuggestions` comes with the spec, before either translator reads it.
+        crate::claude_stdio::prompt_suggestions::set_managed(spec.prompt_suggestions_managed);
         let translator = spec.translator.as_ref().map(|t| {
             let tr = Translator::new(t.acp_session_id.clone(), &t.mode, &t.model, &t.effort);
             if t.fast

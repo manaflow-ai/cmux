@@ -38,6 +38,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
@@ -50,12 +51,101 @@ HUMAN_OK_LABEL = "risk:human-ok"
 # The earlier name for the same maintainer sign-off; still honored.
 WAIVED_LABEL = "risk:waived"
 # An independent review's verdict on the exact head, on a comment's first line: "Review (subagent, correctness
-# first): SHIP at <full head sha>", the form next_autoland.py and merge_audit.py read. A self-review doesn't
-# count, and the newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP. The same line
-# also counts anywhere in the description (outside <!-- comments -->), where it ranks below every comment.
+# first): SHIP at <full head sha>", the form next_autoland.py and merge_audit.py read. This is the one copy of the
+# grammar and of when a receipt counts; defaults_guard.py imports it from here. It stays in this file because
+# risk-tier.yml runs from main and checks out only scripts/ci/risk_tier.py from the base (#36941 split it into a
+# module and every `risk evidence` run failed on the import). A self-review doesn't count. Every agent posts as the
+# pull request author's account, so a SHIP from that account counts only as
+#     Review (<reviewer agent id>, started by <agent id>): SHIP at <full head sha>
+# with an `Author-agent: <agent id>` line in the description and neither id that author agent (cmux-ad m25 item 7;
+# on #36311 the author agent's own subagent posted `Review (claude-review-subagent): SHIP at ...` from the author's
+# account). A receipt from another account keeps the older rule. A BLOCK always counts: an unverified receipt can
+# make a gate red, never green. The newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP.
+# The same line also counts anywhere in the description (outside <!-- comments -->), where it ranks below every
+# comment.
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
                      re.I)
+# "<reviewer agent id>, started by <agent id>": the last comma-separated part of the label names the starter.
+STARTED_BY = re.compile(r"^(?P<reviewer>.*\S)\s*,\s*started\s+by\s+(?P<starter>\S.*?)\s*$", re.I)
+# "Author-agent: <agent id>" on a line of its own, optionally as a list item, quote or bold label.
+AUTHOR_AGENT = re.compile(r"^[\s>*_`-]*author-agent[*_`]*\s*:[\s*_`]*(?P<id>[^\s*`]+)", re.I | re.M)
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+
+
+@dataclass(frozen=True)
+class Receipt:
+    verdict: str  # "ship" or "block" (BLOCK, FIX, NOT SHIP and HOLD all hold the head)
+    label: str  # the text inside the parentheses
+    reviewer: str | None  # the reviewer agent id, when the label says who started it
+    starter: str | None  # the agent that started the reviewer
+
+    @property
+    def who(self) -> str:
+        return f"review ({self.label})"
+
+
+def parse(line: str, head: str) -> Receipt | None:
+    """The receipt on `line` when it names the full `head` sha and its label does not say self, else None."""
+    match = RECEIPT.match(line or "")
+    if not head or not match or head not in line or "self" in match.group(1).lower():
+        return None
+    label = match.group(1).strip()
+    started = STARTED_BY.match(label)
+    return Receipt("ship" if match.group(2).lower() == "ship" else "block", label,
+                   started.group("reviewer").strip() if started else None,
+                   started.group("starter").strip() if started else None)
+
+
+def norm(agent: str | None) -> str:
+    return (agent or "").strip().strip("`*_").strip().lower()
+
+
+def author_agents(body: str | None) -> set[str]:
+    """Every `Author-agent: <id>` the description names outside <!-- comments -->, normalized."""
+    return {norm(m.group("id")) for m in AUTHOR_AGENT.finditer(HTML_COMMENT.sub("", body or ""))} - {""}
+
+
+def same_account(login: str | None, author: str | None) -> bool:
+    """Whether the receipt's account is the pull request author's. An unknown author or login is treated as
+    the same account: the stricter rule applies when nobody can tell."""
+    return not author or not login or login.strip().lower() == author.strip().lower()
+
+
+def refusal(receipt: Receipt, same: bool, agents: set[str]) -> str | None:
+    """Why `receipt` does not count, or None when it does. Only a SHIP from the author's own account is refused."""
+    if receipt.verdict != "ship" or not same:
+        return None
+    if not agents:
+        return "a SHIP from the author's account, and the description has no `Author-agent: <agent id>` line"
+    if not receipt.reviewer or not receipt.starter:
+        return "a SHIP from the author's account must say `Review (<reviewer agent id>, started by <agent id>)`"
+    if norm(receipt.reviewer) in agents:
+        return f"the reviewer {receipt.reviewer} is the pull request's author agent"
+    if norm(receipt.starter) in agents:
+        return f"the reviewer was started by {receipt.starter}, the pull request's author agent"
+    return None
+
+
+def counted(line: str, head: str, *, login: str | None, author: str | None, body: str | None) -> Receipt | None:
+    """The receipt on `line` if it counts for `head`: parse(), then refusal() for the author's own account.
+    `login` posted it, `author` opened the pull request and `body` is its description."""
+    receipt = parse(line, head)
+    if receipt is None or refusal(receipt, same_account(login, author), author_agents(body)):
+        return None
+    return receipt
+
+
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+# The cmux-bot App, which posts next-review's receipts (the review service any lane can ask for: `router-review
+# OWNER/REPO N --request`). A receipt line it posts counts as one from another account: no lane holds the App's key,
+# so a lane can neither write its verdict nor forge one. Its login alone never counts, only with this immutable node
+# id, and its APPROVED reviews never do (they mirror another account's receipt). defaults_guard.py reads the same.
+CMUX_BOT_LOGINS = frozenset(("cmux-bot", "cmux-bot[bot]"))
+CMUX_BOT_NODE_ID = "BOT_kgDOFMYsLQ"
+# A login whose author_association is not TRUSTED still counts with one of these roles on the repository.
+# The workflow's GITHUB_TOKEN and App token cannot see a private organization membership, so they read a
+# private member's association as CONTRIBUTOR (PR #38436, 2026-11-08: a valid SHIP read as no verdict).
+WRITE_ROLES = ("admin", "maintain", "write")
 NEXT = "Packages/macOS/CmuxNext/Sources/"
 
 # Ordered: the first matching rule wins, so the high paths sit above the broad low ones.
@@ -209,7 +299,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     )),
     ("low", "CI and tooling", (
         ".claude/*", ".codex/*", ".agents/*", "tools/*", "biome.json", ".coderabbit.yaml", ".greptile/*",
-        "dogfood/*", "Prototypes/*", "KeyboardPinningLab/*", "samples/*", "examples/*",
+        "dogfood/*", "Prototypes/*", "samples/*", "examples/*",
     )),
 )
 
@@ -578,7 +668,10 @@ def classify(files: list[str], patches: dict[str, str] | None = None, sources: d
 
 
 SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an independent review, in the "
-                f"description or leading a comment, an approving review from someone other than the author, or "
+                f"description or leading a comment (from the author's own account it must be `Review (<reviewer "
+                f"agent id>, started by <agent id>)`, neither of them the description's `Author-agent: <agent id>`; "
+                f"an author lane gets one with `router-review OWNER/REPO N --request`, which cmux-bot posts), "
+                f"an approving review from someone other than the author, or "
                 f"`{HUMAN_OK_LABEL}` added by a maintainer (agents never add it)")
 
 
@@ -699,14 +792,56 @@ def diff_lines(patch: str) -> tuple[list[str], list[str]]:
     return [l for l in removed if l], [l for l in added if l]
 
 
+def change_blocks(patch: str) -> list[tuple[list[str], list[str]]]:
+    """(removed, added) non-blank stripped lines of each run of -/+ lines in a patch: one edit each."""
+    blocks: list[tuple[list[str], list[str]]] = []
+    current: tuple[list[str], list[str]] | None = None
+    for line in patch.splitlines():
+        if line.startswith(("---", "+++")) or not line.startswith(("-", "+")):
+            current = None
+            continue
+        if current is None:
+            current = ([], [])
+            blocks.append(current)
+        text = line[1:].strip()
+        if text:
+            current[0 if line.startswith("-") else 1].append(text)
+    return blocks
+
+
+WORD = re.compile(r"\w+")
+
+
+def in_order(needle: list[str], haystack: list[str]) -> bool:
+    """Whether every word of `needle` appears in `haystack` in the same order (other words may sit between)."""
+    words = iter(haystack)
+    return all(any(word == other for other in words) for word in needle)
+
+
+def reflowed(pr_patch: str, keep_out: set[str]) -> set[str]:
+    """The removed lines whose words all come back, in order, in the same edit's added lines: a list or
+    a call rewrapped (rustfmt after one more item, PR #38436), not a line taken out. Added lines in
+    `keep_out` (lines the commit replaced, now restored) do not count, so `foo(a)` turned back into
+    `foo(a, b)` is still a revert of the change that shortened it."""
+    kept = set()
+    for removed, added in change_blocks(pr_patch):
+        stream = [word for line in added if line not in keep_out for word in WORD.findall(line)]
+        for line in removed:
+            words = WORD.findall(line)
+            if words and in_order(words, stream):
+                kept.add(line)
+    return kept
+
+
 def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = frozenset()) -> bool:
     """Whether a pull request's change to a file takes back a commit's change to it: it deletes
     most of what the commit added, and, when the commit replaced lines, puts most of them back."""
     pr_removed, pr_added = map(set, diff_lines(pr_patch))
-    # A line the pull request removes and adds back, here or in another file, moved; it wasn't
-    # taken back.
-    gone, back = pr_removed - pr_added - added_elsewhere, pr_added - pr_removed
     commit_removed, commit_added = map(set, diff_lines(commit_patch))
+    # A line the pull request removes and adds back, here or in another file, moved; a line whose words
+    # come back in order in the same edit was rewrapped. Neither was taken back.
+    gone = pr_removed - pr_added - added_elsewhere - reflowed(pr_patch, commit_removed)
+    back = pr_added - pr_removed
     if not commit_added:
         return False
     if len(commit_added & gone) / len(commit_added) < 0.8:
@@ -921,33 +1056,52 @@ def last_labeler(events: list[dict], name: str) -> str | None:
 
 
 def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
-                  author: str, pr: dict | None = None) -> list[tuple[str, str, str]]:
+                  author: str, pr: dict | None = None,
+                  permission: Callable[[str], str | None] | None = None) -> list[tuple[str, str, str]]:
     """(at, "ship" or "block", who) for every trusted verdict on the head, one timeline as
     next_autoland reads it: an approval (not the author's) or change request of the head commit, a
     receipt line naming the full head sha that leads a comment or a review body, and such a line
     anywhere in the description. The description has no time of its own, so its lines rank below
     every comment and review (at ""): a later BLOCK comment still beats a SHIP line in it. Its author
-    must be trusted the same way a commenter must."""
+    must be trusted the same way a commenter must: a TRUSTED author_association, or, through
+    `permission` (login -> repository role), a WRITE_ROLES role when the token reads it as less.
+    The cmux-bot App's receipt lines count too (next-review's, CMUX_BOT_NODE_ID), never its approvals."""
     found = []
+    body = (pr or {}).get("body")
 
-    def verdict(text: str, at: str, where: str = "") -> None:
-        line = RECEIPT.match(text)
-        if line and "self" not in line.group(1).lower() and head_sha in text:
-            found.append((at, "ship" if line.group(2).lower() == "ship" else "block",
-                          f"review ({line.group(1).strip()}){where}"))
+    def verdict(text: str, at: str, login: str, where: str = "") -> None:
+        got = counted(text, head_sha, login=login, author=author, body=body)
+        if got:
+            found.append((at, got.verdict, f"{got.who}{where}"))
 
     def receipt(item: dict, at: str) -> None:
-        verdict(next((line for line in (item.get("body") or "").splitlines() if line.strip()), ""), at)
+        verdict(next((line for line in (item.get("body") or "").splitlines() if line.strip()), ""), at,
+                (item.get("user") or {}).get("login") or "")
 
     def trusted(item: dict) -> bool:
         user = item.get("user") or {}
-        return user.get("type") == "User" and item.get("author_association") in TRUSTED
+        if user.get("type") != "User":
+            return False
+        if item.get("author_association") in TRUSTED:
+            return True
+        return permission is not None and bool(user.get("login")) and permission(user["login"]) in WRITE_ROLES
+
+    def service(item: dict) -> bool:
+        user = item.get("user") or {}
+        return (user.get("type") == "Bot" and user.get("login") in CMUX_BOT_LOGINS
+                and user.get("node_id") == CMUX_BOT_NODE_ID)
 
     if pr and trusted(pr):
         for text in strip_comments(pr.get("body") or "").splitlines():
-            verdict(text, "", " in the description")
+            verdict(text, "", (pr.get("user") or {}).get("login") or "", " in the description")
 
     for review in reviews:
+        if service(review):
+            # Its receipt line only, and only in a plain review: an APPROVED (or dismissed) one mirrors another
+            # account's receipt, maybe a self-started one, so its body never counts either.
+            if review.get("state") == "COMMENTED":
+                receipt(review, review.get("submitted_at") or "")
+            continue
         if not trusted(review):
             continue
         at, login = review.get("submitted_at") or "", (review.get("user") or {}).get("login") or ""
@@ -958,20 +1112,32 @@ def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
                 found.append((at, "block", f"@{login}"))
         receipt(review, at)
     for comment in comments:
-        if trusted(comment):
+        if trusted(comment) or service(comment):
             receipt(comment, comment.get("created_at") or "")
     return found
 
 
 def signed_off(comments: list[dict], reviews: list[dict], head_sha: str, author: str = "",
-               pr: dict | None = None) -> str | None:
+               pr: dict | None = None, permission: Callable[[str], str | None] | None = None) -> str | None:
     """Who passed the head, or None: the newest verdict on it must be a SHIP, so a later BLOCK or
     change request beats an earlier SHIP or approval, and a BLOCK wins a tie."""
-    found = head_verdicts(comments, reviews, head_sha, author, pr)
+    found = head_verdicts(comments, reviews, head_sha, author, pr, permission)
     if not found:
         return None
     _, verdict, who = max(found, key=lambda f: (f[0], f[1] == "block"))
     return who if verdict == "ship" else None
+
+
+def role_reader(repo: str) -> Callable[[str], str | None]:
+    """login -> its role on `repo` (role_name), one read per login. A failed read raises, so
+    human_ok_by's caller lists the verdict as unread rather than drop a BLOCK it could not trust."""
+    roles: dict[str, str | None] = {}
+
+    def role(login: str) -> str | None:
+        if login not in roles:
+            roles[login] = (gh_json("api", f"repos/{repo}/collaborators/{login}/permission") or {}).get("role_name")
+        return roles[login]
+    return role
 
 
 def human_ok_by(repo: str, number: str, pr: dict) -> tuple[str | None, bool]:
@@ -984,8 +1150,9 @@ def human_ok_by(repo: str, number: str, pr: dict) -> tuple[str | None, bool]:
     comments = gh_items(f"repos/{repo}/issues/{number}/comments?per_page=100")
     reviews = gh_items(f"repos/{repo}/pulls/{number}/reviews?per_page=100")
     author = (pr.get("user") or {}).get("login") or ""
-    if head_verdicts(comments, reviews, head_sha, author, pr):
-        who = signed_off(comments, reviews, head_sha, author, pr)
+    permission = role_reader(repo)
+    if head_verdicts(comments, reviews, head_sha, author, pr, permission):
+        who = signed_off(comments, reviews, head_sha, author, pr, permission)
         return (f"{who} shipped {head_sha[:12]}", False) if who else (None, True)
     labels = {label["name"] for label in pr.get("labels", [])}
     for name in (HUMAN_OK_LABEL, WAIVED_LABEL):
@@ -993,7 +1160,7 @@ def human_ok_by(repo: str, number: str, pr: dict) -> tuple[str | None, bool]:
             continue
         actor = last_labeler(gh_items(f"repos/{repo}/issues/{number}/events?per_page=100"), name)
         if actor:
-            role = (gh_json("api", f"repos/{repo}/collaborators/{actor}/permission") or {}).get("role_name")
+            role = permission(actor)
             if role in ("admin", "maintain"):
                 return f"`{name}` is set by @{actor}", False
     return None, False

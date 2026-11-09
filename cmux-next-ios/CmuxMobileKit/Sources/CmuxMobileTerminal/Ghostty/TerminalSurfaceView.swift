@@ -22,7 +22,19 @@ import UniformTypeIdentifiers
 /// by the previous frame until then.
 @MainActor
 final class TerminalSurfaceView: UIView {
+    /// Every write Ghostty encodes for the remote: what the person typed,
+    /// pressed or pasted, and Ghostty's own replies (terminal queries, mouse
+    /// and focus reports).
     var onInput: ((Data) -> Void)?
+    /// Whether the write `onInput` just took goes out to the remote now (the
+    /// session is attached and did not refuse it). Prediction records only
+    /// input that goes: a refused or held key never echoes.
+    var inputGoesOut: () -> Bool = { true }
+    /// Set while `perform` hands Ghostty something the person typed, pressed
+    /// or pasted. Ghostty writes its encoding to `io_write_cb` on this thread
+    /// before it returns (D6), so a write delivered while this is set is
+    /// theirs; any other write is Ghostty's own, which prediction never sees.
+    var isEncodingUserInput = false
     /// The person typed, pressed a key or pasted (before the bytes go out).
     var onUserInput: (() -> Void)?
     var onEvent: ((TerminalSurfaceEvent) -> Void)?
@@ -49,6 +61,8 @@ final class TerminalSurfaceView: UIView {
     /// The font size the surface was built with or last set to (Settings → Terminal).
     private var fontSize = CmuxMobilePreferences.terminalFontSize()
     private var defaultsObserver: (any NSObjectProtocol)?
+    /// Predictive local echo (`TerminalSurfacePrediction`), made with the surface.
+    private(set) var prediction: TerminalSurfacePrediction?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -91,7 +105,19 @@ final class TerminalSurfaceView: UIView {
         guard let app = try? CmuxMobileGhosttyApp.shared() else { return }
         self.app = app
         let box = InputBox()
-        box.deliver = { [weak self] data in self?.onInput?(data) }
+        box.deliver = { [weak self] data in
+            guard let self else { return }
+            let typed = isEncodingUserInput
+            onInput?(data)
+            // Only the person's own input, once the session took it: a
+            // terminal reply or a mouse report is no keystroke and would
+            // withdraw what is drawn, and a refused key would stand there
+            // until it timed out. Ghostty also writes a mouse report while
+            // it holds the renderer lock, so redrawing for one (which reads
+            // its grid metrics) froze the screen.
+            guard typed, inputGoesOut() else { return }
+            prediction?.sent(data)
+        }
         box.view = self
         inputBox = box
         var config = ghostty_surface_config_new()
@@ -104,7 +130,7 @@ final class TerminalSurfaceView: UIView {
         config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
         config.io_write_userdata = Unmanaged.passUnretained(box).toOpaque()
         config.io_write_cb = { userdata, bytes, length in
-            guard let userdata, let bytes, length > 0 else { return }
+            guard let userdata, length > 0 else { return }
             let data = Data(bytes: bytes, count: Int(length))
             let box = Unmanaged<InputBox>.fromOpaque(userdata).takeUnretainedValue()
             if Thread.isMainThread {
@@ -115,6 +141,7 @@ final class TerminalSurfaceView: UIView {
         }
         surface = ghostty_surface_new(app.app, &config)
         guard let surface else { return }
+        prediction = TerminalSurfacePrediction(view: self, alternateScreen: showsAlternateScreen)
         // Ghostty draws only while the surface can be seen (`updateOcclusion`).
         observeAppState()
         updateOcclusion()
@@ -175,7 +202,10 @@ final class TerminalSurfaceView: UIView {
     private func observeFontSize() {
         guard defaultsObserver == nil else { return }
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyFontSize() }
+            MainActor.assumeIsolated {
+                self?.applyFontSize()
+                self?.prediction?.applySetting()
+            }
         }
     }
 
@@ -184,6 +214,7 @@ final class TerminalSurfaceView: UIView {
         guard let surface, size != fontSize else { return }
         fontSize = size
         viewportEpoch += 1
+        prediction?.gridChanged()
         let action = "set_font_size:\(size)"
         _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
         ghostty_surface_refresh(surface)
@@ -223,6 +254,7 @@ final class TerminalSurfaceView: UIView {
         guard size.0 > 0, size.1 > 0, size != lastPixelSize || scale != lastScale else { return }
         lastPixelSize = size
         viewportEpoch += 1
+        prediction?.gridChanged()
         if scale != lastScale { ghostty_surface_set_content_scale(surface, scale, scale) }
         lastScale = scale
         ghostty_surface_set_size(surface, size.0, size.1)
@@ -427,8 +459,11 @@ final class TerminalSurfaceView: UIView {
         }
         let ref = SurfaceRef(surface)
         let done = completion.map(MainCallback.init)
+        let predictor = prediction?.engine
         outputQueue.async {
             let bytes = transform?(data) ?? data
+            // What the remote sent (not the row shift), before Ghostty parses it.
+            let predictionChanged = predictor?.output(bytes: data, nowUs: TerminalSurfacePrediction.now()) ?? false
             bytes.withUnsafeBytes { raw in
                 guard let base = raw.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(ref.surface, base, UInt(raw.count))
@@ -437,6 +472,7 @@ final class TerminalSurfaceView: UIView {
                 // Ghostty also renders on its own after parsing, but later:
                 // without this request a keystroke echo waited ~3x longer.
                 self?.setNeedsTerminalDraw()
+                self?.prediction?.parsed(changed: predictionChanged)
                 done?.run()
             } }
         }
@@ -650,6 +686,7 @@ final class TerminalSurfaceView: UIView {
             MainActor.assumeIsolated {
                 guard let self, self.presentPending else { return }
                 self.presentPending = false
+                self.prediction?.presented()
                 self.onPresent?()
             }
         }

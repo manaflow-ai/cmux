@@ -103,6 +103,9 @@ CASES = {
                      "@objc func clicked() {\n    guard let item = browser.clickedItemIfValid else { return }\n}\n"),
     "undo-text-write": ("func build() {\n    textView.allowsUndo = true\n}\n",
                         "func build() {\n    textView.allowsUndo = true // undo-safe: TextBoxTextView.replaceText\n}\n"),
+    "raw-observation": ("@MainActor func watch(_ store: Store) {\n    withObservationTracking { _ = store.tabs } onChange: { print(1) }\n}\n",
+                        "@MainActor func watch(_ store: Store) -> Task<Void, Never> {\n"
+                        "    Task { for await _ in ObservationStream({ ObservationTrigger(store.tab.title) }) { print(1) } }\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -180,6 +183,14 @@ class Fixture(unittest.TestCase):
 
 
 class RuleTests(Fixture):
+    def test_raw_observation_is_allowed_in_the_tracked_wrappers_only(self):
+        wrapper = "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/SingleArmedTracking.swift"
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(wrapper, CASES["raw-observation"][0])
+        self.commit("a wrapper's own tracking")
+        refusals, _ = self.check()
+        self.assertNotIn("raw-observation", [r.id for r, _ in refusals])
+
     def test_each_rule_refuses_what_a_push_adds_and_passes_the_right_pattern(self):
         for rule, (bad, good) in CASES.items():
             with self.subTest(rule=rule):
@@ -2337,8 +2348,9 @@ class HookTests(Fixture):
         checks = [p for p in tracked if "/" not in p[len("scripts/cmux-next/"):]
                   or p.startswith(("scripts/cmux-next/lint/", "scripts/cmux-next/arch_rules/"))]
         for relative in ("scripts/git-hooks", "scripts/install-git-hooks.sh", "scripts/web_lint_prepush.py",
-                         "scripts/ci/base_merge_warning.py", "scripts/web-lint.sh", "scripts/merge-xcstrings.py",
-                         "scripts/merge-pbxproj.py", "scripts/merge-baseline.py", "scripts/merge-daemon-capabilities.py",
+                         "scripts/ci/base_merge_warning.py", "scripts/ci/github_release_download.py", "scripts/web-lint.sh",
+                         "scripts/merge-xcstrings.py",
+                         "scripts/merge-pbxproj.py", "scripts/merge-baseline.py", "scripts/merge-daemon-capabilities.py", "scripts/merge-insertions.py",
                          "scripts/ci/merge_main_resolver.py", "scripts/ci/validate_test_execution_registry.py",
                          "scripts/ci/test_execution_registry.py", "scripts/ci/workload_entrypoints.py",
                          "scripts/normalize-pbxproj.py", *checks):

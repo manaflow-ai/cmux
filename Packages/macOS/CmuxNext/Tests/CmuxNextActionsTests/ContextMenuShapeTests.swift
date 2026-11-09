@@ -150,7 +150,7 @@ struct ContextMenuShapeTests {
     }
 
     /// A group's own menu drops the group's noun and uses the group editor's words for the
-    /// rows the editor shows (SidebarGroupEditorControls: Close All in Group, Ungroup, Move to New Window).
+    /// rows the editor shows (GroupEditorStrings: Close All in Group, Ungroup, Move to New Window).
     @Test func groupMenusUseTheGroupEditorsWords() {
         func title(_ id: ActionID, in context: ActionMenuContext) -> String? {
             flatten(rows(context)).first { $0.row.id == id }?.row.title

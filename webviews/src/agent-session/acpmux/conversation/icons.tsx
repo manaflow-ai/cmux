@@ -36,6 +36,7 @@ export const WrapLines = glyph("text.wrap");
 export const TerminalSquare = glyph("tool.shell");
 export const OpenBook = glyph("tool.read");
 export const Magnifier = glyph("tool.search");
+export const Brain = glyph("tool.thought");
 export const Folder = glyph("folder");
 export const FileDoc = glyph("file");
 export const ArrowRight = glyph("action.go");
@@ -55,6 +56,7 @@ export const Envelope = glyph("message.send");
 export const Bot = glyph("agent.bot");
 export const PauseCircle = glyph("agent.paused");
 export const ArrowDown = glyph("nav.down");
+export const PointerClick = glyph("computeruse.click");
 
 export const Pin = ({ filled, ...props }: CvIconProps & { filled?: boolean }) => (
   <Icon name="action.pin" selected={filled} {...props} />

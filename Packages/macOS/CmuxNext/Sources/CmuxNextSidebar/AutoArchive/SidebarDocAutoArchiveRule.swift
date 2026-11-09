@@ -31,12 +31,4 @@ public nonisolated enum SidebarDocAutoArchiveRule: Hashable, Sendable {
         case let .afterHours(hours): hours
         }
     }
-
-    /// Seconds a member must stay idle; nil for ``never``.
-    public var idleSeconds: Double? {
-        switch self {
-        case .never: nil
-        case let .afterHours(hours): Double(hours) * 3600
-        }
-    }
 }

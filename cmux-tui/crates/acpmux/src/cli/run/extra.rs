@@ -398,6 +398,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             all_idle,
             interrupt,
             leave_dirty,
+            carry_changes,
             cwd,
             dry_run,
             from,
@@ -408,6 +409,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 all_idle,
                 interrupt,
                 leave_dirty,
+                carry_changes,
                 cwd,
                 dry_run,
                 resume_there: false,
@@ -541,6 +543,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         v.get("sessions").and_then(Value::as_u64).unwrap_or(0),
                         v.get("liveAgents").and_then(Value::as_u64).unwrap_or(0)
                     );
+                    if let Some(line) = crate::hub::views::other_build_hosts_line(&v) {
+                        println!("{line}");
+                    }
                     println!(
                         "policy:   {}",
                         v.get("permissionPolicy").and_then(Value::as_str).unwrap_or("")
@@ -691,6 +696,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::Approvals { cmd }) => {
             crate::cli::host_approvals::run(cmd, json_out).await
         }
+        // This machine's own key file or ssh agent; no daemon.
+        Command::Host(PeerCmd::Key { create }) => crate::cli::host_ssh_key::run(create, json_out),
         Command::Host(PeerCmd::Join {
             ticket,
             name,
@@ -764,6 +771,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .into())
             }
         }
+        Command::Host(PeerCmd::Leave { local_only }) => {
+            crate::cli::cloud_join::leave(local_only, json_out).await
+        }
         Command::Host(PeerCmd::Vault { cmd }) => match cmd {
             crate::cli::command_host::VaultCmd::Pull => {
                 crate::cli::host_vault::pull_cmd(json_out).await
@@ -804,12 +814,36 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Host(PeerCmd::Tunnel { cmd }) => {
+            use crate::cli::command_host::TunnelCmd;
+            let (m, network) = match cmd {
+                TunnelCmd::Attach { network } => (method::MUX_MACHINE_TUNNEL_ATTACH, network),
+                TunnelCmd::Detach { network } => (method::MUX_MACHINE_TUNNEL_DETACH, network),
+                TunnelCmd::Rekey => (method::MUX_MACHINE_TUNNEL_REKEY, None),
+            };
+            let token = crate::cli::join_input::read_stdin_line(false)?
+                .ok_or_else(|| anyhow!("pass the cmux access token on stdin"))?;
+            let mut params = json!({"token": token.as_str()});
+            if let Some(network) = network {
+                cmux_json::JsonSet::set(&mut params, "networkId", json!(network));
+            }
+            let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
+            let value = client.request(m, params).await?;
+            if json_out {
+                print_json(&value);
+            } else {
+                println!("{}", m.trim_start_matches("_acpmux/machine.tunnel."));
+            }
+            Ok(())
+        }
         // Reads the host; asks a running daemon only, never starts one (`host_load.rs`).
         Command::Host(PeerCmd::Load) => {
             let load = crate::host_load::sample().await;
             print_json(&serde_json::to_value(&load)?);
             Ok(())
         }
+        // Pure: judges the readings on stdin, no daemon (`cli/host_budget.rs`).
+        Command::Host(PeerCmd::Verdict) => crate::cli::host_budget::verdict_stdin(),
         // Only a running daemon's chats: no daemon, no chats to tell.
         Command::Host(PeerCmd::Notice { text }) => {
             let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
@@ -950,8 +984,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     return Ok(());
                 }
-                PeerCmd::Load | PeerCmd::Notice { .. } => {
-                    return Err(anyhow!("machine load and notice are handled before connecting"));
+                PeerCmd::Load | PeerCmd::Verdict | PeerCmd::Notice { .. } => {
+                    return Err(anyhow!(
+                        "machine load, verdict and notice are handled before connecting"
+                    ));
                 }
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
@@ -1030,15 +1066,25 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Candidates { probe } => {
                     return crate::cli::host_candidates::run(&client, probe, json_out).await;
                 }
+                PeerCmd::Agents { target, install, login } => {
+                    let peers = client.request("_acpmux/peers", json!({})).await?;
+                    let list =
+                        peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let (name, host, _) = crate::cli::host_enroll::pick_target(&list, &target);
+                    return crate::cli::host_agents::run(&name, &host, install, login, json_out);
+                }
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
                 PeerCmd::Join { .. }
+                | PeerCmd::Leave { .. }
                 | PeerCmd::Consent { .. }
+                | PeerCmd::Tunnel { .. }
                 | PeerCmd::Vault { .. }
-                | PeerCmd::Deps { .. } => {
+                | PeerCmd::Deps { .. }
+                | PeerCmd::Key { .. } => {
                     return Err(anyhow!(
-                        "host join, consent, vault and deps are handled before daemon connection"
+                        "host join, leave, consent, vault and deps are handled before daemon connection"
                     ));
                 }
             };

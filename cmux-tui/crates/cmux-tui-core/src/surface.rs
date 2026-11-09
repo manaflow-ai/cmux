@@ -230,6 +230,20 @@ pub(crate) struct TerminalScreenSnapshot {
     pub(crate) osc_progress: String,
 }
 
+/// Which text a [`TerminalScreenSnapshot`] carries (`terminal.screen.read`
+/// fields `unwrap` and `lines`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ScreenText {
+    /// The live screen, one line per row (the default).
+    #[default]
+    Rows,
+    /// The live screen with soft wraps joined into logical lines.
+    Unwrapped,
+    /// The last `count` lines of scrollback and screen together; logical
+    /// lines when `unwrap`, else rows.
+    LastLines { count: usize, unwrap: bool },
+}
+
 /// Nonblocking probe for the terminal mouse protocol and reporting mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerSemanticProbe {
@@ -281,6 +295,9 @@ pub struct AttachStream {
     /// parser boundary; write this after it and after the colors, right
     /// before the live stream that completes it.
     pub pending_sequence: Arc<[u8]>,
+    /// Rows of history older than the replay's first row, left out by a
+    /// tail replay (`replay_history_rows`); `None` for a whole replay.
+    pub history_rows_omitted: Option<u64>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }
@@ -654,6 +671,11 @@ impl Surface {
         }
     }
 
+    /// The terminal runtime's tail pin (`terminal-tail-pin-v1`).
+    pub(crate) fn tail_pin(&self) -> Option<&crate::terminal_tail::TailPinSlot> {
+        self.as_pty().map(|pty| &pty.tail_pin)
+    }
+
     pub(crate) fn terminal_runtime_id(&self) -> Option<SurfaceId> {
         match self {
             Surface::Pty(surface) => Some(surface.event_surface_id),
@@ -809,6 +831,7 @@ impl Surface {
                 term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
+                tail_pin: Default::default(),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: RankedMutex::new(
                     LockRank::Leaf,

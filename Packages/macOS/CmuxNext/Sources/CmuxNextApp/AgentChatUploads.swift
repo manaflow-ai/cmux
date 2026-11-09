@@ -1,19 +1,11 @@
 import CmuxNextAgentPane
 import Foundation
 
-/// Files the person drops or pastes into a chat on this Mac that the composer can't attach as a
-/// prompt block (a binary, a text file over the inline limit): any file attaches (Lawrence
-/// 2026-10-20). The page sends their bytes (``AgentPaneUpload``, the same `chat.upload` call a
-/// Cloud chat's upload uses), and only for a chat whose folder is on this Mac, with a real gesture
-/// in its pane, the app writes them owner-only under `~/Library/Application Support/cmux/Chat
-/// Uploads/sessions/<session>/<random>/<index>/<name>` (`<random>/...` for a new chat with no session yet)
-/// and answers where each is, so the composer puts the paths in the prompt and the agent opens them
-/// with its own tools. A chat's files go when this Mac's acpmux deletes the chat
-/// (``remove(session:in:)``, ``AgentTurnStateFeed/deletesSession(_:)``: not a peer's purge, nor the
-/// copy Bring Back replaces), and any upload goes once it is older than ``maximumAge``
-/// (``sweep(_:now:)``, at launch), as acpmux does its own uploads (`file_uploads.rs`). A chat
-/// deleted while the app was not watching keeps its folder until the sweep. Only folders named as
-/// the app names them are deleted.
+/// Files a new local chat with no session yet gets pasted (any file, Lawrence 2026-10-20), written
+/// owner-only under `~/Library/Application Support/cmux/Chat Uploads/<random>/<index>/<name>`; a chat
+/// with a session sends them to acpmux, which stores each once (``AgentPeerUploads/localTarget(tab:services:)``).
+/// Older `sessions/<session>/...` folders, no longer written, go after ``maximumAge`` (``sweep(_:now:)``, at
+/// launch). Only folders named as the app names them are deleted.
 @MainActor
 struct AgentChatUploads {
     private struct Stage { var folder: URL; var file: URL; var name: String; var size: Int; var received: Int; var session: String; var tab: String; var expires: Date }
@@ -30,10 +22,8 @@ struct AgentChatUploads {
     /// The upload for chat tab `tab`, nil unless its folder is on this Mac (`isLocal`).
     static func uploader(tab: String, services: AppServices) -> AgentPaneUploader? {
         guard services.agentTabs.gitLink?(tab)?.isLocal == true, let root else { return nil }
-        let session = services.agentTabs.session(of: tab).flatMap { ChatUploadFolders.isSessionName($0) ? $0 : nil }
         return { files in
-            let chat = session.map { ChatUploadFolders(root: root).chat($0) } ?? root
-            let folder = chat.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
+            let folder = root.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
             do {
                 let paths = try await Task.detached { try write(files, in: folder) }.value
                 let uploads = zip(files, paths).map { file, path -> [String: Any] in ["name": file.name, "path": path] }
@@ -115,6 +105,14 @@ struct AgentChatUploads {
         }
     }
 
+    /// Whether `request` continues a stage or batch begun here (before its chat had a session).
+    static func owns(_ request: AgentPaneUploadStageRequest) -> Bool {
+        switch request {
+        case .chunk(let token, _, _), .finish(let token), .cancel(let token): stages[token] != nil
+        case .begin(_, _, let batch, _): batch.map { batches[$0] != nil } ?? false
+        }
+    }
+
     /// Drops stage `token` and its file once it has had no chunk for ten minutes.
     private static func expire(_ token: String) {
         Task { @MainActor in
@@ -156,15 +154,6 @@ extension AgentChatUploads {
         }
     }
 
-    /// Deletes chat `session`'s uploads under `root`: acpmux deleted the chat.
-    nonisolated static func remove(session: String, in root: URL) {
-        guard ChatUploadFolders.isSessionName(session) else { return }
-        let chats = root.appending(path: sessions, directoryHint: .isDirectory)
-        guard realFolders(in: root).contains(where: { $0.lastPathComponent == sessions }),
-              realFolders(in: chats).contains(where: { $0.lastPathComponent == session }) else { return }
-        try? FileManager.default.removeItem(at: ChatUploadFolders(root: root).chat(session))
-    }
-
     /// Deletes each upload under `root` made more than ``maximumAge`` before `now` (its folder's
     /// creation date), in a chat's folder or at the top (a chat that had no session yet, and every
     /// upload from before chats had folders), and a chat folder it leaves empty; answers how many uploads went. A folder not named as the app
@@ -196,13 +185,6 @@ extension AgentChatUploads {
         guard let root else { return }
         // task-owner: one sweep of the Chat Uploads folder; nothing waits for it
         Task.detached(priority: .utility) { sweep(root, now: Date()) }
-    }
-
-    /// ``remove(session:in:)`` under ``root`` off the main thread (acpmux deleted the chat).
-    static func removeInBackground(session: String) {
-        guard let root else { return }
-        // task-owner: one delete of a deleted chat's uploads; nothing waits for it
-        Task.detached(priority: .utility) { remove(session: session, in: root) }
     }
 }
 

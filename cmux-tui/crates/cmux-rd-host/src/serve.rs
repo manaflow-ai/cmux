@@ -83,11 +83,11 @@ fn say(line: AppLine) {
     let _ = out.flush();
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn unhex32(text: &str) -> Option<[u8; 32]> {
+pub(crate) fn unhex32(text: &str) -> Option<[u8; 32]> {
     let text = text.trim();
     if text.len() != 64 {
         return None;
@@ -346,9 +346,12 @@ fn serve_session(
             return Ok(format!("refused: {reason:?}"));
         }
     };
+    let display = setup.display.clone().unwrap_or_else(|| opts.str_or("display", "main"));
+    // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
+    let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
     let cfg = SessionCfg {
-        display: setup.display.clone().unwrap_or_else(|| opts.str_or("display", "main")),
-        max_fps: setup.max_fps.unwrap_or(60),
+        display,
+        max_fps,
         start_kbps: opts.num_or("start-kbps", 8000)?,
         max_kbps: opts.num_or("max-kbps", 50_000)?,
         preset: String::new(),
@@ -362,12 +365,13 @@ fn serve_session(
         upstream_record: None,
         upstream_record_max_bytes: 0,
         max_width: setup.max_width,
+        input_frame_now: opts.flag("input-frame-now"),
         // Enough frames in flight to cover the path's round trip, at least two: the next
         // frame encodes while the last one waits for its acknowledgement.
         frames_in_flight: carrier
             .link
             .rtt_us
-            .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, setup.max_fps.unwrap_or(60)))
+            .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, max_fps))
             .max(2),
     };
     let mut media = MediaSession::open(&cfg, MAX_DATAGRAM, &negotiated.caps, sink)?;

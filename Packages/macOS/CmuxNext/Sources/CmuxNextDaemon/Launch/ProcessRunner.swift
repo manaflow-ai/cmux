@@ -19,7 +19,8 @@ public struct ProcessResult: Sendable {
 /// long. A child that reports progress on stdout (`server ensure --restore-progress`
 /// while the owner restores) is bounded by its own progress, not by a fixed
 /// timeout shorter than the work. `timeout` stays the hard cap when supplied; nil selects an
-/// idle-only deadline and requires `progressIdle`. Existing callers retain their elapsed deadlines.
+/// idle-only deadline when `progressIdle` is set. With neither, wait for the child's exit or
+/// caller cancellation, including while a live child is starved of CPU.
 public struct ProcessRunner {
     public init() {}
     public static func run(
@@ -35,9 +36,11 @@ public struct ProcessRunner {
         // Each stderr line as the child writes it (a CLI's progress lines), on a queue of its own;
         // the last one once the child exits. Nil reads stderr only after exit, as before.
         stderrLine: (@Sendable (String) -> Void)? = nil,
+        // Each stdout line the same way (`server ensure --restore-progress`'s progress lines). The
+        // reply is still in the result's `stdout`; the progress count above is unchanged.
+        stdoutLine: (@Sendable (String) -> Void)? = nil,
         clock: any Clock<Duration>
     ) async throws -> ProcessResult {
-        guard timeout != nil || progressIdle != nil else { throw DaemonError.launchFailed("process requires an elapsed or idle deadline") }
         if let outputTailBytes, outputTailBytes <= 0 { throw DaemonError.launchFailed("output tail must be positive") }
         // A caller cancelled before the child starts gets no child (its `onCancel` runs at once,
         // before anything launched).
@@ -74,6 +77,8 @@ public struct ProcessRunner {
         // Stops at the child's exit (`finish`, below) or when this throws (`cancel`).
         let lines = stderrLine.map { StderrLines(watching: stderrFile.handle.fileDescriptor, onLine: $0) }
         defer { lines?.cancel() }
+        let outLines = stdoutLine.map { StderrLines(watching: stdoutFile.handle.fileDescriptor, onLine: $0) }
+        defer { outLines?.cancel() }
 
         let box = ProcessBox(process)
         // A cancelled caller kills the child, so the waiter below ends now
@@ -99,10 +104,12 @@ public struct ProcessRunner {
                         }
                     }
                 }
-                group.addTask {
-                    try await waitForDeadline(timeout: timeout, progressIdle: progressIdle, clock: clock,
-                                              progress: progress.map { counter in { @Sendable in counter.count } })
-                    return Int32.min
+                if timeout != nil || progressIdle != nil {
+                    group.addTask {
+                        try await waitForDeadline(timeout: timeout, progressIdle: progressIdle, clock: clock,
+                                                  progress: progress.map { counter in { @Sendable in counter.count } })
+                        return Int32.min
+                    }
                 }
                 defer { group.cancelAll() }
                 guard let first = try await group.next() else { return Int32.min }
@@ -122,6 +129,7 @@ public struct ProcessRunner {
             box.cancel()
         }
         lines?.finish()
+        outLines?.finish()
         return ProcessResult(status: status, stdout: stdoutFile.contents(tailBytes: outputTailBytes), stderr: stderrFile.contents(tailBytes: outputTailBytes))
     }
 

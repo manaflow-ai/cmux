@@ -1,8 +1,9 @@
 # Risk tiers for feat-cmux-next pull requests
 
 Each pull request into `feat-cmux-next` is labeled `risk:low`, `risk:normal` or `risk:high` from
-what it changes. Only high waits for a person. Low and normal merge on agent review and the checks
-relevant to the change, with no extra waiting: the `risk evidence` check passes as soon as it has
+what it changes. No tier waits for a person: high waits for an independent review receipt on its head
+and a green compile (Leo, 2026-11-06, on a notarization retry: "this does not need a human."). Low and
+normal merge on agent review and the checks relevant to the change, with no extra waiting: the `risk evidence` check passes as soon as it has
 graded them, in about a minute, alongside the rest of CI.
 
 `.github/workflows/risk-tier.yml` sets the label and runs the `risk evidence` check. The
@@ -21,7 +22,7 @@ A pull request takes the highest tier of any file it changes. A file no rule nam
 | --- | --- | --- |
 | low | docs, plans, skills, copy (`*.xcstrings`, `*.strings`), logs (even inside a high directory), generated output, tests and fixtures, agent and tooling config (`.claude/`, `tools/`, prototypes) | green relevant checks. Post-merge checks catch the rest. |
 | normal | everything else: cmux NEXT UI and logic, webviews, the daemon and cmux-tui, web routes, CI workflows and scripts, pins and lockfiles (even inside a high directory), defaults behind a setting | agent review and the relevant checks, then auto-merge or the batch queue. No person. |
-| high | the six kinds below | an independent review receipt `Review (<reviewer>): SHIP at <full head sha>` on the exact head plus a green compile. The line goes in the description (no comment needed) or leads a comment. An approving review on the head by a collaborator other than the author, or `risk:human-ok` added by a maintainer, also counts. The check warns on a missing verdict or a BLOCK and stays green; the lander refuses a BLOCK at the head. Only an unowned takeback (below) turns the check red |
+| high | the six kinds below | an independent review receipt `Review (<reviewer>): SHIP at <full head sha>` on the exact head plus a green compile. The line goes in the description (no comment needed) or leads a comment. From the pull request author's own account (every agent posts as it), the receipt is `Review (<reviewer agent id>, started by <agent id>): SHIP at <sha>`, the description has a line `Author-agent: <agent id>`, and neither id is the author agent; otherwise that SHIP does not count (a BLOCK always does; `scripts/ci/risk_tier.py`). An approving review on the head by a collaborator other than the author, or `risk:human-ok` added by a maintainer, also counts. The check warns on a missing verdict or a BLOCK and stays green; the lander refuses a BLOCK at the head. Only an unowned takeback (below) turns the check red |
 
 High is kept small on purpose. Each kind is here because a regression in it can't be undone by
 reverting the commit, or because it takes out the safety net every other tier relies on:
@@ -34,7 +35,7 @@ reverting the commit, or because it takes out the safety net every other tier re
 | peer identity or code-signature trust (socket and relay access policy): who answers or connects on a local socket or XPC service, and which code may run | the Chief's `acpmux_peer.rs` and any `code_signature` or `*SignatureCheck*` source (`.rs`, `.swift`, `.go`), the app's `AcpmuxServerPeer`, cmux-link's `caller.rs`, `caller_macos.rs` and `app_caller.rs`, the Computer Use helper's `Admission`, `AdmissionState`, `HelperController` (its control pipe, where the admission values arrive), `HostVerifier`, and `HelperSocketServer` and `HostConsentServer` (they call those checks) and the app's `ComputerUseHelperV2HostLink` (each side's check of the other on the host consent socket), the acpmux bridge admission the app gives the helper (`ComputerUseHelperV2+Admission`: the requirement or cdhash, the `configure` and `register_acpmux` lines, the daemon check; `ComputerUseHelperV2+Secret`: the per-launch secret and `endpoint.json`; `AgentTabs+PaneSource`: which acpmux executable it trusts), the acpmux executable choice and its team-signature refusal (`AcpmuxEnvironment+Resolve`, and the DEBUG override `AcpmuxEnvironment+DebugOverride`), the helper requirement (`CuaHelperIdentity`, acpmux's `cua_helper.rs`, `scripts/cmux-cua-helper-trust.sh`) and `ComputerUseHelperStaging`, the root server helper's `ServerHelperListener`, `ServerHelperProtocol` and the app's `ServerHelperClient` (the XPC code-signing requirements on both ends), the downloaded browser runtime's signature checkers | A wrong signing time, anchor or team lets another process take the socket or run as cmux code. #29072 changed which time a moved acpmux's signing chain must be valid at, and graded normal. |
 | stored-data migrations | `migrations/`, `*/migrations/*`, `drizzle/`, `migrate/`, `*Migrat*` sources, `web/convex/schema*`, `backend/db/schema*` | #16397 deployed code before its migration was applied: every Cloud VM create failed for about 7 hours. A bad migration loses data on every machine that runs it. |
 | release, signing, notarization and the updater | `nightly*.yml`, any script or workflow named for sign, notarize, appcast, sparkle, release, publish, deploy, nightly, promote or rollback, `scripts/ci/lib/`, `CmuxNextUpdater` and `CmuxUpdater` (except the channel and preference values below) | Two release breaks in the window (#18817, 19f51d5ef2). A broken updater stops fixes from reaching anyone, so it breaks the nightly safety net that normal relies on. |
-| the risk gate itself | `risk-tier.yml`, `risk-tier-tests.yml`, `risk_tier.py`, `CODEOWNERS`, and what refuses a red `risk evidence`: `scripts/gh-merge-green`, and `scripts/ci/next_batch.py` with `cmux-next-batch.yml` (next-autoland) | It grades every other pull request. A normal change to an enforcer could drop the refusal with no person looking. |
+| the risk gate itself | `risk-tier.yml`, `risk-tier-tests.yml`, `risk_tier.py`, `CODEOWNERS`, and what refuses a red `risk evidence`: `scripts/gh-merge-green`, and `scripts/ci/next_batch.py` with `cmux-next-batch.yml` (next-autoland) | It grades every other pull request. A normal change to an enforcer could drop the refusal with no independent review. |
 | the pre-push hook's trust boundary | what decides which check code the pre-push hook runs on a push: the web lint (`scripts/web_lint_prepush.py`) and the cmux-next gate (`scripts/cmux-next/prepush-gate.py`, which picks the reviewed copy or the pushed code for each of its checks), and which commits a push owns (`scripts/cmux-next/push_range.py`), which decides the changes to check code the hook sees; the hook itself (`scripts/git-hooks/pre-push`); and how its reviewed copy of the checks is installed and refreshed (`scripts/install-git-hooks.sh`, `scripts/git-hooks/refresh_checks.py`, and `scripts/git-hooks/post-merge`, which decides when a checkout reinstalls it). The lint rules it runs (`scripts/cmux-next/check-*.py`, `guardrails.py`, the package check scripts, `run-check-pieces.py`) stay normal | The hook runs check code on every contributor's machine before a push. A change here can make it run code the push controls (#34124 finds and closes several such routes), and a revert does not undo what already ran. |
 | new data deletion, new privileged trigger | a product-code line that adds a delete of files or rows (`removeItem(at:`, `remove_dir_all`, Rust `fs::remove_file`/`fs::remove_dir`, `rmtree`, `DELETE FROM`, `DROP TABLE`, `trashItem`, `deleteAll…`, Drizzle `db.delete(`/`tx.delete(`) that the pull request doesn't also remove from product code (an edited or moved delete isn't new, so retargeting an existing delete is normal: agent review catches that; a cleanup line moved out of a test into product code is new); a workflow line that adds `pull_request_target` or `workflow_run` | Deleted user data doesn't come back with a revert. 16c570b576 put a cargo cache on `pull_request_target`, a cache-poisoning path. Tests, inline Rust test modules (`#[cfg(test)]` or `#[cfg(all(..., test, ...))]` on `mod name {` at the top level or in a module body, not in a macro's tokens), CI scripts (`scripts/`, `*/scripts/`), generated bindings, comments and in-memory purges don't count. For a Rust file that adds or removes a delete, the gate reads the file at the head or the merge base to place the line in or out of a test module; when it can't, an added delete counts and a removed one doesn't pay for another. A file that `#[cfg(test)] mod name;` declares is still graded as product code. |
 
@@ -54,7 +55,7 @@ clears this; no person is needed.
   lines. A size rule mostly made large, safe UI work wait.
 - **CI workflows** (`cmux-next.yml`, `ci.yml`), apart from the gate's enforcers above. They broke
   CI often (18 of the 142 fixes), but a bad line is one revert away and hurts no user. The cost
-  of making them wait on a person was higher than the cost of the reds.
+  of making them wait on a high-tier review was higher than the cost of the reds.
 - **Pins and the package graph** (`ghostty`, `vendor/`, `Package.resolved`). Three stale pins
   broke the build (#16319, #15747, #11163). The compile checks catch that, and the fix is a
   one-line pin move. The takeback check above catches the stale-squash cause.
@@ -69,7 +70,7 @@ clears this; no person is needed.
 - **The daemon, protocol and terminal paths.** These had real regressions (a render deadlock
   from #8698, and an app option older cmux-tui builds refused), but none lost data, and every fix
   was a forward fix in the next nightly. They need agent review and the relevant tests, not a
-  person.
+  high-tier receipt.
 
 ## The audit behind this (2026-08-20 to 2026-10-18)
 
@@ -100,8 +101,8 @@ Of the 28 real regressions, by severity:
   next day, and none lost data.
 
 So most real regressions are normal-tier UI and logic, and asking a person to look at every one
-of those would have stopped all merging. The tiers put a person only where a revert doesn't undo
-the damage.
+of those would have stopped all merging. The tiers ask for an independent receipt only where a revert
+doesn't undo the damage.
 
 The biggest bucket is base reds (86 of 142), and tiers don't fix those. They come from checks
 that don't run before merge (`feat-cmux-next` pull requests skip `cmux-next swift test` unless

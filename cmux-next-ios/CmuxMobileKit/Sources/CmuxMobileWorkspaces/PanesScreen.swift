@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -315,7 +316,7 @@ struct PanesScreen: View {
         Group {
             if let title = source.pendingTabTitle {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    CmuxSpinner().controlSize(.small)
                     Text(WorkspaceScreen.openingText(title))
                 }
             } else if let text = source.toastText {

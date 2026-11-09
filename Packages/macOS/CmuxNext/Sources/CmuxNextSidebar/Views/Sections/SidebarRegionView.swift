@@ -147,12 +147,17 @@ final class SidebarRegionView: NSView {
     func update(_ content: Content, width: CGFloat) {
         // `layoutResult` is always the layout of the shown content at `width`
         // (`relayout` keeps it so), so the same inputs need no new layout.
-        if content == self.content && width == self.width { return }
+        if content == self.content && width == self.width {
+            // The same layout, but an app section's provider may hand a new view (its mount was made again).
+            if appViewsReplaced(content) { apply(displayed(content)) }
+            return
+        }
         SidebarPerfCounters.add(.bandUpdates)
         let shown = displayed(content)
         let result = Self.layout(shown, width: width)
         guard content != self.content || result != layoutResult else {
             self.width = width
+            if appViewsReplaced(content) { apply(shown) }
             return
         }
         self.content = content
@@ -216,6 +221,16 @@ final class SidebarRegionView: NSView {
         })
     }
 
+    /// Whether the provider now hands a different view for a shown app section than the band draws:
+    /// the section's old mount ended (its app left the list, or it failed and was mounted again).
+    private func appViewsReplaced(_ content: Content) -> Bool {
+        guard let appView else { return false }
+        return content.sections.contains { section in
+            guard section.content == .app, let drawn = appViews[section.id] else { return false }
+            return appView(section) !== drawn
+        }
+    }
+
     private func displayed(_ content: Content) -> Content {
         var shown = content
         if let reorderSections { shown.sections = reorderSections }
@@ -248,7 +263,10 @@ final class SidebarRegionView: NSView {
                 view.setAccessibilityIdentifier("cmux.sidebar.region.\(id.rawValue)")
                 place(view, row.frame, new: new)
             case let .app(id):
-                guard let section = sections[id], let view = appViews[id] ?? appView?(section) else { continue }
+                // The provider's view now, not the first one drawn: a section mounted again gets a new
+                // view, and the old one is the dead mount's (its error, a "removed" app).
+                guard let section = sections[id], let view = appView?(section) ?? appViews[id] else { continue }
+                if let drawn = appViews[id], drawn !== view { drawn.removeFromSuperview() }
                 liveApps.insert(id)
                 let new = view.superview !== self
                 if view.superview !== self {
@@ -325,7 +343,7 @@ final class SidebarRegionView: NSView {
             }
             let card = CALayer()
             card.cornerCurve = .continuous
-            card.cornerRadius = SidebarStyle.rowCornerRadius + Metrics.space1
+            card.cornerRadius = Metrics.cornerRadius(nestedIn: SidebarStyle.rowCornerRadius, inset: -Metrics.space1)
             layer?.insertSublayer(card, at: 0)
             card.frame = frame
             cardLayers[id] = card

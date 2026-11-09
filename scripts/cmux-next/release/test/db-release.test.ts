@@ -404,6 +404,8 @@ describe("deploy ordering gate (reads the database)", () => {
     expect(w.logs.join("\n")).toContain("cannot read cmux_vm.schema_migrations")
     await s.query(`GRANT SELECT, INSERT, UPDATE ON cmux_vm.stack_webhook_events TO "${role}"`)
     await s.query(`GRANT SELECT, INSERT, UPDATE ON cmux_vm.mesh_overlay_server_codes, cmux_vm.mesh_overlay_servers, cmux_vm.vm_client_sessions TO "${role}"`)
+    await s.query(`GRANT SELECT, INSERT, UPDATE ON cmux_vm.mesh_device_intents, cmux_vm.mesh_device_intent_attempts TO "${role}"`)
+    await s.query(`GRANT SELECT, INSERT, DELETE ON cmux_vm.mesh_device_intent_nonces TO "${role}"`)
     expect(await w.run("gate", ...asWorker)).toBe(0)
     await s.query(`REVOKE ALL ON ALL TABLES IN SCHEMA cmux_vm FROM "${role}"; REVOKE ALL ON SCHEMA cmux_vm FROM "${role}"`)
     await s.end()
@@ -473,6 +475,44 @@ describe("design B, D, F, G (third review)", () => {
     w.setEnv("SU_URL", u.toString())
     expect(await w.run("apply", "--tree", "cmux-vm", "--target", "staging", "--url-env", "SU_URL")).toBe(1)
     expect(w.errors.at(-1)).toContain("session_user")
+  })
+  // --set-role (staging-owner.ts): a member of the owner logs in, db-release itself runs SET ROLE to the owner.
+  const memberUrl = async (w: World) => {
+    const other = `${w.provider.owner}_m`.slice(0, 60)
+    const a = await adminSql()
+    await a.query(`CREATE ROLE "${other}" LOGIN PASSWORD 'pw'; GRANT "${w.provider.owner}" TO "${other}"`)
+    await a.end()
+    roles.push(other)
+    const u = new URL(dbUrl(w.staging))
+    u.username = other
+    u.password = "pw"
+    return u.toString()
+  }
+  it("B --set-role applies staging as the owner from a member's login", async () => {
+    const w = await world()
+    w.setEnv("MEMBER_URL", await memberUrl(w))
+    const args = S.map((a) => (a === "STAGING_URL" ? "MEMBER_URL" : a))
+    expect(await w.run("apply", ...args, "--set-role", "--skip-rehearsal")).toBe(0)
+    expect(w.logs.some((l) => l.includes("through SET ROLE"))).toBe(true)
+    const s = await w.admin(w.staging)
+    try {
+      const owners = await s.query<{ o: string }>("SELECT DISTINCT pg_get_userbyid(c.relowner) AS o FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'cmux_vm'")
+      expect(owners.map((r) => r.o)).toEqual([w.provider.owner])
+    } finally {
+      await s.end()
+    }
+    expect(await rows(w, w.staging)).toHaveLength(baseCount)
+  })
+  it("B --set-role is refused without the flag, without --skip-rehearsal, and on production", async () => {
+    const w = await world()
+    w.setEnv("MEMBER_URL", await memberUrl(w))
+    const args = S.map((a) => (a === "STAGING_URL" ? "MEMBER_URL" : a))
+    expect(await w.run("apply", ...args, "--skip-rehearsal")).toBe(1)
+    expect(w.errors.at(-1)).toContain("not the owner")
+    expect(await w.run("apply", ...args, "--set-role")).toBe(1)
+    expect(w.errors.at(-1)).toContain("--skip-rehearsal")
+    expect(await w.run("apply", ...P, "--set-role", "--skip-rehearsal")).toBe(1)
+    expect(w.errors.at(-1)).toContain("refused on production")
   })
   it("B production refuses database CREATE after the bootstrap apply", async () => {
     const w = await world()

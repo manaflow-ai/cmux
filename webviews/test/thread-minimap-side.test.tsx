@@ -236,11 +236,12 @@ for (const side of ["left", "right"] as const)
   });
 
 // With the VS Code minimap on (agentPane.display.vscodeMinimap), the right edge holds it: the right
-// rail sits on its inner side, the minimap's 56 px plus its 10 px edge further in, never under it.
+// rail sits on its inner side, the minimap's strip (120 px in a 1120 px pane's 160 px gutter beside the 800 px column,
+// chatMinimap/paint.ts minimapWidth) plus its 10 px edge further in, never under it.
 // The left rail does not move for it.
 for (const side of ["left", "right"] as const)
   test(`with the VS Code minimap on, a ${side} rail stays clear of it`, async () => {
-    paneWidth = 1040;
+    paneWidth = 1120;
     setChatDisplay({
       "agentPane.display.minimap": "compact",
       "agentPane.display.vscodeMinimap": true,
@@ -259,8 +260,8 @@ for (const side of ["left", "right"] as const)
         ),
       );
       if (side === "right") {
-        expect(rail().style.right).toBe("82px");
-        expect(document.querySelector<HTMLElement>(".acpmux-minimap__strip")!.style.right).toBe("66px");
+        expect(rail().style.right).toBe("146px");
+        expect(document.querySelector<HTMLElement>(".acpmux-minimap__strip")!.style.right).toBe("130px");
       } else expect(rail().style.left).toBe("16px");
     } finally {
       await act(async () => root.unmount());

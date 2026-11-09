@@ -40,11 +40,19 @@ public import Foundation
     public let allowsCreatorTeamGuest: Bool
     /// How long the first guest check waits for a new guest's bind (``guestCheckBudget``; tests shorten it).
     var guestBudget = Self.guestCheckBudget
+    /// The account's other teams (nil: its personal scope) whose cached login this transfer reuses when
+    /// ``teamID`` holds none (``CloudCredentialLogin/loadAny(provider:teamID:otherTeams:userID:)``).
+    public var otherTeams: [String?] = []
+    /// Where each step's time goes (``CloudStartSteps``): the guest check, the login read, the recheck, the write, the install.
+    public var steps: CloudStartSteps?
+    /// A login read within this long of the guest check that passed is delivered on that check: the second guest
+    /// check runs only after a sign-in, or a Keychain read slow enough (a prompt) for the target to have changed.
+    var recheckAfter: Duration = .seconds(2)
 
     public init(provider: Provider, machineID: String, teamID: String?, userID: String, allowsCreatorTeamGuest: Bool = false,
-                openTerminal: @escaping @MainActor (String) async -> Bool) {
+                otherTeams: [String?] = [], steps: CloudStartSteps? = nil, openTerminal: @escaping @MainActor (String) async -> Bool) {
         self.provider = provider; self.machineID = machineID; self.teamID = teamID; self.userID = userID
-        self.allowsCreatorTeamGuest = allowsCreatorTeamGuest; self.openTerminal = openTerminal
+        self.allowsCreatorTeamGuest = allowsCreatorTeamGuest; self.otherTeams = otherTeams; self.steps = steps; self.openTerminal = openTerminal
     }
 
     /// The guest check this transfer runs before and after the login.
@@ -67,9 +75,17 @@ public import Foundation
     /// `operation`, cancelled at `deadline`: nil once the deadline is reached, before or while it runs.
     nonisolated static func before<T: Sendable>(_ deadline: ContinuousClock.Instant,
                                                 _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
-        let left = deadline - .now
+        try await before(deadline, clock: ContinuousClock(), operation)
+    }
+
+    /// ``before(_:_:)`` with `deadline` and the cut-off read on `clock`, so a test proves the budget on a
+    /// clock it advances by hand instead of waiting for it in real time.
+    nonisolated static func before<T: Sendable, C: Clock & Sendable>(_ deadline: C.Instant, clock: C,
+                                                _ operation: @escaping @Sendable () async throws -> T) async throws -> T?
+        where C.Duration == Duration {
+        let left = clock.now.duration(to: deadline)
         guard left > .zero else { return nil }
-        do { return try await withDeadline(left, label: "cloud guest bind", operation) } catch is DeadlineExceeded { return nil }
+        do { return try await withDeadline(left, label: "cloud guest bind", clock: clock, operation) } catch is DeadlineExceeded { return nil }
     }
 
     /// The guest-kind line of the chat restart after this transfer (the app's credential recovery):
@@ -101,7 +117,7 @@ public import Foundation
                 write: { try await Self.stage($1, at: $0, on: pinned, machineID: machineID) },
             // Codex auth.json is never reused as a seed: its refresh token is VM-bound and may
             // rotate. A new device login is required for every transfer; a broker can supersede this.
-            load: { provider == .codex ? nil : try await CloudCredentialLogin.load(provider: provider, teamID: teamID, userID: userID, machineID: machineID) },
+            load: { [otherTeams] in provider == .codex ? nil : try await CloudCredentialLogin.loadAny(provider: provider, teamID: teamID, otherTeams: otherTeams, userID: userID) },
                 acquire: { try await CloudCredentialLogin.acquire(provider: provider, openTerminal: openTerminal) },
                 // Codex auth.json contains a VM-bound refresh token. Never retain a second Mac copy;
                 // each VM gets a fresh device login until a broker owns refresh persistence.
@@ -110,13 +126,11 @@ public import Foundation
                 }))
     }
 
-    /// Writes the credential where the installer reads it. The file routes write as root. Where exec
-    /// runs as root too (`/api/vm`), the installer chowns a 0600 file before it drops to `cmux`. A
-    /// Worker machine's exec runs as `cmux` and can't read a root 0600 file, so its folder is first
-    /// made `cmux`'s own 0700 one (an exec as `cmux`), and the file goes in 0644: only `cmux` and
-    /// root can reach it, as `deliver-secrets` stages its receiver.
+    /// Writes the credential where the installer reads it. The file routes write as root, and a
+    /// machine's exec runs as `cmux`, which can't read a root 0600 file, so its folder is first made
+    /// `cmux`'s own 0700 one (an exec as `cmux`), and the file goes in 0644: only `cmux` and root can
+    /// reach it, as `deliver-secrets` stages its receiver.
     nonisolated static func stage(_ credential: Data, at path: String, on api: CloudAPIClient, machineID: String) async throws {
-        guard api.execRunsAsWorkUser else { return try await api.writeFile(machineID, path: path, data: credential, mode: 0o600) }
         let folder = CloudCredentialInstaller.quote((path as NSString).deletingLastPathComponent)
         let made = try await api.exec(machineID, command: "umask 077 && mkdir -p -- \(folder) && chmod 700 -- \(folder) && test -O \(folder) && test ! -L \(folder)",
                                       timeoutMs: 20_000)
@@ -124,11 +138,45 @@ public import Foundation
         try await api.writeFile(machineID, path: path, data: credential, mode: 0o644)
     }
 
+    /// What cmux holds of this account's login: one, none, or a Keychain that did not answer (locked,
+    /// `security` timed out or failed). Unreadable is never "none": a start that reads it passes no login
+    /// either, but its record says the Keychain failed, not that the person never signed in.
+    public enum CachedLogin: String, Sendable, Equatable {
+        case cached, none, unreadable
+
+        /// A start's record when it passes nothing for want of a cached login, and the chat's own
+        /// "Sign in to Claude" card takes over; nil when there is one.
+        public var startOutcome: String? {
+            switch self {
+            case .cached: nil
+            case .none: "no cached login: the chat's Sign in to Claude card"
+            case .unreadable: "cached login unreadable (the Keychain did not answer): the chat's Sign in to Claude card"
+            }
+        }
+
+        /// `check`'s ``startOutcome``. A check cancelled with its start throws ``CancellationError``: the Keychain
+        /// read the cancellation cut short is not a Keychain that did not answer.
+        public static func startOutcome(_ check: () async -> Self) async throws -> String? {
+            let cached = await check()
+            try Task.checkCancellation()
+            return cached.startOutcome
+        }
+    }
+
     /// Whether cmux already holds this account's login for `provider` (Claude only: a Codex login is
     /// never kept on the Mac), so a transfer needs no sign-in. Reads the Keychain; prompts nothing.
-    public static func hasCachedLogin(provider: Provider, teamID: String?, userID: String) async -> Bool {
-        guard provider == .claude else { return false }
-        return ((try? await CloudCredentialLogin.load(provider: provider, teamID: teamID, userID: userID)) ?? nil) != nil
+    public static func cachedLogin(provider: Provider, teamID: String?, userID: String, otherTeams: [String?] = []) async -> CachedLogin {
+        guard provider == .claude else { return .none }
+        return await cachedLogin { try await CloudCredentialLogin.loadAny(provider: provider, teamID: teamID, otherTeams: otherTeams, userID: userID) }
+    }
+
+    /// ``cachedLogin(provider:teamID:userID:otherTeams:)`` over `read`, the Keychain read.
+    static func cachedLogin(_ read: () async throws -> Data?) async -> CachedLogin {
+        do { return try await read() == nil ? .none : .cached } catch { return .unreadable }
+    }
+
+    public static func hasCachedLogin(provider: Provider, teamID: String?, userID: String, otherTeams: [String?] = []) async -> Bool {
+        await cachedLogin(provider: provider, teamID: teamID, userID: userID, otherTeams: otherTeams) == .cached
     }
 
     nonisolated struct Effects: Sendable {
@@ -166,6 +214,8 @@ public import Foundation
         // the machine has the image's launchers.
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
         try await waitForGuest(program: preflight, effects: effects, checkScope: checkScope)
+        let checked = ContinuousClock.now
+        steps?.done("transfer.guest")
         try checkScope()
         let cached = refresh ? nil : try await effects.load()
         let credential: Data
@@ -173,20 +223,27 @@ public import Foundation
         try checkScope()
         try Self.validate(credential, provider: provider)
         if cached == nil { try await effects.store(credential) }
+        steps?.done("transfer.load")
         try checkScope()
-        // Recheck after browser/Keychain interaction; the target may have changed meanwhile.
+        // Recheck after a browser sign-in or a slow Keychain read; the target may have changed meanwhile. A login
+        // read at once is delivered on the guest check just made (one exec, about a second, less on every start).
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
-        guard try await effects.exec(preflight) == 0 else { throw Failure.sharedMachine }
+        if cached == nil || checked.duration(to: .now) > recheckAfter {
+            guard try await effects.exec(preflight) == 0 else { throw Failure.sharedMachine }
+        }
         guard await effects.stillAllowed() else { throw Failure.copyTurnedOff }
+        steps?.done("transfer.recheck")
         try checkScope()
         let path = "/home/cmux/.cmux/credential-transfer/\(UUID().uuidString).json"
         do {
             try checkScope()
             try await effects.write(path, credential)
+            steps?.done("transfer.write")
             try checkScope()
             guard try await effects.exec(CloudCredentialInstaller.command(provider: provider, payloadPath: path, creatorTeamGuest: allowsCreatorTeamGuest)) == 0 else {
                 throw Failure.deliveryFailed
             }
+            steps?.done("transfer.install")
         } catch {
             // A failed/cancelled delivery must not leave a second readable copy on the target.
             // A cancelled caller cannot start an API request. An unstructured task has independent

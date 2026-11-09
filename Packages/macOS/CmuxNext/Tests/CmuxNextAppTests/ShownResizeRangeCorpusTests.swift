@@ -3,15 +3,14 @@ import CoreGraphics
 import Foundation
 import Testing
 
-/// The keyboard resize rules (`ShownResizeRange`'s ratio, column width, dock width, column trade and row heights) over
-/// a seeded corpus of inputs, against the answers recorded in
-/// `cmux-tui/crates/cmux-layout-reducer/tests/data/shown_resize_corpus.txt`. The Rust port (cmux-layout-reducer
-/// `shown_resize`, its test `shown_resize_corpus`) reads the same file, so the two are proven equal on every case
-/// before the app calls Rust (swift-logic owner, step A). Floats are written as their IEEE-754 bit patterns, so the
-/// comparison is exact.
+/// The keyboard resize rules (`ShownResizeRange`'s ratio, column width, dock width, column trade and row heights),
+/// now cmux-layout-reducer's `shown_resize` over the app FFI, give the answers the former Swift rules recorded for a
+/// seeded corpus (`cmux-tui/crates/cmux-layout-reducer/tests/data/shown_resize_corpus.txt`, recorded in step A at
+/// f0f3cd09a164, fleet step 6f6123fc3742): every case through the same calls the app makes. Floats are written as
+/// their IEEE-754 bit patterns, so the comparison is exact. The crate's tests check the same file in Rust.
 ///
-/// `recordCorpus` writes the file (from the Swift rules) when `ShownResizeRangeCorpusTests.record` is true; it is
-/// false in a committed tree.
+/// `recordCorpus` writes the file when `ShownResizeRangeCorpusTests.record` is true; it is false in a committed tree
+/// (a new recording would now record Rust's answers).
 struct ShownResizeRangeCorpusTests {
     nonisolated static let record = false
 

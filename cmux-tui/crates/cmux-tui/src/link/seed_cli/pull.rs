@@ -87,7 +87,8 @@ fn pull(socket: &Path, local: &Path, remote: &str, base: Base) -> Back {
     };
     let fs = [cmux_tui_core::fs_ops::FS_CAPABILITY];
     if let Some(outdated) = machine_gate::outdated_identity(&identity, &fs) {
-        return failed(SeedError::new(machine_gate::OUTDATED, outdated.message()));
+        let outdated = outdated.judged(socket);
+        return failed(SeedError::new(outdated.code(), outdated.message()));
     }
     let or_copy = matches!(base, Base::RecordOrCopy);
     // The capability itself, whatever the machine's build (an `identify`
@@ -96,8 +97,10 @@ fn pull(socket: &Path, local: &Path, remote: &str, base: Base) -> Back {
     let exports = machine_gate::served(&identity).is_some_and(|served| served.contains(&export));
     let outdated = || {
         let build = machine_gate::build_id(&identity).map(str::to_owned);
-        let outdated = machine_gate::Outdated { missing: vec![export.to_owned()], build };
-        SeedError::new(machine_gate::OUTDATED, outdated.message())
+        let outdated =
+            machine_gate::Outdated { missing: vec![export.to_owned()], build, older: true }
+                .judged(socket);
+        SeedError::new(outdated.code(), outdated.message())
     };
     let machine = identity.get("session_id").and_then(Value::as_str).map(str::to_owned);
     let local_root = match std::fs::canonicalize(local) {
@@ -193,9 +196,13 @@ fn base_of(kept: Option<&Record>, machine: Option<&str>) -> Result<SeedBase, See
         ));
     }
     match (&kept.head, &kept.index, &kept.work) {
-        (Some(head), Some(index), Some(work)) => {
-            Ok(SeedBase { head: head.clone(), index: index.clone(), work: work.clone() })
-        }
+        (Some(head), Some(index), Some(work)) => Ok(SeedBase {
+            head: head.clone(),
+            index: index.clone(),
+            work: work.clone(),
+            stash: kept.stash.clone(),
+            stash_known: kept.stash_known,
+        }),
         _ => Err(no_previous("the last seed's record is incomplete")),
     }
 }
@@ -215,6 +222,10 @@ fn keep(local: &Path, remote: &str, machine: Option<String>, url: Option<String>
         head: Some(head),
         index: Some(index),
         work: Some(work),
+        stash: sha("stash"),
+        stash_known: base.is_some_and(|base| base.get("stash").is_some()),
+        // The export answered, so the machine's checkout is whole.
+        filling: None,
     };
     // A record that could not be kept only makes the next pull merge from
     // the older base, where what came back already matches both sides.
@@ -227,7 +238,15 @@ mod tests {
 
     #[test]
     fn only_a_folder_with_no_seed_falls_back_to_the_copy() {
-        let base = || Ok(SeedBase { head: "h".into(), index: "i".into(), work: "w".into() });
+        let base = || {
+            Ok(SeedBase {
+                head: "h".into(),
+                index: "i".into(),
+                work: "w".into(),
+                stash: None,
+                stash_known: false,
+            })
+        };
         let none = || Err(SeedError::new("seed.no_previous", "no record"));
         assert!(matches!(route(base(), true, true), Route::Seed(_)));
         assert!(matches!(route(base(), true, false), Route::Seed(_)));
@@ -254,6 +273,9 @@ mod tests {
             head: Some("h".into()),
             index: Some("i".into()),
             work: Some("w".into()),
+            stash: None,
+            stash_known: true,
+            filling: None,
         }
     }
 

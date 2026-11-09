@@ -813,6 +813,10 @@ pub struct AuthDatabase {
     daemon_name: String,
     identity: StaticIdentity,
     allow_carrier: bool,
+    /// Carrier grants are refused until the owner installs a verifier.
+    grant_verifier: std::sync::OnceLock<Arc<dyn crate::grant::GrantVerifier>>,
+    /// Grant-admitted Noise keys, so a resume needs no grant.
+    admitted_grants: crate::grant::AdmittedGrants,
     state: Arc<Mutex<AuthState>>,
     persistence: Arc<PersistenceCoordinator>,
     pending_changed: Notify,
@@ -827,6 +831,7 @@ impl std::fmt::Debug for AuthDatabase {
             .field("daemon_name", &self.daemon_name)
             .field("daemon_fingerprint", &self.identity.fingerprint())
             .field("allow_carrier", &self.allow_carrier)
+            .field("grant_verifier", &self.grant_verifier.get().is_some())
             .finish_non_exhaustive()
     }
 }
@@ -883,6 +888,8 @@ impl AuthDatabase {
             daemon_name,
             identity,
             allow_carrier,
+            grant_verifier: std::sync::OnceLock::new(),
+            admitted_grants: crate::grant::AdmittedGrants::default(),
             state: Arc::new(Mutex::new(AuthState::from_persisted(persisted))),
             persistence,
             pending_changed: Notify::new(),
@@ -896,6 +903,18 @@ impl AuthDatabase {
 
     pub fn daemon_name(&self) -> &str {
         &self.daemon_name
+    }
+
+    /// Accept carrier grants checked by `verifier`. Set once, at daemon
+    /// start, before the daemon serves; a second call is refused. Without
+    /// it every grant is refused.
+    pub fn set_grant_verifier(
+        &self,
+        verifier: Arc<dyn crate::grant::GrantVerifier>,
+    ) -> Result<(), IdentityError> {
+        self.grant_verifier
+            .set(verifier)
+            .map_err(|_| IdentityError::Invalid("a grant verifier is already installed".into()))
     }
 
     pub fn subscribe_revocations(&self) -> watch::Receiver<u64> {
@@ -1004,6 +1023,11 @@ impl AuthDatabase {
         if device_id.starts_with(TRUSTED_NETWORK_DEVICE_PREFIX) {
             return true;
         }
+        // A grant admits a session once; revoking it is a pushed retire,
+        // not a device-list change.
+        if crate::grant::is_grant_device_id(device_id) {
+            return self.grant_verifier.get().is_some();
+        }
         if device_id.starts_with("carrier:") {
             return self.allow_carrier;
         }
@@ -1021,6 +1045,9 @@ impl AuthDatabase {
     pub async fn grant_is_current(&self, grant: &AuthGrant) -> bool {
         if grant.device_id.starts_with(TRUSTED_NETWORK_DEVICE_PREFIX) {
             return true;
+        }
+        if crate::grant::is_grant_device_id(&grant.device_id) {
+            return self.grant_verifier.get().is_some();
         }
         if grant.device_id.starts_with("carrier:") {
             return self.allow_carrier;
@@ -1224,6 +1251,24 @@ impl AuthDatabase {
         persistence.wait().await
     }
 
+    /// The daemon registered the new session a grant's link group formed
+    /// (`session`, `generation`, `connection_attempt`): seal that group, so
+    /// the grant opens nothing more. No-op for any other device.
+    pub fn seal_grant_link_group(
+        &self,
+        device_id: &str,
+        session: cmux_remote_protocol::SessionId,
+        generation: u64,
+        connection_attempt: ConnectionAttemptId,
+    ) {
+        if !crate::grant::is_grant_device_id(device_id) {
+            return;
+        }
+        if let Some(verifier) = self.grant_verifier.get() {
+            verifier.seal(crate::grant::link_group(session, generation, connection_attempt));
+        }
+    }
+
     pub async fn record_connection_attempt(
         &self,
         device_id: &str,
@@ -1391,6 +1436,54 @@ impl ServerAuthenticator for AuthDatabase {
                 })
             }
             AuthKind::Carrier => Err("trusted carrier access is disabled or unavailable".into()),
+            // A grant's session ignores the revocation generation (a grant is
+            // not a device record), so it is pinned to 0: a revocation between
+            // two lane handshakes never splits one connection's lanes.
+            AuthKind::Grant => {
+                let verifier = self
+                    .grant_verifier
+                    .get()
+                    .ok_or_else(|| "carrier grants are not accepted by this daemon".to_string())?;
+                let admission = match request.grant.as_ref() {
+                    Some(token) => {
+                        let admission = verifier.verify(crate::grant::GrantPresentation {
+                            token: token.as_str(),
+                            noise_key: &request.device_public_key,
+                            link_group: crate::grant::link_group(
+                                request.session,
+                                request.generation,
+                                request.connection_attempt,
+                            ),
+                        })?;
+                        if !crate::grant::is_grant_device_id(&admission.device_id) {
+                            return Err(
+                                "carrier grant verifier answered a non-grant device id".into()
+                            );
+                        }
+                        self.admitted_grants.remember(
+                            request.device_public_key,
+                            request.session,
+                            admission.clone(),
+                        );
+                        admission
+                    }
+                    // A resume: only into a session this key already holds
+                    // (the daemon refuses generation 1+ without one).
+                    None if request.generation > 0 => self
+                        .admitted_grants
+                        .get(&request.device_public_key, request.session)
+                        .ok_or_else(|| {
+                            "no carrier grant admitted this key; ask for a grant".to_string()
+                        })?,
+                    None => return Err("a new carrier session needs a grant".into()),
+                };
+                Ok(AuthGrant {
+                    device_id: admission.device_id,
+                    daemon_name: self.daemon_name.clone(),
+                    revocation_generation: 0,
+                    authority: admission.authority,
+                })
+            }
             AuthKind::Invitation => {
                 let invitation_id = request
                     .invitation_id

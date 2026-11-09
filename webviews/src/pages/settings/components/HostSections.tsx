@@ -3,13 +3,14 @@
 // profile editor, whose every edit runs a `browserProfile.*` catalog action (the palette's path).
 import { Input } from "../../../ui/Input";
 import { Button } from "../../../ui/Button";
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useRowState, useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import type { BrowserProfile, DevicesHostState, HostListRow, HostLists, WireError } from "../ops";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { graphemePrefix } from "../../../ui/initials";
+import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -70,9 +71,11 @@ function ListRows({
 /** Spaces (General): the active window's spaces, or why the host has none. */
 export function SpacesSection() {
   const { host } = useSettingsState();
+  // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
+  const fade = useLoadFade(Boolean(host));
   if (!host) return null;
   return (
-    <section className="group" data-card="rooms">
+    <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="rooms">
       <h3 className="group-title">{t("settingsPage.group.spaces")}</h3>
       <div className="rows">
         {host.rooms ? (
@@ -93,15 +96,25 @@ export function BrowserProfiles() {
   return host ? <BrowserProfilesSection host={host} /> : null;
 }
 
-export function MachinesSection({ title }: { title: string }) {
+/** `reveal`: the route opens Settings at Machines (`#/settings/machines`). The card moves to the top
+ * in the commit that draws it (or that turns `reveal` on), before the frame paints, so the page
+ * never shows the top of Accounts first. */
+export function MachinesSection({ title, reveal = false }: { title: string; reveal?: boolean }) {
   const { host } = useSettingsState();
   const store = useStore();
   const colors = useRowState(MACHINE_COLORS_KEY);
+  const card = useRef<HTMLElement>(null);
+  const drawn = host !== null;
+  useLayoutEffect(() => {
+    if (drawn && reveal) card.current?.scrollIntoView?.({ block: "start" });
+  }, [drawn, reveal]);
+  // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
+  const fade = useLoadFade(Boolean(host));
   if (!host) return null;
   const picks = stringMap(colors.value);
   return (
     <>
-      <section className="group" data-card="machines">
+      <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="machines" ref={card}>
         <h3 className="group-title">{title}</h3>
         <div className="rows" data-row-key={MACHINE_COLORS_KEY}>
           <ListRows

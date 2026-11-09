@@ -207,7 +207,7 @@ final class SidebarUpdateCardView: NSView {
         super.layout()
         let b = bounds, pad = Self.padding
         surface.frame = b
-        surface.cornerRadius = Metrics.space3
+        surface.cornerRadius = Metrics.surfaceCornerRadius
         titleLabel.font = Self.titleFont
         let width = max(0, b.width - 2 * pad)
         let th = ceil(Self.titleFont.boundingRectForFont.height)

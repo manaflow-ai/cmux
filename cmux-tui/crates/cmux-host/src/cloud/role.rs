@@ -5,9 +5,9 @@
 //! There is no tick; an idle bound machine wakes once per heartbeat.
 //!
 //! Resume comes from the supervisor (`HostEvent::Resumed`, its clock-set
-//! wake after a metadata read confirmed the id), replacing the interim
-//! agent's `OnClockChange` timer. A `{"resume": true}` socket line still
-//! works.
+//! wake or its pause watch's, after a metadata read confirmed the id),
+//! replacing the interim agent's `OnClockChange` timer. A
+//! `{"resume": true}` socket line still works.
 
 use crate::json::JsonField;
 use std::fs::{self, OpenOptions};
@@ -26,9 +26,9 @@ use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContext};
 use serde_json::{Value, json};
 
-use super::client::{
-    BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
-};
+use super::agent_socket::listen;
+use super::carrier_server::{CarrierServer, Resumes};
+use super::client::{BindResult, CloudClient, Http, Store, ensure_install_key, ensure_wg_key};
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
@@ -38,8 +38,8 @@ use super::trajectory::Layout;
 use super::trajectory_thread::{AcpmuxImporter, Trajectories};
 use super::wire::{
     AGENT_SOCKET, AGENT_STATE_FILE, BIND_FILE, BOUND_FILE, Bound, DAEMON_ACTIVITY_CAPABILITY,
-    DAEMON_INFO_FILE, DAEMON_SOCKET_FILE, DaemonInfo, STATE_DIR, daemon_info_from_identify,
-    heartbeat_ms_for,
+    DAEMON_INFO_FILE, DAEMON_SOCKET_FILE, DESKTOP_CAPABILITY, DESKTOP_SOCKET_UNIT, DaemonInfo,
+    STATE_DIR, daemon_info_from_identify, heartbeat_ms_for,
 };
 use crate::config::Paths;
 use crate::daemon_spec::{ROOT_HOME, WORK_HOME, WORK_USER, binary_path};
@@ -206,23 +206,57 @@ impl Store for FileStore {
 /// [`Http`] over cmux-server's HTTPS poster.
 pub struct PosterHttp(pub JsonPoster);
 
+impl PosterHttp {
+    /// Runs `send` on this poster and `url`. Tests: while [`TEST_ORIGIN`] is
+    /// set, every request goes to its path at that plain-HTTP origin instead,
+    /// on a poster of the calling thread (the before/after harness).
+    fn via<T>(&self, url: &str, send: impl FnOnce(&JsonPoster, &str) -> T) -> T {
+        #[cfg(test)]
+        let send = match test_route(url, send) {
+            Ok(answer) => return answer,
+            Err(send) => send,
+        };
+        send(&self.0, url)
+    }
+}
+
+/// [`PosterHttp::via`] while [`TEST_ORIGIN`] is set; `Err(send)` otherwise.
+#[cfg(test)]
+fn test_route<T, F: FnOnce(&JsonPoster, &str) -> T>(url: &str, send: F) -> Result<T, F> {
+    let Some(origin) =
+        TEST_ORIGIN.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    else {
+        return Err(send);
+    };
+    thread_local! {
+        static POSTER: Option<JsonPoster> = JsonPoster::allowing_http().ok();
+    }
+    let path = url
+        .split_once("://")
+        .and_then(|(_, rest)| rest.find('/').map(|at| rest.split_at(at).1))
+        .unwrap_or("/");
+    let routed = format!("{origin}{path}");
+    POSTER.with(|poster| match poster {
+        Some(poster) => Ok(send(poster, &routed)),
+        None => Err(send),
+    })
+}
+
+/// Tests: the origin every Cloud request goes to ([`PosterHttp::via`]).
+#[cfg(test)]
+pub(crate) static TEST_ORIGIN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
 impl Http for PosterHttp {
     fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.0.get(url, bearer)
+        self.via(url, |poster, url| poster.get(url, bearer))
     }
 
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        self.0.post(url, body, bearer)
+        self.via(url, |poster, url| poster.post(url, body, bearer))
     }
 
-    fn request_until(
-        &self,
-        url: &str,
-        body: Option<&Value>,
-        bearer: Option<&str>,
-        deadline: Instant,
-    ) -> Result<(u16, Vec<u8>), String> {
-        self.0.request_until(url, body, bearer, deadline)
+    fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        self.via(url, |poster, url| poster.post_empty(url, bearer))
     }
 
     fn request_with_deadline(
@@ -232,7 +266,29 @@ impl Http for PosterHttp {
         bearer: Option<&str>,
         deadline: &cmux_server::cloud_http::RequestDeadline,
     ) -> Result<(u16, Vec<u8>), String> {
-        self.0.request_with_deadline(url, body, bearer, deadline)
+        self.via(url, |poster, url| poster.request_with_deadline(url, body, bearer, deadline))
+    }
+
+    fn request_with_headers(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &cmux_server::cloud_http::RequestDeadline,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        self.via(url, |poster, url| {
+            poster.request_with_deadline_headers(url, body, bearer, deadline)
+        })
+    }
+
+    fn reset(&self) {
+        self.0.reset();
+        #[cfg(test)]
+        let _ = test_route("/", |poster, _| poster.reset());
+    }
+
+    fn fresh(&self) -> Option<Self> {
+        self.0.twin().ok().map(PosterHttp)
     }
 }
 
@@ -283,17 +339,28 @@ pub fn daemon_socket(paths: &Paths) -> Option<PathBuf> {
 }
 
 /// Live identify first; the bake-recorded `daemon.json` when the daemon
-/// does not answer. Never an empty list.
+/// does not answer. Never an empty list. Either way the image's own
+/// desktop ([`DESKTOP_CAPABILITY`]) is added when it has one.
 pub fn resolve_daemon_info(paths: &Paths) -> Result<DaemonInfo, String> {
     if let Some(socket) = daemon_socket(paths)
         && let Ok(identify) = query_identify(&socket, Duration::from_secs(2))
     {
-        return Ok(daemon_info_from_identify(&identify, false));
+        return Ok(with_desktop(paths, daemon_info_from_identify(&identify, false)));
     }
     let recorded = fs::read_to_string(paths.at(DAEMON_INFO_FILE))
         .map_err(|_| "no daemon identify and no recorded daemon.json".to_owned())?;
     let info: DaemonInfo = serde_json::from_str(&recorded).map_err(|e| e.to_string())?;
-    Ok(info.with_activity(false, false, false))
+    Ok(with_desktop(paths, info.with_activity(false, false, false)))
+}
+
+/// `info` with [`DESKTOP_CAPABILITY`] exactly when the image installed the
+/// desktop's socket unit (a recorded daemon.json never decides it).
+fn with_desktop(paths: &Paths, mut info: DaemonInfo) -> DaemonInfo {
+    info.capabilities.retain(|c| c != DESKTOP_CAPABILITY);
+    if paths.at(DESKTOP_SOCKET_UNIT).is_file() {
+        info.capabilities.push(DESKTOP_CAPABILITY.to_owned());
+    }
+    info
 }
 
 /// `wg genkey | wg pubkey` (wireguard-tools in the base image).
@@ -339,6 +406,9 @@ struct WorkerHandle {
     /// Set before `stop`: from then on the minter hands out no token,
     /// even if the worker is stuck in a request past the deadline.
     github_stop: Arc<Stop>,
+    /// Noted on `HostEvent::Resumed`: the carrier ticket thread reads it
+    /// directly, never through the worker's loop.
+    resumes: Arc<Resumes>,
 }
 
 impl CloudRole {
@@ -401,21 +471,30 @@ impl Role for CloudRole {
         let (done_tx, done) = std::sync::mpsc::channel::<()>();
         let github_stop = Arc::new(Stop::default());
         let worker_stop = Arc::clone(&github_stop);
+        let resumes = Arc::new(Resumes::default());
+        let worker_resumes = Arc::clone(&resumes);
         let thread = std::thread::Builder::new()
             .name("cmux-host-cloud".to_owned())
             .spawn(move || {
                 let _done = done_tx;
-                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs, worker_stop)
-                    .map(|mut worker| {
-                        worker.bootstrap = bootstrap;
-                        worker
-                    });
+                let worker = Worker::new(
+                    paths,
+                    instance_id,
+                    heartbeat_env,
+                    theirs,
+                    worker_stop,
+                    worker_resumes,
+                )
+                .map(|mut worker| {
+                    worker.bootstrap = bootstrap;
+                    worker
+                });
                 if let Err(e) = worker.and_then(|mut w| w.run()) {
                     log(&format!("worker stopped: {e}"));
                 }
             })
             .map_err(|e| RoleError(e.to_string()))?;
-        self.worker = Some(WorkerHandle { thread, control: ours, done, github_stop });
+        self.worker = Some(WorkerHandle { thread, control: ours, done, github_stop, resumes });
         Ok(())
     }
 
@@ -426,10 +505,21 @@ impl Role for CloudRole {
     fn on_event(&mut self, event: &HostEvent) -> Result<(), RoleError> {
         match event {
             HostEvent::Resumed => {
+                // First: the carrier ticket thread asks for a fresh ticket while the session host finds its
+                // registration from before the pause dead.
+                if let Some(worker) = &self.worker {
+                    worker.resumes.note();
+                }
                 if let Some(bridge) = &self.bootstrap {
                     let _ = bridge.resume();
                 }
                 self.send("resume");
+                Ok(())
+            }
+            // The late network attach lands about a second after the bind: a bind in flight over the old
+            // addresses would otherwise hang to its 20 s bound.
+            HostEvent::AddressesChanged => {
+                cmux_server::cloud_http::network_changed();
                 Ok(())
             }
             // No request is held open into a snapshot.
@@ -439,6 +529,12 @@ impl Role for CloudRole {
             _ => Ok(()),
         }
     }
+}
+
+/// How long a failed bind waits before its retry. One the machine's address change failed (a fresh machine's network
+/// attach lands about a second after it boots) goes again at once, without growing the backoff.
+fn bind_retry_wait(backoff: &mut Backoff, network_changed: bool) -> u64 {
+    if network_changed { 0 } else { backoff.next(0, random_unit()) }
 }
 
 struct Client {
@@ -467,11 +563,6 @@ struct Live {
 
 struct Worker {
     bootstrap: Option<super::bootstrap_role::WorkerBridge>,
-    bootstrap_retry_at: Option<u64>,
-    bootstrap_backoff: Backoff,
-    /// The Native receiving failure last logged, so a retry loop logs each
-    /// new reason once instead of failing silently or flooding the journal.
-    bootstrap_last_error: Option<String>,
     paths: Paths,
     store: FileStore,
     instance_id: String,
@@ -485,10 +576,23 @@ struct Worker {
     live: Option<Live>,
     /// GitHub token asks, off the poll loop (`github_minter.rs`).
     github: Minter<PosterHttp>,
+    /// The session host's relay Register tickets, on their own socket and thread (`carrier_server.rs`).
+    carrier: Option<CarrierServer<PosterHttp>>,
+    /// The carrier grant keyset's own fetch (`carrier_keyset.rs`).
+    keyset: super::carrier_keyset::Refresher<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
     trajectories: Option<Trajectories<PosterHttp>>,
+    /// This machine's inference gateway bearer, while the person made it their gateway (gateway_token.rs).
+    gateway_token: Option<super::gateway_token::GatewayToken>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
+    /// A carrier bind waiting for the session host's Noise key (its
+    /// identity file appears once the host has started): the bind token it
+    /// waits for and when the wait began. A new token starts a new wait.
+    noise_key_wait: Option<(String, u64)>,
+    /// The workload probe (`workload.rs`): its memory and when it runs next (while bound).
+    workload: super::workload::Tracker,
+    workload_at: Option<u64>,
     rng: SystemRandom,
     epoch: Instant,
 }
@@ -500,6 +604,7 @@ impl Worker {
         heartbeat_env: Option<String>,
         control: UnixStream,
         github_stop: Arc<Stop>,
+        resumes: Arc<Resumes>,
     ) -> io::Result<Worker> {
         let state_dir = paths.at(STATE_DIR);
         fs::create_dir_all(&state_dir)?;
@@ -510,11 +615,21 @@ impl Worker {
         let trajectories =
             spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
         forget_harness_login_state(&paths);
+        let keyset = super::carrier_keyset::Refresher::spawn(paths.clone(), log)?;
+        // Before the bind: a ticket asked meanwhile waits for it there, not in the poll loop.
+        let carrier = listen(&paths, super::carrier_server::CARRIER_SOCKET)
+            .and_then(|l| {
+                let hooks = super::carrier_server::Hooks {
+                    now: wall_ms,
+                    log,
+                    ask_wait: super::carrier_server::ASK_WAIT,
+                };
+                CarrierServer::spawn(l, hooks, Arc::clone(&github_stop), resumes)
+            })
+            .map_err(|e| log(&format!("carrier socket: {e}")))
+            .ok();
         Ok(Worker {
             bootstrap: None,
-            bootstrap_retry_at: None,
-            bootstrap_backoff: Backoff::new(1_000, 30_000),
-            bootstrap_last_error: None,
             store: FileStore::new(paths.clone()),
             paths,
             instance_id,
@@ -534,9 +649,15 @@ impl Worker {
             },
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
+            carrier,
+            keyset,
             trajectories,
+            gateway_token: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
+            noise_key_wait: None,
+            workload: super::workload::Tracker::default(),
+            workload_at: None,
             rng: SystemRandom::new(),
             epoch: Instant::now(),
         })
@@ -548,7 +669,8 @@ impl Worker {
     }
 
     fn run(&mut self) -> io::Result<()> {
-        self.listener = self.serve_socket().map_err(|e| log(&format!("agent socket: {e}"))).ok();
+        self.listener =
+            listen(&self.paths, AGENT_SOCKET).map_err(|e| log(&format!("agent socket: {e}"))).ok();
         if self.store.read(BIND_FILE).is_some() {
             self.bind_now();
         } else if let Some(saved) = self.store.read(BOUND_FILE) {
@@ -557,12 +679,14 @@ impl Worker {
             log("no bind.json and no bound.json; waiting for bind.json");
         }
         loop {
-            self.drive_bootstrap();
+            if let Some(bridge) = &self.bootstrap {
+                bridge.drive();
+            }
             let deadline = [
                 self.live.as_ref().and_then(|l| l.session.next_deadline()),
                 self.bind_retry_at,
                 self.activity.retry_at,
-                self.bootstrap_retry_at,
+                self.workload_at,
             ]
             .into_iter()
             .flatten()
@@ -612,7 +736,6 @@ impl Worker {
                 return Ok(());
             }
             // The retained bootstrap descriptors wake the next loop's drive.
-            // Process control and binding changes before preparing private data.
             if ready(1) {
                 let bind = self.inotify.read_events()?.iter().any(|e| e.name == "bind.json");
                 if bind {
@@ -651,10 +774,15 @@ impl Worker {
         let words: Vec<String> = take_lines(&mut self.control_buf);
         for word in words {
             match word.as_str() {
-                "stop" => return Ok(true),
+                "stop" => {
+                    return Ok(true);
+                }
                 "resume" => {
-                    self.bootstrap_retry_at = None;
-                    self.bootstrap_backoff.reset();
+                    // Connections from before a pause are stale: the resume report below gets a fresh HTTPS
+                    // connection instead of hanging.
+                    if let Some(live) = &self.live {
+                        live.client.reset_transport();
+                    }
                     if let Some(bridge) = &mut self.bootstrap {
                         bridge.resume();
                         if self.live.is_some() {
@@ -671,24 +799,6 @@ impl Worker {
             }
         }
         Ok(false)
-    }
-
-    fn serve_socket(&self) -> io::Result<UnixListener> {
-        let path = self.paths.at(AGENT_SOCKET);
-        if let Some(dir) = path.parent() {
-            fs::create_dir_all(dir)?;
-            fs::set_permissions(dir, fs::Permissions::from_mode(0o755))?;
-        }
-        let _ = fs::remove_file(&path);
-        let listener = UnixListener::bind(&path)?;
-        listener.set_nonblocking(true)?;
-        if self.paths.is_system_root()
-            && let Some(gid) = group_id("cmux")
-        {
-            std::os::unix::fs::chown(&path, Some(0), Some(gid))?;
-        }
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o660))?;
-        Ok(listener)
     }
 
     fn accept(&mut self) {
@@ -740,60 +850,29 @@ impl Worker {
             if closed.contains(&i) {
                 continue;
             }
+            if let Some(ask) = carrier_keyset_ask(&line) {
+                let reply = match ask {
+                    Ok(kid) => {
+                        self.keyset.unknown_kid(kid);
+                        json!({ "ok": true })
+                    }
+                    Err(why) => github::refusal("request.invalid", &why),
+                };
+                let Some(client) = self.clients.get_mut(i) else { continue };
+                if !client.output.is_empty() {
+                    closed.push(i);
+                    continue;
+                }
+                client.output = serde_json::to_vec(&reply).unwrap_or_default();
+                client.output.push(b'\n');
+                client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
+                continue;
+            }
             if let Some(ask) = agent_ask(&line) {
                 asks.push((i, ask));
                 continue;
             }
             let now = self.now();
-            if serde_json::from_str::<Value>(&line).is_ok_and(|v| {
-                v.get("op").and_then(Value::as_str) == Some(super::receiver::POLICY_OP)
-            }) {
-                let Some(client) = self.clients.get(i) else { continue };
-                if !client.output.is_empty() {
-                    closed.push(i);
-                    continue;
-                }
-                // A queued batch must not hold shutdown behind up to sixteen
-                // separate network deadlines. Check the role's control fd
-                // before every policy request, not only before the batch.
-                if self.control_words().unwrap_or(true) {
-                    return true;
-                }
-                // The request is deliberately parameterless. The role owns
-                // every identity and credential used for this hidden read.
-                #[derive(serde::Deserialize)]
-                #[serde(deny_unknown_fields)]
-                struct Request {
-                    op: String,
-                }
-                let valid = serde_json::from_str::<Request>(&line)
-                    .is_ok_and(|r| r.op == super::receiver::POLICY_OP);
-                let value = if valid {
-                    self.live.as_mut().and_then(|live| {
-                        super::receiver_files::reply(
-                            &self.paths,
-                            &self.instance_id,
-                            &mut live.client,
-                            wall_ms(),
-                        )
-                        .ok()
-                    })
-                } else {
-                    None
-                };
-                let value = value.unwrap_or_else(
-                    || json!({ "ok": false, "error": "cloud.vm.network_policy.unavailable" }),
-                );
-                let Some(client) = self.clients.get_mut(i) else { continue };
-                client.output = serde_json::to_vec(&value).unwrap_or_default();
-                if client.output.len() > 1024 * 1024 {
-                    closed.push(i);
-                    continue;
-                }
-                client.output.push(b'\n');
-                client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
-                continue;
-            }
             let Some(live) = self.live.as_mut() else { continue };
             let (reqs, note) = live.session.line(&line, now);
             if let Some(note) = note {
@@ -872,7 +951,57 @@ impl Worker {
             Ok(poster) => PosterHttp(poster),
             Err(e) => return log(&e),
         };
-        let result = bind_machine(&mut self.store, &http, &key, &wg, &daemon, wall_ms());
+        // Only a bind with a relay carrier sends its daemon's Noise key, and
+        // it must: the device's dial requires it (#37211). The token is not
+        // spent yet, so the bind waits for the key, as long as the token
+        // lives (`daemon_noise_key::wait_after`), and never goes without it.
+        let carrier_token = self
+            .store
+            .read(BIND_FILE)
+            .and_then(|text| super::wire::parse_bind_file(&text).ok())
+            .filter(|file| file.carrier.is_some())
+            .map(|file| file.bind_token);
+        let noise_key = carrier_token.as_ref().and_then(|_| self.daemon_noise_key());
+        if let Some(token) = carrier_token.filter(|_| noise_key.is_none()) {
+            let now = self.now();
+            let started = match &self.noise_key_wait {
+                Some((waiting, at)) if *waiting == token => *at,
+                _ => {
+                    log("bind: waiting for the session host's Noise key");
+                    self.noise_key_wait = Some((token, now));
+                    now
+                }
+            };
+            match super::daemon_noise_key::wait_after(now.saturating_sub(started)) {
+                Some(delay) => self.bind_retry_at = Some(now + delay),
+                None => log(
+                    "bind: the session host's Noise key did not appear while the bind token lives; not binding until a new bind.json",
+                ),
+            }
+            return;
+        }
+        self.noise_key_wait = None;
+        let changes = cmux_server::cloud_http::network_changes();
+        // The bind writes carrier.json; the keyset refresher's write waits.
+        let carrier_lock = self.keyset.carrier_lock();
+        let carrier_held = carrier_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // The updater's connect hold, then the request (`hold_then_bind`).
+        let result = super::client::hold_then_bind(
+            &self.paths,
+            &mut self.store,
+            &http,
+            &key,
+            &wg,
+            &daemon,
+            noise_key.as_deref(),
+            wall_ms(),
+        );
+        drop(carrier_held);
+        let Some(result) = result else {
+            log("bind: a restart of this service is pending; the restarted service binds");
+            self.bind_retry_at = Some(self.now() + 30_000);
+            return;
+        };
         log(&format!("bind: {}", result.describe()));
         match result {
             BindResult::Bound(bound) => {
@@ -883,10 +1012,21 @@ impl Worker {
                 self.start_live(*bound, key, http, daemon);
             }
             BindResult::Retry(_) => {
-                self.bind_retry_at = Some(self.now() + self.bind_backoff.next(0, random_unit()));
+                let changed = cmux_server::cloud_http::network_changes() != changes;
+                self.bind_retry_at =
+                    Some(self.now() + bind_retry_wait(&mut self.bind_backoff, changed));
             }
             _ => {}
         }
+    }
+
+    /// The session host's Noise static public key, from its identity file
+    /// under the home the supervisor spawned it with (the layout marker).
+    fn daemon_noise_key(&self) -> Option<String> {
+        let marker = fs::read_to_string(self.paths.at(crate::config::LAYOUT_MARKER_FILE)).ok();
+        let home = super::daemon_noise_key::session_home(marker.as_deref())?;
+        let file = super::daemon_noise_key::identity_path(&home, crate::daemon_spec::SESSION);
+        super::daemon_noise_key::read(&self.paths.at(&file.to_string_lossy()))
     }
 
     /// The agent restarted on a bound machine: report again, unless the
@@ -929,11 +1069,33 @@ impl Worker {
             Ok(client) => self.github.bound(client),
             Err(e) => log(&format!("github minter: {e}")),
         }
+        if let Some(carrier) = self.carrier.as_ref() {
+            match github_client(&bound, &key) {
+                // A machine with a relay carrier asks for its first ticket now (`carrier_server.rs`).
+                Ok(client) => carrier
+                    .bound(client, self.paths.at(crate::carrier_entry::CARRIER_FILE).is_file()),
+                Err(e) => log(&format!("carrier ticket: {e}")),
+            }
+        }
+        match github_client(&bound, &key) {
+            Ok(client) => self.keyset.bound(client),
+            Err(e) => log(&format!("carrier keyset: {e}")),
+        }
         if let Some(trajectories) = self.trajectories.as_ref() {
             match github_client(&bound, &key) {
                 Ok(client) => trajectories.bound(client),
                 Err(e) => log(&format!("trajectory mirror: {e}")),
             }
+        }
+        self.gateway_token = None;
+        match github_client(&bound, &key) {
+            Ok(client) => {
+                self.gateway_token =
+                    super::gateway_token::GatewayToken::spawn(client, wall_ms, log)
+                        .map_err(|e| log(&format!("inference gateway token: {e}")))
+                        .ok();
+            }
+            Err(e) => log(&format!("inference gateway token: {e}")),
         }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
@@ -944,6 +1106,9 @@ impl Worker {
         self.activity = self.activity_reset();
         self.connect_activity();
         self.drive(reqs);
+        // A new session knows no workload yet: the first probe now, the first result one interval on.
+        self.workload = super::workload::Tracker::default();
+        self.workload_at = Some(self.now());
     }
 
     fn activity_reset(&self) -> Activity {
@@ -963,10 +1128,15 @@ impl Worker {
         if self.activity.unsupported || self.live.is_none() {
             return;
         }
-        let attempt = daemon_socket(&self.paths)
+        let paths = self.paths.clone();
+        let mut identified = None;
+        let attempt = daemon_socket(&paths)
             .ok_or_else(|| io::Error::other("no daemon socket"))
             .and_then(|socket| {
                 let identify = query_identify(&socket, Duration::from_secs(2))?;
+                // The running session host's block, not the bake's (Session::daemon_identified).
+                identified =
+                    Some(with_desktop(&paths, daemon_info_from_identify(&identify, false)));
                 let caps = identify.field("capabilities").as_array().cloned().unwrap_or_default();
                 if !caps.iter().any(|c| c == DAEMON_ACTIVITY_CAPABILITY) {
                     return Ok(None);
@@ -976,6 +1146,13 @@ impl Worker {
                 stream.set_nonblocking(true)?;
                 Ok(Some(stream))
             });
+        if let Some(daemon) = identified {
+            let now = self.now();
+            if let Some(live) = self.live.as_mut() {
+                let reqs = live.session.daemon_identified(&daemon, now);
+                self.drive(reqs);
+            }
+        }
         match attempt {
             Ok(Some(stream)) => self.activity.stream = Some(stream),
             Ok(None) => {
@@ -1049,11 +1226,35 @@ impl Worker {
         if self.activity.retry_at.is_some_and(|at| at <= now) {
             self.connect_activity();
         }
+        if self.workload_at.is_some_and(|at| at <= self.now()) {
+            self.probe_workload();
+        }
         let now = self.now();
         if let Some(live) = self.live.as_mut() {
             let reqs = live.session.fire(now);
             self.drive(reqs);
         }
+    }
+
+    /// One workload probe (`workload.rs`); the next one an interval later. A probe that does not
+    /// read makes the workload unknown, and the report then drops `activity-workload`.
+    fn probe_workload(&mut self) {
+        let now = self.now();
+        self.workload_at = Some(now + super::workload::PROBE_INTERVAL_MS);
+        let Some(live) = self.live.as_mut() else { return };
+        let seen = match super::workload::read_snapshot(self.paths.root(), now) {
+            // The first probe has no CPU baseline yet: it changes nothing.
+            Some(snapshot) => match self.workload.observe(&snapshot, wall_ms()) {
+                Some(workload) => Some(workload),
+                None => return,
+            },
+            None => {
+                self.workload = super::workload::Tracker::default();
+                None
+            }
+        };
+        let reqs = live.session.workload(seen, now);
+        self.drive(reqs);
     }
 
     /// Sends each request and feeds its answer back until nothing is due.
@@ -1153,6 +1354,13 @@ fn github_client(bound: &Bound, key: &InstallKey) -> Result<CloudClient<PosterHt
     Ok(CloudClient::new(PosterHttp(JsonPoster::new()?), bound.clone(), key))
 }
 
+/// The kid of a `{"carrier_keyset": {"kid": ...}}` line (checked): the
+/// session host's verifier saw a grant signed by a kid it does not hold.
+fn carrier_keyset_ask(line: &str) -> Option<Result<String, String>> {
+    let msg: Value = serde_json::from_str(line).ok()?;
+    msg.get(super::carrier_keyset::REQUEST_KEY).map(super::carrier_keyset::check_ask)
+}
+
 /// The ask of a `{"github_token": {...}}` or `{"handoff_report": {...}}`
 /// line (checked), or `None` for every other line (the session's).
 fn agent_ask(line: &str) -> Option<Ask> {
@@ -1165,6 +1373,9 @@ fn agent_ask(line: &str) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::github_status::REQUEST_KEY) {
         return Some(Ask::GithubStatus(super::github_status::check_ask(ask)));
+    }
+    if let Some(ask) = msg.get(super::carrier_ticket::REQUEST_KEY) {
+        return Some(Ask::CarrierTicket(super::carrier_ticket::check_ask(ask)));
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())
@@ -1216,17 +1427,6 @@ fn take_lines(buf: &mut Vec<u8>) -> Vec<String> {
     out
 }
 
-fn group_id(name: &str) -> Option<u32> {
-    let cname = std::ffi::CString::new(name).ok()?;
-    // SAFETY: getgrnam returns a pointer to static storage or null.
-    let group = unsafe { libc::getgrnam(cname.as_ptr()) };
-    if group.is_null() {
-        return None;
-    }
-    // SAFETY: non-null result from getgrnam.
-    Some(unsafe { (*group).gr_gid })
-}
-
 /// `cmux host cloud probe-activity`: the daemon advertises vm-activity-v1
 /// and a `subscribe-activity` stream answers with a snapshot.
 pub fn probe_activity(paths: &Paths, timeout: Duration) -> Result<Value, String> {
@@ -1264,5 +1464,6 @@ pub fn print_daemon_info(paths: &Paths, timeout: Duration) -> Result<Value, Stri
 #[path = "role_tests.rs"]
 mod role_tests;
 
-#[path = "role_bootstrap.rs"]
-mod bootstrap;
+#[cfg(all(test, target_os = "linux"))]
+#[path = "carrier_register_harness_tests.rs"]
+mod carrier_register_harness;

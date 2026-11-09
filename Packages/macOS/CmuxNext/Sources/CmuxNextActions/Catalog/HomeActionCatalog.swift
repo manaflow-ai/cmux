@@ -12,7 +12,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
         let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.inviteToTeam", "home.newChief", "home.archiveChief", "home.deleteChief", "home.setPrimaryChief",
                                     "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
                                     "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
-                                    "home.createGroup", "home.setChiefReplies"]
+                                    "home.createGroup", "home.setChiefReplies", "home.createChannel"]
         return (all + debugOnly).map { descriptor in
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
@@ -23,6 +23,13 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
             descriptor.isPersonOnly = ["home.toggleChiefPet", "home.messageChiefPet", "home.messageChiefFromAnyApp"].contains(descriptor.id)
             return descriptor
         }
+    }
+
+    /// Which Chief an Archive, Make Primary or Delete acts on: its id from the CLI, a pick of the
+    /// user's Chiefs in the palette.
+    private static var chiefArgument: ActionArgument {
+        ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string,
+                       suggestions: ActionSuggestions(source: ActionSuggestions.homeChiefs, pinned: []))
     }
 
     private static var all: [ActionDescriptor] {
@@ -231,27 +238,27 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 id: "home.archiveChief", title: t("action.home.archiveChief", "Archive Chief"),
                 keywords: ["home", "chief", "archive", "remove", "agent"],
                 category: .window, symbol: "archivebox", surfaces: [.keyboard],
-                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                arguments: [chiefArgument],
                 cliName: "home archive-chief",
-                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // The primary Chief: texts to the cmux line go to it (`chief.update {is_default}`); `cmux chief primary` runs it.
             ActionDescriptor(
                 id: "home.setPrimaryChief", title: t("action.home.setPrimaryChief", "Make Primary Chief"),
                 keywords: ["home", "chief", "primary", "default", "text", "imessage", "sms"],
                 category: .window, symbol: "star", surfaces: [.keyboard],
-                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                arguments: [chiefArgument],
                 cliName: "home primary-chief",
-                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // Deleting cannot be undone (Archive Chief can): it asks first.
             ActionDescriptor(
                 id: "home.deleteChief", title: t("action.home.deleteChief", "Delete Chief…"),
                 keywords: ["home", "chief", "delete", "remove", "agent"],
                 category: .window, symbol: "trash", surfaces: [.keyboard],
-                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                arguments: [chiefArgument],
                 cliName: "home delete-chief", destructive: true,
-                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // On Home the tab keys move through the chat list (Lawrence 2026-10-21): Ctrl-Tab /
             // Ctrl-Shift-Tab, Cmd-Shift-] / [ and Ctrl-1…9, scoped to the Home page and the docked Home
@@ -367,6 +374,23 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "chat create",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Chief channels (plans/cmux-next/chief-channels-DESIGN.md): `cmux chat channel create --title T
+            // [--members "Leo, ana@example.com"] [--chief NAME]` makes a group the person owns with its own
+            // Chief scoped to it, and invites the members (an email gets an invite).
+            ActionDescriptor(
+                id: "home.createChannel", title: t("action.home.createChannel", "New Channel…"),
+                keywords: ["home", "channel", "channels", "chief", "team", "group", "room", "slack", "new", "create", "invite"],
+                category: .window, symbol: "number", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "title", title: t("argument.home.channelTitle", "Channel Name"), kind: .string),
+                            ActionArgument(name: "members", title: t("argument.home.groupMembers", "Members"), kind: .string,
+                                           isRequired: false,
+                                           suggestions: ActionSuggestions(source: ActionSuggestions.homeMembers, pinned: [],
+                                                                          allowsMultiple: true)),
+                            ActionArgument(name: "chief", title: t("argument.home.channelChief", "Chief Name"), kind: .string,
+                                           isRequired: false)],
+                cliName: "chat channel create",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "home.setChiefReplies", title: t("action.home.setChiefReplies", "Set When Chiefs Reply…"),
                 keywords: ["home", "group", "chief", "chiefs", "reply", "replies", "wake", "mention", "every message", "conversation"],
@@ -444,6 +468,22 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 symbol: "stop.circle.fill", surfaces: [.palette, .menu], mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // Start now on an agent the Chief queued behind its cap (user 2026-11-08): the agent
+            // pill's context menu, the palette, `cmux home start-agent --agent <name>` and MCP ask the
+            // Chief of the Chief Home showing `conversation` (the key window's without one) to start it
+            // past the cap. The pill's menu is MessagesLab's own, with no ContextMenuCatalog placement:
+            // the Home takes this row from `makeContextMenuItem` (HomeChiefTurnActions.swift), and
+            // HomeChiefHomes binds the handler.
+            ActionDescriptor(
+                id: "home.startQueuedAgent", title: t("action.home.startQueuedAgent", "Start Queued Agent Now"),
+                keywords: ["chief", "home", "agent", "subagent", "queue", "queued", "waiting", "start", "now", "cap"],
+                category: .agents, symbol: "play.circle", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "agent", title: String(localized: "argument.newTab.agent", defaultValue: "Agent",
+                                                                        table: "NewTabActions", bundle: .module), kind: .string),
+                            Self.conversation],
+                cliName: "home start-agent",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             // DEV and NIGHTLY: MessagesLab's flight recorder writes the last ~10 s of the
             // Home transcript to ~/Library/Logs/<app>/blink-<time>/ (Debug menu, palette).
             ActionDescriptor(
@@ -457,8 +497,8 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
 
     /// DEV builds only: Debug > Agent Messages Playground (the agent-message header variants live in the
     /// real Home transcript, user 2026-11-02). `style` picks a variant (0: the shipped look), `expanded`
-    /// opens the folds, `team` shows a chat with a teammate, `open` picks what a click on an agent's pill does,
-    /// `peer` opens that agent as a click on its pill does, `dark` picks the dark look.
+    /// opens the folds, `team` shows a chat with a teammate, `peer` clicks that agent's pill, `dark` picks the
+    /// dark look.
     private static var debugOnly: [ActionDescriptor] {
         #if DEBUG
         [
@@ -470,7 +510,6 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                     ActionArgument(name: "style", title: t("argument.home.playgroundStyle", "Header Style"), kind: .int(0...32), isRequired: false),
                     ActionArgument(name: "expanded", title: t("argument.home.playgroundExpanded", "Expanded"), kind: .bool, isRequired: false),
                     ActionArgument(name: "team", title: t("argument.home.playgroundTeam", "Team Chat"), kind: .bool, isRequired: false),
-                    ActionArgument(name: "open", title: t("argument.home.playgroundOpen", "Pill Click"), kind: .int(0...6), isRequired: false),
                     ActionArgument(name: "peer", title: t("argument.home.playgroundPeer", "Agent"), kind: .string, isRequired: false),
                     ActionArgument(name: "dark", title: t("argument.home.playgroundDark", "Dark Look"), kind: .bool, isRequired: false),
                 ],
@@ -491,14 +530,29 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 mainMenu: .debug, isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Debug > Before/After Table Playground (the user, 2026-11-05): seven live ways to show a Before|After ×
+            // Light|Dark table of pictures (slider, toggle, onion skin, synced zoom, filmstrip, the chat card's
+            // large pairs and grid).
+            ActionDescriptor(
+                id: "home.compareTablePlayground", title: t("action.home.compareTablePlayground", "Before/After Table Playground"),
+                keywords: ["home", "chief", "table", "before", "after", "compare", "slider", "pictures", "playground", "variants", "debug"],
+                category: .window, symbol: "rectangle.split.2x1", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "variant", title: t("argument.home.comparePlaygroundVariant", "Variant"), kind: .int(1...7), isRequired: false),
+                    ActionArgument(name: "row", title: t("argument.home.comparePlaygroundRow", "Picture Set"), kind: .int(0...1), isRequired: false),
+                    ActionArgument(name: "dark", title: t("argument.home.playgroundDark", "Dark Look"), kind: .bool, isRequired: false),
+                ],
+                mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             // Debug > Chief Teleport Playground: the Chief's location chip variants in every state
-            // (This Mac, cmux Cloud, a Mac mini, moving, failed, rolled back), light and dark.
+            // (This Mac, cmux Cloud, a Mac mini, moving, failed, rolled back, a CLI move, a fork), light and dark.
             ActionDescriptor(
                 id: "home.chiefTeleportPlayground", title: t("action.home.chiefTeleportPlayground", "Chief Teleport Playground"),
                 keywords: ["home", "chief", "teleport", "move", "location", "cloud", "mac mini", "playground", "variants", "debug"],
                 category: .window, symbol: "location.circle", surfaces: [.palette, .menu],
                 arguments: [
-                    ActionArgument(name: "state", title: t("argument.home.teleportPlaygroundState", "Menu State"), kind: .int(0...7), isRequired: false),
+                    ActionArgument(name: "state", title: t("argument.home.teleportPlaygroundState", "Menu State"), kind: .int(0...9), isRequired: false),
                 ],
                 mainMenu: .debug, isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)

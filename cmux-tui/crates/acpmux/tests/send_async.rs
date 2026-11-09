@@ -658,6 +658,7 @@ async fn send_queue_to_a_peer_that_is_down_acks_at_once_and_keeps_trying() {
     let queued =
         ca.call(SEND_QUEUE, json!({"request": prompt("gone/lane", "hi", "p-down")})).await.unwrap();
     assert!(started.elapsed() < ACK, "send_queue took {:?}", started.elapsed());
+    assert_eq!(queued["hostUnreachable"], true, "the answer says the machine is down: {queued}");
     let delivery = queued["deliveryId"].as_str().unwrap().to_owned();
     let status =
         ca.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 3000})).await.unwrap();
@@ -670,6 +671,91 @@ async fn send_queue_to_a_peer_that_is_down_acks_at_once_and_keeps_trying() {
         .await
         .unwrap_err();
     assert!(e.contains("no session"), "{e}");
+}
+
+/// A send to a session a reachable machine does not have is refused at once, naming the
+/// closest names there, never queued (2026-11-05: a send to a process title, not the session's
+/// name, said "queued" and then failed 17 attempts unseen). Part of a name is no name: only its
+/// start finds it (`name_match.rs`, #36878: `b/feed-lane` is the one session `feed-lane-items`).
+#[tokio::test]
+async fn send_queue_to_a_missing_session_fails_fast_with_the_closest_names() {
+    let (a, _b, _id) = busy_peer("nosession", "feed-lane-items").await;
+    let mut ca = C::new(a.clone()).await;
+    let started = Instant::now();
+    let e = ca
+        .call(SEND_QUEUE, json!({"request": prompt("b/lane-items", "hi", "p-missing")}))
+        .await
+        .unwrap_err();
+    assert!(started.elapsed() < ACK, "the refusal took {:?}", started.elapsed());
+    assert!(e.contains("no session lane-items on b"), "{e}");
+    assert!(e.contains("did you mean: feed-lane-items"), "{e}");
+    // A name nothing contains still gets the closest names on that machine.
+    let e = ca
+        .call(SEND_QUEUE, json!({"request": prompt("b/proc-title", "hi", "p-title")}))
+        .await
+        .unwrap_err();
+    assert!(e.contains("no session proc-title on b; did you mean: feed-lane-items"), "{e}");
+    // A session here: the same, with this machine's names.
+    ca.call(
+        method::SESSION_NEW,
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "alpha"}}}),
+    )
+    .await
+    .unwrap();
+    let e = ca
+        .call(SEND_QUEUE, json!({"request": prompt("alpah", "hi", "p-local")}))
+        .await
+        .unwrap_err();
+    assert!(e.contains("no session alpah on ") && e.contains("did you mean: alpha"), "{e}");
+}
+
+/// A message queued while its machine was down, which then answers that it has no such
+/// session, fails on that first answer, `failed: no_session` with the closest names, and is
+/// never tried again.
+#[tokio::test]
+async fn a_queued_message_that_meets_no_session_fails_once_and_stops() {
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let a = hub();
+    a.add_peer("late", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let mut ca = C::new(a.clone()).await;
+    let queued = ca
+        .call(SEND_QUEUE, json!({"request": prompt("late/proc-title", "hi", "p-late")}))
+        .await
+        .unwrap();
+    assert_eq!(queued["hostUnreachable"], true, "{queued}");
+    let delivery = queued["deliveryId"].as_str().unwrap().to_owned();
+    // The machine comes up, with a session of another name.
+    let b = hub();
+    let mut cb = C::new(b.clone()).await;
+    cb.call(
+        method::SESSION_NEW,
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+               "_meta": {"acpmux": {"name": "feed-lane-items"}}}),
+    )
+    .await
+    .unwrap();
+    let l = bind_ws(&format!("127.0.0.1:{port}")).await.unwrap();
+    tokio::spawn(serve_ws_with(b, l, "tok".into(), WsAuth { local_app: None, peer: None }));
+    let deadline = Instant::now() + Duration::from_secs(90);
+    let failed = loop {
+        let status =
+            ca.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 10_000})).await.unwrap();
+        if status["status"] == "failed" {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "never settled: {status}");
+    };
+    assert_eq!(failed["reason"], "no_session", "{failed}");
+    let error = failed["error"].as_str().unwrap();
+    assert!(error.starts_with("no_session: no session proc-title on late"), "{error}");
+    assert!(error.contains("did you mean: feed-lane-items"), "{error}");
+    let attempts = failed["attempts"].as_u64().unwrap();
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let later = ca.call(SEND_STATUS, json!({"deliveryId": delivery})).await.unwrap();
+    assert_eq!(later["attempts"].as_u64().unwrap(), attempts, "tried again: {later}");
+    assert_eq!(later["status"], "failed", "{later}");
 }
 
 /// A session repeating itself to another is paused (`hub/agent_pairs.rs`): the delivery settles
@@ -795,9 +881,13 @@ async fn this_machines_own_name_in_front_of_a_session_name_finds_the_session() {
         c.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 5000})).await.unwrap();
     assert_eq!(status["status"], "delivered", "{status}");
     assert_eq!(status["accepted"]["sessionId"], id, "{status}");
-    // Only the whole name: `own-lan` is a prefix of `own-lane`, but HOST/own-lan finds nothing.
+    // A name's start finds its one session (`name_match.rs`, #36878): HOST/own-lan is own-lane.
+    // A longer name is no name: HOST/own-lanes finds nothing.
     let partial = format!("{}/own-lan", acpmux::pairing::machine_name());
-    let e = c.call(method::MUX_INFO, json!({"sessionId": partial})).await.unwrap_err();
+    let info = c.call(method::MUX_INFO, json!({"sessionId": partial})).await.unwrap();
+    assert_eq!(info["sessionId"], id, "{info}");
+    let longer = format!("{}/own-lanes", acpmux::pairing::machine_name());
+    let e = c.call(method::MUX_INFO, json!({"sessionId": longer})).await.unwrap_err();
     assert!(e.contains("no session"), "{e}");
     // The name in any case: a coordinator writes `Air-Blue` for `air-blue`.
     let upper = format!("{}/own-lane", acpmux::pairing::machine_name().to_uppercase());
@@ -1092,15 +1182,10 @@ async fn a_send_under_cpu_starvation_to_an_unreachable_peer_returns_at_once_and_
     // Still waiting, and listed as such.
     let listed = ca.call(SEND_STATUS, json!({"list": true})).await.unwrap();
     assert_eq!(listed["pending"], 5, "{listed}");
-    // The machine comes back, with the session.
+    // The machine comes back, with the session: it has the session before it answers, as a
+    // restarted daemon has its sessions (a machine that answers without it has no such session,
+    // and the delivery fails: `a_queued_message_that_meets_no_session_fails_once_and_stops`).
     let b = hub();
-    let l = bind_ws(&format!("127.0.0.1:{port}")).await.unwrap();
-    tokio::spawn(serve_ws_with(
-        b.clone(),
-        l,
-        "tok".into(),
-        WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
-    ));
     let mut cb = C::new(b.clone()).await;
     let id = cb
         .call(
@@ -1112,6 +1197,13 @@ async fn a_send_under_cpu_starvation_to_an_unreachable_peer_returns_at_once_and_
         .as_str()
         .unwrap()
         .to_owned();
+    let l = bind_ws(&format!("127.0.0.1:{port}")).await.unwrap();
+    tokio::spawn(serve_ws_with(
+        b.clone(),
+        l,
+        "tok".into(),
+        WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
+    ));
     let came_back = Instant::now();
     for delivery in &deliveries {
         let deadline = Instant::now() + Duration::from_secs(120);

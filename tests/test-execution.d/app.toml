@@ -1,0 +1,22 @@
+# Python test execution registry: tests/test_app_*.py. Keep entries sorted by path;
+# scripts/ci/test_execution_registry.py says how the registry is split and read.
+
+[[test]]
+path = "tests/test_app_crate_licenses.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_ffi_release_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_host_test_products.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_store_rules.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_symbol_map.py"
+lane = "linux-guard"

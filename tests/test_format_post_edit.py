@@ -22,6 +22,8 @@ import git_fixture_env  # disables git auto maintenance
 
 SOURCE = Path(__file__).resolve().parents[1]
 HOOK = "scripts/ci/format-post-edit.sh"
+# How long the real formatter may take, cold, on a loaded runner (s).
+REAL_VP_TIMEOUT_S = 600
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI",
               "CODEX_THREAD_ID", "CODEX_SANDBOX", "CLAUDE_PROJECT_DIR", "CMUX_SKIP_FORMAT_HOOKS")
 UNFORMATTED = "const   value=1\n"
@@ -406,8 +408,13 @@ cat
         probe.write_text("export const   probe=[1,2,\n3]\n")
         env = dict(self.env, CLAUDE_PROJECT_DIR=str(SOURCE))
         payload = {"tool_name": "Write", "tool_input": {"file_path": str(probe)}}
+        # A busy runner makes the real formatter's cold start slower, never a failure: the webview
+        # shard's runner, right after its bundle build, took over 120 s three runs in a row on
+        # cmux#39658 (run 42648794038), which failed the shard's gate and hid every webview test's
+        # verdict. The bound stays finite so a hung hook still fails.
         result = subprocess.run(["bash", str(SOURCE / HOOK)], cwd=SOURCE / "webviews", env=env,
-                                input=json.dumps(payload), text=True, capture_output=True, timeout=120)
+                                input=json.dumps(payload), text=True, capture_output=True,
+                                timeout=REAL_VP_TIMEOUT_S)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(probe.read_text(), "export const probe = [1, 2, 3];\n", result.stderr)
 
