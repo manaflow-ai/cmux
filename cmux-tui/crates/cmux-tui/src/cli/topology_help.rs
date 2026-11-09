@@ -103,7 +103,7 @@ saves a group so it stays when its workspaces close; false unpins it.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), a unique id prefix
-  (pane_3f0a), the bare 32 hex digits (for a terminal also the host
+  (pane_3f0a, 4 hex digits or more), the bare 32 hex digits (for a terminal also the host
   terminal_id that run prints, or a tab or pane id), caller, current, focused
   (the object the person looks at), or an exact name. Prefix name: to a name that looks like an id or a command word.
   caller is the object this command runs in: the cmux terminal or agent chat
@@ -163,7 +163,7 @@ index, and created_screen_id, closed_screen_id and focused_pane_id.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), a unique id prefix
-  (pane_3f0a), the bare 32 hex digits (for a terminal also the host
+  (pane_3f0a, 4 hex digits or more), the bare 32 hex digits (for a terminal also the host
   terminal_id that run prints, or a tab or pane id), caller, current, focused
   (the object the person looks at), or an exact name. An agent name (cmux agent start NAME) or a tab name that is
   unique in the session selects that tab's terminal, tab or pane. Prefix
@@ -220,7 +220,7 @@ image:sha256-<hex> or svg:sha256-<hex> asset; --clear-icon removes it.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), a unique id prefix
-  (pane_3f0a), the bare 32 hex digits (for a terminal also the host
+  (pane_3f0a, 4 hex digits or more), the bare 32 hex digits (for a terminal also the host
   terminal_id that run prints, or a tab or pane id), caller, current, focused
   (the object the person looks at), or an exact name. An agent name (cmux agent start NAME) or a tab name that is
   unique in the session selects that tab's terminal, tab or pane. Prefix
@@ -320,7 +320,7 @@ pattern with (?-m) to match the whole text instead.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), a unique id prefix
-  (pane_3f0a), the bare 32 hex digits (for a terminal also the host
+  (pane_3f0a, 4 hex digits or more), the bare 32 hex digits (for a terminal also the host
   terminal_id that run prints, or a tab or pane id), caller, current, focused
   (the object the person looks at), or an exact name. An agent name (cmux agent start NAME) or a tab name that is
   unique in the session selects that tab's terminal, tab or pane. Prefix

@@ -470,8 +470,10 @@ screen inside the selected session's workspace.
 An instance selector accepts:
 
 - a typed opaque ID such as `ws_…`, `pane_…`, or `term_…`;
-- a unique prefix of such an ID (`pane_3f0a`): two or more objects with that
-  prefix return `selector.ambiguous` with every candidate id;
+- a unique prefix of such an ID with at least 4 hex digits (`pane_3f0a`), for
+  a workspace, screen, pane, tab, terminal or browser: two or more objects
+  with that prefix return `selector.ambiguous` with every candidate id, and a
+  shorter prefix (`pane_3f`) is `validation.invalid`;
 - a bare ID, the 32 hex digits without the prefix; for a terminal also its
   host id (the raw protocol's `terminal_id`, as `run` and `create-terminal`
   return it), and a tab or pane id (the terminal that tab shows, or the

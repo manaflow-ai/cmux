@@ -238,13 +238,19 @@ fn expand_prefix(
     if given != prefix {
         return Ok(None);
     }
-    let mut matches =
-        ids(state, kind).into_iter().filter(|id| id.starts_with(raw)).collect::<Vec<_>>();
+    match_prefix(kind.kind(), raw, ids(state, kind))
+}
+
+/// The one id of `ids` that starts with `raw` (a `kind` id prefix):
+/// `selector.not_found` with the id-shape hint when none does, and
+/// `selector.ambiguous` with every candidate, sorted, when two or more do.
+fn match_prefix(kind: &str, raw: &str, ids: Vec<String>) -> Result<Option<String>, ResourceError> {
+    let mut matches = ids.into_iter().filter(|id| id.starts_with(raw)).collect::<Vec<_>>();
     matches.sort();
     match matches.len() {
         0 => {
-            let mut error = ResourceError::not_found(kind.kind(), raw);
-            error.message = crate::resource::unmatched_id_prefix_message(kind.kind(), raw);
+            let mut error = ResourceError::not_found(kind, raw);
+            error.message = crate::resource::unmatched_id_prefix_message(kind, raw);
             Err(error)
         }
         1 => Ok(matches.pop()),
@@ -254,10 +260,9 @@ fn expand_prefix(
                 "{} {kind}s have ids that start with {raw}: {}; pass more of the id",
                 matches.len(),
                 matches.join(", "),
-                kind = kind.kind(),
             ),
             serde_json::json!({
-                "scope": kind.kind(),
+                "scope": kind,
                 "selector": raw,
                 "candidates": matches,
             }),
@@ -329,3 +334,6 @@ fn shown_terminal(state: &State, tab: &TabPublicId) -> Option<String> {
         ContentPublicId::Browser(_) => None,
     }
 }
+
+#[cfg(test)]
+mod tests;
