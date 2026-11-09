@@ -99,7 +99,7 @@ public final class MarqueeLabel: NSView {
     /// Rolls from `old` to the string just set, as the agent chat's live line rolls a new tool
     /// call (`MotionGate.rollTitle`). Call before the next layout. False when it does not animate.
     @discardableResult
-    public func rollText(from old: String) -> Bool { gate.rollTitle(text, from: old, in: self) }
+    public func rollText(from old: String) -> Bool { gate.rollTitle(text, from: old, flipped: isFlipped, in: self) }
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()

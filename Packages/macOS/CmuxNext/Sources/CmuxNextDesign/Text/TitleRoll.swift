@@ -16,10 +16,12 @@ extension MotionGate {
     /// before the owner lays `text` out again: its frame and mask still fit `old`, and the outgoing
     /// copy takes them. False (nothing added) when movement does not animate (Reduce Motion, speed
     /// off), the view cannot animate, either title is empty or nothing changed; the owner then
-    /// swaps or crossfades as before.
+    /// swaps or crossfades as before. `flipped`: the host's y runs down (a flipped view's space; Core
+    /// Animation's `contentsAreFlipped` misses a plain layer tree inside a flipped view).
     @discardableResult
-    public func rollTitle(_ text: ChromeTextLayer, from old: String, in view: NSView?) -> Bool {
-        guard let host = text.superlayer, !old.isEmpty, !text.string.isEmpty, old != text.string,
+    public func rollTitle(_ text: ChromeTextLayer, from old: String, flipped: Bool, in view: NSView?) -> Bool {
+        // A hidden title (a pinned or narrow tab's) stays hidden: its old words never flash.
+        guard let host = text.superlayer, !text.isHidden, text.opacity > 0, !old.isEmpty, !text.string.isEmpty, old != text.string,
               animatesMovement, canAnimate(in: view), duration(.fadeIn) > 0 else { return false }
         host.sublayers?.filter { $0.name == Self.rollOutName }.forEach { $0.removeFromSuperlayer() }
         let out = ChromeTextLayer()
@@ -32,7 +34,7 @@ extension MotionGate {
         out.contentsScale = text.contentsScale
         out.string = old
         // The 0.6 em the words travel, up on screen whichever way the host's y runs.
-        let rise = (text.font.pointSize * 0.6).rounded() * (host.contentsAreFlipped() ? -1 : 1)
+        let rise = (text.font.pointSize * 0.6).rounded() * (flipped ? -1 : 1)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         out.frame = text.frame

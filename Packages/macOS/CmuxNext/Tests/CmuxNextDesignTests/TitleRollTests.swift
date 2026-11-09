@@ -20,7 +20,7 @@ import Testing
         let host = CALayer()
         let text = title("Fix login", in: host)
         text.string = "Fix the login redirect"
-        #expect(Motion.sidebar.rollTitle(text, from: "Fix login", in: nil))
+        #expect(Motion.sidebar.rollTitle(text, from: "Fix login", flipped: true, in: nil))
         let out = host.sublayers?.compactMap { $0 as? ChromeTextLayer }.first { $0.name == MotionGate.rollOutName }
         #expect(out?.string == "Fix login")
         #expect(out?.frame == text.frame)
@@ -29,6 +29,20 @@ import Testing
         #expect(text.animation(forKey: "opacity") != nil)
         #expect(text.animation(forKey: "transform.translation.y") != nil)
         #expect(text.opacity == 1, "the new words land on the model's opacity")
+        // In a flipped host the old words leave upward: toward smaller y.
+        let travel = out?.animation(forKey: "transform.translation.y") as? CABasicAnimation
+        #expect(((travel?.toValue as? CGFloat) ?? 0) < 0)
+    }
+
+    @Test func aHiddenTitleStaysHiddenThroughARename() {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let host = CALayer()
+        let text = title("Fix login", in: host)
+        text.opacity = 0 // a pinned or narrow tab hides its title
+        text.string = "Renamed"
+        #expect(!Motion.tabs.rollTitle(text, from: "Fix login", flipped: true, in: nil))
+        #expect(host.sublayers?.contains { $0.name == MotionGate.rollOutName } != true)
     }
 
     @Test func aSecondRenameReplacesTheFirstsOutgoingWords() {
@@ -37,9 +51,9 @@ import Testing
         let host = CALayer()
         let text = title("One", in: host)
         text.string = "Two"
-        Motion.sidebar.rollTitle(text, from: "One", in: nil)
+        Motion.sidebar.rollTitle(text, from: "One", flipped: true, in: nil)
         text.string = "Three"
-        Motion.sidebar.rollTitle(text, from: "Two", in: nil)
+        Motion.sidebar.rollTitle(text, from: "Two", flipped: true, in: nil)
         let outs = host.sublayers?.compactMap { $0 as? ChromeTextLayer }.filter { $0.name == MotionGate.rollOutName } ?? []
         #expect(outs.map(\.string) == ["Two"])
     }
@@ -49,11 +63,11 @@ import Testing
         let text = title("Fix login", in: host)
         text.string = "Renamed"
         Motion.reduceMotionOverride = true
-        #expect(!Motion.sidebar.rollTitle(text, from: "Fix login", in: nil))
+        #expect(!Motion.sidebar.rollTitle(text, from: "Fix login", flipped: true, in: nil))
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        #expect(!Motion.sidebar.rollTitle(text, from: "", in: nil))
-        #expect(!Motion.sidebar.rollTitle(text, from: "Renamed", in: nil))
+        #expect(!Motion.sidebar.rollTitle(text, from: "", flipped: true, in: nil))
+        #expect(!Motion.sidebar.rollTitle(text, from: "Renamed", flipped: true, in: nil))
         #expect(host.sublayers?.contains { $0.name == MotionGate.rollOutName } != true)
     }
 }

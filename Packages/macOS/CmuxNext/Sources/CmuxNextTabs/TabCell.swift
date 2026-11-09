@@ -255,7 +255,7 @@ final class TabCell {
         let direct = directTitle
         directTitle = nil
         guard let old, !old.isEmpty, !item.title.isEmpty, item.title != direct else { return }
-        if Motion.tabs.rollTitle(titleLayer, from: drawn, in: nil) { return }
+        if Motion.tabs.rollTitle(titleLayer, from: drawn, flipped: true, in: nil) // the strip's tab layers live in a FlippedView { return }
         let seconds = Motion.tabs.duration(.crossfade)
         guard seconds > 0 else { return }
         let transition = Motion.crossfadeAction
