@@ -172,10 +172,7 @@ export default componentEntry<Props>({
       note: "B when a step runs long (no made-up time), and Bring Back Local.",
       props: {
         toasts: [
-          toast(
-            1,
-            `${moving}\n1 of 4 · Resuming dev · taking longer than usual (usually about 30 s)`,
-          ),
+          toast(1, `${moving}\n1 of 4 · Resuming dev · taking longer than usual (usually about 30 s)`),
           toast(2, `${back}\n2 of 4 · Copying the folder back (38 files) · about 20 s left`),
         ],
       },
