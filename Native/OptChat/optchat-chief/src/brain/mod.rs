@@ -530,9 +530,6 @@ pub enum EngineRequest {
         compactor_harness: Option<String>,
         compactor_model: Option<String>,
         turn_routing: Option<String>,
-        /// The Cloud machine this Chief does computer use on
-        /// (engine.rs `computer`): `machine:<id>`, or `none`/`default` to detach.
-        computer: Option<String>,
         /// The reaction classifier's fields (reaction_wake.rs).
         reactions: Box<ReactionFields>,
     },
@@ -552,6 +549,10 @@ pub struct ReactionFields {
     /// or `unset` to clear), cmux#37392. Not a reaction field: it rides in
     /// this box so `EngineRequest` stays small (clippy large_enum_variant).
     pub permission_mode: Option<String>,
+    /// The Cloud machine this Chief does computer use on (engine.rs
+    /// `computer`, cmux issue 36047): `machine:<id>`, or `none`/`default` to
+    /// detach. Not a reaction field either; boxed here for the same reason.
+    pub computer: Option<String>,
 }
 
 impl From<DaemonEvent> for Input {

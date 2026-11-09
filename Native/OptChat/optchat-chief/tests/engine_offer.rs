@@ -262,7 +262,6 @@ fn the_offered_speeds_follow_the_turn_harness() {
         &mut brain,
         EngineRequest::Set {
             turn_routing: None,
-            computer: None,
             harness: Some("codex".to_owned()),
             model: None,
             effort: None,
@@ -294,7 +293,6 @@ fn the_engine_set_names_the_compactors_harness_and_model_acpmux_has() {
     );
     let set = |compactor_harness: &str, compactor_model: Option<&str>| EngineRequest::Set {
         turn_routing: None,
-        computer: None,
         harness: None,
         model: None,
         effort: None,
@@ -356,7 +354,6 @@ fn a_chief_switches_its_turn_harness_to_uniichat_and_back() {
     );
     let set = |harness: &str| EngineRequest::Set {
         turn_routing: None,
-        computer: None,
         harness: Some(harness.to_owned()),
         model: None,
         effort: None,
@@ -428,7 +425,6 @@ fn the_engine_set_does_not_wait_on_acpmuxs_peers() {
         &mut brain,
         EngineRequest::Set {
             turn_routing: None,
-            computer: None,
             harness: Some("codex".to_owned()),
             model: None,
             effort: None,
@@ -458,7 +454,6 @@ fn a_peer_harness_still_offers_the_peers_models() {
         &mut brain,
         EngineRequest::Set {
             turn_routing: None,
-            computer: None,
             harness: Some("huge-blue/claude-sr".to_owned()),
             model: None,
             effort: None,
@@ -640,7 +635,6 @@ fn an_offer_never_names_a_harness_effort_or_speed_a_set_would_refuse() {
     let set =
         |harness: Option<&str>, effort: Option<&str>, speed: Option<&str>| EngineRequest::Set {
             turn_routing: None,
-            computer: None,
             harness: harness.map(str::to_owned),
             model: None,
             effort: effort.map(str::to_owned),
@@ -741,7 +735,6 @@ fn the_engine_set_takes_the_reaction_classifier() {
     brain.set_reaction_user_settings(None);
     let set = |reactions: ReactionFields| EngineRequest::Set {
         turn_routing: None,
-        computer: None,
         harness: None,
         model: None,
         effort: None,
@@ -850,7 +843,6 @@ fn turn_routing_control_validates_and_clears_without_touching_model() {
         compactor_model: None,
         reactions: Default::default(),
         turn_routing: Some(routing.into()),
-        computer: None,
     };
     assert_eq!(
         engine(&mut brain, EngineRequest::Show)["engine"]["turn_routing"],
@@ -889,9 +881,11 @@ fn computer_control_attaches_a_cloud_machine_and_detaches_it() {
         compactor_speed: None,
         compactor_harness: None,
         compactor_model: None,
-        reactions: Default::default(),
+        reactions: Box::new(optchat_chief::brain::ReactionFields {
+            computer: Some(computer.into()),
+            ..Default::default()
+        }),
         turn_routing: None,
-        computer: Some(computer.into()),
     };
     assert!(engine(&mut brain, EngineRequest::Show)["choice"]["computer"].is_null());
     let attached = engine(&mut brain, set("machine:vm-abc_12"));
@@ -956,7 +950,6 @@ fn permission_mode_control_sets_names_and_clears_the_turn_mode() {
         compactor_harness: None,
         compactor_model: None,
         turn_routing: None,
-        computer: None,
         reactions: Box::new(ReactionFields {
             permission_mode: Some(mode.into()),
             ..ReactionFields::default()

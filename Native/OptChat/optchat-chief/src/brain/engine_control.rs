@@ -80,7 +80,6 @@ impl Brain {
             compactor_harness,
             compactor_model,
             turn_routing,
-            computer,
             reactions,
         } = request
         {
@@ -90,7 +89,7 @@ impl Brain {
                     Err(reason) => return error("invalid_value", reason),
                 }
             }
-            if let Some(value) = computer {
+            if let Some(value) = reactions.computer.clone() {
                 match crate::engine::parse_computer(&value) {
                     Ok(value) => choice.computer = value,
                     Err(reason) => return error("invalid_value", reason),
