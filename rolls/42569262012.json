@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42569262012",
+  "recorded_at": "2026-11-09T05:51:02Z",
+  "reason": "cmux-tui dda267c4a532 changes the image's cmux-tui (pinned 1dea36a86007)",
+  "dry_run": false,
+  "cmux_tui": "dda267c4a532f879b6fd8d811d95291eca8ba39a",
+  "fixes": [
+    {
+      "sha": "dda267c4a532f879b6fd8d811d95291eca8ba39a",
+      "mergedAt": "2026-11-09T05:31:57Z",
+      "subject": "cmux-tui journal: an agent roster replay reads only the kinds it folds (#39183)"
+    },
+    {
+      "sha": "5199a765dde8be18f312eefaab79e018893ec812",
+      "mergedAt": "2026-11-08T21:21:07-08:00",
+      "subject": "feat(chief): MCP hub: the Chief adds MCP servers itself and uses them in code mode"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-09T05:51:02Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
