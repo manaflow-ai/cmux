@@ -46702,6 +46702,37 @@
 
       ],
       "cli" : "guiOnly",
+      "cli_name" : "action sidebar-density-normal",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.density.normal",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Sidebar Density: Normal",
+      "title_key" : "action.sidebar.density.normal",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "guiOnly",
       "cli_name" : "action sidebar-density-comfortable",
       "context_menu" : "offered",
       "context_menus" : [
@@ -55852,10 +55883,24 @@
             },
             {
               "enabled_when" : "can_perform",
+              "id" : "sidebar.density.normal",
+              "kind" : "action",
+              "label" : "Normal Rows",
+              "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
               "id" : "sidebar.density.comfortable",
               "kind" : "action",
               "label" : "Comfortable Rows",
-              "order" : 5,
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -55869,7 +55914,7 @@
               "id" : "sidebar.density.expanded",
               "kind" : "action",
               "label" : "Expanded Rows",
-              "order" : 6,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -55882,7 +55927,7 @@
               "enabled_when" : "can_perform",
               "id" : "sidebar.noFade.on",
               "kind" : "action",
-              "order" : 7,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -55895,7 +55940,7 @@
               "enabled_when" : "can_perform",
               "id" : "sidebar.noFade.off",
               "kind" : "action",
-              "order" : 8,
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -55908,7 +55953,7 @@
               "enabled_when" : "can_perform",
               "id" : "sidebar.controlsOnHover.on",
               "kind" : "action",
-              "order" : 9,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -55921,7 +55966,7 @@
               "enabled_when" : "can_perform",
               "id" : "sidebar.controlsOnHover.off",
               "kind" : "action",
-              "order" : 10,
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -55934,7 +55979,7 @@
               "enabled_when" : "can_perform",
               "id" : "sidebar.floatOnHover.on",
               "kind" : "action",
-              "order" : 11,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -55947,7 +55992,7 @@
               "enabled_when" : "can_perform",
               "id" : "sidebar.floatOnHover.off",
               "kind" : "action",
-              "order" : 12,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -55958,13 +56003,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 13
+              "order" : 14
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 14,
+              "order" : 15,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
