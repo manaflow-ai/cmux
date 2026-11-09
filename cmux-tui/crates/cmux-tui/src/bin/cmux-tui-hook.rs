@@ -80,19 +80,44 @@ pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
 }
 
 fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
-    if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
+    if plugin_copy::stands_down(&args.source, &args.native_event, |name| env::var_os(name)) {
         drain_native_payload()?;
         return Ok(());
     }
+    let context =
+        session_context::applies(&args.source, &args.native_event, |name| env::var_os(name));
+    let route = deliver(&args, exe_prefix)?;
+    if context {
+        // After the handoff: the read connects from a helper thread, which
+        // must not exist when the detached child forks.
+        let (socket, terminal) = route.unzip();
+        // Inside cmux-tui (`exe_prefix` re-enters it) this executable is the
+        // build's CLI; the standalone helper is not.
+        let cli = (!exe_prefix.is_empty())
+            .then(env::current_exe)
+            .and_then(Result::ok)
+            .map(|path| path.canonicalize().unwrap_or(path));
+        session_context::print(socket.as_deref(), terminal.flatten().as_deref(), cli.as_deref());
+    }
+    Ok(())
+}
+
+/// Hands the event to the session journal; the route it used, `None` when
+/// this hook posts nothing.
+fn deliver(args: &Args, exe_prefix: &[&str]) -> anyhow::Result<Option<(PathBuf, Option<String>)>> {
+    if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
+        drain_native_payload()?;
+        return Ok(None);
+    }
     if inherited_route_is_untrusted(&args.source, |name| env::var_os(name)) {
         drain_native_payload()?;
-        return Ok(());
+        return Ok(None);
     }
     let (socket, terminal) = match session_route() {
         Some(route) => route,
         None => {
             drain_native_payload()?;
-            return Ok(());
+            return Ok(None);
         }
     };
     let native = read_native_payload(io::stdin().lock())?;
@@ -106,7 +131,7 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
     let (request_id, encoded) = encode_request(event)?;
     let handoff = handoff_wait(&args.source, &args.native_event);
     match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
-        Handoff::Sent => Ok(()),
+        Handoff::Sent => Ok(Some((socket, terminal))),
         Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
         Handoff::TimedOut => {
             bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
@@ -368,8 +393,18 @@ fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::Joi
     }
 }
 
+/// Where the agent runs, for the model at session start.
+#[path = "cmux-tui-hook/session_context.rs"]
+pub(crate) mod session_context;
+
+/// The Claude Code plugin's copy of the hooks, beside an installed copy.
+#[path = "cmux-tui-hook/plugin_copy.rs"]
+pub(crate) mod plugin_copy;
+
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
-    if source == "codex" && native_event == "SessionEnd" {
+    // Codex SessionStart also reads the session context after the handoff
+    // (session_context.rs, 1.5 s), all inside the 5 s hook timeout.
+    if source == "codex" && matches!(native_event, "SessionEnd" | "SessionStart") {
         CODEX_SESSION_END_HANDOFF_WAIT
     } else {
         HANDOFF_WAIT
@@ -1064,6 +1099,8 @@ mod tests {
     #[test]
     fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
         assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
+        // The session context read (session_context.rs) still fits in 5 s.
+        assert!(handoff_wait("codex", "SessionStart") < Duration::from_secs(3));
         assert!(handoff_wait("codex", "Stop") > SOCKET_TIMEOUT);
         assert!(handoff_wait("claude", "SessionEnd") > SOCKET_TIMEOUT);
     }
