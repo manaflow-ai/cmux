@@ -1,0 +1,190 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42673188963",
+  "recorded_at": "2026-11-09T18:24:19Z",
+  "reason": "cmux-tui 27a62856db3a changes the image's cmux-tui (pinned 9b73c8c5f61a)",
+  "dry_run": false,
+  "cmux_tui": "27a62856db3ad81aba92bb50b13d8feb33c6638c",
+  "fixes": [
+    {
+      "sha": "27a62856db3ad81aba92bb50b13d8feb33c6638c",
+      "mergedAt": "2026-11-09T08:51:37-08:00",
+      "subject": "cmux-tui test: a phone's side chat is refused on its carrier channel (base red) (#39744)"
+    },
+    {
+      "sha": "e56b31c7773ca2ec29921a890d30bbab0ecd6c28",
+      "mergedAt": "2026-11-09T08:46:08-08:00",
+      "subject": "cmux-daemon-conn-core: a sent action is never settled late or twice, and a failed replay stays sent (#39735)"
+    },
+    {
+      "sha": "45718f5516290ef87e1f0fcb638ee1ef870ffc14",
+      "mergedAt": "2026-11-09T08:44:20-08:00",
+      "subject": "cmux-command-class: fail closed on flags and programs that run or write (#37800 follow-ups) (#37827)"
+    },
+    {
+      "sha": "1e3f083ed6423d73da5e200fe3ed7b2d661ececd",
+      "mergedAt": "2026-11-09T08:44:06-08:00",
+      "subject": "Right-side opens: chats adopt the prewarmed page again; a subagent's page skips the chat's other lines (#39649)"
+    },
+    {
+      "sha": "57dad519a47c65f62318bfbac4179ed4df3795f8",
+      "mergedAt": "2026-11-09T08:25:14-08:00",
+      "subject": "carrier: ssh is the dial's backup route behind the relay (S6 G4) (#39581)"
+    },
+    {
+      "sha": "622cc69f3e8ef98e3ed1565e11c3b1fe79f6eaf0",
+      "mergedAt": "2026-11-09T16:25:06Z",
+      "subject": "Tunnel rekey keeps its pending key when a success answer names no key (#39678)"
+    },
+    {
+      "sha": "7fc08af4bb0513943ee74816c7dfabc49bf2bd0f",
+      "mergedAt": "2026-11-09T08:21:41-08:00",
+      "subject": "cmux-daemon-conn-core: a timed-out action is never refused for certain (#39187)"
+    },
+    {
+      "sha": "8d4c1fd64db0600967113b7f614e856f9c5a5a84",
+      "mergedAt": "2026-11-09T08:18:21-08:00",
+      "subject": "acpmux: a workflow a subagent starts runs as that subagent (W5-M a) (#39667)"
+    },
+    {
+      "sha": "9a36fa3b20134683859ffb925d254d1e5a3ad7aa",
+      "mergedAt": "2026-11-09T08:17:32-08:00",
+      "subject": "Sidebar live status line for long-running work, fed by pinned terminals (#39294)"
+    },
+    {
+      "sha": "7b137e46fab56077fa9adcb9257bb9ee80a88933",
+      "mergedAt": "2026-11-09T08:17:22-08:00",
+      "subject": "cmux-tui: a prompt waits 30 s for acpmux's acceptance, so a cold chat's first prompt is not refused (#39719)"
+    },
+    {
+      "sha": "ca82a91322762f7abeeae697b5cfd09cc25173c0",
+      "mergedAt": "2026-11-09T08:00:24-08:00",
+      "subject": "acpmux: a no-prompt preset approved once runs agents' chats on other machines unattended (#39333)"
+    },
+    {
+      "sha": "d2dc5c96adf55b7876229b868cdb0bac46f2d36f",
+      "mergedAt": "2026-11-09T07:58:19-08:00",
+      "subject": "acpmux: peer_overlay_tests imports Carrier only on Linux, where its one use is (#39705)"
+    },
+    {
+      "sha": "fcf6b9910515bd020bb67eaf89faca28be5e6636",
+      "mergedAt": "2026-11-09T07:56:00-08:00",
+      "subject": "fix(cmux-tui): on Windows a session guard counts as held only while its volume and file id match (#39699)"
+    },
+    {
+      "sha": "fe273bc6a2f64e85d7a3a0317b5026bc4debb7cf",
+      "mergedAt": "2026-11-09T07:48:55-08:00",
+      "subject": "cmux-tui-core: attached terminals do not count toward the reap grace cap; the reap close re-checks attach streams under its locks (#39574)"
+    },
+    {
+      "sha": "a7758c301fb24cabf6d59d5b0d4f07ab09943c2a",
+      "mergedAt": "2026-11-09T07:47:44-08:00",
+      "subject": "cmux-tui: output cleanup builds the new registry in the background; the swap at open finishes a short tail (#39438)"
+    },
+    {
+      "sha": "afd4e9c7e8264ba373ec9cc84324582a67b62195",
+      "mergedAt": "2026-11-09T07:46:12-08:00",
+      "subject": "cmux-tui: W5-Q follow-up 3: racing appends keep saved replies, receipt unknown on failed reads, contract says ended, split color reply limit (#39703)"
+    },
+    {
+      "sha": "0cf9dcdba13a06f1de66f0963aefe9accc50fa7e",
+      "mergedAt": "2026-11-09T07:45:19-08:00",
+      "subject": "acpmux: a one-session update costs the same at 3,000 sessions (#39297)"
+    },
+    {
+      "sha": "780fd0c1b7c9b9a567eb8d95e0fd9d5c8b7d84fe",
+      "mergedAt": "2026-11-09T07:45:17-08:00",
+      "subject": "acpmux: the ACPMUX_BIN wrapper's folder is private, its path absolute, dead temporaries removed (F1, F2, F5, F7 of #39020) (#39613)"
+    },
+    {
+      "sha": "e0c2bbe3c8b80cd4163a35eb97c83b3cdbbcdf78",
+      "mergedAt": "2026-11-09T07:44:39-08:00",
+      "subject": "fix(cmux-tui): the end of a host stream keeps a deferred cell-pixel waiter whose ack is queued (#39691)"
+    },
+    {
+      "sha": "94601d99c9da65f4218374243d4a2d8a0e75987c",
+      "mergedAt": "2026-11-09T07:38:35-08:00",
+      "subject": "Remote chat video: stream a remote or Cloud chat's video from its machine; say so when nothing can play it (#39449)"
+    },
+    {
+      "sha": "691ea7d264ad9c5147c0470dff15844b01dfda4f",
+      "mergedAt": "2026-11-09T07:25:01-08:00",
+      "subject": "acpmux: provider keys reach only multi-provider harnesses, wait for them after a cached start; base URLs stay out of the login cache (#39378)"
+    },
+    {
+      "sha": "72dd95ee75995b36462bddda9f595afab777b052",
+      "mergedAt": "2026-11-09T07:11:04-08:00",
+      "subject": "Shared chat commands can start in Cloud: /cd --on cloud, cmux chat --environment (#39599)"
+    },
+    {
+      "sha": "37d9283a985e0af5e23d598aa4741b38b6e84520",
+      "mergedAt": "2026-11-09T15:10:44Z",
+      "subject": "chore(next): base autofix at ce98e60ee824"
+    },
+    {
+      "sha": "ede2e1b82d27d09073444d945b9ce23911a9615d",
+      "mergedAt": "2026-11-09T07:03:28-08:00",
+      "subject": "acpmux: talk to Claude desktop sessions (deliver into a watched chat; behind a setting) (#38393)"
+    },
+    {
+      "sha": "a2e6debbaa10b8389b8c79b391bf5e646299758b",
+      "mergedAt": "2026-11-09T07:02:51-08:00",
+      "subject": "cmux-remote: a deterministic carrier simulation with seeded faults (#38335)"
+    },
+    {
+      "sha": "5ab9029f457ee78a545e844a128680f34bf618f0",
+      "mergedAt": "2026-11-09T07:00:34-08:00",
+      "subject": "cmux-tui: W5-Q follow-up 2: kept reply on a new append only, Alt+] digit quiet release, identify CMUX_TUI_CLI file check, ended status word, receipt status read retry, hidden ended count, live lifecycle allow-list (#39602)"
+    },
+    {
+      "sha": "069e6f20a78e1425baba2194d0e347dfa666d1a7",
+      "mergedAt": "2026-11-09T06:59:51-08:00",
+      "subject": "fix(cmux-tui): the unowned host reaper covers builds/<key> roots and prunes empty roots past its cap (#39541)"
+    },
+    {
+      "sha": "ab644fb7bd5e41d6f0607bd6c4663affb0055dd0",
+      "mergedAt": "2026-11-09T06:59:26-08:00",
+      "subject": "cmux-cloud-start-core: a secrets file of any size is applied (#39537)"
+    },
+    {
+      "sha": "4325027220ce2c9168c7697d24322648cb142b41",
+      "mergedAt": "2026-11-09T06:55:36-08:00",
+      "subject": "acpmux history: show where a turn's wait went (agent start, prompt to agent, model's first output) (#39622)"
+    },
+    {
+      "sha": "e133d1c5234d6cb35eb978d066759da49764b403",
+      "mergedAt": "2026-11-09T06:46:09-08:00",
+      "subject": "acpmux new --reuse finds a session named in another case (#39636)"
+    },
+    {
+      "sha": "f7b0ed9aa196e4db244f3b4dd8f631cda3d28500",
+      "mergedAt": "2026-11-09T06:43:57-08:00",
+      "subject": "Agent chat: a reply's \"tests pass\" gets a badge its own runs back or don't (#39244)"
+    },
+    {
+      "sha": "4891646db85b587fd5e0099e0eac11b277034123",
+      "mergedAt": "2026-11-09T06:34:41-08:00",
+      "subject": "Cloud tunnel attach, detach and rekey go through acpmux, not classic /api/vm (#38882)"
+    },
+    {
+      "sha": "e8992637dcf441b26af44ac64078a74dcea90d65",
+      "mergedAt": "2026-11-09T06:29:56-08:00",
+      "subject": "cmux NEXT composer: the model menu lists models at once; right-click the model chip to customize it (#39080)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "abandoned",
+    "done_at": "2026-11-09T18:24:19Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
