@@ -80,7 +80,8 @@ pub(super) fn mark(plan: &RequestPlan, result: &mut Value) {
 
 /// 124 for a terminal wait whose time ran out, `None` for any other answer.
 pub(super) fn exit_code(plan: &RequestPlan, result: &Value) -> Option<i32> {
-    let caller_reads = std::env::var_os(CALLER_READS_TIMEOUT_EXIT).is_some_and(|value| value == "1");
+    let caller_reads =
+        std::env::var_os(CALLER_READS_TIMEOUT_EXIT).is_some_and(|value| value == "1");
     exit_code_with(plan, result, Path::new(GUEST_ADAPTER), caller_reads)
 }
 
