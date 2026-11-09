@@ -1825,7 +1825,7 @@ class StrandedCancel(unittest.TestCase):
         # (scripts/ci/cmux_next_dev_publish_supersede.py) and logs no rescue mark: no watch re-runs it.
         clock = Clock()
         api = CancelledAPI(clock, cancelled=True, note=f"The run was canceled by @{ACTIONS_BOT}.")
-        clock.sleep(60)
+        clock.advance(60)
         self.assertEqual(self.follow(api, clock), f"stopped: the run was cancelled by @{ACTIONS_BOT}; left cancelled")
         self.assertEqual(mutations(api), [])
 
