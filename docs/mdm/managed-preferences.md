@@ -186,11 +186,11 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.glassTransparency` | real | `0` | 0 to 1 | Glass Transparency. How much of the desktop or wallpaper shows through the glass. |
 | `appearance.hue` | real | `0.5` | 0 to 1 | Hue. Shift the tint color around the hue wheel. |
 | `appearance.saturation` | real | `1` | 0 to 2 | Saturation. Increase or reduce the tint color intensity. |
-| `appearance.density` | string | `"compact"` | `ultraCompact`, `compact`, `cozy`, `comfortable`, `spacious` | Density. Row height, padding, corners, icons and text size together. Compact is the default. |
+| `appearance.density` | string | `"cozy"` | `ultraCompact`, `compact`, `cozy`, `comfortable`, `spacious` | Density. Row height, padding, corners, icons and text size together. |
 | `appearance.customDensity` | string |  |  | Custom Density |
 | `appearance.customDensities` | string | `[]` |  | Custom Densities |
-| `app.uiScale` | real | `1` | 0.85 to 1.5 | Interface Scale |
-| `appearance.metrics.chromeFontSize` | real |  | 10 to 16 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
+| `app.uiScale` | real | `1` | 0.85 to 1.5 | App Zoom. Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app. |
+| `appearance.metrics.chromeFontSize` | real |  | 10 to 16 | Text Size. Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size. |
 | `appearance.interfaceScale` | real |  | 0.9 to 1.25 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
 | `appearance.metrics.sidebarWidth` | real |  | 160 to 420 | Sidebar Width |
 | `appearance.metrics.columnGap` | real |  | 0 to 24 | Column Gap |
