@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42680439943",
+  "recorded_at": "2026-11-09T19:25:40Z",
+  "reason": "cmux-tui 0e43718c567f changes the image's cmux-tui (pinned 0dff336f5759)",
+  "dry_run": false,
+  "cmux_tui": "0e43718c567fb5036b15f8c5b31bb8089509e4b6",
+  "fixes": [
+    {
+      "sha": "0e43718c567fb5036b15f8c5b31bb8089509e4b6",
+      "mergedAt": "2026-11-09T10:32:54-08:00",
+      "subject": "acpmux desktop link: Claude desktop, Claude Code and Codex get the cmux tools (#39320)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T19:25:40Z",
+    "snapshot_id": "sh-03ba765c5d534687a5937862e581b829",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42680439943): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9c5d307ca10f1d551366ad21ed7bad0940d17082",
+    "image": "cloud-native-auto-0e43718c-42680439943-1",
+    "revision": "ci-42680439943-1",
+    "at": "2026-11-09T19:25:40Z"
+  },
+  "rolled_back": false
+}
