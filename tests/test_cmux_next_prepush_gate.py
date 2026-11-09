@@ -213,6 +213,8 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/web_lint_prepush.py",
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
+            # CI's crash ratchet comparison: the gate's crash ratchet layer runs it (origin/feat-cmux-next's for the hook).
+            "scripts/ci/crash_ratchet_compare.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
