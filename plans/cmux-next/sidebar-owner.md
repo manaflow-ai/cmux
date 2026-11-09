@@ -9,6 +9,15 @@
   row's fills: the hover fill only where `showsHoverFills` is on, the selection fill under a drop (review F1, F2). An opt-out of Lawrence's visible-background invariant (2026-11-05 below) that only the person picks; Automatic
   stays the default. Gallery: Sidebar States Playground > Group backgrounds (Sections, Sections hovered). Regression:
   `GroupHeaderSectionsTests`.
+- 2026-11-07: Cmd-1…9 count the rows the sidebar draws. Leo: "when I command 1 2 3 4 5 6 7, right, when I do that
+  around an area that has a group at the, like, immediate top or bottom, it messes things up. It messes things up a
+  ton." `itemOrder` laid rows out without the Done fold and the row limit, so a member folded into "Done (N)" (or
+  behind "Show N more") was a number stop: digits after it landed one row early and selecting it unfolded and refolded
+  rows. The order now starts from the list's own `rowOptions()` (opened folds live on the model), and a selected
+  folded member steps from where it draws. A reveal no longer takes a collapsed group above the selection as its
+  header, nor scrolls to the end past collapsed groups below; a known workspace listed again (a collapsed group's
+  member) animates into its gap instead of the new-row snap. Regression: `SidebarStepThroughGroupsTests`,
+  `ShortcutHintSidebarSlotsTests`, `SidebarRevealSelectionTests`.
 - 2026-11-09: a row patch with the list attached copies no node list. Leo, verbatim: "never ... acceptable ...
   linear time growth degradation". `patchRowsNow` cached the model's section and group again on each patch, so the
   list's cache shared the model's storage and the model's next in-place write copied the section's whole node list.
@@ -1845,6 +1854,15 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - The App reads and answers through the approval banners' `AcpmuxApprovalAnswerer` (`SidebarApprovals`, in
   CmuxNextAgentLanes); a question, several prompts or another machine's chat keeps the old row. Tests:
   `SidebarApprovalAnswerTests`.
+
+## The sidebar says when this Mac's sessions are restoring (2026-11-08, #39186)
+
+- Leo 2026-11-08 (softened): "me trying to click into any other chat in the sidebar doesn't work"; a 30-minute
+  restore after an app restart said only that the background service isn't connected.
+- While `server ensure` reports restore progress, the sidebar's notice card shows "Restoring sessions… 4m 12s"
+  (`SidebarNoticeCard.restoring`): the update status's look (text at the card's padding, the bar's sweep), no
+  leading spinner, no button and no x. The App shows it until the sessions connect. No row, group or rail changes.
+  Tests: `DaemonRestoreProgressTests`.
 
 ## Reviewed behavior-only commits
 
