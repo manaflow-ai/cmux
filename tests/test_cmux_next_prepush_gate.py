@@ -1817,6 +1817,33 @@ mod tests {
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_a_lock_unwrap_in_a_path_declared_test_module_passes(self):
+        # cmux-vnc's session.rs declares `#[cfg(test)] #[path = "session_backpressure.rs"] mod ...;`: that file is test
+        # code for CI's ratchet (rust_test_modules reads the #[path] line in any file). The gate's trees held only the
+        # changed file, so it counted the file's unwraps as production code and refused a push CI passes (review of
+        # #39767). The same for a #[path] that names a file in another folder, and a folder below a #[path] module.
+        crate = "cmux-tui/crates/cmux-vnc/src"
+        self.write(f"{crate}/lib.rs", "pub mod session;\npub mod net;\n")
+        self.write(f"{crate}/session.rs", self.RUST_CLEAN + '\n#[cfg(test)]\n#[path = "session_backpressure.rs"]\n'
+                   "mod backpressure_tests;\n")
+        self.write(f"{crate}/session_backpressure.rs", "#[test]\nfn reads() {}\n")
+        self.write(f"{crate}/net/mod.rs", '#[cfg(test)]\n#[path = "../fixtures_net/wire.rs"]\nmod wire;\n')
+        self.write(f"{crate}/fixtures_net/wire.rs", "#[test]\nfn wire() {}\n")
+        self.write(f"{crate}/fixtures_net/wire/frames.rs", "#[test]\nfn frames() {}\n")
+        self.commit("base: test modules declared with #[path]")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        unwrap = "\n#[test]\nfn locks() {\n    let state = std::sync::Mutex::new(1);\n    assert_eq!(*state.lock().unwrap(), 1);\n}\n"
+        for path in ("session_backpressure.rs", "fixtures_net/wire.rs", "fixtures_net/wire/frames.rs"):
+            self.write(f"{crate}/{path}", (self.repo / crate / path).read_text() + unwrap)
+        self.commit("lock().unwrap() in #[path] test modules")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("[crash-ratchet]", output)
+
     # A ratchet row a push lowers or deletes with the sites it removes (lead 2026-11-03, #33091): the installed
     # baseline cannot know the push lowered it, so it read the fix as "fewer than the baseline" and refused it. Each
     # tree reads its own row where that is lower; a raise or a new row still reads the installed copy.
