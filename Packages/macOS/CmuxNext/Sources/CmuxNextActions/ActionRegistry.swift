@@ -67,6 +67,9 @@ public final class ActionRegistry {
     /// leaves the palette, menus and context menus, and a run is refused with this reason (the
     /// person's own choice, not `DisabledFeatures`). The App installs it.
     @ObservationIgnored public var settingOffReason: @MainActor (ActionID) -> String? = { _ in nil }
+    /// Debug-only actions: offered to the person only while Internal Developer Mode is on, to scripts
+    /// wherever developer tools exist (`DebugActionGate`). The App installs the setting's read.
+    @ObservationIgnored public var debugActions = DebugActionGate()
     /// The person's arrangement of each right-click menu (cmux.json `contextMenus.layouts`,
     /// ``ContextMenuLayout``); a menu without one is drawn as generated.
     public var contextMenuLayouts: [ActionMenuContext: ContextMenuLayout] = [:]
