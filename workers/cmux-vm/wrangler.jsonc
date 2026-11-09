@@ -48,6 +48,9 @@
     "preview": {
       "name": "cmux-vm-preview",
       "workers_dev": true,
+      // The tunnel orphan sweep runs wherever the VM API runs (src/cron-plan.ts): a revoke's 200 relies on it. In
+      // preview the cron runs only that sweep.
+      "triggers": { "crons": ["*/5 * * * *"] },
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
       "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
       "vars": {

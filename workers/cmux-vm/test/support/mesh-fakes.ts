@@ -62,6 +62,11 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   /** While set, the next successful reconcile compare-and-set waits for this promise after it wrote. */
   let reconcileHold: { readonly reached: () => void; readonly gate: Promise<void> } | null = null;
   let inventoryRead: (() => void) | null = null;
+  /** Set: the next successful intent commit tombstones its intent at once, and the ACL read after it fails. */
+  let revokeAfterCommit = false;
+  let failNextAcl = false;
+  /** The per-tunnel endpoint names do not resolve. */
+  let endpointDnsDown = false;
   const failingLayer = Layer.effect(
     MeshStore,
     Effect.map(MeshStore, (inner) => ({
@@ -107,7 +112,22 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
           commitFailures -= 1;
           return Effect.fail(new StoreError({ operation: "intent.commit", cause: "injected" }));
         }
-        return inner.commitDeviceIntent(...args);
+        return inner.commitDeviceIntent(...args).pipe(
+          Effect.tap((committed) => {
+            if (!committed || !revokeAfterCommit) return Effect.void;
+            revokeAfterCommit = false;
+            failNextAcl = true;
+            const [tenantId, , device, at] = args;
+            return inner.revokeIntentOfDevice(tenantId, device.deviceId, at);
+          }),
+        );
+      },
+      currentAcl: (...args: Parameters<typeof inner.currentAcl>) => {
+        if (failNextAcl) {
+          failNextAcl = false;
+          return Effect.fail(new StoreError({ operation: "mesh.currentAcl", cause: "injected" }));
+        }
+        return inner.currentAcl(...args);
       },
       recordRule: (tenantId: Parameters<typeof inner.recordRule>[0], rule: Parameters<typeof inner.recordRule>[1]) => {
         if (recordFailures > 0) {
@@ -203,7 +223,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     if (url.hostname === "cloudflare-dns.com") {
       // DNS over HTTPS for the per-tunnel endpoint names: they all resolve to one gateway.
       const host = url.searchParams.get("name") ?? "";
-      return host.endsWith(".beta-vpn.example") ? json({ Status: 0, Answer: [{ name: host, type: 1, TTL: 60, data: "203.0.113.30" }] }) : json({ Status: 3 });
+      return host.endsWith(".beta-vpn.example") && !endpointDnsDown ? json({ Status: 0, Answer: [{ name: host, type: 1, TTL: 60, data: "203.0.113.30" }] }) : json({ Status: 3 });
     }
     const path = url.pathname;
     const method = request.method;
@@ -472,6 +492,14 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     /** The next `times` intent revocations by a device's delete fail. */
     failIntentOfDeviceRevokes(times: number) {
       intentOfDeviceFailures = times;
+    },
+    /** The next intent commit is tombstoned right after it lands (a revoke between commit and ACL), and its ACL apply fails. */
+    revokeAndFailAclAfterNextCommit() {
+      revokeAfterCommit = true;
+    },
+    /** The tunnel endpoint names stop (or start again) resolving. */
+    failEndpointDns(on: boolean) {
+      endpointDnsDown = on;
     },
     /** The next `times` releases of a deleted device's commit fail. */
     failReleaseCommits(times: number) {
