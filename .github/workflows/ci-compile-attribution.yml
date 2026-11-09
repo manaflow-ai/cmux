@@ -318,7 +318,8 @@ jobs:
           claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
             --allowedTools "Read,Edit,Glob,Grep" --disallowedTools "Bash,WebFetch,WebSearch" \
             --max-turns 40 --output-format json --json-schema "$schema" > "$RUNNER_TEMP/fixer.json"
-          python3 - "$RUNNER_TEMP/fixer.json" <<'PY' >> "$GITHUB_OUTPUT"
+          # Isolated (-I): the root, where the fixer writes, is not on the import path.
+          python3 -I - "$RUNNER_TEMP/fixer.json" <<'PY' >> "$GITHUB_OUTPUT"
           import json, sys
           data = json.load(open(sys.argv[1]))
           out = data.get("structured_output") or {}
@@ -335,6 +336,10 @@ jobs:
 
       # A fixer that did not finish (no token, an outage) decides nothing:
       # no fix and no revert, and the culprit comment still stands.
+      # Every file git does not track goes first: a fix commits tracked files
+      # only (commit -a), and a module the fixer added (json.py at the root or
+      # beside a script) must not be imported by the python3 runs below, which
+      # hold APP_TOKEN. They also run isolated (-I).
       - name: Keep only a small mechanical diff
         id: diff
         if: ${{ steps.head.outputs.current == 'true' && steps.fixer.outcome == 'success' && steps.fixer.outputs.decided == 'true' }}
@@ -342,6 +347,7 @@ jobs:
           MECHANICAL: ${{ steps.fixer.outputs.mechanical }}
         run: |
           set -euo pipefail
+          git clean -ffdxq
           changed="$(git diff --numstat | awk '{s += $1 + $2} END {print s + 0}')"
           files="$(git diff --name-only | wc -l | tr -d ' ')"
           echo "The fixer changed $changed lines in $files files (mechanical: ${MECHANICAL:-unknown})." >> "$GITHUB_STEP_SUMMARY"
@@ -383,9 +389,9 @@ jobs:
           REVERT_LABEL: compile-revert
         run: |
           set -euo pipefail
-          python3 scripts/ci/main_compile_attribution.py pr-text --report "$REPORT" --kind "$KIND" \
+          python3 -I scripts/ci/main_compile_attribution.py pr-text --report "$REPORT" --kind "$KIND" \
             --summary "${SUMMARY:-}" --out "$RUNNER_TEMP/pr.json"
-          field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$RUNNER_TEMP/pr.json" "$1"; }
+          field() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$RUNNER_TEMP/pr.json" "$1"; }
           branch="$(field branch)"
           git config user.name "cmux compile attribution"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -437,5 +443,5 @@ jobs:
           FIX_PR: ${{ steps.pr.outputs.fix }}
           REVERT_PR: ${{ steps.pr.outputs.revert }}
         run: |
-          python3 scripts/ci/main_compile_attribution.py report \
+          python3 -I scripts/ci/main_compile_attribution.py report \
             --report "$RUNNER_TEMP/compile-report/compile-report.json" --fix-pr "$FIX_PR" --revert-pr "$REVERT_PR"
