@@ -138,7 +138,11 @@ const READS_KEPT = 64;
 function readVideo(path: string): Promise<VideoInfo | undefined> {
   let read = reads.get(path);
   if (!read) {
-    read = callChipHost("video.info", { src: path }).then(parseVideoInfo, () => undefined);
+    // A refusal is not kept: a host not ready yet (a reload, a reconnect) is asked again by the next tile.
+    read = callChipHost("video.info", { src: path }).then(parseVideoInfo, () => {
+      reads.delete(path);
+      return undefined;
+    });
     reads.set(path, read);
     if (reads.size > READS_KEPT) reads.delete(reads.keys().next().value!);
   }

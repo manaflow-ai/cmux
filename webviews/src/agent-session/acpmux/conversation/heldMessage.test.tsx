@@ -482,7 +482,7 @@ test("a held card shows its record's whole text and every attachment", async () 
           { kind: "document", name: "spec.pdf", mimeType: "application/pdf", size: 2048, pageCount: 3 },
           { kind: "audio", name: "note.m4a", mimeType: "audio/mp4", size: 4096 },
           { kind: "resource_link", name: "retry.ts", uri: "file:///repo/src/retry.ts", mimeType: "text/plain" },
-          { kind: "resource_link", name: "repro.mov", uri: "file:///repo/repro.mov", mimeType: "video/quicktime" },
+          { kind: "resource_link", name: "repro.mov", uri: "file:///repo/repro.mov" },
         ],
         _meta: fromCyMeta,
       },

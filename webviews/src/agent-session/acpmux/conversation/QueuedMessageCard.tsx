@@ -29,6 +29,7 @@ import { MessageFooterRow } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 import { heldLook, heldFiles } from "./queuedMessageCardModel";
 import { sentVideosOf } from "./sentVideos";
+import { withoutVideoFrames } from "../composer/videoPrompt";
 
 /// What the ⋯ menu does (App.tsx, through TurnActions `queuedMessages`); each is false once the
 /// message started. `edit`, `sideChat`, `position` and `move` serve the person's own queue rows.
@@ -169,7 +170,14 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
   };
   const answers = held && act?.answerHeld !== undefined;
   const look = heldLook();
-  const videos = useMemo(() => sentVideosOf(row), [row]);
+  // A video is its tile, as in a sent prompt (UserBubble.tsx): not also a chip, nor its frames.
+  const { videos, files, images } = useMemo(() => {
+    const videos = sentVideosOf(row);
+    const files = heldFiles(row.inlineParts).filter(
+      (file) => !videos.some((video) => video.name === file.name && video.path === file.path),
+    );
+    return { videos, files, images: withoutVideoFrames(row).images };
+  }, [row]);
   const button = (approve: boolean) => (
     <button
       type="button"
@@ -234,8 +242,8 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
         message={message}
         person={queued.person}
         whole
-        files={heldFiles(row.inlineParts)}
-        images={row.images}
+        files={files}
+        images={images}
         videos={videos}
         onOpen={() => undefined}
         actions={
