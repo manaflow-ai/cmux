@@ -16,15 +16,16 @@ export type SteerActions = {
   stop(item: SteerItem): Promise<unknown>;
   /// Forks the chat as it is now, its own turn going on.
   fork(item: SteerItem): Promise<unknown>;
-  /// Opens the chat (and closes the queue); a typed line goes on in its composer.
-  open(item: SteerItem, draft?: string): void;
+  /// Opens the chat and then closes the queue; a typed line goes on in its composer.
+  open(item: SteerItem, draft?: string): Promise<unknown>;
 };
 
 /// How a row draws: two lines with the live step under the title (`rows`, the default), one line
 /// each (`compact`), or rows beside the focused chat's whole line and its last step (`split`).
 export type SteerQueueLook = "rows" | "compact" | "split";
 
-type Step = { sessionId: string; act: SteerActKind; state: "sending" | "done" | "failed" };
+/// An open never reads as done: the queue closes when it lands.
+type Step = { sessionId: string; act: SteerActKind | "open"; state: "sending" | "done" | "failed" };
 
 /// How long a row says what was done before it reads as the chat again.
 const DONE_MS = 2_400;
@@ -127,8 +128,14 @@ export function SteerQueue({
       if (focused.running && typed) run(focused, "redirect", () => actions.redirect(focused, typed), typed);
     } else if (event.key === "Enter" && !event.shiftKey) {
       // A chat that waits on the person is answered in it: its ask has its own card there.
-      if (!typed || focused.reason === "ask") actions.open(focused, typed || undefined);
-      else run(focused, focused.running ? "steer" : "reply", () => actions.steer(focused, typed), typed);
+      if (!typed || focused.reason === "ask") {
+        if (step?.state === "sending") return;
+        const item = focused;
+        setStep({ sessionId: item.sessionId, act: "open", state: "sending" });
+        actions
+          .open(item, typed || undefined)
+          .catch(() => setStep({ sessionId: item.sessionId, act: "open", state: "failed" }));
+      } else run(focused, focused.running ? "steer" : "reply", () => actions.steer(focused, typed), typed);
     } else used = false;
     if (used) event.preventDefault();
   };
@@ -227,9 +234,12 @@ function SteerRow({
   look: SteerQueueLook;
 }) {
   const t = useT();
+  // The last thing the person did shows until the chat moves on from it: then its ask, error or
+  // step under way is what the row is for.
+  const answered = item.line !== undefined && item.at !== undefined && item.last && item.at > item.last.at;
   const said = step
     ? stepLabel(step, t)
-    : item.last
+    : item.last && !answered
       ? `${t(`steerQueue.act.${item.last.act}`)} · ${shortAge(item.last.at, now, t)}`
       : undefined;
   return (
@@ -274,7 +284,7 @@ function SteerDetail({ item, now }: { item: SteerItem; now: number }) {
 function stepLabel(step: Step, t: ReturnType<typeof useT>): string {
   if (step.state === "sending") return t("steerQueue.state.sending");
   if (step.state === "failed") return t("steerQueue.state.failed");
-  return t(`steerQueue.act.${step.act}`);
+  return step.act === "open" ? t("steerQueue.state.sending") : t(`steerQueue.act.${step.act}`);
 }
 
 function Hint({ keys, label }: { keys: string; label: string }) {

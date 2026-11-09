@@ -89,7 +89,7 @@ const actions: SteerActions = {
   redirect: async () => undefined,
   stop: async () => undefined,
   fork: async () => undefined,
-  open: () => undefined,
+  open: async () => undefined,
 };
 
 type Props = { look: SteerQueueLook; empty?: boolean; focus?: string };

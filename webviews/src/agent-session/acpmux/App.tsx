@@ -9207,16 +9207,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         await openChat(item.sessionId);
         if ((await callNative("chat.forkTo", {})) === undefined) throw new Error(translate("steerQueue.state.failed"));
       },
-      // A line typed for a chat that waits on the person goes on in that chat's composer, ahead of
-      // what it holds, so closing the queue loses nothing.
-      open: (item, draft) => {
+      // The queue closes once the chat is drawn, and a line typed for it goes on in its composer,
+      // ahead of what it holds: a refused switch keeps the queue and the line.
+      open: async (item, draft) => {
+        await openChat(item.sessionId);
         setSteering(false);
-        void openChat(item.sessionId).then(
-          () => {
-            if (draft) composerHandle.current?.prefill(`${draft} `);
-          },
-          () => undefined,
-        );
+        if (draft) composerHandle.current?.prefill(`${draft} `);
       },
     };
   }, []);
