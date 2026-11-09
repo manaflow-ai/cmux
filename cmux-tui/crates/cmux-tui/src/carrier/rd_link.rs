@@ -106,7 +106,7 @@ impl Splice {
     }
 
     /// One frame from the viewer.
-    fn from_viewer(&mut self, ty: u8, payload: Vec<u8>, out: &mut Vec<Out>) {
+    fn on_viewer(&mut self, ty: u8, payload: Vec<u8>, out: &mut Vec<Out>) {
         if ty == FRAME_DATAGRAM {
             match &self.link {
                 Some(link) if link.is_up() => link.send_datagram(&payload),
@@ -114,28 +114,25 @@ impl Splice {
             }
             return;
         }
-        if ty == FRAME_CONTROL {
-            if let Some(offer) = self.offer.take() {
-                if let Ok(mut hello) = serde_json::from_slice::<Value>(&payload) {
-                    if hello.get("t").and_then(Value::as_str) == Some("hello") {
-                        if let (Some(fields), Ok(offer_value)) =
-                            (hello.as_object_mut(), serde_json::to_value(&offer.offer))
-                        {
-                            fields.insert("link_offer".into(), offer_value);
-                            out.push(Out::Host(control_frame(&hello)));
-                            self.offered = Some(offer);
-                            return;
-                        }
-                    }
-                }
-                // The first control was not a hello: no link this session.
-            }
+        // Only the first control may carry the offer: when it is not a hello,
+        // no link this session.
+        if ty == FRAME_CONTROL
+            && let Some(offer) = self.offer.take()
+            && let Ok(mut hello) = serde_json::from_slice::<Value>(&payload)
+            && hello.get("t").and_then(Value::as_str) == Some("hello")
+            && let Ok(offer_value) = serde_json::to_value(&offer.offer)
+            && let Some(fields) = hello.as_object_mut()
+        {
+            fields.insert("link_offer".into(), offer_value);
+            out.push(Out::Host(control_frame(&hello)));
+            self.offered = Some(offer);
+            return;
         }
         out.push(Out::Host(frame(ty, &payload)));
     }
 
     /// One frame from the host.
-    fn from_host(&mut self, ty: u8, payload: Vec<u8>, out: &mut Vec<Out>) {
+    fn on_host(&mut self, ty: u8, payload: Vec<u8>, out: &mut Vec<Out>) {
         if ty != FRAME_CONTROL {
             out.push(Out::Viewer(frame(ty, &payload)));
             return;
@@ -281,7 +278,7 @@ where
                 } else {
                     from_viewer.push(&buffer[..size]);
                     while let Some((ty, payload)) = from_viewer.next()? {
-                        splice.from_viewer(ty, payload, &mut out);
+                        splice.on_viewer(ty, payload, &mut out);
                     }
                 }
             }
@@ -290,7 +287,7 @@ where
                     Some(chunk) => {
                         from_host.push(&chunk.payload);
                         while let Some((ty, payload)) = from_host.next()? {
-                            splice.from_host(ty, payload, &mut out);
+                            splice.on_host(ty, payload, &mut out);
                         }
                         finished = chunk.finished || chunk.reset;
                     }
@@ -383,9 +380,9 @@ mod tests {
     fn without_the_platforms_word_the_splice_changes_no_byte() {
         let mut splice = Splice::new(None, bind());
         let mut out = Vec::new();
-        splice.from_viewer(FRAME_CONTROL, hello(), &mut out);
-        splice.from_viewer(FRAME_DATAGRAM, b"input".to_vec(), &mut out);
-        splice.from_host(FRAME_CONTROL, welcome(None), &mut out);
+        splice.on_viewer(FRAME_CONTROL, hello(), &mut out);
+        splice.on_viewer(FRAME_DATAGRAM, b"input".to_vec(), &mut out);
+        splice.on_host(FRAME_CONTROL, welcome(None), &mut out);
         assert_eq!(
             out,
             vec![
@@ -401,7 +398,7 @@ mod tests {
         let mut splice =
             Splice::new(Some(ViewerOffer::new(vec!["stun.example:3478".into()]).unwrap()), bind());
         let mut out = Vec::new();
-        splice.from_viewer(FRAME_CONTROL, hello(), &mut out);
+        splice.on_viewer(FRAME_CONTROL, hello(), &mut out);
         let sent = host_bytes(&out);
         assert_eq!(sent.len(), 1);
         let hello = &sent[0].1;
@@ -421,13 +418,13 @@ mod tests {
     fn a_host_that_does_not_answer_keeps_every_datagram_on_the_stream() {
         let mut splice = Splice::new(Some(ViewerOffer::new(Vec::new()).unwrap()), bind());
         let mut out = Vec::new();
-        splice.from_viewer(FRAME_CONTROL, hello(), &mut out);
+        splice.on_viewer(FRAME_CONTROL, hello(), &mut out);
         out.clear();
-        splice.from_host(FRAME_CONTROL, welcome(None), &mut out);
+        splice.on_host(FRAME_CONTROL, welcome(None), &mut out);
         assert!(out.contains(&Out::Note("not_answered".into())));
         assert!(splice.link.is_none());
         out.clear();
-        splice.from_viewer(FRAME_DATAGRAM, b"input".to_vec(), &mut out);
+        splice.on_viewer(FRAME_DATAGRAM, b"input".to_vec(), &mut out);
         assert_eq!(out, vec![Out::Host(frame(FRAME_DATAGRAM, b"input"))]);
     }
 
@@ -435,12 +432,12 @@ mod tests {
     fn an_answered_welcome_reaches_the_viewer_without_link_and_the_link_carries_datagrams() {
         let mut splice = Splice::new(Some(ViewerOffer::new(Vec::new()).unwrap()), bind());
         let mut out = Vec::new();
-        splice.from_viewer(FRAME_CONTROL, hello(), &mut out);
+        splice.on_viewer(FRAME_CONTROL, hello(), &mut out);
         let offer: cmux_rd_proto::control::LinkOffer =
             serde_json::from_value(host_bytes(&out)[0].1["link_offer"].clone()).unwrap();
         let (mut host, answer) = DatagramLink::accept(&offer, bind()).unwrap();
         out.clear();
-        splice.from_host(
+        splice.on_host(
             FRAME_CONTROL,
             welcome(Some(serde_json::to_value(&answer).unwrap())),
             &mut out,
@@ -472,7 +469,7 @@ mod tests {
                     )
                     .unwrap();
                     let mut ignored = Vec::new();
-                    splice.from_host(FRAME_CONTROL, msg, &mut ignored);
+                    splice.on_host(FRAME_CONTROL, msg, &mut ignored);
                     assert!(
                         viewer_frames(&ignored).is_empty(),
                         "link_candidate never reaches the viewer"
@@ -484,7 +481,7 @@ mod tests {
         assert!(host.is_up(), "host side up");
         // Viewer datagrams now take the link, not the stream.
         let mut out = Vec::new();
-        splice.from_viewer(FRAME_DATAGRAM, b"input".to_vec(), &mut out);
+        splice.on_viewer(FRAME_DATAGRAM, b"input".to_vec(), &mut out);
         assert!(host_bytes(&out).is_empty(), "nothing on the stream: {out:?}");
         host.send_datagram(b"frame");
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -518,7 +515,7 @@ mod tests {
         }
         let mut splice = Splice::new(Some(ViewerOffer::new(Vec::new()).unwrap()), bind());
         let mut out = Vec::new();
-        splice.from_viewer(FRAME_CONTROL, hello(), &mut out);
+        splice.on_viewer(FRAME_CONTROL, hello(), &mut out);
         let sent = host_bytes(&out);
         let old: OldHello = serde_json::from_value(sent[0].1.clone()).unwrap();
         assert_eq!(old.t, "hello");
