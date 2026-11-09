@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42633752617",
+  "recorded_at": "2026-11-09T14:39:42Z",
+  "reason": "cmux-tui 76b1f8673e47 changes the image's cmux-tui (pinned 707251c35b87)",
+  "dry_run": false,
+  "cmux_tui": "76b1f8673e476554d46e7dc37afebf26c84ca9fb",
+  "fixes": [
+    {
+      "sha": "7aeb2a6f70ed768032b8919e5da2561c103956a8",
+      "mergedAt": "2026-11-09T05:48:23-08:00",
+      "subject": "Swift live mode: start reuses the last live code build and patches the difference in, no build (#39582)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T14:39:42Z",
+    "snapshot_id": "sh-67d7a843999245feb5641b6f4c05f4a3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42633752617): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "46541b110b28eca566d1e697385846f7a1ed8b59",
+    "image": "cloud-native-auto-76b1f867-42633752617-1",
+    "revision": "ci-42633752617-1",
+    "at": "2026-11-09T14:39:42Z"
+  },
+  "rolled_back": false
+}
