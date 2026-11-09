@@ -72,25 +72,88 @@ struct RemoteTmuxControlStreamParser {
     /// Feeds a chunk of stream bytes and returns any newly completed messages.
     mutating func feed(_ data: Data) -> [RemoteTmuxControlMessage] {
         var messages: [RemoteTmuxControlMessage] = []
-        for byte in data {
-            if byte == 0x0a {
-                var lineBytes = buffer
-                buffer.removeAll(keepingCapacity: true)
-                if lineBytes.last == 0x0d { lineBytes.removeLast() } // strip pty CR
-                for message in parse(lineBytes: lineBytes) {
-                    messages.append(message)
-                    if case .streamError = message { return messages }
+        // A flood is hundreds of megabytes of `%output`, so the work per line is kept to a
+        // memchr for the newline and, for `%output`, a bulk unescape: no per-byte loop and no
+        // intermediate arrays. Everything else goes through `parse(lineBytes:)`.
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            guard let base = raw.baseAddress, raw.count > 0 else { return }
+            let bytes = base.assumingMemoryBound(to: UInt8.self)
+            let count = raw.count
+            var start = 0
+            while start < count {
+                guard let newline = memchr(bytes + start, 0x0a, count - start) else {
+                    guard buffer.count + (count - start) <= maxBufferedLineBytes else {
+                        messages.append(streamError("line exceeded \(maxBufferedLineBytes) bytes"))
+                        return
+                    }
+                    buffer.append(contentsOf: UnsafeBufferPointer(start: bytes + start, count: count - start))
+                    return
                 }
-            } else {
-                buffer.append(byte)
-                if buffer.count > maxBufferedLineBytes {
+                let end = UnsafeRawPointer(newline) - UnsafeRawPointer(bytes)
+                guard buffer.count + (end - start) <= maxBufferedLineBytes else {
                     messages.append(streamError("line exceeded \(maxBufferedLineBytes) bytes"))
-                    return messages
+                    return
                 }
+                let keepGoing: Bool
+                if buffer.isEmpty {
+                    keepGoing = consumeLine(bytes + start, count: end - start, into: &messages)
+                } else {
+                    buffer.append(contentsOf: UnsafeBufferPointer(start: bytes + start, count: end - start))
+                    let line = buffer
+                    buffer.removeAll(keepingCapacity: true)
+                    keepGoing = line.withUnsafeBufferPointer {
+                        consumeLine($0.baseAddress!, count: $0.count, into: &messages)
+                    }
+                }
+                guard keepGoing else { return }
+                start = end + 1
             }
         }
         return messages
     }
+
+    /// Parses one line (without its newline) into `messages`; false once the stream errored.
+    private mutating func consumeLine(
+        _ line: UnsafePointer<UInt8>,
+        count rawCount: Int,
+        into messages: inout [RemoteTmuxControlMessage]
+    ) -> Bool {
+        let count = rawCount > 0 && line[rawCount - 1] == 0x0d ? rawCount - 1 : rawCount // strip pty CR
+        if let output = outputMessage(line, count: count) {
+            messages.append(output)
+            return true
+        }
+        for message in parse(lineBytes: Array(UnsafeBufferPointer(start: line, count: count))) {
+            messages.append(message)
+            if case .streamError = message { return false }
+        }
+        return true
+    }
+
+    /// The common `%output %<pane> <data>` line, parsed in place. Returns nil for anything
+    /// that needs `parse(lineBytes:)`: no control mode yet, inside a command block, or an ESC
+    /// that may be DCS framing to strip. Those cases parse to the same message there.
+    private func outputMessage(_ line: UnsafePointer<UInt8>, count: Int) -> RemoteTmuxControlMessage? {
+        let prefixCount = Self.outputPanePrefix.count
+        guard sawEnter, !inBlock, count > prefixCount,
+              Self.outputPanePrefix.withUnsafeBufferPointer({ memcmp(line, $0.baseAddress, prefixCount) }) == 0,
+              memchr(line, 0x1b, count) == nil
+        else { return nil }
+        var index = prefixCount
+        var paneId = 0
+        while index < count, line[index] >= 0x30, line[index] <= 0x39 {
+            // An id this long could overflow; the general path handles it.
+            guard index - prefixCount < 18 else { return nil }
+            paneId = paneId * 10 + Int(line[index] - 0x30)
+            index += 1
+        }
+        guard index > prefixCount, index < count, line[index] == UInt8(ascii: " ") else { return nil }
+        let data = Self.unescapeOutputBytes(UnsafeBufferPointer(start: line + index + 1, count: count - index - 1))
+        return .output(paneId: paneId, data: data)
+    }
+
+    /// `%output %`, the start of every pane output line.
+    private static let outputPanePrefix: [UInt8] = Array("%output %".utf8)
 
     private mutating func parse(lineBytes rawBytes: [UInt8]) -> [RemoteTmuxControlMessage] {
         var bytes = rawBytes
@@ -216,7 +279,7 @@ struct RemoteTmuxControlStreamParser {
         guard i > digitsStart, i < bytes.count, bytes[i] == UInt8(ascii: " "),
               let paneId = Int(String(decoding: bytes[digitsStart..<i], as: UTF8.self))
         else { return nil }
-        return .output(paneId: paneId, data: unescapeOutput(Array(bytes[(i + 1)...])))
+        return .output(paneId: paneId, data: unescapeOutput(bytes[(i + 1)...]))
     }
 
     private func parseNotification(_ line: String) -> RemoteTmuxControlMessage {
@@ -346,7 +409,9 @@ struct RemoteTmuxControlStreamParser {
 
     /// Removes any `ESC \` (ST) sequences from a line's bytes.
     private static func removingST(_ bytes: [UInt8]) -> [UInt8] {
-        guard bytes.contains(0x1b) else { return bytes }
+        guard bytes.withUnsafeBufferPointer({ memchr($0.baseAddress, 0x1b, $0.count) != nil }) else {
+            return bytes
+        }
         var out: [UInt8] = []
         out.reserveCapacity(bytes.count)
         var i = 0
@@ -365,32 +430,51 @@ struct RemoteTmuxControlStreamParser {
     /// not part of a `\ooo` escape — including the raw high bytes of a multi-byte
     /// UTF-8 character — passes through unchanged, so split or whole UTF-8 text
     /// survives intact for ghostty to decode.
-    static func unescapeOutput(_ bytes: [UInt8]) -> Data {
-        var out = Data()
-        out.reserveCapacity(bytes.count)
-        var i = 0
-        let isOctal: (UInt8) -> Bool = { $0 >= 0x30 && $0 <= 0x37 }
-        while i < bytes.count {
-            if bytes[i] == 0x5c, // backslash
-               i + 3 < bytes.count,
-               isOctal(bytes[i + 1]), isOctal(bytes[i + 2]), isOctal(bytes[i + 3]) {
-                // Compute in Int to avoid a UInt8 overflow trap on malformed
-                // escapes like \777; emit literally if out of byte range.
-                let value = Int(bytes[i + 1] - 0x30) * 64
-                    + Int(bytes[i + 2] - 0x30) * 8
-                    + Int(bytes[i + 3] - 0x30)
-                if value <= 0xFF {
-                    out.append(UInt8(value))
-                    i += 4
-                } else {
-                    out.append(bytes[i])
-                    i += 1
+    static func unescapeOutput<Bytes: Collection>(_ bytes: Bytes) -> Data where Bytes.Element == UInt8 {
+        let unescaped = bytes.withContiguousStorageIfAvailable { unescapeOutputBytes($0) }
+        return unescaped ?? Array(bytes).withUnsafeBufferPointer { unescapeOutputBytes($0) }
+    }
+
+    /// Copies the runs between backslashes in bulk; only a backslash is looked at
+    /// byte by byte.
+    private static func unescapeOutputBytes(_ bytes: UnsafeBufferPointer<UInt8>) -> Data {
+        guard let base = bytes.baseAddress, !bytes.isEmpty else { return Data() }
+        let count = bytes.count
+        // Unescaping never grows the data, so write into one allocation of the
+        // input's size and trim it afterwards.
+        var out = Data(count: count)
+        let written = out.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) -> Int in
+            let dst = raw.baseAddress!.assumingMemoryBound(to: UInt8.self)
+            var i = 0, o = 0
+            while i < count {
+                guard let found = memchr(base + i, 0x5c, count - i) else {
+                    memcpy(dst + o, base + i, count - i)
+                    o += count - i
+                    break
                 }
-            } else {
-                out.append(bytes[i])
+                let slash = UnsafeRawPointer(found) - UnsafeRawPointer(base)
+                if slash > i {
+                    memcpy(dst + o, base + i, slash - i)
+                    o += slash - i
+                }
+                i = slash
+                if i + 3 < count {
+                    let d1 = base[i + 1] &- 0x30, d2 = base[i + 2] &- 0x30, d3 = base[i + 3] &- 0x30
+                    // `\ooo` above 0xFF (a malformed `\777`) is emitted literally.
+                    if d1 < 4, d2 < 8, d3 < 8 {
+                        dst[o] = d1 << 6 | d2 << 3 | d3
+                        o += 1
+                        i += 4
+                        continue
+                    }
+                }
+                dst[o] = base[i]
+                o += 1
                 i += 1
             }
+            return o
         }
+        out.count = written
         return out
     }
 }
