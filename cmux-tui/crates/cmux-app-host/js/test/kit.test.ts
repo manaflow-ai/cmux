@@ -255,14 +255,16 @@ describe("the template folders (skills/cmux-customization/templates)", () => {
     expect(texts()).not.toContain("Run the suite")
     expect(texts()).not.toContain("Old docs pass")
     expect(texts().indexOf("Approve the migration")).toBeLessThan(texts().indexOf("Fix the upload test"))
-    expect([...host.timers.values()]).toContainEqual({ ms: 2000, repeat: true })
+    // No polling: it reads again on agent_chat.changed; only the ages tick (30 s, no read).
+    expect([...host.subscriptions.values()].map((s) => s.stream)).toContain("agent_chat.changed")
+    expect([...host.timers.values()]).toEqual([{ ms: 30000, repeat: true }])
     // Opening the Working shelf shows its chat with a live duration.
     host.dispatch("m", tappableAround(host, "Working"), "tap", { gesture: "g1" })
     await host.settle()
     expect(texts()).toEqual(expect.arrayContaining(["Run the suite", "Working 4m"]))
-    // A chat that leaves is gone on the next read.
+    // A chat that leaves is gone on the next read, when the app tells the daemon its chats changed.
     chats = chats.filter((c) => c.id !== "s4")
-    host.emit("workspace.changed")
+    host.emit("agent_chat.changed")
     await host.settle()
     expect(texts()).not.toContain("Fix the upload test")
     // A click on a card shows the chat's workspace.
