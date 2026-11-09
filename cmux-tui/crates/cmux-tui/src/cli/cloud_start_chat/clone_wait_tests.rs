@@ -8,9 +8,38 @@ use serde_json::{Value, json};
 use super::*;
 
 /// A start on `vm-1` (an existing machine) in `cwd`, as the start matrix's repo rows run it after
-/// `cloud new-machine --repo URL`. It has no prompt, so a start is `start-session` alone.
+/// `cloud new-machine --repo URL`. A prompt with `--wait` gives it its deadline (`Deadline::of`).
 fn repo_start(cwd: &str, timeout: &str) -> Request {
-    request(&["--target", "machine:vm-1", "--cwd", cwd, "--wait", "--timeout", timeout])
+    request(&[
+        "--prompt",
+        "ok?",
+        "--target",
+        "machine:vm-1",
+        "--cwd",
+        cwd,
+        "--wait",
+        "--timeout",
+        timeout,
+    ])
+}
+
+/// A started chat's send of the prompt.
+fn sent() -> Ran {
+    exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n")
+}
+
+/// The wait on a sent prompt: its turn ended with the reply `ok`.
+fn replied() -> Ran {
+    exec_out(
+        "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+         @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"ok\"]}\n@@lastexit 0\n",
+    )
+}
+
+/// `answers`, then the chat's start, its send and its reply `ok`: three steps after the last of them.
+fn chat(mut answers: Vec<Ran>) -> Fake {
+    answers.extend([started(), sent(), replied()]);
+    Fake::new(answers)
 }
 
 fn is_folder_check(args: &[String], cwd: &str) -> bool {
@@ -48,16 +77,15 @@ fn a_start_in_a_folder_still_being_cloned_waits_for_the_clone() {
         "/home/cmux/work/project",
         "/home/cmux/work/tools.v2",
     ] {
-        let mut fake =
-            Fake::new(vec![signed_in(), exec_out("busy\n"), exec_out("ready\n"), started()]);
+        let mut fake = chat(vec![signed_in(), exec_out("busy\n"), exec_out("ready\n")]);
         let Outcome::Done(answer) = run(&mut fake, &repo_start(cwd, "900")) else {
             panic!("{cwd}: {:?}", fake.ran)
         };
-        assert_eq!(answer["session_id"], "sess-1", "{cwd}");
+        assert_eq!(answer["reply"], "ok", "{cwd}");
         assert!(is_folder_check(&fake.ran[1], cwd), "{cwd}: {:?}", fake.ran[1]);
         assert!(is_folder_check(&fake.ran[2], cwd), "{cwd}: {:?}", fake.ran[2]);
         assert!(is_start(&fake.ran[3]), "{cwd}");
-        assert_eq!(fake.ran.len(), 4, "{cwd}");
+        assert_eq!(fake.ran.len(), 6, "{cwd}");
     }
 }
 
@@ -71,15 +99,15 @@ fn a_ready_folder_or_a_machine_that_cannot_exec_starts_as_before() {
         refused("unavailable", EXEC_UNAVAILABLE),
         refused("action.not_found", "unknown action"),
     ] {
-        let mut fake = Fake::new(vec![signed_in(), check.clone(), started()]);
+        let mut fake = chat(vec![signed_in(), check.clone()]);
         let Outcome::Done(answer) =
             run(&mut fake, &repo_start("/home/cmux/work/Hello-World", "900"))
         else {
             panic!("{check:?}: {:?}", fake.ran)
         };
-        assert_eq!(answer["session_id"], "sess-1");
+        assert_eq!(answer["reply"], "ok");
         assert!(is_start(&fake.ran[2]), "{check:?}");
-        assert_eq!(fake.ran.len(), 3);
+        assert_eq!(fake.ran.len(), 5);
     }
 }
 
@@ -96,14 +124,14 @@ fn a_check_that_may_pass_later_is_asked_again_and_never_starts_the_chat() {
         exec_out("garbage\n"),
         ok(json!({"exit_code": 2, "stdout": "ready\n", "stderr": "sh: oops"})),
     ] {
-        let mut fake = Fake::new(vec![signed_in(), first.clone(), exec_out("ready\n"), started()]);
+        let mut fake = chat(vec![signed_in(), first.clone(), exec_out("ready\n")]);
         let Outcome::Done(_) = run(&mut fake, &repo_start("/home/cmux/work/r", "900")) else {
             panic!("{first:?}: {:?}", fake.ran)
         };
         assert!(is_folder_check(&fake.ran[1], "/home/cmux/work/r"), "{first:?}");
         assert!(is_folder_check(&fake.ran[2], "/home/cmux/work/r"), "{first:?}: {:?}", fake.ran);
         assert!(is_start(&fake.ran[3]), "{first:?}");
-        assert_eq!(fake.ran.len(), 4, "{first:?}");
+        assert_eq!(fake.ran.len(), 6, "{first:?}");
     }
     // Busy until the deadline: out of time, and nothing started.
     let mut fake = Fake::new(vec![signed_in()]);
@@ -219,6 +247,9 @@ impl Runner for ShellFake {
         self.clock += self.step;
         match args.get(1).map(String::as_str) {
             Some("list-machines") => listed(self.created_at.clone()),
+            Some("exec") if !args[5].contains(".cmux/bootstrap") => {
+                if args[5].contains("acp send") { sent() } else { replied() }
+            }
             Some("exec") => {
                 let command = args[5].replace("sleep 1", ":");
                 let out = std::process::Command::new("sh")
@@ -289,9 +320,9 @@ fn a_folder_that_is_there_while_the_clone_runs_is_not_ready_until_the_repo_step_
     let Outcome::Done(answer) = run(&mut fake, &repo_start(cwd, "900")) else {
         panic!("{:?}", fake.ran)
     };
-    assert_eq!(answer["session_id"], "sess-1");
+    assert_eq!(answer["reply"], "ok");
     // Two checks said busy (the folder was there), the third read the repository step's `cloned`.
-    assert_eq!(fake.ran.len(), 5, "{:?}", fake.ran);
+    assert_eq!(fake.ran.len(), 7, "{:?}", fake.ran);
     assert!(fake.ran[1..4].iter().all(|args| is_folder_check(args, cwd)), "{:?}", fake.ran);
     assert!(is_start(&fake.ran[4]));
     fake.assert_clean();
@@ -321,7 +352,7 @@ fn the_bootstrap_files_decide_whether_the_folder_is_ready() {
         let mut fake = ShellFake::new(home.path());
         let got = run(&mut fake, &repo_start(cwd.to_str().unwrap(), "900"));
         match (starts, got) {
-            (true, Outcome::Done(answer)) => assert_eq!(answer["session_id"], "sess-1"),
+            (true, Outcome::Done(answer)) => assert_eq!(answer["reply"], "ok"),
             (false, Outcome::Failed { error, .. }) => {
                 assert_eq!(error["code"], "cloud.folder_missing", "{status:?} {repo:?}");
                 assert_eq!(fake.ran.len(), 2);
@@ -366,13 +397,8 @@ fn no_bootstrap_and_no_folder_on_an_old_machine_is_no_such_folder() {
 /// A bootstrap that shows up inside the grace is waited on like any other.
 #[test]
 fn a_bootstrap_that_shows_up_inside_the_grace_is_waited_on() {
-    let mut fake = Fake::new(vec![
-        signed_in(),
-        exec_out("absent\n"),
-        exec_out("busy\n"),
-        exec_out("ready\n"),
-        started(),
-    ]);
+    let mut fake =
+        chat(vec![signed_in(), exec_out("absent\n"), exec_out("busy\n"), exec_out("ready\n")]);
     let Outcome::Done(_) = run(&mut fake, &repo_start("/home/cmux/work/r", "900")) else {
         panic!("{:?}", fake.ran)
     };
@@ -468,26 +494,25 @@ fn a_cwd_with_shell_text_in_it_is_only_ever_a_folder_name() {
 #[test]
 fn a_paused_machine_is_resumed_once_then_checked() {
     let resume = strings(&["cloud", "resume-machine", "--target", "machine:vm-1", "--json"]);
-    let mut fake = Fake::new(vec![
+    let mut fake = chat(vec![
         signed_in(),
         refused("vm_not_running", "the machine is paused"),
         ok(json!({})),
         refused("vm_not_running", "the machine is still starting"),
         exec_out("busy\n"),
         exec_out("ready\n"),
-        started(),
     ]);
     let Outcome::Done(answer) = run(&mut fake, &repo_start("/home/cmux/work/r", "900")) else {
         panic!("{:?}", fake.ran)
     };
-    assert_eq!(answer["session_id"], "sess-1");
+    assert_eq!(answer["reply"], "ok");
     assert_eq!(fake.ran[2], resume, "{:?}", fake.ran);
     assert_eq!(fake.ran.iter().filter(|args| **args == resume).count(), 1, "{:?}", fake.ran);
     for step in [1, 3, 4, 5] {
         assert!(is_folder_check(&fake.ran[step], "/home/cmux/work/r"), "{step}: {:?}", fake.ran);
     }
     assert!(is_start(&fake.ran[6]));
-    assert_eq!(fake.ran.len(), 7);
+    assert_eq!(fake.ran.len(), 9);
 
     // A resume the app refuses for good leaves it unknown: no start.
     let mut fake = Fake::new(vec![
@@ -516,14 +541,13 @@ fn an_answer_with_more_than_its_line_is_malformed_and_asked_again() {
         "ended\n{\"state\":\"failed\"}\nmore\n",
         "ended\nnot json\n",
     ] {
-        let mut fake =
-            Fake::new(vec![signed_in(), exec_out(extra), exec_out("ready  \n"), started()]);
+        let mut fake = chat(vec![signed_in(), exec_out(extra), exec_out("ready  \n")]);
         let Outcome::Done(_) = run(&mut fake, &repo_start("/home/cmux/work/r", "900")) else {
             panic!("{extra:?}: {:?}", fake.ran)
         };
         assert!(is_folder_check(&fake.ran[2], "/home/cmux/work/r"), "{extra:?}: {:?}", fake.ran);
         assert!(is_start(&fake.ran[3]), "{extra:?}");
-        assert_eq!(fake.ran.len(), 4, "{extra:?}");
+        assert_eq!(fake.ran.len(), 6, "{extra:?}");
     }
 }
 
@@ -578,13 +602,13 @@ fn a_young_machine_whose_bootstrap_shows_up_late_is_waited_on() {
     let Outcome::Done(answer) = run(&mut fake, &repo_start(cwd.to_str().unwrap(), "900")) else {
         panic!("{:?}", fake.ran)
     };
-    assert_eq!(answer["session_id"], "sess-1");
+    assert_eq!(answer["reply"], "ok");
     assert!(
         fake.clock.saturating_duration_since(began) > Duration::from_secs(60),
         "{:?}",
         fake.ran
     );
-    assert!(is_start(fake.ran.last().unwrap()));
+    assert!(is_start(&fake.ran[fake.ran.len() - 3]), "{:?}", fake.ran);
     fake.assert_clean();
 }
 
@@ -658,23 +682,22 @@ fn a_state_conflict_is_asked_again_and_resumes_once() {
         refused("vm_state_conflict", "the machine is pausing"),
         refused("vm_not_running", "paused"),
     ] {
-        let mut fake = Fake::new(vec![
+        let mut fake = chat(vec![
             signed_in(),
             first.clone(),
             ok(json!({})),
             refused("vm_state_conflict", "the machine is starting"),
             exec_out("busy\n"),
             exec_out("ready\n"),
-            started(),
         ]);
         let Outcome::Done(answer) = run(&mut fake, &repo_start("/home/cmux/work/r", "900")) else {
             panic!("{first:?}: {:?}", fake.ran)
         };
-        assert_eq!(answer["session_id"], "sess-1");
+        assert_eq!(answer["reply"], "ok");
         assert_eq!(fake.ran[2], resume, "{first:?}: {:?}", fake.ran);
         assert_eq!(fake.ran.iter().filter(|args| **args == resume).count(), 1, "{first:?}");
         assert!(is_start(&fake.ran[6]), "{first:?}");
-        assert_eq!(fake.ran.len(), 7, "{first:?}");
+        assert_eq!(fake.ran.len(), 9, "{first:?}");
     }
     // Conflicts until the deadline: out of time, nothing started.
     let mut fake = Fake::new(vec![signed_in()]);
@@ -704,18 +727,16 @@ fn made_box() -> Ran {
 /// chat never starts before the folder is ready.
 #[test]
 fn a_named_machine_still_being_made_is_waited_on_before_its_folder_check() {
-    let asked =
-        request(&["--name", "box", "--cwd", "/home/cmux/work/r", "--wait", "--timeout", "900"]);
-    let mut fake = Fake::new(vec![
+    let asked = named_start("900");
+    let mut fake = chat(vec![
         creating_box(),
         creating_box(),
         made_box(),
         exec_out("busy\n"),
         exec_out("ready\n"),
-        started(),
     ]);
     let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
-    assert_eq!(answer["session_id"], "sess-1");
+    assert_eq!(answer["reply"], "ok");
     let list = strings(&["cloud", "list-machines", "--json"]);
     assert_eq!(fake.ran[..3], [list.clone(), list.clone(), list], "{:?}", fake.ran);
     assert!(
@@ -723,7 +744,7 @@ fn a_named_machine_still_being_made_is_waited_on_before_its_folder_check() {
             && is_folder_check(&fake.ran[4], "/home/cmux/work/r")
     );
     assert!(is_start(&fake.ran[5]), "{:?}", fake.ran);
-    assert_eq!(fake.ran.len(), 6);
+    assert_eq!(fake.ran.len(), 8);
 
     // Still being made at the deadline: out of time, nothing started.
     let asked = request(&[

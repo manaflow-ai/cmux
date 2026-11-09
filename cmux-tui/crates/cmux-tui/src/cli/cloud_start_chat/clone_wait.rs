@@ -33,8 +33,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde_json::{Value, json};
 
 use super::{
-    Deadline, GUEST_PRELUDE, Machine, Outcome, Request, Runner, at, failed, lacks_action,
-    out_of_time, shell_quote, step_result,
+    Deadline, GUEST_PRELUDE, Machine, Outcome, Request, Runner, at, failed, out_of_time,
+    shell_quote, step_result,
 };
 
 /// The machine's bootstrap folder (`CloudMachineBootstrap.directory`, in the work user's home).
@@ -115,7 +115,9 @@ pub(super) fn read(exit_code: Option<i64>, stdout: &str) -> Folder {
 /// The machine cannot run a command for the CLI at all: the app's own refusal, or an app with no
 /// `cloud exec`. Nothing can ask it about the folder, so the start goes the way it went before.
 pub(super) fn cannot_exec(error: &Value) -> bool {
-    lacks_action(error)
+    let code = at(error, "code").as_str().unwrap_or_default();
+    code.starts_with("usage.")
+        || code == "action.not_found"
         || (at(error, "code").as_str() == Some("unavailable")
             && at(error, "message").as_str().is_some_and(|m| m.contains(EXEC_UNAVAILABLE)))
 }
@@ -181,7 +183,7 @@ pub(super) fn wait(
     };
     // A refusal that leaves it unknown whether the folder is ready: retryable, and never a start.
     let unknown = |refusal: Value| {
-        let Outcome::Failed { mut error, exit } = failed(
+        let mut outcome = failed(
             "cloud.folder_unknown",
             format!(
                 "whether {cwd} is ready on the machine is not known (the check was refused: {}), so the chat \
@@ -190,11 +192,11 @@ pub(super) fn wait(
             ),
             json!({"cwd": cwd, "machine_id": machine, "refusal": refusal}),
             75,
-        ) else {
-            unreachable!("failed() answers a failure")
-        };
-        error["retryable"] = json!(true);
-        Outcome::Failed { error, exit }
+        );
+        if let Outcome::Failed { error, .. } = &mut outcome {
+            error["retryable"] = json!(true);
+        }
+        outcome
     };
     // The machine was resumed once already (a paused machine; see the `vm_not_running` arm).
     let mut resumed = false;
