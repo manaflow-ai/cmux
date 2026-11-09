@@ -174,3 +174,25 @@ test("with no width given, the bar lays out from its own box: nothing past it or
     proto.getBoundingClientRect = original;
   }
 });
+
+test("a middle press opens once on its release, with or without an auxclick after it", async () => {
+  const { host, root, events } = await render([link(0), link(1, "folder")], 640);
+  const [first, folder] = Array.from(host.querySelectorAll<HTMLElement>(".bb-item"));
+  const fire = (target: HTMLElement, type: string) =>
+    act(async () => void target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 1 })));
+  const opens = () => events.filter((event) => event === "open bm_0 backgroundTab").length;
+
+  // Current WebKit: pointer and mouse events, then auxclick.
+  for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "auxclick"]) await fire(first!, type);
+  expect(opens()).toBe(1);
+  // Older WebKit: no auxclick, and the pointer events may be missing too.
+  for (const type of ["mousedown", "mouseup"]) await fire(first!, type);
+  expect(opens()).toBe(2);
+  // A release with no press on the item (dragged in from elsewhere) opens nothing.
+  await fire(first!, "mouseup");
+  expect(opens()).toBe(2);
+  // A folder's middle press opens its menu once.
+  for (const type of ["pointerdown", "pointerup", "mouseup", "auxclick"]) await fire(folder!, type);
+  expect(events.filter((event) => event === "folder bm_1 number")).toHaveLength(1);
+  act(() => root.unmount());
+});

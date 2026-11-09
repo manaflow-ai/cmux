@@ -401,6 +401,24 @@ struct BookmarksBarPagesTests {
         #expect(!pageHost.isCurrent(lease), "lent again to the same tab: still a new lend")
         bar.removeFromSuperview()
     }
+
+    /// A menu's rows read before the page was lent again (even to a tab of the same profile) or
+    /// for another profile are refused; the page learns each lend from the host's events.
+    @Test func aMenuReadBeforeALendIsRefused() throws {
+        let host = FakeBarHost()
+        let pageHost = BookmarkPageHostProvider(host: host, tabKey: "tab-a")
+        let provider = BookmarksBarProvider(host: host, pageHost: pageHost)
+        let menu = { (profile: String, lend: Int) -> CmuxNextSettings.JSONValue in
+            .object(["profile": .string(profile), "lend": .number(Double(lend))])
+        }
+        let lend = pageHost.lendGeneration
+        #expect(provider.acceptsMenu(menu("default", lend)))
+        #expect(!provider.acceptsMenu(menu("p2", lend)))
+        #expect(!provider.acceptsMenu(.object(["profile": .string("default")])), "a menu with no lend")
+        pageHost.tabKey = "tab-b"
+        #expect(!provider.acceptsMenu(menu("default", lend)), "lent to a tab of the same profile")
+        #expect(provider.acceptsMenu(menu("default", pageHost.lendGeneration)))
+    }
 }
 
 /// A bar host that records what the bar asks of the app.

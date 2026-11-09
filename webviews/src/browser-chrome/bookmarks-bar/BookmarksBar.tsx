@@ -274,6 +274,29 @@ interface ItemProps {
 
 function BarItem({ node, title, frame, metrics, icon, onOpen, onFolder, onContextMenu }: ItemProps) {
   const folder = node.kind === "folder";
+  // A middle press acts once on its release. Older WebKit sends no auxclick, so the release is
+  // also heard as pointerup and mouseup; whichever comes first acts and the others find it done.
+  const middle = useRef<"pressed" | "done" | null>(null);
+  const middleDown = (event: MouseEvent) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    if (middle.current !== "pressed") middle.current = "pressed";
+  };
+  const middleUp = (event: MouseEvent, isAuxClick = false) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    if (middle.current === "done") {
+      // auxclick is the last event of a press: the next press starts clean.
+      if (isAuxClick) middle.current = null;
+      return;
+    }
+    // An auxclick with no press heard (none came to this item) still acts once.
+    if (middle.current === null && !isAuxClick) return;
+    middle.current = isAuxClick ? null : "done";
+    // A middle click acts as a click on a folder (its menu), as the native bar's did.
+    if (folder) onFolder(node, anchorOf(event.currentTarget));
+    else onOpen(node, disposition(event, true));
+  };
   const tip = !folder && node.url ? `${title}\n${node.url}` : title;
   return (
     <button
@@ -294,12 +317,14 @@ function BarItem({ node, title, frame, metrics, icon, onOpen, onFolder, onContex
         if (folder) onFolder(node, anchorOf(event.currentTarget));
         else onOpen(node, disposition(event));
       }}
-      onAuxClick={(event) => {
-        if (event.button !== 1) return;
-        event.preventDefault();
-        // A middle click acts as a click on a folder (its menu), as the native bar's did.
-        if (folder) onFolder(node, anchorOf(event.currentTarget));
-        else onOpen(node, disposition(event, true));
+      onPointerDown={middleDown}
+      onMouseDown={middleDown}
+      onPointerUp={(event) => middleUp(event)}
+      onMouseUp={(event) => middleUp(event)}
+      onAuxClick={(event) => middleUp(event, true)}
+      onPointerLeave={() => {
+        // A press that leaves the item is not a click on it.
+        if (middle.current === "pressed") middle.current = null;
       }}
       onContextMenu={(event) => {
         event.preventDefault();

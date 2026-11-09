@@ -61,6 +61,7 @@ public final class BookmarkPageHostProvider: PageProvider {
     public var tabKey: String {
         didSet {
             lendGeneration &+= 1
+            post("lend")
             if tabKey != oldValue { pageShown() }
         }
     }
@@ -98,7 +99,10 @@ public final class BookmarkPageHostProvider: PageProvider {
     public func isCurrent(_ lease: Lease) -> Bool { lease == self.lease() }
 
     /// The page was lent again or given back (even to the same tab): earlier calls act for nobody.
-    public func relend() { lendGeneration &+= 1 }
+    public func relend() {
+        lendGeneration &+= 1
+        post("lend")
+    }
 
     /// Throws when the page moved on since `lease` was taken.
     func requireCurrent(_ lease: Lease, _ op: String) throws {
@@ -115,6 +119,7 @@ public final class BookmarkPageHostProvider: PageProvider {
                 "browser_profile_id": .string(profile), "bar_title": .string(BookmarkStrings.barTitle),
                 "other_title": .string(BookmarkStrings.otherBookmarks),
                 "can_set_folder_icons": .bool(host.bookmarkFolderIconsSupported),
+                "lend": .number(Double(lendGeneration)),
             ])
         case Self.prefix + "icons":
             return icons(params["ids"]?.arrayValue?.compactMap(\.stringValue) ?? [])
@@ -271,7 +276,9 @@ public final class BookmarkPageHostProvider: PageProvider {
             let reasons = pending
             pending.removeAll()
             for reason in reasons.sorted() {
-                for listener in listeners.values { listener(.object(["reason": .string(reason)])) }
+                // Every event names the current lend, so a page knows when it moved (`lend`).
+                let event = JSONValue.object(["reason": .string(reason), "lend": .number(Double(lendGeneration))])
+                for listener in listeners.values { listener(event) }
             }
         }
     }

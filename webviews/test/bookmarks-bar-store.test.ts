@@ -41,6 +41,7 @@ function fakeClient(options: { refuse?: boolean; changesFailFirst?: boolean } = 
           bar_title: "Bar",
           other_title: "Other",
           can_set_folder_icons: false,
+          lend: 1,
         } as R;
       }
       if (op === BarOps.children) {
@@ -279,4 +280,36 @@ test("a refused open is logged, not dropped silently", async () => {
   }
   expect(warned).toHaveLength(1);
   expect(String(warned[0]![0])).toContain("open refused");
+});
+
+test("a menu read that lands after the page was lent to another tab of the same profile shows nothing", async () => {
+  const fake = fakeClient();
+  let release: () => void = () => undefined;
+  let holding = true;
+  const call = fake.client.call;
+  fake.client.call = async <R>(op: string, params: unknown) => {
+    const p = (params ?? {}) as Record<string, unknown>;
+    if (op === BarOps.children && p.depth === 64 && holding) {
+      holding = false;
+      await new Promise<void>((done) => (release = done));
+    }
+    return call<R>(op, params);
+  };
+  const store = new BookmarksBarStore(fake.client, words);
+  await store.start();
+  const work = store.getSnapshot().items[0]!;
+  const anchor = { x: 2, y: 2, width: 60, height: 24 };
+  const menu = store.openFolder(work, anchor, "work");
+  // Lent to tab B, same profile: no state change, only a new lend.
+  fake.emit(HostOps.changed, { reason: "lend", lend: 3 });
+  release();
+  await menu;
+  expect(fake.calls.filter((entry) => entry.op === BarOps.menu)).toEqual([]);
+  expect(store.getSnapshot().profile).toBe("default");
+  // A lend event re-reads nothing.
+  expect(fake.calls.filter((entry) => entry.op === HostOps.state)).toHaveLength(1);
+
+  // The next click reads and shows with the lend it was read on.
+  await store.openFolder(work, anchor, "work");
+  expect(fake.calls.find((entry) => entry.op === BarOps.menu)?.params).toMatchObject({ profile: "default", lend: 3 });
 });

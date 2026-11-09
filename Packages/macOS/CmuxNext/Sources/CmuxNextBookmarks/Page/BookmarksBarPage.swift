@@ -206,7 +206,7 @@ public final class BookmarksBarHostView: NSView {
 
 /// Serves `cmux.bookmarksBar.*` to one bar page:
 ///
-/// - `menu {profile, title, anchor: {x, y, width, height}, rows}`: a folder's native menu under `anchor`
+/// - `menu {profile, lend, title, anchor: {x, y, width, height}, rows}`: a folder's native menu under `anchor`
 ///   (CSS px). Rows are `{kind: "bookmark", id, title, url, favicon_key?}`, `{kind: "folder", id,
 ///   title, icon?, children}`, `{kind: "openAll", folder, title}`, `{kind: "empty", title}` and
 ///   `{kind: "separator"}`; a submenu is filled when it opens. A picked row opens from the tab
@@ -287,13 +287,19 @@ public final class BookmarksBarProvider: PageProvider {
         }
     }
 
+    /// Whether a `menu` call's rows were read for this page's profile, on its current lend.
+    func acceptsMenu(_ params: JSONValue) -> Bool {
+        params["profile"]?.stringValue == pageHost.profile && params["lend"]?.intValue == pageHost.lendGeneration
+    }
+
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let host else { throw PageError.closed }
         switch op {
         case Self.prefix + "menu":
             // Rows read for the profile the page drew before it was lent here would open that
             // profile's bookmarks in this tab: dropped.
-            guard let page, let anchor = params["anchor"], params["profile"]?.stringValue == pageHost.profile,
+            // So would rows read before the page was lent again, to a tab of the same profile.
+            guard let page, let anchor = params["anchor"], acceptsMenu(params),
                   let rows = params["rows"]?.arrayValue.map(BookmarksBarMenu.rows) else { return .object([:]) }
             let number = { (key: String) in CGFloat(anchor[key]?.doubleValue ?? 0) }
             let lease = pageHost.lease()
