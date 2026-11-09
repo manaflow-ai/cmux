@@ -265,6 +265,137 @@
         }
       }
     },
+    "settings.category.personalization": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التخصيص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizacija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalisering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalisierung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalization"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalización"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnalisation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizzazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パーソナライズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការកំណត់ផ្ទាល់ខ្លួន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개인화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalisering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizacja"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Персонализация"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การปรับแต่งส่วนตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kişiselleştirme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Персоналізація"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cá nhân hóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个性化"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "個人化"
+          }
+        }
+      }
+    },
     "settings.choice.groupPalettePictorial": {
       "comment": "Group Colors choice: colors from the desktop picture by place",
       "extractionState": "manual",
@@ -1352,27 +1483,27 @@
       "comment": "Settings > Chief > Chief Dock: help for the floating Chief's look at the screen.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off."}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "يمنح فتح Chief العائم نظرة واحدة على الشاشة خلف cmux والنافذة في المقدمة، لتسأل عمّا تراه. يستخدم إذن تسجيل الشاشة الخاص بمساعد Computer Use ولا يطلبه أبدًا. تطفئه العين في اللوحة."}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Otvaranje plutajućeg Chiefa daje mu jedan pogled na ekran iza cmuxa i prozor ispred, pa možeš pitati o onome što vidiš. Koristi dozvolu za snimanje ekrana Computer Use pomoćnika i nikad je ne traži. Oko u panelu to isključuje."}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Når du åbner den svævende Chief, får den ét kig på skærmen bag cmux og vinduet forrest, så du kan spørge om det, du ser. Den bruger Computer Use-hjælperens tilladelse til skærmoptagelse og beder aldrig om den. Øjet i panelet slår det fra."}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Beim Öffnen wirft der schwebende Chief einen Blick auf den Bildschirm hinter cmux und das vordere Fenster, damit du nach dem Gesehenen fragen kannst. Er nutzt die Bildschirmaufnahme-Berechtigung des Computer-Use-Helfers und fragt nie danach. Das Auge im Bereich schaltet es aus."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Al abrir Chief flotante, echa un vistazo a la pantalla detrás de cmux y a la ventana delantera, para que preguntes por lo que ves. Usa el permiso de grabación de pantalla del asistente de Computer Use y nunca lo pide. El ojo del panel lo desactiva."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "À l’ouverture, Chief flottant jette un coup d’œil à l’écran derrière cmux et à la fenêtre au premier plan, pour que vous l’interrogiez sur ce que vous voyez. Il utilise l’autorisation d’enregistrement de l’écran de l’assistant Computer Use et ne la demande jamais. L’œil du panneau le désactive."}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Quando apri Chief mobile, dà un’occhiata allo schermo dietro cmux e alla finestra in primo piano, così puoi chiedere di ciò che vedi. Usa il permesso di registrazione dello schermo dell’helper Computer Use e non lo chiede mai. L’occhio nel pannello lo disattiva."}},
-        "ja": {"stringUnit": {"state": "needs_review", "value": "フローティング Chief を開くと、cmux の背後の画面と最前面のウインドウを一度見るので、見ているものについて質問できます。Computer Use ヘルパーの画面収録の許可を使い、許可を求めることはありません。パネルの目のボタンでオフにできます。"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ការបើក Chief អណ្ដែត ឲ្យវាមើលអេក្រង់នៅពីក្រោយ cmux និងបង្អួចខាងមុខម្ដង ដើម្បីអ្នកអាចសួរអំពីអ្វីដែលអ្នកឃើញ។ វាប្រើការអនុញ្ញាតថតអេក្រង់របស់ជំនួយការ Computer Use ហើយមិនដែលសុំវាទេ។ ភ្នែកក្នុងផ្ទាំងបិទវា។"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "떠 있는 Chief를 열면 cmux 뒤의 화면과 맨 앞 창을 한 번 보므로, 보고 있는 것에 대해 물어볼 수 있습니다. Computer Use 도우미의 화면 기록 권한을 쓰며 권한을 요청하지 않습니다. 패널의 눈 버튼으로 끕니다."}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Når du åpner den svevende Chief, får den ett blikk på skjermen bak cmux og vinduet foran, så du kan spørre om det du ser. Den bruker Computer Use-hjelperens tillatelse til skjermopptak og ber aldri om den. Øyet i panelet slår det av."}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Otwarcie pływającego Chief daje mu jedno spojrzenie na ekran za cmux i okno na wierzchu, więc możesz zapytać o to, co widzisz. Używa uprawnienia nagrywania ekranu pomocnika Computer Use i nigdy o nie nie prosi. Oko w panelu to wyłącza."}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ao abrir o Chief flutuante, ele dá uma olhada na tela atrás do cmux e na janela da frente, para você perguntar sobre o que vê. Usa a permissão de gravação de tela do auxiliar do Computer Use e nunca a pede. O olho no painel desliga isso."}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "При открытии плавающий Chief один раз смотрит на экран за cmux и на переднее окно, чтобы вы могли спросить о том, что видите. Он использует разрешение на запись экрана помощника Computer Use и никогда его не запрашивает. Глаз в панели это выключает."}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "การเปิด Chief แบบลอยให้มันดูหน้าจอหลัง cmux และหน้าต่างด้านหน้าหนึ่งครั้ง เพื่อให้คุณถามเกี่ยวกับสิ่งที่เห็นได้ ใช้สิทธิ์บันทึกหน้าจอของตัวช่วย Computer Use และไม่เคยขอสิทธิ์นี้ ปุ่มรูปตาในแผงใช้ปิด"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Serbest Chief'i açmak, cmux'un arkasındaki ekrana ve öndeki pencereye bir kez bakmasını sağlar; böylece gördüğünüz şeyi sorabilirsiniz. Computer Use yardımcısının ekran kaydı iznini kullanır ve asla istemez. Paneldeki göz bunu kapatır."}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Відкриваючи плаваючий Chief, ви даєте йому один раз глянути на екран за cmux і переднє вікно, щоб ви могли спитати про побачене. Він використовує дозвіл на запис екрана помічника Computer Use і ніколи його не просить. Око в панелі це вимикає."}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Khi mở Chief nổi, nó xem một lần màn hình phía sau cmux và cửa sổ phía trước để bạn có thể hỏi về những gì mình thấy. Nó dùng quyền ghi màn hình của trình trợ giúp Computer Use và không bao giờ xin quyền đó. Biểu tượng mắt trong bảng tắt tính năng này."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "打开浮动 Chief 时，它会看一眼 cmux 背后的屏幕和最前面的窗口，方便你询问所见内容。它使用 Computer Use 助手的屏幕录制权限，从不请求该权限。面板中的眼睛按钮可关闭此功能。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "開啟浮動 Chief 時，它會看一眼 cmux 背後的螢幕和最前面的視窗，方便你詢問所見內容。它使用 Computer Use 輔助程式的螢幕錄製權限，從不要求該權限。面板中的眼睛按鈕可關閉此功能。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يمنح فتح Chief العائم نظرة واحدة على الشاشة خلف cmux والنافذة في المقدمة، لتسأل عمّا تراه. يستخدم إذن تسجيل الشاشة الخاص بمساعد Computer Use ولا يطلبه أبدًا. تطفئه العين في اللوحة. لا ينظر إلا عندما يكون Computer Use قيد التشغيل."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Otvaranje plutajućeg Chiefa daje mu jedan pogled na ekran iza cmuxa i prozor ispred, pa možeš pitati o onome što vidiš. Koristi dozvolu za snimanje ekrana Computer Use pomoćnika i nikad je ne traži. Oko u panelu to isključuje. Gleda samo dok je Computer Use uključen."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Når du åbner den svævende Chief, får den ét kig på skærmen bag cmux og vinduet forrest, så du kan spørge om det, du ser. Den bruger Computer Use-hjælperens tilladelse til skærmoptagelse og beder aldrig om den. Øjet i panelet slår det fra. Den kigger kun, mens Computer Use er slået til."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Beim Öffnen wirft der schwebende Chief einen Blick auf den Bildschirm hinter cmux und das vordere Fenster, damit du nach dem Gesehenen fragen kannst. Er nutzt die Bildschirmaufnahme-Berechtigung des Computer-Use-Helfers und fragt nie danach. Das Auge im Bereich schaltet es aus. Er schaut nur, solange Computer Use eingeschaltet ist."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Al abrir Chief flotante, echa un vistazo a la pantalla detrás de cmux y a la ventana delantera, para que preguntes por lo que ves. Usa el permiso de grabación de pantalla del asistente de Computer Use y nunca lo pide. El ojo del panel lo desactiva. Solo mira mientras Computer Use está activado."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "À l’ouverture, Chief flottant jette un coup d’œil à l’écran derrière cmux et à la fenêtre au premier plan, pour que vous l’interrogiez sur ce que vous voyez. Il utilise l’autorisation d’enregistrement de l’écran de l’assistant Computer Use et ne la demande jamais. L’œil du panneau le désactive. Il ne regarde que lorsque Computer Use est activé."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Quando apri Chief mobile, dà un’occhiata allo schermo dietro cmux e alla finestra in primo piano, così puoi chiedere di ciò che vedi. Usa il permesso di registrazione dello schermo dell’helper Computer Use e non lo chiede mai. L’occhio nel pannello lo disattiva. Guarda solo mentre Computer Use è attivo."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "フローティング Chief を開くと、cmux の背後の画面と最前面のウインドウを一度見るので、見ているものについて質問できます。Computer Use ヘルパーの画面収録の許可を使い、許可を求めることはありません。パネルの目のボタンでオフにできます。Computer Use がオンのときだけ見ます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ការបើក Chief អណ្ដែត ឲ្យវាមើលអេក្រង់នៅពីក្រោយ cmux និងបង្អួចខាងមុខម្ដង ដើម្បីអ្នកអាចសួរអំពីអ្វីដែលអ្នកឃើញ។ វាប្រើការអនុញ្ញាតថតអេក្រង់របស់ជំនួយការ Computer Use ហើយមិនដែលសុំវាទេ។ ភ្នែកក្នុងផ្ទាំងបិទវា។ វាមើលតែពេល Computer Use បើកប៉ុណ្ណោះ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "떠 있는 Chief를 열면 cmux 뒤의 화면과 맨 앞 창을 한 번 보므로, 보고 있는 것에 대해 물어볼 수 있습니다. Computer Use 도우미의 화면 기록 권한을 쓰며 권한을 요청하지 않습니다. 패널의 눈 버튼으로 끕니다. Computer Use가 켜져 있을 때만 봅니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Når du åpner den svevende Chief, får den ett blikk på skjermen bak cmux og vinduet foran, så du kan spørre om det du ser. Den bruker Computer Use-hjelperens tillatelse til skjermopptak og ber aldri om den. Øyet i panelet slår det av. Den ser bare mens Computer Use er slått på."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Otwarcie pływającego Chief daje mu jedno spojrzenie na ekran za cmux i okno na wierzchu, więc możesz zapytać o to, co widzisz. Używa uprawnienia nagrywania ekranu pomocnika Computer Use i nigdy o nie nie prosi. Oko w panelu to wyłącza. Patrzy tylko wtedy, gdy Computer Use jest włączone."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ao abrir o Chief flutuante, ele dá uma olhada na tela atrás do cmux e na janela da frente, para você perguntar sobre o que vê. Usa a permissão de gravação de tela do auxiliar do Computer Use e nunca a pede. O olho no painel desliga isso. Ele só olha enquanto o Computer Use está ativado."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "При открытии плавающий Chief один раз смотрит на экран за cmux и на переднее окно, чтобы вы могли спросить о том, что видите. Он использует разрешение на запись экрана помощника Computer Use и никогда его не запрашивает. Глаз в панели это выключает. Смотрит, только пока Computer Use включён."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "การเปิด Chief แบบลอยให้มันดูหน้าจอหลัง cmux และหน้าต่างด้านหน้าหนึ่งครั้ง เพื่อให้คุณถามเกี่ยวกับสิ่งที่เห็นได้ ใช้สิทธิ์บันทึกหน้าจอของตัวช่วย Computer Use และไม่เคยขอสิทธิ์นี้ ปุ่มรูปตาในแผงใช้ปิด จะดูเฉพาะเมื่อเปิด Computer Use อยู่เท่านั้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Serbest Chief'i açmak, cmux'un arkasındaki ekrana ve öndeki pencereye bir kez bakmasını sağlar; böylece gördüğünüz şeyi sorabilirsiniz. Computer Use yardımcısının ekran kaydı iznini kullanır ve asla istemez. Paneldeki göz bunu kapatır. Yalnızca Computer Use açıkken bakar."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відкриваючи плаваючий Chief, ви даєте йому один раз глянути на екран за cmux і переднє вікно, щоб ви могли спитати про побачене. Він використовує дозвіл на запис екрана помічника Computer Use і ніколи його не просить. Око в панелі це вимикає. Дивиться, лише поки Computer Use увімкнено."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khi mở Chief nổi, nó xem một lần màn hình phía sau cmux và cửa sổ phía trước để bạn có thể hỏi về những gì mình thấy. Nó dùng quyền ghi màn hình của trình trợ giúp Computer Use và không bao giờ xin quyền đó. Biểu tượng mắt trong bảng tắt tính năng này. Chỉ nhìn khi Computer Use đang bật."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "打开浮动 Chief 时，它会看一眼 cmux 背后的屏幕和最前面的窗口，方便你询问所见内容。它使用 Computer Use 助手的屏幕录制权限，从不请求该权限。面板中的眼睛按钮可关闭此功能。仅在 Computer Use 开启时查看。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "開啟浮動 Chief 時，它會看一眼 cmux 背後的螢幕和最前面的視窗，方便你詢問所見內容。它使用 Computer Use 輔助程式的螢幕錄製權限，從不要求該權限。面板中的眼睛按鈕可關閉此功能。僅在 Computer Use 開啟時查看。"}}
       }
     },
     "settings.choice.chiefPanelStyle.seeThrough": {

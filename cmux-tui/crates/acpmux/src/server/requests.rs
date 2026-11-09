@@ -968,7 +968,7 @@ pub(super) async fn handle_request(
         let (pid, carried) = crate::sender_harness::check_trust(
             conn.socket_peer,
             conn.origin == super::Origin::Local,
-            conn.origin == super::Origin::Peer && conn.auth == super::ConnAuth::PeerToken,
+            conn.origin == super::Origin::Peer && conn.auth.peer_daemon(),
         );
         let prompt =
             if m == method::MUX_SEND_QUEUE { params.get_mut("request") } else { Some(&mut params) };
@@ -1857,7 +1857,7 @@ async fn dispatch_request_with_identity(
             // `client` device is served as a peer too (`pairing::origin_of`), so the
             // proof is the peer token, not the origin.
             let message_sender =
-                (conn.origin == super::Origin::Peer && conn.auth == ConnAuth::PeerToken && !web)
+                (conn.origin == super::Origin::Peer && conn.auth.peer_daemon() && !web)
                     .then(|| mux_meta(&params).and_then(|m| m.get("messageSender")))
                     .flatten()
                     .and_then(|sender| {
@@ -3272,8 +3272,7 @@ fn transport_of(conn: &Conn) -> &'static str {
     match conn.origin {
         super::Origin::Local => "unix",
         super::Origin::LocalApp => "app",
-        super::Origin::Web => "web",
-        super::Origin::Peer => "peer",
+        super::Origin::Web | super::Origin::Peer => super::carrier::transport(conn),
     }
 }
 
@@ -3303,7 +3302,7 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
         // and its own `personVerified` proves nothing. Its `via` is no proof either: it labels
         // any client but the owner's, a unix one too.
         super::Origin::Peer => {
-            conn.auth == ConnAuth::PeerToken
+            conn.auth.peer_daemon()
                 && params
                     .pointer("/_meta/acpmux")
                     .and_then(|m| m.get(super::remote_guard::PERSON_PROVEN))
@@ -3576,7 +3575,7 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     // (`hub/github_owner.rs`). It counts from its `_acpmux/watch`, once the Mac's side of the
     // handshake is done.
     let lends = conn.origin == Origin::Peer
-        && conn.auth == ConnAuth::PeerToken
+        && conn.auth.peer_daemon()
         && params.pointer("/_meta/acpmux/githubBroker").and_then(Value::as_bool) == Some(true);
     conn.client_requests.lends_github.store(lends, Ordering::SeqCst);
 }

@@ -84,7 +84,9 @@ public actor SSHMachineLink {
     private var machine = SSHConnectionMachine()
     /// ``SSHConnectionMachine/waitsForUser``, mirrored at each event for readers off the actor.
     private nonisolated let waitsForUserMirror = Mutex(false)
-    private var child: ChildProcess?
+    private var child: ChildProcess? { didSet { processMirror.withLock { [running = child != nil] in $0 = running } } }
+    /// Whether a link process (`cmux-tui remote connect`) exists, mirrored for readers off the actor.
+    private nonisolated let processMirror = Mutex(false)
     /// The stderr tail of the last link that exited.
     private var exitedOutput: String?
     private var socket: String?
@@ -112,6 +114,9 @@ public actor SSHMachineLink {
     /// Only Reconnect may open the gate (``SSHConnectionMachine/waitsForUser``): read without a hop,
     /// set before the status that follows it is reported.
     public nonisolated var waitsForUser: Bool { waitsForUserMirror.withLock { $0 } }
+    /// A link process exists: it owns the redial. False while the link probes, installs or spawns
+    /// (bootstrap), and after it exited; then the daemon connection keeps its own bounded retry.
+    public nonisolated var hasProcess: Bool { processMirror.withLock { $0 } }
 
     /// The link's stderr tail (ssh and the machine's cmux-tui write their
     /// errors there, the daemon's start failure included): the running
@@ -303,9 +308,9 @@ public actor SSHMachineLink {
         }
     }
 
-    /// A link that exits (the network is gone past its own retries, the
-    /// machine rebooted) reports it; the daemon connection's reconnect then
-    /// calls ``socketPath()``, which probes again.
+    /// A link that exits (it crashed, or its session is gone) reports it; the
+    /// daemon connection's next attempt then calls ``socketPath()``, which
+    /// probes and starts it again: the only restart of a link client.
     private func watchExit(_ child: ChildProcess) {
         Task { [weak self] in
             _ = await child.waitForExit()

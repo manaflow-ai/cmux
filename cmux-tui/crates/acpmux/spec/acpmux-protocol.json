@@ -789,6 +789,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/plan/build",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/plan/compare",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/plan/keep",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/background",
       "params": {
         "$ref": "#/types/ProcessBackgroundParams"

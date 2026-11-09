@@ -50,7 +50,7 @@ pub const VIA_DEVICE: &str = "device";
 /// Web client (`via: web`) or a paired machine (`via: device`) of its own. From
 /// anything else it means nothing.
 pub fn asked(auth: crate::server::ConnAuth, control: Control, params: &Value) -> bool {
-    auth == crate::server::ConnAuth::PeerToken
+    auth.peer_daemon()
         && owner(auth, control, params)
         && params.pointer("/_meta/acpmux/vmBoundary") == Some(&Value::Bool(true))
 }
@@ -77,10 +77,12 @@ pub fn forwards(auth: crate::server::ConnAuth, control: Control) -> bool {
     use crate::server::ConnAuth;
     match auth {
         ConnAuth::LocalSocket | ConnAuth::LocalApp => control != Control::Web,
-        ConnAuth::PeerToken => control == Control::Peer,
-        ConnAuth::ListenerToken | ConnAuth::Device | ConnAuth::ReadOnlyDevice | ConnAuth::None => {
-            false
-        }
+        ConnAuth::PeerToken | ConnAuth::CarrierOwner => control == Control::Peer,
+        ConnAuth::ListenerToken
+        | ConnAuth::Device
+        | ConnAuth::ReadOnlyDevice
+        | ConnAuth::CarrierTeam
+        | ConnAuth::None => false,
     }
 }
 

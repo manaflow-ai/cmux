@@ -22,7 +22,9 @@ export type AgentText = {
 const HEADER =
   /^\s*(?:\*\*)?(?:from|message from|reply from|handoff from|report from|update from)\s+([A-Za-z][\w .@/()-]{0,47}?)(?:\*\*)?\s*:(?:\*\*)?(?:\s|$)/i;
 const TRACE_ID = /^\s*trace-id:\s*\S+/i;
-const GENERATED = /generated (?:with|by) \[?([A-Za-z][\w .-]{0,31}?)\]?(?:\(|\s*$)/i;
+// A footer line of its own (`🤖 Generated with [Codex](…)`), never prose that says it: only non-word
+// characters (a mark, a dash) before it, as acpmux's agent_text.rs reads it.
+const GENERATED = /^\W*generated (?:with|by) \[?([A-Za-z][\w .-]{0,31}?)\]?(?:\(|\s*$)/iu;
 const CO_AUTHOR = /^\s*co-authored-by:\s*\S/i;
 const SESSION_LINE = /^\s*(?:agent session|author-agent|agent-id):\s*\S/i;
 const RECEIPT = /^\s*(?:review \([^)]{1,80}\)|verdict)\s*:\s*(?:ship|block)\b/i;
