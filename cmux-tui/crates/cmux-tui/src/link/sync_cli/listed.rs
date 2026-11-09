@@ -77,7 +77,7 @@ pub(super) fn add_entry(
     entry: place::Entry,
 ) -> anyhow::Result<()> {
     match entry {
-        place::Entry::File { .. } => add_in(set, relative, path, dir, name),
+        place::Entry::File { mode } => add_in(set, relative, path, dir, name, mode),
         place::Entry::Link => link_in(set, &relative, path, dir, name),
         place::Entry::Other => {
             set.skips.note(&relative, Why::Special);
@@ -152,15 +152,18 @@ fn link_in(
     Ok(())
 }
 
-/// [`add`] for the regular file `name` of the folder `handle` holds open: its
-/// identity comes from a descriptor opened there, never through `path`, so a
-/// folder above it swapped since the walk opened it lends no other file's.
+/// [`add`] for the regular file `name` (listed with `mode`) of the folder
+/// `handle` holds open: its identity comes from a descriptor opened there, never
+/// through `path`, so a folder above it swapped since the walk opened it lends
+/// no other file's. One this user cannot read takes its identity from the entry
+/// instead: a sharing rule may leave it out, and a copy fails when it reads it.
 fn add_in(
     set: &mut LocalSet,
     relative: String,
     path: &Path,
     handle: &place::Dir,
     name: &str,
+    mode: u32,
 ) -> anyhow::Result<()> {
     if !holdable(&relative) {
         set.skips.note(&relative, skips::unholdable(&relative));
@@ -178,6 +181,13 @@ fn add_in(
         // A symlink there since it was listed: as one, read through `handle`.
         Err(error) if swapped(&error) => link_in(set, &relative, path, handle, name)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            if let Some(id) = handle.inode(name)? {
+                let source = Source::File(path.to_path_buf());
+                let file = LocalFile { source, permissions: permissions_of(mode), id: Some(id) };
+                set.files.insert(relative, file);
+            }
+        }
         Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
     }
     Ok(())
@@ -211,5 +221,27 @@ pub(super) fn git_text(
         Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error).with_context(|| format!("cannot read {}", path.display())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    use super::super::local::{Rules, collect};
+
+    /// A file this user cannot read is listed by its entry, not opened, so a
+    /// sharing rule can leave it out before anything reads it.
+    #[test]
+    fn an_unreadable_file_is_listed_without_being_read() {
+        let root = tempfile::tempdir().unwrap();
+        let top = std::fs::canonicalize(root.path()).unwrap();
+        std::fs::write(top.join("a.txt"), "a\n").unwrap();
+        std::fs::write(top.join(".env"), "TOKEN=x\n").unwrap();
+        std::fs::set_permissions(top.join(".env"), std::fs::Permissions::from_mode(0o000)).unwrap();
+        let set = collect(&top, Rules::Share).unwrap();
+        let env = set.files.get(".env").expect("listed");
+        assert_eq!(env.permissions, 0o600);
+        assert!(env.id.is_some() && set.files.contains_key("a.txt"));
     }
 }

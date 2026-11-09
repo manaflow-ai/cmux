@@ -215,7 +215,7 @@ impl Dir {
 
     /// The (device, inode) of the entry `name`, not following a symlink;
     /// None when it is missing.
-    fn inode(&self, name: &str) -> io::Result<Option<(u64, u64)>> {
+    pub(super) fn inode(&self, name: &str) -> io::Result<Option<(u64, u64)>> {
         let c = c_name(name)?;
         // SAFETY: zeroed stat is a valid out value.
         let mut stat: libc::stat = unsafe { std::mem::zeroed() };
