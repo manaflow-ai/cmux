@@ -159,7 +159,9 @@ SELECTED_NOTE = re.compile(r"Selected\b")
 
 
 def _note(notes: dict, entry: str, variant: str) -> str:
-    """A variant's own note, from the entries (webviews/scripts/gallery/notes.ts), never read off its file's text."""
+    """A variant's own note, from the entries (webviews/scripts/gallery/notes.ts), never read off its file's text.
+    The notes are HEAD's even for an older highlight's commit: its after and its marked before render at HEAD,
+    so HEAD's notes describe the variants that are drawn."""
     return (notes.get(entry) or {}).get(variant) or ""
 
 

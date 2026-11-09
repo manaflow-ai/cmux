@@ -300,13 +300,9 @@ PICTURES_CLIPS_DIR = "release-notes/next/clips/"
 PICTURES_HINT = ("Give each one a picture: change the webview *.gallery.ts(x) state that shows it on this branch "
                  "(whats-new-gallery.yml picks it), or add a line such as `gallery: agent-pane.composer-send-menu/idle`, "
                  "or, for a native change, write release-notes/next/clips/<id>.json (a clip spec).")
-# A variant a gallery file marks as the look its change replaced: its note opens "Before:" (or "Before ("), or its
-# name ends in an old-look word; whats-new-gallery.py marked_before reads the same marks. The variants and their notes
-# come from the entries themselves (webviews/scripts/gallery/notes.ts), so a note anywhere in a variant counts and a
-# prop never does (reviews of #39651, #39688). Where bun cannot load the file, the text is read instead: a note line,
-# or a variant key (`name: {`).
-PICTURES_BEFORE_NOTE = re.compile(r"Before\s*[:(]")
-PICTURES_OLD_LOOK = re.compile(r"(^|-)(before|old|solid|previous)$")
+# A variant a gallery file marks as the look its change replaced: a note opening "Before:" (or "Before ("), or a
+# variant key (`name: {`) ending in an old-look word; whats-new-gallery.py marked_before reads the same marks. Only
+# notes and variant keys count, never a prop such as `before: true`.
 PICTURES_BEFORE_MARK = re.compile(r"""^\s*note:\s*["'`]Before\s*[:(]|^\s*["']?(?:[\w.]+-)*(?:before|old|solid|previous)["']?\s*:\s*\{""",
                                   re.M)
 PICTURES_BEFORE_HINT = ("An Improved entry's before is its state at the commit before it, and a gallery file the branch "
@@ -1381,29 +1377,6 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
     return found
 
 
-def picture_gallery_notes(repo: Path, path: str) -> dict[str, dict[str, str]] | None:
-    """{entry: {variant: note}} of one webview gallery file, as notes.ts reads it from the checkout; None when bun
-    cannot load it (no bun, no install, a file that does not load), so the caller reads the text instead."""
-    try:
-        run = subprocess.run(["bun", "scripts/gallery/notes.ts", path.removeprefix("webviews/")], cwd=repo / "webviews",
-                             capture_output=True, text=True, timeout=60)
-        notes = json.loads(run.stdout) if run.returncode == 0 else None
-    except (OSError, subprocess.TimeoutExpired, ValueError):
-        return None
-    return notes if isinstance(notes, dict) else None
-
-
-def picture_before_marks(repo: Path, path: str, text: str) -> tuple[set[str], bool]:
-    """The entry ids a new gallery file declares, and whether one of its variants is marked as the old look."""
-    notes = picture_gallery_notes(repo, path)
-    if notes is None:
-        ids = set(re.findall(r"""\bid:\s*["']([^"']+)["']""", text))
-        return ids, bool(PICTURES_BEFORE_MARK.search(text))
-    marked = any(PICTURES_BEFORE_NOTE.match(note or "") or PICTURES_OLD_LOOK.search(variant)
-                 for variants in notes.values() for variant, note in variants.items())
-    return set(notes), marked
-
-
 def picture_problems(repo: Path, base: str, head: str, restrict: set[str] | None = None) -> list[str]:
     """`<highlight file>: ...` for each New or Improved What's New highlight BASE..HEAD adds with no picture source.
 
@@ -1437,8 +1410,7 @@ def picture_problems(repo: Path, base: str, head: str, restrict: set[str] | None
         new_files = sorted(added - {""})
         new_blobs = git_batch.cat_file(repo, [f"{head}:{path}" for path in new_files])
         texts = {path: (new_blobs[f"{head}:{path}"] or b"").decode("utf-8", "replace") for path in new_files}
-        marks = {path: picture_before_marks(repo, path, text) for path, text in texts.items()}
-        unmarked = sorted(path for path, (_, marked) in marks.items() if not marked)
+        unmarked = sorted(path for path, text in texts.items() if not PICTURES_BEFORE_MARK.search(text))
         clips = set(git(repo, "ls-tree", "--name-only", "-z", head, "--", PICTURES_CLIPS_DIR).decode().split("\0"))
         blobs = git_batch.cat_file(repo, [f"{head}:{p}" for p in files])
         found = []
@@ -1455,7 +1427,8 @@ def picture_problems(repo: Path, base: str, head: str, restrict: set[str] | None
             if meta.get("gallery"):
                 # A named state with no `before:` is rendered at the commit before too: its entry's file must exist there.
                 entry = meta["gallery"].partition("/")[0]
-                new = [path for path in unmarked if entry in marks[path][0]]
+                new = [path for path in unmarked if re.search(r"""\bid:\s*["']""" + re.escape(entry) + r"""["']""",
+                                                              texts[path])]
                 if category == "improved" and not meta.get("before") and new:
                     found.append(f"{p}: an improved highlight whose gallery file is new, with no before ({', '.join(new)})")
                 continue
