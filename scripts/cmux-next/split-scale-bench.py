@@ -603,7 +603,7 @@ def main():
         _, problem = STRESS.place_window(run.rpc)
         if problem:  # a window off its screen or the wrong size measures nothing comparable; fail the run
             results["errors"]["placement"] = problem
-            raise SystemExit(f"split-scale: {problem}: run with a 1920 x 1080 display (--vdisplay=120)")
+            raise SystemExit(f"split-scale: {problem}: run with a 1920 x 1200 display (--vdisplay=120 makes one)")
         time.sleep(4)  # test script: launch work ends before the first cell
         for count in WORKSPACES:
             for splits in SPLITS:

@@ -218,6 +218,12 @@ pub struct SpawnSpec {
     /// None: never (a daemon whose idle hibernation is off, or one that predates it).
     #[serde(default)]
     pub orphan_exit: Option<OrphanExit>,
+    /// The `agents.promptSuggestions` MDM or the team policy forces, as the daemon holds it when it
+    /// starts this host (`claude_stdio::prompt_suggestions::managed`): the host is its own process,
+    /// so without it a forced value never reached the translator it builds. None: nothing forced
+    /// (or a daemon that predates it).
+    #[serde(default)]
+    pub prompt_suggestions_managed: Option<bool>,
 }
 
 /// A host's own end once no daemon controls it (`SpawnSpec::orphan_exit`). Hosts outlive their

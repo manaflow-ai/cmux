@@ -1446,9 +1446,7 @@
         "CmuxNextDesign",
         "CmuxNextImportSuggestions",
         "CmuxNextOnboarding",
-        "CmuxNextSettings",
-        "CmuxNextSidebar",
-        "CmuxNextWakeups"
+        "CmuxNextSettings"
       ],
       "packages": []
     },
