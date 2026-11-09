@@ -113,3 +113,23 @@ fn w5p_pane_move_is_one_request_with_the_selectors_as_typed() {
     assert_eq!(own.params["pane"], "current");
     assert_eq!(own.params["new_screen"], true);
 }
+
+/// W5-P review: `--new-screen --to-workspace <ws>` is one destination (a
+/// new screen in that workspace), as `--to-workspace <ws>` alone is.
+#[test]
+fn w5p_new_screen_with_to_workspace_is_one_destination() {
+    for flags in [&["--new-screen", "--to-workspace", "other"][..], &["--to-workspace", "other"]] {
+        assert_eq!(
+            fields(flags),
+            json!({"destination_workspace": "other", "new_screen": true}),
+            "{flags:?}"
+        );
+    }
+    let named = fields(&["--new-tab", "--to-workspace", "other", "--name", "logs"]);
+    assert_eq!(
+        named,
+        json!({"destination_workspace": "other", "new_screen": true, "name": "logs"})
+    );
+    // --new-screen still goes with no other destination.
+    assert!(parsed(&["pane", PANE_S, "move", "--new-screen", "--to-pane", PANE_T]).is_err());
+}
