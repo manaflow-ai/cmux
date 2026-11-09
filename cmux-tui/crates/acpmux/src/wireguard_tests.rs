@@ -497,6 +497,22 @@ fn a_restart_runs_the_mesh_with_the_new_key_on_the_same_port() {
         )
         .await;
         assert!(!matches!(before, Ok(Ok(_))), "b took a's old key");
+        // Every key user takes the key with the write, in turn; a failed write reaches none.
+        let took = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        for name in ["carrier", "other"] {
+            let took = took.clone();
+            a_side.add_key_user(Arc::new(move |private: &[u8; 32], write| {
+                write()?;
+                took.lock().unwrap().push(format!("{name} {}", private[0]));
+                Ok(())
+            }));
+        }
+        let mut wrote = 0;
+        a_side.put_key(&fresh, &mut || { wrote += 1; Ok(()) }).unwrap();
+        assert_eq!(wrote, 1, "the key file is written once");
+        assert_eq!(*took.lock().unwrap(), ["other 42", "carrier 42"]);
+        assert!(a_side.put_key(&[7u8; 32], &mut || Err(anyhow::anyhow!("no write"))).is_err());
+        assert_eq!(took.lock().unwrap().len(), 2, "a failed write gave no user the key");
         let port = a_side.local_addr();
         a_side.restart(fresh).await.unwrap();
         assert_eq!(a_side.local_addr(), port);

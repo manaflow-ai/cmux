@@ -66,7 +66,15 @@ pub struct Transport {
     service: SocketAddr,
     peers: Vec<WgPeer>,
     websocket: SocketAddr,
+    /// The daemon's other users of the node key this lock guards (the hub carrier): each takes a
+    /// rotated key as [`Self::put_key`] puts it in place.
+    key_users: Mutex<Vec<KeyUser>>,
 }
+
+/// Another user of the node key: given the new private key and `write` (which makes it the
+/// machine's node key on disk), it runs `write` and takes the key, both or neither.
+pub(crate) type KeyUser =
+    Arc<dyn Fn(&[u8; 32], &mut dyn FnMut() -> Result<()>) -> Result<()> + Send + Sync>;
 
 /// Where acpmux takes the lock for its node key, beside the cmux link whose state directory is
 /// `link_dir`. The link holds the machine's lock (`state_dir`) for its whole life. When the key
@@ -249,12 +257,42 @@ impl Transport {
             service: settings.address,
             peers,
             websocket,
+            key_users: Mutex::new(Vec::new()),
         }))
     }
 
     /// `f` with this transport's key lock, while it holds it (until [`Self::shutdown`]).
     pub(crate) fn with_key<R>(&self, f: impl FnOnce(&KeyHolder) -> R) -> Option<R> {
         self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_deref().map(f)
+    }
+
+    /// `user` takes every key a rekey puts in place from now on ([`Self::put_key`]).
+    #[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))]
+    pub(crate) fn add_key_user(&self, user: KeyUser) {
+        self.key_users.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(user);
+    }
+
+    /// A rekey's new key in place: `write` (the key file's rename) runs inside each key user's
+    /// own rotation, so every one takes the key with the file or none does. The mesh itself
+    /// starts again with it in [`Self::restart`].
+    pub(crate) fn put_key(
+        &self,
+        private: &[u8; 32],
+        write: &mut dyn FnMut() -> Result<()>,
+    ) -> Result<()> {
+        fn nest(
+            users: &[KeyUser],
+            private: &[u8; 32],
+            write: &mut dyn FnMut() -> Result<()>,
+        ) -> Result<()> {
+            match users.split_first() {
+                None => write(),
+                Some((user, rest)) => user(private, &mut || nest(rest, private, &mut *write)),
+            }
+        }
+        let users =
+            self.key_users.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        nest(&users, private, write)
     }
 
     /// Start the mesh again with `private_key` on the same UDP port, peers and service

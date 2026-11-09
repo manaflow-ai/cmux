@@ -245,10 +245,16 @@ pub(crate) async fn rekey(
             "the platform answered another WireGuard key; the key on this Mac is unchanged",
         ));
     }
-    if holder
-        .with_lock(|lock| crate::cli::mesh_node_key::promote_pending_held(state_dir, lock))
-        .is_err()
-    {
+    // The pending key over the key file; with this daemon's transport, every other user of the
+    // node key (the hub carrier) takes it in the same step (`Transport::put_key`).
+    let mut write = || {
+        holder.with_lock(|lock| crate::cli::mesh_node_key::promote_pending_held(state_dir, lock))
+    };
+    let promoted = match &holder {
+        Holder::Transport(transport) => transport.put_key(&private, &mut write),
+        Holder::Lock(_) => write(),
+    };
+    if promoted.is_err() {
         return Err(refusal(
             "key_write_failed",
             "the platform took the new WireGuard key but this Mac could not put it in place; rekey again",
