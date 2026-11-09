@@ -95,10 +95,15 @@ pub(super) enum Op {
     End(bool, mpsc::Sender<Result<(), Failed>>),
 }
 
-/// Whether `folder` may take a hold: absent, or an empty folder (the copy goes to a new folder of
-/// its own; a hold never stands over files it did not write).
+/// Whether `folder` may take a hold: absent, an empty folder (the copy goes to a new folder of
+/// its own; a hold never stands over files it did not write), or one whose last sync failed
+/// (a copy that ended short or went quiet): no tool runs in such a folder until a sync
+/// completes it, so the copy's retry holds it again and repairs it, where a plain copy would
+/// leave it failed.
 pub(super) fn fresh(folder: &Path) -> Result<(), SeedRefusal> {
-    if std::fs::read_dir(folder).is_ok_and(|mut entries| entries.next().is_some()) {
+    use cmux_git::sync_barrier::{Probe, probe};
+    let failed = || matches!(probe(folder), Ok(Probe::Incomplete));
+    if std::fs::read_dir(folder).is_ok_and(|mut entries| entries.next().is_some()) && !failed() {
         return Err(SeedRefusal {
             code: "seed.folder_not_empty",
             message: "the folder exists and is not empty".into(),

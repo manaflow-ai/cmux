@@ -61,6 +61,12 @@ pub const GIT_SEED_HOLD_CAPABILITY: &str = "git-seed-hold-v1";
 pub const GIT_SEED_HOLD_COMMANDS: [&str; 3] =
     ["git.seed.hold", "git.seed.hold.head", "git.seed.hold.end"];
 
+/// Whether a chat's `subpath` can name a head literally (`params::HeadFirst`): a hold or a
+/// head-first seed with another subpath is refused, so the Mac copies such a folder plainly.
+pub fn head_subpath_is_literal(subpath: &str) -> bool {
+    params::HeadFirst::of(Some(subpath)).is_some()
+}
+
 static SERVICE: OnceLock<GitSeedService> = OnceLock::new();
 
 /// Run after a seed checks out a folder (the binary's own: cmux-tui warms the

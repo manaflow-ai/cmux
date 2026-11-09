@@ -519,6 +519,11 @@ pub(super) fn is_refusal(error: &anyhow::Error) -> bool {
     remote::refusal_code(error).is_some()
 }
 
+/// The machine's code for a refusal (`seed.filling`), None for any other error.
+pub(super) fn refusal_code(error: &anyhow::Error) -> Option<&str> {
+    remote::refusal_code(error)
+}
+
 /// The error code of a failed push.
 pub(super) fn push_failure_code(error: &anyhow::Error) -> String {
     push_failure(error).0

@@ -37,18 +37,23 @@ pub(super) struct Hold {
     pub(super) job: String,
 }
 
-/// `git.seed.hold` on `remote` for a chat at `subpath`: None when the machine refuses it
-/// (the plain copy goes instead), and for a folder in git, whose head would hold a partial
-/// `.git` a starting harness reads. A request whose answer is lost is sent once more with
-/// the same key, which the machine answers with the same hold; one still unanswered fails
-/// the push, since a plain copy into a folder the machine may hold would end failed.
+/// `git.seed.hold` on `remote` for a chat at `subpath`. None (the plain copy goes instead)
+/// for a folder in git, whose head would hold a partial `.git` a starting harness reads, for
+/// a subpath no head can name, and when the machine has the folder whole already
+/// (`seed.folder_not_empty`) or does not know holds. Any other refusal fails the push: the
+/// folder is held or synced by another push, and a plain copy would race it. A request whose
+/// answer is lost is sent once more with the same key, which the machine answers with the
+/// same hold; one still unanswered fails the push too.
 pub(super) fn take(
     machine: &Machine<'_>,
     local: &Path,
     remote: &str,
     subpath: &str,
 ) -> anyhow::Result<Option<Hold>> {
-    if !machine.holds || sync_cli::in_git(local) {
+    if !machine.holds
+        || sync_cli::in_git(local)
+        || !cmux_tui_core::git_seed::head_subpath_is_literal(subpath)
+    {
         return Ok(None);
     }
     let mut params = json!({"folder": remote, "key": super::unique(),
@@ -64,9 +69,15 @@ pub(super) fn take(
         Ok(answer) => {
             Ok(answer.get("job").and_then(Value::as_str).map(|job| Hold { job: job.to_owned() }))
         }
-        Err(error) if sync_cli::is_refusal(&error) => Ok(None),
+        Err(error) if sync_cli::refusal_code(&error).is_some_and(plain_copy_goes) => Ok(None),
         Err(error) => Err(error),
     }
+}
+
+/// The hold refusals the plain copy may follow: the machine has the folder whole, or does not
+/// serve holds on this connection.
+fn plain_copy_goes(code: &str) -> bool {
+    code == "seed.folder_not_empty" || !code.starts_with("seed.")
 }
 
 /// The held copy of `local` to `remote` (module docs).
@@ -161,33 +172,22 @@ pub(super) fn copy_rest(socket: &Path, job: &str, local: &Path, remote: &str) ->
 }
 
 /// A thread that reads the hold's job every [`RENEW_EVERY`], which renews its lease,
-/// until dropped.
+/// until dropped. Dropping it never waits: a read still in flight ends on its own, so the
+/// chat's answer is never held up by a renewal.
 struct Renewal {
-    stop: Option<mpsc::Sender<()>>,
-    thread: Option<std::thread::JoinHandle<()>>,
+    _stop: mpsc::Sender<()>,
 }
 
 impl Renewal {
     fn start(socket: &Path, job: &str) -> Self {
         let (stop, stopped) = mpsc::channel::<()>();
         let (socket, job) = (socket.to_path_buf(), job.to_owned());
-        let thread = std::thread::Builder::new()
-            .name("cmux-link-hold-renewal".into())
-            .spawn(move || {
-                while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(RENEW_EVERY) {
-                    let _ = sync_cli::machine_call(&socket, "git.seed.status", json!({"job": job}));
-                }
-            })
-            .ok();
-        Self { stop: Some(stop), thread }
-    }
-}
-
-impl Drop for Renewal {
-    fn drop(&mut self) {
-        drop(self.stop.take());
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
+        // Detached: it ends once `stop` is dropped.
+        let _ = std::thread::Builder::new().name("cmux-link-hold-renewal".into()).spawn(move || {
+            while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(RENEW_EVERY) {
+                let _ = sync_cli::machine_call(&socket, "git.seed.status", json!({"job": job}));
+            }
+        });
+        Self { _stop: stop }
     }
 }

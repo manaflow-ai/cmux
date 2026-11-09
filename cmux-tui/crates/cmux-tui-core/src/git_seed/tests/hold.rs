@@ -99,6 +99,13 @@ fn a_copy_that_ends_short_leaves_its_folder_failed() {
     let again = service.call("git.seed.hold.end", &json!({ "job": job, "ok": true })).unwrap_err();
     assert_eq!(again.code, "seed.unknown_job", "an ended hold cannot be ended ready");
     assert_eq!(state(&folder), "incomplete");
+    // The copy's retry holds the failed folder again, files and all, and repairs it.
+    let retry = hold(&service, &folder, json!({ "key": "retry" })).unwrap();
+    assert_eq!(settles(&folder, "syncing"), "syncing");
+    service.call("git.seed.hold.end", &json!({ "job": retry, "ok": true })).unwrap();
+    assert_eq!(settles(&folder, "ready"), "ready");
+    // A folder whose sync is whole is the machine's again: no hold stands over it.
+    assert_eq!(hold(&service, &folder, json!({})).unwrap_err().code, "seed.folder_not_empty");
 }
 
 #[test]
