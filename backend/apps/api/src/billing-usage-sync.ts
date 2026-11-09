@@ -1,6 +1,6 @@
 import type { Env } from "./env.ts"
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
-import { INCLUDED_MODES, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_SET_NAMES, USAGE_PRODUCT_ID, USAGE_TEAM_MODE_PLANS, usageIncludedUsd, usageModesOf, usageMeterEvent, usageMeterValueMicros, usagePriceLookupKey, type IncludedMode, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
+import { defaultTeamMode, INCLUDED_MODES, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_SET_NAMES, USAGE_PRODUCT_ID, USAGE_TEAM_MODE_PLANS, usageIncludedUsd, usageModesOf, usageMeterEvent, usageMeterValueMicros, usagePriceLookupKey, type IncludedMode, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
 
 /**
  * The usage sync (cx-y79zh S4, plans/cmux-next/usage-billing.md section 3, placement option a): the
@@ -111,8 +111,16 @@ const listActive = async (key: string): Promise<{ subs: StripeSubscription[]; tr
   return { subs, truncated }
 }
 
-/** The price set in force: `e2e` only on the development Worker that asks for it; every other environment gets v1. */
-export const usagePriceSet = (env: Env): UsagePriceSet => (env.ENVIRONMENT === "development" && env.BILLING_USAGE_PRICE_SET === "e2e" ? "e2e" : "v1")
+/**
+ * The price set in force: `e2e` only on the development Worker that asks for it; `v2` (Team 25 USD per seat,
+ * Leo 2026-11-09) only on development or staging with BILLING_USAGE_PRICE_SET=v2. Production stays v1
+ * whatever the setting: it waits for Leo's go.
+ */
+export const usagePriceSet = (env: Pick<Env, "ENVIRONMENT" | "BILLING_USAGE_PRICE_SET">): UsagePriceSet => {
+  if (env.ENVIRONMENT === "development" && env.BILLING_USAGE_PRICE_SET === "e2e") return "e2e"
+  if ((env.ENVIRONMENT === "development" || env.ENVIRONMENT === "staging") && env.BILLING_USAGE_PRICE_SET === "v2") return "v2"
+  return "v1"
+}
 
 export const syncUsage = async (env: Env, only?: { readonly subscription?: string }): Promise<SyncReport> => {
   const mode = stripeKeyMode(env.STRIPE_USAGE_KEY)
@@ -202,7 +210,7 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       // The period's mode: a Team customer's operator setting in force at the period start (a change applies from
       // the next period; a period already pushed keeps its mode); every other plan is per team.
       const periodStart = planItem!.current_period_start
-      const mode: IncludedMode = USAGE_TEAM_MODE_PLANS.has(plan) && periodStart ? await meter.periodMode(team!, sub.id, periodStart) : "per_team"
+      const mode: IncludedMode = USAGE_TEAM_MODE_PLANS.has(plan) && periodStart ? await meter.periodMode(team!, sub.id, periodStart, defaultTeamMode(set)) : "per_team"
       const want = priceOf.get(`${plan}:${mode}`)
       if (!want) {
         skip("no_usage_price")
@@ -236,10 +244,13 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       const quantity = Math.max(1, Math.floor(Number(planItem!.quantity ?? 1)) || 1)
       const seen = mode === "per_seat" ? await meter.pushState(team!, sub.id, start) : null
       const seats = seen?.mode === "per_seat" ? Math.max(quantity, seen.seats) : quantity
+      // A per-seat period already pushed keeps the included amount it was pushed with, like its mode: a price set
+      // change applies from the next period, so the meter value and the console never mix two amounts in one period.
+      const periodIncluded = seen?.mode === "per_seat" && seen.included_usd !== null ? seen.included_usd : includedUsd
       // The team can be billed above its included amount until this period ends (inference/included-stop.ts);
       // the mark also names the period's included amount for the console (team.ai_limit.get).
-      await meter.markBillable(team!, sub.id, end, { period_start: start, mode, seats, included_usd: includedUsd })
-      if (await pushLevel(team!, sub, start, end, mode, includedUsd, seats)) report.pushed++
+      await meter.markBillable(team!, sub.id, end, { period_start: start, mode, seats, included_usd: periodIncluded })
+      if (await pushLevel(team!, sub, start, end, mode, periodIncluded, seats)) report.pushed++
       else report.unchanged++
     } catch (e) {
       report.failed++

@@ -640,6 +640,9 @@ fn scan_terminal(
     // it on the terminal snapshot, so unchanged screens do not cross the
     // socket or invoke the terminal parser. Older daemons fall back to a
     // local text hash below.
+    // A size change (pane move, split, resize) makes the agent redraw; the
+    // tracker does not read that redraw as work.
+    state.tracker.observe_size(&terminal_id, snapshot.cols, snapshot.rows, now);
     let revision_due = snapshot
         .stream_revision
         .map(|revision| state.tracker.observe_revision(&terminal_id, revision, now));
