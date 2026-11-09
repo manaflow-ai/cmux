@@ -7,19 +7,25 @@
 //
 // Tokens in is what the agent sent that was not a cache read: uncached input plus cache writes.
 // Cache reads are the same context sent again at a tenth of the price; counted in, a long chat's
-// input reads as many times what it is.
+// input reads as many times what it is. What those reads saved against the input price is its own
+// tile, and the note line says what share of all input came from cache.
+//
+// Copy CSV puts the rows shown (the range and the grouping) on the clipboard as CSV, the columns
+// `acpmux ledger --csv` prints, for an audit or a spreadsheet.
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Select } from "../../../ui/Select";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
 import { VirtualList } from "../../../ui/VirtualList";
 import { currentLanguage, useT, type Translate } from "../i18n";
 import {
+  cacheShare,
   formatCost,
   formatCount,
   formatDuration,
   groupLabel,
   LEDGER_GROUPS,
   LEDGER_RANGES,
+  ledgerCsv,
   ledgerLines,
   ledgerParams,
   readLedger,
@@ -67,6 +73,8 @@ type Props = {
   load(params: Record<string, unknown>): Promise<unknown>;
   /// Shows a session's chat.
   openSession(sessionId: string): void;
+  /// Copies text, false when the clipboard refused it; without it there is no Copy CSV.
+  copy?: (text: string) => Promise<boolean>;
   look?: LedgerLook;
   initialRange?: LedgerRange;
   initialGroup?: LedgerGroup;
@@ -77,6 +85,7 @@ type Props = {
 export function LedgerScreen({
   load,
   openSession,
+  copy,
   look = "bars",
   initialRange = "7d",
   initialGroup = "session",
@@ -91,6 +100,8 @@ export function LedgerScreen({
     const kept = cache?.view()?.reply;
     return kept ? { phase: "loading", reply: kept } : { phase: "loading" };
   });
+  // What the last Copy CSV did, for the rows it copied; a new range or grouping clears it.
+  const [copied, setCopied] = useState<{ ok: boolean; of: string } | undefined>();
   const request = useRef(0);
   const loadRef = useRef(load);
   loadRef.current = load;
@@ -135,6 +146,18 @@ export function LedgerScreen({
     cache?.keep({ range, group, ...(reply ? { reply } : {}) });
   }, [cache, range, group, reply]);
   const lines = reply ? ledgerLines(reply, group) : [];
+  const shown = `${range}:${group}`;
+  const copyCsv =
+    copy && reply && lines.length > 0
+      ? () => {
+          copy(ledgerCsv(reply, group)).then(
+            (ok) => setCopied({ ok, of: shown }),
+            () => setCopied({ ok: false, of: shown }),
+          );
+        }
+      : undefined;
+  const copyNotice = copied?.of === shown ? copied : undefined;
+  const fromCache = reply ? cacheShare(reply.totals) : undefined;
   // acpmux returns at most LEDGER_ROW_LIMIT sessions, the most recent; the totals count them all.
   const moreSessions =
     group === "session" && reply && reply.totals.sessions > reply.rows.length ? reply.totals.sessions : undefined;
@@ -178,6 +201,11 @@ export function LedgerScreen({
           </TabsList>
         </Tabs>
         <span className="cst-fill" />
+        {copy && (
+          <button type="button" className="cst-link" disabled={!copyCsv} onClick={copyCsv}>
+            {t("ledger.copyCsv")}
+          </button>
+        )}
         <Select
           label={t("ledger.group")}
           value={group}
@@ -190,6 +218,13 @@ export function LedgerScreen({
       <Strip totals={reply?.totals} locale={locale} t={t} />
       <div className="cst-table-note">
         {reply?.priceTable && <span>{t("ledger.priceTable", { version: reply.priceTable.version })}</span>}
+        {fromCache !== undefined && fromCache > 0 && (
+          <span>
+            {t("ledger.cacheShare", {
+              share: new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(fromCache),
+            })}
+          </span>
+        )}
         {reply && reply.totals.unpricedTurns > 0 && (
           <span>{t("ledger.unpriced", { n: formatCount(reply.totals.unpricedTurns, locale) })}</span>
         )}
@@ -200,6 +235,11 @@ export function LedgerScreen({
               total: formatCount(moreSessions, locale),
             })}
           </span>
+        )}
+        {copyNotice && (
+          <output className="cst-copied" data-tone={copyNotice.ok ? "ok" : "error"}>
+            {t(copyNotice.ok ? "ledger.copied" : "ledger.copyFailed")}
+          </output>
         )}
         <span className="cst-fill" />
         {/* What the marks after a cost mean, for the marks this list shows. */}
@@ -253,6 +293,7 @@ function Strip({ totals, locale, t }: { totals?: LedgerTotals; locale: string; t
     [t("ledger.total.cost"), value((each) => formatCost(each.costUsd, locale))],
     [t("ledger.total.tokensIn"), value((each) => formatCount(tokensIn(each), locale))],
     [t("ledger.total.tokensOut"), value((each) => formatCount(each.outputTokens, locale))],
+    [t("ledger.total.cacheSaved"), value((each) => formatCost(each.cacheSavedUsd, locale))],
     [t("ledger.total.turns"), value((each) => formatCount(each.turns, locale))],
     [t("ledger.total.tools"), value((each) => formatCount(each.toolCalls, locale))],
     [t("ledger.total.time"), value((each) => formatDuration(each.wallMs, locale))],
