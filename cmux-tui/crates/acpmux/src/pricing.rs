@@ -19,7 +19,8 @@
 //! A cache write is billed by its tier. `cacheWrite` is the 5-minute rate; the hour-long writes a
 //! turn reports (`TurnUsage::cache_write_1h_tokens`, the tier cmux asks Claude Code for by
 //! default, `prompt_cache_env.rs`) bill at an entry's `cacheWrite1h`, else at twice its input
-//! price (Anthropic's rule), or nothing where the vendor charges no writes at all.
+//! price (Anthropic's rule), or nothing where the vendor charges no writes at all (no `cacheWrite`,
+//! or `"cacheWrite": 0`).
 
 use std::sync::LazyLock;
 
@@ -44,10 +45,11 @@ pub struct Price {
 
 impl Price {
     /// The hour-long cache write rate: the entry's own, else twice the input price for a vendor
-    /// that charges writes, else nothing.
+    /// that charges writes. A vendor that charges none, by a missing or an explicit zero
+    /// `cacheWrite` (`"cacheWrite": 0`), bills neither tier.
     pub fn cache_write_1h_rate(&self) -> f64 {
-        let doubled = if self.cache_write.is_some() { self.input * 2.0 } else { 0.0 };
-        self.cache_write_1h.unwrap_or(doubled)
+        let charged = self.cache_write.is_some_and(|rate| rate > 0.0);
+        self.cache_write_1h.unwrap_or(if charged { self.input * 2.0 } else { 0.0 })
     }
 }
 
@@ -242,12 +244,40 @@ mod tests {
         let custom = PriceTable::parse(
             r#"{"version": "t", "currency": "USD", "vendors": {"v": {"models": [
                 {"id": "own", "input": 1, "output": 1, "cacheWrite": 1.25, "cacheWrite1h": 3},
-                {"id": "free", "input": 1, "output": 1}
+                {"id": "free", "input": 1, "output": 1},
+                {"id": "zero", "input": 1, "output": 1, "cacheWrite": 0},
+                {"id": "zero-own", "input": 1, "output": 1, "cacheWrite": 0, "cacheWrite1h": 2}
             ]}}}"#,
         )
         .unwrap();
         assert_eq!(custom.cost("own", &usage(Some(1_000_000))), Some(3.0));
         assert_eq!(custom.cost("free", &usage(Some(1_000_000))), Some(0.0));
+        // An explicit zero write price is free at both tiers, not twice the input.
+        assert_eq!(custom.cost("zero", &usage(Some(1_000_000))), Some(0.0));
+        assert_eq!(custom.cost("zero", &usage(None)), Some(0.0));
+        // Unless the entry names an hour-long rate of its own.
+        assert_eq!(custom.cost("zero-own", &usage(Some(1_000_000))), Some(2.0));
+    }
+
+    #[test]
+    fn bundled_entries_that_charge_no_writes_bill_no_hour_long_writes() {
+        let t = PriceTable::parse(BUNDLED).unwrap();
+        let free: Vec<&str> = t
+            .entries
+            .iter()
+            .filter(|(_, _, p)| p.cache_write.is_none_or(|rate| rate == 0.0))
+            .map(|(id, _, p)| {
+                assert_eq!(p.cache_write_1h_rate(), p.cache_write_1h.unwrap_or(0.0), "{id}");
+                id.as_str()
+            })
+            .collect();
+        // The bundled table lists such vendors (glm-5.2 has `"cacheWrite": 0`).
+        assert!(free.contains(&"glm-5.2"), "{free:?}");
+        for (id, _, p) in &t.entries {
+            if p.cache_write.is_some_and(|rate| rate > 0.0) && p.cache_write_1h.is_none() {
+                assert_eq!(p.cache_write_1h_rate(), p.input * 2.0, "{id}");
+            }
+        }
     }
 
     #[test]
