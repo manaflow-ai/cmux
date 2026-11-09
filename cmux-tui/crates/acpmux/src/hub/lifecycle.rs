@@ -360,6 +360,8 @@ impl Hub {
                 },
             };
             meta.wait_start = wait_start;
+            // Work below its parent's turn while it runs (`work_below.rs`).
+            self.note_work_child(&meta);
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =

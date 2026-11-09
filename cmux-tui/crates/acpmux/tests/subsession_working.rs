@@ -5,6 +5,9 @@
 //! manaflow-ai/cmux#25563: its unread dot waits for that work too. A turn that ends unseen
 //! while the child runs leaves the parent read; it turns unread when the child's turn ends.
 //!
+//! manaflow-ai/cmux#34474: so does a session its agent started with `session/new` from its own
+//! shell (`acpmux new`, `acpmux run`, a dispatched worker: its lineage child, not a sub-session).
+//!
 //! Stand-in agents (fake_agent.py): `gate: FIFO` holds a turn until the test writes the FIFO.
 //! One test function: the settings file is read from this process's environment.
 
@@ -179,5 +182,41 @@ async fn a_session_works_while_its_sub_session_runs() {
         s["subagentsWorkingSince"].is_null() && s["unread"] == true
     })
     .await;
+
+    // manaflow-ai/cmux#34474: the parent's agent starts a session from its shell (`session/new`
+    // on its own connection: a lineage child, no sub-session link) and its turn ends while that
+    // child still runs. No blue dot (and so no notification or pane ring) until the child ends.
+    c.ok("_acpmux/view", json!({"sessionId": parent, "visible": true})).await;
+    c.ok("_acpmux/view", json!({"sessionId": parent, "visible": false})).await;
+    c.until(&parent, "was seen", |s| s["unread"] == false).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                     "_meta": {"acpmux": {"harness": "fake"}}});
+    let worker = id(&p.ok("session/new", new).await);
+    let gate = root.join("gate-3");
+    let path = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    // The worker's turn holds at the gate; its answer is never read.
+    let held = Client::plain(&hub);
+    let turn = json!({"sessionId": worker,
+                      "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]});
+    held.0.send(Message::request(1, "session/prompt", turn).to_line()).await.unwrap();
+    c.until(&worker, "ran", |s| s["status"] == "running").await;
+    let s = c.until(&parent, "worked", |s| s["subagentsWorkingSince"].is_u64()).await;
+    assert_eq!(s["indicator"], "working", "its worker runs: {s}");
+    let turn = json!({"sessionId": parent, "prompt": [{"type": "text", "text": "hello"}]});
+    c.ok("session/prompt", turn).await;
+    c.until(&parent, "ended its turn", |s| s["lastTurn"]["status"] == "completed").await;
+    let s = c.until(&parent, "settled", |s| s["status"] != "running").await;
+    assert_eq!(s["unread"], false, "its worker still runs: {s}");
+    assert_eq!(s["indicator"], "working", "{s}");
+
+    let g = gate.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(g, b"go")).await.unwrap().unwrap();
+    c.until(&parent, "turned unread", |s| {
+        s["subagentsWorkingSince"].is_null() && s["unread"] == true && s["indicator"] == "done"
+    })
+    .await;
+    drop(held);
     let _ = std::fs::remove_dir_all(root);
 }

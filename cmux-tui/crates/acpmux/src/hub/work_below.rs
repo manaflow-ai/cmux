@@ -1,7 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. Work a session started that runs on past its own turn
 //! (manaflow-ai/cmux#25230): a background subagent of its harness (`crate::subagents`), or an
-//! open sub-session (`subsessions.rs`) that runs a turn, waits on the person, or has such work
-//! of its own. A task is not done while its subagents run, so the session's status dot and lane
+//! open session its agent started (a sub-session, `subsessions.rs`, or an `acpmux new` /
+//! `acpmux run` from its shell, `lineage.rs`; manaflow-ai/cmux#34474) that runs a turn, waits on
+//! the person, or has such work of its own. A task is not done while its subagents run, so the session's status dot and lane
 //! stay `working` until all of it ends (`views.rs` `status_indicator`, the summary's
 //! `subagentsWorkingSince`).
 //!
@@ -49,16 +50,36 @@ impl Hub {
     }
 
     /// Re-decides whether work `session` started runs past its own turn. When that changed, it
-    /// is recorded and the parent's is re-decided. Holds the session's mark while deciding, so
+    /// is recorded and the parent's is re-decided, up the tree. Holds the session's mark while deciding, so
     /// two concurrent decisions never leave an older answer behind; a parent's mark is only
-    /// taken after the child's is let go, so the order is always parent before child (sub-session
-    /// links form a tree).
+    /// taken after the child's is let go, so the order is always parent before child (who started
+    /// whom forms a tree, `lineage.rs`).
     pub(super) fn refresh_work_below(&self, session: &Session) {
+        if !self.redecide_work_below(session) {
+            return;
+        }
+        // Up the tree while each answer changes. Bounded and never twice through one session, so
+        // a loop of links in a hand-edited store ends (`lineage.rs` bounds its walks the same).
+        let mut seen = HashSet::from([session.id.clone()]);
+        let mut up = self.work_parent(session);
+        while let Some(parent) = up {
+            if seen.len() > MAX_WALK
+                || !seen.insert(parent.id.clone())
+                || !self.redecide_work_below(&parent)
+            {
+                break;
+            }
+            up = self.work_parent(&parent);
+        }
+    }
+
+    /// Re-decides `session`'s own mark; true when it changed (and was recorded).
+    fn redecide_work_below(&self, session: &Session) -> bool {
         {
             let mut mark = session.work_below_since.lock().unwrap_or_else(|e| e.into_inner());
             let works = self.works_below(session);
             if works == (*mark != 0) {
-                return;
+                return false;
             }
             *mark = if works { now_ms().max(1) } else { 0 };
             // The turn that ended while the work ran is done now: unread, set before the record
@@ -79,9 +100,7 @@ impl Hub {
                 self.append(session, "mux", "status", json!({"status": status, "read": false}));
             }
         }
-        if let Some(parent) = self.subsession_parent(session) {
-            self.refresh_work_below(&parent);
-        }
+        true
     }
 
     /// A turn of `session` ended while no client showed it: the chat is unread, or, while work
@@ -100,9 +119,9 @@ impl Hub {
         }
     }
 
-    /// Re-decides the work below the turn of `session`'s parent, if it is a sub-session.
+    /// Re-decides the work below the turn of the session whose agent started `session`, if one did.
     pub(super) fn refresh_parent_work_below(&self, session: &Session) {
-        if let Some(parent) = self.subsession_parent(session) {
+        if let Some(parent) = self.work_parent(session) {
             self.refresh_work_below(&parent);
         }
     }
@@ -169,8 +188,9 @@ impl Hub {
         let children: Vec<Arc<Session>> = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
             self.subsessions
-                .open_children(&session.id)
+                .open_below(&session.id)
                 .iter()
+                .filter(|id| **id != session.id)
                 .filter_map(|id| sessions.get(id).cloned())
                 .collect()
         };
@@ -180,13 +200,45 @@ impl Hub {
         })
     }
 
-    /// The session that started `session` as its sub-session, if it is one and is here.
+    /// The session whose agent started `session`, if one did and it is here.
+    fn work_parent(&self, session: &Session) -> Option<Arc<Session>> {
+        let parent = session.read_meta(|m| work_parent_id(m).map(str::to_owned))?;
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        sessions.get(&parent).filter(|p| p.id != session.id).cloned()
+    }
+
+    /// The session that started `session` as its sub-session, if it is one and is here
+    /// (`asks_below.rs`: only a sub-session's ask reaches the chat above it).
     pub(super) fn subsession_parent(&self, session: &Session) -> Option<Arc<Session>> {
         let parent = session.meta.lock().unwrap_or_else(|e| e.into_inner()).subsession.clone()?;
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.get(&parent.started_by).filter(|p| p.id != session.id).cloned()
     }
+
+    /// Notes the session with meta `m` among the open children of the session whose agent
+    /// started it (`work_parent_id`), from its status. Called with every status the session
+    /// gets (its creation, its load, each `set_status`), under its meta lock where it changes, so
+    /// the index follows the order of the status writes.
+    pub(super) fn note_work_child(&self, m: &SessionMeta) {
+        if let Some(parent) = work_parent_id(m) {
+            self.subsessions.note_below(parent, &m.id, m.status);
+        }
+    }
 }
+
+/// The id of the session that waits on the session with meta `m`: its sub-session link's parent
+/// (which an accepted offer sets to the offering chat, `offers.rs`), else its lineage parent
+/// (`lineage.rs`: the caller of an `acpmux new`). None for a session nobody's agent started.
+pub(super) fn work_parent_id(m: &SessionMeta) -> Option<&str> {
+    m.subsession
+        .as_ref()
+        .map(|link| link.started_by.as_str())
+        .or_else(|| m.lineage.as_ref().map(|l| l.parent.as_str()))
+        .filter(|parent| *parent != m.id)
+}
+
+/// The most sessions one re-decision walks up through.
+const MAX_WALK: usize = 1024;
 
 /// Whether an agent's logged line may start, change or end a subagent (`SubagentTree::annotate`,
 /// replayed history included): a native subagent record, or Codex's legacy `spawnAgent` call or
