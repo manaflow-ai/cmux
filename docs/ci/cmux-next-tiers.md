@@ -221,7 +221,11 @@ No runner waits for the tree. `cmux-next path routing` probes it once
   progress, except the oldest of them (its queued job is nearest a runner, so
   the pull request still gets verdicts when the Mac wait is longer than its
   push interval). The newest run, the runs of the pull request's head and any
-  run with a Mac job in progress stay; a fork pull request sweeps nothing;
+  run with a Mac job in progress stay. The sweep reads only what GitHub
+  records (the marker artifact's run, `pulls/<n>`), never main or
+  feat-cmux-next. A marker that a fork pull request's run uploaded starts and
+  cancels nothing (the fork's run executes the fork's workflow file, so it can
+  write any marker); the fork keeps its pull_request run;
 - superseded push: the two jobs skip;
 - nothing will publish it: `same-tree cmux-tui` fails at once with the reason.
   The marker stays, so a later publication of the key (a re-run, a
