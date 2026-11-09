@@ -105,6 +105,7 @@ async fn one_mac_runs_one_wireguard_key_and_one_udp_socket() {
     let ready: serde_json::Value = serde_json::from_str(&ready).unwrap();
     let link_sockets = usize::from(ready["udp"].is_string());
 
+    let mut counted = Vec::new();
     for labs in [false, true] {
         let mut config = acpmux::config::Config::default();
         config.transport.wireguard = labs;
@@ -126,6 +127,10 @@ async fn one_mac_runs_one_wireguard_key_and_one_udp_socket() {
         if let Some(transport) = transport {
             transport.shutdown(tokio::time::Instant::now()).await;
         }
+        counted.push((labs, keys, sockets));
+    }
+    // Both cases print before any check, so the same test gives the base's numbers too.
+    for (labs, keys, sockets) in counted {
         assert_eq!((keys, sockets), (1, 1), "labs_wireguard={labs}");
     }
 }
