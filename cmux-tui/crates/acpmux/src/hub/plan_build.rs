@@ -612,6 +612,9 @@ impl Hub {
             })?;
         match record.kept.as_deref() {
             Some(earlier) if earlier == keep => {
+                // A retry removes runs only once the winner is on disk: a save of it another
+                // change's copy carried may have failed after this Keep's own went through.
+                self.meta_barrier(parent)?;
                 let others = builds.into_iter().map(|(s, _)| s).filter(|s| s.id != keep);
                 return Ok(Kept::Already(kept, others.collect()));
             }
@@ -623,14 +626,21 @@ impl Hub {
             }
             None => {}
         }
-        {
+        let mark = |kept: Option<&str>| {
             let mut meta = parent.meta.lock().unwrap_or_else(|e| e.into_inner());
             let records = Arc::make_mut(&mut meta.plan_builds);
             if let Some(record) = records.iter_mut().find(|r| r.build_id == build_id) {
-                record.kept = Some(keep.to_owned());
+                record.kept = kept.map(str::to_owned);
             }
+        };
+        mark(Some(keep));
+        // A winner that was not saved was not chosen: the next Keep, of this run or another,
+        // chooses again and saves before it removes anything. Left in memory, a retry took it
+        // as kept and removed the other runs while the disk named no winner.
+        if let Err(e) = self.save_meta_answered(parent) {
+            mark(None);
+            return Err(e);
         }
-        self.save_meta_answered(parent)?;
         Ok(Kept::Now(kept, builds.into_iter().map(|(s, _)| s).filter(|s| s.id != keep).collect()))
     }
 

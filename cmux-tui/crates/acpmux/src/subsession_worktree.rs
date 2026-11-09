@@ -451,9 +451,10 @@ fn global_excludes(by: Instant) -> Option<PathBuf> {
 /// `[include]`s followed as git follows them.
 fn excludes_file(cmd: Command, home: Option<PathBuf>, by: Instant) -> Option<PathBuf> {
     let args = ["config", "--global", "--includes", "--get", "core.excludesFile"];
-    let named =
-        run_by(cmd, &args, Some(by)).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    let named = run_by(cmd, &args, Some(by)).ok().map(|v| v.trim().to_owned());
     match named {
+        // Set but empty turns it off, as git reads it: no file by that name, and not the default.
+        Some(path) if path.is_empty() => None,
         Some(path) => match (path.strip_prefix("~/"), &home) {
             (Some(rest), Some(home)) => Some(home.join(rest)),
             _ => Some(PathBuf::from(path)),
@@ -1853,9 +1854,7 @@ mod tests {
             let global = dir.join("gitconfig");
             std::fs::write(&global, config).unwrap();
             let mut cmd = Command::new("git");
-            cmd.current_dir(&dir)
-                .env("GIT_CONFIG_NOSYSTEM", "1")
-                .env("GIT_CONFIG_GLOBAL", &global);
+            cmd.current_dir(&dir).env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", &global);
             let by = Instant::now() + std::time::Duration::from_secs(10);
             excludes_file(cmd, Some(home.clone()), by)
         };
