@@ -1,6 +1,6 @@
 ---
 name: cmux-live
-description: "Edit cmux's own web UI and daemon while it runs, and try a change or pull request in the running app before asking for a dev build: point the running cmux at a checkout's webviews dev server so every saved edit shows at once in every open page and chat, with no build and no relaunch. Use when changing or trying anything under webviews/ (agent chat pane, pages such as Settings, Home and the new tab page, the Markdown viewer), when the user wants to see a UI change live in their own app, or asks for hot reload, live reload, 'edit cmux live', 'cmux live', the dev server or web-dev.json, or wants a saved Rust edit to the cmux-tui daemon or acpmux live in the running daemon (`cmux live start --rust`), or is about to request a dev build to try a change (try-pr.sh, hot-apply.py)."
+description: "Edit cmux's own web UI or daemon while it runs, and try a change or PR in the running app before asking for a dev build: the running cmux loads a checkout's webviews dev server (each saved edit shows at once, no build or relaunch) or a saved Rust edit to cmux-tui or acpmux (`cmux live start --rust`). Use when changing or trying anything under webviews/ (chat pane, Settings, Home, Markdown viewer), or for hot reload, live reload, 'cmux live', web-dev.json, try-pr.sh or hot-apply.py."
 ---
 
 # cmux live

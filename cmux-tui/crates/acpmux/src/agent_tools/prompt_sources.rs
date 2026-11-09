@@ -146,6 +146,9 @@ impl AgentTools {
         if claude && self.plugin_dir.is_some() {
             for (path, body) in SKILL_FILES {
                 let Some(name) = path.strip_suffix("/SKILL.md") else { continue };
+                if !self.lists_skill(name) {
+                    continue;
+                }
                 // Store only the exact name/description frontmatter. The harness
                 // supplies its own catalog wrapper, hence this is an estimate.
                 let Some(frontmatter) =
