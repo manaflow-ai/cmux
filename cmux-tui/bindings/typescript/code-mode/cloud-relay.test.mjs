@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createCloudBroker, serveCloudRelay, OP_FIELDS, ACCEPTED } from "./cloud-relay.mjs";
+import { createCloudBroker, serveCloudRelay, OP_FIELDS, ACCEPTED, USER_ONLY, USER_ONLY_REFUSAL } from "./cloud-relay.mjs";
 import { createConnection } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -96,10 +96,12 @@ test("a machine's exec and file ops go to cmux-platform's machine routes", async
 
 // ---- the relay against cmux-platform's protocol: backend/catalog/cloud-operations.json and cloud-vectors.json ----
 const vectors = JSON.parse(readFileSync(fileURLToPath(new URL("../../../../backend/catalog/cloud-vectors.json", import.meta.url)), "utf8"));
-const ALIAS_OF = { "cloud.machine.list": "vm.list", "cloud.machine.get": "vm.get", "cloud.machine.create": "vm.create",
-  "cloud.machine.rename": "vm.update", "cloud.machine.start": "vm.start", "cloud.machine.pause": "vm.pause",
-  "cloud.machine.resize": "vm.resize", "cloud.machine.delete": "vm.delete", "cloud.snapshot.list": "vm.snapshot.list",
-  "cloud.snapshot.create": "vm.snapshot.create", "cloud.snapshot.restore": "vm.snapshot.restore", "cloud.snapshot.delete": "vm.snapshot.delete" };
+const ALIAS_OF = { "cloud.machine.list": "vm.list", "cloud.machine.get": "vm.get", "cloud.machine.rename": "vm.update",
+  "cloud.machine.start": "vm.start", "cloud.machine.pause": "vm.pause", "cloud.snapshot.list": "vm.snapshot.list" };
+// The Cloud app server's op table (first-party-apps/cloud/server/src/ops/mod.rs): which cloud.* ops only a person may send.
+const SERVER_OPS = readFileSync(fileURLToPath(new URL("../../../../first-party-apps/cloud/server/src/ops/mod.rs", import.meta.url)), "utf8");
+const userOnlyOps = new Set([...SERVER_OPS.matchAll(/\("(cloud\.[a-z_.]+)", Kind::UserOnly\)/g)].map((m) => m[1]));
+const serverAliases = Object.fromEntries([...SERVER_OPS.matchAll(/\("(vm\.[a-z_.]+)", "(cloud\.[a-z_.]+)"\)/g)].map((m) => [m[1], m[2]]));
 const ENVELOPE = { mutation: ["op", "params", "idempotency_key", "origin", "expected_revision"], read: ["op", "params"] };
 
 /** Every problem of `value` against catalog type `type` (cloud-operations.json's type language). */
@@ -165,32 +167,18 @@ test("OP_FIELDS is each aliased op's params contract, without the envelope's exp
 test("every aliased relay op sends a valid /v1/ops or /v1/read envelope, whatever spelling it is given", async () => {
   const { broker, calls } = recordingBroker();
   const cases = [
-    ["vm.list", {}], ["vm.list", { cursor: "cur_page2", limit: 2 }],
-    ["vm.get", { vm_id: "vm_x" }],
-    ["vm.create", {}], ["vm.create", { name: "box" }], ["vm.create", { displayName: "box", cpu: 4, memoryMb: 8192, diskMb: 32768 }],
-    ["vm.create", { name: "box", size: { memory_mb: 8192 }, image: "img_x", snapshot_id: "snap_x", expected_revision: 7 }],
+    ["vm.list", {}], ["vm.list", { cursor: "cur_page2", limit: 2 }], ["vm.get", { vm_id: "vm_x" }],
     ["vm.update", { vm_id: "vm_x", displayName: "renamed", expectedRevision: "12" }], ["vm.update", { vm_id: "vm_x", name: "n" }],
-    ["vm.start", { vm_id: "vm_x" }], ["vm.resume", { vm_id: "vm_x", expected_revision: "3" }], ["vm.pause", { vm_id: "vm_x" }],
-    ["vm.resize", { vm_id: "vm_x", memoryMb: 8192 }], ["vm.resize", { vm_id: "vm_x", size: { cpu: 2 }, expected_revision: "4" }],
-    ["vm.delete", { vm_id: "vm_x" }], ["vm.snapshot.list", { vm_id: "vm_x" }], ["vm.snapshot.create", { vm_id: "vm_x", name: "s" }],
-    ["vm.snapshot.restore", { vm_id: "vm_x", snapshot_id: "snap_x", name: "back" }], ["vm.snapshot.delete", { vm_id: "vm_x", snapshot_id: "snap_x" }],
+    ["vm.start", { vm_id: "vm_x" }], ["vm.resume", { vm_id: "vm_x", expected_revision: 3 }], ["vm.pause", { vm_id: "vm_x" }],
+    ["vm.snapshot.list", { vm_id: "vm_x" }],
   ];
   for (const [operation, params] of cases) await broker.request(operation, params, `key-${operation}`);
   for (const [index, call] of calls.entries()) assert.deepEqual(envelopeProblems(call.body, call.url), [], JSON.stringify(cases[index]));
   const sent = (index) => calls[index].body;
   assert.deepEqual(sent(1).params, { cursor: "cur_page2", limit: 2 });
-  assert.deepEqual(sent(3).params, { size: { cpu: 2, disk_mb: 16384 } }, "a create with no size gets the platform's default, never {}");
-  assert.deepEqual(sent(4).params, { name: "box", size: { cpu: 2, disk_mb: 16384 } });
-  assert.deepEqual(sent(5).params, { name: "box", size: { cpu: 4, memory_mb: 8192, disk_mb: 32768 } });
-  assert.deepEqual(sent(6).params, { name: "box", size: { memory_mb: 8192 }, image: "img_x", from_snapshot: "snap_x" });
-  assert.equal(sent(6).expected_revision, "7");
-  assert.deepEqual(sent(7).params, { machine: "vm_x", name: "renamed" });
-  assert.equal(sent(7).expected_revision, "12");
-  assert.deepEqual(sent(8).params, { machine: "vm_x", name: "n" });
-  assert.equal(sent(10).expected_revision, "3");
-  assert.deepEqual(sent(12).params, { machine: "vm_x", size: { memory_mb: 8192 } });
-  assert.equal(sent(13).expected_revision, "4");
-  assert.deepEqual(sent(17).params, { snapshot: "snap_x", name: "back" });
+  assert.deepEqual(sent(3).params, { machine: "vm_x", name: "renamed" });
+  assert.equal(sent(3).expected_revision, "12");
+  assert.equal(sent(6).expected_revision, "3");
   assert.equal("expected_revision" in sent(0), false, "a read has no expected_revision");
 });
 
@@ -199,14 +187,10 @@ test("every aliased relay op sends a valid /v1/ops or /v1/read envelope, whateve
 // snapshot and restore, and cmux-cloud-api classic.rs's vm.resize pick of cpu, memoryMb and storageMb), and
 // the protocol field it is now. null: refused loudly, with why.
 const OLD_SURFACE = {
-  "vm.create": { displayName: ["name", "box"], memoryMb: ["size.memory_mb", 8192], autosize: [null, { taskKind: "chat" }], idlePauseMinutes: [null, 30] },
-  "vm.update": { displayName: ["name", "renamed"] },
-  "vm.resize": { cpu: ["size.cpu", 4], memoryMb: ["size.memory_mb", 8192], storageMb: ["size.disk_mb", 32768] },
-  "vm.snapshot.create": { name: ["name", "s"] },
-  "vm.snapshot.restore": { snapshotId: ["snapshot", "snap_x"], snapshot_id: ["snapshot", "snap_x"] },
-  "vm.snapshot.delete": { snapshot_id: ["snapshot", "snap_x"] },
+  "vm.update": { displayName: ["name", "renamed"], name: ["name", "renamed"] },
+  "vm.list": { cursor: ["cursor", "c"], limit: ["limit", 2] },
 };
-const ID = { "vm.create": {}, "vm.snapshot.restore": {}, "vm.snapshot.delete": { vm_id: "vm_x", snapshot_id: "snap_x" } };
+const ID = { "vm.list": {} };
 
 test("every field a relay op took before cmux-platform maps onto a protocol field or is refused, never dropped", async () => {
   for (const [operation, fields] of Object.entries(OLD_SURFACE)) {
@@ -235,21 +219,38 @@ test("every field a relay op took before cmux-platform maps onto a protocol fiel
 test("a field an aliased relay op does not take is refused before any request", async () => {
   const { broker, calls } = recordingBroker();
   await assert.rejects(broker.request("vm.update", { vm_id: "vm_x", name: "n", stray: 1 }, "k"), /takes no stray/);
-  await assert.rejects(broker.request("vm.resize", { vm_id: "vm_x", size: { gpu: 1 } }, "k"), /takes no size\.gpu/);
+  await assert.rejects(broker.request("vm.get", { vm_id: "vm_x", storageMb: 1 }, "k"), /takes no storageMb/);
   await assert.rejects(broker.request("vm.update", { vm_id: "vm_x", displayName: null }, "k"), /needs a name/);
   assert.equal(calls.length, 0);
 });
 
-test("a resize that names no size sends none, so the platform refuses it instead of an empty one", async () => {
+test("the relay offers no op cmux-platform takes only from a person, and offers every other relay alias", () => {
+  for (const [relayOp, op] of Object.entries(serverAliases)) {
+    const offered = Object.hasOwn(relayCatalog.operations, relayOp);
+    if (userOnlyOps.has(op)) {
+      assert.equal(offered, false, `${relayOp} (${op}) is user-only and must not be offered`);
+      assert.ok(USER_ONLY.has(relayOp), `${relayOp} is refused by name`);
+    } else assert.ok(offered, `${relayOp} (${op}) stays offered`);
+  }
+  assert.ok(userOnlyOps.has("cloud.machine.create") && userOnlyOps.has("cloud.snapshot.delete"), "the server's table was read");
+  for (const relayOp of USER_ONLY) assert.ok(userOnlyOps.has(serverAliases[relayOp]), `${relayOp} is user-only on the server`);
+});
+
+test("a user-only machine change from a script fails at once with the reason, and sends nothing", async () => {
   const { broker, calls } = recordingBroker();
-  await broker.request("vm.resize", { vm_id: "vm_x" }, "k");
-  assert.deepEqual(calls[0].body.params, { machine: "vm_x" });
+  const fixture = createCloudBroker({ catalog: relayCatalog, fixture: { "vm.create": { id: "vm_fake" } } });
+  for (const operation of USER_ONLY) {
+    await assert.rejects(broker.request(operation, { vm_id: "vm_x", snapshot_id: "snap_x" }, "k"), (error) => error.message === USER_ONLY_REFUSAL, operation);
+    await assert.rejects(fixture.request(operation, { vm_id: "vm_x" }, "k"), /need you in the app/, operation);
+  }
+  assert.equal(calls.length, 0);
+  assert.match(USER_ONLY_REFUSAL, /need you in the app; scripts can't/);
 });
 
 test("every checked-in protocol vector of an aliased op: the relay sends the vector's params and reads its answer", async () => {
   const cases = vectors.cases.filter((c) => Object.hasOwn(ALIAS_OF, c.op) && c.responses?.[0]?.http?.status);
   assert.ok(cases.length >= 10, `vectors found: ${cases.length}`);
-  assert.ok(cases.some((c) => c.name === "machine.create.quota"));
+  assert.ok(cases.some((c) => c.name === "machine.start.quota"), "an ok:false mutation vector is replayed");
   let refusals = 0;
   for (const vector of cases) {
     const response = vector.responses[0];
@@ -334,47 +335,6 @@ test("host relay serves typed requests over a Unix socket", async () => {
     server.close();
     rmSync(dir, { recursive: true, force: true });
   }
-});
-
-test("snapshot restore sends cloud.snapshot.restore with only the snapshot", async () => {
-  const calls = [];
-  const broker = createCloudBroker({
-    apiUrl: "https://cloud.test",
-    bearerToken: "fixture-secret",
-    catalog: relayCatalog,
-    fetchImpl: async (url, init) => {
-      calls.push({ url, init });
-      return new Response(JSON.stringify({ id: "vm_restored", status: "running" }), { status: 200, headers: { "content-type": "application/json" } });
-    },
-  });
-  await broker.request("vm.snapshot.restore", { snapshot_id: "snap_fixture" }, "restore-key");
-  assert.equal(calls[0].url, "https://cloud.test/v1/ops");
-  assert.equal(calls[0].init.method, "POST");
-  assert.deepEqual(JSON.parse(calls[0].init.body), { op: "cloud.snapshot.restore", params: { snapshot: "snap_fixture" }, idempotency_key: "restore-key", origin: "script" });
-  assert.equal(calls[0].init.headers["idempotency-key"], "restore-key");
-});
-
-test("snapshot create generates an idempotency key when code mode omits one", async () => {
-  const calls = [];
-  const broker = createCloudBroker({
-    apiUrl: "https://cloud.test",
-    bearerToken: "fixture-secret",
-    catalog: relayCatalog,
-    fetchImpl: async (url, init) => {
-      calls.push({ url, init });
-      return new Response(JSON.stringify({ id: "snap_created" }), { status: 200, headers: { "content-type": "application/json" } });
-    },
-  });
-
-  await broker.request("vm.snapshot.create", { vm_id: "vm_fixture", name: "before-upgrade" });
-
-  assert.equal(calls[0].url, "https://cloud.test/v1/ops");
-  assert.equal(calls[0].init.method, "POST");
-  assert.match(calls[0].init.headers["idempotency-key"], /^[0-9a-f-]{36}$/);
-  const body = JSON.parse(calls[0].init.body);
-  assert.equal(body.op, "cloud.snapshot.create");
-  assert.deepEqual(body.params, { machine: "vm_fixture", name: "before-upgrade" });
-  assert.equal(body.idempotency_key, calls[0].init.headers["idempotency-key"]);
 });
 
 test("every relay operation calls the method and path that its catalog binding declares", async () => {
