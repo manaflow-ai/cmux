@@ -6290,7 +6290,68 @@ fn validate_session_lock_file(path: &Path, file: &File) -> anyhow::Result<()> {
             anyhow::bail!("session lock path changed while opening: {}", path.display());
         }
     }
+    // Windows: the held handle and a fresh open of the path must be one file
+    // (volume serial number and file id). The guard is opened with
+    // FILE_SHARE_DELETE (std's default share mode), so it can be deleted or
+    // renamed away while held and another file made at its path.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+            FILE_SHARE_WRITE,
+        };
+
+        let fresh = OpenOptions::new()
+            .access_mode(FILE_READ_ATTRIBUTES)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        if windows_file_identity(&fresh)? != windows_file_identity(file)? {
+            anyhow::bail!("session lock path changed while opening: {}", path.display());
+        }
+    }
     Ok(())
+}
+
+/// A Windows file's identity: its volume serial number and file id, the
+/// 128-bit `FILE_ID_INFO` where the file system has it (ReFS ids do not fit
+/// in 64 bits), else the 64-bit index of `BY_HANDLE_FILE_INFORMATION`.
+#[cfg(windows)]
+fn windows_file_identity(file: &File) -> std::io::Result<(u64, [u8; 16])> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_ID_INFO, FileIdInfo, GetFileInformationByHandle,
+        GetFileInformationByHandleEx,
+    };
+
+    let handle = file.as_raw_handle();
+    // SAFETY: a zeroed plain-old-data struct the call fills.
+    let mut id: FILE_ID_INFO = unsafe { std::mem::zeroed() };
+    // SAFETY: `handle` is open for the call; `id` is the size passed.
+    let filled = unsafe {
+        GetFileInformationByHandleEx(
+            handle,
+            FileIdInfo,
+            std::ptr::from_mut(&mut id).cast(),
+            u32::try_from(std::mem::size_of::<FILE_ID_INFO>()).unwrap_or(u32::MAX),
+        )
+    };
+    if filled != 0 {
+        return Ok((id.VolumeSerialNumber, id.FileId.Identifier));
+    }
+    // SAFETY: as above.
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: `handle` is open for the call.
+    if unsafe { GetFileInformationByHandle(handle, &mut info) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut index = [0_u8; 16];
+    let low = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    for (slot, byte) in index.iter_mut().zip(low.to_le_bytes()) {
+        *slot = byte;
+    }
+    Ok((u64::from(info.dwVolumeSerialNumber), index))
 }
 
 #[cfg(unix)]
