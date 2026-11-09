@@ -19,7 +19,47 @@ extension SidebarModel {
         return order
     }
 
+    /// The item `offset` steps from `selected` (Cmd-Ctrl-] is +1), from where `selected` draws: a workspace that
+    /// draws away from its stop when selected (folded into "Done (N)", behind "Show N more", in the closed Archive,
+    /// or listed at the end of an opened fold) steps to the stops drawn around it. That one lays the list out with it
+    /// active, as the list does on every selection, so only such a press costs a layout; any other is a key compare.
+    public func step(from selected: SidebarItem?, by offset: Int, _ settings: SidebarNavigationSettings) -> SidebarItem? {
+        let order = itemOrder
+        guard case .workspace(let id)? = selected, let ws = workspace(id), !ws.rowState.isPending,
+              order.stop(for: selected) == nil || ws.isArchived || ws.taskStatus == .done else {
+            return order.step(from: selected, by: offset, settings)
+        }
+        return order.step(from: selected, by: offset, settings, place: drawnPlace(of: id, in: order))
+    }
+
+    /// Where `id` draws among `order.rows` when it is the active workspace: the index after the last stop drawn
+    /// before it. Nil when the list draws it nowhere even then (a member of a collapsed parent's subgroup).
+    private func drawnPlace(of id: WorkspaceID, in order: SidebarItemOrder) -> Int? {
+        var source = orderSource()
+        source.options.activeWorkspaceID = id
+        let drawn = orderRows(source).rows
+        guard let at = drawn.firstIndex(of: .workspace(id)) else { return nil }
+        var index: [SidebarItem: Int] = [:]
+        for (i, item) in order.rows.enumerated() where index[item] == nil { index[item] = i }
+        return drawn[..<at].reversed().lazy.compactMap { index[$0] }.first.map { $0 + 1 } ?? 0
+    }
+
     private func makeItemOrder() -> SidebarItemOrder {
+        let source = orderSource()
+        let (rows, stops) = orderRows(source)
+        let topItems = source.top.filter { item in !source.listed.contains(source.inBlock.first { $0.value.contains(item) }?.key ?? "") }
+        return SidebarItemOrder(topItems: topItems.map { .topItem($0.id) }, rows: rows, stops: stops)
+    }
+
+    /// What the order lays out: the top items, the blocks they draw in, and the list's row options.
+    private struct OrderSource {
+        var top: [LayoutItem]
+        var inBlock: [String: [LayoutItem]]
+        var listed: Set<String>
+        var options: SidebarLayoutOptions
+    }
+
+    private func orderSource() -> OrderSource {
         // An anchored client item (Channels after Home) is a stop at its place, placed among the shown items as
         // the band draws it (a hidden Home is no anchor); other client items are not stops.
         let hidden = Set(itemInfo.filter(\.value.isHidden).keys)
@@ -43,17 +83,22 @@ extension SidebarModel {
         let inBlock = Dictionary(grouping: top, by: { item in placed.first { $0.items.contains(item) }?.id.rawValue ?? "" })
         for id in listed { options.blockHeights[id] = 1 }
         options.collapsedDocSections = Set(collapsedLayoutSections.map(\.rawValue))
+        return OrderSource(top: top, inBlock: inBlock, listed: listed, options: options)
+    }
+
+    /// The list's selectable rows in drawn order, and the stop that stands for each collapsed group's members.
+    private func orderRows(_ source: OrderSource) -> (rows: [SidebarItem], stops: [WorkspaceID: SidebarItem]) {
         let selectable = Set(selectableWorkspaces.map(\.id))
         var rows: [SidebarItem] = []
         var stops: [WorkspaceID: SidebarItem] = [:]
-        for row in SidebarLayout.make(sections: sections, metrics: .standard, options: options).rows {
+        for row in SidebarLayout.make(sections: sections, metrics: .standard, options: source.options).rows {
             switch row.key {
             case let .workspace(id) where selectable.contains(id):
                 rows.append(.workspace(id))
             case let .item(id):
                 rows.append(.topItem(LayoutItemID(id))) // a link, tab or app row is a stop like a band item
             case let .block(id) where !collapsedLayoutSections.contains(LayoutSectionID(id)):
-                rows += (inBlock[id] ?? []).map { .topItem($0.id) }
+                rows += (source.inBlock[id] ?? []).map { .topItem($0.id) }
             case let .group(id):
                 guard let group = group(id), group.isCollapsed else { continue }
                 let members = group.workspaces.map(\.id).filter(selectable.contains)
@@ -64,63 +109,7 @@ extension SidebarModel {
                 continue
             }
         }
-        let topItems = top.filter { item in !listed.contains(inBlock.first { $0.value.contains(item) }?.key ?? "") }
-        return SidebarItemOrder(topItems: topItems.map { .topItem($0.id) }, rows: rows, stops: stops,
-                                places: places(rows: rows, stops: stops, inBlock: inBlock, options: options))
-    }
-
-    /// Where each workspace that draws away from its stop when selected sits among `rows`: one folded into "Done (N)"
-    /// or behind "Show N more" (no stop), or one an opened fold lists at the end of its list (its stop is there, but
-    /// selected it draws in its place). The index is after the last stop drawn before it with the folds off, the order
-    /// rows draw in when selected, items (links, tabs, apps) and sorts included; a row that layout does not draw either
-    /// goes after the last stop before it in the model's order. Selected, it draws there, so stepping goes on from
-    /// there. Lays the list out a second time only when some workspace needs a place.
-    private func places(rows: [SidebarItem], stops: [WorkspaceID: SidebarItem], inBlock: [String: [LayoutItem]],
-                        options o: SidebarLayoutOptions) -> [WorkspaceID: Int] {
-        var index: [SidebarItem: Int] = [:]
-        for (i, item) in rows.enumerated() where index[item] == nil { index[item] = i }
-        var placed: Set<WorkspaceID> = []
-        for ws in selectableWorkspaces where stops[ws.id] == nil {
-            let folds = ws.isArchived || (o.foldsDone && ws.taskStatus == .done)
-            if index[.workspace(ws.id)] == nil || folds { placed.insert(ws.id) }
-        }
-        guard !placed.isEmpty else { return [:] }
-        var unfolded = o
-        // A selected Done or archived row keeps its place in its list (`foldingDone`, `splittingArchive`).
-        (unfolded.foldsDone, unfolded.foldsArchived, unfolded.archiveSection, unfolded.rowLimit) = (false, false, false, 0)
-        var next = 0
-        var places: [WorkspaceID: Int] = [:]
-        for row in SidebarLayout.make(sections: sections, metrics: .standard, options: unfolded).rows {
-            switch row.key {
-            case let .workspace(id) where placed.contains(id):
-                // Drawn where it would draw selected (a filter or Group by Status folds nothing): its own row is its
-                // stop, as any other row's. Else it draws away from there: step from its place.
-                if let at = index[.workspace(id)], at == next { next = at + 1 } else { places[id] = next }
-            case let .workspace(id):
-                if let at = index[.workspace(id)] { next = at + 1 }
-            case let .item(id):
-                if let at = index[.topItem(LayoutItemID(id))] { next = at + 1 }
-            case let .block(id):
-                if let at = (inBlock[id] ?? []).compactMap({ index[.topItem($0.id)] }).max() { next = at + 1 }
-            case let .group(id):
-                if let at = index[.group(id)] { next = at + 1 }
-            default:
-                continue
-            }
-        }
-        // A row even that layout does not draw (a subgroup under a collapsed parent): after the last stop before it
-        // in the model's order.
-        let unplaced = placed.filter { places[$0] == nil && index[.workspace($0)] == nil }
-        guard !unplaced.isEmpty else { return places }
-        next = rows.firstIndex { if case .topItem = $0 { false } else { true } } ?? rows.count
-        for ws in selectableWorkspaces {
-            if unplaced.contains(ws.id) {
-                places[ws.id] = next
-            } else if let at = index[.workspace(ws.id)] ?? stops[ws.id].flatMap({ index[$0] }) {
-                next = at + 1
-            }
-        }
-        return places
+        return (rows, stops)
     }
 }
 

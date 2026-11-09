@@ -100,8 +100,8 @@ import Testing
             #expect(order.rows == SidebarModel(sections: Self.doneSections(Self.withDone)).itemOrder.rows)
             #expect(order.stop(for: .workspace(WorkspaceID("work-2"))) == nil, "the folded Done member is a number stop")
             // The selected Done member draws in its place: the walk goes on from there.
-            #expect(order.step(from: .workspace(WorkspaceID("work-2")), by: 1, Self.numbers) == .workspace(WorkspaceID("work-3")))
-            #expect(order.step(from: .workspace(WorkspaceID("work-2")), by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))
+            #expect(shown.step(from: .workspace(WorkspaceID("work-2")), by: 1, Self.numbers) == .workspace(WorkspaceID("work-3")))
+            #expect(shown.step(from: .workspace(WorkspaceID("work-2")), by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))
         }
     }
 
@@ -147,9 +147,9 @@ import Testing
             #expect(order.rows == Self.ids(["top", "work-1", "work-3", "work-2", "below"]))
             let selected = SidebarItem.workspace(WorkspaceID("work-2"))
             #expect(order.number(for: selected, Self.numbers) == 4)
-            #expect(order.step(from: selected, by: 1, Self.numbers) == .workspace(WorkspaceID("work-3")))
-            #expect(order.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))
-            #expect(order.step(from: .workspace(WorkspaceID("work-3")), by: 1, Self.numbers) == selected)
+            #expect(model.step(from: selected, by: 1, Self.numbers) == .workspace(WorkspaceID("work-3")))
+            #expect(model.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))
+            #expect(model.step(from: .workspace(WorkspaceID("work-3")), by: 1, Self.numbers) == selected)
         }
     }
 
@@ -161,18 +161,19 @@ import Testing
             var group = SidebarGroup(id: Self.work, name: "Work", color: .red, isCollapsed: false, workspaces: Self.withDone)
             group.items = [SidebarGroupItem(item: link, after: WorkspaceID("work-1"))]
             let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
-            let order = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
+            let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
                 .workspace(Self.row("top")), .group(group), .workspace(Self.row("below")),
-            ])]).itemOrder
+            ])])
+            let order = model.itemOrder
             let all = SidebarNavigationSettings(numbering: .allItems, stepping: .allItems)
             let linkItem = SidebarItem.topItem(LayoutItemID("link"))
             #expect(order.rows == [.workspace(WorkspaceID("top")), .workspace(WorkspaceID("work-1")), linkItem,
                                    .workspace(WorkspaceID("work-3")), .workspace(WorkspaceID("below"))])
             let selected = SidebarItem.workspace(WorkspaceID("work-2"))
-            #expect(order.step(from: selected, by: -1, all) == linkItem)
-            #expect(order.step(from: selected, by: 1, all) == .workspace(WorkspaceID("work-3")))
-            #expect(order.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))
-            #expect(order.step(from: selected, by: 1, Self.numbers) == .workspace(WorkspaceID("work-3")))
+            #expect(model.step(from: selected, by: -1, all) == linkItem)
+            #expect(model.step(from: selected, by: 1, all) == .workspace(WorkspaceID("work-3")))
+            #expect(model.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))
+            #expect(model.step(from: selected, by: 1, Self.numbers) == .workspace(WorkspaceID("work-3")))
         }
     }
 
@@ -183,13 +184,13 @@ import Testing
             var archived = Self.row("old")
             archived.isArchived = true
             let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
-            let order = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
+            let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
                 .workspace(Self.row("first")), .workspace(archived), .workspace(Self.row("second")), .workspace(Self.row("third")),
-            ])]).itemOrder
-            #expect(order.rows == Self.ids(["first", "second", "third"]))
+            ])])
+            #expect(model.itemOrder.rows == Self.ids(["first", "second", "third"]))
             let selected = SidebarItem.workspace(WorkspaceID("old"))
-            #expect(order.step(from: selected, by: 1, Self.numbers) == .workspace(WorkspaceID("second")))
-            #expect(order.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("first")))
+            #expect(model.step(from: selected, by: 1, Self.numbers) == .workspace(WorkspaceID("second")))
+            #expect(model.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("first")))
         }
     }
 
@@ -202,8 +203,41 @@ import Testing
             model.filterText = "work"
             let order = model.itemOrder
             #expect(order.rows == Self.ids(["work-1", "work-2", "work-3"]))
-            #expect(order.step(from: .workspace(WorkspaceID("work-2")), by: 1, Self.numbers) == .workspace(WorkspaceID("work-3")))
-            #expect(order.step(from: .workspace(WorkspaceID("work-2")), by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))
+            #expect(model.step(from: .workspace(WorkspaceID("work-2")), by: 1, Self.numbers) == .workspace(WorkspaceID("work-3")))
+            #expect(model.step(from: .workspace(WorkspaceID("work-2")), by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))
+        }
+    }
+
+    /// A row behind "Show N more" draws, selected, before an opened Done fold's rows at the end of its group: Previous
+    /// is the row above it and Next the Done row below, not the other way round.
+    @Test func aRowBehindShowMoreStepsBeforeAnOpenedDoneFold() throws {
+        try Self.withFolds(limit: 1) {
+            let members = [Self.row("work-1"), Self.done("work-2"), Self.row("work-3"), Self.row("work-4")]
+            let model = SidebarModel(sections: Self.doneSections(members))
+            let section = try #require(model.sections.first?.id)
+            model.openDoneFolds = [SidebarDoneFoldID(section: section, group: Self.work)]
+            #expect(!model.itemOrder.rows.contains(.workspace(WorkspaceID("work-3"))), "work-3 is behind Show more")
+            let selected = SidebarItem.workspace(WorkspaceID("work-3"))
+            #expect(model.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))
+            #expect(model.step(from: selected, by: 1, Self.numbers) == .workspace(WorkspaceID("work-2")))
+        }
+    }
+
+    /// An archived link the opened Archive lists at the bottom is no stop before a Done row above it: from the
+    /// selected Done row, Previous and Next are the rows drawn around it.
+    @Test func anArchivedItemIsNoAnchorForADoneRowAboveIt() {
+        Self.withFolds {
+            var link = SidebarListItem(id: "old-link", ref: .url("https://example.com"), title: "Example")
+            link.isArchived = true
+            let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+            let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
+                .workspace(Self.row("first")), .item(link), .workspace(Self.done("finished")), .workspace(Self.row("second")),
+            ])])
+            model.openDoneFolds = [.archive]
+            let all = SidebarNavigationSettings(numbering: .allItems, stepping: .allItems)
+            let selected = SidebarItem.workspace(WorkspaceID("finished"))
+            #expect(model.step(from: selected, by: -1, all) == .workspace(WorkspaceID("first")))
+            #expect(model.step(from: selected, by: 1, all) == .workspace(WorkspaceID("second")))
         }
     }
 }
