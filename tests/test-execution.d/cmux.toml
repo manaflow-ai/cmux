@@ -52,6 +52,11 @@ path = "tests/test_cmux_cua_mcp_smoke.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_cmux_machine_channel.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that the Cloud machine channel payload from the build (--binaries-dir) matches the one from the manifest and refuses other bytes, and the signed Linux release files (payload shape, write-once release.json, forward-only pointer, purpose separation); run python3 tests/test_cmux_machine_channel.py yourself after changing scripts/ci/cmux-machine-channel.py or scripts/ci/cmux-machine-channel-point.sh (a few seconds, no network, needs openssl 3)."
+
+[[test]]
 path = "tests/test_cmux_next_app_ffi_pin_scope.py"
 lane = "linux-guard"
 

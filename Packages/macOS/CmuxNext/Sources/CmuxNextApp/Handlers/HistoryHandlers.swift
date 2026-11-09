@@ -66,9 +66,7 @@ enum HistoryHandlers {
             guard let id = invocation["id"]?.stringValue, !id.isEmpty else { return }
             let newTab = invocation["newTab"]?.boolValue ?? false
             services.registry.track(Task { @MainActor in
-                guard let entry = await services.history.entry(id: id), entry.isAvailable else {
-                    return ActionWorkFailure(HistoryAppStrings.entryGone)
-                }
+                guard let entry = await services.history.entry(id: id), entry.isAvailable else { return ActionWorkFailure(HistoryAppStrings.entryGone) }
                 HistoryRestorer(services: services).open(entry, newTab: newTab)
                 return nil
             })

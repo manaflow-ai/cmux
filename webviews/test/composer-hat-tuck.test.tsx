@@ -44,7 +44,8 @@ const { createRoot } = await import("react-dom/client");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { trayItems } = await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
-const { pullTabCounts, TrayPullTab, tuckTray } = await import("../src/agent-session/acpmux/subagents/TrayPullTab");
+const { TrayPullTab } = await import("../src/agent-session/acpmux/subagents/TrayPullTab");
+const { pullTabCounts, tuckTray } = await import("../src/agent-session/acpmux/subagents/trayPullTabModel");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
 const { registerChatDisplayHost, setChatDisplay, useTrayHandle, useTrayTucked, TRAY_HANDLE_KEY, TRAY_TUCKED_KEY } =
   await import("../src/agent-session/acpmux/chatDisplay");

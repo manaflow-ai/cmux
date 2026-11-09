@@ -34,6 +34,29 @@ public struct CloudWait {
     public static let startRedial = Backoff(initial: .milliseconds(CloudMoveCore.deadlines.startRedialInitialMs),
                                             maximum: .milliseconds(CloudMoveCore.deadlines.startRedialMaximumMs))
 
+    /// One start wait's redial beats, as Rust's `start_redial` says: a paused machine resumes once, and a running
+    /// machine's ended link connects again, a bounded number of times (a new machine's updater restarts its services
+    /// seconds after the create, which can end the first connect).
+    @MainActor public final class StartRedials {
+        private var resumed = false
+        private var redials = 0
+
+        public init() {}
+
+        /// One beat: `ended` is the app link's failure showing with no connect running.
+        public func beat(ended: Bool, status: CloudMachine.Status, resume: () -> Void, connect: () -> Void) {
+            struct Look: Encodable { var ended: Bool, running: Bool, paused: Bool, resumed: Bool, redials: Int }
+            struct Answer: Decodable { var redial: String }
+            let look = Look(ended: ended, running: status == .running, paused: status == .paused, resumed: resumed, redials: redials)
+            // An FFI pinned from before the op answers nothing: the wait keeps its one resume, as before.
+            switch CloudMoveCore().call("start_redial", look, as: Answer.self)?.redial ?? (look.paused && !resumed ? "resume" : nil) {
+            case "resume": resumed = true; resume()
+            case "connect": redials += 1; connect()
+            default: break
+            }
+        }
+    }
+
     /// Whether `condition` holds within `limit`: `redial` runs first and again after each of `backoff`'s delays,
     /// so a link that ended while the condition did not hold yet is dialed again (a new machine's daemon may
     /// answer a little after its record runs). Never past `limit`, and never without a delay between redials.
@@ -133,25 +156,6 @@ extension CloudWait {
         let up = await linkUp()
         guard up, await ended(within: limit, updating) else { return up }
         return await linkUp()
-    }
-
-    /// A start's link wait that holds only when `held` (a live daemon and no failed resume) does after it; when not, and
-    /// `redialable` says the link's last end is one another dial can help, `again` dials and the wait runs once more. A
-    /// just-resumed machine's tunnel peer may not answer the first dials (prod, 2026-11-05: "no handshake within 5 s",
-    /// then "the tunnel peer setup failed: no route to this host", state running), and the start failed at 59 s.
-    ///
-    /// Not a second copy of `linkUp`'s own redial (``holds(within:redialing:clock:redial:until:)``), which dials only an
-    /// app link that ended on a running machine and stops at its deadline. This one dials as the person's Retry does,
-    /// with no app link or on a machine not yet shown running; it catches a link that came up but dropped before the
-    /// start read it (`held`); and it gives that dial a wait of its own. Nothing in Rust waits on the Mac's link
-    /// (cmux-tui serving proves its daemon up, not this Mac's socket to it). `redialable` must also check that the
-    /// start's account is still the one signed in, since `again` may resume the machine.
-    public static func linkedAgain(_ wait: () async -> Bool, held: () -> Bool, redialable: () -> Bool,
-                                   again: () -> Void) async -> Bool {
-        if await wait(), held() { return true }
-        guard redialable(), !Task.isCancelled else { return false }
-        again()
-        return await wait() && held()
     }
 
     /// `start`, tried once more when its first try failed on a connection that closed (`closed`), once `relink`

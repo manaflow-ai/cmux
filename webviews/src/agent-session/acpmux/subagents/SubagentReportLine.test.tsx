@@ -11,7 +11,7 @@ import { BACKGROUND_TURN, backgroundTurnRowId } from "../conversation/background
 import { withSubagentLines } from "./runningTray";
 import { SUBAGENT_DONE } from "./subagentRows";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
-import { SubagentViewsContext } from "./SubagentGroup";
+import { SubagentViewsContext } from "./subagentGroupModel";
 
 // As Claude's live records name them: acpmux's subagent is `<session>/<tool call>`, the
 // notification's origin the bare call.
@@ -112,4 +112,11 @@ test("a shell's background turn keeps its own line", () => {
   const html = renderToStaticMarkup(<BackgroundTurnLine row={shell} expanded={false} onToggle={() => {}} />);
   expect(html).not.toContain("Report from");
   expect(html).toContain('data-background-turn="quiet"');
+});
+
+test("a report whose subagent is not loaded still opens to its summary", () => {
+  const lone = turn("lone", 9_000);
+  const open = renderToStaticMarkup(<BackgroundTurnLine row={lone} expanded onToggle={() => {}} />);
+  expect(open).toContain("cv-subagent-report__body");
+  expect(open).toContain("I&#x27;ve merged the fix, but it");
 });

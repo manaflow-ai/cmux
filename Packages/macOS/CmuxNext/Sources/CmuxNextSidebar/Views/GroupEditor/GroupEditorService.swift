@@ -55,8 +55,12 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
     private var height = firstHeight
     private var sessions = 0
     private let deadline = DemandTimer(owner: "GroupEditorService.ready")
+    /// The app's overlay pages' shared web content process (``PageOverlayProcess``); nil gives the page its own.
+    private let overlayProcess: PageOverlayProcess?
 
-    public init() {}
+    public init(overlayProcess: PageOverlayProcess? = nil) {
+        self.overlayProcess = overlayProcess
+    }
     /// The page's engine options: it shows in a glass panel that closes when it loses the keys, and a
     /// Chromium page is an opaque child window that takes them.
     public static let engineOptions = PageEngineOptions(requiresWebKit: .transparentOverlay)
@@ -74,7 +78,7 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
         if let warm { return warm }
         let provider = GroupEditorProvider()
         guard let page = PageWebView(descriptor: .groupEditor, routes: [PageRoute(prefix: "cmux.groupEditor.", provider: provider)],
-                                     options: Self.engineOptions) else { return nil }
+                                     options: Self.engineOptions, overlayProcess: overlayProcess) else { return nil }
         let panel = GroupEditorPanel(content: page, width: SidebarGroupEditor.width)
         panel.onDismiss = { [weak self] in self?.dismiss() }
         provider.onCall = { [weak self] call in self?.handle(call) }
@@ -138,9 +142,9 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
     // MARK: The page
 
     private func push(_ open: Open) {
-        let themed = SidebarGroupPalette.tunable.value == .theme
+        let palette = DesignSettings.shared.sidebarSections.groupPalette
         let session = GroupEditorSession(id: open.session, revision: open.revision, group: open.group, items: open.items, draft: open.draft)
-        let build = { session.event(themed: themed, icons: self.icons) }
+        let build = { session.event(palette: palette, icons: self.icons) }
         warm?.provider.push(open.themeAnchor.map { $0.performWithTheme(build) } ?? build())
     }
 

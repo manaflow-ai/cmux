@@ -3,17 +3,15 @@
 // and keep thinking of more interesting/useful things"). The footer's clock button opens it; closed,
 // as every footer starts, nothing is drawn or computed. A call's bar opens that call's row
 // (TurnActions `showCall`, App.tsx `showToolRow`), as a running line's count does.
-import { useContext, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useContext, useMemo, useState, type CSSProperties } from "react";
 import type { Translate } from "../i18n";
 import { useT } from "../i18n";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { toolLabel } from "../toolPaths";
-import { Clock } from "./icons";
-import { ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
-import { isEmptyFooter } from "./turns";
 import { waterfall, WATERFALL_FIRST, type WaterfallSpan, type WaterfallTone } from "./waterfallSpans";
 import "./TurnWaterfall.css";
+import { spanTime } from "./turnWaterfallModel";
 
 /// How the bars lay out: `bars` (label, then its bar on the shared axis), `stacked` (the label over
 /// a full-width bar) or `lanes` (one lane per kind of work, its bars side by side).
@@ -34,14 +32,6 @@ const LANE_NAMES = {
   other: "turn.timeline.kind.other",
   thought: "turn.timeline.thought",
 } as const;
-
-/// "840ms", "4.2s", "2m 5s", as a call row's own time (toolGroups.ts toolDuration).
-export function spanTime(t: Translate, ms: number): string {
-  if (ms < 1000) return t("duration.ms", { n: Math.round(ms) });
-  if (ms < 60_000) return t("duration.s", { n: (ms / 1000).toFixed(1) });
-  const seconds = Math.round(ms / 1000);
-  return t("duration.m", { m: Math.floor(seconds / 60), s: seconds % 60 });
-}
 
 function spanLabel(t: Translate, item: AcpmuxActivity): string {
   if (!item.tool) return t("turn.timeline.thought");
@@ -74,37 +64,6 @@ function summaryParts(
   };
 }
 
-/// The footer's Timeline toggle and, while it is open, the waterfall under the footer row. Null for
-/// a footer whose turn timed no call.
-export function useTurnWaterfall(
-  row: AcpmuxRow,
-  look: WaterfallLook = "bars",
-): { toggle: ReactNode; panel: ReactNode } {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  const id = useId();
-  // An empty footer is a turn gap with no line of its own (turns.ts isEmptyFooter, height 0), which
-  // has no room to open a panel under; only a footer that draws its row offers the Timeline.
-  if (!row.turnWork?.length || isEmptyFooter(row)) return { toggle: null, panel: null };
-  const label = open ? t("turn.timeline.hide") : t("turn.timeline.show");
-  return {
-    toggle: (
-      <button
-        type="button"
-        className={`cv-iconbtn cv-iconbtn--compact cv-waterfall-toggle${open ? " is-open" : ""}`}
-        aria-label={label}
-        title={label}
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        onClick={() => setOpen((now) => !now)}
-      >
-        <Clock size={ROW_ICON} />
-      </button>
-    ),
-    panel: open ? <TurnWaterfall id={id} row={row} work={row.turnWork} look={look} /> : null,
-  };
-}
-
 export function TurnWaterfall({
   id,
   row,
@@ -113,7 +72,7 @@ export function TurnWaterfall({
   summary = "count",
 }: {
   id?: string;
-  row: Pick<AcpmuxRow, "at" | "durationMs">;
+  row: Pick<AcpmuxRow, "at" | "durationMs" | "workEndedAt">;
   work: readonly AcpmuxActivity[];
   look?: WaterfallLook;
   summary?: WaterfallSummary;

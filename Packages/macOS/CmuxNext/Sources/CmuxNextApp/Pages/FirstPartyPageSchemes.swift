@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextCloudUI
 import CmuxNextPages
@@ -54,9 +55,40 @@ enum FirstPartyPageSchemes {
     /// and the app's other `cmux.` pages, so each can show in Chromium (`PageEnginePolicy` still
     /// keeps a page that cannot on WebKit, with its reason).
     static let descriptors: [PageDescriptor] = [
-        .agent, .history, .cloud, .apps, .settings, .keybindings, .diff, .markdown, .iconPicker, .groupEditor, .passwords, .editor,
-        .chiefInspector, .debugSettings, .homeChannels, .homeMessages, .changelog, .coderouter, .files, .artifacts, .stats, .chiefUsage,
-        .mobilePairing, .agentActivity, .importHistory, .github, .cloudProgress, .machines, .tasks,
+        .agent,
+        .agentActivity,
+        .apps,
+        .artifacts,
+        .bookmarks,
+        .changelog,
+        .chiefInspector,
+        .chiefUsage,
+        .cloud,
+        .cloudProgress,
+        .coderouter,
+        .debugSettings,
+        .diff,
+        .editor,
+        .files,
+        .github,
+        .groupEditor,
+        .history,
+        .homeChannels,
+        .homeChatColors,
+        .homeMessages,
+        .iconPicker,
+        .importHistory,
+        .keybindings,
+        .machines,
+        .markdown,
+        .mobilePairing,
+        .onboarding,
+        .passwords,
+        .serverCards,
+        .settings,
+        .setupCard,
+        .stats,
+        .tasks,
     ]
 
     /// The accepted entries of `roots`, each with its page's own CSP.

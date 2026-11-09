@@ -1,7 +1,7 @@
 // Every hover card in the web UI is glass, never a solid card (Leo, 2026-10-21: "STOP DOING SOLID.
 // WE HAVE GLASS, SO JUST USE GLASS."). The cards a pointer opens by resting on something:
 //   - a link's or a pull request's hover card (chips/LinkHoverCard.tsx, also the PR dock bars);
-//   - a session reference's hover card (started/SessionHoverCard.tsx);
+//   - a session reference's hover card (started/useSessionHover.tsx);
 //   - a New Tab suggestion row's hover card (newtab/StageCards.tsx);
 //   - the thread minimap's mark preview (threadMinimap/PreviewCard.tsx).
 // Each renders the shared liquid glass (.ui-glass, ui/glass/glass.css) or, for the minimap card, the
@@ -21,7 +21,7 @@ const SRC = new URL("../src/", import.meta.url).pathname;
 const CARDS = [
   { file: "agent-session/acpmux/chips/LinkHoverCard.tsx", root: "cv-link-preview", glass: "ui-glass" },
   { file: "agent-session/acpmux/chips/LinkHoverCard.tsx", root: "acpmux-pr-card", glass: "ui-glass" },
-  { file: "agent-session/acpmux/started/SessionHoverCard.tsx", root: "acpmux-session-hover-card", glass: "ui-glass" },
+  { file: "agent-session/acpmux/started/useSessionHover.tsx", root: "acpmux-session-hover-card", glass: "ui-glass" },
   { file: "agent-session/acpmux/newtab/StageCards.tsx", root: "nt-hovercard", glass: "ui-glass" },
   // Not .ui-glass: the tooltip tint over the shared blur (thread-minimap-card-glass.test.ts).
   { file: "agent-session/acpmux/threadMinimap/PreviewCard.tsx", root: "acpmux-minimap__card", glass: null },

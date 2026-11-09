@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cmux-next guards' vt-link-graph job, run as the workflow runs it, fails a pull
+"""cmux-next guards' vt-link-graph steps (static-checks job), run as the workflow runs them, fails a pull
 request whose package-notices.json libghostty-vt texts are for another
 ghostty-next commit than vt-link-graph.json.
 
@@ -33,9 +33,21 @@ SPARSE = [
 OTHER_COMMIT = "673a6369c4ba43cddcc94ff67361872824ffa528"
 
 
+# The vt-link-graph checks, steps of cmux-next guards' static-checks job (which runs other static checks too).
+VT_STEPS = (
+    "vt-link-graph.json is for the libghostty-vt gitlink",
+    "package-notices.json covers vt-link-graph.json",
+    "The nightly's Ghostty license checks pass on fixtures",
+)
+
+
 def job_scripts() -> list[str]:
-    job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["vt-link-graph"]
-    return [step["run"] for step in job["steps"] if "run" in step]
+    job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["static-checks"]
+    steps = {step.get("name"): step for step in job["steps"]}
+    missing = [name for name in VT_STEPS if "run" not in steps.get(name, {})]
+    if missing:
+        raise AssertionError(f"static-checks has no run step {missing}")
+    return [steps[name]["run"] for name in VT_STEPS]
 
 
 class Checkout:

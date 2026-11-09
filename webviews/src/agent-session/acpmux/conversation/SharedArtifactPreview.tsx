@@ -4,7 +4,7 @@
 // behind the same capability check the panel makes, so a consumer cannot bypass the source-only fallback.
 import { ArtifactFrame } from "./ArtifactPanel";
 import { artifactCanRender, artifactGallery } from "./artifactSandbox";
-import { canRender } from "./RenderCard";
+import { canRender } from "./renderCardModel";
 
 export type ArtifactPreviewProps = {
   html: string;

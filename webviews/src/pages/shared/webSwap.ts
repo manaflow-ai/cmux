@@ -58,6 +58,13 @@ function unkeptFieldHold(doc: Document, edited = false): string | null {
   return null;
 }
 
+/** Edits a chat's wake state does not carry: registered unsaved state (sends, drafts not yet saved,
+ * composition) and any edited field outside the kept composer, such as a queued message being edited.
+ * A release that `agents.hiddenChats.discard` alone makes keeps such a page (`holdsEdits`). */
+export function pageEditHold(doc: Document = document): string | null {
+  return registeredPageHold(doc) || unkeptFieldHold(doc, true);
+}
+
 /** What a hidden page cannot hand back in its wake state: registered unsaved state (including
  * sends and New Tab drafts/attachments), composition, open popups and other edited fields. */
 export function pageReleaseHold(doc: Document = document): string | null {

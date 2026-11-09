@@ -624,6 +624,7 @@ MODEL_BY_PATH = {
     'events/selection-changed/payload': models.SelectionChangedEvent,
     'events/settings-changed/payload': models.SettingsChangedEvent,
     'events/size-state/payload': models.SizeStateEvent,
+    'events/stash-changed/payload': models.StashChangedEvent,
     'events/status/payload': models.StatusEvent,
     'events/surface-exited/payload': models.SurfaceExitedEvent,
     'events/surface-output/payload': models.SurfaceOutputEvent,

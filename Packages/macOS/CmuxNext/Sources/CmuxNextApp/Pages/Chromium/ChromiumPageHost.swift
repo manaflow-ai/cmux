@@ -41,6 +41,8 @@ final class ChromiumPageHost: PageChromiumHosting {
     }
 
     func focusViewChanged(_ page: PageWebView) -> Bool { paneFocus(page) }
+    /// A page's Inspect Element row: its Chromium DevTools or Web Inspector (WebInspectorTargets).
+    func inspectPage(_ view: NSView) { (WebInspectorTargets.target(of: view) ?? nil)?.inspectElement() }
     var preference: BrowserDefaultEngine { enginePreference() }
 
     var isAvailable: Bool { cef.unavailableReason == nil }

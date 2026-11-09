@@ -3,11 +3,11 @@ use super::*;
 const LOCAL: &str = "local";
 
 fn ws(id: &str) -> Workspace {
-    Workspace { id: id.into(), machine: LOCAL.into() }
+    Workspace { id: id.into(), machine: LOCAL.into(), ..Workspace::default() }
 }
 
 fn ws_on(id: &str, machine: &str) -> Workspace {
-    Workspace { id: id.into(), machine: machine.into() }
+    Workspace { id: id.into(), machine: machine.into(), ..Workspace::default() }
 }
 
 fn loose(id: &str) -> Node {

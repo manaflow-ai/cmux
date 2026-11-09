@@ -146,6 +146,7 @@ fn of_updates_that_start_at_once_one_takes_the_lock() {
                         gone_after_copy: Default::default(),
                         copy_drops: Default::default(),
                         gone: Default::default(),
+                        link_drops_on_restart: Default::default(),
                     });
                     start.wait();
                     lock_updates(&*peer).unwrap()

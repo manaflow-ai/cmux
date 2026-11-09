@@ -1,0 +1,930 @@
+/* The onboarding tool window. The native window draws the one glass backdrop, so the page paints no
+   background (html stays transparent even where another page's theme gives it a surface); only the
+   cards draw a light tint and rim. Measures mirror OnboardingMetrics, ComputerUseSetupView and the
+   rows of the Swift steps this page replaces; type, colors, radii and motion come from the shared
+   tokens. Every state change keeps its slots: rows have fixed heights, a control that comes and goes
+   is hidden in place (visibility), and the explainers take the list's body area. */
+:root[data-cmux-page="onboarding"],
+:root[data-cmux-page="onboarding"] body {
+  background: transparent;
+}
+
+.onboarding {
+  /* OnboardingMetrics: the 40 margin, the title 52 from the top, the sentence 8 below it, the body 28
+     below that, the footer (40 high) 28 from the bottom and 16 under the body. */
+  --onb-margin: var(--ds-space-40);
+  --onb-title-top: 52px;
+  --onb-body-gap: 28px;
+  --onb-footer-height: 40px;
+  --onb-footer-bottom: 28px;
+  --onb-footer-gap: var(--ds-space-4);
+  /* Row heights: an agent card 60, an import row 44, a grant card 84. */
+  --onb-agent-card: 60px;
+  --onb-agent-row: 52px;
+  --onb-agent-compact: 44px;
+  --onb-import-row: 44px;
+  --onb-import-gap: 2px;
+  --onb-grant-row: 84px;
+  /* The browser icon 30 with the profile picture 16 on its bottom-right corner, 4 out and 3 down. */
+  --onb-import-icon: 30px;
+  --onb-avatar-right: -4px;
+  --onb-avatar-bottom: -3px;
+  --onb-grant-icon: 56px;
+  --onb-helper-icon: 96px;
+  --onb-agent-icon: 24px;
+  /* The card tint and its one light rim (OnboardingCardView: the card fill over the glass, the text
+     color at the card rim's share). */
+  --onb-card-fill: color-mix(in srgb, var(--ds-color-fg) 5%, transparent);
+  --onb-card-rim: var(--cmux-card-rim, color-mix(in srgb, var(--ds-color-fg) 12%, transparent));
+  height: 100dvh;
+  color: var(--page-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+.onboarding :is(h1, h2, p, ul) {
+  margin: 0;
+}
+.onboarding ul {
+  padding: 0;
+  list-style: none;
+}
+
+/* Scaffold: header, body, footer. */
+.onb-scaffold {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-inline: var(--onb-margin);
+}
+.onb-header {
+  padding-top: var(--onb-title-top);
+}
+.onb-title {
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  letter-spacing: var(--text-heading--letter-spacing);
+  font-weight: var(--weight-emphasis);
+}
+.onb-sentence {
+  margin-top: var(--ds-space-2);
+  color: var(--page-text-2);
+}
+.onb-header .onb-sentence {
+  margin-top: var(--ds-space-2);
+}
+.onb-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: var(--onb-body-gap);
+  margin-bottom: var(--onb-footer-gap);
+}
+.onb-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: var(--onb-footer-height);
+  margin-bottom: var(--onb-footer-bottom);
+}
+.onb-footer-buttons {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+}
+.onb-footer-buttons .ui-btn {
+  padding-inline: var(--ds-space-3);
+}
+
+.onb-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.onb-status {
+  display: block;
+  min-height: calc(2 * var(--text-caption--line-height));
+  margin-top: var(--ds-space-3);
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+/* A slot that holds controls which swap: each lies in the one grid cell, the widest sets the size,
+   and only the shown one is visible and takes clicks. */
+.onb-slot {
+  display: inline-grid;
+  align-items: center;
+  justify-items: end;
+}
+.onb-slot > * {
+  grid-area: 1 / 1;
+}
+.onb-slot > :not([data-shown]) {
+  visibility: hidden;
+  pointer-events: none;
+}
+.onb-capsule.ui-btn {
+  border-radius: 999px;
+}
+.onb-slot-spinner {
+  display: inline-flex;
+  color: var(--page-text-2);
+}
+
+.onb-link,
+.onb-link-button.ui-btn {
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  text-decoration: none;
+}
+.onb-link-button.ui-btn {
+  padding-inline: 0;
+  background: transparent;
+}
+.onb-link-button.ui-btn:hover:not([data-disabled]) {
+  background: transparent;
+  color: var(--page-text);
+}
+.onb-link:hover {
+  color: var(--page-text);
+}
+
+/* Agents */
+.onb-agents {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.onb-agents .onb-scroll {
+  flex: 0 1 auto;
+}
+.onb-agent {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  padding-inline: var(--ds-space-4);
+}
+.onb-agent-mark {
+  display: inline-flex;
+  flex: none;
+  width: var(--onb-agent-icon);
+  height: var(--onb-agent-icon);
+  align-items: center;
+  justify-content: center;
+}
+.onb-agent-icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.onb-agent-icon[data-template],
+.onb-import-icon[data-template],
+.onb-grant-icon[data-template],
+.onb-cu-helper[data-template] {
+  background: currentColor;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+}
+.onb-agent-names {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.onb-agent-name,
+.onb-agent-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.onb-agent-detail {
+  color: var(--page-text-2);
+}
+.onb-agent-detail.is-error {
+  color: var(--ds-color-danger);
+}
+.onb-agent-trailing {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-3);
+}
+
+/* A: a rounded card per agent (the Swift step's look). */
+.onb-agent-list[data-look="cards"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+.onb-agent-list[data-look="cards"] .onb-agent {
+  height: var(--onb-agent-card);
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-2xl);
+  background: var(--onb-card-fill);
+}
+.onb-agent-list[data-look="cards"] .onb-agent-name {
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  letter-spacing: var(--text-title--letter-spacing);
+  font-weight: var(--weight-emphasis);
+}
+
+/* B: one card, a row per agent, hairlines between (the Settings list's shape). */
+.onb-agent-list[data-look="list"] {
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-xl);
+  background: var(--onb-card-fill);
+}
+.onb-agent-list[data-look="list"] .onb-agent {
+  height: var(--onb-agent-row);
+}
+.onb-agent-list[data-look="list"] .onb-agent + .onb-agent {
+  border-top: 1px solid var(--page-separator);
+}
+.onb-agent-list[data-look="list"] .onb-agent-name {
+  font-weight: var(--weight-emphasis);
+}
+
+/* C: compact rows on the glass, the sign-in as a pill. */
+.onb-agent-list[data-look="compact"] .onb-agent {
+  height: var(--onb-agent-compact);
+  padding-inline: var(--ds-space-1);
+}
+.onb-agent-list[data-look="compact"] .onb-agent + .onb-agent {
+  border-top: 1px solid var(--page-separator);
+}
+.onb-agent-pill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+  max-width: 50%;
+  min-height: var(--ds-control-compact);
+  padding-inline: var(--ds-space-2);
+  border-radius: 999px;
+  background: var(--ds-color-hover);
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.onb-agent-pill > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Import */
+.onb-import {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.onb-import-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.onb-import-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  height: 100%;
+}
+.onb-import-main > :not(.onb-import-shelf) {
+  flex: none;
+}
+.onb-import-shelf {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.onb-import-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+/* The summary under the list: at most three lines (its whole text is the tooltip), so the list, the
+   kinds and the links keep their places whatever it says. */
+.onb-import .onb-status {
+  display: -webkit-box;
+  margin-top: var(--ds-space-2);
+  height: calc(3 * var(--text-caption--line-height));
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.onb-import-list {
+  /* Four rows and their gaps; more scroll. The rows reach 4 past the text edge on each side so
+     their icon and trailing control line up with the title and only the hover fill reaches past. */
+  display: flex;
+  flex-direction: column;
+  gap: var(--onb-import-gap);
+  /* A language whose kinds wrap takes its line from the list (which scrolls), never from a state. */
+  flex: 0 1 auto;
+  height: calc(4 * var(--onb-import-row) + 3 * var(--onb-import-gap));
+  min-height: calc(2 * var(--onb-import-row));
+  margin-inline: calc(-1 * var(--ds-space-1));
+}
+.onb-import-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  flex: none;
+  height: var(--onb-import-row);
+  padding-inline: var(--ds-space-1);
+  border-radius: var(--ds-radius-md);
+  transition: opacity var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.onb-import-row[data-editable]:hover {
+  background: var(--ds-color-hover);
+}
+.onb-import-row[data-editable]:active {
+  background: var(--ds-color-pressed);
+}
+.onb-import-row[data-dimmed] {
+  opacity: 0.55;
+}
+.onb-import-icons {
+  position: relative;
+  flex: none;
+  width: var(--onb-import-icon);
+  height: var(--onb-import-icon);
+}
+.onb-import-icon {
+  display: block;
+  width: var(--onb-import-icon);
+  height: var(--onb-import-icon);
+}
+.onb-import-avatar {
+  position: absolute;
+  right: var(--onb-avatar-right);
+  bottom: var(--onb-avatar-bottom);
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  border-radius: var(--ds-radius-md);
+  object-fit: cover;
+}
+.onb-import-avatar[data-empty] {
+  display: none;
+}
+.onb-import-names {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.onb-import-name,
+.onb-import-sub,
+.onb-import-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.onb-import-sub,
+.onb-import-detail {
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.onb-import-sub:empty {
+  display: none;
+}
+.onb-import-trailing {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.onb-import-detail {
+  min-width: 0;
+  text-align: end;
+}
+.onb-import-target:not([data-shown]) {
+  visibility: hidden;
+}
+.onb-import-target .ui-select-button {
+  font-size: var(--text-caption);
+}
+.onb-import-state {
+  width: var(--ds-icon-20);
+  justify-items: center;
+}
+.onb-import-box,
+.onb-import-box input {
+  margin: 0;
+}
+.onb-import-glyph {
+  display: inline-flex;
+  color: var(--page-text-2);
+}
+.onb-import-access.ui-btn {
+  font-size: var(--text-caption);
+}
+
+.onb-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--ds-space-3);
+  row-gap: var(--ds-space-1);
+}
+.onb-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.onb-check input {
+  margin: 0;
+}
+
+.onb-links {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--ds-space-4);
+  min-height: var(--ds-control-compact);
+}
+.onb-links.is-hidden {
+  visibility: hidden;
+}
+
+/* The full list (Choose Browsers and Data…): the browsers' shelf keeps four rows' room, so the kinds
+   never move as browsers arrive; the checkboxes are drawn (one shape, one accent, the same in every
+   row) instead of WebKit's. */
+.onb-import {
+  /* Four rows and the card's rim fit the 520 high window over the kinds card and a two-line summary. */
+  --onb-shelf: calc(4 * var(--onb-import-row) + 2px);
+}
+.onb-import .onb-import-shelf {
+  height: var(--onb-shelf);
+}
+.onb-import .onb-status {
+  height: calc(2 * var(--text-caption--line-height));
+  -webkit-line-clamp: 2;
+}
+.onb-import .onb-sync[data-off] {
+  color: var(--page-text-3);
+}
+/* A row whose trailing control is a button (Open System Settings, Allow Access…) ends it where the
+   other rows' checkboxes end. */
+.onb-import .onb-import-row:is([data-access], [data-state="awaiting"]) .onb-import-state {
+  display: none;
+}
+.onb-import .onb-import-list {
+  height: auto;
+  max-height: 100%;
+  min-height: 0;
+  margin-inline: 0;
+}
+.onb-import .onb-import-list[data-empty] {
+  visibility: hidden;
+}
+.onb-import input[type="checkbox"] {
+  flex: none;
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--page-text) 35%, transparent);
+  border-radius: var(--ds-radius-sm);
+  background: color-mix(in srgb, var(--page-text) 6%, transparent);
+  appearance: none;
+  transition:
+    background-color var(--cmux-motion-quick) var(--cmux-ease-out),
+    border-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.onb-import input[type="checkbox"]:checked {
+  border-color: var(--ds-color-accent);
+  background: var(--ds-color-accent);
+}
+.onb-box {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+}
+.onb-box > * {
+  grid-area: 1 / 1;
+}
+.onb-box-mark {
+  display: none;
+}
+.onb-import .onb-box-mark {
+  display: block;
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  fill: none;
+  stroke: var(--ds-color-on-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.onb-import input:checked + .onb-box-mark {
+  opacity: 1;
+}
+.onb-import input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--ds-color-focus);
+  outline-offset: 1px;
+}
+.onb-import input[type="checkbox"]:disabled {
+  opacity: 0.5;
+}
+.onb-import .onb-import-row[data-access] .onb-import-sub {
+  color: var(--ds-color-attention);
+}
+.onb-import .onb-import-row[data-dimmed] {
+  opacity: 1;
+}
+.onb-import .onb-import-row[data-dimmed] :is(.onb-import-icons, .onb-import-names) {
+  opacity: 0.6;
+}
+.onb-import .onb-import-name {
+  font-weight: var(--weight-emphasis);
+}
+/* While browsers are looked for, the slots are quiet placeholders: an icon square and a name bar. */
+.onb-import .onb-import-row[data-state="slot"] :is(.onb-slot-icon, .onb-slot-bar) {
+  display: block;
+  flex: none;
+  border-radius: var(--ds-radius-md);
+  background: color-mix(in srgb, var(--page-text) 8%, transparent);
+}
+.onb-import .onb-import-row[data-state="slot"] :is(.onb-slot-icon, .onb-slot-bar) {
+  display: none;
+}
+.onb-import .onb-slot-icon {
+  width: var(--onb-import-icon);
+  height: var(--onb-import-icon);
+}
+.onb-import .onb-slot-bar {
+  width: 30%;
+  height: var(--ds-space-2);
+}
+
+/* Grouped: the browsers in one card, hairlines between, and the kinds in a second card, two to a
+   line (Settings' lists; the agents step's list look). */
+/* The cards are frosted glass of their own: the surface color at 62% over a blur, so a busy wallpaper
+   behind the window's glass never fights the rows' text (the plain look's 5% tint did). Never opaque. */
+.onb-import {
+  --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) 62%, transparent);
+}
+.onb-import .onb-import-list,
+.onb-import .onb-import-options {
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-xl);
+  background: var(--onb-card-glass);
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
+}
+.onb-import .onb-import-list {
+  gap: 0;
+}
+.onb-import .onb-import-row {
+  padding-inline: var(--ds-space-3);
+  border-radius: 0;
+}
+.onb-import .onb-import-row + .onb-import-row {
+  box-shadow: inset 0 1px 0 var(--page-separator);
+}
+.onb-import .onb-import-options {
+  margin-top: var(--ds-space-2);
+  padding: var(--ds-space-3);
+}
+.onb-import .onb-import-row {
+  padding-inline: var(--ds-space-3);
+}
+.onb-import .onb-kinds {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  row-gap: var(--ds-space-2);
+}
+
+
+/* The other sources, at the footer's leading edge. */
+.onb-footer-sources {
+  display: flex;
+  min-width: 0;
+  margin-inline-end: auto;
+}
+.onb-footer-sources.is-hidden {
+  visibility: hidden;
+}
+.onb-sources-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border: 0;
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: default;
+}
+.onb-sources-chevron {
+  width: var(--ds-space-2);
+  height: var(--ds-space-2);
+  border-inline-end: 1.5px solid currentColor;
+  border-block-start: 1.5px solid currentColor;
+  transform: translateY(1px) rotate(-45deg);
+}
+
+/* The explainers: in the list's place, a bar for how far the flow is, then the words. */
+.onb-explainer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  color: var(--page-text-2);
+}
+.onb-progress {
+  width: 50%;
+  height: var(--ds-space-1);
+  margin-bottom: var(--ds-space-2);
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ds-color-hover);
+}
+.onb-progress-bar {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--page-text);
+  transform-origin: left center;
+  transition: transform var(--cmux-motion-standard) var(--cmux-ease-out);
+}
+.onb-progress-bar:dir(rtl) {
+  transform-origin: right center;
+}
+.onb-explainer-title {
+  color: var(--page-text);
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  letter-spacing: var(--text-title--letter-spacing);
+  font-weight: var(--weight-emphasis);
+}
+.onb-explainer-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+}
+.onb-explainer-lock {
+  flex: none;
+  align-self: center;
+  color: var(--page-text-2);
+}
+.onb-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.onb-folder {
+  margin-top: var(--ds-space-1);
+  color: var(--page-text);
+  overflow-wrap: anywhere;
+}
+.onb-explainer-note {
+  display: block;
+  min-height: var(--text-caption--line-height);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+/* Computer Use: 520 by 480, a 32 margin, the helper's icon 36 from the top. */
+.onboarding[data-step="computerUse"] {
+  --onb-margin: var(--ds-space-6);
+  --onb-helper-top: 36px;
+  --onb-cu-bottom: 20px;
+}
+.onb-cu {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-inline: var(--onb-margin);
+}
+.onb-cu-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: var(--onb-helper-top);
+  text-align: center;
+}
+.onb-cu-helper {
+  display: block;
+  width: var(--onb-helper-icon);
+  height: var(--onb-helper-icon);
+  margin-bottom: var(--ds-space-3);
+}
+.onb-cu-head .onb-sentence {
+  margin-top: var(--ds-space-1);
+}
+.onb-grants {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  margin-top: var(--ds-space-5);
+}
+.onb-grant {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-4);
+  min-height: var(--onb-grant-row);
+  padding: var(--ds-space-3) var(--ds-space-5) var(--ds-space-3) var(--ds-space-4);
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-xl);
+  background: var(--onb-card-fill);
+}
+.onb-grant-icon {
+  display: block;
+  flex: none;
+  width: var(--onb-grant-icon);
+  height: var(--onb-grant-icon);
+}
+.onb-grant-names {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.onb-grant-name {
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  letter-spacing: var(--text-title--letter-spacing);
+  font-weight: var(--weight-emphasis);
+}
+.onb-grant-line {
+  color: var(--page-text-2);
+}
+.onb-grant-control {
+  flex: none;
+}
+.onb-grant-done {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  color: var(--page-text-2);
+  font-weight: var(--weight-emphasis);
+}
+.onb-cu-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-4);
+  margin-top: auto;
+  margin-bottom: var(--onb-cu-bottom);
+  min-height: var(--ds-control-row);
+}
+.onb-cu-note {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+/* Express (docs/design/onboarding-import-express.md): the summary, centered in the body (it enters
+   with the body's own fade, ViewSwap). The checked browsers' app icons overlap a little, one sentence names them, the kinds sit under it in
+   the secondary color, and the grant asks are glass rows like the list's card. */
+.onb-express {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-3);
+  min-height: 0;
+  text-align: center;
+}
+.onb-express-stack {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  height: var(--onb-express-icon);
+  margin-bottom: var(--ds-space-1);
+}
+.onb-import {
+  /* The summary's app icons: 56, overlapping by 18 (9 each side); a placeholder is 8 smaller; the
+     success mark sits 14 out and 6 down from the stack's corner. */
+  --onb-express-icon: 56px;
+  --onb-express-overlap: -9px;
+  --onb-express-slot: 48px;
+  --onb-express-done-x: -14px;
+  --onb-express-done-y: -6px;
+}
+.onb-express-icon {
+  width: var(--onb-express-icon);
+  height: var(--onb-express-icon);
+  margin-inline: var(--onb-express-overlap);
+  filter: drop-shadow(var(--elevation-2));
+}
+/* Placeholders while browsers are looked for: rounded squares in the app-icon shape. */
+.onb-express-icon[data-empty] {
+  width: var(--onb-express-slot);
+  height: var(--onb-express-slot);
+  margin: var(--ds-space-1);
+  border-radius: var(--ds-radius-xl);
+  background: var(--onb-card-fill);
+  filter: none;
+}
+.onb-express-done {
+  position: absolute;
+  inset-inline-end: var(--onb-express-done-x);
+  bottom: var(--onb-express-done-y);
+  display: inline-flex;
+  color: var(--ds-color-success);
+}
+.onb-express-lead {
+  max-width: 44ch;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  text-wrap: balance;
+}
+.onb-express-lead:empty {
+  display: none;
+}
+.onb-express-kinds {
+  max-width: 52ch;
+  color: var(--page-text-2);
+  font-variant-numeric: tabular-nums;
+  text-wrap: balance;
+}
+.onb-express-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 260px;
+}
+.onb-express-progress .onb-progress {
+  width: 100%;
+}
+.onb-express-asks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  width: 100%;
+  max-width: 440px;
+  margin-top: var(--ds-space-2);
+}
+.onb-express-ask {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-1) var(--ds-space-1) var(--ds-space-1) var(--ds-space-3);
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-xl);
+  background: var(--onb-card-glass);
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
+  text-align: start;
+}
+.onb-express-ask-icon {
+  width: var(--ds-icon-20);
+  height: var(--ds-icon-20);
+  flex: none;
+}
+.onb-express-ask-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--page-text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The one toggle between the summary and the full list, under the body; hidden in place. */
+.onb-express-toggle {
+  display: flex;
+  justify-content: center;
+  min-height: var(--ds-control-compact);
+}
+.onb-express-toggle.is-hidden {
+  visibility: hidden;
+}
+
+/* Reduce Transparency: the import cards turn solid and drop their blur (the one place glass may). */
+@media (prefers-reduced-transparency: reduce) {
+  .onb-import {
+    --onb-card-glass: var(--ds-color-surface);
+  }
+  .onb-import :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* A row's fill and a control's opacity follow the motion switch (WebTheme's data-cmux-motion). */
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  :is(.onb-import-row, .onb-progress-bar, .onb-import input[type="checkbox"], .onb-box-mark) {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.onb-import-row, .onb-progress-bar, .onb-import input[type="checkbox"], .onb-box-mark) {
+    transition: none;
+  }
+}

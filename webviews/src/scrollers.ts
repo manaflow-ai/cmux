@@ -206,18 +206,80 @@ export function wheelTarget(event: Pick<WheelEvent, "composedPath" | "deltaX" | 
 
 const installed = new WeakSet<Document>();
 
-/** When the user last turned a wheel, pressed a key or a button in each document (ms, `now()`). */
-const lastUserInput = new WeakMap<Document, number>();
+/** The user's last wheel, key or button in a document: when (ms, `now()`), what it was aimed at
+    (`path`: its composed path, innermost first, across shadow roots), and the key, for a key. */
+export type UserInput = { at: number; target: EventTarget | null; path?: readonly EventTarget[]; key?: string };
+
+/** The user's last input in each document. */
+const lastUserInput = new WeakMap<Document, UserInput>();
+
+/** The element that scrolled last in each document (<html> for the page's own scroller). */
+const lastScrolled = new WeakMap<Document, Element>();
+
+/** The element that scrolled last in `document`, however it scrolled, or null before any scroll
+    (or before `installScrollingMarks`). A reload keeps its position (pages/shared/pageHealth.ts). */
+export function lastScrolledElement(document: Document): Element | null {
+  return lastScrolled.get(document) ?? null;
+}
+
+/** Keys that scroll whatever the page scrolls by keyboard, wherever focus is (outside a text field).
+    "Spacebar" is an older engine's name for " ". */
+const SCROLLING_KEYS = new Set([
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  " ",
+  "Spacebar",
+]);
+
+function editable(node: Node): boolean {
+  const element = node as HTMLElement;
+  return element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.isContentEditable === true;
+}
+
+/** Whether a key pressed on `node` is the control's own and scrolls nothing: Space on a button
+    presses it (a Send button sends), and a select takes the arrows. */
+function control(node: Node, key: string): boolean {
+  const element = node as HTMLElement;
+  if (element.tagName === "SELECT") return true;
+  return (
+    (key === " " || key === "Spacebar") && (element.tagName === "BUTTON" || element.getAttribute?.("role") === "button")
+  );
+}
+
+/** Whether `input` can have scrolled `element`: it was aimed inside it, or it is a scrolling key
+    pressed outside a text field. A key or button aimed elsewhere (Enter in a composer, a click on
+    Send) leaves the page to scroll it, and that is the page's scroll. */
+function reaches(input: UserInput, element: Element): boolean {
+  const target = (input.path?.[0] ?? input.target) as Node | null;
+  if (!target || typeof target.nodeType !== "number") return true;
+  // Content in a shadow root is not contained by the scroller around its host: its host, further
+  // out on the composed path, is.
+  for (const node of input.path ?? [target])
+    if ((node as Node).nodeType === 1 && element.contains(node as Node)) return true;
+  // Tab moves focus, from a text field too, and the page scrolls the newly focused item into view.
+  if (input.key === "Tab") return true;
+  return input.key !== undefined && SCROLLING_KEYS.has(input.key) && !editable(target) && !control(target, input.key);
+}
 
 /**
- * Whether a scroll event on `element` is the user's: always, except on a scroller whose thumb is
- * shown or fades by script (`SHOWN_SCROLLER_ATTRIBUTE`, `MINIMAL_SCROLLER_ATTRIBUTE`), where a
- * scroll with no wheel, key or button in the last `SCROLLING_HIDE_MS` is the page following new rows
- * or the caret, which must not flash the thumb (Leo 2026-10-21: it never flashes as rows arrive).
+ * Whether a scroll event on `element` is the user's. Right after a wheel, key or button (within
+ * `SCROLLING_HIDE_MS`), it is when that input could have scrolled it (`reaches`): a send's scroll
+ * after an Enter in the composer or a click on Send is the page's, and must not flash the thumb
+ * (Leo 2026-11-07: "the thumb scroll sidebar thing, like, kind of flashes for a second"). With no
+ * input that recent, it is on an ordinary scroller (a scroll by the track or a scroller of its own),
+ * and never on a scroller whose thumb is shown or fades by script (`SHOWN_SCROLLER_ATTRIBUTE`,
+ * `MINIMAL_SCROLLER_ATTRIBUTE`): that is the page following new rows or the caret, which must not
+ * flash the thumb (Leo 2026-10-21: it never flashes as rows arrive).
  */
-export function isUserScroll(element: Element, lastInput: number | undefined, now: number): boolean {
-  if (!element.hasAttribute(SHOWN_SCROLLER_ATTRIBUTE) && !element.hasAttribute(MINIMAL_SCROLLER_ATTRIBUTE)) return true;
-  return lastInput !== undefined && now - lastInput <= SCROLLING_HIDE_MS;
+export function isUserScroll(element: Element, lastInput: UserInput | undefined, now: number): boolean {
+  if (lastInput !== undefined && now - lastInput.at <= SCROLLING_HIDE_MS) return reaches(lastInput, element);
+  return !element.hasAttribute(SHOWN_SCROLLER_ATTRIBUTE) && !element.hasAttribute(MINIMAL_SCROLLER_ATTRIBUTE);
 }
 
 /**
@@ -238,15 +300,26 @@ export function installScrollingMarks(document: Document, timers: ScrollTimers =
     { capture: true, passive: true },
   );
   const now = () => document.defaultView?.performance.now() ?? Date.now();
-  const input = () => lastUserInput.set(document, now());
+  const input = (event: Event) =>
+    lastUserInput.set(document, {
+      at: now(),
+      target: event.target,
+      path: event.composedPath?.(),
+      key: event.type === "keydown" ? (event as KeyboardEvent).key : undefined,
+    });
   for (const type of ["wheel", "keydown", "pointerdown"])
     document.addEventListener(type, input, { capture: true, passive: true });
   document.addEventListener(
     "scroll",
     (event) => {
       const target = event.target;
-      if (target === document) markScrolling(document.documentElement, timers);
-      else if (
+      if (target === document) lastScrolled.set(document, document.documentElement);
+      else if (target && "setAttribute" in target) lastScrolled.set(document, target as Element);
+      // The page's own scroller is <html>, and it answers to the same rule as every other.
+      if (target === document) {
+        if (isUserScroll(document.documentElement, lastUserInput.get(document), now()))
+          markScrolling(document.documentElement, timers);
+      } else if (
         target &&
         "setAttribute" in target &&
         isUserScroll(target as Element, lastUserInput.get(document), now())
@@ -603,6 +676,31 @@ export function scrollEdges(box: { scrollTop: number; clientHeight: number; scro
   };
 }
 
+/** On a sideways scroller (a wide table, an unwrapped code box) while content lies past its left
+    edge (it was scrolled) or its right edge. The stylesheet fades that edge out with a mask, so the
+    fade takes whatever background the box sits on, light or dark (user 2026-11-07: "markdown
+    missing fade now"). */
+export const MORE_LEFT_ATTRIBUTE = "data-more-left";
+export const MORE_RIGHT_ATTRIBUTE = "data-more-right";
+
+/** Which side edges of a scroller have content past them (a half pixel of slack for zoomed pages). */
+export function sidewaysEdges(box: { scrollLeft: number; clientWidth: number; scrollWidth: number }): {
+  left: boolean;
+  right: boolean;
+} {
+  return {
+    left: box.scrollLeft > 0.5,
+    right: box.scrollLeft + box.clientWidth < box.scrollWidth - 0.5,
+  };
+}
+
+/** Sets `MORE_LEFT_ATTRIBUTE` and `MORE_RIGHT_ATTRIBUTE` on `box` from where it is scrolled now. */
+export function markSidewaysEdges(box: Element): void {
+  const edges = sidewaysEdges(box);
+  if (box.hasAttribute(MORE_LEFT_ATTRIBUTE) !== edges.left) box.toggleAttribute(MORE_LEFT_ATTRIBUTE, edges.left);
+  if (box.hasAttribute(MORE_RIGHT_ATTRIBUTE) !== edges.right) box.toggleAttribute(MORE_RIGHT_ATTRIBUTE, edges.right);
+}
+
 /**
  * Keeps `MORE_ABOVE_ATTRIBUTE` and `MORE_BELOW_ATTRIBUTE` on `element` current: now, on every
  * scroll and whenever it or its content changes size. The fades they turn on have no transition:
@@ -690,6 +788,11 @@ export const CARD_SCROLLER_CSS = `
     chat's composer). See `MINIMAL_SCROLLER_CSS`. */
 export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
 
+/** On a minimal scroller whose box is moving to a height its content fits (the composer's field
+    growing by a line, composer/fieldGrowth.ts): mid-move the content is taller than the box, yet
+    nothing will be left to scroll, so no thumb is drawn. See `MINIMAL_SCROLLER_CSS`. */
+export const SETTLING_SCROLLER_ATTRIBUTE = "data-cmux-scroller-settling";
+
 /**
  * The minimal scroller (Leo 2026-10-21: "IF THERE ARE THINGS TO SCROLL, JUST KEEP THE SCROLLBAR
  * IN THE COMPOSER, LIKE CLAUDE DOES."): a thin thumb in `--cmux-scroller-thumb` on no track, drawn
@@ -703,6 +806,12 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
  * `--cmux-minimal-scroller-inset-end`, when set, replaces it at the bottom end (the composer's
  * track stops above Send, composerLocation.css). The `:root`
  * prefix outranks the legacy rule's hidden thumb above and the scroller's own `overflow-y`.
+ *
+ * While its box moves to a height the content fits (`SETTLING_SCROLLER_ATTRIBUTE`), the content
+ * overflows only until the move lands, so the thumb stays clear (Leo 2026-11-08: "when we have the
+ * composer grow a bit if it's not long enough to actually be scrollable stop showing a flash of the
+ * thumb scrollbar"). Only the thumb's ink goes: the lane, the overflow and the text's width stay,
+ * so nothing rewraps or moves when the move lands.
  */
 export const MINIMAL_SCROLLER_CSS = `
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}] {
@@ -733,6 +842,11 @@ export const MINIMAL_SCROLLER_CSS = `
 :root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover {
   border-width: var(--cmux-scroller-near-border);
   background-color: var(--cmux-scroller-thumb-near);
+}
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover {
+  background: transparent;
 }
 `;
 

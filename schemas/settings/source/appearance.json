@@ -2,6 +2,59 @@
   "$comment": "HAND-EDITED source of the Appearance section's theme, background, density, pane and focus ring rows (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it; its docstring is the row format (tabs.json's $comment repeats it, plus choices_from and \"swift_case\": null). Lists: SettingsSchema.all concatenates them, so rows keep the export's order; schemas/settings/settings-schema.json must not change when rows move here.",
   "lists": [
     {
+      "name": "iconTheme",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.iconTheme",
+        "text": "Icon Theme"
+      },
+      "rows": [
+        {
+          "key": "appearance.iconTheme",
+          "note": "Reserved for the optional Neko icon family; neko resolves to the default artwork until a reviewed set ships.",
+          "title": {
+            "key": "settings.appearance.iconTheme",
+            "text": "Icon Theme"
+          },
+          "help": {
+            "key": "settings.appearance.iconTheme.help",
+            "text": "The icon drawings used by cmux."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "default",
+              "title": {
+                "key": "settings.choice.default",
+                "text": "Default"
+              }
+            },
+            {
+              "value": "neko",
+              "title": {
+                "key": null,
+                "text": "Neko"
+              }
+            }
+          ],
+          "swift_enum": {
+            "name": "NekoIconTheme",
+            "generated": false
+          },
+          "swift_owner": "NekoIconThemeSetting",
+          "default": "default",
+          "keywords": [
+            "icons",
+            "icon",
+            "theme",
+            "neko",
+            "cat"
+          ],
+          "page_hidden": "reserved until the Neko artwork passes light/dark 1x/2x review"
+        }
+      ]
+    },
+    {
       "name": "appTheme",
       "section": "appearance",
       "group": {
@@ -956,7 +1009,7 @@
           },
           "help": {
             "key": "settings.appearance.density.help",
-            "text": "Row height, padding, corners, icons and text size together. Compact is the default."
+            "text": "Row height, padding, corners, icons and text size together."
           },
           "kind": "choice",
           "swift_owner": "DensitySetting",
@@ -983,8 +1036,8 @@
             {
               "value": "cozy",
               "title": {
-                "key": "settings.choice.cozy",
-                "text": "Cozy"
+                "key": "settings.choice.default",
+                "text": "Default"
               }
             },
             {
@@ -1002,13 +1055,15 @@
               }
             }
           ],
-          "default": "compact",
+          "default": "cozy",
           "keywords": [
             "size",
             "spacing",
             "compact",
             "comfortable",
             "cozy",
+            "default",
+            "normal",
             "spacious",
             "dense",
             "font"
@@ -1048,7 +1103,11 @@
           "key": "app.uiScale",
           "title": {
             "key": "settings.appearance.uiScale",
-            "text": "Interface Scale"
+            "text": "App Zoom"
+          },
+          "help": {
+            "key": "settings.appearance.uiScale.help",
+            "text": "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app."
           },
           "kind": "number",
           "swift_owner": "UIScaleSetting",
@@ -1067,18 +1126,19 @@
             "chrome",
             "web",
             "bigger",
-            "smaller"
+            "smaller",
+            "interface scale"
           ]
         },
         {
           "key": "appearance.metrics.chromeFontSize",
           "title": {
-            "key": "settings.appearance.interfaceSize",
-            "text": "Interface Size"
+            "key": "settings.appearance.textSize",
+            "text": "Text Size"
           },
           "help": {
-            "key": "settings.appearance.interfaceSize.help",
-            "text": "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+            "key": "settings.appearance.textSize.help",
+            "text": "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size."
           },
           "kind": "number",
           "swift_owner": "InterfaceSizeSetting",
@@ -1098,6 +1158,8 @@
             "font",
             "text",
             "size",
+            "density",
+            "interface size",
             "chromeFontSize"
           ]
         },
@@ -1577,7 +1639,8 @@
             "minimal",
             "bare",
             "floating",
-            "gaps"
+            "gaps",
+            "blocks"
           ]
         }
       ]

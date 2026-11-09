@@ -8,7 +8,7 @@
 /// opens on the machine.
 
 import { isAgentHome } from "./sessionList";
-import { pickFolder } from "./startFolder";
+import { pickFolder } from "./startFolderModel";
 import type { ComposerAttachment } from "./attachments";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
@@ -349,7 +349,10 @@ export function cloudStartKeys(
 /// sign-in's own reason), so the page says nothing more.
 export function cloudStartSaid(answer: CloudStartAnswer): boolean {
   return (
-    !answer.ok && ["cloud_start_failed", "cloud_chat_already_started", "cloud_prompt_changed"].includes(answer.code)
+    !answer.ok &&
+    ["cloud_start_failed", "cloud_plan_required", "cloud_chat_already_started", "cloud_prompt_changed"].includes(
+      answer.code,
+    )
   );
 }
 

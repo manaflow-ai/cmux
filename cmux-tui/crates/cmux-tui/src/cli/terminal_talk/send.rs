@@ -13,15 +13,32 @@
 //!   harness-independent half of the signal; the records cover an agent
 //!   that thinks with a still screen. A record older than the send cannot
 //!   hold the wait (a harness killed mid-turn leaves `working` behind).
-//!   An agent that stops on a dialog ends the wait as `waiting-for-input`.
+//!   An agent that stops on a dialog ends the wait as `blocked`.
 //! - `prompt`: the shell shows its prompt again (OSC 133) and the screen
-//!   is still.
+//!   is still, or at once when the shell reported the command finished
+//!   (OSC 133 `D`) and drew its prompt. The receipt's `exit_status` is that
+//!   command's status (`terminal-exit-status-v1`); it is absent when the
+//!   shell reported none (no shell integration), never guessed.
+//! - `pattern`: the wait also ends as soon as output printed after the
+//!   message's echo matches a regex (the echo itself and older output never
+//!   match), and when the command finishes without a match.
+//! - The output is the screen after the message's echo; without the echo,
+//!   the output after what the screen showed before the send (`idle`).
+//! - `reply` (W5-Q) is the agent's own last message, whole, when the wait
+//!   ended idle and the daemon kept a reply after the send (a Stop hook's
+//!   `last_reply_text` on the one-terminal `agent.list`; `reply_source`
+//!   `hook`); else the output (`reply_source` `screen`).
+//! - Reads join soft-wrapped rows into the lines the program printed
+//!   (`terminal-read-unwrap-v1`) when the daemon can; an older daemon gets
+//!   the plain row reads.
 //! - A terminal whose agent waits on a dialog is refused without `force`:
 //!   the typed text would answer the dialog.
 
+use std::cell::Cell;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
+use regex::Regex;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -40,6 +57,12 @@ const DEFAULT_POLL: Duration = Duration::from_millis(250);
 const HISTORY_PAGE_ROWS: u32 = 200;
 /// History pages at most read for one reply.
 const HISTORY_PAGES: usize = 10;
+/// Logical lines the first unwrapped reply read takes; it doubles up to
+/// [`REPLY_LINES_MAX`] while the echo is not found.
+const REPLY_LINES: u32 = 400;
+/// The most logical lines an unwrapped reply reads, as many as the history
+/// pages of a row read hold.
+const REPLY_LINES_MAX: u32 = 2_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::cli) enum Wait {
@@ -79,6 +102,11 @@ pub(in crate::cli) struct SendRequest {
     pub idempotency_key: Option<String>,
     pub enter_delay: Duration,
     pub poll: Duration,
+    /// End the wait once output after the message's echo matches this regex.
+    pub pattern: Option<String>,
+    /// The CLI exits with the command's `exit_status` (`--exit-with-status`,
+    /// `terminal <t> run`).
+    pub exit_with_status: bool,
 }
 
 impl SendRequest {
@@ -93,6 +121,8 @@ impl SendRequest {
             idempotency_key: None,
             enter_delay: DEFAULT_ENTER_DELAY,
             poll: DEFAULT_POLL,
+            pattern: None,
+            exit_with_status: false,
         }
     }
 }
@@ -208,8 +238,9 @@ pub(in crate::cli) fn snapshot<B: Daemon + ?Sized>(
 }
 
 /// The terminal record `target` names: a `term_` id or unique prefix, a
-/// `tab_` id it shows in, `current` (the caller's terminal), or an exact
-/// title.
+/// `tab_` id it shows in, `current` (the caller's terminal), an exact title,
+/// or (when no title matches) an agent name or unique tab name
+/// (agent_names.rs).
 pub(in crate::cli) fn find_terminal<'a>(
     snapshot: &'a Value,
     target: &str,
@@ -236,6 +267,29 @@ pub(in crate::cli) fn find_terminal<'a>(
     } else {
         terminals.iter().filter(|terminal| terminal["title"] == target).collect()
     };
+    // An agent name (or a unique tab name) only where no title matches, so a
+    // title that selected a terminal before still selects it.
+    if matches.is_empty() && !target.starts_with("term_") {
+        use super::super::agent_names::{Found, resolve};
+        match resolve(snapshot, target) {
+            Found::One(place) => {
+                if let Some(found) =
+                    terminals.iter().find(|terminal| terminal["id"] == place.terminal)
+                {
+                    return Ok(found);
+                }
+            }
+            Found::Ambiguous(tabs) => {
+                return Err(SendFailure::local(
+                    "selector.ambiguous",
+                    format!("{} tabs are named {target:?}; name one by its id", tabs.len()),
+                    json!({"target": target, "candidates": tabs}),
+                    1,
+                ));
+            }
+            Found::Missing => {}
+        }
+    }
     match matches.as_slice() {
         [one] => Ok(one),
         [] => Err(SendFailure::local(
@@ -267,6 +321,9 @@ pub(in crate::cli) struct Sample {
     pub prompt: bool,
     /// The terminal exited.
     pub exited: bool,
+    /// The shell finished a command after the send (a new OSC 133 `D`, or a
+    /// prompt that ended it).
+    pub finished: bool,
 }
 
 /// The wait's verdict on the samples so far.
@@ -302,6 +359,11 @@ impl Settle {
         if sample.exited {
             return Verdict::Exited;
         }
+        // The shell said the command ended and drew its prompt: nothing
+        // more comes, so the still-screen wait is not needed.
+        if self.wait == Wait::Prompt && sample.finished && sample.prompt {
+            return Verdict::Done(AgentState::Idle);
+        }
         let still = now.saturating_duration_since(self.changed_at) >= self.settle
             && now.saturating_duration_since(self.sent_at) >= self.settle;
         if !still {
@@ -311,7 +373,7 @@ impl Settle {
             Wait::None => Verdict::Done(AgentState::Idle),
             Wait::Prompt if sample.prompt => Verdict::Done(AgentState::Idle),
             Wait::Prompt => Verdict::Pending,
-            Wait::Idle if sample.waiting_for_input => Verdict::Done(AgentState::WaitingForInput),
+            Wait::Idle if sample.waiting_for_input => Verdict::Done(AgentState::Blocked),
             Wait::Idle if sample.busy => Verdict::Pending,
             Wait::Idle => Verdict::Done(AgentState::Idle),
         }
@@ -347,11 +409,33 @@ pub(in crate::cli) fn sample(
             Value::Null => screen["text"].as_str().unwrap_or_default().to_owned(),
             revision => revision.to_string(),
         },
-        busy: command || progress || states.contains(&AgentState::Busy),
-        waiting_for_input: states.contains(&AgentState::WaitingForInput),
+        busy: command || progress || states.contains(&AgentState::Working),
+        waiting_for_input: states.contains(&AgentState::Blocked),
         prompt: extra["prompt"].is_object(),
         exited: terminal["lifecycle"] == "exited",
+        finished: false,
     }
+}
+
+/// The terminal record's last finished shell command (`extra.last_command`).
+pub(in crate::cli) fn last_command(terminal: &Value) -> Option<&Value> {
+    terminal.get("extra")?.get("last_command").filter(|last| last.is_object())
+}
+
+/// The command the shell finished after the send: the record's last command
+/// when it differs from the one the terminal had before the message was
+/// typed (compared whole, so no clock is shared with the daemon).
+pub(in crate::cli) fn finished_since<'a>(
+    terminal: &'a Value,
+    before: Option<&Value>,
+) -> Option<&'a Value> {
+    last_command(terminal).filter(|last| Some(*last) != before)
+}
+
+/// The exit status of a finished command record; `None` when the shell
+/// reported none.
+pub(in crate::cli) fn exit_status(last: &Value) -> Option<i64> {
+    last.get("exit_code").and_then(Value::as_i64)
 }
 
 /// Sends `request` and waits as it asks; the result is the send receipt.
@@ -363,9 +447,21 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     if request.text.trim().is_empty() {
         return Err(SendFailure::local("usage.invalid", "send needs --text", json!({}), 2));
     }
+    let pattern = match request.pattern.as_deref() {
+        Some(pattern) => Some(cmux_tui_core::wait_pattern::compile(pattern).map_err(|error| {
+            SendFailure::local(
+                "usage.invalid",
+                format!("--pattern is not a valid regular expression: {error}"),
+                json!({"pattern": pattern}),
+                2,
+            )
+        })?),
+        None => None,
+    };
     let snapshot = snapshot(backend, session)?;
     let terminal = find_terminal(&snapshot, &request.target)?;
     let id = terminal["id"].as_str().unwrap_or_default().to_owned();
+    let before = last_command(terminal).cloned();
     // A send's durable child keys include this resolved terminal identity.
     // Replaying a title, tab, prefix or "current" after it moves can instead
     // create new keys and apply the prompt to another terminal. Require the
@@ -379,19 +475,26 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         ));
     }
     let agents = snapshot["agents"].as_array().map(Vec::as_slice).unwrap_or_default();
-    let agent = roster::agent_of_terminal(terminal, agents);
+    // Only the blocked check below reads the agent; done-until-seen is moot.
+    let agent = roster::agent_of_terminal(terminal, agents, false);
     if !request.force
         && let Some(agent) = &agent
-        && agent.state == AgentState::WaitingForInput
+        && agent.state == AgentState::Blocked
     {
         return Err(SendFailure::local(
             "agent.waiting_for_input",
             format!(
-                "the {} agent in {id} waits on a dialog; typed text would answer it. Answer the \
-                 dialog (agents_dialog_list), or pass --force to type anyway",
+                "the {} agent in {id} waits on a dialog; typed text would answer it. Read it \
+                 (cmux terminal {id} screen read) and answer with keys (cmux terminal {id} keys \
+                 escape), or pass --force to type anyway",
                 agent.harness
             ),
-            json!({"terminal": id, "harness": agent.harness, "state": agent.state.as_str()}),
+            json!({
+                "terminal": id,
+                "harness": agent.harness,
+                "state": agent.state.as_str(),
+                "status": "blocked",
+            }),
             1,
         ));
     }
@@ -423,6 +526,14 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
             .map_err(|error| stage_failure(error.into(), &send_id, &id, stage))?;
         Ok(())
     };
+    let reads = Reads::new();
+    // What the screen shows before the message: an agent whose echo is not
+    // found (a pasted message drawn as a placeholder) still answers only
+    // what it printed after the send, never the turns already there.
+    let shown_before = (request.wait == Wait::Idle)
+        .then(|| reads.screen(backend, session, &id, &[]).ok())
+        .flatten()
+        .map(|screen| reply::lines(screen.get("text").and_then(Value::as_str).unwrap_or_default()));
     let sent_ms = super::now_ms();
     write(&typed, "paste")?;
     std::thread::sleep(request.enter_delay);
@@ -439,21 +550,145 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         receipt.set("sent", Value::Bool(true));
         return Ok(receipt);
     }
-    let (verdict, screen) = wait(backend, session, &id, request, sent_at, sent_ms)?;
-    let lines = reply_lines(backend, session, &id, &screen, &request.text);
-    let Reply { text, anchored } = reply::reply_after(&lines, &request.text);
-    let (state, timed_out) = match verdict {
+    let waited = wait(
+        backend,
+        session,
+        &id,
+        request,
+        &Watch { sent_at, sent_ms, before: before.as_ref(), pattern: pattern.as_ref() },
+        &reads,
+    )?;
+    let lines = reply_lines(backend, session, &id, &waited.screen, &request.text, &reads);
+    let screen =
+        reply::lines(waited.screen.get("text").and_then(Value::as_str).unwrap_or_default());
+    let Reply { text, anchored } =
+        reply::reply_since(&lines, &request.text, shown_before.as_deref(), &screen);
+    let (state, timed_out) = match waited.verdict {
         Verdict::Done(state) => (state.as_str(), false),
         Verdict::Exited => ("exited", false),
-        Verdict::Pending => ("busy", true),
+        Verdict::Pending => (AgentState::Working.as_str(), true),
+    };
+    // `status` is the word `terminal list --agents` says for this turn: a
+    // finished turn nobody viewed yet (an unread notification, read after
+    // the wait) is `done`; `state` keeps the wait's own word.
+    let status = match waited.verdict {
+        Verdict::Done(state) => {
+            let after = self::snapshot(backend, session).ok();
+            let unseen = roster::unseen(after.as_ref().unwrap_or(&snapshot), &id);
+            roster::status_of(state.as_str(), unseen)
+                .map_or(state.as_str(), |status| status.as_str())
+        }
+        Verdict::Exited => AgentState::Ended.as_str(),
+        Verdict::Pending => AgentState::Working.as_str(),
     };
     receipt.set("sent", Value::Bool(true));
+    if let Some(code) = waited.finished.as_ref().and_then(exit_status) {
+        receipt.set("exit_status", json!(code));
+    }
+    if pattern.is_some() {
+        receipt.set("matched", Value::Bool(waited.matched));
+    }
     receipt.set("state", Value::String(state.to_owned()));
+    receipt.set("status", Value::String(status.to_owned()));
     receipt.set("timed_out", Value::Bool(timed_out));
     receipt.set("waited_ms", json!(sent_at.elapsed().as_millis().to_string()));
     receipt.set("anchored", Value::Bool(anchored));
+    let hooked = (waited.verdict == Verdict::Done(AgentState::Idle))
+        .then(|| hook_reply(&waited.records, sent_ms))
+        .flatten();
+    let (reply, source) = match hooked {
+        Some(reply) => (reply, "hook"),
+        None => (text.clone(), "screen"),
+    };
+    receipt.set("reply", Value::String(reply));
+    receipt.set("reply_source", json!(source));
     receipt.set("output", Value::String(text));
     Ok(receipt)
+}
+
+/// What the wait after Enter watches for.
+struct Watch<'a> {
+    sent_at: Instant,
+    sent_ms: u64,
+    /// The terminal's last finished command before the message was typed.
+    before: Option<&'a Value>,
+    pattern: Option<&'a Regex>,
+}
+
+/// How the wait ended.
+struct Waited {
+    verdict: Verdict,
+    /// The last screen read.
+    screen: Value,
+    /// The command the shell finished after the send, if it reported one.
+    finished: Option<Value>,
+    /// `--pattern` matched output after the echo.
+    matched: bool,
+    /// The last agent records read (`agent list --terminal`).
+    records: Vec<Value>,
+}
+
+/// Whether this daemon joins soft wraps on reads (`terminal-read-unwrap-v1`);
+/// learned from the first read, which an older daemon refuses.
+struct Reads {
+    unwrap: Cell<Option<bool>>,
+}
+
+impl Reads {
+    fn new() -> Self {
+        Self { unwrap: Cell::new(None) }
+    }
+
+    /// One `terminal.screen.read` with `extra` words, unwrapped when the
+    /// daemon can.
+    fn screen<B: Daemon + ?Sized>(
+        &self,
+        backend: &B,
+        session: Option<&str>,
+        id: &str,
+        extra: &[&str],
+    ) -> Result<Value, SendFailure> {
+        let mut words = vec!["terminal", id, "screen", "read"];
+        words.extend_from_slice(extra);
+        if self.unwrap.get() != Some(false) {
+            let mut unwrapped = words.clone();
+            unwrapped.push("--unwrap");
+            match backend.request(session, plan(&unwrapped)?) {
+                Ok(screen) => {
+                    self.unwrap.set(Some(true));
+                    return Ok(screen);
+                }
+                Err(failure) if self.unwrap.get().is_none() && is_unknown_field(&failure) => {
+                    self.unwrap.set(Some(false));
+                }
+                Err(failure) => return Err(failure.into()),
+            }
+        }
+        if !extra.is_empty() {
+            return Err(SendFailure::local("usage.invalid", "reads need unwrap", json!({}), 1));
+        }
+        Ok(backend.request(session, plan(&words)?)?)
+    }
+}
+
+/// A daemon without the field refuses it as invalid (it names no field it
+/// does not know), so any validation refusal of the first read falls back.
+fn is_unknown_field(failure: &CallFailure) -> bool {
+    failure
+        .error
+        .get("code")
+        .and_then(Value::as_str)
+        .is_some_and(|code| code.starts_with("validation"))
+}
+
+/// The output after the message's echo on `screen`: the lines after the
+/// echo, or the whole screen once the echo scrolled off it.
+fn new_output(screen: &Value, message: &str) -> String {
+    let lines = reply::lines(screen.get("text").and_then(Value::as_str).unwrap_or_default());
+    match reply::anchor(&lines, message) {
+        Some(start) => lines.get(start..).unwrap_or_default().join("\n"),
+        None => lines.join("\n"),
+    }
 }
 
 /// Polls until the verdict is in or the timeout passes (`Pending`), and
@@ -463,28 +698,59 @@ fn wait<B: Daemon + ?Sized>(
     session: Option<&str>,
     id: &str,
     request: &SendRequest,
-    sent_at: Instant,
-    sent_ms: u64,
-) -> Result<(Verdict, Value), SendFailure> {
-    let mut settle = Settle::new(request.wait, request.settle, sent_at);
-    let deadline = sent_at + request.timeout;
+    watch: &Watch<'_>,
+    reads: &Reads,
+) -> Result<Waited, SendFailure> {
+    let mut settle = Settle::new(request.wait, request.settle, watch.sent_at);
+    let deadline = watch.sent_at + request.timeout;
     let show = plan(&["terminal", id, "show"])?;
     let agents = plan(&["agent", "list", "--terminal", id])?;
-    let screen = plan(&["terminal", id, "screen", "read"])?;
     loop {
         let terminal = backend.request(session, show.clone())?;
         // An agent list failure (an older daemon) leaves the screen and
         // the program status to decide.
         let records = backend.request(session, agents.clone()).unwrap_or(Value::Null);
-        let records = records.as_array().map(Vec::as_slice).unwrap_or_default();
-        let shown = backend.request(session, screen.clone())?;
+        let records = records.as_array().cloned().unwrap_or_default();
+        let shown = reads.screen(backend, session, id, &[])?;
         let now = Instant::now();
-        let verdict = settle.observe(&sample(&terminal, records, &shown, sent_ms), now);
+        let finished = finished_since(&terminal, watch.before).cloned();
+        let mut sample = sample(&terminal, &records, &shown, watch.sent_ms);
+        sample.finished = finished.is_some();
+        let matched = watch
+            .pattern
+            .is_some_and(|pattern| pattern.is_match(&new_output(&shown, &request.text)));
+        let verdict = if matched {
+            Verdict::Done(AgentState::Idle)
+        } else if watch.pattern.is_some() {
+            // Waiting on a pattern: only a match, the command's end, the
+            // terminal's exit or the timeout end it.
+            match settle.observe(&sample, now) {
+                Verdict::Exited => Verdict::Exited,
+                _ if sample.finished && sample.prompt => Verdict::Done(AgentState::Idle),
+                _ => Verdict::Pending,
+            }
+        } else {
+            settle.observe(&sample, now)
+        };
         if verdict != Verdict::Pending || now >= deadline {
-            return Ok((verdict, shown));
+            return Ok(Waited { verdict, screen: shown, finished, matched, records });
         }
         std::thread::sleep(request.poll.min(deadline.saturating_duration_since(now)));
     }
+}
+
+/// The whole last reply a record of `records` carries, when the daemon kept
+/// it at or after `since_ms` (the send): an older one is another turn's.
+fn hook_reply(records: &[Value], since_ms: u64) -> Option<String> {
+    let number = |value: &Value| {
+        value.as_u64().or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+    };
+    records.iter().find_map(|record| {
+        let extra = record.get("extra")?;
+        let at = extra.get("last_reply_at_ms").and_then(number)?;
+        let text = extra.get("last_reply_text")?.as_str()?.trim();
+        (at >= since_ms && !text.is_empty()).then(|| text.to_owned())
+    })
 }
 
 /// The screen's lines, with history pages before them until the message's
@@ -495,8 +761,30 @@ fn reply_lines<B: Daemon + ?Sized>(
     id: &str,
     screen: &Value,
     message: &str,
+    reads: &Reads,
 ) -> Vec<String> {
     let mut lines = reply::lines(screen["text"].as_str().unwrap_or_default());
+    if reads.unwrap.get() == Some(true) {
+        // Logical lines of scrollback and screen, growing until the echo
+        // is among them.
+        let most = REPLY_LINES_MAX;
+        let mut count = REPLY_LINES;
+        while reply::anchor(&lines, message).is_none() {
+            let count_text = count.to_string();
+            match reads.screen(backend, session, id, &["--lines", &count_text]) {
+                Ok(read) => {
+                    lines =
+                        reply::lines(read.get("text").and_then(Value::as_str).unwrap_or_default());
+                }
+                Err(_) => break,
+            }
+            if count >= most {
+                break;
+            }
+            count = count.saturating_mul(2).min(most);
+        }
+        return lines;
+    }
     let mut before: Option<String> = None;
     let limit = HISTORY_PAGE_ROWS.to_string();
     for _ in 0..HISTORY_PAGES {

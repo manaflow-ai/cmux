@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type FocusEvent,
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
@@ -499,6 +500,8 @@ export interface MenuItemProps {
   onPointerLeave?(event: PointerEvent<HTMLElement>): void;
   onMouseEnter?(event: MouseEvent<HTMLElement>): void;
   onMouseLeave?(event: MouseEvent<HTMLElement>): void;
+  /** The row took focus: the arrow keys focus the highlighted row. */
+  onFocus?(event: FocusEvent<HTMLElement>): void;
   onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
   children: ReactNode;
 }
@@ -513,6 +516,7 @@ export function MenuItem({
   onPointerLeave,
   onMouseEnter,
   onMouseLeave,
+  onFocus,
   onSelect,
   closeOnClick,
   expanded,
@@ -545,6 +549,7 @@ export function MenuItem({
       onPointerLeave={onPointerLeave}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      onFocus={onFocus}
       onPointerUp={(event) => {
         if (disabled) return;
         if (context?.activatePointer(event, () => onSelect?.(event), closeOnClick === false)) {

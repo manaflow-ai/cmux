@@ -25,6 +25,7 @@ extension PageWebView {
         // The new claim gets no gesture the person made for the previous one.
         (webView as? PageWKWebView)?.forgetUserActivation()
         self.descriptor = descriptor
+        followsChatZoom = descriptor.followsChatZoom
         self.dynamicResources = dynamicResources
         // A drop handler belongs to the claim that set it (Settings takes image drops).
         fileDrop = nil

@@ -131,6 +131,13 @@ fn set_text(
     check_managed(state, &path)?;
     if let Some(row) = row {
         accepts(row, &value, &state.domains)?;
+        // The default's own value removes the key, so it keeps following the default when a later
+        // release changes it (Swift `isUnsetValue`); not when a layer below the file fills the key.
+        let below = state.managed.recommended.contains_key(&row.key)
+            || state.team.defaults.contains_key(&row.key);
+        if row.default.clone().map(canonical).as_ref() == Some(&value) && !below {
+            return remove_pruning(state.source.clone(), &path);
+        }
     }
     if row.is_none() {
         check_row_overlap(state, &path)?;

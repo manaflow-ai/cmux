@@ -40,8 +40,8 @@ enum AgentHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let terminalDictation = TerminalDictation()
-        registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
-        registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
+        registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom("agentPaneZoomIn", by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
+        registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom("agentPaneZoomOut", by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
         // The Chief chat follows the same setting (HomeNativeTranscriptView.followZoom): no view to look up.
         registry.bindEffect("home.zoomIn", requires: nil, effect: { _ in
@@ -86,6 +86,7 @@ enum AgentHandlers {
         ChiefInspectorHandlers.bind(into: registry, context: context)
         AddHarnessHandler.bind(into: registry, context: context)
         AgentHarnessHandlers.bind(into: registry, context: context)
+        GitRepositoryActions(place: { gitPlace(context, $0) }, announce: { BrowserFileImport.toast(context.services, id: "git-repository-action", $0) }).bind(into: registry)
         // The front window's Home, else the Chief directly (HomeChiefActions).
         HomeChiefActions.bind(into: registry, context: context)
         // Start Agent: its key, the palette, the menu and the CLI toggle one floating panel, and so
@@ -126,13 +127,16 @@ enum AgentHandlers {
             _ = registry.perform("palette.newAgentChat", invocation: invocation)
             return .done
         })
+        registry.bindEffect("palette.newCloudChat", effect: { invocation in  // New Agent Chat's tab; its seed picks Cloud
+            withAgentPane(invocation, context: context, seed: AgentPaneSeed(picksCloud: true)) { $0.openAgentTab(seed: .picksCloud(after: $0.agentSeedFromSelectedTab())) }
+            return .done })
         registry.bindAgentPaneSessionInfo { invocation in
-            focusedAgentView(context, invocation)?.toggleSessionInfo()
+            focusedAgentView(.toggleSessionInfo, context, invocation)?.toggleSessionInfo()
         }
         // Read only: no refusal while the palette asks whether a row is enabled, or on. The New Tab page runs none of the chat's controls.
         registry.bindAgentPageCommands(available: { invocation in chatView(context, invocation).map { $0.model.newTab == nil ? $0.model.pageCommands : [] } },
                                        state: { chatView(context).flatMap { $0.model.newTab == nil ? $0.model.header?.shown?() : nil } }, run: { command, invocation in
-            focusedAgentView(context, invocation)?.run(command)
+            focusedAgentView(ActionID(command), context, invocation)?.run(command)
         })
         registry.bindAgentPaneInspector { invocation in
             guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
@@ -142,7 +146,7 @@ enum AgentHandlers {
             view.toggleInspector()
         }
         registry.bind(.stopTurn, run: { invocation in
-            guard let view = focusedAgentView(context, invocation) else { return }
+            guard let view = focusedAgentView(.stopTurn, context, invocation) else { return }
             view.stopTurn()
         })
         registry.bind("agentPane.togglePointerInspector", unavailable: {
@@ -182,7 +186,7 @@ enum AgentHandlers {
                 if AgentPaneView.stopDictation() { return }
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
-            view.toggleDictation()
+            view.toggleDictation(byPerson: invocation.isPersonsOwnRun)
         })
         // Its palette row says whether the dictation a run would end listens (read only, no refusal).
         registry.setDictationPaletteState(focusedTerminal: { if case .terminal = context.scope().pane?.currentContent { true } else { false } },
@@ -203,14 +207,14 @@ enum AgentHandlers {
         for row in WindowRules.chatAgentTables?.permissionCommands ?? [] {
             let command = row.command
             registry.bind(ActionID(rawValue: row.action), run: { invocation in
-                guard let view = selectedChat(context, invocation) else { return context.refuse(MiscHandlerStrings.noAgentChat) }
+                guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, ActionID(rawValue: row.action)) }
                 view.runPermissionAction(command, byPerson: invocation.origin == .user)
             })
         }
         // Previous and Next Turn and Bookmarked Prompt step the agent chat's transcript (cx-f7c).
         for step in AgentTranscriptStep.allCases {
             registry.bind(ActionID(rawValue: step.actionID), run: { invocation in
-                guard let view = selectedChat(context, invocation) else { return context.refuse(MiscHandlerStrings.noAgentChat) }
+                guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, ActionID(rawValue: step.actionID)) }
                 view.step(step)
             })
         }
@@ -221,7 +225,7 @@ enum AgentHandlers {
             guard invocation.allowsViewChange else {
                 return context.refuse(MiscHandlerStrings.continueInNeedsFocus)
             }
-            guard let view = selectedChat(context, invocation) else { return context.refuse(MiscHandlerStrings.noAgentChat) }
+            guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, "agentPane.continueIn") }
             view.showContinueIn()
         })
         // The focused chat's page takes the keyboard, then opens the model picker, file search,
@@ -243,7 +247,7 @@ enum AgentHandlers {
                 return context.refuse(MiscHandlerStrings.checkpointNeedsFocus)
             }
             guard let view = selectedChat(context, invocation), view.model.checkpointAvailable else {
-                return context.refuse(MiscHandlerStrings.noAgentChat)
+                return context.registry.refuse(selectedChat(context, invocation) == nil ? .noChat : .notStarted, "agentPane.createCheckpoint")
             }
             view.showCreateCheckpoint()
         })
@@ -271,10 +275,16 @@ enum AgentHandlers {
             focus: AppComputerUseFocus(services: services))
     }
 
+    /// The invocation's tab folder and its machine's git link (GitRepositoryActions).
+    static func gitPlace(_ context: AppActionContext, _ invocation: ActionInvocation) -> GitRepositoryActions.Place? {
+        guard let tab = context.scope(invocation).tab, let cwd = tab.pane.tab(tab.id)?.cwd else { return nil }
+        return GitRepositoryActions.Place(link: context.services.agentGit.link(for: tab.pane.daemon), cwd: cwd, tab: ActionTargetRef(kind: .tab, id: tab.id.rawValue), machineID: tab.pane.daemon.machineID)
+    }
+
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
 
-    private static func focusedAgentView(_ context: AppActionContext, _ invocation: ActionInvocation = ActionInvocation()) -> AgentPaneView? {
-        guard let view = chatView(context, invocation) else { return context.refuse(MiscHandlerStrings.noAgentChat) }
+    private static func focusedAgentView(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation) -> AgentPaneView? {
+        guard let view = chatView(context, invocation) else { return context.registry.refuse(.noChat, id) }
         return view
     }
 
@@ -289,15 +299,15 @@ enum AgentHandlers {
         context.scope(invocation).pane?.currentTabKey.flatMap { context.services.agentTabs.existingView($0) }
     }
 
-    private static func setAgentPaneZoom(by delta: Double, context: AppActionContext, invocation: ActionInvocation) throws {
+    private static func setAgentPaneZoom(_ id: ActionID, by delta: Double, context: AppActionContext, invocation: ActionInvocation) throws {
         try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
-        guard let view = focusedAgentView(context, invocation) else { return }
+        guard let view = focusedAgentView(id, context, invocation) else { return }
         view.zoom = try stepAgentPaneZoom(by: delta, context: context)
     }
 
     private static func resetAgentPaneZoom(_ context: AppActionContext, invocation: ActionInvocation) throws {
         try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
-        guard let view = focusedAgentView(context, invocation) else { return }
+        guard let view = focusedAgentView("agentPaneZoomReset", context, invocation) else { return }
         try resetAgentPaneZoom(context)
         view.zoom = AgentPaneZoomSetting.fallback
     }

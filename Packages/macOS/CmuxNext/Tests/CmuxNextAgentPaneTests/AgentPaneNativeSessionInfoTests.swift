@@ -320,14 +320,14 @@ struct AgentPaneNativeSessionInfoTests {
     }
 
     /// Leo (2026-11-03): "maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a
-    /// border for it might be better". The panel paints no fill of its own and draws a hairline edge in the
-    /// separator color on its rounded corners, over the gutter and over the chat's glass alike.
+    /// border for it might be better". The panel paints no fill of its own and draws a hairline edge in its
+    /// edge color on its rounded corners, over the gutter and over the chat's glass alike.
     @Test func panelHasAHairlineEdgeAndNoFill() throws {
         let store = AgentPaneSessionInfoStore()
         let panel = AgentPaneSessionInfoPanel(store: store)
         panel.frame = CGRect(x: 0, y: 0, width: 320, height: 300)
         var colors = AgentPaneSessionInfoColors()
-        colors.separator = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 0.5)
+        colors.edge = NSColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 0.5)
         store.colors = colors
         for foot in [nil, 120.0] as [Double?] {
             store.update(try Self.model(Self.info(foot: foot)))
@@ -339,6 +339,15 @@ struct AgentPaneNativeSessionInfoTests {
             let edge = try #require(layer.borderColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
             #expect(abs(edge.blueComponent - 0.6) < 0.01 && abs(edge.alphaComponent - 0.5) < 0.01)
         }
+    }
+
+    /// Leo (2026-11-07): "but the border on session info is way too faint". The edge is the text at 22%, as
+    /// the web panel's, not the separator's 7 to 8%; under Increase Contrast it is the full text.
+    @Test func panelEdgeIsTheTextAtTwentyTwoPercent() throws {
+        let text = NSColor(srgbRed: 0.9, green: 0.9, blue: 0.9, alpha: 1)
+        let edge = AgentPaneSessionInfoColors.edge(text: text, increaseContrast: false)
+        #expect(abs(edge.alphaComponent - 0.22) < 0.001)
+        #expect(AgentPaneSessionInfoColors.edge(text: text, increaseContrast: true).alphaComponent == 1)
     }
 
     /// cmuxterm-hq#6137: pushed in a narrow pane, the page narrows the panel below 260px and keeps that
@@ -638,9 +647,16 @@ struct AgentPaneNativeSessionInfoTests {
             view.subviews.compactMap { $0 as? SessionInfoGripView }.first
         }
         func images(_ view: SessionInfoLineView) -> [NSImageView] { view.subviews.compactMap { $0 as? NSImageView } }
+        /// Whether the line's trailing meta (a head's count and meter) is hidden; true for a line with none.
+        func countHidden(_ view: SessionInfoLineView) -> Bool { view.trailingMeta.allSatisfy { $0.isHidden } }
+        func countShown(_ view: SessionInfoLineView) -> Bool { view.trailingMeta.allSatisfy { !$0.isHidden } }
 
-        let context = view(SessionInfoLine(id: "context", kind: .header, symbol: "gauge", title: "Context", trailing: "42%",
-                                           unfolded: true, reorderable: true, action: "fold:context:0"))
+        let context = view(SessionInfoLine(id: "context", kind: .header, symbol: "gauge", title: "Context", trailing: "94K / 200K",
+                                           unfolded: true, meter: 0.47, reorderable: true, action: "fold:context:0"))
+        // Progress's head carries the segmented meter.
+        let progress = view(SessionInfoLine(id: "progress", kind: .header, title: "Progress", trailing: "2/5", unfolded: true,
+                                            segments: [.init(share: 0.4, color: "success"), .init(share: 0.6, color: "muted")],
+                                            reorderable: true, action: "fold:progress:2"))
         let changes = view(SessionInfoLine(id: "changes", kind: .header, title: "Changes", trailing: "3", unfolded: false,
                                            reorderable: true, action: "fold:changes:1"))
         let plain = view(SessionInfoLine(id: "plain", kind: .header, title: "Usage", reorderable: true))
@@ -660,7 +676,7 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(try title(machine).minX == title(row).minX)
 
         // At rest: no grip, no chevron, and nothing but the line's own icon as an image.
-        for line in [context, changes, plain, machine] {
+        for line in [context, changes, plain, machine, progress] {
             #expect(!line.showsGrip)
             #expect(grip(line)?.isHidden == true)
             #expect(!line.showsChevron)
@@ -675,21 +691,48 @@ struct AgentPaneNativeSessionInfoTests {
 
         let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
                                                     windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
-        for line in [context, changes, plain, machine] {
+        // At rest the meters draw in the trailing column, left of the grip's own slot, at any width.
+        #expect(context.trailingMeta.count == 2 && progress.trailingMeta.count == 2)
+        #expect(context.gripHasOwnSlot && progress.gripHasOwnSlot && !changes.gripHasOwnSlot)
+        for width in [200, 260, 320, 560] as [CGFloat] {
+            for line in [context, progress] {
+                line.frame.size.width = width
+                line.layoutSubtreeIfNeeded()
+                let hit = try #require(line.gripHitRect)
+                for meta in line.trailingMeta { #expect(meta.frame.maxX <= hit.minX + 0.5) }
+            }
+        }
+        for line in [context, progress] {
+            line.frame.size.width = 320
+            line.layoutSubtreeIfNeeded()
+        }
+        for line in [context, changes, plain, machine, progress] {
             let before = try title(line)
             line.mouseEntered(with: enter)
             line.layoutSubtreeIfNeeded()
             #expect(line.showsGrip)
             #expect(try title(line) == before)
-            // The grip sits in the line's right inset, past every trailing value, at the right edge.
+            // The grip takes the trailing value's place: its dots end on the trailing column's right edge,
+            // the rows' (Leo, 2026-11-07: "the grip and the lef tside aren't flush"), the count hides under
+            // it, and nothing else reaches its box.
             let handle = try #require(grip(line))
+            let hit = try #require(line.gripHitRect)
             #expect(!handle.isHidden)
             #expect(handle.frame.size == SessionInfoGripView.size)
-            #expect(handle.frame.maxX <= line.bounds.maxX)
-            #expect(line.bounds.maxX - handle.frame.maxX <= 2)
-            for other in line.subviews where other !== handle && !other.isHidden {
-                #expect(other.frame.maxX <= handle.frame.minX)
+            #expect(abs(handle.frame.maxX - (line.bounds.maxX - SessionInfoMetrics.trail)) < 0.5)
+            #expect(hit.width == LayoutGrid.iconBox && abs(hit.midX - handle.frame.midX) < 0.5)
+            if line.gripHasOwnSlot {
+                // A head with a meter keeps its grip in a slot of its own: its count and meter stay.
+                #expect(countShown(line))
+            } else {
+                #expect(countHidden(line))
             }
+            for other in line.subviews where other !== handle && !other.isHidden {
+                #expect(other.frame.maxX <= hit.minX)
+            }
+            // Hovering the head lights neither the head nor the grip; only the grip's own box lights.
+            #expect(line.layer?.backgroundColor == nil || line.line.kind == .row)
+            #expect(!line.gripLit)
             if line.line.unfolded != nil {
                 // The chevron shows one grid gap after the title, before the meta.
                 #expect(line.showsChevron)
@@ -701,6 +744,8 @@ struct AgentPaneNativeSessionInfoTests {
             #expect(!line.showsGrip)
             #expect(grip(line)?.isHidden == true)
             #expect(!line.showsChevron)
+            // At rest the count is back on its edge.
+            #expect(countShown(line))
         }
     }
 
@@ -746,9 +791,63 @@ struct AgentPaneNativeSessionInfoTests {
         changes.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: start.x, y: start.y + (drop.y - start.y) / 2), in: changes))
         #expect(changes.isDragging)
         #expect(changes.showsGrip)
+        #expect(changes.gripLit)
+        #expect(changes.layer?.backgroundColor == nil)
         changes.mouseUp(with: try mouse(.leftMouseUp, drop, in: changes))
         #expect(sent == ["move:changes:context"])
         #expect(!changes.isDragging)
+    }
+
+    /// A Cloud machine row whose lifetime subtitle wraps puts its title, and its grip, above the row's
+    /// middle: the grip's box follows the drawn grip, so a drag that starts on its top dot reorders.
+    @Test func aDragFromTheTopDotOfAMultilineRowsGripReorders() throws {
+        var moved: [String] = []
+        let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil },
+                                 move: { id, _, _ in moved.append(id) })
+        let line = SessionInfoLineView(line: SessionInfoLine(
+            id: "environment", kind: .row, symbol: "cloud", title: "cmux Cloud",
+            subtitle: "Stops after 30 minutes idle; deleted after 7 days without a chat. Keeps its disk while stopped.",
+            reorderable: true), ink: ink)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 260, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.close() }
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: 260, height: 200))
+        window.contentView = container
+        let height = line.height(forWidth: 260)
+        #expect(height > SessionInfoMetrics.rowHeight)
+        line.frame = CGRect(x: 0, y: 0, width: 260, height: height)
+        container.addSubview(line)
+        line.layoutSubtreeIfNeeded()
+        let grip = try #require(line.subviews.compactMap { $0 as? SessionInfoGripView }.first)
+        let hit = try #require(line.gripHitRect)
+        // The box holds the whole drawn grip, top dot to bottom dot.
+        #expect(hit.contains(CGPoint(x: grip.frame.midX, y: grip.frame.minY + 1)))
+        #expect(hit.contains(CGPoint(x: grip.frame.midX, y: grip.frame.maxY - 1)))
+        #expect(abs(hit.midY - grip.frame.midY) < 0.5)
+        func mouse(_ type: NSEvent.EventType, _ point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: line.convert(point, to: nil), modifierFlags: [],
+                                           timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                           clickCount: 1, pressure: 1))
+        }
+        // The top dot: x 1.25, y 3 in the grip's 6 by 14 box. AppKit sends the press to the view its hit
+        // test finds there; the grip only draws, so that is the line, which starts the reorder.
+        let top = NSPoint(x: grip.frame.minX + 1.25, y: grip.frame.minY + 3)
+        // The pointer comes onto the top dot: the grip shows, and its box lights.
+        line.mouseEntered(with: try mouse(.mouseMoved, top))
+        #expect(!grip.isHidden)
+        #expect(line.gripHovered && line.gripLit)
+        let target = try #require(window.contentView?.hitTest(line.convert(top, to: nil)))
+        #expect(target === line)
+        target.mouseDown(with: try mouse(.leftMouseDown, top))
+        target.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: top.x, y: top.y + 20)))
+        #expect(line.isDragging)
+        target.mouseUp(with: try mouse(.leftMouseUp, NSPoint(x: top.x, y: top.y + 20)))
+        #expect(moved == ["environment"])
+
+        // A model refresh rebuilds the grip: it is not left lit until the pointer moves into its new box.
+        line.update(line: line.line, ink: ink)
+        line.layoutSubtreeIfNeeded()
+        #expect(!line.gripHovered)
     }
 
     /// No section header ever draws a fill behind it, hovered or not, and a lit row that leaves the

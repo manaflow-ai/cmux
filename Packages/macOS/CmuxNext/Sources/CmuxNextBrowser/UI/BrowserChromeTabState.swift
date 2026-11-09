@@ -90,6 +90,12 @@ public final class BrowserChromeTabState: Sendable {
     var find: (query: String, matchCase: Bool)?
     var isOmnibarHidden = false
     var wakingAddress: BrowserTabState?
+    /// Whether this tab has the keyboard in its window: its page, address bar, find bar or docked DevTools.
+    /// The host writes it from the window's focus (``BrowserEntry/followKeyboard(focusedTab:key:window:)``);
+    /// the cookie import card shows only while it is true, never over a terminal, chat or Home.
+    public var hasKeyboard = false {
+        didSet { if hasKeyboard != oldValue { chrome?.syncPageOverlays() } }
+    }
     /// The chrome a cookie import offer waits in, hidden, for this tab (`BrowserCookieImportCard.heldFor`).
     weak var cookieOfferHolder: BrowserChromeView?
 

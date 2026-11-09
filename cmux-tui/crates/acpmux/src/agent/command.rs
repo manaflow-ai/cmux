@@ -112,6 +112,8 @@ pub(crate) fn harness_command(
     for key in crate::hub::person::CALLER_ENV_KEYS {
         env.remove(key);
     }
+    // So is the CLI an agent runs (`cli_caller.rs`): never a profile's.
+    env.remove(crate::cli_caller::BIN_ENV);
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd =
         crate::session_scope::command(program, session.map(|(id, _)| id), &env, remote_environment);
@@ -165,6 +167,23 @@ pub(crate) fn harness_command(
     for key in crate::agent_tools::INHERITED_CALLER_ENV {
         cmd.env_remove(key);
     }
+    // Nor is the cmux-tui Claude Code plugin of that terminal: its hooks
+    // report to it. The agent keeps its other plugin folders; a profile's own
+    // value, applied below, still wins. A remote base has none of the daemon's.
+    if !remote_environment {
+        let plugins = crate::agent_tools::CLAUDE_PLUGIN_DIRS_ENV;
+        let inherited = match cmd.as_std().get_envs().find(|(key, _)| key.to_str() == Some(plugins))
+        {
+            Some((_, value)) => value.map(std::ffi::OsStr::to_os_string),
+            None => std::env::var_os(plugins),
+        };
+        if let Some(inherited) = inherited {
+            match crate::agent_tools::without_cmux_tui_plugins(&inherited) {
+                Some(kept) => cmd.env(plugins, kept),
+                None => cmd.env_remove(plugins),
+            };
+        }
+    }
     // A cmux tool allowlist in the daemon's own env (a daemon started from a
     // Chief turn's shell) is not the agent's: a harness passes its env to
     // its MCP servers. A turn's preset puts its own value back (`envs`).
@@ -191,6 +210,11 @@ pub(crate) fn harness_command(
             // Its caller token and the socket it is for (hub/person.rs (a)); the cmux CLI's caller.
             .envs(crate::hub::person::caller_env(id))
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
+        // This daemon's own acpmux, by absolute path: a login profile's PATH may find an older
+        // one, which proves no caller (`cli_caller.rs`, bench round 4 A5).
+        if let Some(bin) = crate::cli_caller::own_bin() {
+            cmd.env(crate::cli_caller::BIN_ENV, bin);
+        }
         // Its own temporary folder (`session_tmp.rs`); a profile's TMPDIR
         // (applied below) still wins. A remote-origin chain keeps its base.
         #[cfg(unix)]

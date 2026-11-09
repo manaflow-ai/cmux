@@ -13,7 +13,7 @@ import { AgentLine } from "../subagents/AgentLine";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { elapsed, SubagentHarnessContext, ticking, useNow } from "../subagents/SubagentGroup";
+import { elapsed, SubagentHarnessContext, ticking, useNow } from "../subagents/subagentGroupModel";
 import { type Subagent } from "../subagents/subagentFold";
 
 import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
@@ -25,11 +25,14 @@ import {
   waitingLine,
 } from "../subagents/subsessions";
 import type { StartedSession } from "../started/startedSessions";
-import { ChildSessionRows, sessionStatus } from "../session-info/ChildSessionRows";
+import { ChildSessionRows } from "../session-info/ChildSessionRows";
+import { sessionStatus } from "../session-info/childSessionRowsModel";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
-import { AgentIdentity, foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
+import { AgentIdentity } from "../subagents/AgentIdentity";
+import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
 import { agentTone } from "../subagents/agentTones";
+import { useSenderIconLook } from "../subagents/senderIconLook";
 import { orderedSubagents } from "./subagentOrder";
 import { subagentStatus, subagentStateText, SUBSESSION_STATUS } from "./subagentStatusListModel";
 
@@ -82,6 +85,9 @@ export function SubagentStatusList({
   /// when acpmux reports none.
   stack?: readonly SummarySubagent[];
 }) {
+  // The badge look picks which subagents show their family mark (foreignHarness): read here, so a
+  // change of the setting draws them again.
+  const senderBadge = useSenderIconLook().badge;
   const t = useT();
   const chatHarness = useContext(SubagentHarnessContext);
   const now = useNow(agents.some(ticking));
@@ -117,7 +123,7 @@ export function SubagentStatusList({
               <AgentLine
                 name={agent.name}
                 icon={SUBAGENT_FALLBACK}
-                mark={foreignHarness(agent.harness, chatHarness)}
+                mark={foreignHarness(agent.harness, chatHarness, senderBadge)}
                 status={status}
                 state={subagentStateText(t, agent, waiting)}
                 working={Boolean(retrying(agent))}

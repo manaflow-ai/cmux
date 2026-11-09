@@ -84,7 +84,7 @@ public struct SidebarMapping {
     /// names them per row instead, read by the row's own mapping (so a page
     /// opened in one workspace maps that row only). `pageFace` gives the face
     /// a workspace's front tab (any kind) lends its row, given the work tab a
-    /// browser front tab yields its name to (`workTab`), and the favicon of
+    /// browser front tab yields its name to (`FaceTabs.work`), and the favicon of
     /// each browser tab in the tab list (no work tab). `tabTitle` names each tab in the tab
     /// list as its strip does (the App's `TabTitleResolver`, given the row's workspace); without it a
     /// tab shows its record's title. `iconAsset` draws a stored image or SVG
@@ -107,6 +107,7 @@ public struct SidebarMapping {
                                 muted: Set<String> = [],
                                 statusLine: @escaping (String) -> String? = { _ in nil },
                                 selectedTab: @escaping (PaneModel) -> String? = { _ in nil },
+                                focusedPane: @escaping (WorkspaceModel) -> String? = { _ in nil },
                                 newTabPages: Set<String> = [], isNewTabPage: ((WorkspaceModel, TabModel) -> Bool)? = nil, newTabTitle: String = "",
                                 pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
                                 tabTitle: ((WorkspaceModel, TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
@@ -120,7 +121,8 @@ public struct SidebarMapping {
         // A personal group's icon lives on the home daemon, whichever machine's section shows it.
         func groupImage(_ icon: String) -> SidebarFavicon? { groupIconAsset.map { $0(icon) } ?? iconAsset(icon) }
         let batch = FaceRowBatch(mapping: self, options: FaceOptions(
-            machine: machine.id, showsUnread: showsUnread, selectedTab: selectedTab, newTabTitle: newTabTitle, pageFace: pageFace,
+            machine: machine.id, showsUnread: showsUnread, selectedTab: selectedTab, focusedPane: focusedPane,
+            newTabTitle: newTabTitle, pageFace: pageFace,
             tabTitle: tabTitle, notificationText: notificationText, iconAsset: iconAsset, harnessIcons: harnessIcons,
             homeShellTitle: machine.kind == .cloud ? terminalTitle : nil, faces: faces))
         // The home workspace (`kind` "home") and a window's own Home (cmux#27880) are what
@@ -177,7 +179,8 @@ public struct SidebarMapping {
 
     /// `showsUnread: false` hides the unread badge (`notifications.attention.showOnSidebar`).
     /// `selectedTab` is the window's tab selection in a pane (a `TabModel.id`), nil for the
-    /// daemon's default tab. `newTabPages` are the ids of tabs still on the New Tab page,
+    /// daemon's default tab. `focusedPane` is the pane id the window last focused in the workspace,
+    /// nil for the daemon's most recently focused one. `newTabPages` are the ids of tabs still on the New Tab page,
     /// listed as `newTabTitle` when it is not empty.
     /// `muted`: the workspace is in `notifications.mutedWorkspaces`. `notificationText` is the
     /// text of a tab's unread notification (`DaemonStore.notificationText(for:)`).
@@ -186,12 +189,14 @@ public struct SidebarMapping {
     /// `foldersLabel`: a caller whose `pageFace` gives no title (a pinned tile, `SidebarWorkspaceItems`) has its shell's
     /// folder read as the label `homeShellTitle` checks; the list's rows read the label their `pageFace` gives.
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
-                    muted: Bool = false, selectedTab: @escaping (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
+                    muted: Bool = false, selectedTab: @escaping (PaneModel) -> String? = { _ in nil },
+                    focusedPane: @escaping (WorkspaceModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
                     newTabTitle: String = "", pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
                     tabTitle: ((WorkspaceModel, TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
                     iconAsset: @escaping (String) -> SidebarFavicon? = { _ in nil },
                     harnessIcons: HarnessIconLookup = .none, homeShellTitle: String? = nil, foldersLabel: Bool = false) -> SidebarWorkspace {
-        let options = FaceOptions(machine: machine, showsUnread: showsUnread, selectedTab: selectedTab, newTabTitle: newTabTitle,
+        let options = FaceOptions(machine: machine, showsUnread: showsUnread, selectedTab: selectedTab, focusedPane: focusedPane,
+                                  newTabTitle: newTabTitle,
                                   pageFace: pageFace, tabTitle: tabTitle, notificationText: notificationText, iconAsset: iconAsset,
                                   harnessIcons: { harnessIcons }, homeShellTitle: homeShellTitle, foldersLabel: foldersLabel)
         let request = FaceRowRequest(workspace: workspace, status: status, muted: muted, newTabPages: newTabPages)
@@ -220,11 +225,15 @@ public struct SidebarMapping {
         return rows
     }
 
-    /// The band items (pinned tiles, top rows) of `workspaces`, in order: each row as `rows` maps it with the page
-    /// face's favicon only (an item keeps its own title rule), no unread state and its shell's folder as the label.
-    public func tileInfos(_ workspaces: [(workspace: WorkspaceModel, machine: MachineID)], favicon: @escaping (WorkspaceModel, TabModel) -> SidebarFavicon?,
+    /// The band items (pinned tiles, top rows) of `workspaces`, in order: each row as `rows` maps it with `pageFace`,
+    /// the face the list's rows read (`AppServices.sidebarPageFace`), no unread state and its shell's folder as the label.
+    /// Pinning moves a row and never renames it: an item shows the title its list row shows, the workspace's own name
+    /// or the auto name the face gives one nobody named (Lawrence 2026-11-07: "i pinned a workspace and it's name
+    /// disappeared and went back to workspace-936"; the favicon-only face it read fell back to the daemon's name).
+    public func tileInfos(_ workspaces: [(workspace: WorkspaceModel, machine: MachineID)],
+                          pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> PageFace,
                           homeShellTitle: (MachineID) -> String?, faces: SidebarFaceBatch? = nil) -> [SidebarItemInfo] {
-        let mapped = self.rows(workspaces, showsUnread: false, pageFace: { workspace, tab, _ in PageFace(favicon: favicon(workspace, tab)) },
+        let mapped = self.rows(workspaces, showsUnread: false, pageFace: pageFace,
                                homeShellTitle: homeShellTitle, foldersLabel: true, faces: faces)
         return zip(workspaces, mapped).map { item, row in
             var info = SidebarItemInfo(workspaceRow: row, color: color(item.workspace.color))
@@ -283,59 +292,16 @@ public struct SidebarMapping {
         return SidebarChecklistItem(id: item.id, text: item.text, state: state, attachmentCount: item.attachments.count)
     }
 
-    /// The tab the row stands for: the selected tab of the workspace's most
-    /// recently focused pane; nil for a workspace with no tabs.
-    public func frontTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        let panes = workspace.screens.flatMap(\.panes).filter { !$0.tabs.isEmpty }
-        guard let pane = panes.max(by: { $0.focusedAt < $1.focusedAt }) else { return nil }
-        return selected(pane, selectedTab: selectedTab)
-    }
-
-    /// The tab a browser front tab yields its row's name to (a PR opened in
-    /// a split, https://github.com/manaflow-ai/cmux/issues/22249): the
-    /// selected tab of the most recently focused pane that shows a chat or
-    /// terminal, the work the row was named for before the page opened; nil
-    /// while every pane shows a page. A Home, page or app tab gives no name
-    /// (`WorkspaceAutoNameReader.front`), so it is passed over too.
-    public func workTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        // One pass: the newest eligible pane, the first stored one on a tie (as `frontTab`).
-        var work: (tab: TabModel, focusedAt: UInt64)?
-        for screen in workspace.screens {
-            for pane in screen.panes where !pane.tabs.isEmpty {
-                if let work, pane.focusedAt <= work.focusedAt { continue }
-                let tab = selected(pane, selectedTab: selectedTab)
-                let named = tab.agentSession != nil || (tab.kind != .conversation && tab.page == nil && tab.appTab == nil)
-                if tab.kind != .browser, named { work = (tab, pane.focusedAt) }
-            }
-        }
-        return work?.tab
-    }
-
-    /// The one tab a workspace's row and window titlebar both read their name and icon from: the
-    /// label tab (`labelTab`), or for a browser one the work it yields to (`workTab`), so focus
-    /// moving to a page beside a chat leaves both the chat's.
-    public func faceTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?,
-                        newTabPages: Set<String> = []) -> TabModel? {
-        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        let front = labelTab(frontTab(workspace, selectedTab: selectedTab), tabs, newTabPages: newTabPages)
-        guard front?.kind == .browser else { return front }
-        return workTab(workspace, selectedTab: selectedTab) ?? front
-    }
-
-    /// The tab `pane` shows: the window's selection, else the daemon's default tab.
-    private func selected(_ pane: PaneModel, selectedTab: (PaneModel) -> String?) -> TabModel {
-        if let id = selectedTab(pane), let tab = pane.tabs.first(where: { $0.id == id }) { return tab }
-        return pane.tabs[min(max(pane.defaultTabIndex, 0), pane.tabs.count - 1)]
-    }
-
-    /// The row's agent chat, whose last message the row shows: the front tab's, else the first chat tab's.
+    /// The row's agent chat as Copy Agent Identifier reads it: the front tab's, else the first chat tab's. The
+    /// front tab comes from the Rust face (`faceTabs`); this pick stays in Swift only until the face answers it
+    /// too (`front_chat`, cmux-layout-reducer `sidebar_face`), then it goes.
     func chatTab(_ front: TabModel?, _ tabs: [TabModel]) -> TabModel? {
         front?.agentSession != nil ? front : tabs.first { $0.agentSession != nil }
     }
 
     /// The agent chat a workspace's row shows (Copy Agent Identifier on the row copies its id).
     public func rowChat(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        chatTab(frontTab(workspace, selectedTab: selectedTab), workspace.screens.flatMap(\.panes).flatMap(\.tabs))
+        chatTab(faceTabs(workspace, selectedTab: selectedTab).front, workspace.screens.flatMap(\.panes).flatMap(\.tabs))
     }
 
     static func tabKind(_ kind: TabKind) -> SidebarTabKind {

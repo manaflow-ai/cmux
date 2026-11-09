@@ -20,6 +20,7 @@ afterEach(resetSectionOrderForTests);
 
 test("built-in order is unchanged without installed apps", () => {
   expect(sectionOrder([])).toEqual([...DEFAULT_ORDER]);
+  expect(sectionOrder([]).slice(5, 9)).toEqual(["sources", "outputs", "alsoHere", MORE_LINE]);
 });
 
 test("new app sections follow Sources, above the Show more line, and never tuck", () => {
@@ -30,6 +31,7 @@ test("new app sections follow Sources, above the Show more line, and never tuck"
     prs,
     session,
     "outputs",
+    "alsoHere",
   ]);
   expect(order.indexOf(prs)).toBe(order.indexOf("sources") + 1);
 });
@@ -51,7 +53,7 @@ test("an order saved before the line keeps its less-used sections under it, in t
   // Environment is pinned first (sectionOrder.ts PINNED_TOP); the rest keep the person's order.
   expect(order[0]).toBe("environment");
   expect(order[1]).toBe("context");
-  expect(order.indexOf(MORE_LINE)).toBe(order.indexOf("outputs") + 1);
+  expect(order.indexOf(MORE_LINE)).toBe(order.indexOf("alsoHere") + 1);
   expect(tuckedSections(order)).toEqual(["changes", "usage", "connectors"]);
 });
 

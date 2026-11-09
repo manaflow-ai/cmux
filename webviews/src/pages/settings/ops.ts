@@ -783,11 +783,16 @@ export type HarnessesRun = {
  * plans/cmux-next/cloud-environments-DESIGN.md): the team's environments on the cmux-next Cloud path.
  * `status` is CloudDO's; the page localizes it. `error` texts come from the host. */
 export type CloudEnvironmentStatus = "unbuilt" | "building" | "ready" | "stale" | "failed";
+/** A plain variable (baked into the snapshot) or a secret (a vault item's name; its value never
+ * enters the snapshot), as CloudDO's `CloudEnvironmentVariable`. */
+export type CloudEnvironmentVariable = { name: string; value: string } | { name: string; secret: string };
 export type CloudEnvironmentRow = {
   id: string;
   name: string;
   repo: string | null;
   setup_script: string;
+  /** Absent from a host that predates variables. */
+  env?: CloudEnvironmentVariable[];
   status: CloudEnvironmentStatus | string;
   /** The last failed build's message and its log tail; null otherwise. */
   error: string | null;
@@ -803,9 +808,34 @@ export type CloudEnvironmentsState = {
 /** One Cloud Environments gesture: Refresh, Save (create, or edit with `id`), Build, Delete. */
 export type CloudEnvironmentsRun =
   | { action: "refresh" }
-  | { action: "save"; id?: string; name: string; repo?: string; setup_script?: string }
+  | {
+      action: "save";
+      id?: string;
+      /** Required to create; an edit sends it only when renamed. */
+      name?: string;
+      repo?: string;
+      setup_script?: string;
+      /** The whole list; absent leaves it as it is. */
+      env?: CloudEnvironmentVariable[];
+    }
   | { action: "build"; id: string }
   | { action: "delete"; id: string };
+
+/** Settings > Server > This Mac on Your Tailnet: acpmux's embedded tailnet node as `_acpmux/tailnet/*`
+ * answers it (cmux-tui acpmux tailnet/embedded.rs `Snapshot::to_json`), relayed unchanged by the app on
+ * its person connection. */
+export type TailnetState = {
+  /** `stopped`, `starting`, `needs_login`, `needs_machine_auth`, `running` or `error` (or another
+   * backend state, shown as signed out). */
+  state: string;
+  /** The sign-in page while `needs_login`; only the person's own connection is sent it. */
+  browse_to_url?: string;
+  /** This Mac's MagicDNS name while running. */
+  dns_name?: string;
+  ips?: string[];
+  /** acpmux's own text for the last failure. */
+  error?: string;
+};
 
 /** Settings > Privacy and Security > Shared Links (`cmux.settings.shares.list`): this Mac's daemon's
  * chat shares as `agent-session-share-list` answers them (cmux-tui server/agent_session_shares.rs),
@@ -1174,6 +1204,14 @@ export type SettingsOps = {
   "cmux.settings.environments.state": [Record<string, never>, CloudEnvironmentsState];
   /** Native: one Cloud Environments gesture; Build and Delete ask natively first; a failure answers `error`. */
   "cmux.settings.environments.run": [CloudEnvironmentsRun, { error?: string | null }];
+  /** Native: this Mac's tailnet node; null when acpmux has no tailnet or did not take the person's proof. */
+  "cmux.settings.tailnet.state": [Record<string, never>, TailnetState | null];
+  /** Native, the person's click: starts the node; a saved login resumes, else it reports `needs_login`. */
+  "cmux.settings.tailnet.start": [Record<string, never>, TailnetState | null];
+  /** Native, the person's click: a fresh sign-in page for a running node that is not signed in. */
+  "cmux.settings.tailnet.login": [Record<string, never>, TailnetState | null];
+  /** Native, the person's click: signs the node out and closes its listeners. */
+  "cmux.settings.tailnet.logout": [Record<string, never>, TailnetState | null];
   /** Native: this Mac's chat shares (Settings > Privacy and Security > Shared Links). */
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */

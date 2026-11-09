@@ -32,6 +32,7 @@ struct SidebarBottomCardSlot {
         nowPlaying.onClose = { [weak sidebar] in sidebar?.model.send(.hideNowPlayingCard) }
         nowPlaying.menuProvider = { [weak sidebar] in sidebar?.contextMenuProvider?(.nowPlaying) }
         updated.onDismiss = { [weak sidebar] in sidebar?.model.send(.dismissUpdated) }
+        updated.notes.hoverCards = { [weak sidebar] in sidebar?.list.hoverCards }
         sidebar.addSubview(update)
         sidebar.addSubview(nowPlaying)
         sidebar.addSubview(updated)
@@ -87,9 +88,14 @@ struct SidebarBottomCardSlot {
         }
     }
 
+    /// The Updated card has the slot and rests at the top of the list (``SidebarUpdatedCardHost/anchor``).
+    var updatedAtTop: Bool { shown == .updated && updated.anchor == .top }
+
     /// Lays the card out in the slot, which ends at `bottom`, inset like the
-    /// card stack's cards across a sidebar `width` wide.
-    func place(above bottom: CGFloat, width sidebarWidth: CGFloat, slotHeight: CGFloat) {
+    /// card stack's cards across a sidebar `width` wide. The Updated card dropped at the top rests
+    /// under `top` instead (the list's top edge), and may be dragged anywhere between the two;
+    /// `sidebar` runs its settle.
+    func place(above bottom: CGFloat, top: CGFloat = 0, width sidebarWidth: CGFloat, slotHeight: CGFloat, in sidebar: NSView? = nil) {
         let inset = Metrics.space3, width = Self.cardWidth(in: sidebarWidth)
         let shown = slotHeight > 0 ? shown : nil
         func frame(_ which: Shown, height: CGFloat) -> NSRect {
@@ -98,12 +104,12 @@ struct SidebarBottomCardSlot {
         nowPlaying.isHidden = shown != .nowPlaying
         nowPlaying.frame = frame(.nowPlaying, height: nowPlaying.nowPlaying.map(SidebarNowPlayingCardView.height(for:)) ?? 0)
         updated.isHidden = shown != .updated
-        // The Updated card's open hover preview stands over the list above the slot, never past the
-        // sidebar's top; the slot's room (and so the list) stays the card's own.
-        let updatedFrame = frame(.updated, height: updated.height)
-        let rise = min(max(0, updated.frameHeight - updatedFrame.height), max(0, updatedFrame.minY - Metrics.space2))
-        updated.frame = updatedFrame == .zero ? .zero
-            : NSRect(x: updatedFrame.minX, y: updatedFrame.minY - rise, width: updatedFrame.width, height: updatedFrame.height + rise)
+        if shown == .updated {
+            placeUpdated(area: (top + Metrics.space2)...max(top + Metrics.space2, bottom - Metrics.space2), x: inset, width: width,
+                         in: sidebar ?? updated)
+        } else {
+            updated.frame = .zero
+        }
         // A card playing its exit (``SidebarCardPresence``) keeps its place until it has gone.
         if shown == .update || !update.isLeaving {
             update.frame = frame(.update, height: update.card.map(SidebarUpdateCardView.height(for:)) ?? 0)
@@ -112,5 +118,18 @@ struct SidebarBottomCardSlot {
         if shown == .notice || !notice.isLeaving {
             notice.frame = frame(.notice, height: notice.notice.map { notice.height(for: $0, width: width) } ?? 0)
         }
+    }
+
+    /// The Updated card at its anchor's end of `area`. Its open hover preview stands over the list
+    /// (above the bottom slot, below the top place) and the slot's room stays the card's own.
+    private func placeUpdated(area: ClosedRange<CGFloat>, x: CGFloat, width: CGFloat, in sidebar: NSView) {
+        let height = updated.height, atTop = updated.anchor == .top
+        let rest = NSRect(x: x, y: atTop ? area.lowerBound : area.upperBound - height, width: width, height: height).integral
+        updated.report(rest: rest, area: area)
+        let extra = max(0, updated.frameHeight - rest.height)
+        // Downward from the top place, never past the area; upward from the slot, never past the sidebar's top.
+        let grow = atTop ? min(extra, max(0, area.upperBound - rest.maxY)) : min(extra, max(0, rest.minY - Metrics.space2))
+        let grown = NSRect(x: rest.minX, y: atTop ? rest.minY : rest.minY - grow, width: rest.width, height: rest.height + grow)
+        updated.frame = updated.displaced(grown, in: sidebar)
     }
 }

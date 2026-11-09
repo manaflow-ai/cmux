@@ -22,7 +22,8 @@ A prompt ending in "settings-probe" replies with the prompt text as Claude
 read it, every `apply_flag_settings` it got, and its argv.
 "slow-stop" runs until the interrupt, then echoes the next prompt line it
 reads before the stopped turn's result (a Stop Claude Code answers late).
-"compact-stop" reports a compaction, ignores its interrupt until the
+"/compact" compacts (with FAKE_CLAUDE_COMPACT_FAIL_IF=<path>, while that file exists, it fails
+on a dropped connection instead). "compact-stop" reports a compaction, ignores its interrupt until the
 compaction finishes, then emits the late result (the Stop path must settle
 before that result arrives).
 "long-step" is one step (a long tool call) that runs until the interrupt, as
@@ -93,11 +94,22 @@ token usage, and `total_cost_usd` as the process's running total (0.25 more
 per cost-probe turn, from 0 at each start). "cost-restore X" first restores
 the running total X, as a resumed Claude Code does; "cost-zero" reports a
 zeroed total, as a crashed one's last result can.
+"calls-probe" is a turn of three model calls, as Claude Code streams them (a real turn's first
+three, from its transcript): each call's message_delta reads the whole context again, a subagent
+call streams beside them, and the result's usage adds the main loop's three up.
 "rate-limits-probe" sends two rate_limit_event lines as Claude Code 2.1.307 does
 (`utilization` a 0-1 fraction): the session and weekly windows, then the
 session window alone, moved. FAKE_CLAUDE_LIMITS=1 sends them on every prompt.
 """
 import json
+
+# "calls-probe"'s three model calls: each reads the context the one before it held, mostly from
+# the prompt cache.
+CALLS_PROBE = [
+    {"input_tokens": 2, "cache_creation_input_tokens": 6246, "cache_read_input_tokens": 125325, "output_tokens": 476},
+    {"input_tokens": 2, "cache_creation_input_tokens": 895, "cache_read_input_tokens": 131571, "output_tokens": 249},
+    {"input_tokens": 2, "cache_creation_input_tokens": 663, "cache_read_input_tokens": 132466, "output_tokens": 392},
+]
 import os
 import sys
 import uuid
@@ -175,6 +187,13 @@ def command_text(content):
     """Match fixture commands on the person's text, retaining wire messages unchanged."""
     return "".join(b.get("text", "") for b in content
                     if isinstance(b, dict) and not is_cmux_guidance(b))
+
+
+def without_sender_line(said):
+    """The person's command after acpmux's sender line (#37190): a prompt that is not the
+    person's (a remote caller, another agent) arrives as "From ..., not the person:" first."""
+    import re
+    return re.sub(r"^From [^\n]*?, not the person:\s*", "", said, count=1)
 
 
 def transcript_content(content, said):
@@ -968,6 +987,11 @@ while True:
         # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the
         # boundary, the summary as a synthetic user line, the command's stdout, a result.
         if said.strip() == "/compact":
+            # FAKE_CLAUDE_COMPACT_FAIL_IF=<path>: while it exists, the connection drops mid-compaction.
+            if os.path.exists(os.environ.get("FAKE_CLAUDE_COMPACT_FAIL_IF") or "\0"):
+                send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
+                      "result": "API Error: Connection error.", "duration_api_ms": 5})
+                continue
             send({"type": "system", "subtype": "status", "status": "compacting", "session_id": SESSION})
             send({"type": "system", "subtype": "status", "status": None, "compact_result": "success",
                   "session_id": SESSION})
@@ -1008,12 +1032,15 @@ while True:
             while not os.path.exists(said[len("hold: "):]):
                 time.sleep(0.02)
         text = json.dumps(sys.argv[1:])
+        # Spawn-time and sandbox probes also come from remote callers, whose prompt starts
+        # with acpmux's sender line: match the command after it.
+        asked = without_sender_line(said)
         # "env: NAME" replies with that environment variable, for spawn-time checks.
-        if said.startswith("env:"):
-            name = said[4:].strip()
+        if asked.startswith("env:"):
+            name = asked[4:].strip()
             text = f"{name}={os.environ.get(name, '')}"
-        if said.startswith("envs:"):
-            names = [name.strip() for name in said[5:].split(",") if name.strip()]
+        if asked.startswith("envs:"):
+            names = [name.strip() for name in asked[5:].split(",") if name.strip()]
             text = json.dumps({name: os.environ.get(name, "") for name in names}, sort_keys=True)
         if said.endswith("settings-probe"):
             text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:]})
@@ -1051,7 +1078,7 @@ while True:
         # write a file at OUTSIDE, connect to 127.0.0.1:PORT, write in its cwd.
         # "keychain-probe": whether this process can retrieve a synthetic
         # generic-password item from the test's temporary keychain.
-        if said.strip() == "keychain-probe":
+        if asked.strip() == "keychain-probe":
             import subprocess
             rc = subprocess.run(
                 [
@@ -1064,11 +1091,11 @@ while True:
                 capture_output=True,
             ).returncode
             text = json.dumps({"keychain": "allowed" if rc == 0 else "denied"})
-        if said.startswith("sandbox-probe "):
+        if asked.startswith("sandbox-probe "):
             import os
             import socket
             # The path may hold spaces (a home under Application Support): the port is the last word.
-            outside, port = said[len("sandbox-probe "):].rstrip().rsplit(" ", 1)
+            outside, port = asked[len("sandbox-probe "):].rstrip().rsplit(" ", 1)
             port = int(port)
             result = {}
             try:
@@ -1090,10 +1117,10 @@ while True:
                 result["cwd"] = "denied"
             text = json.dumps(result)
         # G2: exercise the actual child boundary, including its HTTP proxy.
-        if said.startswith("linux-sandbox-probe "):
+        if asked.startswith("linux-sandbox-probe "):
             import socket
             import urllib.parse
-            outside, port = said[len("linux-sandbox-probe "):].rstrip().rsplit(" ", 1)
+            outside, port = asked[len("linux-sandbox-probe "):].rstrip().rsplit(" ", 1)
             result = {}
             for key, path in [("outside", outside), ("git", ".git/hooks/x"),
                               ("claude", "CLAUDE.md"), ("cwd", "ok")]:
@@ -1126,6 +1153,21 @@ while True:
             send({"type": "stream_event", "event": {"type": "message_delta", "usage": {
                 "input_tokens": 1200, "cache_read_input_tokens": 3000, "cache_creation_input_tokens": 0,
                 "output_tokens": 300}}})
+        if said.strip() == "calls-probe":
+            for u in CALLS_PROBE:
+                send({"type": "stream_event", "event": {"type": "message_delta", "usage": u}})
+            send({"type": "stream_event", "parent_tool_use_id": "toolu_sub", "event": {
+                "type": "message_delta", "usage": {"input_tokens": 5, "cache_read_input_tokens": 9000,
+                                                   "cache_creation_input_tokens": 0, "output_tokens": 70}}})
+        # "cache-probe": a main-loop call that read 150K tokens from the prompt cache and wrote 500
+        # more at the 5 minute tier (cache_creation), as Claude Code 2.1.310 streams them.
+        if said.strip() == "cache-probe":
+            cached = {"input_tokens": 2, "cache_read_input_tokens": 150000, "cache_creation_input_tokens": 500,
+                      "cache_creation": {"ephemeral_5m_input_tokens": 500, "ephemeral_1h_input_tokens": 0},
+                      "output_tokens": 30}
+            send({"type": "stream_event", "event": {"type": "message_start", "message": {
+                "id": "msg-cache", "model": "fake", "usage": cached}}})
+            send({"type": "stream_event", "event": {"type": "message_delta", "usage": cached}})
         # "compact-probe": /compact ran after the turn's message: its context is smaller now.
         if said.strip() == "compact-probe":
             send({"type": "system", "subtype": "compact_boundary",
@@ -1369,7 +1411,7 @@ while True:
                                                  "delta": {"type": "text_delta", "text": text}}})
         result = {"type": "result", "subtype": "success", "result": text, "num_turns": 1, "duration_api_ms": 1,
                   "usage": {"input_tokens": 1, "output_tokens": 1}}
-        if said.strip() in ("usage-probe", "compact-probe"):
+        if said.strip() in ("usage-probe", "compact-probe", "cache-probe"):
             result["modelUsage"] = {"claude-haiku": {"inputTokens": 50, "contextWindow": 100000},
                                     "fake": {"inputTokens": 1200, "contextWindow": 200000}}
         # "cost-restore X": a process that restored its running total X first.
@@ -1384,6 +1426,16 @@ while True:
             result["total_cost_usd"] = COST
             result["usage"] = {"input_tokens": 100, "output_tokens": 20,
                                "cache_read_input_tokens": 300, "cache_creation_input_tokens": 40}
+        # "cache-tier-probe": a turn whose writes were mostly hour-long, its result's usage naming
+        # the tiers (`cache_creation`) as Claude Code's does.
+        if said.strip() == "cache-tier-probe":
+            result["usage"] = {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 0,
+                               "cache_creation_input_tokens": 1000,
+                               "cache_creation": {"ephemeral_1h_input_tokens": 800, "ephemeral_5m_input_tokens": 200}}
+        if said.strip() == "calls-probe":
+            keys = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
+            result["usage"] = {k: sum(u[k] for u in CALLS_PROBE) for k in keys}
+            result["num_turns"] = len(CALLS_PROBE)
         if said.strip() == "switched-probe":
             result["modelUsage"] = {"claude-opus-1m": {"inputTokens": 90000, "contextWindow": 1000000},
                                     "claude-sonnet-x": {"inputTokens": 1200, "contextWindow": 200000}}

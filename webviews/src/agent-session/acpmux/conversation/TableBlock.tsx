@@ -12,7 +12,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { rowIconSize } from "../icons/iconSize";
 import { useT } from "../i18n";
 import { ArtifactContext } from "./artifactPreview";
-import { SIDEWAYS_SCROLLER, useSidewaysRef } from "./BlockParts";
+import { SIDEWAYS_SCROLLER, useSidewaysRef } from "./blockPartsModel";
 import { copyTextResult } from "./clipboard";
 import { CopyButton } from "./CopyButton";
 import { Expand } from "./icons";
@@ -42,7 +42,9 @@ export function TableBlock({
   const markdown = tableMarkdown(table);
   return (
     <div className={`cv-table-block${className}`} data-actions={place}>
-      <div className={`cv-table-tools${place === "beside" ? "" : " ui-glass"}`}>
+      {/* Bare buttons on its corner, as a code card's (cornerActions.ts); only `above`, which sits
+          over the line before the table, keeps the glass pill under them. */}
+      <div className={`cv-table-tools${place === "above" ? " ui-glass" : ""}`}>
         {open && (
           <button
             type="button"

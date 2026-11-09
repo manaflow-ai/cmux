@@ -15,11 +15,8 @@ extension NotificationCenterService {
         let pet = ChiefPetRoutes(services: services).makePet()
         chiefPet = pet
         // The mini stands for the Chief, or the chat Show in Mini picked (`ChiefPetMini`).
-        let mini = services.chiefPetMini
-        pet.start(enabled: { [weak settings] in settings?.snapshot.homeChiefPetEnabled ?? false },
-                  mascot: { [weak settings] in settings?.snapshot.homeChiefPetMascot ?? "" },
-                  upload: { [weak services] in mini.upload { services?.wornUpload(of: nil)?.file } },
-                  state: { mini.state { ChiefSidebar.shared.status.activity } }, home: { mini.home() })
+        services.chiefPetMini.follow(pet, settings: { [weak settings] in settings }, chiefUpload: { [weak services] in services?.wornUpload(of: nil)?.file },
+                                     chiefActivity: { ChiefSidebar.shared.status.activity })
     }
 
     /// An arrival that stays unread goes to the Chief pet when it would alert here, by a banner's

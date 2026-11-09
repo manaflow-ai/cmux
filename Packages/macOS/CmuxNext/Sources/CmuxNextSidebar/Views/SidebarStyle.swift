@@ -38,21 +38,30 @@ enum SidebarStyle {
         guard step != 0 else { return base }
         return Typography.system(.default, size: base.pointSize + step, weight: weight)
     }
-    /// The one leading icon column (Leo 2026-10-28: "the alignment"): in a row whose leading slot starts at `leading`,
-    /// every leading glyph (a band row's, a pinned row's pin, a workspace row's icon) centers its ink here, one
-    /// `iconBox` wide, so glyphs of different shapes and margins share one center x at every density.
+    /// The center x of the one leading icon column (Leo 2026-10-28: "the alignment"), one `iconColumnBox` wide, in a row
+    /// whose leading slot starts at `leading`. A band row's glyph (Home's) and a pinned row's pin center their ink here
+    /// (`bandGlyphX`, #38061), so glyphs of different ink widths share one center x at every density.
     static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconColumnBox / 2 }
     /// The Debug `sidebar.leadingColumn` look: where a glyph's ink sits in the icon column.
     static var leadingColumnLook: SidebarLeadingColumnLook { SidebarLeadingColumnLook.tunable.value }
     /// A text-only row keeps the icon column empty, so its title starts at the text x (the `slotted` look only).
     static var textOnlyKeepsIconSlot: Bool { leadingColumnLook == .slotted }
-    /// The one rule every leading glyph takes (Lawrence msg 19643, "left alignment here is bad"): the x of a glyph
-    /// drawn with `ink` (its drawn extent, in the glyph's own coordinates) in the icon column whose box starts at
-    /// `leading`. The ink starts on the box's leading edge, the row inset, so a pin, Home's house, a favicon, an emoji
-    /// and a symbol start on the left edge text-only titles start on; the `centered` look centers it instead. Callers
-    /// snap the result to their pixel grid.
+    /// The rule a workspace row's leading glyph takes (Lawrence msg 19643, "left alignment here is bad"): the x of a
+    /// glyph drawn with `ink` (its drawn extent, in the glyph's own coordinates) in the icon column whose box starts at
+    /// `leading`. The ink starts on the box's leading edge, the row inset, so a favicon, an emoji and a symbol start on
+    /// the left edge text-only titles start on; the `centered` look centers it instead. Home's glyph and the pin take
+    /// `bandGlyphX`. Callers snap the result to their pixel grid.
     static func iconColumnGlyphX(leading: CGFloat, ink: CGRect) -> CGFloat {
         leadingColumnLook == .centered ? iconColumnCenterX(leading: leading) - ink.midX : leading - ink.minX
+    }
+    /// The x of a band row's leading glyph (Home's house, another built-in's glyph, a pinned row's pin) drawn with
+    /// `ink`, in the icon column whose box starts at `leading`: its ink centers on the column's center line at every
+    /// look. https://github.com/manaflow-ai/cmux/issues/38061: starting each ink at the inset (`iconColumnGlyphX`) put
+    /// the narrow pin's center about 1.5 pt left of the house's, so the pinned rows' pins did not line up under Home.
+    /// Centered, glyphs of every ink width share one center x, the center of a workspace row's icon box (that box's
+    /// own glyph starts its ink at the inset, `iconColumnGlyphX`).
+    static func bandGlyphX(leading: CGFloat, ink: CGRect) -> CGFloat {
+        iconColumnCenterX(leading: leading) - ink.midX
     }
     /// The leading icon column's box (grid.md 3: 16 compact, 20 comfortable, wider when the text size grows the
     /// glyph). Leading icon frames take this box and draw their glyph, at its own `iconBox` size, centered in it,

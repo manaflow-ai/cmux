@@ -125,7 +125,7 @@ export function ShareDialogHost({
         open={open}
         onOpenChange={onOpenChange}
         label={t("share.title", { chat })}
-        className="ui-glass share-dialog-popup"
+        className="ui-glass ui-glass-floats share-dialog-popup"
       >
         <ShareDialogBody
           chat={chat}

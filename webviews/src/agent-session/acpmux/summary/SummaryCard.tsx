@@ -4,6 +4,7 @@ import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
 import { chatUnderGlass, summaryGlass } from "../chatUnderGlass";
 import { usePresence } from "../../../ui/presence";
+import { SplitEdge } from "../../../ui/SplitEdge";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -16,7 +17,7 @@ import { sessionSummary } from "./sessionSummary";
 import type { SubsessionRow } from "../subagents/subsessions";
 import { SubagentStatusList } from "./SubagentStatusList";
 import { SUBSESSION_STATUS, subagentStatus, waitingSubagents } from "./subagentStatusListModel";
-import { sessionStatus } from "../session-info/ChildSessionRows";
+import { sessionStatus } from "../session-info/childSessionRowsModel";
 import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
 import { startedChatsOutsideSubsessions } from "./startedChatsOutsideSubsessions";
@@ -223,7 +224,10 @@ export function SummaryCard({
     // intentionally invisible until it has content, but removing it from the flex row would make
     // the composer jump sideways when the first subagent or tool result is received.
     return card.reserve ? (
-      <aside className="acpmux-summary-card acpmux-summary-card--reserve" aria-hidden="true" data-placement="inline" />
+      <aside className="acpmux-summary-card acpmux-summary-card--reserve" aria-hidden="true" data-placement="inline">
+        {/* Reserves the dragged width too, so the column never changes width when its rows arrive. */}
+        <SummaryColumnEdge />
+      </aside>
     ) : null;
   }
   const count = (status: string) =>
@@ -271,6 +275,7 @@ export function SummaryCard({
         data-placement={card.column ? "inline" : "popover"}
         data-collapsed={!card.column && card.collapsed ? "" : undefined}
       >
+        {card.column && <SummaryColumnEdge />}
         {/* No title row in either placement (Leo: "iv easked so many times to not have titling"): the inline
             column keeps a head only for its live counts, so it never draws an empty band. */}
         {(tab || !card.column || counts.length > 0) && (
@@ -431,5 +436,20 @@ export function SummaryCard({
         />
       )}
     </>
+  );
+}
+
+/// The inline column's left edge, the divider between it and the chat: it drags as a split does
+/// (ui/SplitEdge.tsx), setting the column's width on the shell, where the header's push reads it too.
+function SummaryColumnEdge() {
+  return (
+    <SplitEdge
+      side="left"
+      property="--acpmux-summary-column-width"
+      storageKey="cmux.agentPane.summary.width"
+      min={240}
+      max={480}
+      on="parent"
+    />
   );
 }

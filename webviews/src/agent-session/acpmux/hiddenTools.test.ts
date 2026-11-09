@@ -1,13 +1,14 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// Claude Code's ToolSearch only loads deferred tools' schemas; the transcript draws no row for it
-// (hiddenTools.ts). A turn of ToolSearch, Read and Bash shows Read and Bash and counts two calls;
-// a turn of only ToolSearch draws no tool row, so no empty "Worked for" fold. The parent
-// transcript (direct.ts), a subagent's own view (subagents/childRows.ts) and its group row's
-// current action (subagents/subagentFold.ts) all hide it.
+// Claude Code's completed ToolSearch only loads deferred tools' schemas; the transcript hides its
+// row and excludes it from counts. Pending or failed discovery remains visible so an error is
+// actionable. The parent transcript (direct.ts), a subagent's own view (subagents/childRows.ts)
+// and its group row's current action (subagents/subagentFold.ts) all apply the same rule.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { childRows } from "./subagents/childRows";
 import { SubagentFold } from "./subagents/subagentFold";
+import { visibleToolItems } from "./conversation/mcpPresentation";
+import { isCompletedPlumbingTool } from "./hiddenTools";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -61,7 +62,9 @@ const call = (id: string, tool: string, title: string, kind: string, status = "c
   },
 ];
 const toolSearch = (id: string, status = "completed") => call(id, "ToolSearch", "ToolSearch", "other", status, "");
-const say = (text: string) => ({ update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } });
+const say = (text: string) => ({
+  update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+});
 const turn = (prompt: string, ...steps: unknown[]) => [
   { mux: "user_message", msg: { text: prompt } },
   { mux: "turn_started", msg: {} },
@@ -106,7 +109,12 @@ async function turnRows(): Promise<{ mixed: Row[]; only: Row[]; split: Row[]; ot
           sessionUpdate: "tool_call_update",
           toolCallId: "search-6",
           status: "failed",
-          content: [{ type: "content", content: { type: "text", text: "No matching deferred tools found" } }],
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: "No matching deferred tools found" },
+            },
+          ],
         },
       },
       // A real edit whose start is on the older page still shows the file it changed.
@@ -169,25 +177,46 @@ async function turnRows(): Promise<{ mixed: Row[]; only: Row[]; split: Row[]; ot
       return rows.slice(start + 1, end < 0 ? undefined : end);
     };
     await until(() => Boolean(turnOf(OTHER)?.some((row) => row.kind === "turnSummary")));
-    return { mixed: turnOf(MIXED)!, only: turnOf(ONLY)!, split: turnOf(SPLIT)!, other: turnOf(OTHER)! };
+    return {
+      mixed: turnOf(MIXED)!,
+      only: turnOf(ONLY)!,
+      split: turnOf(SPLIT)!,
+      other: turnOf(OTHER)!,
+    };
   } finally {
     client.close?.();
   }
 }
 
 const titles = (rows: Row[]) =>
-  rows.flatMap((row) => (row.kind === "activity" ? (row.items ?? []).flatMap((item) => item.tool?.title ?? []) : []));
+  rows.flatMap((row) =>
+    row.kind === "activity"
+      ? (visibleToolItems(row.items as never) ?? []).flatMap((item) => item.tool?.title ?? [])
+      : [],
+  );
 
 test("a turn of ToolSearch, Read and Bash draws Read and Bash, and counts two calls", async () => {
   const { mixed, only } = await turnRows();
   expect(titles(mixed)).toEqual(["Read retry.ts", "bun test src/net"]);
   expect(mixed.find((row) => row.kind === "turnSummary")?.toolCount).toBe(2);
 
-  // Only ToolSearch, done or failed: no activity row at all, so nothing folds into "Worked for".
-  expect(only.filter((row) => row.kind === "activity")).toEqual([]);
-  expect(only.find((row) => row.kind === "turnSummary")?.toolCount).toBe(0);
-  // The reply a hidden call sits in reads on as one message.
+  // Completed discovery is hidden, but a failed discovery remains visible so its error is usable.
+  expect(titles(only)).toEqual(["ToolSearch"]);
+  expect(only.filter((row) => row.kind === "activity")).toHaveLength(1);
+  expect(only.find((row) => row.kind === "turnSummary")?.toolCount).toBe(1);
+  // Discovery plumbing does not split the surrounding assistant message.
   expect(only.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual(["Loading the tools. Loaded."]);
+});
+
+test("a completed discovery error stays visible and counts as work", () => {
+  const errored = {
+    title: "ToolSearch",
+    status: "completed",
+    provenance: { claudeTool: "ToolSearch" },
+    output: '{"isError":true,"message":"deferred tools unavailable"}',
+  };
+  expect(isCompletedPlumbingTool(errored)).toBe(false);
+  expect(visibleToolItems([{ kind: "tool", text: "ToolSearch", tool: errored } as never])?.length).toBe(1);
 });
 
 test("a hidden call's result on a page without its call draws no row named by its id", async () => {
@@ -217,7 +246,9 @@ test("a subagent's own view draws no ToolSearch row either", () => {
     event: { seq: index + 1, at: 1_000 + index },
     update: step.update,
   }));
-  expect(childRows("child", searchOnly, new Map(), 1)).toEqual([]);
+  const failedRows = childRows("child", searchOnly, new Map(), 1) as Row[];
+  expect(titles(failedRows)).toEqual(["ToolSearch"]);
+  expect(failedRows.find((row) => row.kind === "activity")?.toolCount).toBe(1);
 });
 
 test("a subagent calling ToolSearch never shows it as what the subagent is doing", () => {
@@ -226,7 +257,11 @@ test("a subagent calling ToolSearch never shows it as what the subagent is doing
   const feed = (update: any, acpmux: Record<string, unknown>) => {
     seq += 1;
     fold.reduce(
-      { seq, at: seq * 1000, msg: { method: "session/update", params: { update, _meta: { acpmux } } } },
+      {
+        seq,
+        at: seq * 1000,
+        msg: { method: "session/update", params: { update, _meta: { acpmux } } },
+      },
       update,
     );
   };
@@ -252,7 +287,11 @@ test("a later call reusing a ToolSearch call's id draws and becomes the action (
   const feed = (update: any, acpmux: Record<string, unknown>) => {
     seq += 1;
     fold.reduce(
-      { seq, at: seq * 1000, msg: { method: "session/update", params: { update, _meta: { acpmux } } } },
+      {
+        seq,
+        at: seq * 1000,
+        msg: { method: "session/update", params: { update, _meta: { acpmux } } },
+      },
       update,
     );
   };

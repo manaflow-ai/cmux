@@ -1,12 +1,5 @@
 import { useT } from "./i18n";
-
-/// The app a watched chat's conversation runs in, by acpmux harness family. Product names, never
-/// translated.
-export function watchedApp(family: string): string {
-  // l10n-allow: product names (Codex, Claude Code), never translated.
-  return family === "codex" ? "Codex" : family === "claude" ? "Claude Code" : family;
-}
-
+import { watchedApp } from "./watchBannerModel";
 /// A chat that shows a Claude Code or Codex session another app runs, without running it
 /// (acpmux `hub/watch.rs`): the transcript follows that app live; a reply, or Take Over, makes this
 /// chat run the conversation (acpmux refuses while the other app still runs

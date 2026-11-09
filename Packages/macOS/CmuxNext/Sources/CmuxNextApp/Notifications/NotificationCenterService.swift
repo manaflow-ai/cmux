@@ -305,7 +305,7 @@ final class NotificationCenterService {
     func open(surface: SurfaceID?) {
         guard let services, let surface, let located = locate(surface: surface, in: services.daemon.store) else { return }
         let context = AppActionContext(services: services)
-        context.reveal(located)
+        context.reveal(located); services.agentTabs.existingView(located.tab.id)?.focusAsk()
         interacted(.open, tabID: located.tab.id)
     }
 
@@ -410,7 +410,7 @@ final class NotificationCenterService {
         }
         readMark(trigger, tab: tab, owner: owner)
         guard tab.hasUnread else { return }
-        guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)) else { return }
+        guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)), trigger != .keystroke || tab.keyMayRead() else { return }
         if let owner, !local, !owner.supports(DaemonCapability.notificationAck.rawValue) {
             return note("\(trigger.rawValue) cannot read \(tab.id) on \(owner.machineID): no notification-ack-v1")
         }
@@ -434,7 +434,7 @@ final class NotificationCenterService {
     /// while viewed stays marked until it is viewed again, ``clearTabMarks(entering:)``).
     private func readMark(_ trigger: NotificationTrigger, tab: TabModel, owner: DaemonService?) {
         dismissAttention(trigger, tab: tab)
-        guard tab.markedUnread, trigger == .click || trigger == .keystroke, let daemon = owner ?? services?.daemon else { return }
+        guard tab.markedUnread, trigger == .click || trigger == .keystroke && tab.keyMayRead(), let daemon = owner ?? services?.daemon else { return }
         note("\(trigger.rawValue) read mark \(tab.id)")
         if DesignSettings.shared.attention.flashesOnEntry(trigger) { entryReads.insert(tab.id) }
         try? TabUnreadMark.set(false, tab: tab, daemon: daemon)
@@ -444,8 +444,8 @@ final class NotificationCenterService {
     /// terminal input did in the old app; focus, selection, and typing in
     /// a page or find bar keep it.
     private func clearUnreadMark(ofTab tab: String) {
-        // Runs per keystroke: no tab walk unless some workspace is marked.
-        guard let services, services.daemon.store.workspaces.contains(where: \.markedUnread),
+        // Runs per keystroke: no workspace or tab walk unless some workspace is marked (a kept count).
+        guard let services, services.daemon.store.unreadTotals.markedWorkspaces > 0,
               let workspace = WorkspaceUnreadMark.workspace(ofTab: tab, in: services.daemon.store),
               workspace.markedUnread else { return }
         // One clear per echo window, however fast the keys come.
@@ -668,9 +668,9 @@ final class NotificationCenterService {
         let owner = owner ?? tab
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
         let headline = headline ?? program?.title(localizations: localizations) ?? notification.title
-        // An agent chat's permission prompt: Allow once and Deny, and what it asks as the body.
-        withApproval(of: notification, tab: owner) { [weak self] approval in
-            guard let self else { return }
+        let incognito = workspace.map { services?.windows.isIncognito(workspace: $0) == true } ?? false // A permission prompt's answers and body; none in an incognito window, decided at arrival.
+        withApproval(of: notification, tab: owner) { [weak self] asked in
+            guard let self else { return }; let approval = incognito ? nil : asked
             let content = self.bannerFormatter.content(
                 headline: headline, posterSubtitle: notification.shownSubtitle,
                 body: approval?.summary ?? notification.bannerBody(previews: self.previews, screenLocked: self.screenLocked()),
@@ -678,7 +678,7 @@ final class NotificationCenterService {
             self.desktop.post(id: id, title: content.title, subtitle: content.subtitle, body: content.body,
                               surface: notification.surface?.rawValue, workspace: workspace, defaultSound: sound == "default",
                               attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
-                              reply: notification.reply && owner?.kind == .pty, approval: approval != nil, incognito: workspace.map { self.services?.windows.isIncognito(workspace: $0) == true } ?? false)
+                              reply: notification.reply && owner?.kind == .pty, approval: approval != nil, alwaysAllow: approval?.alwaysOffered == true, incognito: incognito)
             if let sound, sound != "default" { self.soundGate.player.play(sound, volume: volume, banner: true) }
             if let owner {
                 self.banners[owner.id, default: []].append(id)

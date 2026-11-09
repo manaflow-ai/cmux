@@ -25,9 +25,44 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-PAGES="history apps coderouter cloud keybindings icon-picker group-editor settings passwords changelog files artifacts stats chief-usage chief-views github mobile-pairing machines chief-inspector home-channels home-messages debug-settings import-history cloud-progress tasks"
+PAGES="
+apps
+artifacts
+bookmarks
+changelog
+chief-inspector
+chief-usage
+chief-views
+cloud
+cloud-progress
+coderouter
+debug-settings
+files
+github
+group-editor
+history
+home-channels
+home-chat-colors
+home-messages
+icon-picker
+import-history
+keybindings
+machines
+mobile-pairing
+onboarding
+overlay
+passwords
+server-cards
+settings
+setup-card
+stash
+stats
+tasks
+"
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
-PAGES="$PAGES page-info"
+PAGES="$PAGES page-info site-settings site-data certificate"
+# The Import Cookies card (BrowserCookieImportCard, through BrowserChromeWebHost).
+PAGES="$PAGES cookie-import"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"

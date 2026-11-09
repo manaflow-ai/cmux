@@ -15,7 +15,7 @@
 /// skips one that does not compile, and skips a preset name it does not know.
 public nonisolated struct CommandLabelsSetting: Sendable {
     /// The key's path.
-    public let configPath = AgentPaneDisplaySettingsSchema.section + ["commandLabels"]
+    public let configPath = AgentPaneDisplaySettingsSchema.commandLabelsPath
 
     public init() {}
 

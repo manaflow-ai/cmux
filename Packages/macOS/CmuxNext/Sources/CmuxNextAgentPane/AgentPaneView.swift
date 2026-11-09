@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextDesignTokens
+import CmuxNextDictation
 import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
@@ -59,10 +60,10 @@ public final class AgentPaneView: NSView {
     var crashReloadCount = 0
     /// The automatic retries after the page's web content ended.
     let crashRetry = AgentPageCrashRetry()
-    /// Where the window's toasts rest (window coordinates), nil when none shows (AgentPaneView+ToastRoom.swift).
-    var toastsRect: NSRect?
-    /// The toast band the page last got, in CSS pixels.
-    var sentToastRoom: Double = 0
+    /// The rect the window's toasts last heard this pane avoids, window coordinates (AgentPaneView+ToastAvoidance.swift).
+    var lastToastAvoidance: NSRect = .zero
+    /// The window that rect was in: a move to another window at the same frame is a move too.
+    weak var lastToastAvoidanceWindow: NSWindow?
     /// The page ends of the app's agent panes, grouped by the termination that ended them.
     let terminations: AgentPageTerminations
     /// The app's flicker ring file (``AgentPageFlickerLog``, made by the composition root); nil writes nothing (tests).
@@ -91,6 +92,8 @@ public final class AgentPaneView: NSView {
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
     let page: PageWebView?
     let pageEvents: AgentPageProvider?
+    /// The page's generated resources (its media, its chat's drawn copy); nil on the old host.
+    private var pageResources: AgentPageResources?
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
     public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
@@ -212,8 +215,13 @@ public final class AgentPaneView: NSView {
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
             provider.tailHost = model.host
             provider.tabKey = { [weak model] in model?.tabKey() }
+            // A chat's drawn copy is kept only outside incognito (``AgentPaneChatSnapshots``).
+            let keepsSnapshots = { @MainActor [weak model] in model?.sendIsIncognito.map { !$0() } ?? false }
+            provider.keepsChatSnapshots = keepsSnapshots
+            let resources = AgentPageResources(session: { [weak model] in model?.sessionId }, allowed: keepsSnapshots)
+            pageResources = resources
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
-                                                                 chromium: chromium, panelProvider: panelProvider)
+                                                                 chromium: chromium, panelProvider: panelProvider, resources: resources)
             else { return nil }
             self.page = page
             pageEvents = provider
@@ -265,6 +273,10 @@ public final class AgentPaneView: NSView {
         self.webView = webView
         super.init(frame: .zero)
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
+        pageResources?.themeKey = { [weak self] in
+            guard let self else { return nil }
+            return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["key"]?.stringValue }
+        }
         model.tabRow.supportsNativeTools = pageEvents != nil
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.invokeTabRowTool(id, menuItemID: menuItemID)
@@ -315,6 +327,8 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
+        // Only the page host draws the outside-dictation mark; the old host has no event stream.
+        model.onWatchMicrophone = { [weak self] on in self?.watchMicrophone(on) }
         // A long recording is an upload of the chat: in its folder on this Mac (it goes with the chat),
         // else at the top; the App's launch sweep removes either after 30 days.
         dictation.chatSession = { [weak model] in model?.sessionId }
@@ -347,6 +361,7 @@ public final class AgentPaneView: NSView {
         observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         installSessionInfo()
+        model.onToastAvoidance = { [weak self] in self?.toastAvoidanceMoved() }
         installHostGlass()
     }
 
@@ -398,7 +413,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
@@ -445,8 +460,8 @@ public final class AgentPaneView: NSView {
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()
         layoutHostGlass()
-        // A pane resized or moved under shown toasts: its band follows at once.
-        if toastsRect != nil || sentToastRoom != 0 { sendToastRoom(duration: 0) }
+        // A pane resized or moved under shown toasts: they stay clear of its composer.
+        toastAvoidanceMoved()
         redraw.laidOut(self)
     }
 
@@ -466,9 +481,31 @@ public final class AgentPaneView: NSView {
 
     /// Toggle Dictation (the shortcut, palette or menu). From a key press,
     /// holding the key past a moment makes it push-to-talk: dictation stops
-    /// when the key comes up.
-    public func toggleDictation(from event: NSEvent? = NSApp.currentEvent) {
-        dictation.toggle(from: event)
+    /// when the key comes up. `byPerson` is false for automation's runs (`cmux action run`), which
+    /// never hand off: a hand-off types into whichever app is in front.
+    public func toggleDictation(from event: NSEvent? = NSApp.currentEvent, byPerson: Bool = true) {
+        // A dictation app the person picked (`agentPane.dictationSource`) gets the press instead,
+        // as the mic's click does (`dictation.handoff`). macOS Dictation writes where the keyboard
+        // is, so the pane's page takes it first, in whichever engine shows it (the page keeps its
+        // prompt focused).
+        if model.composer.dictationSource == .macos { focusChat() }
+        // A session of cmux's own that still runs ends first, as the mic's click ends it, whatever
+        // the source is now.
+        if !dictation.phase.isStartable {
+            dictation.toggle(from: event)
+            return
+        }
+        // A hand-off types into another app: only for the person's own key or click (Globe-D, the
+        // Edit menu, the palette), never a posted one or a script's run.
+        let person = byPerson && (event ?? NSApp.currentEvent).map { AgentPanePersonInput.isPerson($0, sources: eventSources) } == true
+        let handOff = person || model.composer.dictationSource == .cmux
+        switch handOff ? model.dictationHandoff.handOff(model.composer) : .notPersons {
+        case nil: return
+        case .ownDictation: dictation.toggle(from: event)
+        case let failure?:
+            // The composer says why, naming the app, as for the mic's click; the old host has no stream.
+            if pageEvents?.publish(.dictationHandoff(failure: AgentPaneDictationHandoff.code(failure))) != true { NSSound.beep() }
+        }
     }
 
     /// Stops whichever agent pane is dictating, keeping its words, so the
@@ -479,8 +516,29 @@ public final class AgentPaneView: NSView {
         DictationMicrophone.shared.stopListening()
     }
 
+    /// The app's microphone watcher (``AgentPaneShared/microphone``); nil: no outside-dictation mark.
+    var microphoneActivity: MicrophoneActivity?
+
+    /// While `on`, tells the page whenever another app takes or releases the microphone, and its
+    /// level while metered; off (the page's composers lost the keyboard) or a closed pane stops watching.
+    func watchMicrophone(_ on: Bool) {
+        guard let microphoneActivity else { return }
+        guard on, let pageEvents else {
+            microphoneActivity.unwatch(self)
+            return
+        }
+        microphoneActivity.watch(self, onLevel: { [weak pageEvents] level in
+            // A level is stale at once: with no page subscribed, none is buffered for later.
+            guard let pageEvents, pageEvents.hasSubscribers else { return }
+            _ = pageEvents.publish(.micLevel(level))
+        }, onChange: { [weak pageEvents] state in
+            _ = pageEvents?.publish(.micActivity(state))
+        })
+    }
+
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        microphoneActivity?.unwatch(self)
         // A closed page must not notify the pane that used to host it after it leaves.
         onNativeToolOwnerChange = nil
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.
@@ -542,6 +600,8 @@ public final class AgentPaneView: NSView {
         super.viewDidHide()
         dictation.handle(.stop)
         popupHostStorage?.dismiss()
+        // Hidden, itself or an ancestor (a workspace switch): toasts stop avoiding its composer.
+        toastAvoidanceMoved()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -560,17 +620,26 @@ public final class AgentPaneView: NSView {
         onNativeToolOwnerChange?()
     }
 
+    /// Shown again, itself or a hidden ancestor (a workspace switch): toasts avoid its composer again.
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        toastAvoidanceMoved()
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
         if window == nil {
             dictation.handle(.stop)
             popupHostStorage?.dismiss()
+            // The rect it last told a window belongs to that window: moved into another one (even
+            // at the same frame), it tells the new window afresh.
+            lastToastAvoidance = .zero
         } else {
             // The composer's + > Attach files or images opens without making a panel (PageOpenPanel).
             openPanel?.warmWhenIdle()
-            // The toasts may have come or gone while the pane was out of the window.
-            if let window { CmuxToastAvoidance.reservingViewMoved(self, to: window) }
+            // The window's toasts stay clear of its composer.
+            toastAvoidanceMoved()
         }
         applyTheme()
     }

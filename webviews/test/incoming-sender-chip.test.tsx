@@ -9,6 +9,7 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import type { IncomingRelation } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 
@@ -72,9 +73,12 @@ const sessions = [
   entry({ sessionId: "mux-deputy", name: "coord-deputy", hostKind: "local" }),
 ];
 
-async function line(message: { name: string; sessionId?: string; chief?: string }) {
+async function line(
+  message: { name: string; sessionId?: string; chief?: string; relation?: IncomingRelation },
+  entries = sessions,
+) {
   const store = new SubsessionStore();
-  store.set(sessions);
+  store.set(entries);
   const opened: string[] = [];
   const text = "Rebased; ready for review.";
   root = createRoot(host);
@@ -94,7 +98,7 @@ async function line(message: { name: string; sessionId?: string; chief?: string 
     // identifier like it was before and you can click it to go to that session"); no Open chat.
     open: host.querySelector<HTMLButtonElement>("button.cv-received__from--open"),
     from: host.querySelector<HTMLElement>(".cv-received__from"),
-    toggle: host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!,
+    toggle: host.querySelector<HTMLButtonElement>("button.cv-agentmsg__toggle")!,
     opened,
   };
 }
@@ -105,7 +109,7 @@ test("a peer lane, found by its bare name, opens from its name; no Open chat, th
   expect(host.textContent).not.toContain(t("subsession.openChat"));
   expect(from?.textContent).toBe("chief-ui");
   expect(from).toBe(open);
-  expect(from?.closest("button.cv-disclosure__toggle")).toBeNull();
+  expect(from?.closest("button.cv-agentmsg__toggle")).toBeNull();
   await act(async () => open!.click());
   expect(opened).toEqual(["mux-chief-ui"]);
   // The name leaves the message closed.
@@ -125,6 +129,44 @@ test("a sender no list names is plain text: its line only opens the message", as
   await act(async () => toggle.click());
   expect(host.querySelector(".cv-received")?.getAttribute("data-open")).toBe("true");
   expect(opened).toEqual([]);
+});
+
+const remote = entry({
+  sessionId: "remote-review",
+  name: "gcp-codex-lane-10/pr-row",
+  peer: "gcp-codex-lane-10",
+  harness: "codex",
+  startedBy: "viewer",
+});
+
+test("a qualified remote sender reads by its session name in the line, its labels and the reply", async () => {
+  const { open, from, toggle, opened } = await line(
+    { name: remote.name!, sessionId: remote.sessionId, relation: "parent" },
+    [remote],
+  );
+  expect(from?.textContent).toBe("Parent · pr-row");
+  expect(host.querySelector(".cv-received__host-name")?.textContent).toBe("gcp-codex-lane-10");
+  expect(open?.getAttribute("aria-label")).toBe("Open pr-row (gcp-codex-lane-10)");
+  expect(toggle.getAttribute("aria-label")).toBe(
+    t("message.collapsedLabel", { from: "Parent · pr-row", preview: "Rebased; ready for review." }),
+  );
+  await act(async () => open!.click());
+  expect(opened).toEqual([remote.sessionId]);
+});
+
+test("a sender with no recorded name reads by its session's name, not its raw address", async () => {
+  const child = entry({ sessionId: "child-3", name: "design-check", hostKind: "local" });
+  const { from, toggle } = await line({ name: "acp:child-3", sessionId: "child-3" }, [child]);
+  expect(from?.textContent).toBe("design-check");
+  expect(toggle.getAttribute("aria-label")).toBe(
+    t("message.collapsedLabel", { from: "design-check", preview: "Rebased; ready for review." }),
+  );
+});
+
+test("a sender found only by its name gains no child relationship", async () => {
+  const { from } = await line({ name: remote.name! }, [remote]);
+  expect(from?.textContent).toBe("pr-row");
+  expect(from?.textContent).not.toContain("Sub-session");
 });
 
 // manaflow-ai/cmux#27914: a Chief's turn messages a GUI agent chat, by `agents_chat_send` (the cmux
@@ -186,6 +228,10 @@ for (const [kind, provenance] of Object.entries(chiefMessages)) {
 test("a mounted agent identity takes a late profile icon without a parent render", async () => {
   const { AgentIdentity } = await import("../src/agent-session/acpmux/subagents/AgentIdentity");
   const { rememberHarnessIcons } = await import("../src/agent-session/shared/harnessIcons");
+  // Sender Badge: None, the mark alone as before the badge (SenderIcon.test.tsx covers the badge).
+  const { configureSenderIconLook, SENDER_ICON_BADGE_KEY } =
+    await import("../src/agent-session/acpmux/subagents/senderIconLook");
+  configureSenderIconLook({ [SENDER_ICON_BADGE_KEY]: "none" });
   root = createRoot(host);
   await act(async () =>
     root!.render(
@@ -213,6 +259,7 @@ test("a mounted agent identity takes a late profile icon without a parent render
   expect(unknown.textContent).toBe("🦊");
   expect(known.textContent).toBe("🦉");
   expect(unknown.querySelector("[data-agent-tone]")).toBeNull();
+  configureSenderIconLook({});
 });
 
 // Leo, 2026-10-28 (ask-4e32bae782): "when you hover over the button, it should be able to tell you,

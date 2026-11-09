@@ -3,6 +3,12 @@
 
 public import CmuxNextDesign
 
+extension NekoIconThemeSetting {
+    /// `appearance.iconTheme`: Reserved for the optional Neko icon family; neko resolves to the default artwork until a reviewed set ships.
+    public nonisolated static let configPath = ["appearance", "iconTheme"]
+    public nonisolated static let fallback: NekoIconTheme = .default
+}
+
 extension AppThemeSetting {
     /// `appearance.theme`: cmux's terminal theme: a Ghostty theme name or a light/dark pair; unset is the Ghostty config's theme.
     public nonisolated static let configPath = ["appearance", "theme"]
@@ -121,7 +127,7 @@ extension AppearanceTuningSetting {
 extension DensitySetting {
     /// `appearance.density`.
     public nonisolated static let configPath = ["appearance", "density"]
-    public nonisolated static let fallback: DensityPreset = .compact
+    public nonisolated static let fallback: DensityPreset = .cozy
 }
 
 extension CustomDensitySelectionSetting {
@@ -273,113 +279,22 @@ extension PaneRingConfigParser {
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum AppearanceSettingsSchema {
-    static var appTheme: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.appTheme", "App Theme")
+    static var iconTheme: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.iconTheme", "Icon Theme")
         return [
             SettingDescriptor(
-                AppThemeSetting.configPath,
+                NekoIconThemeSetting.configPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.appearance.theme", "Theme"),
-                help: SettingsText.keyed("settings.appearance.theme.help", "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."),
-                summary: SettingsText.keyed("settings.appearance.theme.summary", "Colors for terminals, and cmux unless App Theme is set"),
-                kind: .theme,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.source.ghostty", "Ghostty"),
-                keywords: ["theme", "color", "colors", "color scheme", "dark", "light", "ghostty", "palette"]
-            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
-            SettingDescriptor(
-                ChromeThemeSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.appTheme", "App Theme"),
-                help: SettingsText.keyed("settings.appearance.appTheme.help", "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."),
-                summary: SettingsText.keyed("settings.appearance.appTheme.summary", "Colors for the window, sidebar, tabs and pages"),
-                kind: .theme,
-                default: .string(ChromeThemeSetting.fallback),
-                defaultLabel: SettingsText.keyed("settings.default.followTerminal", "Match Terminal Theme"),
-                keywords: ["app theme", "accent", "chrome", "interface", "colors", "contrast", "wcag"]
-            ),
-            SettingDescriptor(
-                ThemeEditsSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.themeEdits", "Theme Edits"),
-                help: SettingsText.keyed("settings.appearance.themeEdits.help", "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color."),
-                kind: .stringMap,
-                default: ThemeEditsSetting.fallback,
-                keywords: ["theme", "custom", "edit", "color", "colour", "palette", "background", "foreground", "cursor", "selection"]
-            ),
-            SettingDescriptor(
-                ThemeFavoritesSetting.favoritesPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.favoriteThemes", "Starred Themes"),
-                help: SettingsText.keyed("settings.appearance.favoriteThemes.help", "Themes starred in a theme picker. The picker lists them first."),
-                kind: .stringList,
-                default: .array(ThemeFavoritesSetting.favoritesDefault.map { .string($0) }),
-                keywords: ["theme", "star", "starred", "favorite", "favourite", "pin"]
-            ).hiddenFromPalette("a theme picker's stars edit it: a list of theme names"),
-            SettingDescriptor(
-                ThemeFavoritesSetting.rotationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.rotateFavoriteThemes", "Rotate Starred Themes"),
-                help: SettingsText.keyed("settings.appearance.rotateFavoriteThemes.help", "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on."),
-                summary: SettingsText.keyed("settings.appearance.rotateFavoriteThemes.summary", "Change to the next starred theme"),
+                title: SettingsText.keyed("settings.appearance.iconTheme", "Icon Theme"),
+                help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
                 kind: .choice([
-                    SettingChoice(ThemeRotation.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
-                    SettingChoice(ThemeRotation.launch.rawValue, SettingsText.keyed("settings.choice.eachLaunch", "Each Launch")),
-                    SettingChoice(ThemeRotation.daily.rawValue, SettingsText.keyed("settings.choice.everyDay", "Every Day")),
+                    SettingChoice(NekoIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
+                    SettingChoice(NekoIconTheme.neko.rawValue, "Neko"),
                 ]),
-                default: .string(ThemeFavoritesSetting.rotationDefault.rawValue),
-                keywords: ["theme", "rotate", "rotation", "shuffle", "starred", "favorite", "daily", "launch"]
-            ),
-            SettingDescriptor(
-                AccentSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.accent", "Accent"),
-                help: SettingsText.keyed("settings.appearance.accent.help", "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris."),
-                summary: SettingsText.keyed("settings.appearance.accent.summary", "Color of selection and focus"),
-                kind: .choice([
-                    SettingChoice(ThemeAccent.neutral.rawValue, SettingsText.keyed("settings.choice.accent.neutral", "Neutral")),
-                    SettingChoice(ThemeAccent.theme.rawValue, SettingsText.keyed("settings.choice.accent.theme", "Theme Color")),
-                    SettingChoice("art", SettingsText.keyed("settings.choice.accent.art", "Art Color")),
-                    SettingChoice(ThemeAccent.red.rawValue, SettingsText.keyed("settings.choice.accent.red", "Red")),
-                    SettingChoice(ThemeAccent.green.rawValue, SettingsText.keyed("settings.choice.accent.green", "Green")),
-                    SettingChoice(ThemeAccent.yellow.rawValue, SettingsText.keyed("settings.choice.accent.yellow", "Yellow")),
-                    SettingChoice(ThemeAccent.blue.rawValue, SettingsText.keyed("settings.choice.accent.blue", "Blue")),
-                    SettingChoice(ThemeAccent.magenta.rawValue, SettingsText.keyed("settings.choice.accent.magenta", "Magenta")),
-                    SettingChoice(ThemeAccent.cyan.rawValue, SettingsText.keyed("settings.choice.accent.cyan", "Cyan")),
-                ]),
-                default: .string(AccentSetting.fallback.rawValue),
-                keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
-            ),
-            SettingDescriptor(
-                ThemeFileSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.themeFile", "Theme File"),
-                help: SettingsText.keyed("settings.appearance.themeFile.help", "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."),
-                summary: SettingsText.keyed("settings.appearance.themeFile.summary", "A look from ~/.config/cmux/themes"),
-                kind: .text,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.choice.none", "None"),
-                keywords: ["theme file", "rice", "ricing", "dotfile", "dotfiles", "look", "config", "themes folder", "json"]
-            ),
-            SettingDescriptor(
-                HighlightColorSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.highlightColor", "Highlight Color"),
-                help: SettingsText.keyed("settings.appearance.highlightColor.help", "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."),
-                summary: SettingsText.keyed("settings.appearance.highlightColor.summary", "Color of selected text"),
-                kind: .color,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.terminalTheme", "Terminal Theme"),
-                keywords: ["highlight", "selection", "selected text", "selection-background", "color", "colour", "theme"]
-            ),
+                default: .string(NekoIconThemeSetting.fallback.rawValue),
+                keywords: ["icons", "icon", "theme", "neko", "cat"]
+            ).hiddenFromSettingsPage("reserved until the Neko artwork passes light/dark 1x/2x review"),
         ]
     }
 }

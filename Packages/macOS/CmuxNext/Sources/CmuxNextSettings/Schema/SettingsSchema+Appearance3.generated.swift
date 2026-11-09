@@ -4,6 +4,188 @@
 public import CmuxNextDesign
 
 extension AppearanceSettingsSchema {
+    static var look: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
+        return [
+            SettingDescriptor(
+                DensitySetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.density", "Density"),
+                help: SettingsText.keyed("settings.appearance.density.help", "Row height, padding, corners, icons and text size together."),
+                kind: .choice([
+                    SettingChoice(DensityPreset.ultraCompact.rawValue, SettingsText.keyed("settings.choice.ultraCompact", "Ultra-compact")),
+                    SettingChoice(DensityPreset.compact.rawValue, SettingsText.keyed("settings.choice.compact", "Compact")),
+                    SettingChoice(DensityPreset.cozy.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
+                    SettingChoice(DensityPreset.comfortable.rawValue, SettingsText.keyed("settings.choice.comfortable", "Comfortable")),
+                    SettingChoice(DensityPreset.spacious.rawValue, SettingsText.keyed("settings.choice.spacious", "Spacious")),
+                ]),
+                default: .string(DensitySetting.fallback.rawValue),
+                keywords: ["size", "spacing", "compact", "comfortable", "cozy", "default", "normal", "spacious", "dense", "font"]
+            ),
+            SettingDescriptor(
+                CustomDensitySelectionSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.customDensity", "Custom Density"),
+                kind: .text,
+                default: nil,
+                keywords: ["density", "custom"]
+            ).hiddenFromPalette("the Density card and the palette's density rows pick it"),
+            SettingDescriptor(
+                CustomDensitiesSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.customDensities", "Custom Densities"),
+                kind: .text,
+                default: .array(CustomDensitiesSetting.fallback.map { .string($0) }),
+                keywords: ["density", "custom"]
+            ).hiddenFromPalette("the Density card edits them: a list of density objects"),
+            SettingDescriptor(
+                UIScaleSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.uiScale", "App Zoom"),
+                help: SettingsText.keyed("settings.appearance.uiScale.help", "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app."),
+                kind: .number(SettingNumber(UIScaleSetting.range, step: 0.05, unit: .fraction, placeholder: UIScaleSetting.placeholder)),
+                default: .number(UIScaleSetting.fallback),
+                keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller", "interface scale"]
+            ),
+            SettingDescriptor(
+                InterfaceSizeSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.textSize", "Text Size"),
+                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size."),
+                kind: .number(SettingNumber(InterfaceSizeSetting.range, step: 1, unit: .points, placeholder: InterfaceSizeSetting.placeholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize"]
+            ),
+            SettingDescriptor(
+                InterfaceScaleSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.interfaceSize", "Interface Size"),
+                help: SettingsText.keyed("settings.appearance.interfaceSize.help", "Text size of tabs, the sidebar and other controls. Terminal text has its own size."),
+                summary: SettingsText.keyed("settings.appearance.interfaceSize.summary", "Text size of tabs, sidebar and controls"),
+                kind: .number(SettingNumber(InterfaceScaleSetting.range, step: 0.05, unit: .fraction, placeholder: InterfaceScaleSetting.placeholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["font", "text", "size", "zoom", "scale", "bigger", "smaller", "interfaceScale"]
+            ).hiddenFromSettingsPage("opt-in: the Debug Settings toggle chrome.interfaceSize turns it on, until it is promoted"),
+            SettingDescriptor(
+                LayoutMetricSetting.sidebarWidthPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.sidebarWidth", "Sidebar Width"),
+                kind: .number(SettingNumber(LayoutMetricSetting.sidebarWidthRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarWidthPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["sidebar", "width", "size", "sidebarWidth"]
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
+            SettingDescriptor(
+                LayoutMetricSetting.columnGapPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.columnGap", "Column Gap"),
+                kind: .number(SettingNumber(LayoutMetricSetting.columnGapRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.columnGapPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["column", "gap", "spacing", "columnGap"]
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
+            SettingDescriptor(
+                LayoutMetricSetting.dividerThicknessPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.dividerThickness", "Divider Thickness"),
+                kind: .number(SettingNumber(LayoutMetricSetting.dividerThicknessRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.dividerThicknessPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["divider", "split", "pane", "line", "thickness", "dividerThickness"]
+            ),
+            SettingDescriptor(
+                LayoutMetricSetting.dividerHitWidthPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.dividerHitWidth", "Divider Drag Width"),
+                kind: .number(SettingNumber(LayoutMetricSetting.dividerHitWidthRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.dividerHitWidthPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["divider", "split", "pane", "drag", "hit", "width", "dividerHitWidth"]
+            ),
+            SettingDescriptor(
+                LayoutMetricSetting.titlebarHeightPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.titlebarHeight", "Titlebar Height"),
+                kind: .number(SettingNumber(LayoutMetricSetting.titlebarHeightRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.titlebarHeightPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["titlebar", "title bar", "header", "height", "titlebarHeight"]
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
+            SettingDescriptor(
+                BordersSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.borders", "Borders"),
+                help: SettingsText.keyed("settings.appearance.borders.help", "None removes every border, hairline and separator in the app."),
+                kind: .choice([
+                    SettingChoice(BorderMode.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
+                    SettingChoice(BorderMode.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
+                ]),
+                default: .string(BordersSetting.fallback.rawValue),
+                keywords: ["border", "hairline", "separator", "outline", "line"]
+            ),
+            SettingDescriptor(
+                PaneFocusSettings.focusIndicatorPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.focusIndicator", "Focused Pane"),
+                help: SettingsText.keyed("settings.appearance.focusIndicator.help", "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."),
+                summary: SettingsText.keyed("settings.appearance.focusIndicator.summary", "How the focused pane stands out"),
+                kind: .choice([
+                    SettingChoice(FocusIndicator.border.rawValue, SettingsText.keyed("settings.choice.border", "Border")),
+                    SettingChoice(FocusIndicator.tabs.rawValue, SettingsText.keyed("settings.choice.tabs", "Tabs")),
+                    SettingChoice(FocusIndicator.both.rawValue, SettingsText.keyed("settings.choice.both", "Both")),
+                    SettingChoice(FocusIndicator.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
+                ]),
+                default: .string(PaneFocusSettings.focusIndicatorDefault.rawValue),
+                keywords: ["focus", "active", "pane", "tab", "ring"]
+            ),
+            SettingDescriptor(
+                PaneFocusSettings.inactiveTabStylePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
+                help: SettingsText.keyed("settings.focus.inactiveTabStyle.help", "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."),
+                summary: SettingsText.keyed("settings.focus.inactiveTabStyle.summary", "How tabs in other panes tone down"),
+                kind: .choice([
+                    SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.keyed("settings.choice.fade", "Fade")),
+                    SettingChoice(InactiveTabStyle.tonal.rawValue, SettingsText.keyed("settings.choice.tonal", "Tonal")),
+                    SettingChoice(InactiveTabStyle.quiet.rawValue, SettingsText.keyed("settings.choice.quiet", "Quiet")),
+                ]),
+                default: .string(PaneFocusSettings.inactiveTabStyleDefault.rawValue),
+                keywords: ["focus", "inactive", "unfocused", "pane", "tab", "fade", "dim"]
+            ),
+            SettingDescriptor(
+                AnimationSpeedSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.ui.animationSpeed", "Animations"),
+                kind: .choice([
+                    SettingChoice(MotionSpeed.fast.rawValue, SettingsText.keyed("settings.choice.fast", "Fast")),
+                    SettingChoice(MotionSpeed.normal.rawValue, SettingsText.keyed("settings.choice.normal", "Normal")),
+                    SettingChoice(MotionSpeed.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                ]),
+                default: .string(AnimationSpeedSetting.fallback.rawValue),
+                keywords: ["motion", "speed"]
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
+        ]
+    }
+}
+
+extension AppearanceSettingsSchema {
     static var chromeStyle: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.panes", "Panes")
         return [
@@ -16,7 +198,7 @@ extension AppearanceSettingsSchema {
                 summary: SettingsText.keyed("settings.appearance.chromeStyle.summary", "Card, lines and sidebar background"),
                 kind: .choice(ChromeStyleSetting.choices),
                 default: .string(ChromeStyleSetting.fallback.rawValue),
-                keywords: ["window", "style", "chrome", "card", "flat", "border", "borders", "lines", "divider", "outline", "seam", "sidebar", "two-tone", "minimal", "bare", "floating", "gaps"]
+                keywords: ["window", "style", "chrome", "card", "flat", "border", "borders", "lines", "divider", "outline", "seam", "sidebar", "two-tone", "minimal", "bare", "floating", "gaps", "blocks"]
             ),
         ]
     }
@@ -156,77 +338,6 @@ extension AppearanceSettingsSchema {
                 kind: .number(SettingNumber(PaneChromeConfigParser.paneBorderWidthRange, step: 0.5, unit: .points)),
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.onePixel", "One pixel"),
-                keywords: []
-            ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var focusRing: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.focusRing", "Focus Ring")
-        return [
-            SettingDescriptor(
-                PaneRingConfigParser.focusRingEnabledPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.focusRing.enabled", "Show Focus Ring"),
-                kind: .toggle,
-                default: .bool(PaneRingConfigParser.focusRingEnabledDefault),
-                keywords: []
-            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
-            SettingDescriptor(
-                PaneRingConfigParser.focusRingStylePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.focusRing.style", "Style"),
-                kind: .choice([
-                    SettingChoice(FocusRingStyle.ring.rawValue, SettingsText.keyed("settings.choice.ring", "Ring")),
-                    SettingChoice(FocusRingStyle.glow.rawValue, SettingsText.keyed("settings.choice.glow", "Glow")),
-                    SettingChoice(FocusRingStyle.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                ]),
-                default: .string(PaneRingConfigParser.focusRingStyleDefault.rawValue),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneRingConfigParser.focusRingContrastPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.focusRing.contrast", "Contrast"),
-                kind: .choice([
-                    SettingChoice(FocusRingContrast.subtle.rawValue, SettingsText.keyed("settings.choice.subtle", "Subtle")),
-                    SettingChoice(FocusRingContrast.standard.rawValue, SettingsText.keyed("settings.choice.standard", "Standard")),
-                    SettingChoice(FocusRingContrast.strong.rawValue, SettingsText.keyed("settings.choice.strong", "Strong")),
-                ]),
-                default: .string(PaneRingConfigParser.focusRingContrastDefault.rawValue),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneRingConfigParser.focusRingColorPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.focusRing.color", "Color"),
-                kind: .color,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.theme", "Theme"),
-                keywords: []
-            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
-            SettingDescriptor(
-                PaneRingConfigParser.focusRingWidthPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.focusRing.width", "Width"),
-                kind: .number(SettingNumber(PaneRingConfigParser.focusRingWidthRange, step: 0.5, unit: .points)),
-                default: .number(PaneRingConfigParser.focusRingWidthDefault),
-                keywords: []
-            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
-            SettingDescriptor(
-                PaneRingConfigParser.focusRingShowWhenSinglePanePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.focusRing.showWhenSinglePane", "Show With One Pane"),
-                kind: .toggle,
-                default: .bool(PaneRingConfigParser.focusRingShowWhenSinglePaneDefault),
                 keywords: []
             ),
         ]

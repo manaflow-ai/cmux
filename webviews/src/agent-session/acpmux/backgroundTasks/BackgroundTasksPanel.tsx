@@ -44,7 +44,7 @@ import { ChevronLeft, Close, Expand } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import type { WorkflowAgent } from "../summary/workflow";
 import type { TranscriptRead } from "../summary/workflowTranscript";
 import { useWorkflowTranscript } from "../summary/useWorkflowTranscript";
@@ -57,10 +57,12 @@ import {
   type StopTarget,
 } from "./backgroundTasks";
 import { BackgroundTaskCard } from "./BackgroundTaskCard";
+import { FOCUS_FRESH_MS } from "./openBackgroundTasks";
 import { SubagentTranscript } from "./SubagentTranscript";
 import { NestedAgents } from "./subagentTranscriptModel";
 import "./backgroundTasks.css";
 import { FINISHED_PAGE, type PanelSection, panelSections } from "./backgroundTasksPanelModel";
+import { Clock } from "../../../ui/Typography";
 
 /// Whether this chat's subagents stop on their own (Claude Code's do; App.tsx `stopsSubagents`): a
 /// subagent's row shows no stop button where it would do nothing (never a dead click).
@@ -89,6 +91,7 @@ export function BackgroundTasksPanel({
   look = "nested",
   expanded = false,
   initialDrill,
+  focus,
   stopsAgents = true,
   readsOutput = true,
   workflow,
@@ -107,6 +110,10 @@ export function BackgroundTasksPanel({
   expanded?: boolean;
   /// A gallery or a test opens on a transcript.
   initialDrill?: Drill;
+  /// The latest request to open on one of the chat's own commands (openBackgroundTasks.ts, Session
+  /// Info's row): each new one steps back to the list, opens the command's heading and card, and
+  /// brings the card into view. One already old when the panel first draws is history.
+  focus?: { toolCallId: string; at: number };
   stopsAgents?: boolean;
   /// The host reads a command's output (BackgroundTaskOutputContext); off, its card shows the command.
   readsOutput?: boolean;
@@ -132,6 +139,14 @@ export function BackgroundTasksPanel({
   // Workflows turned off (Labs) while a workflow agent's transcript shows: there is nothing to read
   // it with, so the panel steps back out of it rather than show a blank pane.
   if (!workflow && stack.some((entry) => entry.workflow)) setStack(stack.filter((entry) => !entry.workflow));
+  // The request the panel acts on, and the latest one it has seen.
+  const [target, setTarget] = useState(() => (focus && Date.now() - focus.at < FOCUS_FRESH_MS ? focus : undefined));
+  const [seenFocus, setSeenFocus] = useState(focus?.at);
+  if (focus && focus.at !== seenFocus) {
+    setSeenFocus(focus.at);
+    setTarget(focus);
+    if (stack.length > 0) setStack([]);
+  }
   const drill = stack.at(-1);
   const list = useRef<HTMLDivElement>(null);
   const listScroll = useRef(0);
@@ -172,11 +187,17 @@ export function BackgroundTasksPanel({
                 <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
               ) : (
                 sections.map((section) => (
-                  <Section key={section.id} id={section.id} count={section.groups.length + section.commands.length}>
+                  <Section
+                    key={section.id}
+                    id={section.id}
+                    count={section.groups.length + section.commands.length}
+                    openAt={focusedIn(section.commands, target)}
+                  >
                     {section.commands.map((task) => (
                       <TaskRow
                         key={task.id}
                         task={task}
+                        openAt={focusedIn([task], target)}
                         now={now}
                         onDrill={open}
                         onStop={onStop}
@@ -233,9 +254,25 @@ export function BackgroundTasksPanel({
 /// A heading that folds its groups: Running open at first, Finished folded, as Claude Desktop's panel
 /// opens (Leo, 2026-11-07); its fold is the panel's own state, so Back from a transcript finds it as
 /// it was.
-function Section({ id, count, children }: { id: PanelSection["id"]; count: number; children: ReactNode }) {
+function Section({
+  id,
+  count,
+  openAt,
+  children,
+}: {
+  id: PanelSection["id"];
+  count: number;
+  /// A request to open on a command under it (`focus`): each new one opens the heading.
+  openAt?: number;
+  children: ReactNode;
+}) {
   const t = useT();
-  const [open, setOpen] = useState(id === "running");
+  const [open, setOpen] = useState(id === "running" || openAt !== undefined);
+  const [openedAt, setOpenedAt] = useState(openAt);
+  if (openAt !== undefined && openAt !== openedAt) {
+    setOpenedAt(openAt);
+    setOpen(true);
+  }
   return (
     <div className="acpmux-bg__section" data-section={id}>
       <Button
@@ -253,6 +290,10 @@ function Section({ id, count, children }: { id: PanelSection["id"]; count: numbe
     </div>
   );
 }
+
+/// The time of the request (`focus`) that names one of `tasks`, if one does.
+const focusedIn = (tasks: readonly BackgroundTask[], focus: { toolCallId: string; at: number } | undefined) =>
+  focus && tasks.some((task) => task.toolCallId === focus.toolCallId) ? focus.at : undefined;
 
 /// The group a subagent is, or the one it is a task of.
 function agentOf(groups: readonly BackgroundGroup[], agentId: string) {
@@ -478,7 +519,7 @@ function GroupBlock({
         {!live && group.state === "failed" ? (
           <span className="acpmux-bg__time acpmux-bg__failed">{t("subagents.state.failed")}</span>
         ) : (
-          <span className="acpmux-bg__time">{time(group.startedAt, group.endedAt, now, live)}</span>
+          <Clock className="acpmux-bg__time" text={time(group.startedAt, group.endedAt, now, live) ?? ""} />
         )}
         <StopSlot target={group.stop} name={group.name} onStop={onStop} />
       </div>
@@ -605,12 +646,15 @@ function TaskList({
 
 function TaskRow({
   task,
+  openAt,
   now,
   onDrill,
   onStop,
   onOpenCommand,
 }: {
   task: BackgroundTask;
+  /// A request to open on this command (`focus`): its card opens and comes into view.
+  openAt?: number;
   now: number;
   onDrill(drill: Drill): void;
   onStop?(target: StopTarget): Promise<unknown>;
@@ -633,6 +677,7 @@ function TaskRow({
         time={time(task.startedAt, task.endedAt, now, task.state === "running")}
         stop={<StopSlot target={task.stop} name={task.title} onStop={onStop} />}
         readOutput={readsOutput}
+        openAt={openAt}
         onOpenTerminal={onOpenCommand && task.toolCallId ? () => onOpenCommand(task) : undefined}
       />
     );
@@ -652,7 +697,10 @@ function TaskRow({
         </span>
         <span className="acpmux-bg__label">{task.title}</span>
       </Button>
-      <span className="acpmux-bg__time">{time(task.startedAt, task.endedAt, now, task.state === "running")}</span>
+      <Clock
+        className="acpmux-bg__time"
+        text={time(task.startedAt, task.endedAt, now, task.state === "running") ?? ""}
+      />
       <StopSlot target={task.stop} name={task.title} onStop={onStop} />
     </div>
   );

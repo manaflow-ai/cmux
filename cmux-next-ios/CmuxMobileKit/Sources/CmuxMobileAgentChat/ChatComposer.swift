@@ -76,8 +76,8 @@ struct ChatComposer: View {
             }
             card
         }
-        .animation(.cmuxMobileSmooth, value: collapsed)
-        .animation(.cmuxMobileSnappy, value: attachments)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: collapsed)
+        .animation(.cmuxMobileSnappy.unlessReduceMotion, value: attachments)
         .filePreview($preview)
         // Photos and videos, as the Mac's composer takes both (a video goes with its frames).
         .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .any(of: [.images, .videos]))
@@ -148,7 +148,7 @@ struct ChatComposer: View {
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { shownCollapsed = target }
             } else {
-                withAnimation(.cmuxMobileSmooth) { shownCollapsed = target }
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { shownCollapsed = target }
             }
         }
     }
@@ -269,7 +269,7 @@ struct ChatComposer: View {
 
     /// Expands the capsule, then focuses the field once it exists.
     private func expand() {
-        withAnimation(.cmuxMobileSmooth) { expandRequested = true }
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expandRequested = true }
         Task { @MainActor in
             await Task.yield()
             focus.wrappedValue = true
@@ -468,8 +468,9 @@ struct ChatComposer: View {
         return Button {
             switch state {
             case .stop: store.cancel()
-            // A follow-up while the agent works queues, or steers it when Settings says so.
-            case .send, .queue: send(steer: state == .queue && CmuxMobilePreferences.steersFollowUps())
+            // A message steers a running turn, as the Mac's Return does. It asks even before the
+            // phone hears the turn start; acpmux steers only into a running turn, else runs it next.
+            case .send, .queue: send(steer: true)
             case .empty: break
             }
         } label: {
@@ -491,10 +492,12 @@ struct ChatComposer: View {
         }
         .buttonStyle(.plain)
         .disabled(state == .empty)
-        .animation(.cmuxMobileSnap, value: state)
+        .animation(.cmuxMobileSnap.unlessReduceMotion, value: state)
         .contextMenu {
             if state == .queue {
-                Button("Queue (send after this turn)", systemImage: "text.line.last.and.arrowtriangle.forward") { send(steer: false) }
+                Button("Queue (send after this turn)", systemImage: "text.line.last.and.arrowtriangle.forward") {
+                    send(steer: CmuxMobilePreferences.steersMidTurn(queue: true))
+                }
                 Button("Steer Now (Interrupt)", systemImage: "arrow.uturn.right") { send(steer: true) }
             }
         }
@@ -504,8 +507,7 @@ struct ChatComposer: View {
     /// A hardware Return: what the send button would do with a draft (never Stop).
     private func sendFromKeyboard() {
         switch primaryState {
-        case .send: send(steer: false)
-        case .queue: send(steer: CmuxMobilePreferences.steersFollowUps())
+        case .send, .queue: send(steer: true)
         case .stop, .empty: break
         }
     }

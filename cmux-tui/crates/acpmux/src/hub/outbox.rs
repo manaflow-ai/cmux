@@ -70,6 +70,18 @@ pub struct Delivery {
     /// The session the sender's connection proved it runs in, sent again as the caller.
     #[serde(default)]
     pub caller: Option<String>,
+    /// The session a sender's connection named with a caller token this daemon could not prove
+    /// (an agent's shell holding a stale session's token). Sent again as that unproven caller
+    /// (`server/outbox.rs` `attempt_once`), so the replay is no owner's terminal send either
+    /// (`server/requests.rs` `owner_terminal`) and stays unverified, as the send itself was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unproven_caller: Option<String>,
+    /// The sender's connection declared no terminal (`cli_caller.rs`: an old acpmux CLI, or a
+    /// shell in an acpmux session's environment whose token proved nothing): the replay declares
+    /// an agent's shell, so it is no owner's terminal send either. False for a record saved
+    /// before the field.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub not_terminal: bool,
     pub state: State,
     #[serde(default)]
     pub attempts: u32,
@@ -260,6 +272,15 @@ impl Outbox {
         self.running.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
     }
 
+    /// Whether a delivery not settled yet goes to a target `named` matches (a session's id, name
+    /// or an id prefix the sender gave): a turn may still come for that session
+    /// (`Hub::work_coming`).
+    pub fn pending_to(&self, named: impl Fn(&str) -> bool) -> bool {
+        self.book().deliveries.values().any(|d| {
+            !d.settled() && !d.projection_only() && !d.is_team_receipt() && named(&d.target)
+        })
+    }
+
     /// How many deliveries are not settled yet (a projection intent waiting on its receiver's
     /// journal counts).
     pub fn unsettled(&self) -> usize {
@@ -282,6 +303,8 @@ impl Outbox {
             target: address.to_owned(),
             request: json!({"teamOrigin": true, "_meta": {"acpmux": {"promptId": key}}}),
             caller: caller.map(str::to_owned),
+            unproven_caller: None,
+            not_terminal: false,
             state: State::Delivered,
             attempts: 0,
             never_sent: false,
@@ -513,6 +536,8 @@ mod tests {
             target: "lane".into(),
             request: json!({"sessionId": "lane", "_meta": {"acpmux": {"promptId": format!("p-{n}")}}}),
             caller: None,
+            unproven_caller: None,
+            not_terminal: false,
             state: State::Queued,
             attempts: 0,
             never_sent: false,
@@ -749,6 +774,8 @@ mod tests {
             target: "lane".into(),
             request,
             caller: None,
+            unproven_caller: None,
+            not_terminal: false,
             state: State::Queued,
             attempts: 0,
             never_sent: false,

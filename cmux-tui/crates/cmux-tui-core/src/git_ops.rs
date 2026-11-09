@@ -8,8 +8,10 @@
 //! (`mutation`), and so do `git.worktree.create`, a chat's own worktree
 //! (`worktree`), and `git.worktree.apply`, which brings its work back to the
 //! main checkout (`worktree_apply`), and `git.worktree.remove`, its cleanup
-//! (`worktree_remove`). `diff.comments.*` keeps the diff page's review
-//! comments per worktree root until they are sent (`diff_comments`). The pure git pieces (bounded runs, the repository
+//! (`worktree_remove`). `git.worktree.setup` reads a repository's worktree
+//! recipe and a worktree's setup run (`worktree_setup`). `diff.comments.*`
+//! keeps the diff page's review comments per worktree root until they are
+//! sent (`diff_comments`). The pure git pieces (bounded runs, the repository
 //! handle, parsers, diff scopes and branch refs) live in the `cmux-git`
 //! crate, which the diff sidecar links too.
 
@@ -30,7 +32,10 @@ mod target;
 mod user_run;
 mod worktree;
 mod worktree_apply;
+mod worktree_include;
+mod worktree_recipe;
 mod worktree_remove;
+mod worktree_setup;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -80,6 +85,10 @@ pub(crate) const WORKTREE_APPLY_CAPABILITY: &str = "git-worktree-apply-v1";
 /// Advertised in identify: the session host owns `git.worktree.remove`.
 pub(crate) const WORKTREE_REMOVE_CAPABILITY: &str = "git-worktree-remove-v1";
 
+/// Advertised in identify: a new worktree is set up from the project's
+/// recipe, and the session host answers `git.worktree.setup`.
+pub(crate) const WORKTREE_SETUP_CAPABILITY: &str = "git-worktree-setup-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -93,6 +102,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitWorktreeCreate
             | ResourceOperation::GitWorktreeApply
             | ResourceOperation::GitWorktreeRemove
+            | ResourceOperation::GitWorktreeSetup
     ) || checkpoint::handles(operation)
         || diff_comments::handles(operation)
 }
@@ -114,6 +124,7 @@ pub(crate) fn dispatch(
         ResourceOperation::GitWorktreeCreate => return worktree::dispatch(mux, &request),
         ResourceOperation::GitWorktreeApply => return worktree_apply::dispatch(mux, &request),
         ResourceOperation::GitWorktreeRemove => return worktree_remove::dispatch(mux, &request),
+        ResourceOperation::GitWorktreeSetup => return worktree_setup::dispatch(mux, &request),
         _ => {}
     }
     let operation = match request.envelope.operation {

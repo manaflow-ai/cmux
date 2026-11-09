@@ -4,23 +4,24 @@
 // into rows. The person's choices the page's sections kept in their own state (a fold, Show more, a
 // Reconnect under way) are kept here, since the App's rows have none.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { usePaneLanguage, useT, type Translate } from "../../i18n";
+import { usePaneLanguage, useT } from "../../i18n";
 import type { AcpmuxRow } from "../../model";
-import { planDone, type SessionInfoPlan } from "../ProgressSection";
+import { planDone, type SessionInfoPlan } from "../progressSectionModel";
 import { postNative } from "../../native";
 import { opensProcessTerminal } from "../../processTerminal";
 import type { StartedSession } from "../../started/startedSessions";
-import { useNow } from "../../subagents/SubagentGroup";
+import { useNow } from "../../subagents/subagentGroupModel";
 import type { Subagent } from "../../subagents/subagentFold";
 import type { WorkflowAgent, WorkflowSummary } from "../../summary/workflow";
 import type { Artifact } from "../../conversation/artifactPreview";
 import type { TurnFile } from "../../diff";
 import type { SessionSummary, SummaryBackgroundTask, SummaryWakeup } from "../../summary/sessionSummary";
 import { useScheduledClock } from "../scheduled";
-import { visibleChanges, type SessionInfoPullRequestStatus } from "../ChangesSection";
-import type { OutputArtifact, OutputLink } from "../OutputsSection";
+import { visibleChanges, type SessionInfoPullRequestStatus } from "../changesSectionModel";
+import type { OutputArtifact, OutputLink } from "../outputsSectionModel";
+import type { ProducedLink } from "../producedLinks";
 import { sessionInfoLists, type SessionInfoProcess } from "../processes";
-import { useSectionOrder, sectionOrder } from "../sectionOrder";
+import { useSectionOrder } from "../sectionOrder";
 import {
   claimSessionInfoIMessageReveal,
   setSessionInfoSection,
@@ -56,8 +57,9 @@ import { chatMachine, type ChatPlace } from "../../chatMachine";
 import { useCloudRepositories } from "./useCloudRepositories";
 import { cloudEnvironmentRequest, openCloudEnvironment, subscribeCloudEnvironment } from "../../cloudEnvironment";
 import { copyText } from "../../conversation/clipboard";
-import { useSubagentLimitController } from "../SubagentLimitStepper";
+import { useSubagentLimitController } from "../subagentLimitStepperModel";
 import { useIMessage } from "../imessage";
+import { orderSections } from "./nativeSessionInfoModel";
 
 const NO_SCHEDULED: readonly SummaryWakeup[] = [];
 
@@ -99,6 +101,8 @@ export type NativeSessionInfoProps = {
   repository?: string;
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links: readonly OutputLink[];
+  /// The pull requests, issues and commits the chat produced (producedLinks.ts).
+  produced?: readonly ProducedLink[];
   artifacts: number;
   documents: readonly OutputArtifact[];
   rows: readonly AcpmuxRow[];
@@ -127,24 +131,9 @@ export type NativeSessionInfoProps = {
   onReconnectMcp?: (server: string) => Promise<unknown>;
   onOpenFolder?: (path: string) => void;
   onShowCall?: (toolCallId: string) => boolean;
+  /// Reveals the turn linked by a native time breakdown row.
+  onShowTurn?: (turnId: string) => void;
 };
-
-/// Sections retain the person's single order, including drags across the three groups.
-export function orderSections(sections: readonly (NativeInfoSection | undefined)[], t: Translate): NativeInfoSection[] {
-  const byId = new Map(sections.flatMap((section) => (section ? [[section.id, section] as const] : [])));
-  return sectionOrder().flatMap((id) => {
-    const section = byId.get(id);
-    return section
-      ? [
-          {
-            ...section,
-            reorderable: true,
-            reorderLabel: t("sessionInfo.reorderSection", { section: section.title }),
-          },
-        ]
-      : [];
-  });
-}
 
 /// Sends the model when it changes, coalesced to a frame; withdraws it when the chat's panel goes.
 function usePostSessionInfo(info: NativeSessionInfoModel, actions: NativeInfoActions, onRevealed?: () => void) {
@@ -445,6 +434,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
         {
           files: (props.made?.outputs ?? []) as readonly TurnFile[],
           links: props.links,
+          produced: props.produced,
+          repository: props.repository,
           artifacts: props.artifacts,
           documents: props.documents,
           onOpenFile: props.onOpenOutput,
@@ -525,6 +516,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       usageSection(
         {
           own: summary?.usageStats,
+          timeBreakdown: summary?.timeBreakdown,
+          onShowTurn: props.onShowTurn,
           planLimits: typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined,
           sessions: props.allSessions ?? [],
           chatId,

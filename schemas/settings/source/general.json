@@ -1,0 +1,2373 @@
+{
+  "$comment": "HAND-EDITED source of the General section's own rows (cx-d5b5d): History, Window, Quitting, Columns (with column sizing and pane placement), the Sidebar group's workspace list rows, the Command Palette and Menus. scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the full format, tabs.json's $comment the summary). SettingsSchema.all puts the Tabs rows (tabs.json) between window and quitting, so rows keep the export's order.",
+  "lists": [
+    {
+      "name": "history",
+      "section": "general",
+      "group": {
+        "key": "settings.group.history",
+        "text": "History"
+      },
+      "rows": [
+        {
+          "key": "history.terminalCommands",
+          "note": "Off: a command line can hold secrets, so recording commands is opt-in.",
+          "title": {
+            "key": "settings.history.terminalCommands",
+            "text": "Record Terminal Commands"
+          },
+          "help": {
+            "key": "settings.history.terminalCommands.help",
+            "text": "Lists finished shell commands in History. Command lines can contain secrets."
+          },
+          "summary": {
+            "key": "settings.history.terminalCommands.summary",
+            "text": "Shows finished commands in History"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "history",
+            "commands",
+            "shell",
+            "privacy",
+            "osc 133"
+          ],
+          "swift_owner": "TerminalCommandHistorySetting"
+        },
+        {
+          "key": "navigation.historyScope",
+          "title": {
+            "key": "settings.navigation.historyScope",
+            "text": "Back and Forward"
+          },
+          "help": {
+            "key": "settings.navigation.historyScope.help",
+            "text": "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "workspace",
+              "title": {
+                "key": "settings.navigation.historyScope.workspace",
+                "text": "Workspace"
+              }
+            },
+            {
+              "value": "window",
+              "title": {
+                "key": "settings.navigation.historyScope.window",
+                "text": "Window"
+              }
+            },
+            {
+              "value": "surface",
+              "title": {
+                "key": "settings.navigation.historyScope.surface",
+                "text": "Focused Page"
+              }
+            }
+          ],
+          "default": "workspace",
+          "keywords": [
+            "history",
+            "back",
+            "forward",
+            "navigation",
+            "location",
+            "scope"
+          ],
+          "swift_owner": "NavigationHistoryScopeSetting"
+        },
+        {
+          "key": "navigation.history.scope",
+          "title": {
+            "key": "settings.navigation.historySteps",
+            "text": "Back and Forward Steps"
+          },
+          "help": {
+            "key": "settings.navigation.historySteps.help",
+            "text": "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."
+          },
+          "summary": {
+            "key": "settings.navigation.historySteps.summary",
+            "text": "What Go Back and Go Forward step through"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "workspaces",
+              "title": {
+                "key": "settings.navigation.historySteps.workspaces",
+                "text": "Workspaces"
+              }
+            },
+            {
+              "value": "everything",
+              "title": {
+                "key": "settings.navigation.historySteps.everything",
+                "text": "Everything"
+              }
+            }
+          ],
+          "default": "workspaces",
+          "keywords": [
+            "history",
+            "back",
+            "forward",
+            "navigation",
+            "workspace",
+            "tab",
+            "pane"
+          ],
+          "swift_owner": "NavigationHistoryStepSetting"
+        },
+        {
+          "key": "history.commandRetentionDays",
+          "name": "commandRetention",
+          "note": "Whole days in the daemon's accepted range.",
+          "title": {
+            "key": "settings.history.commandRetentionDays",
+            "text": "Keep Terminal Commands For"
+          },
+          "help": {
+            "key": "settings.history.commandRetentionDays.help",
+            "text": "Each machine deletes recorded commands that are older."
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 3650,
+            "step": 1,
+            "unit": "days"
+          },
+          "default": 30,
+          "keywords": [
+            "history",
+            "commands",
+            "retention",
+            "delete",
+            "privacy",
+            "days"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "history.closed.maxGroups",
+          "note": "0 keeps every group.",
+          "title": {
+            "key": "settings.history.closed.maxGroups",
+            "text": "Recently Closed Items to Keep"
+          },
+          "help": {
+            "key": "settings.history.closed.maxGroups.help",
+            "text": "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 10000,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 0,
+          "keywords": [
+            "history",
+            "recently closed",
+            "reopen",
+            "retention",
+            "delete",
+            "privacy"
+          ],
+          "swift_owner": {
+            "type": "ClosedHistoryRetentionSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "history.closed.maxAgeDays",
+          "note": "0 keeps groups of any age.",
+          "title": {
+            "key": "settings.history.closed.maxAgeDays",
+            "text": "Keep Recently Closed Items For"
+          },
+          "help": {
+            "key": "settings.history.closed.maxAgeDays.help",
+            "text": "Each machine deletes closed items that are older. 0 keeps them however old they are."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3650,
+            "step": 1,
+            "unit": "days"
+          },
+          "default": 0,
+          "keywords": [
+            "history",
+            "recently closed",
+            "reopen",
+            "retention",
+            "delete",
+            "privacy",
+            "days"
+          ],
+          "swift_owner": {
+            "type": "ClosedHistoryRetentionSetting",
+            "prefixed": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "window",
+      "section": "general",
+      "group": {
+        "key": "settings.group.window",
+        "text": "Window"
+      },
+      "rows": [
+        {
+          "key": "window.titlebar",
+          "title": {
+            "key": "settings.window.titlebar",
+            "text": "Titlebar"
+          },
+          "help": {
+            "key": "settings.window.titlebar.help",
+            "text": "Minimal has no titlebar strip; the top row moves the window."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "minimal",
+              "title": {
+                "key": "settings.choice.minimal",
+                "text": "Minimal"
+              }
+            },
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            }
+          ],
+          "default": "minimal",
+          "keywords": [
+            "traffic lights",
+            "title"
+          ],
+          "swift_enum": {
+            "name": "TitlebarStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "WindowTitlebarSetting"
+        },
+        {
+          "key": "window.titlebarButtons",
+          "title": {
+            "key": "settings.window.titlebarButtons",
+            "text": "Titlebar Buttons"
+          },
+          "help": {
+            "key": "settings.window.titlebarButtons.help",
+            "text": "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "hover",
+              "title": {
+                "key": "settings.choice.onHover",
+                "text": "On Hover"
+              }
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.always",
+                "text": "Always"
+              }
+            }
+          ],
+          "default": "hover",
+          "keywords": [
+            "titlebar",
+            "buttons",
+            "back",
+            "forward",
+            "hover",
+            "hide",
+            "traffic lights",
+            "toolbar"
+          ],
+          "swift_enum": {
+            "name": "TitlebarButtonsMode",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "TitlebarButtonsSetting"
+        },
+        {
+          "key": "app.globalHotKey",
+          "note": "Off when unset or invalid.",
+          "title": {
+            "key": "settings.app.globalHotKey",
+            "text": "Global Hot Key"
+          },
+          "help": {
+            "key": "settings.app.globalHotKey.help",
+            "text": "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."
+          },
+          "summary": {
+            "key": "settings.app.globalHotKey.summary",
+            "text": "Show or hide all windows from any app"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "global",
+            "hotkey",
+            "hot key",
+            "summon",
+            "show",
+            "hide",
+            "windows",
+            "system-wide"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "app.startAgentGlobalHotKey",
+          "note": "Off when unset or invalid.",
+          "title": {
+            "key": "settings.app.startAgentGlobalHotKey",
+            "text": "Start Agent from Any App"
+          },
+          "help": {
+            "key": "settings.app.startAgentGlobalHotKey.help",
+            "text": "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "global",
+            "hotkey",
+            "hot key",
+            "summon",
+            "start agent",
+            "agent",
+            "quick",
+            "chat",
+            "launcher",
+            "system-wide"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "app.hideDockIconWithoutWindows",
+          "note": "On when unset or invalid.",
+          "title": {
+            "key": "settings.app.hideDockIconWithoutWindows",
+            "text": "Hide Dock Icon When No Windows Are Open"
+          },
+          "help": {
+            "key": "settings.app.hideDockIconWithoutWindows.help",
+            "text": "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "dock",
+            "icon",
+            "menu bar",
+            "background",
+            "app switcher",
+            "command tab",
+            "accessory",
+            "windows"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "app.showMenuBarIcon",
+          "note": "On when unset or invalid.",
+          "title": {
+            "key": "settings.app.showMenuBarIcon",
+            "text": "Show Menu Bar Icon"
+          },
+          "help": {
+            "key": "settings.app.showMenuBarIcon.help",
+            "text": "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "menu bar",
+            "status item",
+            "menubar",
+            "tray",
+            "icon",
+            "raycast",
+            "extra",
+            "discord",
+            "logs"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "quitting",
+      "section": "general",
+      "group": {
+        "key": "settings.group.quit",
+        "text": "Quitting"
+      },
+      "rows": [
+        {
+          "key": "app.quitBehavior",
+          "title": {
+            "key": "settings.app.quitBehavior",
+            "text": "When Quitting"
+          },
+          "help": {
+            "key": "settings.app.quitBehavior.help",
+            "text": "Terminals run in cmux-tui and keep running after cmux quits unless you end them."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "keep",
+              "title": {
+                "key": "settings.choice.quitKeep",
+                "text": "Keep Sessions Running"
+              }
+            },
+            {
+              "value": "end-keep-layout",
+              "title": {
+                "key": "settings.choice.quitEndKeepLayout",
+                "text": "End Sessions, Keep Layout"
+              }
+            },
+            {
+              "value": "end-everything",
+              "title": {
+                "key": "settings.choice.quitEndEverything",
+                "text": "End Everything"
+              }
+            }
+          ],
+          "default": "keep",
+          "keywords": [
+            "quit",
+            "exit",
+            "sessions",
+            "terminals",
+            "cmux-tui",
+            "daemon",
+            "background"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ],
+          "swift_enum": {
+            "name": "QuitBehavior",
+            "generated": false
+          },
+          "swift_owner": "QuitBehaviorSetting"
+        }
+      ]
+    },
+    {
+      "name": "columns",
+      "section": "general",
+      "group": {
+        "key": "settings.group.columns",
+        "text": "Columns"
+      },
+      "rows": [
+        {
+          "key": "layout.defaultColumnWidth",
+          "note": "Two thirds of the viewport; the range is the daemon's column width range (set-viewport-pane-width).",
+          "title": {
+            "key": "settings.layout.fixedColumnWidth",
+            "text": "Fixed Column Width"
+          },
+          "help": {
+            "key": "settings.layout.fixedColumnWidth.help",
+            "text": "A share of the window width, for Fixed Width new columns."
+          },
+          "summary": {
+            "key": "settings.layout.fixedColumnWidth.summary",
+            "text": "Share of the window width"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0.1,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": 0.6666666666666666,
+          "keywords": [
+            "width"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ],
+          "swift_owner": "DefaultColumnWidthSetting"
+        },
+        {
+          "key": "layout.centerFocusedColumn",
+          "title": {
+            "key": "settings.layout.centerFocusedColumn",
+            "text": "Center Focused Column"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.never",
+                "text": "Never"
+              }
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.always",
+                "text": "Always"
+              }
+            },
+            {
+              "value": "on-overflow",
+              "title": {
+                "key": "settings.choice.onOverflow",
+                "text": "When It Does Not Fit"
+              }
+            }
+          ],
+          "default": "never",
+          "keywords": [
+            "scroll"
+          ],
+          "swift_enum": {
+            "name": "CenterFocusedColumn",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "CenterFocusedColumnSetting"
+        },
+        {
+          "key": "layout.stripScrollbar",
+          "title": {
+            "key": "settings.layout.stripScrollbar",
+            "text": "Column Scroll Bar"
+          },
+          "help": {
+            "key": "settings.layout.stripScrollbar.help",
+            "text": "A thin bar under the columns that shows and moves the visible range."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "system",
+              "title": {
+                "key": "settings.choice.stripScrollbarSystem",
+                "text": "Follow System"
+              }
+            },
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.stripScrollbarAuto",
+                "text": "While Scrolling"
+              }
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.always",
+                "text": "Always"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "system",
+          "keywords": [
+            "scroll",
+            "scrollbar",
+            "column",
+            "visible range",
+            "overview"
+          ],
+          "swift_enum": {
+            "name": "StripScrollbarMode",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "StripScrollbarSetting"
+        },
+        {
+          "key": "layout.closeFocus",
+          "title": {
+            "key": "settings.layout.closeFocus",
+            "text": "Focus After Closing a Pane"
+          },
+          "help": {
+            "key": "settings.layout.closeFocus.help",
+            "text": "Which pane gets focus when the focused pane closes."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "previousNeighbor",
+              "title": {
+                "key": "settings.choice.closeFocusPreviousNeighbor",
+                "text": "Previous Neighbor"
+              }
+            },
+            {
+              "value": "mostRecent",
+              "title": {
+                "key": "settings.choice.closeFocusMostRecent",
+                "text": "Most Recently Focused"
+              }
+            }
+          ],
+          "default": "mostRecent",
+          "keywords": [
+            "close",
+            "focus",
+            "neighbor",
+            "recent"
+          ],
+          "swift_enum": {
+            "name": "CloseFocusPolicy",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "CloseFocusSetting"
+        }
+      ]
+    },
+    {
+      "name": "layout",
+      "section": "general",
+      "group": {
+        "key": "settings.group.columns",
+        "text": "Columns"
+      },
+      "note": "Split, new column, docked column, minimum pane size (plans/cmux-next/column-sizing.md) and new pane placement rows.",
+      "rows": [
+        {
+          "key": "layout.splitSizing",
+          "title": {
+            "key": "settings.layout.splitSizing",
+            "text": "Split Sizing"
+          },
+          "help": {
+            "key": "settings.layout.splitSizing.help",
+            "text": "Even gives every pane in the column the same size after a split."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "even",
+              "title": {
+                "key": "settings.choice.splitEven",
+                "text": "Even"
+              }
+            },
+            {
+              "value": "halve",
+              "title": {
+                "key": "settings.choice.splitHalve",
+                "text": "Halve the Pane"
+              }
+            }
+          ],
+          "default": "even",
+          "keywords": [
+            "split",
+            "equal",
+            "size",
+            "autobalance",
+            "balance",
+            "equalize"
+          ],
+          "swift_enum": {
+            "name": "SplitSizing",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.newColumnWidth",
+          "note": "Fixed at layout.defaultColumnWidth (two thirds): a new column is never full width just because the column beside it is (Lawrence 2026-10-28).",
+          "title": {
+            "key": "settings.layout.newColumnWidthMode",
+            "text": "New Column Sizing"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "matchCurrent",
+              "title": {
+                "key": "settings.choice.matchCurrent",
+                "text": "Match Current Column"
+              }
+            },
+            {
+              "value": "fitScreen",
+              "title": {
+                "key": "settings.choice.fitScreen",
+                "text": "Fit Visible Columns"
+              }
+            },
+            {
+              "value": "fixed",
+              "title": {
+                "key": "settings.choice.fixedWidth",
+                "text": "Fixed Width"
+              }
+            }
+          ],
+          "default": "fixed",
+          "keywords": [
+            "width",
+            "column"
+          ],
+          "swift_enum": {
+            "name": "NewColumnWidthMode",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.dockColumnEdge",
+          "name": "dockEdge",
+          "title": {
+            "key": "settings.layout.dockColumnEdge",
+            "text": "Dock Column Edge"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "nearest",
+              "title": {
+                "key": "settings.choice.nearestEdge",
+                "text": "Nearest Edge"
+              }
+            },
+            {
+              "value": "right",
+              "title": {
+                "key": "settings.choice.right",
+                "text": "Right"
+              }
+            },
+            {
+              "value": "left",
+              "title": {
+                "key": "settings.choice.left",
+                "text": "Left"
+              }
+            },
+            {
+              "value": "top",
+              "title": {
+                "key": "settings.choice.top",
+                "text": "Top"
+              }
+            },
+            {
+              "value": "bottom",
+              "title": {
+                "key": "settings.choice.bottom",
+                "text": "Bottom"
+              }
+            }
+          ],
+          "default": "nearest",
+          "keywords": [
+            "dock",
+            "pin",
+            "column"
+          ],
+          "swift_enum": {
+            "name": "DockDefaultEdge",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.dockColumnMode",
+          "name": "dockMode",
+          "title": {
+            "key": "settings.layout.dockColumnMode",
+            "text": "Dock Column Mode"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "docked",
+              "title": {
+                "key": "settings.choice.docked",
+                "text": "Docked"
+              }
+            },
+            {
+              "value": "overlay",
+              "title": {
+                "key": "settings.choice.overlay",
+                "text": "Floating"
+              }
+            }
+          ],
+          "default": "docked",
+          "keywords": [
+            "floating",
+            "overlay",
+            "dock"
+          ],
+          "swift_enum": {
+            "name": "DockDefaultMode",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.frameOrientation",
+          "title": {
+            "key": "settings.layout.frameOrientation",
+            "text": "Dock Corners"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "columnMajor",
+              "title": {
+                "key": "settings.choice.columnMajor",
+                "text": "Side Docks Full Height"
+              }
+            },
+            {
+              "value": "rowMajor",
+              "title": {
+                "key": "settings.choice.rowMajor",
+                "text": "Top and Bottom Docks Full Width"
+              }
+            }
+          ],
+          "default": "columnMajor",
+          "keywords": [
+            "dock",
+            "frame",
+            "orientation",
+            "corner"
+          ],
+          "swift_enum": {
+            "name": "FrameOrientation",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.rows",
+          "note": "On for dogfood (rows.md O1).",
+          "title": {
+            "key": "settings.layout.rows",
+            "text": "Rows"
+          },
+          "help": {
+            "key": "settings.layout.rows.help",
+            "text": "Off hides New Row and fits a column's existing rows into it without scrolling."
+          },
+          "summary": {
+            "key": "settings.layout.rows.summary",
+            "text": "Rows of panes inside a column"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "row",
+            "column",
+            "scroll",
+            "vertical"
+          ],
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.focusFollowsMouse",
+          "note": "Off: hovering or scrolling a pane leaves keyboard focus where it is, so typing is never pulled into another pane.",
+          "title": {
+            "key": "settings.layout.focusFollowsMouse",
+            "text": "Focus Follows Mouse"
+          },
+          "help": {
+            "key": "settings.layout.focusFollowsMouse.help",
+            "text": "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."
+          },
+          "summary": {
+            "key": "settings.layout.focusFollowsMouse.summary",
+            "text": "Hovering or scrolling a pane focuses it"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "focus",
+            "scroll",
+            "wheel",
+            "trackpad",
+            "pane",
+            "follows mouse",
+            "hover",
+            "pointer"
+          ],
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.scrollAreas",
+          "note": "Off until dogfood (scroll-areas-DESIGN.md, open question 1).",
+          "title": {
+            "key": "settings.layout.scrollAreas",
+            "text": "Scroll Areas"
+          },
+          "help": {
+            "key": "settings.layout.scrollAreas.help",
+            "text": "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."
+          },
+          "summary": {
+            "key": "settings.layout.scrollAreas.summary",
+            "text": "Splits scroll instead of squashing"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "scroll",
+            "area",
+            "split",
+            "squash",
+            "dock",
+            "horizontal",
+            "overflow"
+          ],
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.scrollModifier",
+          "note": "Command: Command + scroll moves the layout, a plain scroll goes to the pane under the pointer (Lawrence 2026-10-24).",
+          "title": {
+            "key": "settings.layout.scrollModifier",
+            "text": "Scroll Columns and Rows With"
+          },
+          "help": {
+            "key": "settings.layout.scrollModifier.help",
+            "text": "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them."
+          },
+          "summary": {
+            "key": "settings.layout.scrollModifier.summary",
+            "text": "Command + Scroll moves columns and rows"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "command",
+              "title": {
+                "key": "settings.choice.scrollModifierCommand",
+                "text": "Command + Scroll"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.scrollModifierNone",
+                "text": "Scroll Without a Modifier"
+              },
+              "swift_case": "noModifier"
+            }
+          ],
+          "default": "command",
+          "keywords": [
+            "scroll",
+            "command",
+            "modifier",
+            "wheel",
+            "trackpad",
+            "columns",
+            "rows",
+            "strip",
+            "pan",
+            "horizontal"
+          ],
+          "swift_enum": {
+            "name": "LayoutScrollModifier",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.pagesHandleCommandScroll",
+          "note": "On: Figma and Excalidraw keep their Command + scroll zoom, every other page lets it pan the columns (Lawrence 2026-10-28).",
+          "title": {
+            "key": "settings.layout.pagesHandleCommandScroll",
+            "text": "Web Pages Get Command + Scroll First"
+          },
+          "help": {
+            "key": "settings.layout.pagesHandleCommandScroll.help",
+            "text": "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns."
+          },
+          "summary": {
+            "key": "settings.layout.pagesHandleCommandScroll.summary",
+            "text": "Figma and Excalidraw keep Command + Scroll zoom"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "scroll",
+            "command",
+            "zoom",
+            "figma",
+            "excalidraw",
+            "browser",
+            "web",
+            "page",
+            "columns",
+            "pan"
+          ],
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.minimumPaneWidth",
+          "title": {
+            "key": "settings.layout.minimumPaneWidth",
+            "text": "Minimum Pane Width"
+          },
+          "kind": "number",
+          "range": {
+            "min": 80,
+            "max": 800,
+            "step": 10,
+            "unit": "points"
+          },
+          "default": 200,
+          "keywords": [
+            "split",
+            "size",
+            "width"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ],
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.minimumPaneHeight",
+          "title": {
+            "key": "settings.layout.minimumPaneHeight",
+            "text": "Minimum Pane Height"
+          },
+          "kind": "number",
+          "range": {
+            "min": 32,
+            "max": 600,
+            "step": 4,
+            "unit": "points"
+          },
+          "default": 64,
+          "keywords": [
+            "split",
+            "size",
+            "height"
+          ],
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.newPanePlacement",
+          "title": {
+            "key": "settings.layout.newPanePlacement",
+            "text": "New Terminals and Browsers"
+          },
+          "help": {
+            "key": "settings.layout.newPanePlacement.help",
+            "text": "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout)."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "tab",
+              "title": {
+                "key": "settings.choice.newPaneTab",
+                "text": "Open a Tab"
+              }
+            },
+            {
+              "value": "split",
+              "title": {
+                "key": "settings.choice.newPaneSplit",
+                "text": "Split Automatically"
+              }
+            }
+          ],
+          "default": "tab",
+          "keywords": [
+            "tab",
+            "split",
+            "pane",
+            "auto layout",
+            "smart arrange",
+            "zellij",
+            "tile"
+          ],
+          "swift_enum": {
+            "name": "NewPanePlacement",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.tileBrowsers",
+          "note": "Browser tiling stays opt-in.",
+          "title": {
+            "key": "settings.layout.tileBrowsers",
+            "text": "Split for Browsers Too"
+          },
+          "help": {
+            "key": "settings.layout.tileBrowsers.help",
+            "text": "With Split Automatically, new browsers also get their own pane instead of a tab."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "browser",
+            "tile",
+            "split",
+            "pane",
+            "tab"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.linkPlacement",
+          "title": {
+            "key": "settings.layout.linkPlacement",
+            "text": "Open Links and Files"
+          },
+          "help": {
+            "key": "settings.layout.linkPlacement.help",
+            "text": "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "split-right",
+              "title": {
+                "key": "settings.choice.linkPlacementSplitRight",
+                "text": "Split Right"
+              }
+            },
+            {
+              "value": "new-column",
+              "title": {
+                "key": "settings.choice.linkPlacementNewColumn",
+                "text": "New Column on the Right"
+              }
+            },
+            {
+              "value": "same-pane",
+              "title": {
+                "key": "settings.choice.linkPlacementSamePane",
+                "text": "Tab in the Same Pane"
+              }
+            }
+          ],
+          "default": "split-right",
+          "keywords": [
+            "link",
+            "url",
+            "path",
+            "file",
+            "open",
+            "split",
+            "right",
+            "column",
+            "pane",
+            "tab"
+          ],
+          "swift_enum": {
+            "name": "LinkPlacement",
+            "generated": false
+          },
+          "swift_owner": "LinkPlacement"
+        },
+        {
+          "key": "layout.mainPane",
+          "title": {
+            "key": "settings.layout.mainPane",
+            "text": "Main Pane"
+          },
+          "help": {
+            "key": "settings.layout.mainPane.help",
+            "text": "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "agent-chats",
+              "title": {
+                "key": "settings.choice.mainPaneAgentChats",
+                "text": "Agent Chats"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.mainPaneOff",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "agent-chats",
+          "keywords": [
+            "main",
+            "pane",
+            "chat",
+            "agent",
+            "right",
+            "column",
+            "side",
+            "link",
+            "subagent",
+            "tab"
+          ],
+          "swift_enum": {
+            "name": "MainPaneSetting",
+            "generated": false
+          },
+          "swift_owner": "MainPaneSetting"
+        }
+      ]
+    },
+    {
+      "name": "workspaceList",
+      "section": "general",
+      "group": {
+        "key": "settings.group.sidebar",
+        "text": "Sidebar"
+      },
+      "rows": [
+        {
+          "key": "workspaces.newPlacement",
+          "name": "newWorkspacePlacement",
+          "title": {
+            "key": "settings.workspaces.newPlacement",
+            "text": "New Workspace Position"
+          },
+          "help": {
+            "key": "settings.workspaces.newPlacement.help",
+            "text": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "top",
+              "title": {
+                "key": "settings.choice.top",
+                "text": "Top"
+              }
+            },
+            {
+              "value": "afterCurrent",
+              "title": {
+                "key": "settings.choice.afterCurrentWorkspace",
+                "text": "After Current Workspace"
+              }
+            },
+            {
+              "value": "bottom",
+              "title": {
+                "key": "settings.choice.bottom",
+                "text": "Bottom"
+              }
+            }
+          ],
+          "default": "afterCurrent",
+          "keywords": [
+            "workspace",
+            "new",
+            "cmd-n",
+            "position",
+            "order",
+            "top",
+            "bottom",
+            "after",
+            "sidebar",
+            "placement"
+          ],
+          "swift_enum": {
+            "name": "NewWorkspacePlacement",
+            "generated": false
+          },
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.groupByComputer",
+          "title": {
+            "key": "settings.sidebar.groupByComputer",
+            "text": "Group Workspaces by Computer"
+          },
+          "help": {
+            "key": "settings.sidebar.groupByComputer.help",
+            "text": "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "computer",
+            "machine",
+            "cloud",
+            "remote",
+            "group",
+            "section",
+            "header",
+            "flat",
+            "list"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "workspaces.autoName",
+          "name": "autoNameWorkspaces",
+          "title": {
+            "key": "settings.workspaces.autoName",
+            "text": "Name Workspaces from Tabs"
+          },
+          "help": {
+            "key": "settings.workspaces.autoName.help",
+            "text": "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "workspace",
+            "name",
+            "rename",
+            "auto",
+            "title",
+            "tab",
+            "chat",
+            "page",
+            "folder",
+            "sidebar"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "palette",
+      "section": "general",
+      "group": {
+        "key": "settings.group.palette",
+        "text": "Command Palette"
+      },
+      "rows": [
+        {
+          "key": "palette.scopes.tabs.prefix",
+          "name": "tabsPrefix",
+          "title": {
+            "key": "settings.palette.prefix.tabs",
+            "text": "Tabs Prefix"
+          },
+          "help": {
+            "key": "settings.palette.prefix.help",
+            "text": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "@",
+              "title": {
+                "key": null,
+                "text": "@"
+              }
+            },
+            {
+              "value": "#",
+              "title": {
+                "key": null,
+                "text": "#"
+              }
+            },
+            {
+              "value": ">",
+              "title": {
+                "key": null,
+                "text": ">"
+              }
+            },
+            {
+              "value": ",",
+              "title": {
+                "key": null,
+                "text": ","
+              }
+            },
+            {
+              "value": "?",
+              "title": {
+                "key": null,
+                "text": "?"
+              }
+            },
+            {
+              "value": "!",
+              "title": {
+                "key": null,
+                "text": "!"
+              }
+            },
+            {
+              "value": "/",
+              "title": {
+                "key": null,
+                "text": "/"
+              }
+            },
+            {
+              "value": ";",
+              "title": {
+                "key": null,
+                "text": ";"
+              }
+            },
+            {
+              "value": ":",
+              "title": {
+                "key": null,
+                "text": ":"
+              }
+            },
+            {
+              "value": "%",
+              "title": {
+                "key": null,
+                "text": "%"
+              }
+            },
+            {
+              "value": "&",
+              "title": {
+                "key": null,
+                "text": "&"
+              }
+            },
+            {
+              "value": "+",
+              "title": {
+                "key": null,
+                "text": "+"
+              }
+            },
+            {
+              "value": "=",
+              "title": {
+                "key": null,
+                "text": "="
+              }
+            },
+            {
+              "value": "~",
+              "title": {
+                "key": null,
+                "text": "~"
+              }
+            },
+            {
+              "value": "$",
+              "title": {
+                "key": null,
+                "text": "$"
+              }
+            },
+            {
+              "value": "^",
+              "title": {
+                "key": null,
+                "text": "^"
+              }
+            },
+            {
+              "value": "*",
+              "title": {
+                "key": null,
+                "text": "*"
+              }
+            },
+            {
+              "value": ".",
+              "title": {
+                "key": null,
+                "text": "."
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.prefixNone",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "@",
+          "keywords": [
+            "palette",
+            "prefix",
+            "scope",
+            "tabs"
+          ],
+          "swift_owner": {
+            "type": "PaletteScopePrefixes",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "palette.scopes.workspaces.prefix",
+          "name": "workspacesPrefix",
+          "title": {
+            "key": "settings.palette.prefix.workspaces",
+            "text": "Workspaces Prefix"
+          },
+          "help": {
+            "key": "settings.palette.prefix.help",
+            "text": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "@",
+              "title": {
+                "key": null,
+                "text": "@"
+              }
+            },
+            {
+              "value": "#",
+              "title": {
+                "key": null,
+                "text": "#"
+              }
+            },
+            {
+              "value": ">",
+              "title": {
+                "key": null,
+                "text": ">"
+              }
+            },
+            {
+              "value": ",",
+              "title": {
+                "key": null,
+                "text": ","
+              }
+            },
+            {
+              "value": "?",
+              "title": {
+                "key": null,
+                "text": "?"
+              }
+            },
+            {
+              "value": "!",
+              "title": {
+                "key": null,
+                "text": "!"
+              }
+            },
+            {
+              "value": "/",
+              "title": {
+                "key": null,
+                "text": "/"
+              }
+            },
+            {
+              "value": ";",
+              "title": {
+                "key": null,
+                "text": ";"
+              }
+            },
+            {
+              "value": ":",
+              "title": {
+                "key": null,
+                "text": ":"
+              }
+            },
+            {
+              "value": "%",
+              "title": {
+                "key": null,
+                "text": "%"
+              }
+            },
+            {
+              "value": "&",
+              "title": {
+                "key": null,
+                "text": "&"
+              }
+            },
+            {
+              "value": "+",
+              "title": {
+                "key": null,
+                "text": "+"
+              }
+            },
+            {
+              "value": "=",
+              "title": {
+                "key": null,
+                "text": "="
+              }
+            },
+            {
+              "value": "~",
+              "title": {
+                "key": null,
+                "text": "~"
+              }
+            },
+            {
+              "value": "$",
+              "title": {
+                "key": null,
+                "text": "$"
+              }
+            },
+            {
+              "value": "^",
+              "title": {
+                "key": null,
+                "text": "^"
+              }
+            },
+            {
+              "value": "*",
+              "title": {
+                "key": null,
+                "text": "*"
+              }
+            },
+            {
+              "value": ".",
+              "title": {
+                "key": null,
+                "text": "."
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.prefixNone",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "#",
+          "keywords": [
+            "palette",
+            "prefix",
+            "scope",
+            "workspaces"
+          ],
+          "swift_owner": {
+            "type": "PaletteScopePrefixes",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "palette.scopes.commands.prefix",
+          "name": "commandsPrefix",
+          "title": {
+            "key": "settings.palette.prefix.commands",
+            "text": "Commands Prefix"
+          },
+          "help": {
+            "key": "settings.palette.prefix.help",
+            "text": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "@",
+              "title": {
+                "key": null,
+                "text": "@"
+              }
+            },
+            {
+              "value": "#",
+              "title": {
+                "key": null,
+                "text": "#"
+              }
+            },
+            {
+              "value": ">",
+              "title": {
+                "key": null,
+                "text": ">"
+              }
+            },
+            {
+              "value": ",",
+              "title": {
+                "key": null,
+                "text": ","
+              }
+            },
+            {
+              "value": "?",
+              "title": {
+                "key": null,
+                "text": "?"
+              }
+            },
+            {
+              "value": "!",
+              "title": {
+                "key": null,
+                "text": "!"
+              }
+            },
+            {
+              "value": "/",
+              "title": {
+                "key": null,
+                "text": "/"
+              }
+            },
+            {
+              "value": ";",
+              "title": {
+                "key": null,
+                "text": ";"
+              }
+            },
+            {
+              "value": ":",
+              "title": {
+                "key": null,
+                "text": ":"
+              }
+            },
+            {
+              "value": "%",
+              "title": {
+                "key": null,
+                "text": "%"
+              }
+            },
+            {
+              "value": "&",
+              "title": {
+                "key": null,
+                "text": "&"
+              }
+            },
+            {
+              "value": "+",
+              "title": {
+                "key": null,
+                "text": "+"
+              }
+            },
+            {
+              "value": "=",
+              "title": {
+                "key": null,
+                "text": "="
+              }
+            },
+            {
+              "value": "~",
+              "title": {
+                "key": null,
+                "text": "~"
+              }
+            },
+            {
+              "value": "$",
+              "title": {
+                "key": null,
+                "text": "$"
+              }
+            },
+            {
+              "value": "^",
+              "title": {
+                "key": null,
+                "text": "^"
+              }
+            },
+            {
+              "value": "*",
+              "title": {
+                "key": null,
+                "text": "*"
+              }
+            },
+            {
+              "value": ".",
+              "title": {
+                "key": null,
+                "text": "."
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.prefixNone",
+                "text": "None"
+              }
+            }
+          ],
+          "default": ">",
+          "keywords": [
+            "palette",
+            "prefix",
+            "scope",
+            "commands"
+          ],
+          "swift_owner": {
+            "type": "PaletteScopePrefixes",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "palette.scopes.settings.prefix",
+          "name": "settingsPrefix",
+          "title": {
+            "key": "settings.palette.prefix.settings",
+            "text": "Settings Prefix"
+          },
+          "help": {
+            "key": "settings.palette.prefix.help",
+            "text": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "@",
+              "title": {
+                "key": null,
+                "text": "@"
+              }
+            },
+            {
+              "value": "#",
+              "title": {
+                "key": null,
+                "text": "#"
+              }
+            },
+            {
+              "value": ">",
+              "title": {
+                "key": null,
+                "text": ">"
+              }
+            },
+            {
+              "value": ",",
+              "title": {
+                "key": null,
+                "text": ","
+              }
+            },
+            {
+              "value": "?",
+              "title": {
+                "key": null,
+                "text": "?"
+              }
+            },
+            {
+              "value": "!",
+              "title": {
+                "key": null,
+                "text": "!"
+              }
+            },
+            {
+              "value": "/",
+              "title": {
+                "key": null,
+                "text": "/"
+              }
+            },
+            {
+              "value": ";",
+              "title": {
+                "key": null,
+                "text": ";"
+              }
+            },
+            {
+              "value": ":",
+              "title": {
+                "key": null,
+                "text": ":"
+              }
+            },
+            {
+              "value": "%",
+              "title": {
+                "key": null,
+                "text": "%"
+              }
+            },
+            {
+              "value": "&",
+              "title": {
+                "key": null,
+                "text": "&"
+              }
+            },
+            {
+              "value": "+",
+              "title": {
+                "key": null,
+                "text": "+"
+              }
+            },
+            {
+              "value": "=",
+              "title": {
+                "key": null,
+                "text": "="
+              }
+            },
+            {
+              "value": "~",
+              "title": {
+                "key": null,
+                "text": "~"
+              }
+            },
+            {
+              "value": "$",
+              "title": {
+                "key": null,
+                "text": "$"
+              }
+            },
+            {
+              "value": "^",
+              "title": {
+                "key": null,
+                "text": "^"
+              }
+            },
+            {
+              "value": "*",
+              "title": {
+                "key": null,
+                "text": "*"
+              }
+            },
+            {
+              "value": ".",
+              "title": {
+                "key": null,
+                "text": "."
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.prefixNone",
+                "text": "None"
+              }
+            }
+          ],
+          "default": ",",
+          "keywords": [
+            "palette",
+            "prefix",
+            "scope",
+            "settings"
+          ],
+          "swift_owner": {
+            "type": "PaletteScopePrefixes",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "palette.scopes.scopes.prefix",
+          "name": "scopesPrefix",
+          "title": {
+            "key": "settings.palette.prefix.scopes",
+            "text": "Scope List Prefix"
+          },
+          "help": {
+            "key": "settings.palette.prefix.help",
+            "text": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "@",
+              "title": {
+                "key": null,
+                "text": "@"
+              }
+            },
+            {
+              "value": "#",
+              "title": {
+                "key": null,
+                "text": "#"
+              }
+            },
+            {
+              "value": ">",
+              "title": {
+                "key": null,
+                "text": ">"
+              }
+            },
+            {
+              "value": ",",
+              "title": {
+                "key": null,
+                "text": ","
+              }
+            },
+            {
+              "value": "?",
+              "title": {
+                "key": null,
+                "text": "?"
+              }
+            },
+            {
+              "value": "!",
+              "title": {
+                "key": null,
+                "text": "!"
+              }
+            },
+            {
+              "value": "/",
+              "title": {
+                "key": null,
+                "text": "/"
+              }
+            },
+            {
+              "value": ";",
+              "title": {
+                "key": null,
+                "text": ";"
+              }
+            },
+            {
+              "value": ":",
+              "title": {
+                "key": null,
+                "text": ":"
+              }
+            },
+            {
+              "value": "%",
+              "title": {
+                "key": null,
+                "text": "%"
+              }
+            },
+            {
+              "value": "&",
+              "title": {
+                "key": null,
+                "text": "&"
+              }
+            },
+            {
+              "value": "+",
+              "title": {
+                "key": null,
+                "text": "+"
+              }
+            },
+            {
+              "value": "=",
+              "title": {
+                "key": null,
+                "text": "="
+              }
+            },
+            {
+              "value": "~",
+              "title": {
+                "key": null,
+                "text": "~"
+              }
+            },
+            {
+              "value": "$",
+              "title": {
+                "key": null,
+                "text": "$"
+              }
+            },
+            {
+              "value": "^",
+              "title": {
+                "key": null,
+                "text": "^"
+              }
+            },
+            {
+              "value": "*",
+              "title": {
+                "key": null,
+                "text": "*"
+              }
+            },
+            {
+              "value": ".",
+              "title": {
+                "key": null,
+                "text": "."
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.prefixNone",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "?",
+          "keywords": [
+            "palette",
+            "prefix",
+            "scope",
+            "scopes"
+          ],
+          "swift_owner": {
+            "type": "PaletteScopePrefixes",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "palette.aliases",
+          "title": {
+            "key": "settings.palette.aliases",
+            "text": "Command Aliases"
+          },
+          "help": {
+            "key": "settings.palette.aliases.help",
+            "text": "A word that names a command by its action id (\"vs\": \"splitRight\"). Typing the whole word in the command palette puts that command first."
+          },
+          "kind": "string_map",
+          "default": {},
+          "keywords": [
+            "palette",
+            "alias",
+            "shortcut",
+            "command"
+          ],
+          "page_hidden": "action ids; cmux.json only",
+          "swift_owner": {
+            "type": "PaletteRankingSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "palette.pins",
+          "title": {
+            "key": "settings.palette.pins",
+            "text": "Pinned Commands"
+          },
+          "help": {
+            "key": "settings.palette.pins.help",
+            "text": "Commands shown first when the command palette opens, in this order, by action id."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "palette",
+            "pin",
+            "favorite",
+            "command"
+          ],
+          "page_hidden": "action ids; cmux.json only",
+          "swift_owner": {
+            "type": "PaletteRankingSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "palette.searchHistory",
+          "note": "On: the palette learns from what the person runs.",
+          "title": {
+            "key": "settings.palette.searchHistory",
+            "text": "Remember Palette Searches"
+          },
+          "help": {
+            "key": "settings.palette.searchHistory.help",
+            "text": "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "palette",
+            "search",
+            "history",
+            "memory",
+            "recent",
+            "frecency",
+            "ranking"
+          ],
+          "swift_owner": {
+            "type": "PaletteRankingSetting",
+            "prefixed": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "menus",
+      "section": "general",
+      "group": {
+        "key": "settings.category.menus",
+        "text": "Menus"
+      },
+      "rows": [
+        {
+          "key": "contextMenus.showCustomizeItem",
+          "title": {
+            "key": "settings.contextMenus.showCustomizeItem",
+            "text": "Show Customize Menu…"
+          },
+          "help": {
+            "key": "settings.contextMenus.showCustomizeItem.help",
+            "text": "Adds Customize Menu… to the end of every right-click menu."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "context menu",
+            "right click",
+            "customize",
+            "menu"
+          ],
+          "page_hidden": "Settings > Menus draws it as the first switch of its card",
+          "palette_shown": true,
+          "swift_owner": {
+            "type": "ContextMenusSetting",
+            "prefixed": true
+          }
+        }
+      ]
+    }
+  ]
+}

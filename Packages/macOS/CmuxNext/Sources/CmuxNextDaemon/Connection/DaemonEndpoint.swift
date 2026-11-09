@@ -131,6 +131,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case splitClientKeys = "split-client-keys-v1"
     /// `split` takes a client-minted `split_id` and layout split nodes carry `split_id`.
     case splitClientSplitID = "split-client-split-id-v1"
+    /// `split {before: true}`: the new pane opens before its target on the split axis in the one split (Split Left,
+    /// Split Up), so the app shows it there in the key's turn and sends no `swap-pane`.
+    case splitBefore = "split-before-v1"
     /// Client-minted `pane_id` / `tab_id` on `new-row` (New Row in the key's turn), as
     /// ``splitClientKeys`` on `split`.
     case rowClientKeys = "row-client-keys-v1"
@@ -329,6 +332,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case cloudChatRelay = "cloud_chat_relay.v1"
     /// `agent-session-fork`: fork an attached chat through its latest completed turn.
     case agentSessionFork = "agent-session-fork-v1"
+    /// `agent-session-side`: New side chat and `/side [prompt]` of an attached chat, run on that
+    /// machine in the chat's folder (cmux-tui agent_session_side.rs).
+    case agentSessionSide = "agent-session-side-v1"
     /// Read-only observation of a remote agent session. An observer never falls back to the
     /// writable attach capability (`cmux-tui/spec/commands.md`, `agent-session-observe`).
     case agentSessionObserve = "agent-session-observe-v1"
@@ -499,8 +505,6 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// A READY cut exactly at a host resize, restored with the view's own
     /// reflowed history (S2c; plans/cmux-next/ghostty-next.md 2.2).
     case terminalSnapshotLocalHistory = "terminal-snapshot-local-history-v1"
-    /// The Kitty image replay after a plain READY (S3k).
-    case terminalSnapshotImages = "terminal-snapshot-images-v1"
     /// The OSC 52 clipboard-read broker: `terminal-clipboard-subscribe`,
     /// `terminal-clipboard-reply` and the targeted read events
     /// (`TerminalClipboardBroker`; plans/cmux-next/ghostty-config.md).
@@ -521,6 +525,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentCLIAppProvider = "agent-cli-app-provider-v1"
     /// Agent inventory invalidation events for app providers (`AppProviderSession`).
     case agentCLIAppInvalidation = "agent-cli-app-invalidation-v1"
+    /// A provider tells readable app subscribers its family changed (`AppProviderSession.changed(family:)`).
+    case appProviderChanged = "app-provider-changed-v1"
     /// Admission receipts on the agent inventory watch (`DaemonReadyConnection`).
     case agentInventoryWatchAdmission = "agent-inventory-watch-admission-v1"
     /// Stash, a native OneTab (`stash.*`; `StateResourceClient+Stash.swift`).
@@ -560,7 +566,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
-             .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit,
+             .splitClientKeys, .splitClientSplitID, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit,
              .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
@@ -571,7 +577,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
-             .agentSessionAttach, .agentSessionFork, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
+             .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind, .agentSessionFolders,
              .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionContext, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
@@ -583,8 +589,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .browserFitWidth, .keybindings, .iconAssets, .projectList, .tabSplitRespawn, .tabSplitKeepFocus,
              .workspaceCreateFocus, .attachIdentity, .creationReceipts, .creationAttemptKeys,
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
-             .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
-             .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
+             .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
+             .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare:
             return .optional
         }

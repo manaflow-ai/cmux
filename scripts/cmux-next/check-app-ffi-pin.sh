@@ -69,7 +69,12 @@ fi
 # picker and the repin script read it the same way). A Package.swift whose pin is not the canonical block fails here,
 # naming its first line that does not match.
 pin_reader="$root/scripts/ci/app_ffi_pin.py"
-if ! pinned="$(python3 "$pin_reader" read "$manifest" 2>&1)"; then
+# Every python3 here runs isolated (-I): neither the script's directory nor the working directory is on its import
+# path, and PYTHONPATH and the user site are ignored. Otherwise a module a change adds (scripts/ci/json.py beside the
+# reader, or json.py at the root for the python3 -c below) is imported in place of the standard library and decides
+# the verdict, while base_red_excuse.py trusts the verdict of a change that leaves this check's files alone. The
+# reader imports only the standard library.
+if ! pinned="$(python3 -I "$pin_reader" read "$manifest" 2>&1)"; then
   echo "error: no canonical cmux-app-ffi pin in $manifest: ${pinned#error: }" >&2
   exit 1
 fi
@@ -93,7 +98,7 @@ if [[ -n "$base_ref" ]]; then
   if base_commit="$(git rev-parse --verify --quiet "$base_ref^{commit}")"; then
     # The base's pin through the same canonical match; a base that does not match it pins nothing here.
     base_pin="$(git show "$base_commit:Packages/macOS/CmuxNext/Package.swift" 2>/dev/null \
-      | python3 "$pin_reader" read /dev/stdin 2>/dev/null | awk '{print $1}' || true)"
+      | python3 -I "$pin_reader" read /dev/stdin 2>/dev/null | awk '{print $1}' || true)"
     if git diff --quiet "$base_commit" HEAD -- "${paths[@]}" && [[ "$base_pin" == "$sha" ]]; then
       own_change=0
     fi
@@ -133,7 +138,20 @@ if [[ "$verify" -eq 1 ]]; then
   trap 'rm -rf "$work"' EXIT
   # Every error retries (a runner's TLS read timeout is curl 35, which plain
   # --retry treats as fatal: cmux-next.yml run 37317248488).
-  fetch() { curl -fsSL --connect-timeout 15 --max-time 60 --retry 5 --retry-all-errors --retry-delay 3 -o "$1" "$2"; }
+  get() { curl -fsSL --connect-timeout 15 --max-time 60 --retry 5 --retry-all-errors --retry-delay 3 "$@"; }
+  # A release download that still fails goes through the release-assets API, which serves the same file another
+  # way (2026-11-08: every release download answered 504 for hours while the API served the same bytes). What it
+  # gets is checked below like the download.
+  fetch() {
+    get -o "$1" "$2" && return
+    [[ "$2" =~ ^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)$ ]] || return 1
+    local api="https://api.github.com/repos/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}" name="${BASH_REMATCH[4]}" asset_url
+    echo "app FFI pin: $2 failed; fetching it through the release-assets API" >&2
+    asset_url="$(get -H 'Accept: application/vnd.github+json' "$api/releases/tags/${BASH_REMATCH[3]}" \
+      | python3 -I -c 'import json, sys; print(next(a["url"] for a in json.load(sys.stdin)["assets"] if a["name"] == sys.argv[1]))' "$name")" \
+      || return 1
+    get -H 'Accept: application/octet-stream' -o "$1" "$asset_url"
+  }
   fetch "$work/SOURCE_SHA" "$base/SOURCE_SHA"
   fetch "$work/SHA256SUMS" "$base/SHA256SUMS"
   [[ "$(tr -d '[:space:]' < "$work/SOURCE_SHA")" == "$sha" ]] \
