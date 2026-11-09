@@ -152,7 +152,7 @@ English only). Results go to stdout and diagnostics to stderr.
 | 1 | Operation failure (the request ran and failed). |
 | 2 | Usage error (`usage.invalid`). |
 | 3 | Transport failure (no session or app socket, unreachable, broken reply). |
-| 124 | A wait timed out: `screen wait`, `process wait`, `wait --until`, `send --wait`, `run`, `agents wait`, `status wait`. Its result says `timed_out: true`. |
+| 124 | A wait timed out: `screen wait`, `process wait`, `wait --until`, `send --wait`, `run`, `agents wait`, `status wait`. Its result says `timed_out: true`. On a Cloud machine whose guest adapter predates this exit (an update that replaced only the binary), a timed-out `process wait` still exits 0 and says `timed_out: true`. |
 
 `cmux acp` keeps acpmux's own exit codes (for example `acp wait` exits 2 when a
 permission is waiting and 3 on timeout).

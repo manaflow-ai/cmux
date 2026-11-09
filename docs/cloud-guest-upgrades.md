@@ -65,7 +65,7 @@ missing, and an in-place upgrade plus a one-row backfill restored them
 | `cmux-tui` binary and `cmux-tui-hook` on a store image (`cmux host run`) | Yes, by itself | The `updater` role (Self-update, above) |
 | `cmux-tui` binary, `cmux-tui-hook`, and the state-mount helper on a devbox image | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
 | Coding-agent hook entries | Yes | Same run: the pinned install command re-runs `cmux-tui agent hook install` |
-| Guest `cmux` adapter, browser opener and Cloud CLI (`/usr/local/libexec/cmux-cloud-*`) | Yes | Same run: the install script puts this web build's guest integration in with the binary, so the adapter always reads the binary's exits (a timed-out `process wait` exits 124) |
+| Guest `cmux` adapter, browser opener and Cloud CLI (`/usr/local/libexec/cmux-cloud-*`) | Yes | Same run: the install script puts this web build's guest integration in with the binary, so the adapter always reads the binary's exits (a timed-out `process wait` exits 124). An update that replaces only the binary (the app's machine update) leaves the old adapter, and the binary then keeps exit 0 for that wait: it exits 124 only under an adapter carrying `cmux-adapter-reads: process-wait-124` |
 | `cmux-devbox-boot`, systemd units, the daemon's argv and environment | No | Bake only. The supervisor that is running keeps its own copy |
 | Baked packages, agent pins, desktop, `/etc/cmux/*` | No (agent pins: only on machines opted into `agentUpdates: "latest"`) | Bake only; opted-in machines update their coding agents on attach (`web/services/vms/guestAgentUpdates.ts`) |
 | Create-time provider config: inline TLS rules (coderouter), VPC, firewall | No | Fixed at `vms.create`; the platform ignores later rules |

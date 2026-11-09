@@ -788,6 +788,8 @@ fn wait_ready<D: Daemon + ?Sized>(
                     "details": {
                         "until": "ready",
                         "timeout_ms": millis.to_string(),
+                        "timed_out": true,
+                        "waited_ms": millis.to_string(),
                         "state": outcome.last.as_str(),
                     },
                     "retryable": true,

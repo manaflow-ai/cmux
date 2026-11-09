@@ -46,6 +46,8 @@ export const GUEST_CMUX_SHIM = `#!/bin/sh
 #   cmux vm <verb> <machine> …  ANOTHER machine of the same owner, over a peer link
 #   cmux vm ls                  the owner's machines, this one marked *
 #   cmux self [<path>]          who am I (reflection; aliases whoami, reflect)
+# cmux-adapter-reads: process-wait-124
+#   (cmux-tui exits 124 from a timed-out process wait only under an adapter with this line)
 set -eu
 
 ${GUEST_CMUX_MESSAGE_SHELL}

@@ -8,6 +8,8 @@
 //! wire answer stays as it is (the language bindings parse it strictly);
 //! the CLI and the MCP tools add the fields, and the CLI picks the exit code.
 
+use std::path::Path;
+
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::Value;
 
@@ -15,6 +17,13 @@ use super::super::command::{RequestPlan, WireOperation};
 
 /// The exit code of a wait whose time ran out, as timeout(1) has it.
 pub(in crate::cli) const TIMEOUT_EXIT: i32 = 124;
+
+/// A Cloud machine's guest `cmux` adapter (web/services/vms/guestCliDistribution.ts).
+const GUEST_ADAPTER: &str = "/usr/local/libexec/cmux-cloud-adapter";
+
+/// The line an adapter carries once it reads a timed-out `process wait`'s 124
+/// as pending (web/services/vms/guestCli.ts).
+const ADAPTER_READS_TIMEOUT_EXIT: &str = "cmux-adapter-reads: process-wait-124";
 
 /// A `screen wait` (`terminal.wait`) or `process wait` (`terminal.wait_exit`)
 /// request, kept to read its answer.
@@ -71,5 +80,19 @@ pub(super) fn mark(plan: &RequestPlan, result: &mut Value) {
 
 /// 124 for a terminal wait whose time ran out, `None` for any other answer.
 pub(super) fn exit_code(plan: &RequestPlan, result: &Value) -> Option<i32> {
-    Wait::of(plan).filter(|wait| wait.ran_out(result)).map(|_| TIMEOUT_EXIT)
+    exit_code_with(plan, result, Path::new(GUEST_ADAPTER))
+}
+
+/// [`exit_code`] with the guest adapter at `adapter`. An adapter older than
+/// this build calls `process wait` in slices and takes any exit but 0 for a
+/// failed `agent --wait`, and an update that replaces only the binary (the
+/// app's machine update, `link machine update`) keeps that adapter. So while
+/// the installed adapter does not say it reads 124, a timed-out `process wait`
+/// exits 0 as before; its answer still says `timed_out: true`. A machine with
+/// no adapter is not a Cloud guest.
+pub(super) fn exit_code_with(plan: &RequestPlan, result: &Value, adapter: &Path) -> Option<i32> {
+    let wait = Wait::of(plan).filter(|wait| wait.ran_out(result))?;
+    let old_adapter = matches!(wait.operation, ResourceOperation::TerminalWaitExit)
+        && std::fs::read_to_string(adapter).is_ok_and(|text| !text.contains(ADAPTER_READS_TIMEOUT_EXIT));
+    (!old_adapter).then_some(TIMEOUT_EXIT)
 }
