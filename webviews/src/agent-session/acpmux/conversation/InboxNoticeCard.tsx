@@ -29,6 +29,7 @@ import { mentionedRepository } from "../../../githubReferences";
 import { CardCopy } from "./CardCopy";
 import { ClampedText } from "./ClampedText";
 import { ExpandRow } from "./ExpandRow";
+import { HEADER_TOGGLES_ATTRIBUTE } from "./headerToggle";
 import { ChevronLeft } from "./icons";
 import { FindReveal, foldFind } from "./chatFind";
 import { ReceivedMark, SenderChip } from "./IncomingMessageCard";
@@ -320,12 +321,13 @@ function InboxThreadLine({
           {/* A thread keyed by its sender (`declared:NAME`) is labeled with that name: said once. */}
           {label && <span className="cv-inbox__label">{label}</span>}
           {thread.count > 1 && (
+            // The line's own toggle takes its click (headerToggle.ts), anchored as the line's is.
             <button
               type="button"
               className="cv-inbox__more"
               aria-expanded={open}
               aria-label={t("inbox.showThread")}
-              onClick={() => show(!open)}
+              {...{ [HEADER_TOGGLES_ATTRIBUTE]: "" }}
             >
               {signed(t("tools.more", { n: thread.count - 1 }))}
             </button>
