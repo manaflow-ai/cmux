@@ -235,9 +235,12 @@ fn shell_word(word: &str) -> String {
     format!("'{}'", word.replace('\'', "'\\''"))
 }
 
-/// Where the daemon whose home is `home` keeps its [`BinChoice::Wrapper`] script.
+/// Where the daemon whose home is `home` keeps its [`BinChoice::Wrapper`] script: an absolute
+/// path, since agents run it from their own working folders (F2 of #39020: a relative
+/// `ACPMUX_HOME` is taken from this process's working folder).
 pub fn wrapper_path(home: &std::path::Path) -> std::path::PathBuf {
-    home.join("bin").join(CLI_ALIAS)
+    let path = home.join("bin").join(CLI_ALIAS);
+    std::path::absolute(&path).unwrap_or(path)
 }
 
 /// Writes `script` at `path`, owner-only and executable (0700, its folder private state:
