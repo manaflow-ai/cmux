@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42559490767",
+  "recorded_at": "2026-11-09T04:09:28Z",
+  "reason": "cmux-tui 8272944ebc30 changes the image's cmux-tui (pinned 5b9a4a1da95c)",
+  "dry_run": false,
+  "cmux_tui": "8272944ebc30acc73aaf5e1427b324905decba4b",
+  "fixes": [
+    {
+      "sha": "8a62ac8f3aa9665667b5c7d4d00dc1d04092fb16",
+      "mergedAt": "2026-11-08T19:46:26-08:00",
+      "subject": "Ledger tests: give the empty-seed hold test its own scratch folder (#39165)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T04:09:28Z",
+    "snapshot_id": "sh-fb146d12af15425dae852c72b7dea8ed",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42559490767): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7c94c476eafd7911c5c6699ac62a04e8e9f9a8a0",
+    "image": "cloud-native-auto-8272944e-42559490767-1",
+    "revision": "ci-42559490767-1",
+    "at": "2026-11-09T04:09:28Z"
+  },
+  "rolled_back": false
+}
