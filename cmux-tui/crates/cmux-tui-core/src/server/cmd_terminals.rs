@@ -97,21 +97,18 @@ pub(super) fn resolve_terminal(mux: &Arc<Mux>, terminal_id: String) -> anyhow::R
         anyhow::bail!("terminal_not_found");
     };
     let (registry_id, generation) = mux.registry_identity();
-    Ok(with_public_ids(
-        mux,
-        json!({
-            "surface": resolution.surface,
-            "terminal_id": resolution.terminal.terminal_id,
-            "terminal_incarnation": resolution.terminal.incarnation,
-            "workspace_key": resolution.terminal.workspace_key,
-            "lifecycle": resolution.terminal.lifecycle,
-            "launch_spec": resolution.terminal.launch_spec,
-            "exit": resolution.terminal.exit,
-            "terminal_revision": resolution.terminal_revision,
-            "registry_id": registry_id,
-            "generation": generation,
-        }),
-    ))
+    Ok(json!({
+        "surface": resolution.surface,
+        "terminal_id": resolution.terminal.terminal_id,
+        "terminal_incarnation": resolution.terminal.incarnation,
+        "workspace_key": resolution.terminal.workspace_key,
+        "lifecycle": resolution.terminal.lifecycle,
+        "launch_spec": resolution.terminal.launch_spec,
+        "exit": resolution.terminal.exit,
+        "terminal_revision": resolution.terminal_revision,
+        "registry_id": registry_id,
+        "generation": generation,
+    }))
 }
 
 pub(super) fn close_terminal(
@@ -343,25 +340,22 @@ pub(super) fn create_terminal(
         }
         let placement = created.placement;
         let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
-        Ok(with_public_ids(
-            mux,
-            json!({
-                "surface": placement.as_ref().map(|placement| placement.surface),
-                "terminal_id": created.terminal.terminal_id,
-                "terminal_incarnation": created.terminal.incarnation,
-                "pane": placement.as_ref().map(|placement| placement.pane),
-                "screen": placement.as_ref().map(|placement| placement.screen),
-                "workspace": placement.as_ref().map(|placement| placement.workspace),
-                "key": key,
-                "lifecycle": created.terminal.lifecycle,
-                "exit": created.terminal.exit,
-                "already_exited": already_exited,
-                "terminal_revision": created.terminal_revision,
-                "replayed": result.replayed,
-                "registry_id": registry_id,
-                "generation": generation,
-            }),
-        ))
+        Ok(json!({
+            "surface": placement.as_ref().map(|placement| placement.surface),
+            "terminal_id": created.terminal.terminal_id,
+            "terminal_incarnation": created.terminal.incarnation,
+            "pane": placement.as_ref().map(|placement| placement.pane),
+            "screen": placement.as_ref().map(|placement| placement.screen),
+            "workspace": placement.as_ref().map(|placement| placement.workspace),
+            "key": key,
+            "lifecycle": created.terminal.lifecycle,
+            "exit": created.terminal.exit,
+            "already_exited": already_exited,
+            "terminal_revision": created.terminal_revision,
+            "replayed": result.replayed,
+            "registry_id": registry_id,
+            "generation": generation,
+        }))
     } else {
         let (workspace, key) = resolved?;
         let created =
@@ -371,25 +365,22 @@ pub(super) fn create_terminal(
         }
         let placement = created.placement;
         let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
-        Ok(with_public_ids(
-            mux,
-            json!({
-                "surface": placement.as_ref().map(|placement| placement.surface),
-                "terminal_id": created.terminal.terminal_id,
-                "terminal_incarnation": created.terminal.incarnation,
-                "pane": placement.as_ref().map(|placement| placement.pane),
-                "screen": placement.as_ref().map(|placement| placement.screen),
-                "workspace": placement.as_ref().map(|placement| placement.workspace),
-                "key": key,
-                "lifecycle": created.terminal.lifecycle,
-                "exit": created.terminal.exit,
-                "already_exited": already_exited,
-                "terminal_revision": created.terminal_revision,
-                "replayed": false,
-                "registry_id": registry_id,
-                "generation": generation,
-            }),
-        ))
+        Ok(json!({
+            "surface": placement.as_ref().map(|placement| placement.surface),
+            "terminal_id": created.terminal.terminal_id,
+            "terminal_incarnation": created.terminal.incarnation,
+            "pane": placement.as_ref().map(|placement| placement.pane),
+            "screen": placement.as_ref().map(|placement| placement.screen),
+            "workspace": placement.as_ref().map(|placement| placement.workspace),
+            "key": key,
+            "lifecycle": created.terminal.lifecycle,
+            "exit": created.terminal.exit,
+            "already_exited": already_exited,
+            "terminal_revision": created.terminal_revision,
+            "replayed": false,
+            "registry_id": registry_id,
+            "generation": generation,
+        }))
     }
 }
 
@@ -433,24 +424,21 @@ pub(super) fn move_terminal(
         &workspace_mutation,
     )?;
     let (registry_id, generation) = mux.registry_identity();
-    Ok(with_public_ids(
-        mux,
-        json!({
-            "surface":result.placement.as_ref().map(|placement| placement.surface),
-            "pane":result.placement.as_ref().map(|placement| placement.pane),
-            "screen":result.placement.as_ref().map(|placement| placement.screen),
-            "workspace":result.placement.as_ref().map(|placement| placement.workspace),
-            "terminal_id":result.terminal.terminal_id,
-            "terminal_incarnation":result.terminal.incarnation,
-            "workspace_key":result.terminal.workspace_key,
-            "lifecycle":result.terminal.lifecycle,
-            "changed":result.changed,
-            "replayed":result.replayed,
-            "terminal_revision":result.terminal_revision,
-            "registry_id":registry_id,
-            "generation":generation,
-        }),
-    ))
+    Ok(json!({
+        "surface":result.placement.as_ref().map(|placement| placement.surface),
+        "pane":result.placement.as_ref().map(|placement| placement.pane),
+        "screen":result.placement.as_ref().map(|placement| placement.screen),
+        "workspace":result.placement.as_ref().map(|placement| placement.workspace),
+        "terminal_id":result.terminal.terminal_id,
+        "terminal_incarnation":result.terminal.incarnation,
+        "workspace_key":result.terminal.workspace_key,
+        "lifecycle":result.terminal.lifecycle,
+        "changed":result.changed,
+        "replayed":result.replayed,
+        "terminal_revision":result.terminal_revision,
+        "registry_id":registry_id,
+        "generation":generation,
+    }))
 }
 
 pub(super) fn terminal_history(
@@ -502,17 +490,15 @@ pub(super) fn placed_terminal_result(
     if keep {
         keep_created_terminal(mux, identity.as_ref().map(|i| i.terminal_id.as_str()))?;
     }
-    Ok(with_public_ids(
-        mux,
-        json!({
-            "surface": surface.id,
-            "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
-            "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
-        }),
-    ))
+    Ok(json!({
+        "surface": surface.id,
+        "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
+        "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
+    }))
 }
 
-/// `reply` with the public ids of its terminal and view (W5-P, for W5-N):
+/// `reply` with the public ids of its terminal and view (W5-P, for W5-N),
+/// for a client that declared `terminal-public-ids-v1` (command_dispatch.rs):
 /// `terminal_resource_id` is the `term_` id that the CLI, the agent roster
 /// and every resource selector take, so no client maps the host
 /// `terminal_id` with a second request. `tab_id`, `pane_id`, `screen_id` and

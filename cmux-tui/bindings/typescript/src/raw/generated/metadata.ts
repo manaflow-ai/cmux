@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 30c7188072aae582969b5f5012c05883140ab13bc613fb9bfc3c80810d8f3a7b. */
+/* cmux-tui mux protocol 12, IR 5c215a4e3c84fb616e0deaa494eac0eb1796c593b2e4de6310050810cefe6ba3. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "30c7188072aae582969b5f5012c05883140ab13bc613fb9bfc3c80810d8f3a7b" as const;
+export const SDK_IR_SHA256 = "5c215a4e3c84fb616e0deaa494eac0eb1796c593b2e4de6310050810cefe6ba3" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -8752,6 +8752,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "pane_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -8785,6 +8786,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "screen_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -8802,6 +8804,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "tab_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -8827,6 +8830,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "terminal_resource_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -8852,6 +8856,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "workspace_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -8899,6 +8904,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "screen_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -8941,6 +8947,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "terminal_resource_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -8958,6 +8965,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "workspace_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -9133,6 +9141,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "screen_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -9178,6 +9187,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "terminal_resource_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -9187,6 +9197,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "workspace_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -10010,6 +10021,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "pane_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -10027,6 +10039,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "screen_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -10044,6 +10057,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "tab_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -10069,6 +10083,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "terminal_resource_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -10086,6 +10101,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "workspace_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -10347,6 +10363,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "pane_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -10364,6 +10381,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "screen_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -10381,6 +10399,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "tab_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -10408,6 +10427,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "terminal_resource_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -10434,6 +10454,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "workspace_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -12469,6 +12490,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "additional_properties": false,
     "fields": {
       "pane_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": true,
         "presence": "optional",
         "since": 12,
@@ -12478,6 +12500,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "screen_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -12495,6 +12518,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "tab_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": true,
         "presence": "optional",
         "since": 12,
@@ -12522,6 +12546,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "terminal_resource_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -12531,6 +12556,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "workspace_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -13920,6 +13946,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "pane_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -13953,6 +13980,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "screen_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -13970,6 +13998,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "tab_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -14021,6 +14050,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "workspace_id": {
+        "capability": "terminal-public-ids-v1",
         "nullable": false,
         "presence": "optional",
         "since": 12,
