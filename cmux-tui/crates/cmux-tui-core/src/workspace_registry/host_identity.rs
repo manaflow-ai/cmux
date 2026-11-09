@@ -297,7 +297,10 @@ impl StoredIds {
 }
 
 /// Every mutable table and its columns, less the journal's ([`JOURNAL_TABLES`])
-/// and the receipts ([`RECEIPT_TABLES`]).
+/// and the receipts ([`RECEIPT_TABLES`]), and less every `idempotency_key`:
+/// a client's opaque key, never a reference to the registry, on which the
+/// resource ledger the rehome leaves as stored is joined (creation receipts,
+/// input completions, the ledger's compaction and actor lookups).
 fn mutable_columns(connection: &Connection) -> anyhow::Result<Vec<(String, Vec<String>)>> {
     let mut immutable = immutable_tables(connection)?;
     immutable.extend(JOURNAL_TABLES.map(str::to_string));
@@ -313,6 +316,7 @@ fn mutable_columns(connection: &Connection) -> anyhow::Result<Vec<(String, Vec<S
         let columns: Vec<String> = connection
             .prepare("SELECT name FROM pragma_table_info(?1)")?
             .query_map([&table], |row| row.get(0))?
+            .filter(|column| !matches!(column, Ok(name) if name == "idempotency_key"))
             .collect::<Result<_, _>>()?;
         out.push((table, columns));
     }
