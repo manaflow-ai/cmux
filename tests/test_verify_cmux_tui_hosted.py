@@ -19,7 +19,8 @@ and git ls-remote (no network) and checks what it does to the run:
   and when every try fails the script says no run was created;
 - a 404 or 500 on the first read of the new run is not a failure: the script names the run,
   waits on it with glaeda-gh, and checks its revision before it accepts an artifact;
-- only a 404 or a 5xx on that read is waited out; a 401, a 403 or a broken gh exits 1 at once;
+- only a 404, a 5xx or a network drop on that read is waited out; a 401, a 403 or a broken gh
+  exits 1 at once;
 - exit 3 with a revision that is not confirmed does not tell the operator to download artifacts;
 - one open run per commit, mode and filter: while a run this script dispatched for the same
   commit and filter is still open, it does not dispatch, names that run and exits 4; an open
@@ -72,6 +73,7 @@ case "$*" in
     if (( n < ${FAKE_IDENTITY_FAILS:-0} )); then
       case "${FAKE_IDENTITY_CODE:-404}" in
         broken) echo "gh: unknown flag: --json" >&2 ;;
+        network) printf 'error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com\n' >&2 ;;
         *) echo "failed to get run: HTTP ${FAKE_IDENTITY_CODE:-404}: Not Found (https://api.github.com/repos/manaflow-ai/cmux/actions/runs/__RUN_ID__)" >&2 ;;
       esac
       exit 1
@@ -515,6 +517,8 @@ def main() -> int:
         ("a run whose revision is never read is refused before download", unreadable_run_is_refused_before_download),
         ("a 404 first read, then a green run: the script waits and goes on", transient_first_read_exit_code("404")),
         ("a 502 first read, then a green run: the script waits and goes on", transient_first_read_exit_code("502")),
+        ("a network drop (no HTTP code) on the first read, then a green run: the script waits and goes on",
+         transient_first_read_exit_code("network")),
         ("a 401 first read exits 1 at once, without a wait", permanent_first_read_error_exits_at_once("401")),
         ("a 403 first read exits 1 at once, without a wait", permanent_first_read_error_exits_at_once("403")),
         ("a broken gh on the first read exits 1 at once, without a wait", permanent_first_read_error_exits_at_once("broken")),
