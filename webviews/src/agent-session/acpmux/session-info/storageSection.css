@@ -23,6 +23,17 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* Select all sits at the foot's end on one line; the Free button gives way first. */
+.acpmux-session-info-storage__foot > .acpmux-session-info-link {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.acpmux-session-info-storage__free {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .acpmux-session-info-storage__end {
   display: flex;
   align-items: center;
@@ -52,8 +63,21 @@
   margin: 0;
   accent-color: var(--agent-accent);
 }
+/* Two lines: the folder and its size, then the branch (or why a clean refused it) under the folder,
+   so neither cuts the other in a narrow panel. */
+.acpmux-session-info-storage__pick {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
 .acpmux-session-info-storage__row .acpmux-session-info-task__command {
-  flex: 0 1 auto;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.acpmux-session-info-storage__row .acpmux-session-info-storage__detail {
+  order: 3;
+  flex: 1 0 100%;
+  padding-left: calc(var(--grid-icon-box) + var(--grid-gap));
+  box-sizing: border-box;
 }
 .acpmux-session-info-storage__detail {
   flex: 1 1000 auto;

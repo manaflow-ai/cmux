@@ -289,7 +289,9 @@ export function StorageSection({
   const row = (item: StaleRow) => {
     const error = view.failed.get(item.path);
     const checked = view.selected.has(item.path);
-    const detail = error || item.reason;
+    // The branch names the work a person remembers; every row here is merged, so the verdict's own
+    // words (`item.reason`) are only the fallback. A refused clean's reason replaces both.
+    const detail = error || item.branch || item.reason;
     return (
       <li
         key={item.path}
@@ -309,9 +311,7 @@ export function StorageSection({
           />
           <span className="acpmux-session-info-task__command">{item.name}</span>
           {detail && (
-            <span className="acpmux-session-info-storage__detail" title={detail}>
-              {detail}
-            </span>
+            <span className="acpmux-session-info-storage__detail">{detail}</span>
           )}
           <span
             className="acpmux-session-info-task__time"
