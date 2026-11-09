@@ -16,8 +16,9 @@ describe("hostLoad contentionFactor", () => {
   test("a spin on this host gets about its own wall time in CPU", () => {
     // Shared CI hosts can be busy: only check the ratio is a sane number, not that the host is idle.
     const ratio = spinRatio(10);
+    // An overloaded runner can starve the spin far past MAX_FACTOR (contentionFactor clamps it), so no upper bound.
+    expect(Number.isFinite(ratio)).toBe(true);
     expect(ratio).toBeGreaterThan(0.5);
-    expect(ratio).toBeLessThanOrEqual(MAX_FACTOR + 1);
   });
 });
 
@@ -27,6 +28,7 @@ describe("hostLoad normalizeRows", () => {
     { name: "chat_open.settled", p95: 300, unit: "ms" },
     { name: "ui_stability.cls", p95: 0.2, unit: "score", target: 0 },
     { name: "delta_renders.rows", p95: 4, unit: "count" },
+    { name: "chat_switch.unread.idle_cpu_ms", p95: 3, target: 5, clock: "cpu" as const },
   ];
 
   test("a busy host's ms rows are scaled to the idle host's, with the measured p95 kept", () => {
@@ -35,6 +37,7 @@ describe("hostLoad normalizeRows", () => {
       { name: "chat_open.settled", p95: 150, unit: "ms", raw_p95: 300, load: 2 },
       { name: "ui_stability.cls", p95: 0.2, unit: "score", target: 0 },
       { name: "delta_renders.rows", p95: 4, unit: "count" },
+      { name: "chat_switch.unread.idle_cpu_ms", p95: 3, target: 5, clock: "cpu" },
     ]);
   });
 

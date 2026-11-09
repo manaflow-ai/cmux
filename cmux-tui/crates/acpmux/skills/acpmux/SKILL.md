@@ -21,6 +21,14 @@ test "${ACPMUX_ENV:-}" = 1 && echo "I am session $ACPMUX_SESSION_NAME ($ACPMUX_S
 When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
+Inside a session, run the daemon's own CLI: `"$ACPMUX_BIN"` is one absolute
+path that runs it, also inside cmux. Use it in place of `acpmux` in every
+command, as in `"$ACPMUX_BIN" send NAME "text"`. The `acpmux` on your PATH can
+be another, older build (a login profile puts `~/.local/bin` first). A CLI
+older than the daemon does not say who runs it: the daemon records its sends as
+an unverified program, not as you or the person, and refuses it what only the
+person's terminal may do (`caller.old_client`).
+
 Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own, or `fork: true` for a
 fork of your own chat that keeps its history),
@@ -164,6 +172,7 @@ the person's prompt. What the receiver gets depends on who you are to it:
 | the session that started it or first gave it work | a prompt, its own turn | yes | `send --wait` prints it |
 | another session, with `--wait` | a question in its inbox | yes | `send --wait` prints that turn's reply |
 | another session, with `--no-wait` | an action in its inbox | no: it goes with its next turn | it answers with `inbox_reply` or `acpmux send YOU` |
+| another session, `--no-wait --class question` or `block` | a question in its inbox | yes | that turn's report comes back to you (to your subagent, if one asked); not to a session on another machine |
 | the person, in a plain terminal | the person's prompt | yes | streamed |
 
 - `--class question` or `block` always wakes the receiver; `result` (an

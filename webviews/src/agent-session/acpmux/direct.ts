@@ -27,6 +27,7 @@ import type {
   AcpmuxBackgroundTask,
   AcpmuxBackgroundTurn,
   AcpmuxBackgroundReaction,
+  AcpmuxBackgroundSource,
   AcpmuxCompaction,
   AcpmuxContextBreakdown,
   AcpmuxPlanEntry,
@@ -47,6 +48,7 @@ import type {
 import { QUEUED_MESSAGE, SINCE_DIVIDER, TURN_RETRY, type AcpmuxSince, type AcpmuxTurnRetry } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
+import { hostIsReconnecting } from "./hostRetry";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import {
@@ -76,6 +78,7 @@ import type { PeerLinkDetail } from "./linkState";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
+import { noteReplaced } from "./sessionIndex";
 import { hostKind, sessionEntry, sessionTitle, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { sameUsageStats, type SessionUsageStats } from "./usageStats";
 import { usageLimitsOf } from "./usageLimits";
@@ -592,6 +595,23 @@ const READ_AHEAD_REFRESH_MS = 5_000;
 const READ_AHEAD_WAIT_MS = 150;
 /// The longest a connect keeps the pane's last snapshot on screen while it reads the chat.
 const OPEN_HOLD_MS = 1500;
+/// What a chat switch or open waits on: the chat list's watch, the attach and the detach before it,
+/// the visibility change and the transcript reads. Each answers in one daemon round trip, so one
+/// asked without a deadline of its own still counts as waiting after CHAT_OPEN_PROGRESS_MS, and the
+/// daemon liveness probe runs: after acpmux restarted under an open socket, a click in the sidebar
+/// gives the dead socket up and the pane reconnects to the new daemon by itself. Before, these
+/// waited forever and every click did nothing until the app restarted (Leo, ask-fdfc5d8abb: "I
+/// can't access any directly clicking from my workspace ... it fixes itself"). Not session/prompt
+/// or the other requests that stay open while the agent works. Only a progress threshold
+/// (`expectReply`): a slow daemon that answers the probe keeps every request.
+const CHAT_OPEN_METHODS = new Set([
+  "_acpmux/watch",
+  "_acpmux/attach",
+  "_acpmux/detach",
+  "_acpmux/view",
+  "_acpmux/events",
+]);
+const CHAT_OPEN_PROGRESS_MS = 10_000;
 /// The chat whose last open drew its kept tail while connecting and then failed to connect: the
 /// page's retries draw it only once acpmux answers, so a daemon that is down does not make the
 /// rows come and go with every retry (`drawTailWhileConnecting`). Cleared by a connect that works.
@@ -2118,6 +2138,9 @@ export class AcpmuxDirectClient {
   /// not change (a streamed token, a row's change) hands the pane the same array, so what the pane
   /// derives from `snapshot.sessions` keeps its identity and no row redraws for it.
   private sessionEntriesOf?: { sessions: Session[]; entries: AcpmuxSessionEntry[] };
+  /// How `this.sessions` (`to`) was made from `from` by in-place changes (`sessionChanged`): the
+  /// positions replaced, each by a session of the same id. `sessionEntryList` patches only those.
+  private sessionsReplaced?: { from: Session[]; to: Session[]; at: number[] };
   /// The snapshot summary's `usageStats`, kept while acpmux's numbers are the same (sameUsageStats).
   private summaryUsage?: SessionUsageStats;
   private publishedSummaryOf?: {
@@ -2544,6 +2567,11 @@ export class AcpmuxDirectClient {
   /// each background turn's went onto.
   private reactions = new Map<string, { reaction: AcpmuxBackgroundReaction; row?: string }>();
   private reactionOrigins = new Map<string, string>();
+  /// Each background shell's command and helper, by its call (`background_task_update`), so a
+  /// background turn can cite one whose call is not in the chat's transcript (a helper's); and the
+  /// line of each background turn by the call that started its task (`backgroundSource`).
+  private backgroundSources = new Map<string, AcpmuxBackgroundSource>();
+  private sourceLines = new Map<string, string>();
   private freshReactions = new Set<string>();
   /// TodoWrite calls a drawn checklist stands for (cx-ncc.80): acpmux sends each one's plan just
   /// before it, so the call and its updates draw no tool row. Plumbing calls (hiddenTools.ts)
@@ -2960,7 +2988,7 @@ export class AcpmuxDirectClient {
         acpmuxPerf.timed("client.receive", () => this.receive(String(message.data), this.socket !== socket));
     }).catch((error: unknown) => {
       this.releaseCopyAttach(mine);
-      this.dropTailDrawnWhileConnecting();
+      this.dropTailDrawnWhileConnecting(error);
       throw error;
     });
     // The pane keeps what it shows (the page's cached chat, or the chat before a reconnect) until
@@ -3269,7 +3297,7 @@ export class AcpmuxDirectClient {
               : String(error),
       });
       this.releaseCopyAttach(mine);
-      this.dropTailDrawnWhileConnecting();
+      this.dropTailDrawnWhileConnecting(error);
       this.socket?.close();
       throw error;
     } finally {
@@ -3398,6 +3426,8 @@ export class AcpmuxDirectClient {
     this.reactions.clear();
     this.reactionOrigins.clear();
     this.freshReactions.clear();
+    this.backgroundSources.clear();
+    this.sourceLines.clear();
     this.planCalls.clear();
     this.planRow = undefined;
     this.progressRow = undefined;
@@ -3865,8 +3895,13 @@ export class AcpmuxDirectClient {
 
   /// The open failed before its attach read the chat: rows drawn while it connected are not this
   /// page's reading of the chat, so they go, as after a failed attach (the host keeps its tail:
-  /// the chat itself was not refused).
-  private dropTailDrawnWhileConnecting(): void {
+  /// the chat itself was not refused). Not while acpmux is only coming back (hostRetry.ts
+  /// `hostIsReconnecting`: an update's handoff, a daemon starting or restarting): the rows stay,
+  /// and the page's next connect draws the same ones while it connects, so the pane never goes
+  /// blank between them (Leo, 2026-11-09, after a restart to update: "the chat loading kinda
+  /// flickered in and out"). Nothing of them is live until the attach lays its page over them.
+  private dropTailDrawnWhileConnecting(error: unknown): void {
+    if (hostIsReconnecting(error)) return;
     const early = this.earlyTail;
     if (!early || early.sessionId !== this.selectedSessionId) return;
     if (this.peerCopy?.sessionId === early.sessionId) return;
@@ -5174,7 +5209,12 @@ export class AcpmuxDirectClient {
         request?.reject(error instanceof Error ? error : new Error(String(error)));
       }
     };
-    const result = this.expectReply(id, method, deadline, waitsForSlot(method) ? send : undefined);
+    const result = this.expectReply(
+      id,
+      method,
+      deadline ?? (CHAT_OPEN_METHODS.has(method) ? CHAT_OPEN_PROGRESS_MS : undefined),
+      waitsForSlot(method) ? send : undefined,
+    );
     this.budget.admit(id, method, send);
     return result;
   }
@@ -5902,16 +5942,38 @@ export class AcpmuxDirectClient {
     // this page: no snapshot, no read-ahead. Each one drew the whole pane, so an idle pane rebuilt its
     // transcript and list many times a second (Leo, 2026-11-03: "im at 100% cpu rn"). The pane's own
     // chat, the chat it is waiting to reopen and the chats it started still take every change.
+    // One lookup: a change replaces its session in place, so the list keeps acpmux's order and every
+    // other session keeps its object, which the pane's per-session caches key on (`sessionEntryList`).
+    const at = this.sessions.findIndex((item) => item.sessionId === session.sessionId);
     if (
       session.sessionId !== this.selectedSessionId &&
       session.sessionId !== this.missingSession &&
-      this.sessions.some((item) => item.sessionId === session.sessionId && sameJson(item, session)) &&
+      at >= 0 &&
+      sameJson(this.sessions[at], session) &&
       !this.offerChildIds().includes(session.sessionId) &&
       !this.isStartedChild(session)
     )
       return;
-    const added = !this.sessions.some((item) => item.sessionId === session.sessionId);
-    this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
+    const added = at < 0;
+    // `asks.session` above has seen this change: when the list before it had been asked, the new list
+    // has too, and the next snapshot does not walk every listed chat's counts again (`emitNow`).
+    const asked = this.askedSessions === this.sessions;
+    const twice = !added && this.sessions.some((item, index) => index > at && item.sessionId === session.sessionId);
+    if (added) this.sessions = [...this.sessions, session];
+    else if (twice)
+      // A session listed twice (a peer's copy) becomes one row, the changed one, as a change always made it.
+      this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
+    else {
+      const from = this.sessions;
+      this.sessions = from.slice();
+      this.sessions[at] = session;
+      const replaced = this.sessionsReplaced;
+      if (replaced?.to === from) {
+        replaced.to = this.sessions;
+        replaced.at.push(at);
+      } else this.sessionsReplaced = { from, to: this.sessions, at: [at] };
+    }
+    if (asked) this.askedSessions = this.sessions;
     const watch = this.attachWatch?.sessionId === session.sessionId ? this.attachWatch : undefined;
     watch?.seen.set(`${String(session.createdAt)} ${String(session.peer)}`, {
       createdAt: session.createdAt,
@@ -6327,6 +6389,8 @@ export class AcpmuxDirectClient {
     this.reactions.clear();
     this.reactionOrigins.clear();
     this.freshReactions.clear();
+    this.backgroundSources.clear();
+    this.sourceLines.clear();
     this.planCalls.clear();
     this.subagents = new SubagentFold(this.subagentStops);
     // Replay knows the native harness ids from the session summary, the earlier ones a restart
@@ -6651,6 +6715,7 @@ export class AcpmuxDirectClient {
       const { ended, hasRows } = this.rows.openBackground(turn.id, event.seq);
       if (existing) return;
       const attached = this.attachReaction(turn);
+      const source = this.backgroundSource(turn, id);
       this.rows.set(id, {
         id,
         version: 1,
@@ -6662,6 +6727,7 @@ export class AcpmuxDirectClient {
           ...ended,
           ...(hasRows && { hasRows: true as const }),
           ...(attached && { attached: true as const }),
+          ...(source && { source }),
         },
       });
       if (ended) this.settleReaction(turn.id);
@@ -6677,6 +6743,47 @@ export class AcpmuxDirectClient {
       background: { ...existing.background, ...turn, ...(hasRows && { hasRows }) },
     });
     this.settleReaction(turn.id);
+  }
+
+  /// What a background turn's line cites (Leo, 2026-11-05: "cite the helper/add atribution ... and
+  /// display the actual code in the raw"): the command and helper of the task acpmux named
+  /// (`cause.origin`), from the call that started it, else from that shell's own background update
+  /// (a helper's call is not in the chat's transcript). Found once per background turn; an update
+  /// heard later fills it in (`citeBackground`).
+  private backgroundSource(turn: AcpmuxBackgroundTurn, line: string): AcpmuxBackgroundSource | undefined {
+    const origin = turn.cause?.origin;
+    if (!origin) return undefined;
+    this.sourceLines.set(origin, line);
+    const id = this.toolRows.get(origin) ?? this.callRow(origin);
+    const tool =
+      id === undefined ? undefined : this.rows.get(id)?.items?.find((item) => item.tool?.id === origin)?.tool;
+    const known = this.backgroundSources.get(origin);
+    const command = tool?.command || known?.command;
+    const source: AcpmuxBackgroundSource = {
+      ...(command && { command }),
+      ...(known?.ownerId && { ownerId: known.ownerId }),
+      ...(known?.ownerTitle && { ownerTitle: known.ownerTitle }),
+    };
+    return Object.keys(source).length > 0 ? source : undefined;
+  }
+
+  /// A background shell's update: kept for the turn its end starts, and cited on that turn's line
+  /// when the line came first.
+  private citeBackground(task: BackgroundUpdate): void {
+    const heard: AcpmuxBackgroundSource = {
+      ...(task.command && { command: task.command }),
+      ...(task.ownerId && { ownerId: task.ownerId }),
+      ...(task.ownerTitle && { ownerTitle: task.ownerTitle }),
+    };
+    if (Object.keys(heard).length === 0) return;
+    const source = { ...this.backgroundSources.get(task.toolCallId), ...heard };
+    this.backgroundSources.set(task.toolCallId, source);
+    const id = this.sourceLines.get(task.toolCallId);
+    const row = id === undefined ? undefined : this.rows.get(id);
+    if (!row?.background) return;
+    const cited = { ...source, ...row.background.source };
+    if (row.background.source && Object.keys(cited).length === Object.keys(row.background.source).length) return;
+    this.rows.set(row.id, { ...row, version: row.version + 1, background: { ...row.background, source: cited } });
   }
 
   /// A background turn whose task acpmux weighed (Leo, 2026-11-03: "there's like... background
@@ -7116,6 +7223,12 @@ export class AcpmuxDirectClient {
     // Route child updates before session metadata's early returns too: a helper's init or
     // usage belongs to that helper, just like its text and tools.
     if (update) {
+      // A shell's command and helper are kept before a helper's update goes to its subagent, so the
+      // background turn its end starts can cite them (`citeBackground`).
+      if (update.sessionUpdate === "background_task_update") {
+        const task = backgroundTask(update, event.at);
+        if (task) this.citeBackground(task);
+      }
       this.subagents.cause = this.turnStopCause(event);
       this.subagents.chat = this.chatThread();
       this.subagents.session = this.selectedSessionId;
@@ -8349,15 +8462,27 @@ export class AcpmuxDirectClient {
 
   /// The session list as the snapshot's entries, the same array while `this.sessions` is.
   private sessionEntryList(): AcpmuxSessionEntry[] {
-    if (this.sessionEntriesOf?.sessions === this.sessions) return this.sessionEntriesOf.entries;
-    const entries = this.sessions.map((session) => {
+    const kept = this.sessionEntriesOf;
+    if (kept?.sessions === this.sessions) return kept.entries;
+    const entryOf = (session: Session) => {
       let entry = this.sessionEntries.get(session);
       if (!entry) {
         entry = sessionEntry(session);
         this.sessionEntries.set(session, entry);
       }
       return entry;
-    });
+    };
+    const replaced = this.sessionsReplaced;
+    this.sessionsReplaced = undefined;
+    let entries: AcpmuxSessionEntry[];
+    if (kept && replaced?.from === kept.sessions && replaced.to === this.sessions) {
+      // Only sessions changed in place since the last list: their entries are replaced and every
+      // other entry stays where it was, so the copy costs no per-session lookup, and the list
+      // records the positions it replaced, which the pane's index reads (sessionIndex.ts).
+      entries = kept.entries.slice();
+      for (const at of replaced.at) entries[at] = entryOf(this.sessions[at]!);
+      noteReplaced(kept.entries, entries, replaced.at);
+    } else entries = this.sessions.map(entryOf);
     this.sessionEntriesOf = { sessions: this.sessions, entries };
     return entries;
   }
@@ -9034,8 +9159,11 @@ export class AcpmuxDirectClient {
       void primeSentImages(attachments);
     }
     // A prompt behind the shown chat's running turn waits in the queue: it shows there from the
-    // send on, never first as a transcript bubble that acpmux's `queued` record then moves.
-    const waits = !steer && shown === sessionId && this.turnOpen;
+    // send on, never first as a transcript bubble that acpmux's `queued` record then moves. Running
+    // is what the composer reads (`isWorking`): acpmux may list the turn before this page saw it
+    // open (one that began before the attach), and the composer said this prompt queues (Leo,
+    // 2026-11-05: "it "sends" at least the picture and then it shoots up into the queue").
+    const waits = !steer && shown === sessionId && this.workingNow();
     const generation = this.selectionGeneration;
     // The prompt's way to acpmux and the agent, drawn on its row (composer-delivery-DESIGN.md).
     const before = this.deliveries.get(promptId);
