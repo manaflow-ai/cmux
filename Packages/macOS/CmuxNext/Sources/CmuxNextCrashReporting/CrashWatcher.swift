@@ -38,10 +38,13 @@ struct CrashWatcher: Sendable {
     /// acts first.
     static let defaultSeconds = 15
 
-    /// The watcher, as `zsh -f -c script cmux-crash-watcher <pid> <sample file> <seconds>`.
+    /// The system's `sample`, the tool the watcher runs on a stuck app.
+    static let defaultSampleTool = "/usr/bin/sample"
+
+    /// The watcher, as `zsh -f -c script cmux-crash-watcher <pid> <sample file> <seconds> <sample tool>`.
     static let script = #"""
     zmodload zsh/system || exit 0
-    pid=$1 out=$2 seconds=$3
+    pid=$1 out=$2 seconds=$3 sampler=$4
     # fd 3: the read end of the app's pipe. A byte: a crash path began. EOF: the app ended.
     sysread -i 3 -s 1 byte || exit 0
     deadline=$(( SECONDS + seconds ))
@@ -55,7 +58,7 @@ struct CrashWatcher: Sendable {
     done
     # Still open: the app still runs. Never end a process a debugger traces (ps STAT X).
     [[ "$(/bin/ps -o stat= -p "$pid" 2>/dev/null)" == *X* ]] && exit 0
-    /usr/bin/sample "$pid" 2 -mayDie -file "$out" >/dev/null 2>&1
+    "$sampler" "$pid" 2 -mayDie -file "$out" >/dev/null 2>&1
     # The app may have ended during the sample: then its pid is not ours to signal.
     sysread -i 3 -s 64 -t 0 more
     (( $? == 5 )) && exit 0
@@ -66,10 +69,19 @@ struct CrashWatcher: Sendable {
     let sampleFile: String
     /// Seconds from the first byte to the SIGKILL.
     let seconds: Int
+    /// The `sample` executable the watcher runs (``defaultSampleTool``; a test passes a stand-in).
+    let sampleTool: String
 
-    init(sampleFile: String, seconds: Int = CrashWatcher.defaultSeconds) {
+    /// - Parameters:
+    ///   - sampleFile: Where the watcher writes its `sample` of the stuck app.
+    ///   - seconds: Seconds from the first byte to the SIGKILL (``defaultSeconds``).
+    ///   - sampleTool: The `sample` executable (``defaultSampleTool``); a test passes a stand-in
+    ///     to check the watcher with a `sample` that misbehaves.
+    init(sampleFile: String, seconds: Int = CrashWatcher.defaultSeconds,
+         sampleTool: String = CrashWatcher.defaultSampleTool) {
         self.sampleFile = sampleFile
         self.seconds = seconds
+        self.sampleTool = sampleTool
     }
 
     /// A running watcher: its pid and the pipe's write end (``arm()`` writes to it).
@@ -126,7 +138,8 @@ struct CrashWatcher: Sendable {
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK
                                                      | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETPGROUP))
 
-        let arguments = ["/bin/zsh", "-f", "-c", Self.script, "cmux-crash-watcher", String(pid), sampleFile, String(seconds)]
+        let arguments = ["/bin/zsh", "-f", "-c", Self.script, "cmux-crash-watcher", String(pid), sampleFile, String(seconds),
+                         sampleTool]
         let environment = ["PATH=/usr/bin:/bin:/usr/sbin:/sbin"]
         var child: pid_t = 0
         let status = withCStrings(arguments) { argv in
