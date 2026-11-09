@@ -1,3 +1,4 @@
+import Foundation
 import CmuxNextSettings
 @testable import CmuxNextPages
 import Testing
@@ -24,11 +25,16 @@ struct PageHeartbeatTests {
     /// Codex's review of #39247 (F1): the repair checks unsaved edits before the reload's save wait;
     /// an edit that comes during the wait (a hung editor that answers again) must not be reloaded away.
     @Test func aReloadSparesUnsavedEditsHeldWhenItsSaveWaitEnds() async throws {
-        let page = try #require(PageWebView(descriptor: PageDescriptor(id: "test.health-reload", resource: "files", namespaces: []), routes: []))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("health-reload-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Reload</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let descriptor = PageDescriptor(id: "test.health-reload", resource: "health-reload", namespaces: [])
+        let page = try #require(PageWebView(descriptor: descriptor, root: root, testRoot: true, routes: [], route: "#/"))
+        defer { page.close() }
         page.loaded = true
         page.holdsUnsavedEdits = { true }
         #expect(await page.reloadKeepingState(saveWait: .milliseconds(20)) == false)
-        page.close()
     }
 
     @Test func aHostWithoutHealthStillAnswers() async {

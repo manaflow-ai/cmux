@@ -99,8 +99,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Where the editor puts the cursor on the tab's file (a Find result's line and column): the
     /// next config of that file carries it once as `reveal`. The markdown page ignores it.
     var reveal: FilePosition?
-    private var remoteEdits = (reported: 0, saved: 0) // another machine's file has no quit document
-    var holdsUnsavedRemoteEdits: Bool { remoteEdits.reported > remoteEdits.saved } // until a save saw the edit
+    /// Another machine's file has no quit document, and edit reports coalesce: no save proves no newer edit waits.
+    private(set) var holdsUnsavedRemoteEdits = false
     /// Whether the tab's file may be saved (the last config's answer).
     private var writable = false
     var isWritable: Bool { writable }
@@ -415,7 +415,6 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         }
         guard !readOnlyDocuments.contains(file.path) else { throw PageError(code: kind.op("read_only"), message: file.path) }
         let workspace = inWorkspace(file)
-        let editsSeen = remoteEdits.reported // an edit reported while the save runs stays unsaved
         let result: FileSaveResult
         do {
             result = try await files.save(text, to: file, baseHash: base, inWorkspace: workspace)
@@ -429,7 +428,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             throw PageError(code: kind.op("save_failed"), message: reason, retryable: true)
         }
         // The quit documents and the omnibar's git state are this Mac's files.
-        if files.isLocal { host?.saved(file, hash: result.hash) } else { remoteEdits.saved = max(remoteEdits.saved, editsSeen) }
+        if files.isLocal { host?.saved(file, hash: result.hash) }
         return ["hash": .string(result.hash)]
     }
 
@@ -469,7 +468,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         guard let file, canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
         guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
         // Crash drafts are keyed by this Mac's paths (FilePageRecovery): none for another machine's file.
-        guard files.isLocal else { remoteEdits.reported += 1; return ["recovery": "invalidID"] }
+        guard files.isLocal else { holdsUnsavedRemoteEdits = true; return ["recovery": "invalidID"] }
         let accepted = host.edited(file, text: text, baseHash: params["baseHash"]?.stringValue, writable: writable)
         return ["recovery": .string(accepted.rawValue)]
     }
