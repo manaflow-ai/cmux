@@ -1378,7 +1378,16 @@ function shapeTurn(
   // question to me that had a question-answer response and then another message from another agent
   // interrupted you and then there's nothing now"): its card draws under the reply that asked it.
   const cutOff = !live && !wrapUp && !tagged && summary.status === "completed" ? steeredAsk(body) : undefined;
-  const nextStep = live ? undefined : (wrapUp ?? tagged ?? cutOff?.ask);
+  const closing = wrapUp ?? tagged ?? cutOff?.ask;
+  const tripwires = summary.tripwires?.items;
+  const nextStep = live
+    ? undefined
+    : tripwires?.length
+      ? {
+          ...(closing ?? { tag: "wrap_up", question: "", options: [], rest: answer?.text ?? "" }),
+          tripwires,
+        }
+      : closing;
   const shaped: AcpmuxRow[] = [];
   // A derived row's version must change whenever what it draws does: the memoized rows and the
   // height cache compare versions only. Answer versions stay far below VERSION_SPAN.
@@ -1556,7 +1565,7 @@ function shapeTurn(
     shaped.push(...between(after));
     shaped.push(...[...before, ...after].filter(isPlan).map(endedPlan));
     // A wrap-up in a turn with no answer to hang under goes after the turn's last row.
-    if (nextStep && wrapUp && !underAnswer) shaped.push(card(summary.at));
+    if (nextStep && (wrapUp || tripwires?.length) && !underAnswer && !cutOff) shaped.push(card(summary.at));
     // A cut-off ask goes right under the reply that asked it, which drops the ask's lines; where
     // that reply is out of sight (in a closed fold), after the turn's last row, the reply whole.
     if (cutOff) {

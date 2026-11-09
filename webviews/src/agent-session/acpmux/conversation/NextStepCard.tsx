@@ -1,4 +1,5 @@
 import React, { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { TripwireRecap } from "../tripwires/TripwireStatus";
 import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
 import { inlineText } from "../question/inlineText";
@@ -63,7 +64,13 @@ export const NextStepCard = memo(function NextStepCard({
     if (!pending || !registerKey) return;
     return registerKey(() => primary.current?.click());
   }, [pending, registerKey]);
-  const recap = ask.recap ? <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p> : null;
+  const recap =
+    ask.recap || ask.tripwires?.length ? (
+      <>
+        {ask.recap && <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p>}
+        {ask.tripwires && <TripwireRecap items={ask.tripwires} />}
+      </>
+    ) : null;
   // A wrap-up with nothing to decide (wrapUp.ts): the recap alone, in the same box.
   if (!ask.question) return recap ? <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div> : null;
   if (settled) {

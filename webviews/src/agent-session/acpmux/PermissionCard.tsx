@@ -177,6 +177,12 @@ export function PlanBuildSplit({
           <MenuItem data-value="worktree" onSelect={() => onBuild("worktree")}>
             {t("permission.plan.buildWorktree")}
           </MenuItem>
+          <MenuItem data-value="tripwires" onSelect={() => onBuild("tripwires")}>
+            <span className="acpmux-plan-build-item">
+              <span>{t("permission.plan.buildTripwires")}</span>
+              <span className="acpmux-plan-build-detail">{t("permission.plan.buildTripwiresDetail")}</span>
+            </span>
+          </MenuItem>
           <MenuItem data-value="compare" onSelect={() => onBuild("compare")}>
             <span className="acpmux-plan-build-item">
               <span>{t("permission.plan.buildCompare")}</span>

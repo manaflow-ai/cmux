@@ -88,6 +88,8 @@
 .acpmux-status>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* The Needs you inbox and the header tools share one pitch. */
 .acpmux-header .acpmux-handoff-header-tools{flex:none;gap:2px}
+.acpmux-tripwire-header-slot{flex:0 1 min(30vw,320px);width:min(30vw,320px);max-width:min(30vw,320px);min-width:0}
+.acpmux-tripwire-header-slot .acpmux-tripwire-status{width:100%;max-width:100%}
 /* The right-click menu host (cx-00n1): no box of its own, so the tools keep their row. */
 .acpmux-header-customize{display:contents}
 .acpmux-header-customize-check{display:inline-block;width:1.2em}

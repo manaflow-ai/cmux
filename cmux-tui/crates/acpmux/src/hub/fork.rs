@@ -397,6 +397,9 @@ impl Hub {
             && !moved
             && crate::context_inventory::fork_keeps_rules(&parent_meta, fork_seq);
         let mut meta = SessionMeta {
+            tripwires: None,
+            tripwire_enabled: false,
+            tripwire_enabled: false,
             schema: META_SCHEMA.into(),
             id: id.clone(),
             name,

@@ -742,6 +742,12 @@ impl Hub {
         summary.set("subagentsRunning", json!(work.subagents));
         summary.set("subagentNames", json!(work.names));
         summary.set("commandsRunning", json!(work.commands));
+        summary.set(
+            "tripwires",
+            m.tripwires
+                .clone()
+                .map_or(Value::Null, |state| serde_json::to_value(state).unwrap_or(Value::Null)),
+        );
         // The build its live agent host runs, and whether it differs from this daemon's: a
         // host that has not hibernated since an update (`views/host_build.rs`).
         let host_build = host_build::live_host_build(session);

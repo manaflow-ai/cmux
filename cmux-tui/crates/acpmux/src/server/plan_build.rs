@@ -67,6 +67,7 @@ fn harnesses(params: &Value, target: Target, chat: &str) -> Result<Vec<String>, 
     match target {
         Target::Here => Ok(Vec::new()),
         Target::Worktree => Ok(vec![named.into_iter().next().unwrap_or_else(|| chat.to_owned())]),
+        Target::Tripwires => Ok(vec![named.into_iter().next().unwrap_or_else(|| chat.to_owned())]),
         Target::Compare if named.is_empty() => Ok(plan_build::compare_harnesses(chat)),
         Target::Compare if (2..=plan_build::MAX_COMPARE).contains(&named.len()) => Ok(named),
         Target::Compare => Err(RpcError::invalid_params(format!(
@@ -87,7 +88,7 @@ async fn handle(
         method::MUX_PLAN_BUILD => {
             let permission_id = required(params, "permissionId")?;
             let target = Target::parse(required(params, "target")?).ok_or_else(|| {
-                RpcError::invalid_params("target must be here, worktree or compare")
+                RpcError::invalid_params("target must be here, worktree, compare or tripwires")
             })?;
             // One call per approval at a time: a second waits for nothing and starts nothing.
             let _claim = plan_build::claim(&session.id, permission_id)?;

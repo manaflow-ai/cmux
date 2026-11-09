@@ -2177,6 +2177,7 @@ mod outbound;
 mod plan_build;
 mod project_new;
 mod review_queue;
+mod tripwires;
 use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
     report_outbound_loss_locked,

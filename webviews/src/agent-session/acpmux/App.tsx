@@ -1,3 +1,4 @@
+import { TripwireStatus } from "./tripwires/TripwireStatus";
 import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork, openInOwnTab } from "./conversation/openFork";
@@ -12205,6 +12206,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     )}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
+                    {!showNewTab && snapshot.summary?.tripwires && (
+                      <div className="acpmux-tripwire-header-slot">
+                        <TripwireStatus items={snapshot.summary.tripwires.items} onShowCall={showCall} />
+                      </div>
+                    )}
                     <LivePresenceStack
                       sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                       fallback={snapshot.presence}

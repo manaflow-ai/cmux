@@ -21,6 +21,7 @@ export type NextStepAsk = {
   /// What changed and where things stand, two or three sentences, muted above the question: only a
   /// wrap-up call carries one.
   recap?: string;
+  tripwires?: readonly import("../tripwires/TripwireStatus").Tripwire[];
   /// The question, through its last question mark, without the tag or a "For Leo:" lead. Empty
   /// for a wrap-up with nothing to decide, which draws the recap alone.
   question: string;

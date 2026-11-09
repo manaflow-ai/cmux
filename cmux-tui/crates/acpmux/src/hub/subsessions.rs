@@ -246,6 +246,8 @@ pub struct StartRequest {
     /// Work in a new git worktree of the folder's repository
     /// (`subsession_worktree.rs`) instead of the folder itself.
     pub worktree: bool,
+    /// The child was started from a plan approval with tripwire-first enabled.
+    pub tripwires: bool,
     /// Internal race capability, derived from the owning person's authenticated request.
     /// Never populated from ordinary sub-session RPC fields. A peer-origin parent still
     /// owns a real folder on this daemon; its owner may explicitly race there.
@@ -745,10 +747,18 @@ impl Hub {
             return Err(Self::race_cancelled());
         }
         let cm = probe.meta();
+        if req.tripwires {
+            probe.meta.lock().unwrap_or_else(|e| e.into_inner()).tripwire_enabled = true;
+            self.save_meta(&probe);
+        }
         // At its prompt's acceptance: the parent's log has `started` only for a child that runs,
         // and before that turn's `turn_ended`.
         let (hub, to, child) = (self.clone(), parent.clone(), probe.clone());
-        let (prompt, asked) = (req.prompt.clone(), (req.model.clone(), req.effort.clone()));
+        let mut prompt = req.prompt.clone();
+        if req.tripwires && !prompt.contains("tripwire_declare") {
+            prompt.push_str("\n\nWrite the real checks first, declare them with the structured `tripwire_declare` tool, then run each declared test path explicitly.");
+        }
+        let asked = (req.model.clone(), req.effort.clone());
         let started: Box<dyn FnOnce() + Send> =
             Box::new(move || hub.subsession_started(&to, &child, &prompt, asked));
         let accepted = self

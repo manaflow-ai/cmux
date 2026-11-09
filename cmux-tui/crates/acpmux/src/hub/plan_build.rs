@@ -87,6 +87,7 @@ pub enum Target {
     Here,
     Worktree,
     Compare,
+    Tripwires,
 }
 
 impl Target {
@@ -95,6 +96,7 @@ impl Target {
             "here" => Some(Self::Here),
             "worktree" => Some(Self::Worktree),
             "compare" => Some(Self::Compare),
+            "tripwires" => Some(Self::Tripwires),
             _ => None,
         }
     }
@@ -104,6 +106,7 @@ impl Target {
             Self::Here => "here",
             Self::Worktree => "worktree",
             Self::Compare => "compare",
+            Self::Tripwires => "tripwires",
         }
     }
 }
@@ -206,6 +209,19 @@ pub(crate) fn build_prompt(plan: &str, chat_name: &str, target: Target) -> Strin
     format!(
         "Build this plan, approved in the chat \"{chat_name}\". You work in a new git worktree on a branch of your own.{compared} Commit your work on that branch when it is done.\n\n{plan}"
     )
+}
+
+pub(crate) fn build_prompt_with_tripwires(
+    plan: &str,
+    chat_name: &str,
+    target: Target,
+    enabled: bool,
+) -> String {
+    let mut prompt = build_prompt(plan, chat_name, target);
+    if enabled {
+        prompt.push_str("\n\nBefore declaring this build done, write real test files that cover the plan's user intent. Then call the structured `tripwire_declare` tool with each test's name and relative path, and run every declared path explicitly.");
+    }
+    prompt
 }
 
 /// One build's change against its base: totals and the first [`MAX_FILES`] files.
@@ -354,7 +370,8 @@ impl Hub {
         local: bool,
     ) -> (Vec<Value>, Vec<Value>) {
         let chat = parent.meta();
-        let prompt = build_prompt(plan, &chat.name, target);
+        let prompt =
+            build_prompt_with_tripwires(plan, &chat.name, target, target == Target::Tripwires);
         let mut started = Vec::new();
         let mut failed = Vec::new();
         let mut entries = Vec::new();
@@ -371,6 +388,7 @@ impl Hub {
                 effort: None,
                 cwd: None,
                 worktree: true,
+                tripwires: target == Target::Tripwires,
                 owner_authorized_race: false,
                 race_id: None,
                 fork: false,

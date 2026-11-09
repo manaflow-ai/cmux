@@ -280,6 +280,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GOAL_UPDATE, Request),
         untyped(method::MUX_GOAL_GET, Request),
         untyped(method::MUX_PLAN_BUILD, Request),
+        untyped(method::MUX_TRIPWIRE_DECLARE, Request),
         untyped(method::MUX_PLAN_COMPARE, Request),
         untyped(method::MUX_PLAN_KEEP, Request),
         request::<ProcessBackgroundParams, ProcessBackgroundResult>(method::MUX_PROCESS_BACKGROUND),
