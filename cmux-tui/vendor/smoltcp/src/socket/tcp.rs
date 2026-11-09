@@ -433,6 +433,8 @@ struct SackScan {
     next_retransmit: Option<(TcpSeqNumber, usize)>,
     /// Bytes deemed lost and not yet retransmitted: they are out of the pipe.
     lost_bytes: usize,
+    /// A hole is lost by the duplicate threshold, not only by early retransmit.
+    congestion: bool,
 }
 
 impl Timer {
@@ -693,6 +695,8 @@ pub struct Socket<'a> {
     sack_recovery_point: Option<TcpSeqNumber>,
     /// cmux patch: lost bytes below this were retransmitted in this recovery.
     sack_high_rxt: TcpSeqNumber,
+    /// cmux patch: this recovery episode already cut the congestion window.
+    sack_window_cut: bool,
 
     /// Duration for Delayed ACK. If None no ACKs will be delayed.
     ack_delay: Option<Duration>,
@@ -790,6 +794,7 @@ impl<'a> Socket<'a> {
             sack_scoreboard: SackScoreboard::default(),
             sack_recovery_point: None,
             sack_high_rxt: TcpSeqNumber::default(),
+            sack_window_cut: false,
             ack_delay: Some(ACK_DELAY_DEFAULT),
             ack_delay_timer: AckDelayTimer::Idle,
             challenge_ack_timer: Instant::from_secs(0),
@@ -1082,6 +1087,9 @@ impl<'a> Socket<'a> {
     /// holds and, in one recovery episode with a single window cut:
     /// - deems a hole lost once three segments' worth of data (or three
     ///   ranges, or everything sent after it) was SACKed above it;
+    /// - cuts the window once per episode, and not at all for an episode whose
+    ///   only losses had everything after them SACKed (as with the tail-loss
+    ///   probe those replace: a short flight's loss, not a full queue's);
     /// - retransmits only the lost holes, several per round trip if the
     ///   congestion window allows;
     /// - counts SACKed and lost bytes out of the data in flight, so new data
@@ -1110,21 +1118,36 @@ impl<'a> Socket<'a> {
     }
 
     /// cmux patch: whether the hole starting at `start` is lost (RFC 6675
-    /// IsLost), given what was SACKed above it.
-    fn sack_hole_is_lost(&self, start: TcpSeqNumber, sacked_above: usize, ranges_above: usize) -> bool {
+    /// IsLost), given what was SACKed above it: `Some(true)` when the
+    /// duplicate threshold says so, which is a congestion signal;
+    /// `Some(false)` when only the early-retransmit rule does.
+    fn sack_hole_is_lost(
+        &self,
+        start: TcpSeqNumber,
+        sacked_above: usize,
+        ranges_above: usize,
+    ) -> Option<bool> {
         let mss = self.remote_mss.max(1);
         let tail_received = self
             .sack_scoreboard
             .ranges()
             .last()
             .is_some_and(|&(_, end)| end >= self.remote_last_seq);
-        sacked_above >= SACK_DUP_THRESH * mss
+        if sacked_above >= SACK_DUP_THRESH * mss
             || ranges_above >= SACK_DUP_THRESH
-            // Nothing sent after the hole is still on its way (RFC 5827's
-            // early retransmit, for a frame or keystroke of a few segments).
-            || (ranges_above > 0 && tail_received)
             // Three duplicate ACKs with no blocks: the head is lost (RFC 5681).
             || (start == self.local_seq_no && self.local_rx_dup_acks >= SACK_DUP_THRESH as u8)
+        {
+            Some(true)
+        } else if ranges_above > 0 && tail_received {
+            // Nothing sent after the hole is still on its way (RFC 5827's
+            // early retransmit, for a frame or keystroke of a few segments).
+            // Without SACK the tail-loss probe repaired these, with no window
+            // cut; this repairs them a round trip sooner, also with none.
+            Some(false)
+        } else {
+            None
+        }
     }
 
     /// cmux patch: walk the holes between the cumulative ACK and the SACKed
@@ -1133,6 +1156,7 @@ impl<'a> Socket<'a> {
         let mut scan = SackScan {
             next_retransmit: None,
             lost_bytes: 0,
+            congestion: false,
         };
         let ranges = self.sack_scoreboard.ranges();
         let mut sacked_above = self.sack_scoreboard.sacked_bytes();
@@ -1141,9 +1165,12 @@ impl<'a> Socket<'a> {
             // The hole is [hole_start, start). Fewer bytes are SACKed above each
             // higher hole, so once one is not lost none above it is.
             if hole_start < start {
-                if !self.sack_hole_is_lost(hole_start, sacked_above, ranges.len() - i) {
+                let Some(congestion) =
+                    self.sack_hole_is_lost(hole_start, sacked_above, ranges.len() - i)
+                else {
                     break;
-                }
+                };
+                scan.congestion |= congestion;
                 let from = hole_start.max(self.sack_high_rxt);
                 if from < start {
                     scan.lost_bytes += start - from;
@@ -1156,12 +1183,14 @@ impl<'a> Socket<'a> {
             hole_start = end;
         }
         if ranges.is_empty()
-            && self.sack_hole_is_lost(self.local_seq_no, 0, 0)
+            && self.sack_hole_is_lost(self.local_seq_no, 0, 0).is_some()
             && self.sack_high_rxt <= self.local_seq_no
             && self.local_seq_no < self.remote_last_seq
         {
             // Duplicate ACKs without blocks: resend the head segment only.
-            scan.next_retransmit = Some((self.local_seq_no, self.remote_last_seq - self.local_seq_no));
+            scan.congestion = true;
+            scan.next_retransmit =
+                Some((self.local_seq_no, self.remote_last_seq - self.local_seq_no));
         }
         scan
     }
@@ -1211,11 +1240,21 @@ impl<'a> Socket<'a> {
         if self.sack_high_rxt < self.local_seq_no {
             self.sack_high_rxt = self.local_seq_no;
         }
-        if self.sack_recovery_point.is_none() && self.sack_scan().next_retransmit.is_some() {
-            net_debug!("SACK recovery from {} to {}", self.local_seq_no, self.remote_last_seq);
+        let scan = self.sack_scan();
+        if self.sack_recovery_point.is_none() && scan.next_retransmit.is_some() {
+            net_debug!(
+                "SACK recovery from {} to {}",
+                self.local_seq_no,
+                self.remote_last_seq
+            );
             self.sack_recovery_point = Some(self.remote_last_seq);
             self.sack_high_rxt = self.local_seq_no;
-            // One window cut for the whole episode, however many holes it has.
+            self.sack_window_cut = false;
+        }
+        // One window cut for the whole episode, however many holes it has,
+        // and only once the duplicate threshold shows a loss.
+        if self.sack_recovery_point.is_some() && scan.congestion && !self.sack_window_cut {
+            self.sack_window_cut = true;
             let in_flight = self.flight_size();
             self.congestion_controller
                 .inner_mut()
@@ -1365,6 +1404,7 @@ impl<'a> Socket<'a> {
         self.sack_scoreboard.clear();
         self.sack_recovery_point = None;
         self.sack_high_rxt = TcpSeqNumber::default();
+        self.sack_window_cut = false;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
 
@@ -3354,9 +3394,7 @@ impl<'a> Socket<'a> {
         self.remote_last_win = repr.window_len;
 
         if is_sack_retransmit {
-            self.sack_high_rxt = self
-                .sack_high_rxt
-                .max(repr.seq_number + repr.payload.len());
+            self.sack_high_rxt = self.sack_high_rxt.max(repr.seq_number + repr.payload.len());
             // Karn: no RTT sample from a retransmitted segment.
             self.rtte.on_retransmit();
         }
@@ -10473,13 +10511,19 @@ mod test {
     /// An established socket with SACK recovery on, a peer that permitted
     /// SACK, and [`SACK_DATA`] sent as six 6-byte segments.
     fn socket_sacking() -> TestSocket {
+        socket_sacking_with(CongestionControl::None, SACK_DATA.len())
+    }
+
+    /// Like [`socket_sacking`], with this controller and the first `len`
+    /// bytes of [`SACK_DATA`].
+    fn socket_sacking_with(congestion: CongestionControl, len: usize) -> TestSocket {
         let mut s = socket_established();
-        s.set_congestion_control(CongestionControl::None);
+        s.set_congestion_control(congestion);
         s.remote_mss = 6;
         s.remote_has_sack = true;
         s.set_sack_recovery(true);
-        s.send_slice(SACK_DATA).unwrap();
-        for offset in (0..36).step_by(6) {
+        s.send_slice(&SACK_DATA[..len]).unwrap();
+        for offset in (0..len).step_by(6) {
             recv!(s, time 0, Ok(TcpRepr {
                 seq_number: sack_seq(offset),
                 ack_number: Some(REMOTE_SEQ + 1),
@@ -10504,7 +10548,7 @@ mod test {
         Ok(TcpRepr {
             seq_number: sack_seq(offset),
             ack_number: Some(REMOTE_SEQ + 1),
-            payload:    &SACK_DATA[offset..offset + 6],
+            payload: &SACK_DATA[offset..offset + 6],
             ..RECV_TEMPL
         })
     }
@@ -10534,7 +10578,10 @@ mod test {
         assert_eq!(board.ranges().len(), SACK_SCOREBOARD_LEN);
         assert_eq!(board.ranges()[0], (seq(0), seq(5)));
         let last = (SACK_SCOREBOARD_LEN - 1) * 10;
-        assert_eq!(board.ranges()[SACK_SCOREBOARD_LEN - 1], (seq(last), seq(last + 5)));
+        assert_eq!(
+            board.ranges()[SACK_SCOREBOARD_LEN - 1],
+            (seq(last), seq(last + 5))
+        );
     }
 
     #[test]
@@ -10664,12 +10711,43 @@ mod test {
         assert_eq!(s.sack_recovery_point, point);
     }
 
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_sack_threshold_loss_cuts_the_window() {
+        let mut s = socket_sacking_with(CongestionControl::Cubic, 36);
+        let before = s.congestion_controller.inner().window();
+        send!(s, time 50, sack_ack(6, [sack_block(12, 36), None, None]));
+        assert!(s.congestion_controller.inner().window() < before);
+        assert!(s.sack_window_cut);
+        recv!(s, time 50, sack_resent(6));
+    }
+
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_sack_early_retransmit_keeps_the_window() {
+        // A three-segment frame whose first segment is lost: everything after
+        // it arrived, but less than three segments' worth.
+        let mut s = socket_sacking_with(CongestionControl::Cubic, 18);
+        send!(s, time 50, sack_ack(0, [sack_block(6, 18), None, None]));
+        let window = s.congestion_controller.inner().window();
+        recv!(s, time 50, sack_resent(0));
+        recv_nothing!(s, time 50);
+        assert!(s.sack_recovery_point.is_some());
+        assert!(!s.sack_window_cut);
+        send!(s, time 100, sack_ack(18, [None, None, None]));
+        assert!(s.congestion_controller.inner().window() >= window);
+        assert_eq!(s.sack_recovery_point, None);
+    }
+
     #[test]
     fn test_sack_receiver_reports_three_blocks() {
         let mut s = socket_established();
         s.remote_has_sack = true;
         let block = |from: usize, to: usize| {
-            Some(((REMOTE_SEQ + 1 + from).0 as u32, (REMOTE_SEQ + 1 + to).0 as u32))
+            Some((
+                (REMOTE_SEQ + 1 + from).0 as u32,
+                (REMOTE_SEQ + 1 + to).0 as u32,
+            ))
         };
         for (i, offset) in [10usize, 20, 30].into_iter().enumerate() {
             let reply = send(
