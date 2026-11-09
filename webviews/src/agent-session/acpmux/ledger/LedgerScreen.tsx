@@ -167,8 +167,7 @@ export function LedgerScreen({
 
   const runExport = async (kind: LedgerExportKind) => {
     if (!reply || !save) return;
-    const done = (outcome: ExportWord | undefined) =>
-      setLastExport(outcome ? { range, group, outcome } : undefined);
+    const done = (outcome: ExportWord | undefined) => setLastExport(outcome ? { range, group, outcome } : undefined);
     try {
       // The page holds the top sessions only: the file reads them all, for the same range.
       const data =
@@ -265,9 +264,9 @@ export function LedgerScreen({
           <span>{t("ledger.unpriced", { n: formatCount(reply.totals.unpricedTurns, locale) })}</span>
         )}
         {exported && (
-          <span className="cst-exported" data-tone={exported === "failed" ? "error" : undefined} role="status">
+          <output className="cst-exported" data-tone={exported === "failed" ? "error" : undefined}>
             {t(`ledger.export.${exported}`)}
-          </span>
+          </output>
         )}
         {moreSessions !== undefined && (
           <span>
