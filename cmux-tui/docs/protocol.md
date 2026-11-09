@@ -385,8 +385,11 @@ that has had no tab placement for the reap grace period and emits
 `--terminal-reap-grace-seconds` (`identify` then also advertises
 `terminal-reaper-active-v1`). Every owner a local client starts (`cmux`,
 `cmux-tui`, `cmux daemon ensure`) gets the option, 30 seconds unless the
-client names another, and so does the mux owner `remote-link` starts on an
-SSH remote; a daemon started directly with `--headless` and no option does
+client names another, and so do the mux owner `remote-link` starts on an
+SSH remote and the owner the chatmux relay starts (when its cmux-tui lists
+the option in its help). An owner reached through `--remote-mux-socket` is
+not started by `remote-link` and reaps only when its own supervisor passed
+the option; a daemon started directly with `--headless` and no option does
 not reap. Mark a
 terminal that must outlive its tabs with
 `{"cmd":"set-terminal-keep","terminal_id":"term_...","keep":true}` or pass
