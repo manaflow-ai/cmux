@@ -411,8 +411,7 @@ fn edit_json(path: &Path, change: impl FnOnce(&mut Ordered<Value>)) -> Result<()
         #[serde(rename = "mcpServers")]
         servers: Option<Ordered<Value>>,
     }
-    let mut servers =
-        serde_json::from_str::<Servers>(text)?.servers.unwrap_or(Ordered(Vec::new()));
+    let mut servers = serde_json::from_str::<Servers>(text)?.servers.unwrap_or(Ordered(Vec::new()));
     change(&mut servers);
     #[derive(serde::Serialize)]
     #[serde(untagged)]
