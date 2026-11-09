@@ -13,7 +13,8 @@
 # without a Mac regenerates a pull request's exports with
 #   cmux-ci run --class light --script scripts/cmux-next/regenerate-action-exports.sh \
 #     --ref <pushed head> --key <key> --arg .build/exports --artifact .build/exports.patch
-#   cmux-ci artifact <step id> exports.patch && git apply exports.patch
+#   cmux-ci artifact <step id> exports.patch
+#   [ ! -s exports.patch ] || git apply exports.patch   # empty: nothing was stale
 #
 # Usage: scripts/cmux-next/regenerate-action-exports.sh OUT
 set -euo pipefail

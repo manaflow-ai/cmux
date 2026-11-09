@@ -59,11 +59,15 @@ cmp -s "$tmp/lane/$surfaces" "$repo/$surfaces" || fail "the patched action-surfa
 cmp -s "$tmp/lane/$md" "$repo/$md" || fail "the patched actions.md differs from the regenerated one"
 [[ "$(git -C "$tmp/lane" diff --name-only | LC_ALL=C sort | tr '\n' ' ')" == "$(printf '%s\n' "$md" "$surfaces" | LC_ALL=C sort | tr '\n' ' ')" ]] || fail "the patch touches other files: $(git -C "$tmp/lane" diff --name-only)"
 
-# 2. Nothing changed: the patch is empty (an earlier run's patch is not handed over again), and
-#    `git apply` of it is a no-op a lane can run unconditionally.
+# 2. Nothing changed: the patch is empty (an earlier run's patch is not handed over again). `git
+#    apply` refuses an empty patch, so the lane command in the script's header skips it; that command
+#    succeeds here and changes nothing.
 git -C "$repo" checkout -q -- plans
 run '{"actions": ["old"]}' $'# Actions\nold' > "$tmp/out" 2>&1 || fail "the clean regeneration failed: $(cat "$tmp/out")"
 [[ -f "$repo/.build/exports.patch" && ! -s "$repo/.build/exports.patch" ]] || fail "a run with no change left a non-empty patch"
 [[ -z "$(find "$repo/.build/exports" -type f)" ]] || fail "a run with no change left exports in OUT"
+git -C "$tmp/lane" checkout -q -- plans
+(cd "$tmp/lane" && [ ! -s "$repo/.build/exports.patch" ] || git apply "$repo/.build/exports.patch") || fail "the lane command fails on an empty patch"
+[[ -z "$(git -C "$tmp/lane" status --porcelain)" ]] || fail "the lane command changed files for an empty patch"
 
 echo "regenerate-action-exports.test.sh: ok"
