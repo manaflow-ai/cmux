@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextSettings
 @testable import CmuxNextDaemon
 import Foundation
 import Testing
@@ -118,24 +119,38 @@ struct CrossMachineTabMoveTests {
     }
 
     /// A tab whose original cannot close (the first tab of a pinned column, which the daemon keeps)
-    /// still moves: the other machine shows it, the move reports success, and the original stays
-    /// beside it with a notice. It was reported as a failed move, with the new tab left open there.
+    /// still moves from the menu, keyboard or a drag: the other machine shows it, the move reports
+    /// success, the original stays beside it, and the person sees one notice that says so. The
+    /// notice was returned as the run's failure, which such a run never shows.
     @Test func aTabWhoseOriginalCannotCloseStillMoves() async throws {
         try await Self.withMachines { world in
-            let surface = try await world.macConnection.newTab(in: world.macPane.handle).surface
-            let tab = try await world.macTab { $0.surface == surface && $0.kind == .pty && $0.terminalID != nil }
-            // Another column scrolls, so this pane's column can be the pinned one, with this tab first: it then cannot close.
-            _ = try await world.macConnection.newColumn(rightOf: world.macPane.handle)
-            _ = try await world.macConnection.moveTab(surface, to: world.macPane.handle, index: 0)
-            _ = try await world.macConnection.request(SetColumnDockRequest(pane: world.macPane.handle,
-                                                                           dock: DockSnapshot(edge: .left, mode: .docked), pinned: true))
-            await #expect(throws: (any Error).self, "the pinned column's first tab closed") { try await world.macConnection.closeTab(surface) }
+            let tab = try await world.pinnedFirstTab()
+            let shown = world.notices()
             let moved = await world.move(tab)
             #expect(moved, "the tab opened on the other machine, yet the move reported a failure")
             let landed = try await world.machineTab { $0.kind == .remoteTerminal }
             #expect(landed.remote?.terminalID == tab.terminalID, "the other machine's tab names another terminal")
             #expect(world.services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).contains { $0.id == tab.id },
                     "the pinned original closed")
+            #expect(world.notices() == shown + 1, "the original-stayed notice showed \(world.notices() - shown) times")
+        }
+    }
+
+    /// The same move from the CLI (`cmux tab move-to-workspace`) answers success: the tab
+    /// landed, so a script must not retry it (a retry made a second tab there). The person still
+    /// sees the one notice. It answered an error for a move that landed.
+    @Test func aCLIMoveWhoseOriginalCannotCloseAnswersSuccess() async throws {
+        try await Self.withMachines { world in
+            let tab = try await world.pinnedFirstTab()
+            let shown = world.notices()
+            let error = await CloudCLIActionRun(services: world.services)([
+                "action": .string("tab move-to-workspace"), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
+                "target": .string("tab:" + tab.id), "args": .object(["workspace": .string("workspace:" + world.target.id)]),
+            ])
+            #expect(error == nil, "the CLI got an error for a move that landed: \(String(describing: error))")
+            let landed = try await world.machineTab { $0.kind == .remoteTerminal }
+            #expect(landed.remote?.terminalID == tab.terminalID, "the other machine's tab names another terminal")
+            #expect(world.notices() == shown + 1, "the original-stayed notice showed \(world.notices() - shown) times")
         }
     }
 
@@ -160,6 +175,21 @@ struct CrossMachineTabMoveTests {
             self.target = target
             self.macState = macState
         }
+
+        /// A new terminal tab here, made the first tab of a pinned column, so the daemon refuses to close it.
+        func pinnedFirstTab() async throws -> TabModel {
+            let surface = try await macConnection.newTab(in: macPane.handle).surface
+            let tab = try await macTab { $0.surface == surface && $0.kind == .pty && $0.terminalID != nil }
+            // Another column scrolls, so this pane's column can be the pinned one, with this tab first.
+            _ = try await macConnection.newColumn(rightOf: macPane.handle)
+            _ = try await macConnection.moveTab(surface, to: macPane.handle, index: 0)
+            _ = try await macConnection.request(SetColumnDockRequest(pane: macPane.handle, dock: DockSnapshot(edge: .left, mode: .docked), pinned: true))
+            await #expect(throws: (any Error).self, "the pinned column's first tab closed") { try await self.macConnection.closeTab(surface) }
+            return tab
+        }
+
+        /// How many original-stayed notices the app showed so far.
+        func notices() -> Int { services.refusalHUD.history.filter { $0 == RemoteStrings.originalTabStayed }.count }
 
         /// Moves `tab` to the other machine's workspace as the tab menu and a drag do; whether it moved.
         func move(_ tab: TabModel) async -> Bool {
