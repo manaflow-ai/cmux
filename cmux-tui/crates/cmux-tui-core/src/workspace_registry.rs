@@ -5355,6 +5355,17 @@ fn session_guard_lock_component_path(lock_dir: &Path, component: &str) -> PathBu
     platform::normalize_filesystem_path(lock_dir.join(format!("{component}.lock")))
 }
 
+/// A daemon's start of `session` in `root` as a session reset takes it: the
+/// coordinator with its short bound, then the guard.
+#[cfg(test)]
+pub(crate) fn start_session_guard_for_test(
+    root: &Path,
+    session_name: &str,
+) -> anyhow::Result<SessionLease> {
+    fs::create_dir_all(root)?;
+    acquire_session_guard_from_private_dir(root, session_name, true)
+}
+
 #[cfg(test)]
 mod session_owner_probe_tests {
     use super::*;

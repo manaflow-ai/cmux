@@ -767,6 +767,41 @@ mod tests {
     }
 
     #[test]
+    fn no_daemon_can_take_a_session_between_the_guard_check_and_the_end() {
+        use crate::workspace_registry::start_session_guard_for_test;
+
+        let dir = std::env::temp_dir().join(format!("unowned-guard-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let own = crate::terminal_host_runtime::terminal_host_root(&dir, "mine");
+        let root = crate::terminal_host_runtime::terminal_host_root(&dir, "cmux-app-race");
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::create_dir_all(&root).unwrap();
+        // The session ran once: its guard exists and is free.
+        drop(start_session_guard_for_test(&dir, "cmux-app-race").unwrap());
+        let component = crate::workspace_registry::session_guard_component("cmux-app-race");
+        let guard = dir.join("session-locks").join(format!("{component}.lock"));
+        let records = |_: &Path| -> LoadedRecords { Ok(vec![fake_record(&root, 0)]) };
+        // Right after the reaper checked its guard, the guard file goes and
+        // a daemon starts the session, which would make a new one.
+        let daemon = std::cell::RefCell::new(Vec::new());
+        let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, _: &Path| {
+            std::fs::remove_file(&guard).unwrap();
+            daemon.borrow_mut().push(start_session_guard_for_test(&dir, "cmux-app-race").is_ok());
+            true
+        };
+        let hosts =
+            HostOps { load: &records, liveness: &|_, _| TerminalHostLiveness::Live, end: &end };
+        let never = || false;
+        reap_pass_with(&hosts, &own, &dir.join(STORE_FILE), 1_000_000, NO_GRACE, &never);
+        assert_eq!(
+            daemon.into_inner(),
+            vec![false],
+            "a daemon took the session while the reaper was ending its host"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_root_whose_listing_failed_keeps_its_entries_when_the_store_is_pruned() {
         let (dir, own, roots) = state_with_sessions("listing-failed", &["cmux-app-flaky"]);
         let flaky = roots[0].clone();
