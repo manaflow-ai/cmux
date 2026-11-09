@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../experiments/experiment";
 import { Tooltip } from "../../ui/Tooltip";
 import { usePageNow } from "../../ui/pageClock";
@@ -225,6 +225,21 @@ function GoalStrip({
   // The time and chevron's width, which the objective's first line leaves free; GoalTime keeps it
   // as its own text changes.
   useLayoutEffect(() => keepTrailWidth(trail.current));
+  // Open, the text takes the pointer so the wheel scrolls a long goal (review of cmux#39151, F1). A
+  // click on it (not a selection, not on a button or the field) still folds it, as the line's button
+  // does; keyboard users fold with that button or Escape. Removed with the open state.
+  useEffect(() => {
+    const box = clip.current;
+    if (!shown || editing || !box) return;
+    const fold = (event: MouseEvent) => {
+      if ((event.target as Element).closest("button, textarea")) return;
+      if (box.ownerDocument.getSelection()?.isCollapsed === false) return;
+      setOpen(false);
+      setClamped(false);
+    };
+    box.addEventListener("click", fold);
+    return () => box.removeEventListener("click", fold);
+  }, [shown, editing]);
   // The field takes focus in the commit that draws it, the caret after the text.
   useLayoutEffect(() => {
     const node = field.current;

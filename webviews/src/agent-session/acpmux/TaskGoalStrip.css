@@ -202,6 +202,12 @@
 .acpmux-goal[data-open] .acpmux-goal-clip {
   transition: height var(--acpmux-goal-open) var(--acpmux-goal-open-ease);
 }
+/* Open, the scroller takes the pointer: the wheel scrolls a long goal (the dock passes a wheel on to
+   the transcript only where nothing under the pointer scrolls), and its text can be selected. The
+   mark, the state words, the chevron and Escape fold it (review of cmux#39151, F1). */
+.acpmux-goal[data-look][data-open] > .acpmux-goal-clip {
+  pointer-events: auto;
+}
 /* A long goal or draft scrolls inside the open card, at most ten lines and never past 40% of the
    pane, so its lower lines and Save stay in reach in a short pane (review of cmux#39151, F3). */
 .acpmux-goal[data-look][data-open] {
@@ -300,7 +306,7 @@
   font: inherit;
   letter-spacing: inherit;
   line-height: inherit;
-  caret-color: var(--agent-accent, currentColor);
+  caret-color: var(--cmux-caret, var(--agent-text));
 }
 .acpmux-goal[data-editing] .acpmux-goal-clip {
   box-shadow: 0 1px 0 0 var(--agent-accent, currentColor);

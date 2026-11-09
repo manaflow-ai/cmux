@@ -95,7 +95,8 @@ await requireBrowserLane("composer-goal-hat.test.ts", async () => {
       await record(page);
       const line = page.locator(".acpmux-goal-toggle");
       for (let click = 0; click < 20; click++) {
-        await line.click();
+        const point = (await line.boundingBox())!;
+        await page.mouse.click(point.x + 160, point.y + 14);
         await settled(page);
       }
       const log = await stop(page);
@@ -157,7 +158,8 @@ await requireBrowserLane("composer-goal-hat.test.ts", async () => {
         const moved = after.some(
           (frame, i) => i > 0 && (want ? frame.h > after[i - 1]!.h + 0.1 : frame.h < after[i - 1]!.h - 0.1),
         );
-        if (!moved || after.find((frame) => frame.open !== want)) late.push(`click ${index + 1}`);
+        if (!moved || after.find((frame) => frame.open !== want))
+          late.push(`click ${index + 1} ${JSON.stringify(after.map((f) => [Math.round(f.t - at), f.h, f.open]))}`);
       });
       const last = log.frames.at(-1)!;
       const rest = log.frames.filter((frame) => frame.t > log.clicks.at(-1)! + 300);
@@ -244,6 +246,36 @@ await requireBrowserLane("composer-goal-hat.test.ts", async () => {
         return hit === node || node.contains(hit);
       });
       expect(inView).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("the wheel scrolls a long open goal to its end", async () => {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    const page = await browser!.newPage({ viewport: { width: 420, height: 300 } });
+    try {
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "with-hat-open", width: 420, theme: "dark" })}`,
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+        timeout: 90_000,
+      });
+      await page.locator(".acpmux-goal[data-open]").waitFor({ timeout: 30_000 });
+      await settled(page);
+      const clip = page.locator(".acpmux-goal-clip");
+      const box = (await clip.boundingBox())!;
+      // On the text, clear of the buttons at its first line's end.
+      await page.mouse.move(box.x + 24, box.y + box.height - 6);
+      await page.mouse.wheel(0, 400);
+      await page.waitForFunction(
+        () => {
+          const node = document.querySelector<HTMLElement>(".acpmux-goal-clip")!;
+          return node.scrollTop > 0;
+        },
+        undefined,
+        { timeout: 5_000 },
+      );
     } finally {
       await page.close();
     }
