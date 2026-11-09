@@ -1260,6 +1260,8 @@ export function ThreadMinimap({
           data-occluded={!railVisible || undefined}
           // The `dimmed` gutter arm (gutter.experiment.ts) draws the occluded rail faint instead of hidden.
           data-dim={(placement.gutterArm === "dimmed" && !railVisible) || undefined}
+          // Whether a short gutter shortens the resting ticks (restTick.experiment.ts, threadMinimap.css).
+          data-rest-tick={placement.restTickArm === "squeeze" ? "squeeze" : undefined}
           // A dimming arm draws other chats' ticks a step under the person's at rest (incoming.experiment.ts).
           data-incoming-dim={incomingLook.dim !== false || undefined}
           data-scrubbing={scrubbing || undefined}

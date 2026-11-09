@@ -89,6 +89,7 @@ import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
 import {
   forgetTail,
+  keptEvents,
   keptTail,
   KEPT_EVENTS,
   type KeptTail,
@@ -2578,9 +2579,10 @@ export class AcpmuxDirectClient {
   private reactionOrigins = new Map<string, string>();
   /// Each background shell's command and helper, by its call (`background_task_update`), so a
   /// background turn can cite one whose call is not in the chat's transcript (a helper's); and the
-  /// line of each background turn by the call that started its task (`backgroundSource`).
+  /// lines of the background turns by the call that started their task (`backgroundSource`): a
+  /// task that ends more than once (a monitor's ticks) starts several.
   private backgroundSources = new Map<string, AcpmuxBackgroundSource>();
-  private sourceLines = new Map<string, string>();
+  private sourceLines = new Map<string, string[]>();
   private freshReactions = new Set<string>();
   /// TodoWrite calls a drawn checklist stands for (cx-ncc.80): acpmux sends each one's plan just
   /// before it, so the call and its updates draw no tool row. Plumbing calls (hiddenTools.ts)
@@ -3489,7 +3491,10 @@ export class AcpmuxDirectClient {
     if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return undefined;
     const copy = whole && this.peerCopy?.sessionId === sessionId ? this.peerCopy : undefined;
     if (this.attachedGeneration !== this.selectionGeneration && !copy) return undefined;
-    const events = whole ? this.events : this.events.slice(-KEPT_EVENTS);
+    // The newest `KEPT_EVENTS` messages, counting each message's streamed chunks as one
+    // (`keptEvents`): counted raw, a working chat's 400 records are a few tool calls' worth of
+    // thinking fragments, and a relaunch drew little but tool calls and prompts (Leo, 2026-11-08).
+    const events = whole ? this.events : keptEvents(this.events);
     // The kept page may start inside a turn whose prompt was in the history we just cut off.
     // Keep that prompt beside the page, as attach does: without it the first cached frame draws
     // the turn's work unfolded, then the identical attach folds it once the prompt comes back.
@@ -6857,7 +6862,9 @@ export class AcpmuxDirectClient {
   private backgroundSource(turn: AcpmuxBackgroundTurn, line: string): AcpmuxBackgroundSource | undefined {
     const origin = turn.cause?.origin;
     if (!origin) return undefined;
-    this.sourceLines.set(origin, line);
+    const lines = this.sourceLines.get(origin);
+    if (!lines) this.sourceLines.set(origin, [line]);
+    else if (!lines.includes(line)) lines.push(line);
     const id = this.toolRows.get(origin) ?? this.callRow(origin);
     const tool =
       id === undefined ? undefined : this.rows.get(id)?.items?.find((item) => item.tool?.id === origin)?.tool;
@@ -6880,14 +6887,24 @@ export class AcpmuxDirectClient {
       ...(task.ownerTitle && { ownerTitle: task.ownerTitle }),
     };
     if (Object.keys(heard).length === 0) return;
-    const source = { ...this.backgroundSources.get(task.toolCallId), ...heard };
+    const prior = this.backgroundSources.get(task.toolCallId);
+    // An adapter that numbers calls per process reuses a call id (cx-jzhka): a shell that starts
+    // under a used id with another command is another task, and inherits nothing of the last one,
+    // nor do the lines that cited it.
+    const reused = task.state === "running" && !!prior?.command && !!task.command && prior.command !== task.command;
+    const source = reused ? heard : { ...prior, ...heard };
     this.backgroundSources.set(task.toolCallId, source);
-    const id = this.sourceLines.get(task.toolCallId);
-    const row = id === undefined ? undefined : this.rows.get(id);
-    if (!row?.background) return;
-    const cited = { ...source, ...row.background.source };
-    if (row.background.source && Object.keys(cited).length === Object.keys(row.background.source).length) return;
-    this.rows.set(row.id, { ...row, version: row.version + 1, background: { ...row.background, source: cited } });
+    if (reused) {
+      this.sourceLines.delete(task.toolCallId);
+      return;
+    }
+    for (const id of this.sourceLines.get(task.toolCallId) ?? []) {
+      const row = this.rows.get(id);
+      if (!row?.background) continue;
+      const cited = { ...source, ...row.background.source };
+      if (row.background.source && Object.keys(cited).length === Object.keys(row.background.source).length) continue;
+      this.rows.set(row.id, { ...row, version: row.version + 1, background: { ...row.background, source: cited } });
+    }
   }
 
   /// A background turn whose task acpmux weighed (Leo, 2026-11-03: "there's like... background
