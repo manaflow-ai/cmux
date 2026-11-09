@@ -7217,6 +7217,19 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
 }
 .cv-repo-recovery button:hover { background: color-mix(in srgb, var(--agent-text) 15%, transparent); }
+/* The wait's ETA, beside its reason: tabular so the countdown does not jiggle. */
+.cv-repo-recovery__eta { font-variant-numeric: tabular-nums; }
+/* The verified end of a recovery ("GitHub connected · owner/repo attached"): a small chip in the
+   success ink with its check, which closes the request the card opened. */
+.cv-repo-recovery__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border-radius: var(--ds-radius-md);
+  padding: 2px 8px;
+  color: var(--agent-status-success);
+  background: color-mix(in srgb, var(--agent-status-success) 12%, transparent);
+}
 /* Stacked (messageLineLook.ts): the received line holds the sender alone, so its name may take the
    line's width instead of sharing it with the first line, which is under it. */
 .cv-received > .cv-disclosure__line:not(:has(.cv-received__preview)) > .cv-received__sender {
