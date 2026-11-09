@@ -16,6 +16,9 @@ fn request(words: &[&str]) -> Request {
     }
 }
 
+#[path = "folder_tests.rs"]
+mod folder;
+
 #[test]
 fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
     let parsed = request(&["--prompt", "hi there"]);
@@ -79,32 +82,6 @@ fn an_output_flag_after_the_separator_is_the_prompt() {
             "{args:?}: {words:?}"
         );
     }
-}
-
-#[test]
-fn parse_refuses_what_start_session_would() {
-    for words in [
-        vec!["--prompt", ""],
-        vec!["--prompt", "  "],
-        vec!["--prompt", "x", "--cwd", "relative"],
-        vec!["--prompt", "x", "--agent", "Claude Code"],
-        vec!["--prompt", "x", "--name", "a", "--target", "machine:b"],
-        vec!["--prompt", "x", "--timeout", "soon"],
-        vec!["--prompt", "x", "--bogus"],
-        vec!["--prompt"],
-        vec!["--prompt", "x", "--login", "github"],
-        vec!["--prompt", "x", "--login", ""],
-        vec!["--prompt", "x", "--login"],
-        vec!["--prompt", "x", "--environment", " "],
-        vec!["--prompt", "x", "--environment"],
-        vec!["--environment", "env_1", "--target", "machine:vm-1"],
-        vec!["--prompt", "x", "--", "y"],
-        vec!["--", "two", "words"],
-        vec!["--"],
-    ] {
-        assert!(parse(&strings(&words), || Ok(String::new())).is_err(), "{words:?}");
-    }
-    assert_eq!(parse(&strings(&["--help"]), || Ok(String::new())), Ok(Parsed::Help));
 }
 
 /// Leo (2026-11-06): one command line, in conjunction with "login with Claude or login with Codex or login with

@@ -50,6 +50,7 @@ mod base;
 mod git_back;
 mod history;
 mod links;
+mod listed;
 mod local;
 mod merge;
 mod names;
@@ -63,7 +64,7 @@ mod seed_pull;
 pub(super) use seed_pull::{
     SeedBase, SeedPulled, failure_code as seed_pull_failure_code, is_sha, seed_pull,
 };
-mod skips;
+pub(crate) mod skips;
 mod store;
 
 pub(crate) use store::{Config as StoreConfig, configure as configure_store};
@@ -514,16 +515,12 @@ pub(super) fn copy_file_with_progress(
     target: &str,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
     let meta = std::fs::symlink_metadata(local)
         .with_context(|| format!("cannot read {}", local.display()))?;
     if !meta.file_type().is_file() {
         anyhow::bail!("{} is not a regular file", local.display());
     }
-    let file = LocalFile {
-        source: Source::File(local.to_path_buf()),
-        permissions: local::permissions_of(meta.permissions().mode()),
-    };
+    let file = LocalFile::listed(local, &meta);
     let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
@@ -1453,17 +1450,7 @@ impl Listings {
 /// in since it was listed; anything but a regular file is refused.
 fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
     Ok(match &file.source {
-        Source::File(path) => {
-            let opened = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-                .open(path)
-                .with_context(|| format!("cannot read {}", path.display()))?;
-            if !opened.metadata()?.is_file() {
-                anyhow::bail!("{} is no longer a regular file", path.display());
-            }
-            Box::new(opened)
-        }
+        Source::File(path) => Box::new(local::open_listed(path, file.id)?),
         Source::Bytes(bytes) => Box::new(std::io::Cursor::new(bytes.clone())),
     })
 }

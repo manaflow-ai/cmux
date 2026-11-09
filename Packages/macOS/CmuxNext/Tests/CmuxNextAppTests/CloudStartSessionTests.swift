@@ -4,7 +4,6 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloudCredentials
 import CmuxNextCloud
-import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign

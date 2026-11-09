@@ -119,7 +119,7 @@ struct CloudStartSessionFolderTests {
 
     @Test(arguments: ["/", "/Users", "/Users/me", "/Users/me/"])
     func homeAboveItAndTheDisksRootAreRefused(folder: String) {
-        let written = CloudStartSession.normalizedFolder(folder) ?? folder
+        let written = CloudMoveFolder.normalized(folder) ?? folder
         #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderTooBroad(written))) { try Self.fromFolder(folder) }
     }
 

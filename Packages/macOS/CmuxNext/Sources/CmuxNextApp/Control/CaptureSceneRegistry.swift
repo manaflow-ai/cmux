@@ -4,7 +4,6 @@ import CmuxNextAgentPane
 import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextCloud
-import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
