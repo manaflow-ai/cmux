@@ -182,15 +182,15 @@ pub fn select_zig(
             continue;
         }
         seen.push(candidate.clone());
-        if let Some(actual) = version_of(candidate) {
-            if zig_compatible(&actual, required) {
-                let why = (candidate != &first).then(|| {
-                    format!(
-                        "{first} does not serve the pinned Zig {required}; building libghostty-vt with {candidate} ({actual})"
-                    )
-                });
-                return (candidate.clone(), why);
-            }
+        if let Some(actual) = version_of(candidate)
+            && zig_compatible(&actual, required)
+        {
+            let why = (candidate != &first).then(|| {
+                format!(
+                    "{first} does not serve the pinned Zig {required}; building libghostty-vt with {candidate} ({actual})"
+                )
+            });
+            return (candidate.clone(), why);
         }
     }
     (first, None)
