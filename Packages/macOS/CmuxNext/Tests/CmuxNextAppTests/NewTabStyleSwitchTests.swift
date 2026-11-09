@@ -59,7 +59,7 @@ struct NewTabStyleSwitchTests {
         #expect(settings.snapshot.newTabTemplate == nil, "Minimal is the default: tabs.newTabTemplate leaves cmux.json")
         let migrated = try String(contentsOf: directory.appending(path: "cmux.json"), encoding: .utf8)
         let root = try #require(try JSONSerialization.jsonObject(with: Data(migrated.utf8)) as? [String: Any], "cmux.json does not parse")
-        #expect((root["tabs"] as? [String: Any])?["newTabTemplate"] == nil, migrated)
+        #expect((root["tabs"] as? [String: Any])?["newTabTemplate"] == nil, "\(migrated)")
         #expect(!migrated.contains("\"threads\""))
         #expect(!migrated.contains("\"composer\""))
     }
