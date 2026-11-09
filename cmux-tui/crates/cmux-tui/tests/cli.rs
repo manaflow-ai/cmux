@@ -4765,3 +4765,7 @@ fn wg_hub_refuses_a_readable_config_and_missing_options() {
 #[cfg(unix)]
 #[path = "cli/tabless_terminals.rs"]
 mod tabless_terminals;
+
+#[cfg(unix)]
+#[path = "cli/stop_start_lock.rs"]
+mod stop_start_lock;

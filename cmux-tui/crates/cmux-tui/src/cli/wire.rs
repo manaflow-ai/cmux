@@ -12,7 +12,7 @@ use cmux_tui_core::resource::{
 use ratatui::buffer::CellWidth;
 use serde_json::{Value, json};
 
-use super::command::{RequestPlan, WireOperation, random_prefixed};
+use super::command::{RequestPlan, ResponseView, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
@@ -313,7 +313,7 @@ fn response_read_timeout(plan: &RequestPlan, signal_interrupt_armed: bool) -> Op
     Some(Duration::from_secs(10))
 }
 
-fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
+pub(super) fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
     let class = plan.operation.class();
     let mut request = json!({
         "protocol": PROTOCOL,
@@ -401,6 +401,12 @@ fn run_response(
                 }
                 let result = response.result.expect("validated result");
                 if !plan.stream {
+                    if global.output == OutputMode::Human
+                        && plan.view == ResponseView::ScreenText
+                        && let Some(text) = result.get("text").and_then(Value::as_str)
+                    {
+                        return print_screen_text(text);
+                    }
                     let code = print_success(&result, global.output);
                     return if code == 0 { success_exit_code(plan, &result) } else { code };
                 }
@@ -531,6 +537,20 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::TerminalWait)
     ) && result.get("matched") == Some(&Value::Bool(false));
     i32::from(unmatched_wait)
+}
+
+/// `terminal <t> screen read` as plain text: the screen's rows as they show,
+/// without trailing blank rows, then one newline.
+fn print_screen_text(text: &str) -> i32 {
+    let mut stdout = io::stdout().lock();
+    let shown = text.trim_end_matches(['\n', ' ']);
+    match writeln!(stdout, "{shown}").and_then(|()| stdout.flush()) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("stdout error: {error}");
+            3
+        }
+    }
 }
 
 fn print_success(value: &Value, output: OutputMode) -> i32 {
@@ -933,6 +953,7 @@ mod tests {
             params: json!({}),
             idempotency_key: None,
             stream: false,
+            view: ResponseView::Full,
         }
     }
 
@@ -1000,6 +1021,7 @@ mod tests {
             params: json!({"initial_content":"empty"}),
             idempotency_key: None,
             stream: false,
+            view: ResponseView::Full,
         };
         assert!(request_value(&mutation).unwrap().get("idempotency_key").is_some());
 
@@ -1008,6 +1030,7 @@ mod tests {
             params: json!({}),
             idempotency_key: None,
             stream: false,
+            view: ResponseView::Full,
         };
         assert!(request_value(&read).unwrap().get("idempotency_key").is_none());
     }
@@ -1226,6 +1249,7 @@ mod tests {
                 params: json!({"timeout_ms":"5000"}),
                 idempotency_key: None,
                 stream: false,
+                view: ResponseView::Full,
             };
             assert_eq!(response_read_timeout(&bounded, false), Some(Duration::from_secs(7)));
 
@@ -1241,6 +1265,7 @@ mod tests {
             params: json!({}),
             idempotency_key: None,
             stream: true,
+            view: ResponseView::Full,
         };
         assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
         assert_eq!(response_read_timeout(&stream, true), None);
@@ -1261,6 +1286,7 @@ mod tests {
                     params: json!({}),
                     idempotency_key: Some("input-error".into()),
                     stream: false,
+                    view: ResponseView::Full,
                 };
                 for (reason, expected) in [
                     ("terminal_input_too_large", catalog.terminal_input.too_large),
@@ -1298,6 +1324,7 @@ mod tests {
                 params: json!({}),
                 idempotency_key: Some("reload-owner-stopped".into()),
                 stream: false,
+                view: ResponseView::Full,
             };
             let mut error = json!({
                 "code":"operation.failed",

@@ -82,8 +82,17 @@ startup. Its `identify` response reports `lifecycle_ready`; lifecycle commands
 fail fast while this field is `false` and can be retried after the owner is ready.
 `server stop` first reads the process identity, then sends the existing PID and
 generation-fenced graceful shutdown operation. An absent server is success,
-and stopping never deletes the durable topology. `session <name>|current stop`
-is an alias for the same local operation. Opaque session IDs are not accepted
+and stopping never deletes the durable topology. Once the owner has closed
+its socket, stop removes the socket's `<socket>.spawn-lock` start lock (a
+running owner does not hold it; stop does not wait for the process, which can
+stay a zombie of its parent). Stop takes the lock first, so it never unlinks a
+lock that a starting owner holds, and reports the removed paths as `removed`
+(`[]` when there was none; an absent server also removes a stale lock).
+Durable state (`writer.lock`, the registry) stays; `session <name> reset-state`
+deletes it. A starter of an older cmux-tui version does not check the lock
+file again after it locks it, so a stop that removes the file while such a
+starter waits can let it start beside a newer one; this needs two versions
+starting the same session at once. `session <name>|current stop` is an alias for the same local operation. Opaque session IDs are not accepted
 because local socket resolution uses a session name. `--all` is intentionally
 deferred until a multi-session registry can identify every target without
 introducing a second command registry.
@@ -132,7 +141,12 @@ cmux workspace ws_… screen screen_… pane pane_… show
 
 Both paths send `pane.get`. A direct opaque target ID may omit structural
 ancestors. A name or `current` target requires its complete parent chain. Every
-supplied ancestor is checked for containment before the operation runs.
+supplied ancestor is checked for containment before the operation runs. A tab
+name under `current` workspace, screen and pane selectors (what `cmux tab NAME`
+sends) that the current pane does not have is looked up in the current screen,
+then the current workspace, then the session; the first level with a match
+wins, and two or more tabs there are `selector.ambiguous`. A tab name under an
+explicit pane stays in that pane.
 
 Run `cmux <resource> --help` for its exact paths, and add `--help` to an action
 (`cmux tab <selector> move --help`, or `cmux help tab <selector> move`) for
@@ -207,6 +221,27 @@ Names may be empty, contain Unicode or whitespace, and need not be unique.
 `current`, names containing `_`, reserved command words, and ID-shaped names.
 An ambiguous name returns `selector.ambiguous` with every candidate ID. It
 never chooses one or changes state.
+
+An agent name (`cmux agent start NAME`) and any tab name that is unique in the
+session select that tab's terminal, tab or pane wherever such a selector goes:
+the word after `terminal`, `tab` or `pane`, and the `--terminal` and `--pane`
+values of those scopes and of `agent` and `notification`. Before it parses the
+command, the CLI reads one `session.snapshot` and puts the id in place of the
+name: a tab with that name whose terminal runs (with an agent or not), else one
+whose terminal exited (so `terminal NAME resume` finds it). Two tabs at the
+first step that has any return `selector.ambiguous` with their tab ids, also an
+agent tab and a shell tab with one name. A name only fills a gap: when a name
+matches, the CLI first asks the daemon to resolve the word with the rules above
+(the current scope, names under a parent), and a word that resolves stays as it
+is, so a selector that worked before selects the same object. The flag values
+of `agent` and `notification` take `term_` ids only, so a name there always
+becomes its id. A word that matches no tab, an id, `current`, command words and
+the parser's subcommand words (such as `create` in `tab create terminal`) are
+left to those rules. No agent can take a literal word of an action path
+(`write`, `keys`, `create`, ...) as its name. A terminal title under the
+current tab, and a pane's own name under the current screen, win over a tab
+name, because the daemon resolves them first. The scan reads flag values as the
+parser does: every flag that is not a boolean flag takes the next word.
 
 `--machine` and `--session` provide routing defaults. `--socket` selects an
 exact local socket. Local socket precedence is explicit `--socket`, explicit
@@ -358,13 +393,15 @@ tab <selector> terminal|browser ...
 terminal list
 terminal <selector> show|write|keys|mouse|move|project|attach|close
 terminal <selector> focus <in|out>
-terminal <selector> screen read [--unwrap] [--lines <n>]
+terminal <selector> screen read [--unwrap] [--lines <n>] [--details]
 terminal <selector> screen wait --pattern <regex> [--new] [--timeout-ms <n>]
 terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap]
 terminal <selector> state read
 terminal <selector> history read|clear
 terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 terminal <selector> process show|wait
+terminal <selector> wait --until ready [--timeout <duration>]
+terminal <selector> resume [OPTIONS] [-- ARGS...]
 terminal <selector> viewport scroll
 
 browser list
@@ -380,6 +417,7 @@ notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface
 attention next [--after <tab_…>] [--focus]
 attention list
 agent list|report
+agent start|resume <name> [OPTIONS] [-- ARGS...]
 agent plugin list|install|use|update|remove
 pairing request list
 pairing request <selector> respond <accept|reject>
@@ -391,6 +429,10 @@ sidebar plugin list|install|use|update|remove
 provider authority install
 
 ```
+
+In the human output `screen read` prints the screen's text as it shows (no
+trailing blank rows); `--details` prints every field of the record (`text`,
+`cols`, `rows`, ...), and `--json` prints the record as before.
 
 Terminal text reads break lines where the terminal wrapped them unless asked
 not to (`terminal-read-unwrap-v1`). `screen read --unwrap` (`unwrap`) joins
@@ -451,6 +493,12 @@ and `ended` and asks the daemon for its state: `done` and `idle` ask for
 daemon's `done`, the others for themselves. `--state done` used to select the
 ended sessions; that is `--state ended` now. A refused notification read (an
 older daemon) leaves every idle agent `idle`.
+
+`agent list` then reads one `session.snapshot` and adds the place of each
+row's terminal: `tab_id`, `tab_name` and `pane_id` of the tab that shows it,
+and `name`, the tab's name when it is an agent name (`cmux agent start NAME`),
+else `null`. A terminal the snapshot does not show, or a refused snapshot
+read, gives `null` for all four.
 
 `agent hook status` reports each provider on its own row. A provider whose
 config cannot be read is `state: unavailable`, `reason: unreadable`, with the
@@ -544,6 +592,88 @@ Stream cancellation and terminal/browser viewer leases remain owned by the
 long-lived attachment connection. SDK attachment objects manage those
 connection controls; one-shot CLI paths do not advertise them. `raw operation`
 remains available for transport testing.
+
+## Agent start and resume
+
+```text
+cmux agent start NAME [--cmd <launcher>] [--harness H] [--pane <sel>]
+  [--split right|down|left|up] [--cwd DIR] [--focus|--no-focus]
+  [--timeout 90s] [--no-wait] [-- ARGS...]
+cmux agent resume NAME [the same options]
+cmux terminal <sel> resume [the same options]
+cmux terminal <sel> wait --until ready [--timeout D]
+```
+
+`agent start` runs a coding agent in a new tab named NAME and waits until it
+can take a message. NAME is a lowercase letter, then up to 31 lowercase
+letters, digits, `-` or `_`; it may not be a command word, `current`,
+`caller`, `focused`, `start`, `resume` or id-shaped, and no running tab may
+have it (`agent.name_taken`). The launcher is a shell command line: `--cmd`,
+else the `CMUX_AGENT_COMMAND` environment variable, else `claude` (`claude
+--model opus`, `codex --model o3`, any wrapper). The tab runs `$SHELL -lc 'LAUNCHER "$@"'
+cmux-agent ARGS...` (`/bin/sh` when `$SHELL` is not a POSIX shell), so each
+extra argument stays one argv word, with `pane run --on-exit keep`: the exited
+terminal keeps its argv and name for `resume`. Without `--pane` or `--split`
+the caller's pane (else the focused pane) is split to the right; `--pane SEL`
+alone opens a tab in that pane; `--split DIR` splits SEL (default: the
+caller's pane). In a session with no pane yet (a daemon that no client
+opened), it creates a workspace named NAME; the pane and its shell come from
+the create receipt (else the pane of the receipt's workspace), never from
+focus, so two starts at once each use their own workspace. The shell that a
+split or a new workspace opens with ends once the agent runs, with `terminal
+<t> close` as `pane move` does, so no running shell stays without a tab; `tab
+close` is only the fallback when the terminal is not known or does not close.
+The tab is focused unless `--no-focus`. These commands are client flows over
+the requests above (`pane split`, `pane run`, `workspace create`,
+`session.snapshot`, `terminal.screen.read`, `agent.list`,
+`terminal.process.get`, `terminal close`, `tab close`).
+
+The wait looks four times a second at the terminal, its agent records and its
+screen. A startup dialog in the last 16 non-blank rows of the screen, where no
+input box shows, is `blocked` with `dialog` (`folder_trust`,
+`bypass_permissions_warning`, `api_key`, `login`, `onboarding`,
+`update_prompt`) and a `reason`; a fresh hook record that says `blocked` is
+`agent_question`. Otherwise a fresh hook record that says idle (the
+`SessionStart` hook) or the agent's input box on screen is `ready`. Both count
+only once the screen stood still for 1 s. cmux never answers a dialog.
+
+`--json` prints `{name, state, reason, dialog, harness, launcher, args, cwd,
+placement, workspace_id, screen_id, pane_id, tab_id, terminal_id, waited_ms}`.
+`state` is `ready` (exit 0), `blocked` (exit 4), `timeout` (exit 124, default
+`--timeout` 90s), `exited` (exit 1) or `started` with `--no-wait` (exit 0).
+`harness` is one word per harness: `claude` (input aliases `claude-code`,
+`claude_code`, `Claude Code`), `codex` (`codex-cli`), `opencode`, `gemini`,
+`amp`.
+
+`agent resume NAME` and `terminal <sel> resume` bring back an agent whose
+terminal exited (a running one is `agent.running`). They read the harness
+session id from `agent list --terminal` (`extra.agent_session_id`), else from
+the terminal itself: an agent that quit leaves the roster, and the daemon keeps
+its last harness session id and harness on the terminal's snapshot value
+(`extra.agent_session_id`, `extra.agent`; memory only, a daemon restart forgets
+it). With neither, the error is `agent.no_session`. They take the launcher
+from `terminal <t> process show`, but not the extra arguments the start
+passed (`-- ARGS` may hold the first prompt, which a resume must not send
+again; put launcher flags in `--cmd`), add this command's own `-- ARGS`, and
+append the harness's own resume arguments as separate argv words: `claude
+--resume <id>`, `codex resume <id>`, `gemini --resume <id>`, `opencode
+--session <id>`, `amp threads continue <id>`. `--cmd` replaces the recorded
+launcher; `--harness` names the harness when no record does. The agent reopens
+in the exited tab's pane unless `--pane` or `--split` say otherwise, with the
+old tab's name and folder; the exited tab is closed. The output adds `resumed:
+{terminal_id, tab_id, agent_session_id, tab_closed}`.
+
+For `terminal <sel> resume` and `terminal <sel> wait`, `current` and
+`focused` are resolved by the daemon (`terminal <sel> show`), as in every
+other terminal command; other selectors are matched in one
+`session.snapshot` (ids, id prefixes, titles, then names).
+
+`terminal <sel> wait --until ready` is the same wait for any terminal (agent
+records of any age count). `ready` is the only `--until` value. `ready` and
+`blocked` print `{terminal_id, until, state, dialog, reason, waited_ms}` and
+exit 0 and 4; an exit is `terminal.exited` (exit 1) and a passed `--timeout`
+`wait.timeout` (exit 124). Without `--timeout` the wait has no practical
+limit.
 
 ## Identity and agent guide
 

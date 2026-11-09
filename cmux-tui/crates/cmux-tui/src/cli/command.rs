@@ -37,6 +37,9 @@ pub(super) enum CommandPlan {
     Identify,
     /// `cmux skill show`: the agent guide (`cli/skill.rs`).
     SkillShow,
+    /// `agent start|resume`, `terminal <t> resume` and `terminal <t> wait
+    /// --until ready` (`cli/agent_start.rs`).
+    Agent(Box<super::agent_start::Command>),
 }
 
 #[derive(Clone, Debug)]
@@ -45,6 +48,36 @@ pub(super) struct RequestPlan {
     pub params: Value,
     pub idempotency_key: Option<String>,
     pub stream: bool,
+    /// How a person sees the result (`--json` always prints the whole result).
+    pub view: ResponseView,
+}
+
+/// How human output shows a result.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum ResponseView {
+    /// Every field of the result.
+    #[default]
+    Full,
+    /// `terminal <t> screen read` without `--details`: the screen's `text`
+    /// alone, as it shows (W3-H).
+    ScreenText,
+}
+
+impl CommandPlan {
+    /// `terminal <t> screen read`: human output prints the screen text only.
+    fn screen_text(self) -> Self {
+        // W3-H red stub
+        if std::hint::black_box(true) {
+            return self;
+        }
+        match self {
+            Self::Protocol(mut plan) => {
+                plan.view = ResponseView::ScreenText;
+                Self::Protocol(plan)
+            }
+            other => other,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -418,6 +451,14 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
 /// swallowing the next argument.
 pub(super) fn flag_takes_value(name: &str) -> bool {
     actions::arity(name) == Some(actions::Arity::Value)
+}
+
+/// Whether `word` is a command word of some action path in the catalog
+/// (`write` in `terminal <selector> write`), not a placeholder.
+pub(super) fn is_action_word(word: &str) -> bool {
+    actions::ACTIONS.iter().any(|action| {
+        action.path.split_whitespace().any(|part| part == word && !part.starts_with('<'))
+    })
 }
 
 fn unknown_flag(name: &str) -> UsageError {
@@ -1232,7 +1273,10 @@ fn parse_terminal(
             if let Some(lines) = flags.take("lines") {
                 insert_bounded_u32(&mut params, "lines", "--lines", lines, 1, 10_000)?;
             }
+            // Plain screen text unless --details asks for the record's fields (W3-H).
+            let details = flags.boolean("details");
             request(ResourceOperation::TerminalScreenRead, selectors, flags, params)
+                .map(|plan| if details { plan } else { plan.screen_text() })
         }
         [selector, "state", "read"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -2144,6 +2188,7 @@ fn finalize_request(
         operation,
         params,
         idempotency_key: explicit_key,
+        view: ResponseView::Full,
     }))
 }
 
@@ -3475,6 +3520,19 @@ mod tests {
             CommandPlan::AgentList(plan) => plan.request,
             _ => panic!("expected protocol plan"),
         }
+    }
+
+    /// W3-H: a person reads `screen read` as the screen's text; `--details`
+    /// keeps every field of the record. `--json` prints the record either way.
+    #[test]
+    fn w3h_screen_read_shows_text_unless_details_asks_for_the_record() {
+        let plain = protocol(&["terminal", "current", "screen", "read"]);
+        assert_eq!(plain.view, ResponseView::ScreenText);
+        let details = protocol(&["terminal", "current", "screen", "read", "--details"]);
+        assert_eq!(details.view, ResponseView::Full);
+        assert!(details.params.get("details").is_none(), "{:?}", details.params);
+        let show = protocol(&["terminal", "current", "show"]);
+        assert_eq!(show.view, ResponseView::Full);
     }
 
     #[test]
