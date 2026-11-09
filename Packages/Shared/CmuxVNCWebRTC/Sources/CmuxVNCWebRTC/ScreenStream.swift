@@ -11,7 +11,7 @@ import WebRTC
 /// `fps` (with `i`) is the most frames per second the viewer's display
 /// shows; a host that predates it ignores it and streams at 60.
 public struct ScreenInput: Codable, Sendable {
-    /// move, scroll, key, chord, text, display, refresh, quality, fps
+    /// move, scroll, key, chord, text, display, refresh, quality, fps, paste-image
     public var t: String
     public var x: Double?
     public var y: Double?
@@ -30,6 +30,11 @@ public struct ScreenInput: Codable, Sendable {
     /// ``pixelUnit`` for pixels, sent only to a host whose `caps` message
     /// listed ``ScreenHostMessage/pixelScrollCapability``.
     public var u: String?
+    /// For `paste-image`: the chunk count (`i` is the chunk's index), the
+    /// image's id and its uniform type identifier (``pasteImage(_:type:id:)``).
+    public var n: Int?
+    public var id: String?
+    public var f: String?
 
     /// `u` for a scroll in pixels. Send whole pixels and carry the leftover
     /// fraction into the next scroll: a fraction rounds to the nearest pixel,
@@ -37,9 +42,11 @@ public struct ScreenInput: Codable, Sendable {
     public static let pixelUnit = "px"
 
     public init(t: String, x: Double? = nil, y: Double? = nil, b: UInt8? = nil, dx: Int? = nil, dy: Int? = nil,
-                k: UInt32? = nil, d: Bool? = nil, s: String? = nil, i: Int? = nil, m: [UInt32]? = nil, u: String? = nil) {
+                k: UInt32? = nil, d: Bool? = nil, s: String? = nil, i: Int? = nil, m: [UInt32]? = nil, u: String? = nil,
+                n: Int? = nil, id: String? = nil, f: String? = nil) {
         self.t = t; self.x = x; self.y = y; self.b = b; self.dx = dx; self.dy = dy
         self.k = k; self.d = d; self.s = s; self.i = i; self.m = m; self.u = u
+        self.n = n; self.id = id; self.f = f
     }
 
     /// As the synthesized decoding, except that a fractional `dx`/`dy` (a
@@ -65,6 +72,9 @@ public struct ScreenInput: Codable, Sendable {
         i = try container.decodeIfPresent(Int.self, forKey: .i)
         m = try container.decodeIfPresent([UInt32].self, forKey: .m)
         u = try container.decodeIfPresent(String.self, forKey: .u)
+        n = try container.decodeIfPresent(Int.self, forKey: .n)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+        f = try container.decodeIfPresent(String.self, forKey: .f)
     }
 }
 
@@ -269,6 +279,11 @@ public protocol ScreenBackend: AnyObject, Sendable {
     /// can't (the Screen Sharing loopback) keeps the full size, and so does
     /// the encoder's bitrate ceiling.
     var scalesToDemand: Bool { get }
+    /// Puts an image on this Mac's pasteboard and pastes it (⌘V) where the
+    /// person's focus is: the viewer's Paste Image. False when the source
+    /// can't (it does not list ``ScreenHostMessage/pasteImageCapability``)
+    /// or the bytes are not an image.
+    func pasteImage(_ data: Data, type: String) -> Bool
 }
 
 /// Sources that do not know their display's rate (the Screen Sharing
@@ -281,6 +296,7 @@ public extension ScreenBackend {
     var displayFrame: CGRect? { nil }
     func setMaximumLongEdge(_ pixels: Int?) {}
     var scalesToDemand: Bool { false }
+    func pasteImage(_ data: Data, type: String) -> Bool { false }
 }
 
 /// The Mac side of a screen stream: answers a viewer with the screen as a
@@ -330,6 +346,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
         var opened = false
         /// The viewer draws pointers itself (it said ``ScreenHostMessage/telepointersCapability``).
         var telepointers = false
+        /// The image the viewer is pasting, chunk by chunk.
+        var images = ScreenImageAssembler()
         init(link: VNCPeerLink, backend: any ScreenBackend) {
             self.link = link
             self.backend = backend
@@ -670,6 +688,17 @@ public final class ScreenStreamHost: @unchecked Sendable {
             startTelepointers(session)
             return
         }
+        if input.t == ScreenHostMessage.pasteImageType {
+            let outcome = Self.takeImageChunk(input, backend: session.backend, viewOnly: viewOnly) { chunk in
+                session.lock.withLock { session.images.take(chunk) }
+            }
+            guard let outcome else { return }
+            log("paste image: \(outcome.rawValue)")
+            if let data = try? JSONEncoder().encode(ScreenHostMessage(pasteImage: outcome)) {
+                _ = session.link.sendText(String(decoding: data, as: UTF8.self))
+            }
+            return
+        }
         if input.t == ScreenStreamViewer.viewDemandMessage {
             // The viewer's display, not input: view-only sessions too.
             applyDemand(input, session: session)
@@ -698,6 +727,23 @@ public final class ScreenStreamHost: @unchecked Sendable {
         if input.t == "scroll", let unit = input.u,
            unit != ScreenInput.pixelUnit || !backend.inputCapabilities.contains(ScreenHostMessage.pixelScrollCapability) { return }
         backend.handle(input)
+    }
+
+    /// One `paste-image` chunk: kept until the image is whole, then pasted
+    /// by the backend. The answer for the viewer, or nil while more chunks
+    /// are to come. A view-only session, or a backend that does not paste
+    /// images, refuses every image.
+    static func takeImageChunk(_ input: ScreenInput, backend: any ScreenBackend, viewOnly: Bool,
+                               take: (ScreenInput) -> ScreenImageAssembler.Step) -> ScreenHostMessage.PasteImageOutcome? {
+        guard !viewOnly, backend.inputCapabilities.contains(ScreenHostMessage.pasteImageCapability) else {
+            // Answer once per image, not once per chunk.
+            return input.i == 0 ? .refused : nil
+        }
+        switch take(input) {
+        case .partial: return nil
+        case let .failed(outcome): return outcome
+        case let .complete(data, type): return backend.pasteImage(data, type: type) ? .pasted : .refused
+        }
     }
 
     /// What a view-only viewer may still send: a request for a fresh frame (no input reaches the Mac).
@@ -925,6 +971,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// The host's pointer positions (``ScreenHostMessage/person``,
     /// ``ScreenHostMessage/agent``), after ``drawPointers()``; any thread.
     public var onTelepointers: (@Sendable (ScreenHostMessage) -> Void)?
+    /// The host's answer to ``pasteImage(_:type:)``; any thread.
+    public var onPasteImage: (@Sendable (ScreenHostMessage.PasteImageOutcome) -> Void)?
     public var onState: (@Sendable (String?) -> Void)?
     public var onPath: (@Sendable (String) -> Void)?
     /// A STUN or TURN server gave no candidate (`icecandidateerror`), for saying why a relay path failed.
@@ -998,6 +1046,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                         self?.onDisplays?(message)
                     } else if message.t == ScreenHostMessage.telepointersType {
                         self?.onTelepointers?(message)
+                    } else if let outcome = message.pasteImageOutcome {
+                        self?.onPasteImage?(outcome)
                     }
                 case let .path(local, remote):
                     let relay = local == "relay" || remote == "relay"
@@ -1144,6 +1194,25 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         }
         if pointerOnly, link.sendText(text, on: "pointer") { return }
         _ = link.sendText(text)
+    }
+
+    /// Sends an image for the Mac to paste (only to a host whose `caps`
+    /// listed ``ScreenHostMessage/pasteImageCapability``): its chunks in
+    /// order, waiting while the channel is full. False when nothing could
+    /// be sent (no channel, or the image is empty, too large or of another
+    /// type); the Mac's answer comes in ``onPasteImage``.
+    public func pasteImage(_ data: Data, type: String) async -> Bool {
+        let messages = ScreenInput.pasteImage(data, type: type)
+        guard !messages.isEmpty, let link = lock.withLock({ link }) else { return false }
+        let encoder = JSONEncoder()
+        do {
+            for message in messages {
+                try await link.sendTextPaced(String(decoding: try encoder.encode(message), as: UTF8.self))
+            }
+        } catch {
+            return false
+        }
+        return true
     }
 
     /// Live video numbers from WebRTC: decoded fps, receive rate, RTT, path.

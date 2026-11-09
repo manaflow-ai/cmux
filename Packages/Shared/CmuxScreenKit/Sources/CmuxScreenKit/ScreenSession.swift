@@ -103,6 +103,66 @@ public final class ScreenSession {
 
     /// The Mac takes pixel scrolling (``scrollPixels(dx:dy:)``).
     public var supportsPixelScroll: Bool { hostCapabilities.contains(ScreenHostMessage.pixelScrollCapability) }
+    /// The Mac pastes images sent from here (``pasteImage(_:type:)``): a
+    /// screen stream in full control whose host listed it. Paste Image shows only then.
+    public var supportsImagePaste: Bool { stream != nil && hostCapabilities.contains(ScreenHostMessage.pasteImageCapability) }
+
+    /// Where the last Paste Image is.
+    public enum ImagePaste: Equatable, Sendable {
+        case idle
+        /// The image is on its way to the Mac.
+        case sending
+        /// The Mac put it on its pasteboard and pressed ⌘V.
+        case pasted
+        /// It did not reach the Mac's pasteboard (the reason, for the person).
+        case failed(String)
+    }
+
+    public private(set) var imagePaste = ImagePaste.idle
+    /// Which paste ``imagePaste`` is about (a later paste's answer never settles an earlier one).
+    @ObservationIgnored private var imagePasteCount = 0
+
+    /// Sends an image for the Mac to paste where its focus is (the Mac puts
+    /// it on its pasteboard and presses ⌘V). ``imagePaste`` follows it:
+    /// sending, then pasted or failed once the Mac answers.
+    public func pasteImage(_ data: Data, type: String) {
+        guard let stream, supportsImagePaste else {
+            imagePaste = .failed("This Mac can't take pasted images.")
+            return
+        }
+        guard !ScreenInput.pasteImage(data, type: type).isEmpty else {
+            imagePaste = .failed("This image is too large to paste.")
+            return
+        }
+        perf?.input("paste-image")
+        imagePasteCount += 1
+        let count = imagePasteCount
+        imagePaste = .sending
+        Task { [weak self] in
+            let sent = await stream.pasteImage(data, type: type)
+            guard let self, count == imagePasteCount, !sent else { return }
+            imagePaste = .failed("The connection closed before the image was sent.")
+        }
+    }
+
+    package func receivePasteImage(_ outcome: ScreenHostMessage.PasteImageOutcome) {
+        guard imagePaste == .sending else { return }
+        switch outcome {
+        case .pasted: imagePaste = .pasted
+        case .refused: imagePaste = .failed("The Mac could not paste this image.")
+        case .incomplete: imagePaste = .failed("Part of the image went missing. Try again.")
+        }
+    }
+
+    /// A paste that failed before it reached the session (the photo could not be read).
+    public func reportImagePasteFailure(_ message: String) {
+        imagePaste = .failed(message)
+    }
+
+    /// Clears a settled paste (the banner went away).
+    public func dismissImagePaste() {
+        if imagePaste != .sending { imagePaste = .idle }
+    }
     /// The stream dropped and is coming back on its own.
     public private(set) var isReconnecting = false
     /// The connection stalled (ICE disconnected): no picture is coming,
@@ -306,6 +366,12 @@ public final class ScreenSession {
             }
         }
         viewer.onPath = { [weak self] path in Task { @MainActor in self?.streamPath = path } }
+        viewer.onPasteImage = { [weak self, weak viewer] outcome in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.receivePasteImage(outcome)
+            }
+        }
         viewer.onTelepointers = { [weak self, weak viewer] message in
             let point = { (pointer: ScreenHostMessage.Pointer?) in pointer.map { CGPoint(x: $0.x, y: $0.y) } }
             let (person, agent) = (point(message.person), point(message.agent))
