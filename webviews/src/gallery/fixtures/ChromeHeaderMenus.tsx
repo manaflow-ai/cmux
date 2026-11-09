@@ -90,7 +90,7 @@ export const chromePaneMenu: readonly ChromeMenuRow[] = [
   row("newTab", "New tab", "plus", { shortcut: "⌘T" }),
   row("changes", "Changes", "changes", { shortcut: "⌃⇧⌘G" }),
   row("files", "Files", "folder", {
-    children: [row("openFiles", "Show files", "folder"), row("projectFiles", "Add Files to Project…", "folder")],
+    children: [row("openFiles", "Show files", "folder"), row("projectFiles", "Add Files to Folder…", "folder")],
   }),
   row("split", "Split", "split", {
     children: [row("splitRight", "Split right", "split"), row("splitDown", "Split down", "split", { shortcut: "⇧⌘D" })],

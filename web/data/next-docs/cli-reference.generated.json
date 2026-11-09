@@ -78,7 +78,7 @@
         },
         {
           "command": "cmux agent add-project-files",
-          "title": "Add Project Files…",
+          "title": "Add Files to Folder…",
           "id": "agentPane.addProjectFiles",
           "mcp": true,
           "mcpTool": "app_agent_add_project_files"
@@ -106,7 +106,7 @@
         },
         {
           "command": "cmux agent edit-instructions",
-          "title": "Edit Project Instructions…",
+          "title": "Edit Folder Instructions…",
           "id": "agentPane.editInstructions",
           "mcp": true,
           "mcpTool": "app_agent_edit_instructions"

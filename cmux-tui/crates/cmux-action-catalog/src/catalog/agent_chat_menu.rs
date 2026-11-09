@@ -39,7 +39,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "agentPane.editInstructions",
         group: GROUP,
-        title: Text::raw("Edit Project Instructions…"),
+        title: Text::raw("Edit Folder Instructions…"),
         keywords: &["agent", "chat", "project", "instructions", "claude.md", "agents.md", "rules", "edit"],
         category: "agents",
         symbol: "doc.text",
@@ -53,7 +53,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "agentPane.addProjectFiles",
         group: GROUP,
-        title: Text::raw("Add Project Files…"),
+        title: Text::raw("Add Files to Folder…"),
         keywords: &["agent", "chat", "project", "files", "context", "knowledge", "add", "attach"],
         category: "agents",
         symbol: "folder.badge.plus",

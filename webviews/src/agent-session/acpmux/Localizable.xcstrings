@@ -17792,127 +17792,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add Files to Project…"
+            "value": "Add Files to Folder…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إضافة ملفات إلى المشروع…"
+            "value": "إضافة ملفات إلى المجلد…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaj datoteke u projekat…"
+            "value": "Dodaj datoteke u folder…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Føj filer til projekt…"
+            "value": "Føj filer til mappe…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dateien zum Projekt hinzufügen…"
+            "value": "Dateien zum Ordner hinzufügen…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Añadir archivos al proyecto…"
+            "value": "Añadir archivos a la carpeta…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajouter des fichiers au projet…"
+            "value": "Ajouter des fichiers au dossier…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aggiungi file al progetto…"
+            "value": "Aggiungi file alla cartella…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "プロジェクトにファイルを追加…"
+            "value": "フォルダにファイルを追加…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ថែមឯកសារទៅគម្រោង…"
+            "value": "បន្ថែមឯកសារទៅថត…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "프로젝트에 파일 추가…"
+            "value": "폴더에 파일 추가…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Legg til filer i prosjekt…"
+            "value": "Legg til filer i mappe…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaj pliki do projektu…"
+            "value": "Dodaj pliki do folderu…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Adicionar arquivos ao projeto…"
+            "value": "Adicionar arquivos à pasta…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Добавить файлы в проект…"
+            "value": "Добавить файлы в папку…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เพิ่มไฟล์ลงในโปรเจกต์…"
+            "value": "เพิ่มไฟล์ลงในโฟลเดอร์…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Projeye Dosya Ekle…"
+            "value": "Klasöre Dosya Ekle…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Додати файли до проєкту…"
+            "value": "Додати файли до папки…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thêm tệp vào dự án…"
+            "value": "Thêm tệp vào thư mục…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "将文件添加到项目…"
+            "value": "将文件添加到文件夹…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "將檔案加入專案…"
+            "value": "將檔案加入資料夾…"
           }
         }
       }
@@ -113496,127 +113496,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "خارج هذا المشروع"
+            "value" : "خارج هذا المجلد"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Izvan ovog projekta"
+            "value" : "Izvan ovog foldera"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Uden for dette projekt"
+            "value" : "Uden for denne mappe"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Außerhalb dieses Projekts"
+            "value" : "Außerhalb dieses Ordners"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Outside this project"
+            "value" : "Outside this folder"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Fuera de este proyecto"
+            "value" : "Fuera de esta carpeta"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hors de ce projet"
+            "value" : "Hors de ce dossier"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Esterno a questo progetto"
+            "value" : "Esterno a questa cartella"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このプロジェクトの外"
+            "value" : "このフォルダの外"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "នៅក្រៅគម្រោងនេះ"
+            "value" : "នៅក្រៅថតនេះ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "이 프로젝트 밖"
+            "value" : "이 폴더 밖"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Utenfor dette prosjektet"
+            "value" : "Utenfor denne mappen"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Poza tym projektem"
+            "value" : "Poza tym folderem"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Fora deste projeto"
+            "value" : "Fora desta pasta"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Вне этого проекта"
+            "value" : "Вне этой папки"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "อยู่นอกโปรเจกต์นี้"
+            "value" : "อยู่นอกโฟลเดอร์นี้"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Bu projenin dışında"
+            "value" : "Bu klasörün dışında"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Поза цим проєктом"
+            "value" : "Поза цією папкою"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ngoài dự án này"
+            "value" : "Ngoài thư mục này"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "在此项目以外"
+            "value" : "在此文件夹以外"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "在此專案以外"
+            "value" : "在此資料夾以外"
           }
         }
       }
@@ -219388,7 +219388,7 @@
       }
     },
     "trust.continueWithoutFolderLabel": {"comment":"Folder trust: action to continue without a project","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue without folder"}},"ar":{"stringUnit":{"state":"translated","value":"المتابعة دون مجلد"}},"bs":{"stringUnit":{"state":"translated","value":"Nastavi bez foldera"}},"da":{"stringUnit":{"state":"translated","value":"Fortsæt uden mappe"}},"de":{"stringUnit":{"state":"translated","value":"Ohne Ordner fortfahren"}},"es":{"stringUnit":{"state":"translated","value":"Continuar sin carpeta"}},"fr":{"stringUnit":{"state":"translated","value":"Continuer sans dossier"}},"it":{"stringUnit":{"state":"translated","value":"Continua senza cartella"}},"ja":{"stringUnit":{"state":"translated","value":"フォルダなしで続行"}},"km":{"stringUnit":{"state":"translated","value":"បន្តដោយគ្មានថត"}},"ko":{"stringUnit":{"state":"translated","value":"폴더 없이 계속"}},"nb":{"stringUnit":{"state":"translated","value":"Fortsett uten mappe"}},"pl":{"stringUnit":{"state":"translated","value":"Kontynuuj bez folderu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Continuar sem pasta"}},"ru":{"stringUnit":{"state":"translated","value":"Продолжить без папки"}},"th":{"stringUnit":{"state":"translated","value":"ดำเนินการต่อโดยไม่มีโฟลเดอร์"}},"tr":{"stringUnit":{"state":"translated","value":"Klasör olmadan devam et"}},"uk":{"stringUnit":{"state":"translated","value":"Продовжити без папки"}},"vi":{"stringUnit":{"state":"translated","value":"Tiếp tục không có thư mục"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在没有文件夹的情况下继续"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在沒有資料夾的情況下繼續"}}}},
-    "trust.continueWithoutFolder": {"comment":"Folder trust: continue after declining access","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue without folder context: project hooks and config won't load. Only draft text is copied. Attachments are not carried; they stay in the original chat."}},"ar":{"stringUnit":{"state":"translated","value":"المتابعة دون سياق المجلد: لن تُحمّل إعدادات المشروع وخطافاته. يُنسخ نص المسودة فقط. لا تُنقل المرفقات؛ وتبقى في المحادثة الأصلية."}},"bs":{"stringUnit":{"state":"translated","value":"Nastavi bez konteksta foldera: postavke i hookovi projekta se neće učitati. Kopira se samo tekst nacrta. Prilozi se ne prenose; ostaju u izvornom razgovoru."}},"da":{"stringUnit":{"state":"translated","value":"Fortsæt uden mappekontekst: projektets hooks og konfiguration indlæses ikke. Kun kladdeteksten kopieres. Vedhæftninger flyttes ikke; de bliver i den oprindelige chat."}},"de":{"stringUnit":{"state":"translated","value":"Ohne Ordnerkontext fortfahren: Projekt-Hooks und -Konfiguration werden nicht geladen. Nur der Entwurfstext wird kopiert. Anhänge werden nicht übertragen; sie bleiben im ursprünglichen Chat."}},"es":{"stringUnit":{"state":"translated","value":"Continuar sin contexto de carpeta: no se cargarán los hooks ni la configuración del proyecto. Solo se copia el texto del borrador. Los archivos adjuntos no se transfieren; permanecen en el chat original."}},"fr":{"stringUnit":{"state":"translated","value":"Continuer sans contexte de dossier : les hooks et la configuration du projet ne seront pas chargés. Seul le texte du brouillon est copié. Les pièces jointes ne sont pas transférées ; elles restent dans la conversation d’origine."}},"it":{"stringUnit":{"state":"translated","value":"Continua senza contesto della cartella: hook e configurazione del progetto non verranno caricati. Viene copiato solo il testo della bozza. Gli allegati non vengono trasferiti e restano nella chat originale."}},"ja":{"stringUnit":{"state":"translated","value":"フォルダのコンテキストなしで続行：プロジェクトのフックと設定は読み込まれません. 下書きのテキストのみコピーされます。添付ファイルは引き継がれず、元のチャットに残ります。"}},"km":{"stringUnit":{"state":"translated","value":"បន្តដោយគ្មានបរិបទថត៖ hooks និងការកំណត់គម្រោងនឹងមិនត្រូវបានផ្ទុកទេ. មានតែអត្ថបទព្រាងប៉ុណ្ណោះដែលត្រូវបានចម្លង។ ឯកសារភ្ជាប់មិនត្រូវបានផ្ទេរទេ ហើយនៅក្នុងការជជែកដើម។"}},"ko":{"stringUnit":{"state":"translated","value":"폴더 컨텍스트 없이 계속: 프로젝트 훅과 구성을 불러오지 않습니다. 초안 텍스트만 복사됩니다. 첨부 파일은 전달되지 않고 원래 채팅에 남습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Fortsett uten mappekontekst: prosjektets hooks og konfigurasjon lastes ikke inn. Bare utkastteksten kopieres. Vedlegg overføres ikke; de blir i den opprinnelige chatten."}},"pl":{"stringUnit":{"state":"translated","value":"Kontynuuj bez kontekstu folderu: hooki i konfiguracja projektu nie zostaną załadowane. Kopiowany jest tylko tekst wersji roboczej. Załączniki nie są przenoszone; pozostają w pierwotnym czacie."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Continuar sem contexto da pasta: os hooks e a configuração do projeto não serão carregados. Apenas o texto do rascunho é copiado. Os anexos não são transferidos; permanecem no chat original."}},"ru":{"stringUnit":{"state":"translated","value":"Продолжить без контекста папки: хуки и конфигурация проекта не загрузятся. Копируется только текст черновика. Вложения не переносятся и остаются в исходном чате."}},"th":{"stringUnit":{"state":"translated","value":"ดำเนินการต่อโดยไม่มีบริบทโฟลเดอร์: จะไม่โหลด hooks และการตั้งค่าโปรเจกต์. คัดลอกเฉพาะข้อความร่าง ไฟล์แนบจะไม่ถูกย้ายและยังคงอยู่ในแชทเดิม"}},"tr":{"stringUnit":{"state":"translated","value":"Klasör bağlamı olmadan devam et: proje kancaları ve yapılandırması yüklenmeyecek. Yalnızca taslak metni kopyalanır. Ekler aktarılmaz; özgün sohbette kalır."}},"uk":{"stringUnit":{"state":"translated","value":"Продовжити без контексту папки: хуки та конфігурацію проєкту не буде завантажено. Копіюється лише текст чернетки. Вкладення не переносяться й залишаються у вихідному чаті."}},"vi":{"stringUnit":{"state":"translated","value":"Tiếp tục không có ngữ cảnh thư mục: hook và cấu hình dự án sẽ không được tải. Chỉ sao chép văn bản nháp. Tệp đính kèm không được chuyển và vẫn ở trong cuộc trò chuyện gốc."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在没有文件夹上下文的情况下继续：不会加载项目钩子和配置. 仅复制草稿文本。附件不会转移，仍保留在原聊天中。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在沒有資料夾內容的情況下繼續：不會載入專案掛鉤和設定. 僅複製草稿文字。附件不會轉移，仍保留在原聊天中。"}}}},
+    "trust.continueWithoutFolder": {"comment":"Folder trust: continue after declining access","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue without folder context: the folder's hooks and config won't load. Only draft text is copied. Attachments are not carried; they stay in the original chat."}},"ar":{"stringUnit":{"state":"translated","value":"المتابعة دون سياق المجلد: لن تُحمّل إعدادات المجلد وخطافاته. يُنسخ نص المسودة فقط. لا تُنقل المرفقات؛ وتبقى في المحادثة الأصلية."}},"bs":{"stringUnit":{"state":"translated","value":"Nastavi bez konteksta foldera: postavke i hookovi foldera se neće učitati. Kopira se samo tekst nacrta. Prilozi se ne prenose; ostaju u izvornom razgovoru."}},"da":{"stringUnit":{"state":"translated","value":"Fortsæt uden mappekontekst: mappens hooks og konfiguration indlæses ikke. Kun kladdeteksten kopieres. Vedhæftninger flyttes ikke; de bliver i den oprindelige chat."}},"de":{"stringUnit":{"state":"translated","value":"Ohne Ordnerkontext fortfahren: Hooks und Konfiguration des Ordners werden nicht geladen. Nur der Entwurfstext wird kopiert. Anhänge werden nicht übertragen; sie bleiben im ursprünglichen Chat."}},"es":{"stringUnit":{"state":"translated","value":"Continuar sin contexto de carpeta: no se cargarán los hooks ni la configuración de la carpeta. Solo se copia el texto del borrador. Los archivos adjuntos no se transfieren; permanecen en el chat original."}},"fr":{"stringUnit":{"state":"translated","value":"Continuer sans contexte de dossier : les hooks et la configuration du dossier ne seront pas chargés. Seul le texte du brouillon est copié. Les pièces jointes ne sont pas transférées ; elles restent dans la conversation d’origine."}},"it":{"stringUnit":{"state":"translated","value":"Continua senza contesto della cartella: hook e configurazione della cartella non verranno caricati. Viene copiato solo il testo della bozza. Gli allegati non vengono trasferiti e restano nella chat originale."}},"ja":{"stringUnit":{"state":"translated","value":"フォルダのコンテキストなしで続行：フォルダのフックと設定は読み込まれません. 下書きのテキストのみコピーされます。添付ファイルは引き継がれず、元のチャットに残ります。"}},"km":{"stringUnit":{"state":"translated","value":"បន្តដោយគ្មានបរិបទថត៖ hooks និងការកំណត់របស់ថតនឹងមិនត្រូវបានផ្ទុកទេ. មានតែអត្ថបទព្រាងប៉ុណ្ណោះដែលត្រូវបានចម្លង។ ឯកសារភ្ជាប់មិនត្រូវបានផ្ទេរទេ ហើយនៅក្នុងការជជែកដើម។"}},"ko":{"stringUnit":{"state":"translated","value":"폴더 컨텍스트 없이 계속: 폴더의 훅과 구성을 불러오지 않습니다. 초안 텍스트만 복사됩니다. 첨부 파일은 전달되지 않고 원래 채팅에 남습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Fortsett uten mappekontekst: mappens hooks og konfigurasjon lastes ikke inn. Bare utkastteksten kopieres. Vedlegg overføres ikke; de blir i den opprinnelige chatten."}},"pl":{"stringUnit":{"state":"translated","value":"Kontynuuj bez kontekstu folderu: hooki i konfiguracja folderu nie zostaną załadowane. Kopiowany jest tylko tekst wersji roboczej. Załączniki nie są przenoszone; pozostają w pierwotnym czacie."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Continuar sem contexto da pasta: os hooks e a configuração da pasta não serão carregados. Apenas o texto do rascunho é copiado. Os anexos não são transferidos; permanecem no chat original."}},"ru":{"stringUnit":{"state":"translated","value":"Продолжить без контекста папки: хуки и конфигурация папки не загрузятся. Копируется только текст черновика. Вложения не переносятся и остаются в исходном чате."}},"th":{"stringUnit":{"state":"translated","value":"ดำเนินการต่อโดยไม่มีบริบทโฟลเดอร์: จะไม่โหลด hooks และการตั้งค่าของโฟลเดอร์. คัดลอกเฉพาะข้อความร่าง ไฟล์แนบจะไม่ถูกย้ายและยังคงอยู่ในแชทเดิม"}},"tr":{"stringUnit":{"state":"translated","value":"Klasör bağlamı olmadan devam et: klasörün kancaları ve yapılandırması yüklenmeyecek. Yalnızca taslak metni kopyalanır. Ekler aktarılmaz; özgün sohbette kalır."}},"uk":{"stringUnit":{"state":"translated","value":"Продовжити без контексту папки: хуки та конфігурацію папки не буде завантажено. Копіюється лише текст чернетки. Вкладення не переносяться й залишаються у вихідному чаті."}},"vi":{"stringUnit":{"state":"translated","value":"Tiếp tục không có ngữ cảnh thư mục: hook và cấu hình của thư mục sẽ không được tải. Chỉ sao chép văn bản nháp. Tệp đính kèm không được chuyển và vẫn ở trong cuộc trò chuyện gốc."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在没有文件夹上下文的情况下继续：不会加载文件夹的钩子和配置. 仅复制草稿文本。附件不会转移，仍保留在原聊天中。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在沒有資料夾內容的情況下繼續：不會載入資料夾的掛鉤和設定. 僅複製草稿文字。附件不會轉移，仍保留在原聊天中。"}}}},
     "trust.notNow": {
       "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now)",
       "extractionState": "manual",
@@ -251396,7 +251396,7 @@
     "composer.slashCd":{"comment":"Composer slash menu: description of cmux's /cd command, which moves the chat to another folder (a chat with turns opens a new chat there).","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Work in another folder."}},"ar":{"stringUnit":{"state":"needs_review","value":"العمل في مجلد آخر."}},"bs":{"stringUnit":{"state":"needs_review","value":"Radi u drugoj mapi."}},"da":{"stringUnit":{"state":"needs_review","value":"Arbejd i en anden mappe."}},"de":{"stringUnit":{"state":"needs_review","value":"In einem anderen Ordner arbeiten."}},"es":{"stringUnit":{"state":"needs_review","value":"Trabajar en otra carpeta."}},"fr":{"stringUnit":{"state":"needs_review","value":"Travailler dans un autre dossier."}},"it":{"stringUnit":{"state":"needs_review","value":"Lavora in un'altra cartella."}},"ja":{"stringUnit":{"state":"needs_review","value":"別のフォルダで作業します。"}},"km":{"stringUnit":{"state":"needs_review","value":"ធ្វើការក្នុងថតផ្សេង។"}},"ko":{"stringUnit":{"state":"needs_review","value":"다른 폴더에서 작업합니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Arbeid i en annen mappe."}},"pl":{"stringUnit":{"state":"needs_review","value":"Pracuj w innym folderze."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Trabalhar em outra pasta."}},"ru":{"stringUnit":{"state":"needs_review","value":"Работать в другой папке."}},"th":{"stringUnit":{"state":"needs_review","value":"ทำงานในโฟลเดอร์อื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başka bir klasörde çalış."}},"uk":{"stringUnit":{"state":"needs_review","value":"Працювати в іншій папці."}},"vi":{"stringUnit":{"state":"needs_review","value":"Làm việc trong thư mục khác."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在另一个文件夹中工作。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在另一個資料夾中工作。"}}}},
     "composer.cmuxCdPath":{"comment":"Agent pane: inline refusal for /cd with a path the pane cannot read (~ or a relative path with no chat folder).","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Type the folder's full path, starting with /, or a path relative to this chat's folder."}},"ar":{"stringUnit":{"state":"needs_review","value":"اكتب المسار الكامل للمجلد بدءًا بـ /، أو مسارًا نسبيًا إلى مجلد هذه الدردشة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Upišite punu putanju mape koja počinje sa /, ili putanju u odnosu na mapu ovog razgovora."}},"da":{"stringUnit":{"state":"needs_review","value":"Skriv mappens fulde sti, der starter med /, eller en sti i forhold til denne chats mappe."}},"de":{"stringUnit":{"state":"needs_review","value":"Gib den vollständigen Pfad des Ordners ein, beginnend mit /, oder einen Pfad relativ zum Ordner dieses Chats."}},"es":{"stringUnit":{"state":"needs_review","value":"Escribe la ruta completa de la carpeta, empezando por /, o una ruta relativa a la carpeta de este chat."}},"fr":{"stringUnit":{"state":"needs_review","value":"Saisissez le chemin complet du dossier, commençant par /, ou un chemin relatif au dossier de cette discussion."}},"it":{"stringUnit":{"state":"needs_review","value":"Digita il percorso completo della cartella, che inizia con /, o un percorso relativo alla cartella di questa chat."}},"ja":{"stringUnit":{"state":"needs_review","value":"/ で始まるフォルダのフルパス、またはこのチャットのフォルダからの相対パスを入力してください。"}},"km":{"stringUnit":{"state":"needs_review","value":"វាយផ្លូវពេញរបស់ថតដែលចាប់ផ្តើមដោយ / ឬផ្លូវទាក់ទងនឹងថតរបស់ការជជែកនេះ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"/로 시작하는 폴더의 전체 경로 또는 이 채팅 폴더 기준의 상대 경로를 입력하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Skriv inn mappens fullstendige bane som starter med /, eller en bane relativt til denne chattens mappe."}},"pl":{"stringUnit":{"state":"needs_review","value":"Wpisz pełną ścieżkę folderu zaczynającą się od / lub ścieżkę względną wobec folderu tego czatu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Digite o caminho completo da pasta, começando com /, ou um caminho relativo à pasta deste chat."}},"ru":{"stringUnit":{"state":"needs_review","value":"Введите полный путь к папке, начиная с /, или путь относительно папки этого чата."}},"th":{"stringUnit":{"state":"needs_review","value":"พิมพ์พาธเต็มของโฟลเดอร์ที่ขึ้นต้นด้วย / หรือพาธที่สัมพันธ์กับโฟลเดอร์ของแชทนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Klasörün / ile başlayan tam yolunu veya bu sohbetin klasörüne göre bir yol yazın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Введіть повний шлях до папки, що починається з /, або шлях відносно папки цього чату."}},"vi":{"stringUnit":{"state":"needs_review","value":"Nhập đường dẫn đầy đủ của thư mục, bắt đầu bằng /, hoặc đường dẫn tương đối với thư mục của cuộc trò chuyện này."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请输入以 / 开头的文件夹完整路径，或相对于此聊天文件夹的路径。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請輸入以 / 開頭的資料夾完整路徑，或相對於此聊天資料夾的路徑。"}}}},
     "composer.cmuxCdNotFolder":{"comment":"Agent pane: inline refusal for /cd when the host says the path is not a folder. {folder} is the resolved path.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{folder} is not a folder."}},"ar":{"stringUnit":{"state":"needs_review","value":"{folder} ليس مجلدًا."}},"bs":{"stringUnit":{"state":"needs_review","value":"{folder} nije mapa."}},"da":{"stringUnit":{"state":"needs_review","value":"{folder} er ikke en mappe."}},"de":{"stringUnit":{"state":"needs_review","value":"{folder} ist kein Ordner."}},"es":{"stringUnit":{"state":"needs_review","value":"{folder} no es una carpeta."}},"fr":{"stringUnit":{"state":"needs_review","value":"{folder} n'est pas un dossier."}},"it":{"stringUnit":{"state":"needs_review","value":"{folder} non è una cartella."}},"ja":{"stringUnit":{"state":"needs_review","value":"{folder} はフォルダではありません。"}},"km":{"stringUnit":{"state":"needs_review","value":"{folder} មិនមែនជាថតទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{folder}은(는) 폴더가 아닙니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"{folder} er ikke en mappe."}},"pl":{"stringUnit":{"state":"needs_review","value":"{folder} nie jest folderem."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{folder} não é uma pasta."}},"ru":{"stringUnit":{"state":"needs_review","value":"{folder} не является папкой."}},"th":{"stringUnit":{"state":"needs_review","value":"{folder} ไม่ใช่โฟลเดอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"{folder} bir klasör değil."}},"uk":{"stringUnit":{"state":"needs_review","value":"{folder} не є папкою."}},"vi":{"stringUnit":{"state":"needs_review","value":"{folder} không phải là thư mục."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{folder} 不是文件夹。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{folder} 不是資料夾。"}}}},
-    "composer.cmuxCdNewTab":{"comment":"Agent pane: inline refusal for /cd on New Tab, where the project chip picks the folder.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pick the folder in the project menu below."}},"ar":{"stringUnit":{"state":"needs_review","value":"اختر المجلد من قائمة المشروع أدناه."}},"bs":{"stringUnit":{"state":"needs_review","value":"Odaberite mapu u meniju projekta ispod."}},"da":{"stringUnit":{"state":"needs_review","value":"Vælg mappen i projektmenuen nedenfor."}},"de":{"stringUnit":{"state":"needs_review","value":"Wähle den Ordner im Projektmenü unten."}},"es":{"stringUnit":{"state":"needs_review","value":"Elige la carpeta en el menú de proyecto de abajo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Choisissez le dossier dans le menu du projet ci-dessous."}},"it":{"stringUnit":{"state":"needs_review","value":"Scegli la cartella nel menu del progetto qui sotto."}},"ja":{"stringUnit":{"state":"needs_review","value":"下のプロジェクトメニューでフォルダを選んでください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ជ្រើសថតនៅក្នុងម៉ឺនុយគម្រោងខាងក្រោម។"}},"ko":{"stringUnit":{"state":"needs_review","value":"아래 프로젝트 메뉴에서 폴더를 선택하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Velg mappen i prosjektmenyen nedenfor."}},"pl":{"stringUnit":{"state":"needs_review","value":"Wybierz folder w menu projektu poniżej."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Escolha a pasta no menu de projeto abaixo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Выберите папку в меню проекта ниже."}},"th":{"stringUnit":{"state":"needs_review","value":"เลือกโฟลเดอร์ในเมนูโปรเจกต์ด้านล่าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Klasörü aşağıdaki proje menüsünden seçin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Виберіть папку в меню проєкту нижче."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chọn thư mục trong menu dự án bên dưới."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请在下方的项目菜单中选择文件夹。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請在下方的專案選單中選擇資料夾。"}}}},
+    "composer.cmuxCdNewTab":{"comment":"Agent pane: inline refusal for /cd on New Tab, where the project chip picks the folder.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pick the folder in the folder menu below."}},"ar":{"stringUnit":{"state":"needs_review","value":"اختر المجلد من قائمة المجلدات أدناه."}},"bs":{"stringUnit":{"state":"needs_review","value":"Odaberite folder u meniju foldera ispod."}},"da":{"stringUnit":{"state":"needs_review","value":"Vælg mappen i mappemenuen nedenfor."}},"de":{"stringUnit":{"state":"needs_review","value":"Wähle den Ordner im Ordnermenü unten."}},"es":{"stringUnit":{"state":"needs_review","value":"Elige la carpeta en el menú de carpetas de abajo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Choisissez le dossier dans le menu des dossiers ci-dessous."}},"it":{"stringUnit":{"state":"needs_review","value":"Scegli la cartella nel menu delle cartelle qui sotto."}},"ja":{"stringUnit":{"state":"needs_review","value":"下のフォルダメニューでフォルダを選んでください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ជ្រើសថតនៅក្នុងម៉ឺនុយថតខាងក្រោម។"}},"ko":{"stringUnit":{"state":"needs_review","value":"아래 폴더 메뉴에서 폴더를 선택하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Velg mappen i mappemenyen nedenfor."}},"pl":{"stringUnit":{"state":"needs_review","value":"Wybierz folder w menu folderów poniżej."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Escolha a pasta no menu de pastas abaixo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Выберите папку в меню папок ниже."}},"th":{"stringUnit":{"state":"needs_review","value":"เลือกโฟลเดอร์ในเมนูโฟลเดอร์ด้านล่าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Klasörü aşağıdaki klasör menüsünden seçin."}},"uk":{"stringUnit":{"state":"needs_review","value":"Виберіть папку в меню папок нижче."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chọn thư mục trong menu thư mục bên dưới."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请在下方的文件夹菜单中选择文件夹。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請在下方的資料夾選單中選擇資料夾。"}}}},
     "upload.notStarted":{"comment":"Composer: an attachment's error when the host refused to start its upload.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The upload could not be started."}},"ar":{"stringUnit":{"state":"needs_review","value":"تعذر بدء الرفع."}},"bs":{"stringUnit":{"state":"needs_review","value":"Otpremanje nije moguće započeti."}},"da":{"stringUnit":{"state":"needs_review","value":"Overførslen kunne ikke startes."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Upload konnte nicht gestartet werden."}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo iniciar la carga."}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de démarrer l'envoi."}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile avviare il caricamento."}},"ja":{"stringUnit":{"state":"needs_review","value":"アップロードを開始できませんでした。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចចាប់ផ្តើមការផ្ទុកឡើងបានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"업로드를 시작할 수 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Opplastingen kunne ikke startes."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można rozpocząć przesyłania."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível iniciar o envio."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось начать загрузку."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่สามารถเริ่มการอัปโหลดได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yükleme başlatılamadı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося почати завантаження."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể bắt đầu tải lên."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法开始上传。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法開始上傳。"}}}},
     "upload.notRead":{"comment":"Composer: an attachment's error when the page could not read the file's bytes.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The file could not be read."}},"ar":{"stringUnit":{"state":"needs_review","value":"تعذرت قراءة الملف."}},"bs":{"stringUnit":{"state":"needs_review","value":"Datoteku nije moguće pročitati."}},"da":{"stringUnit":{"state":"needs_review","value":"Filen kunne ikke læses."}},"de":{"stringUnit":{"state":"needs_review","value":"Die Datei konnte nicht gelesen werden."}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo leer el archivo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de lire le fichier."}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile leggere il file."}},"ja":{"stringUnit":{"state":"needs_review","value":"ファイルを読み込めませんでした。"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចអានឯកសារបានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"파일을 읽을 수 없습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Filen kunne ikke leses."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można odczytać pliku."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível ler o arquivo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось прочитать файл."}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่สามารถอ่านไฟล์ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Dosya okunamadı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося прочитати файл."}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể đọc tệp."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法读取文件。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法讀取檔案。"}}}},
     "upload.cancelled":{"comment":"Composer: an attachment's error when its upload was cancelled, by the person or by the host, before the host had the whole file.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The upload was cancelled."}},"ar":{"stringUnit":{"state":"needs_review","value":"تم إلغاء الرفع."}},"bs":{"stringUnit":{"state":"needs_review","value":"Otpremanje je otkazano."}},"da":{"stringUnit":{"state":"needs_review","value":"Overførslen blev annulleret."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Upload wurde abgebrochen."}},"es":{"stringUnit":{"state":"needs_review","value":"Se canceló la carga."}},"fr":{"stringUnit":{"state":"needs_review","value":"L'envoi a été annulé."}},"it":{"stringUnit":{"state":"needs_review","value":"Il caricamento è stato annullato."}},"ja":{"stringUnit":{"state":"needs_review","value":"アップロードはキャンセルされました。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការផ្ទុកឡើងត្រូវបានបោះបង់។"}},"ko":{"stringUnit":{"state":"needs_review","value":"업로드가 취소되었습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Opplastingen ble avbrutt."}},"pl":{"stringUnit":{"state":"needs_review","value":"Przesyłanie zostało anulowane."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O envio foi cancelado."}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузка отменена."}},"th":{"stringUnit":{"state":"needs_review","value":"การอัปโหลดถูกยกเลิก"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yükleme iptal edildi."}},"uk":{"stringUnit":{"state":"needs_review","value":"Завантаження скасовано."}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã hủy tải lên."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"上传已取消。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"上傳已取消。"}}}},

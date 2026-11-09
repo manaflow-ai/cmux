@@ -106,7 +106,7 @@ test("the chat menu adds files to a project on this Mac, named in its harness's 
     return labels();
   };
 
-  expect(await menuFor({ cwd: "/Users/me/src/app", family: "codex" })).toEqual(["Add Files to Project…"]);
+  expect(await menuFor({ cwd: "/Users/me/src/app", family: "codex" })).toEqual(["Add Files to Folder…"]);
   await act(async () => (doc.querySelector(".acpmux-chat-menu-popover .acpmux-chat-menu-item") as HTMLElement).click());
   expect(asked).toEqual([["/Users/me/src/app", "AGENTS.md"]]);
   expect(

@@ -80,7 +80,7 @@ await requireBrowserLane("inline-reference-chips.test.tsx", async () => {
               border: "0px",
             });
           expect(looks.locks).toBe(0);
-          expect(looks.outside).toContain("Outside this project");
+          expect(looks.outside).toContain("Outside this folder");
           expect(looks.outside).toContain(outside);
           expect(looks.elsewhere).toContain("example-host");
           expect(looks.hrefs).toEqual(["https://github.com/example/project/pull/42", "https://example.test/docs"]);

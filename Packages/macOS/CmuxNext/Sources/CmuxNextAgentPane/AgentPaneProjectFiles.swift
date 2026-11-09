@@ -13,7 +13,7 @@ import Foundation
 enum AgentPaneProjectFiles {
     /// Where the copies go, relative to the chat folder.
     static let directory = ".cmux/context"
-    static let copyFailedMessage = "The files could not be added to the project."
+    static let copyFailedMessage = "The files could not be added to the folder."
 
     /// The requests that open a system picker after a click: the chat menu's Edit CLAUDE.md and Add
     /// Files to Project, and the composer's Attach Screenshot… and Attach Window….

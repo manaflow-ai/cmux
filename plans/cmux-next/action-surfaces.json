@@ -31430,7 +31430,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Edit Project Instructions…",
+      "title" : "Edit Folder Instructions…",
       "title_key" : null,
       "title_table" : null
     },
@@ -31461,7 +31461,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Add Project Files…",
+      "title" : "Add Files to Folder…",
       "title_key" : null,
       "title_table" : null
     },
