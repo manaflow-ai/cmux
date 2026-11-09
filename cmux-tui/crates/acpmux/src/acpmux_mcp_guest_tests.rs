@@ -61,6 +61,8 @@ fn new_runs_acpmux_new_detached_with_the_apps_origin() {
             "--require-asking",
             "--tag",
             "origin=claude-desktop",
+            "--from",
+            "Claude desktop",
             "--prompt-file",
             "-",
         ]
@@ -109,6 +111,50 @@ fn every_session_a_guest_starts_asks_before_it_acts() {
         let e = new_argv("codex", &json!({"prompt": "x", "harness": harness})).unwrap_err();
         assert!(e.contains("cannot be held to asking"), "{harness}: {e}");
     }
+}
+
+/// Review F1 (#39320): a guest's `new` delivers its task as the app's message, never as the
+/// person's words. The CLI it runs declares a guest at `initialize`, so the daemon's
+/// `owner_terminal` refuses it, and its first prompt names the app (`fromAgent`), which the
+/// session's agent reads beside it.
+#[test]
+fn a_guest_new_is_the_apps_message_and_never_the_owners_terminal_send() {
+    let env = child_env("claude-desktop");
+    let get = |key: &str| env.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone());
+    assert_eq!(get(crate::desktop_link::GUEST_ENV), Some(Some("claude-desktop".to_owned())));
+    for session in [
+        SESSION_ENV,
+        crate::hub::person::CALLER_TOKEN_ENV,
+        crate::hub::person::CALLER_SOCKET_ENV,
+    ] {
+        assert_eq!(get(session), Some(None), "{session} is removed: a guest is no session");
+    }
+    // The child's own declaration: no terminal, so never the owner's.
+    let mut mux = serde_json::Map::new();
+    crate::cli_caller::declare(&mut mux, |key| get(key).flatten());
+    let hello = json!({"clientInfo": {"name": "acpmux-cli"}, "_meta": {"acpmux": mux}});
+    let declared = crate::cli_caller::of_initialize(&hello).unwrap();
+    assert!(!declared.may_be_owner_terminal(), "{declared:?}");
+
+    // Its first prompt names the app as its sender.
+    let apps = [("claude-desktop", "Claude desktop"), ("codex", "Codex desktop and CLI")];
+    for (app, label) in apps {
+        let (_, argv, _) = new_argv(app, &json!({"prompt": "fix it"})).unwrap();
+        let from = argv.iter().position(|a| a == "--from").unwrap();
+        assert_eq!(argv.get(from + 1).map(String::as_str), Some(label), "{argv:?}");
+        let cli = <crate::cli::command::Cli as clap::Parser>::try_parse_from(
+            std::iter::once("acpmux").chain(argv.iter().map(String::as_str)),
+        );
+        let new = match cli.ok().and_then(|c| c.command) {
+            Some(crate::cli::command::Command::New(new)) => new,
+            _ => panic!("the CLI does not take the guest's argv: {argv:?}"),
+        };
+        assert_eq!(new.from.as_deref(), Some(label));
+    }
+    let mut prompt = crate::cli::output::PromptId::new(None);
+    prompt.from_agent = Some("Claude desktop".to_owned());
+    let params = prompt.params("s1", "fix it", false, None);
+    assert_eq!(params.pointer("/_meta/acpmux/fromAgent"), Some(&json!("Claude desktop")));
 }
 
 #[test]

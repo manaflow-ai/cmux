@@ -29,8 +29,13 @@
 //! from the same asking table.
 //!
 //! `machines` and `new` run this binary's own CLI (`acpmux --json machine ls`, `acpmux --json new
-//! --detach --policy ask --require-asking --prompt-file -`), bounded under the shortest harness tool timeout, so
-//! they place, name and start a session exactly as the CLI does and can do nothing it cannot.
+//! --detach --policy ask --require-asking --from APP --prompt-file -`), bounded under the
+//! shortest harness tool timeout, so they place, name and start a session exactly as the CLI
+//! does and can do nothing it cannot.
+//! That CLI runs with [`crate::desktop_link::GUEST_ENV`] set, so it declares a guest at
+//! `initialize` (`cli_caller::KIND_GUEST`), and the task goes as the app's message (`--from`,
+//! `fromAgent`): the daemon never records it as the person's words, and the session's agent
+//! reads who sent it.
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -159,10 +164,13 @@ pub(super) fn new_argv(app: &str, args: &Value) -> Result<(String, Vec<String>, 
     }
     argv.extend(["--policy".to_owned(), POLICY.to_owned(), "--require-asking".to_owned()]);
     argv.extend(["--tag".to_owned(), format!("origin={app}")]);
+    let label = crate::desktop_link::App::parse(app).map_or(app, |a| a.label());
     if args.get("showInCmux").and_then(Value::as_bool) == Some(true) {
-        let group = crate::desktop_link::App::parse(app).map_or(app, |a| a.label());
-        argv.extend(["--group".to_owned(), group.to_owned()]);
+        argv.extend(["--group".to_owned(), label.to_owned()]);
     }
+    // The task is the app's message, never the person's words (`cli/run/standard.rs`
+    // `first_prompt_id`): the session's agent reads who sent it.
+    argv.extend(["--from".to_owned(), label.to_owned()]);
     argv.extend(["--prompt-file".to_owned(), "-".to_owned()]);
     Ok((name, argv, prompt.to_owned()))
 }
@@ -209,7 +217,7 @@ pub(super) async fn new(app: &str, args: &Value) -> Value {
         Ok(v) => v,
         Err(e) => return error_result(e),
     };
-    match run_cli(&argv, Some(&prompt), CLI_WAIT).await {
+    match run_cli(app, &argv, Some(&prompt), CLI_WAIT).await {
         Ok(out) => match serde_json::from_str::<Value>(out.trim()) {
             Ok(record) => new_result(&name, &record),
             Err(_) => ok(format!("Started {name}. {}", out.trim()), json!({"name": name})),
@@ -225,9 +233,9 @@ pub(super) async fn new(app: &str, args: &Value) -> Value {
     }
 }
 
-pub(super) async fn machines() -> Value {
+pub(super) async fn machines(app: &str) -> Value {
     let argv = ["--json", "machine", "ls"].map(str::to_owned);
-    match run_cli(&argv, None, MACHINES_WAIT).await {
+    match run_cli(app, &argv, None, MACHINES_WAIT).await {
         Ok(out) => match serde_json::from_str::<Value>(out.trim()) {
             Ok(list) => {
                 let rows = machine_rows(&list);
@@ -287,18 +295,37 @@ pub(super) enum CliError {
     Failed(String),
 }
 
-/// Run this binary with `argv` (and `stdin` on its stdin), its stdout on success, else its last
-/// stderr line.
-async fn run_cli(argv: &[String], stdin: Option<&str>, wait: Duration) -> Result<String, CliError> {
+/// The env the CLI a guest for `app` runs gets over this process's own (`None`: removed): never
+/// a session's (a guest is none), and the guest's app in [`crate::desktop_link::GUEST_ENV`], so
+/// the CLI declares a guest at `initialize` (`cli_caller::KIND_GUEST`) and the daemon never
+/// takes what it sends for the owner's terminal send.
+pub(super) fn child_env(app: &str) -> [(&'static str, Option<String>); 4] {
+    [
+        (SESSION_ENV, None),
+        (crate::hub::person::CALLER_TOKEN_ENV, None),
+        (crate::hub::person::CALLER_SOCKET_ENV, None),
+        (crate::desktop_link::GUEST_ENV, Some(app.to_owned())),
+    ]
+}
+
+/// Run this binary with `argv` (and `stdin` on its stdin) as the guest for `app`, its stdout on
+/// success, else its last stderr line.
+async fn run_cli(
+    app: &str,
+    argv: &[String],
+    stdin: Option<&str>,
+    wait: Duration,
+) -> Result<String, CliError> {
     let me = crate::self_command::SelfCommand::current()
         .map_err(|e| CliError::Failed(format!("{e}")))?;
     let mut command = me.tokio_command(argv);
+    for (key, value) in child_env(app) {
+        match value {
+            Some(value) => command.env(key, value),
+            None => command.env_remove(key),
+        };
+    }
     command
-        // Never as a session: a guest is none.
-        .env_remove(SESSION_ENV)
-        .env_remove(crate::desktop_link::GUEST_ENV)
-        .env_remove(crate::hub::person::CALLER_TOKEN_ENV)
-        .env_remove(crate::hub::person::CALLER_SOCKET_ENV)
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -350,7 +377,7 @@ pub(super) async fn run(app: String, artifacts: Option<Arc<artifacts::Artifacts>
             }
             match name {
                 NEW => return new(&app, &args).await,
-                MACHINES => return machines().await,
+                MACHINES => return machines(&app).await,
                 "search" | "send_status" => {}
                 n if KEPT.contains(&n) => {}
                 other => {

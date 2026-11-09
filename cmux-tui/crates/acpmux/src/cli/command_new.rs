@@ -126,4 +126,9 @@ pub struct NewArgs {
     /// (`hub/require_asking.rs`). The acpmux MCP server's guest `new` passes it.
     #[arg(long, hide = true)]
     pub require_asking: bool,
+    /// The first prompt is SENDER's message (`_meta.acpmux.fromAgent`), never the person's
+    /// words, as `acpmux send --from` makes it. The acpmux MCP server's guest `new` passes its
+    /// app's name (`acpmux_mcp_guest.rs`).
+    #[arg(long, value_name = "SENDER", hide = true)]
+    pub from: Option<String>,
 }
