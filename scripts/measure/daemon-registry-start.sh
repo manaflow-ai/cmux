@@ -15,13 +15,13 @@
 #
 # On an existing registry instead of a generated one (also runs directly on a Mac):
 #   scripts/measure/daemon-registry-start.sh registry=/path/to/workspace-registry.sqlite3 bump=0 rounds=2
-# The file (and its -wal, -shm) is cloned into the scratch state dir where the owner of session
-# drs opens it (`cp -c` on macOS: an APFS clone, instant and no extra disk, so CMUX_DRS_SCRATCH
-# must be on the same volume; `cp --reflink=auto` on Linux). Only the clone is ever opened
-# read-write; the source is only read by cp. bump=1 sets the clone's roster snapshot one version
-# behind first (synth_registry --bump-only), bump=0 starts it as it is. An owner opens a registry
-# only with its state root's resource receipt pepper: pepper=/path/to/resource-effect-pepper
-# (default: the one two levels up from the registry, its state root, with machine-id beside it)
+# The file (and its -wal, -shm) is cloned into the scratch state dir where an owner of its own
+# session (meta session_name) opens it: `cp -c` on macOS (an APFS clone, instant and no extra disk,
+# so CMUX_DRS_SCRATCH must be on the same volume), `cp --reflink=auto` on Linux. Only the clone is
+# ever opened read-write; the source is only read by cp. bump=1 sets the clone's roster snapshot
+# one version behind first (synth_registry --bump-only), bump=0 starts it as it is. An owner opens
+# a registry only with its state root's resource receipt pepper: pepper=/path/to/resource-effect-
+# pepper (default: the one in the registry's state root, two levels up, with machine-id beside it)
 # is copied next to the clone; with pepper=new, or none found, the clone is bound to a new one
 # (synth_registry --rebind-pepper). The pepper is a secret: copied, never printed. DRS-REG {json}
 # replaces DRS-GEN: sizes, journal head and roster version as found. The report holds only sizes,
@@ -29,6 +29,7 @@
 # exit. An owner that exits before ready leaves its last log line on stderr (DRS-OWNER-EXIT).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
+session=drs
 size_gb=2 bump=1 seal=1 output_gb=0 rounds=1 ready_timeout=3600 registry= pepper=
 for kv in "$@"; do
   case "$kv" in
@@ -68,10 +69,6 @@ free_gb=$(( $(df -Pk "$scratch" | awk 'NR==2 {print $4}') / 1048576 ))
 echo "DRS host $(hostname -s) $(uname -sm) free ${free_gb} GB at $scratch"
 
 if [[ -n "$registry" ]]; then
-  # The owner of session drs opens exactly this path (persistent_session_state_dir).
-  clone="$("$synth" --out "$scratch/state" --session drs --print-registry-path)"
-  mkdir -p "$(dirname "$clone")"
-  chmod 700 "$(dirname "$clone")"
   if [[ "$(uname -s)" == Darwin ]]; then clone_flag=-c; else clone_flag=--reflink=auto; fi
   if [[ "$clone_flag" != -c ]]; then
     source_gb=$(( $(wc -c < "$registry") / 1073741824 ))
@@ -79,14 +76,28 @@ if [[ -n "$registry" ]]; then
       echo "warning: $free_gb GB free; a copy without reflink needs ${source_gb} GB and more"
     fi
   fi
+  incoming="$scratch/incoming/workspace-registry.sqlite3"
+  mkdir -p "$scratch/incoming"
   clone_started=$(date +%s)
   for suffix in "" -wal -shm; do
     [[ -e "$registry$suffix" ]] || continue
-    if ! cp "$clone_flag" "$registry$suffix" "$clone$suffix"; then
+    if ! cp "$clone_flag" "$registry$suffix" "$incoming$suffix"; then
       echo "error: could not clone the registry${suffix} (on macOS CMUX_DRS_SCRATCH must be on its volume)" >&2
       exit 1
     fi
-    chmod 600 "$clone$suffix"
+    chmod 600 "$incoming$suffix"
+  done
+  # An owner opens a registry only as the session it was made for (meta session_name), at
+  # exactly the path persistent_session_state_dir gives that session. Never printed.
+  session="$(python3 -c 'import sqlite3, sys
+row = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True).execute(
+    "SELECT value FROM meta WHERE key = '"'session_name'"'").fetchone()
+print(row[0] if row else "drs")' "$incoming")"
+  clone="$("$synth" --out "$scratch/state" --session "$session" --print-registry-path)"
+  mkdir -p "$(dirname "$clone")"
+  chmod 700 "$(dirname "$clone")"
+  for suffix in "" -wal -shm; do
+    [[ ! -e "$incoming$suffix" ]] || mv "$incoming$suffix" "$clone$suffix"
   done
   # The owner refuses a registry without its root's pepper (resource_effect_pepper_id).
   source_root="$(dirname "$(dirname "$registry")")"
@@ -144,7 +155,7 @@ else
   # Rows: a ~6 KiB put costs about 6.6 KiB of file; agent events are 4% of the rows.
   puts=$(( size_gb * 1024 * 1024 * 1024 * 96 / 100 / 6750 ))
   events=$(( puts / 24 ))
-  args=(--out "$scratch/state" --session drs --session-puts "$puts" --agent-events "$events"
+  args=(--out "$scratch/state" --session "$session" --session-puts "$puts" --agent-events "$events"
     --output-bytes "$(( output_gb * 1024 * 1024 * 1024 ))" --workspaces 24 --quiet)
   [[ "$seal" != 1 ]] || args+=(--seal)
   [[ "$bump" != 1 ]] || args+=(--roster-version-bump)
@@ -154,6 +165,6 @@ else
 fi
 
 python3 "$root/scripts/measure/daemon-registry-start.py" \
-  --bin "$bin" --state "$scratch/state" --home "$scratch/home" --session drs \
+  --bin "$bin" --state "$scratch/state" --home "$scratch/home" --session "$session" \
   --socket "$socket_dir/mux.sock" --generate "$out/generate.json" \
   --rounds "$rounds" --bump "$bump" --ready-timeout "$ready_timeout" --report "$out/report.json"
