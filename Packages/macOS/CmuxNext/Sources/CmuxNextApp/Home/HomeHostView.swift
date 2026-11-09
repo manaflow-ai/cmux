@@ -4,12 +4,10 @@ import CmuxHomeRender
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
-import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextChiefMemory
 import CmuxNextChiefPetWiring
-import CmuxNextCloud
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeModel
@@ -116,7 +114,6 @@ final class HomeHostView: PaneMotionFollowingView {
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
         settingsView.computer.source = .init(directory: { [weak services] in (services?.machines.cloudLimits?.paysForCloud == true, services?.machines.cloud.map(\.machine) ?? []) },
             frames: { [weak services] id, frame, ended in services?.cloudDesktopRdTransport(machine: id).map { make in CloudDesktopFrames.view(open: { make(false) }, frame: frame, ended: ended) } })
-        // The Chief's vault (names only) and its Google connections (cmux issue 34263).
         settingsView.vault.names = HomeChiefVaultSection.keychainNames(work: services.work)
         settingsView.connections.source = services.accounts.chiefConnections.section
         settingsView.onAvatar = { [weak self, weak service] in
