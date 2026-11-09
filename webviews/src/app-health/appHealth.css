@@ -133,8 +133,12 @@
   gap: var(--ds-space-2);
   min-width: 0;
 }
-.ah-part > .ah-dot {
-  margin-top: calc((var(--text-body--line-height) - 6px) / 2);
+/* One text line tall, so the dot centers on the part's first line. */
+.ah-part-dot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: var(--text-body--line-height);
 }
 .ah-part-text {
   display: flex;

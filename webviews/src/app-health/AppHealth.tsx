@@ -134,7 +134,9 @@ export function AppHealthPopover({
 function PartRow({ part, strings, repair }: { part: HealthPart; strings: Strings; repair(id: string): void }) {
   return (
     <li className="ah-part" data-state={part.state}>
-      <AppHealthDot tone={toneOf(part.state)} />
+      <span className="ah-part-dot">
+        <AppHealthDot tone={toneOf(part.state)} />
+      </span>
       <div className="ah-part-text">
         <span className="ah-part-line">
           {strings.format("appHealth.line", part.label, strings.t(`appHealth.state.${part.state}`))}
