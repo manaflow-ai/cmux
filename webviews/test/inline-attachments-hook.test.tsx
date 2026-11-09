@@ -118,6 +118,7 @@ type Controls = {
   keepInStrip(chips: PendingAttachment[]): void;
   place(chips: PendingAttachment[]): void;
   setPending(next: PendingAttachment[]): void;
+  keepAsFile(id: string): void;
 };
 
 /// A field and the hook, as the New Tab page wires them: the consumer holds the value and the
@@ -138,6 +139,7 @@ async function render(initial: {
   const { AttachmentStrip } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
   const { MarkdownField } = await import("../src/agent-session/acpmux/MarkdownField");
   const { useInlineAttachments } = await import("../src/agent-session/acpmux/composer/inlineAttachments");
+  const { usePastedChips } = await import("../src/agent-session/acpmux/composer/pastedChips");
   const field = createRef<MarkdownFieldHandle>();
   const controls = createRef<Controls>() as { current: Controls | null };
   function Harness() {
@@ -148,7 +150,27 @@ async function render(initial: {
     const [scope, setScope] = useState("first");
     const attachmentsRef = useRef(attachments);
     attachmentsRef.current = attachments;
+    const setAttachments = (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => {
+      attachmentsRef.current = update(attachmentsRef.current);
+      setAttachmentsState((current) => update(current));
+    };
+    // Keep as .txt, as the composer wires it (ComposerBox.tsx): the intake makes the file's chip at
+    // once and places it, at the start when the pasted chip had no node.
+    const placeFile = useRef<(chips: PendingAttachment[], start: boolean) => void>(() => {});
+    const pasted = usePastedChips(attachmentsRef, setAttachments, field, (file, inText = true) => {
+      const made: ComposerAttachment = {
+        id: "kept-txt",
+        kind: "link",
+        name: file.name,
+        mimeType: file.type,
+        size: 1,
+        path: "/tmp/Pasted text.txt",
+      };
+      setAttachments((current) => [...current, made]);
+      placeFile.current([{ id: made.id, name: made.name, image: false } as PendingAttachment], !inText);
+    });
     const inline = useInlineAttachments({
+      keepFile: pasted.keepAsFile,
       field,
       scope,
       text,
@@ -182,7 +204,9 @@ async function render(initial: {
       keepInStrip: (chips) => inline.place(chips, undefined, true),
       place: (chips) => inline.place(chips, "drop"),
       setPending,
+      keepAsFile: (id) => inline.keepFile(id),
     };
+    placeFile.current = (chips, start) => inline.place(chips, undefined, start);
     return (
       <>
         <MarkdownField
@@ -569,3 +593,36 @@ for (const { label, attachment, pending } of KINDS) {
     expect(value).toContain("hello there");
   });
 }
+
+// Router review of #39955 (F1): Keep as .txt on a Pasted text chip that has no node (a value from
+// outside took it away) puts the file in the text; an undo then brings the paste back, never leaves
+// the draft with neither the paste nor its file.
+test("Keep as .txt on a node-less pasted chip survives an undo", async () => {
+  const PASTED = {
+    id: "k-pasted",
+    kind: "pasted",
+    name: "Pasted text",
+    mimeType: "text/plain",
+    size: 5,
+    text: "a\nb\nc",
+  } as ComposerAttachment;
+  const { field, controls } = await render({ text: `hello ${inlineToken(PASTED.id)}`, attachments: [PASTED] });
+  await until(() => nodes().includes(PASTED.id));
+  // A value from outside: the node goes, the chip stays (drawn in the strip until placed).
+  await act(async () => controls.setText("hello there"));
+  await settle();
+  expect(nodes()).toEqual([]);
+  expect(controls.attachments().map((chip) => chip.id)).toEqual([PASTED.id]);
+  // Later than the editor's undo grouping (500 ms), as a person's click is: its own undo step.
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 650)));
+  await act(async () => controls.keepAsFile(PASTED.id));
+  for (let turn = 0; turn < 3; turn++) await settle();
+  expect(nodes()).toEqual(["kept-txt"]);
+  expect(controls.attachments().map((chip) => chip.id)).toEqual(["kept-txt"]);
+  await act(async () => field.current!.undo());
+  for (let turn = 0; turn < 3; turn++) await settle();
+  const held = controls.attachments().map((chip) => chip.id);
+  expect(held.includes(PASTED.id) || held.includes("kept-txt")).toBe(true);
+  expect(nodes().some((id) => held.includes(id!))).toBe(true);
+  expect(field.current!.value()).toContain("hello there");
+});
