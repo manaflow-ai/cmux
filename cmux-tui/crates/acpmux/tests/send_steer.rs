@@ -308,3 +308,47 @@ async fn a_steered_sends_timeout_leaves_the_turn_it_went_into_running() {
     b.open_gate();
     assert_eq!(b.record("turn_result", &turn.prompt_id).await["status"], "completed");
 }
+
+/// A sub-session's `acpmux send` to its busy parent steers like any agent's, as its send_message
+/// does (`hub/subsession_send.rs`): the parent reads it at its next tool step. It used to queue
+/// behind the parent's turn, so a lane's "your queue is drained" sat behind a 15-minute turn
+/// until the person clicked Steer (Leo, 2026-10-29: "the drain guy came back but it's still not
+/// doing the right thing").
+#[tokio::test]
+async fn a_sub_sessions_send_to_its_busy_parent_steers() {
+    let b = busy(true).await;
+    let as_session = |cmd: &mut tokio::process::Command, id: &str| {
+        cmd.env("ACPMUX_SOCKET", &b.socket)
+            .env("ACPMUX_SESSION_ID", id)
+            .env("ACPMUX_SESSION_TOKEN", acpmux::hub::person::caller_token(id))
+            .env("ACPMUX_SESSION_TOKEN_SOCKET", &b.socket)
+            .kill_on_drop(true);
+    };
+    // The child, started from inside the busy session.
+    let mut new = daemon_env::tokio_command(&b.scratch, daemon_env::Agents::Deny);
+    new.args(["--json", "new", "-d", "-n", "queue-drain"]);
+    as_session(&mut new, &b.id);
+    let out = tokio::time::timeout(Duration::from_secs(60), new.output()).await.unwrap().unwrap();
+    assert!(out.status.success(), "new failed: {}", String::from_utf8_lossy(&out.stderr));
+    let created: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let child = created["sessionId"].as_str().unwrap().to_owned();
+    let info = b.person.request(method::MUX_INFO, json!({"sessionId": child, "row": true})).await;
+    assert_eq!(info.unwrap()["startedBy"], json!(b.id), "not the busy session's sub-session");
+
+    for wait in [false, true] {
+        let pid = prompt_id();
+        let mut cmd = daemon_env::tokio_command(&b.scratch, daemon_env::Agents::Deny);
+        let mode = if wait { "--wait" } else { "--no-wait" };
+        cmd.args(["send", mode, "--prompt-id", &pid, &b.id, "your queue is drained"]);
+        as_session(&mut cmd, &child);
+        let send = tokio::spawn(async move { cmd.output().await });
+        let sent = b.record("user_message", &pid).await;
+        assert_eq!(sent["steer"], true, "{mode}: into the running turn, not the queue: {sent}");
+        assert!(!b.queued(&pid), "{mode}: queued behind the parent's turn");
+        if wait {
+            b.open_gate();
+        }
+        let out = tokio::time::timeout(Duration::from_secs(60), send).await.unwrap().unwrap().unwrap();
+        assert!(out.status.success(), "{mode}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+}
