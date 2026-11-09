@@ -173,6 +173,15 @@ pub trait LinkGroup: Send + Sync {
     async fn transport_snapshot(&self) -> TransportSnapshot {
         TransportSnapshot::unknown()
     }
+    /// The instant until which `open(request)` may deliberately wait on the
+    /// peer, when the caller asked for a wait longer than one attempt (a relay
+    /// parks a first connect's allocation until the daemon registers: see
+    /// `RelayProvider::with_allocation_deadline`). The connection bounds the
+    /// open by this instant plus one attempt timeout instead of by the attempt
+    /// timeout alone. `None`, the default, declares no such wait.
+    fn open_wait_until(&self, _request: &LinkRequest) -> Option<tokio::time::Instant> {
+        None
+    }
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError>;
     async fn close(&self) -> Result<(), ProviderError>;
 }

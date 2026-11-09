@@ -1542,12 +1542,23 @@ async fn authenticate_one(
     let timed_out = || ConnectionError::Crypto(CryptoError::HandshakeTimeout { timeout });
     let invitation = matches!(auth, ClientAuthMode::Invitation { .. });
     let started = tokio::time::Instant::now();
-    let physical = tokio::time::timeout_at(
-        started + timeout,
-        group.open(LinkRequest { lane: primary, generation: context.generation }),
-    )
-    .await
-    .map_err(|_| timed_out())??;
+    let attempt_deadline = started + timeout;
+    // A provider that declares a longer, bounded wait for this open (a relay parking a first
+    // connect's allocation until the daemon registers) keeps it, plus one attempt timeout for the
+    // open's own remaining steps; the rest of the setup then has a full attempt timeout from the
+    // open's end. Any other open shares the attempt's deadline.
+    let request = LinkRequest { lane: primary, generation: context.generation };
+    let open_deadline = group
+        .open_wait_until(&request)
+        .map_or(attempt_deadline, |wait_until| (wait_until + timeout).max(attempt_deadline));
+    let physical = tokio::time::timeout_at(open_deadline, group.open(request))
+        .await
+        .map_err(|_| timed_out())??;
+    let attempt_deadline = if open_deadline > attempt_deadline {
+        attempt_deadline.max(tokio::time::Instant::now() + timeout)
+    } else {
+        attempt_deadline
+    };
     let setup = initiate_secure_link(
         physical,
         ClientHandshake {
@@ -1568,7 +1579,7 @@ async fn authenticate_one(
         let secure = setup.await?;
         (secure, tokio::time::Instant::now() + timeout)
     } else {
-        let deadline = started + timeout;
+        let deadline = attempt_deadline;
         (tokio::time::timeout_at(deadline, setup).await.map_err(|_| timed_out())??, deadline)
     };
     let answer =

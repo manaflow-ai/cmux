@@ -239,6 +239,9 @@ impl LinkGroup for Tracked {
     async fn transport_snapshot(&self) -> cmux_remote::observability::TransportSnapshot {
         self.inner.transport_snapshot().await
     }
+    fn open_wait_until(&self, request: &LinkRequest) -> Option<Instant> {
+        self.inner.open_wait_until(request)
+    }
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
         self.step.advance(Step::Parked);
         self.step.mark(|marks| {
@@ -522,6 +525,9 @@ impl LinkGroup for Opened {
     }
     async fn transport_snapshot(&self) -> cmux_remote::observability::TransportSnapshot {
         self.inner.transport_snapshot().await
+    }
+    fn open_wait_until(&self, request: &LinkRequest) -> Option<Instant> {
+        self.inner.open_wait_until(request)
     }
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
         let held = {

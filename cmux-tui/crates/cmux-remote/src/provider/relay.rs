@@ -1071,14 +1071,18 @@ impl LinkGroup for RelayLinkGroup {
         }
     }
 
+    fn open_wait_until(&self, request: &LinkRequest) -> Option<Instant> {
+        // The allocation deadline is the first connect's; a resume (a later
+        // generation) waits `control_timeout` as any reconnect does.
+        self.allocation_deadline.filter(|_| request.generation == 0)
+    }
+
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::Transport("relay connection group is closed".into()));
         }
         let lane = LaneToken(random_capability()?);
-        // The allocation deadline is the first connect's; a resume (a later
-        // generation) waits `control_timeout` as any reconnect does.
-        let wait_until = self.allocation_deadline.filter(|_| request.generation == 0);
+        let wait_until = self.open_wait_until(&request);
         let allocation = {
             let mut stored_control = self.control.lock().await;
             if self.closed.load(Ordering::Acquire) {
