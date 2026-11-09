@@ -744,7 +744,7 @@ screen <selector> pane ...
 pane list [--name <name>] [--cwd <path>]
 pane create
 pane <selector> show|rename|focus|close|split|neighbor|swap|zoom|run
-pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--index <n>] [--focus]
+pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--index <n>] [--to-screen <selector>] [--focus]
 pane <selector> focus direction <left|right|up|down>
 pane <selector> split ratio set
 pane <selector> viewport width set
@@ -932,7 +932,9 @@ pane q, and `--to-workspace <w>` or `--new-screen` (alias `--new-tab`, the
 pane's own workspace) makes it the only pane of a new screen there, named
 `--name`: in these the pane keeps its id. `--to-pane <q>` without `--split`
 appends the tabs to pane q (at `--index <n>` if given), and `--to-tab <t>` puts
-them after tab t; the tabs keep their ids and the moved pane closes. A screen
+them after tab t; the tabs keep their ids and the moved pane closes. With
+`--to-pane` or `--to-tab`, `--to-workspace <w>` and `--to-screen <s>` are that
+selector's workspace and screen. A screen
 that the move empties closes. The focus stays where it was, unless `--focus`
 (the moved tabs' pane) or the moved pane had it (the focus stays with it). A
 destination in the pane itself is `validation.invalid`. The result is
