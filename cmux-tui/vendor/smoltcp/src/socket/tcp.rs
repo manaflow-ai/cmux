@@ -1197,11 +1197,18 @@ impl<'a> Socket<'a> {
             || (start == self.local_seq_no && self.local_rx_dup_acks >= SACK_DUP_THRESH as u8)
         {
             Some(true)
-        } else if ranges_above > 0 && tail_received {
+        } else if ranges_above > 0
+            && tail_received
+            && self.remote_last_seq - start < (SACK_DUP_THRESH + 1) * mss
+        {
             // Nothing sent after the hole is still on its way (RFC 5827's
             // early retransmit, for a frame or keystroke of a few segments).
             // Without SACK the tail-loss probe repaired these, with no window
             // cut; this repairs them a round trip sooner, also with none.
+            // As in RFC 5827, only when fewer than four segments are
+            // outstanding from the hole on: in a long flight where only the
+            // last segment arrived, the rest is left to the probe and the RTO
+            // rather than all resent at once.
             Some(false)
         } else {
             None
@@ -11190,6 +11197,26 @@ mod test {
         assert!(s.congestion_controller.inner().window() < before);
         assert!(s.sack_window_cut);
         recv!(s, time 50, sack_resent(6));
+    }
+
+    #[test]
+    fn test_sack_early_retransmit_waits_in_a_long_flight() {
+        let mut s = socket_sacking();
+        // Only the last of six segments arrived: five are missing, more than
+        // early retransmit covers. Nothing is resent from the SACK alone.
+        send!(s, time 50, sack_ack(0, [sack_block(30, 36), None, None]));
+        recv_nothing!(s, time 50);
+        assert_eq!(s.sack_recovery_point, None);
+    }
+
+    #[test]
+    fn test_sack_early_retransmit_covers_a_short_tail() {
+        let mut s = socket_sacking();
+        // The fifth segment is lost and the sixth arrived: two segments are
+        // outstanding from the hole on, so it is resent at once.
+        send!(s, time 50, sack_ack(24, [sack_block(30, 36), None, None]));
+        recv!(s, time 50, sack_resent(24));
+        recv_nothing!(s, time 50);
     }
 
     #[cfg(feature = "socket-tcp-cubic")]
