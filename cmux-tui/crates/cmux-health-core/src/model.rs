@@ -4,8 +4,9 @@
 //! Constant cost as parts grow. Each armed part has at most one live heap
 //! entry `(deadline, generation, slot)`; re-arming bumps the generation and
 //! pushes a new entry, so an old one is skipped when it surfaces (lazy
-//! invalidation), and the heap is rebuilt once dead entries outnumber live
-//! ones four to one (amortized O(1) per change). A tick pops only expired
+//! invalidation), and the heap is rebuilt from its own live entries once dead
+//! ones outnumber them four to one (amortized O(1) per change, never a walk
+//! of every part). A tick pops only expired
 //! entries, so it costs O(expired · log n), never O(parts). A hidden part
 //! has no deadline at all, and the snapshot walks only the non-healthy set.
 //!
@@ -167,6 +168,9 @@ pub struct Health {
     /// Heap entries popped by `tick` (the scale test's counter).
     #[cfg(test)]
     pub(crate) visited: u64,
+    /// Heap entries a rebuild looked at (the scale test's counter).
+    #[cfg(test)]
+    pub(crate) rebuilt: u64,
 }
 
 /// A receipt before its time and id: action, outcome, words.
@@ -578,8 +582,8 @@ impl Health {
                 due.push(slot);
             }
         }
-        // Disarm all of them first, so a heap rebuild while one is refreshed
-        // cannot bring back another's expired entry.
+        // Disarm all of them first: their entries are popped, so each must
+        // read as unarmed before any refresh re-arms it.
         for &slot in &due {
             self.set_deadline(slot, None);
         }
@@ -770,11 +774,18 @@ impl Health {
             self.armed += 1;
             self.heap.push(Reverse((at, generation, slot)));
         }
-        // Dead entries past four to one: rebuild from the live deadlines.
+        // Dead entries past four to one: keep only the live ones. It walks the
+        // heap, never the slots, so hidden and freed parts cost nothing; the
+        // heap holds at most four dead entries per live one, so this is O(armed).
         if self.heap.len() > 64 && self.heap.len() > 4 * self.armed {
-            let live = self.slots.iter().enumerate().filter_map(|(slot, part)| {
-                let part = part.as_ref()?;
-                Some(Reverse((part.deadline?, part.generation, slot)))
+            let entries = std::mem::take(&mut self.heap).into_vec();
+            #[cfg(test)]
+            {
+                self.rebuilt += entries.len() as u64;
+            }
+            let slots = &self.slots;
+            let live = entries.into_iter().filter(|&Reverse((_, generation, slot))| {
+                slots[slot].as_ref().is_some_and(|p| p.generation == generation)
             });
             self.heap = live.collect();
         }

@@ -1,5 +1,6 @@
 //! Constant cost as parts grow: hidden parts are never timed, a tick visits
-//! only expired heap entries, and dead entries do not pile up.
+//! only expired heap entries, and dead entries do not pile up, nor does
+//! sweeping them look at any part that is not armed.
 
 use super::*;
 use crate::State;
@@ -73,4 +74,25 @@ fn all_healthy_or_hidden_means_no_timer() {
     assert_eq!(h.next_tick_ms(), None);
     assert!(h.tick(1_000_000).is_empty());
     assert_eq!(h.snapshot().worst, State::Healthy);
+}
+
+#[test]
+fn re_arming_one_page_beside_ten_thousand_hidden_ones_never_walks_them() {
+    const BEATS: u64 = 10_000;
+    let mut h = model();
+    for n in 0..PAGES {
+        h.register(&format!("page:{n}"), Kind::Page, "Workspace page", Some(0), false);
+    }
+    register(&mut h, "page:live", Kind::Page, "Agent chat", 0);
+    h.rebuilt = 0;
+    for n in 0..BEATS {
+        h.beat("page:live", n * 2_000);
+    }
+    assert_eq!(h.heap_sizes().0, 1);
+    // Every beat leaves one dead entry; each rebuild sweeps the ~65 entries
+    // in the heap, so the total is about one look per beat, not 10,000 per
+    // rebuild.
+    assert!(h.rebuilt > 0, "the heap was rebuilt");
+    assert!(h.rebuilt <= 2 * BEATS, "rebuilds are O(armed), not O(parts): {}", h.rebuilt);
+    assert_eq!(h.next_tick_ms(), Some((BEATS - 1) * 2_000 + 5_000));
 }
