@@ -239,6 +239,39 @@ fn an_archive_the_log_does_not_cover_is_kept_aside() {
     assert_eq!(kept.len(), 1);
 }
 
+/// An older build does not read `cold.zst`: an append to an archived idle chat starts a new
+/// `000001.ndjson` of its own beside the archive. Once that log is as long as the archived one or
+/// longer, its length says nothing: the archive holds the only copy of the old history and stays
+/// (review of #39141).
+#[test]
+fn an_older_builds_new_log_as_long_as_the_archive_does_not_remove_it() {
+    for extra in [0_usize, 4096] {
+        let (_home, store) = Home::new();
+        closed(&store, "c");
+        chat(&store, "c", 4);
+        let staged = store.stage_cold("c").unwrap().unwrap();
+        let archived = staged.files.clone();
+        std::fs::rename(&staged.tmp, store.cold_path("c")).unwrap();
+        drop(staged);
+        let copy = std::fs::read(store.cold_path("c")).unwrap();
+        // The older build's log: other bytes in every file the archive names, as long or longer.
+        let events = store.dir("c").join("events");
+        for entry in &archived {
+            let len = usize::try_from(entry.len).unwrap() + extra;
+            std::fs::write(events.join(&entry.name), vec![b'x'; len]).unwrap();
+        }
+        store.settle_cold("c").unwrap();
+        assert!(!store.cold_path("c").exists());
+        let kept: Vec<_> = std::fs::read_dir(store.dir("c"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with("cold.zst.orphan-"))
+            .collect();
+        assert_eq!(kept.len(), 1, "the archive went (extra {extra})");
+        assert_eq!(std::fs::read(kept[0].path()).unwrap(), copy, "the archive changed");
+    }
+}
+
 #[test]
 fn a_crash_during_or_after_rehydrate_resolves() {
     let (_home, store) = Home::new();
