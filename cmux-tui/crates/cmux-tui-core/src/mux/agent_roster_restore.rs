@@ -332,14 +332,26 @@ impl AgentRosterReplay {
                     if page.records.is_empty() {
                         break;
                     }
+                    // The salvaging read is not bounded to `through`: it reads
+                    // the journal as it is now. A record committed after the
+                    // start is the live fold's, which applies its delta (a
+                    // plugin's exit removes its public row); the replay
+                    // applies none, and its cursor stops at `through`.
+                    let through = self.through;
                     target.with(|host| {
-                        for record in &page.records {
+                        for record in page.records.iter().take_while(|r| r.sequence <= through) {
                             apply_records(host, std::slice::from_ref(record));
                             host.cursor = host.cursor.max(record.sequence);
                         }
+                        if page.records.last().is_some_and(|record| record.sequence > through) {
+                            host.cursor = host.cursor.max(through);
+                        }
                     });
                 }
-                SalvagedJournalPage::Skipped(skip) => {
+                SalvagedJournalPage::Skipped(mut skip) => {
+                    // The same bound: the part of a range past `through` is
+                    // the live fold's.
+                    skip.end_sequence = skip.end_sequence.min(self.through);
                     eprintln!(
                         "cmux-tui: agent roster restore skipped journal {}: {}",
                         describe_range(&skip),
