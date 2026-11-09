@@ -143,4 +143,13 @@ await requireBrowserLane("tool-toggle-motion.test.ts", async () => {
       });
     }
   });
+
+  // The gallery's looks on the same page (CMUX_TOOL_TOGGLE_LOOKS=settle,stack,quick,jump): each click's
+  // window per look, for the PR's table.
+  test.skipIf(!process.env.CMUX_TOOL_TOGGLE_LOOKS)("every fold look (CMUX_TOOL_TOGGLE_LOOKS)", async () => {
+    for (const look of (process.env.CMUX_TOOL_TOGGLE_LOOKS ?? "").split(",").filter(Boolean)) {
+      const report = toggleReport(await samples(`&foldLook=${look}`), STEPS);
+      console.log(`tool-toggle look ${look}: ${JSON.stringify(report)}`);
+    }
+  });
 });

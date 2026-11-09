@@ -157,6 +157,9 @@ const sampleRows = query.get("rows") === "1";
 // `?tailGlide=`: how the rows under a change move (tailGlide.ts looks), for the arms' numbers.
 const tailLook = query.get("tailGlide");
 if (tailLook) document.documentElement.setAttribute("data-tail-glide", tailLook);
+// `?foldLook=`: how a reader's toggle folds (fold.ts FoldLook), for the looks' numbers.
+const foldLookParam = query.get("foldLook");
+if (foldLookParam) document.documentElement.setAttribute("data-fold-look", foldLookParam);
 
 /// The rows mounted this frame (RowSample's fields).
 function rowSamples(scroller: HTMLElement): RowSample[] {
