@@ -201,9 +201,10 @@ the person's prompt. What the receiver gets depends on who you are to it:
   lead.
   A subagent's send that goes to the send relay (`sendRelay`: no session here
   or on a peer) names the subagent to the relay as a label only
-  (`ACPMUX_FROM_SUBAGENT`, `ACPMUX_FROM_LABEL`). `ACPMUX_FROM` stays the lead's
-  name, the one reply address the relay has, so the far side's answer reaches
-  the lead, not the subagent.
+  (`ACPMUX_FROM_SUBAGENT`, `ACPMUX_FROM_LABEL`). Both are unverified claims:
+  nothing on the far side can check them yet. A Codex subagent's relayed send
+  has no label. `ACPMUX_FROM` stays the lead's name, the one reply address the
+  relay has, so the far side's answer reaches the lead, not the subagent.
   `acpmux send LEAD` reaches the lead.
   A Codex subagent is named `LEAD's codex subagent THREAD` (its own
   `CODEX_THREAD_ID`); when acpmux does not know the lead's thread, the line

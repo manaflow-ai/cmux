@@ -1368,8 +1368,11 @@ no peer lists it, the CLI runs `my-relay send SESSION -` with the message on std
 runs in), prints the command's stdout (say, its delivery id) and exits with its status, so a
 refusal there is this send's failure. A Claude Code subagent's send (the Bash hook's mark, or the
 MCP `send` call's tool use id) also sets `ACPMUX_FROM_SUBAGENT` (`TYPE:ID`) and
-`ACPMUX_FROM_LABEL` (`LEAD's TYPE subagent ID`): labels for the relay to show. `ACPMUX_FROM` stays
-the lead's name, the reply address, so the far side's answer reaches the lead. `--json` prints
+`ACPMUX_FROM_LABEL` (`LEAD's TYPE subagent ID`, the name cut to one line of at most 64 bytes):
+labels for the relay to show. Both are unverified claims: nothing on the far side can check them
+yet. A Codex subagent's relayed send has no label (the daemon finds a Codex subagent by its thread
+after the relay choice is made). `ACPMUX_FROM` stays the lead's name, the reply address, so the
+far side's answer reaches the lead. `--json` prints
 `{"target", "status": "relayed"|"refused", "relayed", "exit", "output"}`. A target here or on a
 peer, a peer that is down included, is never relayed, and the relay carries text only: a send with
 `--attach` to such a target is refused. Unset (the default), nothing changes.

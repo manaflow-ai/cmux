@@ -190,6 +190,9 @@ pub(crate) const FROM_SUBAGENT_ENV: &str = "ACPMUX_FROM_SUBAGENT";
 /// `LEAD's TYPE subagent ID` for a subagent's send.
 pub(crate) const FROM_LABEL_ENV: &str = "ACPMUX_FROM_LABEL";
 
+/// At most this many bytes of the sender's name go in `ACPMUX_FROM_LABEL`.
+const LABEL_NAME_BYTES: usize = 64;
+
 /// Who a relayed send is from: `name`, the relay's `ACPMUX_FROM` (the sender's session, where
 /// the far side's answer goes), and the Claude Code subagent of that session that sent it, if
 /// one did (`cli::sender::SUBAGENT_ENV`, or the MCP call's tool use id).
@@ -214,10 +217,22 @@ impl RelaySender {
         Self { name, subagent }
     }
 
-    /// `ACPMUX_FROM_LABEL`: "lane's general-purpose subagent a0a68e7a".
+    /// `ACPMUX_FROM_LABEL`: "lane's general-purpose subagent a0a68e7a". The name comes from
+    /// `--from`, `ACPMUX_FROM` or the session's name, which the sender chose: only its first
+    /// [`LABEL_NAME_BYTES`] bytes go in, with no control characters, so it cannot add a line.
     fn label(&self) -> Option<String> {
         let sub = self.subagent.as_ref()?;
-        Some(match &self.name {
+        let name = self.name.as_deref().map(|name| {
+            let mut plain = String::new();
+            for c in name.chars().filter(|c| !c.is_control()) {
+                if plain.len() + c.len_utf8() > LABEL_NAME_BYTES {
+                    break;
+                }
+                plain.push(c);
+            }
+            plain.trim().to_owned()
+        });
+        Some(match name.filter(|name| !name.is_empty()) {
             Some(name) => format!("{name}'s {}", sub.label()),
             None => sub.label(),
         })
