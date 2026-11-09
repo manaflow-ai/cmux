@@ -33,19 +33,11 @@ final class TabCell {
     /// The pointer is on the speaker button, or presses it (TabCell+AudioBadge).
     var isAudioHovered = false { didSet { if oldValue != isAudioHovered { updateColors(animated: true, showing: isAudioHovered) } } }
     var isAudioPressed = false { didSet { if oldValue != isAudioPressed { updateColors(animated: false) } } }
-    /// The selected tab of a zoomed pane: it shows the zoom indicator (TabCell+ZoomBadge).
+    /// The selected tab of a zoomed pane: VoiceOver says so and offers Exit Zoom. The tab draws
+    /// nothing for it; the pane's indicator is at its top-right (`PaneZoomIndicatorView`).
     var showsZoom = false {
-        didSet {
-            guard oldValue != showsZoom else { return }
-            updateZoomBadge()
-            updateColors(animated: false)
-            layoutLayers()
-            updateAccessibility()
-        }
+        didSet { if oldValue != showsZoom { updateAccessibility() } }
     }
-    /// The pointer is on the zoom indicator, or presses it (TabCell+ZoomBadge).
-    var isZoomHovered = false { didSet { if oldValue != isZoomHovered { updateColors(animated: true, showing: isZoomHovered) } } }
-    var isZoomPressed = false { didSet { if oldValue != isZoomPressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
     /// The strip's window is main (in front); off, the selected tab's fill is dimmer (never
     /// gone: a pane's active tab always looks active), so only it repaints.
@@ -155,8 +147,6 @@ final class TabCell {
     var presenceLayer: CALayer? // the acting agent's dot (TabCell+PresenceDot)
     var audioLayer: CALayer? // speaker of a tab playing sound (TabCell+AudioBadge)
     var audioBackgroundLayer: CALayer? // the speaker button's hover and press fill
-    var zoomLayer: CALayer? // a zoomed pane's indicator on its selected tab (TabCell+ZoomBadge)
-    var zoomBackgroundLayer: CALayer? // the zoom indicator's hover and press fill
     var hibernationRingLayer: CAShapeLayer? // dotted ring of a hibernated tab (TabCell+HibernationRing)
 
     var hasCloseLayers: Bool { closeBackgroundLayer != nil || closeGlyphLayer != nil }
@@ -315,7 +305,7 @@ final class TabCell {
         let token = animated ? ChromeHover.fade(showing: showing ?? (isLifted || fillsSelection || isMultiSelected || isHovered)) : nil
         // An instant change also ends a fill still easing in.
         if (token.map(Motion.tabs.duration) ?? 0) == 0 {
-            for layer in [backgroundLayer, closeBackgroundLayer, audioBackgroundLayer, zoomBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
+            for layer in [backgroundLayer, closeBackgroundLayer, audioBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
         }
         Motion.tabs.transaction(token) { applyColors() }
     }
@@ -340,7 +330,6 @@ final class TabCell {
             applyProfileDotColors()
             applyPresenceDotColor()
             applyAudioIcon()
-            applyZoomIcon()
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
@@ -546,13 +535,10 @@ final class TabCell {
             // The marquee fades glyphs out across the icon-title gap.
             let textWidth = titleWidth()
             let visibleWidth = visibleEnd - titleX
-            // Measured only for a clipped title (a fitting one keeps the middle mode it never uses).
-            let truncation = textWidth <= visibleWidth + 0.5 ? CTLineTruncationType.middle
-                : Self.titleTruncation(textWidth: textWidth, visibleWidth: visibleWidth,
-                                       middleMinimum: middleTruncationMinimum(displayTitle))
+            // Chrome's tab: never a "…"; a long title runs to the trailing end and fades there.
+            let truncation = Self.titleTruncation(textWidth: textWidth, visibleWidth: visibleWidth)
             if titleLayer.truncation != truncation { titleLayer.truncation = truncation }
-            let isMiddleTruncated = truncation == .middle && textWidth > visibleWidth + 0.5
-            let restWidth = isMiddleTruncated ? visibleWidth : span
+            let restWidth = span
             let geometry = TitleFadeGeometry(
                 textWidth: textWidth, span: span, visibleWidth: visibleWidth,
                 leadingPadding: m.iconTitleSpacing, trailingPadding: 0,
@@ -570,7 +556,7 @@ final class TabCell {
             }
         } else {
             titleLayer.opacity = 0
-            for badge in [machineLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer, zoomLayer, zoomBackgroundLayer] { badge?.opacity = 0 }
+            for badge in [machineLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
             if onPath {
                 pathTitle = nil
             } else {

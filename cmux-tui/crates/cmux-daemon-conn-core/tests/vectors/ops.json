@@ -156,6 +156,16 @@
   {"source": "SessionEnding.run: a daemon that cannot restart kept tabs removes them", "op": "session_ending_keeps_layout",
    "request": {"keeping_layout": true, "capabilities": ["end-terminals-keep-layout-v1"]}, "expect": {"keeps": false}},
   {"source": "SessionEnding.run: End Everything never keeps", "op": "session_ending_keeps_layout",
-   "request": {"keeping_layout": true, "deleting_workspaces": true, "capabilities": ["end-terminals-keep-layout-v1", "tab-restart-kept-layout-v1"]}, "expect": {"keeps": false}}
+   "request": {"keeping_layout": true, "deleting_workspaces": true, "capabilities": ["end-terminals-keep-layout-v1", "tab-restart-kept-layout-v1"]}, "expect": {"keeps": false}},
+  {"source": "DaemonService.intendNowReporting: a screen close with no connection is held, not rejected (Leo 2026-11-09)", "op": "offline_intent_disposition",
+   "request": {"kind": "notConnected", "answering": false}, "expect": {"disposition": "hold", "bound_ms": 120000}},
+  {"source": "DaemonService.intendNowReporting: a refusal still rejects", "op": "offline_intent_disposition",
+   "request": {"kind": "command", "answering": true}, "expect": {"disposition": "reject", "bound_ms": 120000}},
+  {"source": "DaemonStore.sweepHeldIntents: reconnect replays the held close in order; the one in flight is not sent again", "op": "offline_intent_sweep",
+   "request": {"held": [{"id": "t1", "held_at_ms": 1000}, {"id": "t2", "held_at_ms": 2000, "replaying": true}], "now_ms": 3000, "reachable": true}, "expect": {"replay": ["t1"], "expire": [], "next_check_ms": null}},
+  {"source": "DaemonStore.sweepHeldIntents: past the bound, one refusal", "op": "offline_intent_sweep",
+   "request": {"held": [{"id": "t1", "held_at_ms": 0}], "now_ms": 120000, "reachable": false}, "expect": {"replay": [], "expire": ["t1"], "next_check_ms": null}},
+  {"source": "HeldIntents.pending: the health model's words", "op": "offline_intent_text",
+   "request": {"action": "close", "name": "Background task"}, "expect": {"pending": "Close Background task", "when_back": "will close Background task when back", "refusal": "cmux couldn't reach its session service; Background task wasn't closed"}}
  ]
 }

@@ -25,9 +25,9 @@
  *   writes that for the work user when the file does not exist (the machine has no app to
  *   ask). The Claude Code permission prompts and acpmux permission policies are unchanged.
  * - Desktop (role desktop): the person's view of the agent display is `cmux.rd/1` over the owner's
- *   Native link, service `desktop`. The boundary is the link's admission: the machine's link
- *   receiver (the session daemon's `__receive-vm`, which runs as the work user) admits only the
- *   owner's one-time link token for `desktop`, then connects RD_SOCKET; systemd starts RD_UNIT,
+ *   carrier, service `desktop`. The boundary is the carrier's admission: the machine's carrier
+ *   server (`cmux carrier serve`, which runs as the work user) admits only the owner's grant
+ *   for `desktop`, then connects RD_SOCKET; systemd starts RD_UNIT,
  *   the `cmux-rd` host on the agent display as its own system user RD_USER (no shell, no home,
  *   not in the work user's group, no sudo), which takes connections from the work user's uid only.
  *   On the machine the socket is not a boundary against the agent: the agent already reaches
@@ -490,8 +490,8 @@ const RD_SANDBOX = [
 
 /**
  * `cmux-rd openh264-install` as RD_USER into its state dir, once (the marker): Cisco's binary,
- * downloaded over HTTPS from Cisco, never bundled. The only RD_USER unit that may open network
- * sockets; the host itself is AF_UNIX only.
+ * downloaded over HTTPS from Cisco, never bundled. The host itself opens no TCP socket, and UDP
+ * only for a session's datagram link (rdUnit).
  */
 export function rdOpenh264Unit(hostBin: string): string {
   return [
@@ -622,8 +622,11 @@ export function rdUnit(): string {
     `ExecStart=${RD_START_SCRIPT}`,
     ...RD_SANDBOX,
     "BindReadOnlyPaths=/tmp/.X11-unix",
-    // The activated socket and the X display are Unix sockets; the host opens nothing else.
-    "RestrictAddressFamilies=AF_UNIX",
+    // The activated socket and the X display are Unix sockets. AF_INET is the desktop's datagram
+    // link (cmuxterm-hq#7976): one ephemeral UDP socket per session the viewer offered a link for,
+    // reached only by that viewer's authenticated link, never a listening port; AF_NETLINK lists the
+    // interfaces for its host routes. Without them the host keeps every datagram on the stream.
+    "RestrictAddressFamilies=AF_UNIX AF_INET AF_NETLINK",
     "",
   ].join("\n");
 }

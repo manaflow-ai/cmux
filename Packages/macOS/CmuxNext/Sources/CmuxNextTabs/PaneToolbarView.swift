@@ -29,8 +29,8 @@ public struct PaneToolbarItem: Equatable, Sendable {
 /// 0 by default; Lawrence 2026-10-20) while the tabs leave room, show muted at rest once the tabs fill
 /// the bar (`tabs.crowdedControls`; Leo 2026-10-20), and fade in while the pointer is over the tab bar or these
 /// controls (`HoverReveal`, like the strip's plus), while "…"'s menu is open and while one has keyboard
-/// focus, and stay shown, "…" and a pinned zoom button lit, while the pane is zoomed (the selected
-/// tab carries the zoom indicator, `TabStripModel.zoomsSelected`). Their width is kept while they are faded,
+/// focus, and stay shown, "…" and a pinned zoom button lit, while the pane is zoomed (the pane's
+/// top-right carries the zoom indicator, `PaneZoomIndicatorView`). Their width is kept while they are faded,
 /// so no tab moves when they appear. The overflow glyph also stays in its trailing slot throughout
 /// the opacity fade (Leo 2026-10-26). "…"'s menu opens on press (press-drag-release) and lists what
 /// opens in the pane, then the actions without a button, Search Tabs, then Show in Tab Bar.
@@ -124,7 +124,8 @@ public final class PaneToolbarView: NSView {
         _ = reveal.add(moreButton)
         restObservation = Task { [weak self] in
             for await _ in ObservationStream({
-                (TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value)
+                (TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value,
+                 TabTunables.trailingButtons.value)
             }) { self?.applyRest() }
         }
     }
@@ -132,6 +133,8 @@ public final class PaneToolbarView: NSView {
     /// Hidden at rest while the tabs leave room; muted once they fill the bar (Leo 2026-10-20: no
     /// reservation of hidden icons, and no push or overlay that takes the rightmost tabs away).
     private func applyRest() {
+        // The ⋮ shows hover as the tab bar's + and ⌄ beside it do (`TabTunables.trailingButtons`).
+        moreButton.hoverStyle = TabTunables.trailingButtons.value.hoverStyle
         reveal.restAlpha = TabTunables.restingControlAlpha(crowded: strip?.isCrowded ?? false)
     }
 
@@ -483,6 +486,7 @@ public final class PaneToolbarView: NSView {
         let y = buttonTop
         appliedButtonTop = y
         moreButton.frame = moreFrame()
+        moreButton.plateCornerRadius = Self.moreCornerRadius(inset: Self.trailingGap)
         let allButtons = buttons + nativeButtons
         let trailingSlot = hasMore || reservedCount > allButtons.count ? 1 : 0
         let widths = allButtons.map(\.preferredWidth)
@@ -514,6 +518,15 @@ public final class PaneToolbarView: NSView {
     func moreFrame() -> NSRect {
         let side = TitlebarBandButton.side
         return NSRect(x: max(0, bounds.width - Self.trailingGap - side), y: buttonTop, width: side, height: side)
+    }
+
+    /// The ⋮ plate's radius `inset` points inside the card's top-trailing corner the bar rests in:
+    /// concentric with it (the card's radius, `Metrics.tabStripCardRadius`, else the one outer
+    /// radius, less the inset), as the first tab is with the top-leading corner. Lawrence 2026-11-07
+    /// on the window's top-right ⋮: "needs to be concentric (related to window concentricity)".
+    static func moreCornerRadius(inset: CGFloat) -> CGFloat {
+        Metrics.cornerRadius(nestedIn: Metrics.tabStripCardRadius ?? Metrics.corners.outer, inset: inset,
+                             size: CGSize(width: TitlebarBandButton.side, height: TitlebarBandButton.side))
     }
 
     /// The last button's gap to the trailing edge: its center on the pane's trailing control column,

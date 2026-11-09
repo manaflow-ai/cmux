@@ -17,10 +17,12 @@
 //! if it were me?"): `verified` says whether the daemon bound the sender (a caller-proven session,
 //! the hub's own prompt) or the sender only named itself; `transport` is how it came (`unix`,
 //! `app`, `web`, `peer`, `trigger`); `claimed` holds labels it gave that prove nothing (`cliHost`,
-//! `fromHarness`). No label, socket access or environment variable makes a prompt the person's:
-//! only a connection that proved the person (`hub/person.rs`), an authenticated paired client,
-//! or a peer attesting its own proven connection. Any other prompt naming no sender is
-//! `unverified` ([`unverified`]), and the person's own record says `_meta.origin` ([`ORIGIN`]).
+//! `fromHarness`). No label or environment variable makes a prompt the person's: a connection
+//! that proved the person (`hub/person.rs`), an authenticated paired client, a peer attesting its
+//! own proven connection, or the owner's own terminal send (a plain unix connection with no caller
+//! token that claims no sender, harness or relay, `server/requests.rs` `owner_terminal`). Any
+//! other prompt naming no sender is `unverified` ([`unverified`]), and the person's own record
+//! says `_meta.origin` ([`ORIGIN`]).
 //! What a prompt may do (permissions, approvals) is decided elsewhere and never from these.
 //!
 //! The hub sets two more kinds itself, never taken from a client: `{kind: "offer_result",
@@ -221,6 +223,47 @@ pub fn session_message(from: &str, from_name: &str, to: &str) -> Value {
     json!({"kind": "session_message", "from": from, "fromName": from_name, "to": to, VERIFIED: true})
 }
 
+/// On a [`session_message`]: the Claude Code subagent in the sending session that sent it,
+/// `{id, type}` (`cli/sender.rs` `SUBAGENT_ENV`, marked by acpmux's Bash hook). The session is
+/// still the one its caller token proves (`from`, `verified`); this says only which of its
+/// agents, so the receiver knows its reply reaches that subagent through the send it answers,
+/// and a later `acpmux send` to the session reaches the lead.
+pub const FROM_SUBAGENT: &str = "fromSubagent";
+
+/// `provenance` (a [`session_message`] the daemon bound to the caller's proven session) with the
+/// subagent the send named (`_meta.acpmux.callerSubagent`), when well formed; else unchanged.
+pub fn with_subagent(mut provenance: Value, params: &Value) -> Value {
+    if provenance.get("kind").and_then(Value::as_str) != Some("session_message") {
+        return provenance;
+    }
+    let Some(sub) = subagent_of(params) else { return provenance };
+    provenance.set(FROM_SUBAGENT, sub);
+    provenance
+}
+
+/// Set beside [`FROM_SUBAGENT`] when the subagent's message starts a turn of a lane of its own
+/// lead: that turn's answer reaches the subagent (`hub/lane_report_subagents.rs`).
+pub const SUBAGENT_GETS_REPLY: &str = "subagentGetsReply";
+
+/// `provenance` marked [`SUBAGENT_GETS_REPLY`] when it names a subagent ([`FROM_SUBAGENT`]).
+pub fn subagent_gets_reply(mut provenance: Value) -> Value {
+    if provenance.get(FROM_SUBAGENT).is_some() {
+        provenance.set(SUBAGENT_GETS_REPLY, json!(true));
+    }
+    provenance
+}
+
+/// The subagent a send names (`_meta.acpmux.callerSubagent`), `{id, type}`, when both are plain
+/// words (`cli::sender::subagent_word`).
+pub fn subagent_of(params: &Value) -> Option<Value> {
+    let sub = params.pointer("/_meta/acpmux/callerSubagent")?;
+    let word = |key: &str| {
+        sub.get(key).and_then(Value::as_str).filter(|w| crate::cli::sender::subagent_word(w))
+    };
+    let (id, kind) = (word("id")?, word("type")?);
+    Some(json!({"id": id, "type": kind}))
+}
+
 /// On a session a Chief host made for one of its turns (optchat-chief `acpmux::turn_tags`): the
 /// Chief's participant id (`agent_mux`, `agent_…`), the key the app finds that Chief's name and
 /// picture by.
@@ -292,16 +335,17 @@ pub fn named_sender(name: &str, to: &str) -> Value {
 /// ([`of`] keeps only its listed fields), and the person's prompt carries none (see [`ORIGIN`]).
 pub const VERIFIED: &str = "verified";
 /// How the prompt reached this daemon, as the daemon saw it: `unix` (the socket, any local
-/// process of the user), `app` (the app's own connection), `web`, `peer`, `trigger`.
+/// process of the user), `app` (the app's own connection), `web`, `peer`, `carrier`, `trigger`.
 pub const TRANSPORT: &str = "transport";
 /// Labels a sender gave about itself that prove nothing (`cliHost`, `fromHarness`): kept apart
 /// from who the daemon knows sent it.
 pub const CLAIMED: &str = "claimed";
 
 /// The provenance kind of a prompt no proof attributes: not the proven person's (the app's own
-/// connection, a paired device), and naming no sender. A local process of the user (a shell, a
-/// script, an agent outside acpmux) may send it, so it is shown as an unknown sender, never as the
-/// person (Leo, 2026-11-05: "why is it sending it as if it were me?").
+/// connection, a paired device, the owner's own terminal send), and naming no sender. A local
+/// process that claims a harness or relay, or holds a caller token it could not prove, may send
+/// it, so it is shown as an unknown sender, never as the person (Leo, 2026-11-05: "why is it
+/// sending it as if it were me?").
 pub const UNVERIFIED_KIND: &str = "unverified";
 
 /// Who started a handoff whose start is not the proven person's (`hub/handoff/ops.rs`): its
@@ -790,13 +834,23 @@ impl RelaySender {
         json!({"by": self.by, "machine": self.machine, "session": self.session})
     }
 
-    /// How the sender reads: `MACHINE/SESSION`, or the machine alone.
+    /// How the sender reads as its label (`fromAgent`): `MACHINE/SESSION`, or the machine alone,
+    /// cut to [`relayed_label`]'s length. The record keeps the whole name.
     pub fn name(&self) -> String {
         match &self.session {
-            Some(session) => format!("{}/{session}", self.machine),
+            Some(session) => relayed_label(&format!("{}/{session}", self.machine)),
             None => self.machine.clone(),
         }
     }
+}
+
+/// A relayed `MACHINE/SESSION` as a sender label: one line within `fromAgent`'s length
+/// (`hub::declared_sender`), so a long session name never refuses the send. Who sent it is the
+/// relay record's ([`FROM_RELAY`]), whole; the label only names it.
+pub fn relayed_label(name: &str) -> String {
+    let name: String =
+        name.chars().filter(|c| !unshown(*c)).take(crate::hub::MAX_FROM_AGENT_CHARS).collect();
+    name.trim().to_owned()
 }
 
 /// The relay record a prompt's provenance carries ([`FROM_RELAY`]).
@@ -1044,7 +1098,7 @@ pub fn sender_record_with_auth(
             })
         });
 
-    json!({
+    let mut record = json!({
         "session": session,
         "authenticated": authenticated,
         "harness": harness,
@@ -1058,7 +1112,13 @@ pub fn sender_record_with_auth(
         "parent": parent,
         "delegator": delegator,
         "verification": verification,
-    })
+    });
+    // The sending subagent ([`FROM_SUBAGENT`]) only where there is one: other records stay as
+    // they were.
+    if let Some(sub) = provenance.get(FROM_SUBAGENT).filter(|s| s.is_object()) {
+        record.set("subagent", sub.clone());
+    }
+    record
 }
 
 #[cfg(test)]
@@ -1224,6 +1284,33 @@ mod sender_tests {
         let proven = sender_record_with_auth(Some(&person), None, None, true);
         assert_eq!(proven["actorKind"], "authenticated_human");
         assert_eq!(proven["actorId"], "user-1");
+    }
+
+    /// A relay's MACHINE/SESSION past `fromAgent`'s length (review of #37652, F1): the record
+    /// keeps the whole name and is a verified relay sender; the name it gives the sender label
+    /// fits `fromAgent`, so the send is never refused for it.
+    #[test]
+    fn a_long_relayed_name_is_recorded_whole_and_named_within_from_agent() {
+        let relayed = |session: &str| json!({"_meta": {"acpmux": {"fromRelay": {"by": "lane-gh", "machine": "vm-1", "session": session}}}});
+        let session = format!("cloud-start-matrix-{}", "x".repeat(60));
+        let bound = relay_sender(&relayed(&session)).unwrap();
+        let relay = bound.relay.clone().unwrap();
+        assert_eq!(relay.session.as_deref(), Some(session.as_str()));
+        let name = relay.name();
+        assert_eq!(name.chars().count(), crate::hub::MAX_FROM_AGENT_CHARS);
+        assert!(format!("vm-1/{session}").starts_with(&name), "{name}");
+        let label = json!({"_meta": {"acpmux": {"fromAgent": name}}});
+        assert_eq!(crate::hub::declared_sender(&label).unwrap(), Some(name.clone()));
+        let stamped =
+            stamp_sender(stamp_declared(named_sender(&name, "t"), Some(&name)), Some(&bound));
+        let record = sender_record(Some(&stamped), None, None);
+        assert_eq!(
+            (&record["verification"], &record["relay"]["session"]),
+            (&json!("verified"), &json!(session))
+        );
+        // A short one is named whole; a session past what a relay record holds is no record.
+        assert_eq!(relay_sender(&relayed("coord")).unwrap().relay.unwrap().name(), "vm-1/coord");
+        assert_eq!(relay_sender(&relayed(&"x".repeat(MAX_FIELD_BYTES + 1))), None);
     }
 
     #[test]

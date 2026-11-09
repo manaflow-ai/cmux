@@ -47,6 +47,21 @@ fn pool_auth_claude_saved_api_key_rotation_and_removal_change_the_key() {
 }
 
 #[test]
+fn pool_auth_codex_api_key_rotation_changes_the_key() {
+    let home = LoginFiles::new("codex-env-key");
+    let cache = AuthCache::default();
+    let key = |value: &'static str| move |k: &str| (k == "CODEX_API_KEY").then(|| value.to_owned());
+    let first = cache.fingerprint_with("codex", &key("fixture-key-a"), &home.0);
+    let rotated = cache.fingerprint_with("codex", &key("fixture-key-b"), &home.0);
+    assert_ne!(first, rotated, "a Codex session warmed with the old CODEX_API_KEY must not match");
+    assert_ne!(
+        rotated,
+        cache.fingerprint_with("codex", &|_| None, &home.0),
+        "unsetting CODEX_API_KEY must invalidate it"
+    );
+}
+
+#[test]
 fn pool_auth_claude_saved_key_uses_the_child_home() {
     let daemon = LoginFiles::new("daemon-home");
     let child = LoginFiles::new("child-home");

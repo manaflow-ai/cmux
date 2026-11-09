@@ -67,6 +67,24 @@ struct MenuBarMenuSpecTests {
         #expect(!idle.contains { $0.hasPrefix("info:") })
     }
 
+    /// While cmux keeps the Mac awake the agents section says so first, with the terminal commands that
+    /// count; with no hold there is no line.
+    @Test func keepingAwakeLeadsTheAgentsSection() throws {
+        let state = MenuBarMenuState(agentsWorking: 2, keepingAwake: .init(commands: 1))
+        let items = MenuBarMenuSpec().items(for: state, isBound: Self.everything)
+        let ids = Self.ids(items)
+        let start = try #require(ids.firstIndex(of: "-")) + 1
+        #expect(Array(ids[start..<start + 4]) == ["info:Keeping Mac awake", "info:Commands running: 1", "info:Agents working: 2", "-"])
+        #expect(items[start] == .info("Keeping Mac awake", symbol: "cup.and.saucer", avatar: false))
+
+        let agentsOnly = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(agentsWorking: 1, keepingAwake: .init()), isBound: Self.everything))
+        #expect(agentsOnly.contains("info:Keeping Mac awake"))
+        #expect(!agentsOnly.contains { $0.hasPrefix("info:Commands running") })
+
+        let none = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(agentsWorking: 1), isBound: Self.everything))
+        #expect(!none.contains("info:Keeping Mac awake"))
+    }
+
     /// A downloaded update: Restart to Update (the install path, run only on this click) takes
     /// Check for Updates' place.
     @Test func updateReadyOffersRestart() throws {

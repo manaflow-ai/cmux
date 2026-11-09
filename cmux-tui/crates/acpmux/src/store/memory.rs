@@ -82,8 +82,37 @@ impl Store for MemoryStore {
             before = lowest;
         }
     }
+    fn writes_history(&self) -> bool {
+        true
+    }
+    fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        Ok(Some(Box::new(MemoryHistory { store: self, id: id.to_owned(), records: Vec::new() })))
+    }
     fn delete(&self, id: &str) -> Result<()> {
         self.inner.lock_or_recover().remove(id);
+        Ok(())
+    }
+}
+
+/// [`MemoryStore::history_writer`]: the records go in front of the log at `commit`.
+struct MemoryHistory<'a> {
+    store: &'a MemoryStore,
+    id: String,
+    records: Vec<EventRecord>,
+}
+
+impl HistoryWriter for MemoryHistory<'_> {
+    fn write(&mut self, record: &EventRecord) -> Result<()> {
+        self.records.push(record.clone());
+        Ok(())
+    }
+    fn commit(self: Box<Self>) -> Result<()> {
+        let mut g = self.store.inner.lock_or_recover();
+        if let Some((_, events)) = g.get_mut(&self.id) {
+            let mut records = self.records;
+            records.append(events);
+            *events = records;
+        }
         Ok(())
     }
 }

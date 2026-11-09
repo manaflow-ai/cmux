@@ -63,7 +63,7 @@ beforeAll(async () => {
   host = window.document.getElementById("root")!;
   // Match the app's chunk preload. Pierre still paints asynchronously; waitForLines below observes
   // that paint, independently of whether an earlier test has warmed the syntax highlighter.
-  const { loadEditDiffHunks } = await import("../src/agent-session/acpmux/conversation/EditDiff");
+  const { loadEditDiffHunks } = await import("../src/agent-session/acpmux/conversation/editDiffModel");
   await loadEditDiffHunks();
 });
 

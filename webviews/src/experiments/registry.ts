@@ -50,7 +50,7 @@ import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmu
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
 import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
-import { hatChevronLook, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
+import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
@@ -64,17 +64,20 @@ import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment"
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
-import { composerDeeplinkLook } from "../agent-session/acpmux/composer/deeplinkLook.experiment";
-import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgentLook.experiment";
+import { cmuxLinkLook } from "../agent-session/acpmux/chips/cmuxLinkLook.experiment";
+import { sentPasteJoin } from "../agent-session/acpmux/conversation/sentPasteJoin.experiment";
 import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
 import { sendStopMorph } from "../agent-session/acpmux/composer/sendStopMorph.experiment";
+import { sendMenuLook } from "../agent-session/acpmux/composer/sendMenuLook.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
+import { followMotion } from "../agent-session/acpmux/conversation/followMotion.experiment";
 import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
 import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
+import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -85,6 +88,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hoverActions,
   startedSessionCards,
   fileKindIcon,
+  followMotion,
   finishedTaskLook,
   claudeTurnFold,
   commandLabelLook,
@@ -134,6 +138,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatQuestionsLook,
   hatChevronLook,
   hatDoneLook,
+  hatDoneCheckPlace,
   trayHeadLook,
   trayFoldHeadLook,
   trayHeadKindsLook,
@@ -147,8 +152,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveBackground,
   composerPlusCommands,
   promptSuggestionLook,
-  composerDeeplinkLook,
-  pastedAgentLook,
+  cmuxLinkLook,
+  sentPasteJoin,
   sentMessageLook,
   contextRingLook,
   contextRingMotion,
@@ -156,6 +161,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   emojiShortcodeLook,
   pastePlaceholderLook,
   sendStopMorph,
+  sendMenuLook,
+  fieldGrowthMotion,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

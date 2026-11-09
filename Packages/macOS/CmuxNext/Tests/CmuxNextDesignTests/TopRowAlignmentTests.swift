@@ -3,49 +3,89 @@ import CoreGraphics
 import Testing
 
 /// The window top's one line (Leo 2026-11-07: "align the top bit of the sidebar with the tabs/vice
-/// versa"). The top row's strip starts at the window's top edge under the minimal titlebar; its pill
-/// centers on the traffic lights' line wherever the strip holds it (within half a point, the 1x
-/// pixel grid's rounding), and otherwise comes as near as the strip and the window's top edge allow.
-/// The numbers are the live `debug.top_alignment` values of the `top-alignment` tour on a 1x display.
+/// versa"). The top row's pill keeps equal gaps above it (from the window's top edge) and below it
+/// (to its strip's bottom, the divider under the row, #38054); the main pane's card moves down to
+/// bring it onto the traffic lights' line. Where the card cannot (it only moves down, never past the
+/// gutter), the line is the pill's own center.
 @Suite struct TopRowAlignmentTests {
     nonisolated struct Mode: CustomTestStringConvertible, Sendable {
         var name: String, strip: CGFloat, tab: CGFloat
-        /// The pill center the live capture measured after the change, at 1x.
-        var measured: CGFloat
         var testDescription: String { name }
     }
 
-    /// The strip and pill heights each density gave in the capture (Ultra-compact to Spacious).
+    /// The strip and pill heights each density gives (Ultra-compact to Spacious).
     nonisolated static let modes: [Mode] = [
-        Mode(name: "ultraCompact", strip: 23, tab: 21, measured: 12.5),
-        Mode(name: "compact", strip: 28, tab: 24, measured: 16),
-        Mode(name: "cozy", strip: 31, tab: 27, measured: 16.5),
-        Mode(name: "comfortable", strip: 36, tab: 30, measured: 16),
-        Mode(name: "spacious", strip: 41, tab: 35, measured: 18.5),
+        Mode(name: "ultraCompact", strip: 23, tab: 21),
+        Mode(name: "compact", strip: 28, tab: 24),
+        Mode(name: "cozy", strip: 31, tab: 27),
+        Mode(name: "comfortable", strip: 36, tab: 30),
+        Mode(name: "spacious", strip: 41, tab: 35),
     ]
 
-    /// The lights' center below the window's top edge, as the capture measured it.
-    nonisolated static let lights: CGFloat = 16
+    /// The lights' center below the window's top edge, as a live capture measured it, and a line off the 2x grid.
+    nonisolated static let lights: [CGFloat] = [16, 16.25]
+    /// The main pane gutter's default and the window's lit rim (`WindowTitlebar.topRowCardTop`'s limits).
+    static let gutter: CGFloat = 6, rim: CGFloat = 1
 
-    static func center(_ mode: Mode, scale: CGFloat) -> CGFloat {
-        TopRowLine(centerY: lights).pillTop(stripTop: 0, stripHeight: mode.strip, tabHeight: mode.tab, scale: scale) + mode.tab / 2
+    /// The card's top as `WindowTitlebar.topRowCardTop` places it in a titled window.
+    static func card(_ metrics: PaneChromeMetrics, line: CGFloat, scale: CGFloat) -> CGFloat {
+        let card = max(min(gutter, metrics.cardTop(centeringPillOn: line, scale: scale)), rim)
+        return metrics.evenSplitCardTop(card, within: rim...gutter, scale: scale)
     }
 
-    @Test(arguments: modes) func thePillCentersOnTheLightsLineWhereverTheStripHoldsIt(_ mode: Mode) {
+    @Test(arguments: modes) func theTopRowPillKeepsEqualGapsAboveAndBelow(_ mode: Mode) {
         for scale in [1, 2] as [CGFloat] {
-            let center = Self.center(mode, scale: scale)
-            let nearest = min(max(Self.lights, TopRowLine.pillMinTopGap + mode.tab / 2), mode.strip - mode.tab / 2)
-            #expect(abs(center - nearest) <= 0.5 / scale, "\(mode.name) @\(scale)x: \(center), nearest \(nearest)")
-            if nearest == Self.lights { #expect(abs(center - Self.lights) <= 0.5) }
+            for line in Self.lights {
+                let metrics = PaneChromeMetrics(stripHeight: mode.strip, tabHeight: mode.tab, panePadding: 0)
+                let card = Self.card(metrics, line: line, scale: scale)
+                let pill = metrics.pillTop(stripTop: card, scale: scale)
+                let above = card + pill, below = mode.strip - mode.tab - pill
+                #expect(above == below, "\(mode.name) line \(line) @\(scale)x: card \(card), \(above) above, \(below) below")
+                #expect(pill >= 0 && pill + mode.tab <= mode.strip, "\(mode.name) @\(scale)x: inside its strip")
+            }
         }
-        #expect(Self.center(mode, scale: 1) == mode.measured, "\(mode.name): the live capture measured \(mode.measured)")
     }
 
-    @Test func compactComfortableAndCozyShareTheLine() {
-        for name in ["compact", "cozy", "comfortable"] {
-            let mode = Self.modes.first { $0.name == name }!
-            #expect(abs(Self.center(mode, scale: 2) - Self.lights) <= 0.25, "\(name)")
+    /// Where the card can move far enough, the pill centers on the lights' line (within a device pixel);
+    /// Comfortable and Spacious center lower with the card at the rim, and their line is the pill's.
+    @Test(arguments: modes) func thePillReachesTheLightsLineWhereTheCardCanMove(_ mode: Mode) {
+        for scale in [1, 2] as [CGFloat] {
+            let metrics = PaneChromeMetrics(stripHeight: mode.strip, tabHeight: mode.tab, panePadding: 0)
+            let card = Self.card(metrics, line: 16, scale: scale)
+            let center = metrics.topRowPillCenter(cardTop: card, scale: scale)
+            let reached = TopRowLine(centerY: 16).reached(by: metrics, cardTop: card, scale: scale)
+            #expect(reached.centerY == center, "the line the controls read is the pill's")
+            switch mode.name {
+            case "compact", "cozy": #expect(abs(center - 16) <= 1 / scale, "\(mode.name) @\(scale)x: \(center)")
+            case "comfortable", "spacious": #expect(center > 16 && card <= Self.rim + 1 / scale, "\(mode.name) @\(scale)x: \(center)")
+            default: #expect(card <= Self.gutter)
+            }
         }
+    }
+
+    /// The live numbers at 2x: Compact's card drops 4 pt and its pill sits 4 pt from the window's top and
+    /// 4 pt above the divider, on the 16 pt line; Comfortable keeps 3.5 pt on each side.
+    @Test func compactAndComfortableAt2x() {
+        let compact = PaneChromeMetrics(stripHeight: 28, tabHeight: 24, panePadding: 0)
+        #expect(compact.cardTop(centeringPillOn: 16, scale: 2) == 4)
+        #expect(compact.pillTop(stripTop: 4, scale: 2) == 0)
+        #expect(compact.topRowPillCenter(cardTop: 4, scale: 2) == 16)
+        let comfortable = PaneChromeMetrics(stripHeight: 36, tabHeight: 30, panePadding: 0)
+        #expect(comfortable.cardTop(centeringPillOn: 16, scale: 2) == 0)
+        #expect(comfortable.pillTop(stripTop: 1, scale: 2) == 2.5)
+    }
+
+    /// Review of #38079: a pill that fills its strip leaves the card at the window's top, `off` and windows with
+    /// no top-row strip keep the card formula from before #38054, and a card the gutter clamps on an odd pixel
+    /// steps up a pixel instead.
+    @Test func theCardsEdgeCases() {
+        let full = PaneChromeMetrics(stripHeight: 24, tabHeight: 24, panePadding: 2)
+        #expect(full.cardTop(centeringPillOn: 16, scale: 2) == 0)
+        let compact = PaneChromeMetrics(stripHeight: 28, tabHeight: 24, panePadding: 0)
+        #expect(compact.cardTopKeepingStripCentering(centeringPillOn: 16, scale: 2) == 2, "2 + 2 + 24 / 2 = 16")
+        #expect(compact.evenSplitCardTop(3, within: 1...3, scale: 1) == 2, "odd room 1, no room below the gutter: one pixel up")
+        #expect(compact.evenSplitCardTop(3, within: 1...6, scale: 1) == 4, "odd room 1: one pixel down")
+        #expect(compact.evenSplitCardTop(2, within: 1...6, scale: 1) == 2, "even room: unchanged")
     }
 
     @Test func controlsCenterOnTheLineOnThePixelGrid() {
@@ -57,47 +97,26 @@ import Testing
         }
     }
 
-    @Test func thePillNeverLeavesItsStripNorTheWindowTop() {
-        #expect(TopRowLine(centerY: 40).pillTop(stripTop: 0, stripHeight: 28, tabHeight: 24, scale: 2) == 4)
-        #expect(TopRowLine(centerY: 4).pillTop(stripTop: 0, stripHeight: 41, tabHeight: 35, scale: 2) == TopRowLine.pillMinTopGap)
-    }
-
-    /// A strip that starts below the window's top (a pane padding, floating panes' gutter) never
-    /// moves its pills above its own top: the strip masks its tabs to its bounds (review of #37619:
-    /// Compact with `layout.panePadding: 12` asked for -8 and clipped the tabs' upper 8 pt).
-    @Test(arguments: modes) func thePillNeverRisesAboveItsStrip(_ mode: Mode) {
-        for stripTop in [1, 2, 4, 6, 8, 12, 16, 24] as [CGFloat] {
+    /// A strip that starts further below the window's top (a pane padding, floating panes' gutter) never
+    /// moves its pills above its own top or past its bottom: the strip masks its tabs to its bounds
+    /// (review of #37619: Compact with `layout.panePadding: 12`).
+    @Test(arguments: modes) func thePillNeverLeavesItsStrip(_ mode: Mode) {
+        let metrics = PaneChromeMetrics(stripHeight: mode.strip, tabHeight: mode.tab, panePadding: 0)
+        for stripTop in [0, 1, 2, 4, 6, 8, 12, 16, 24] as [CGFloat] {
             for scale in [1, 2] as [CGFloat] {
-                let top = TopRowLine(centerY: Self.lights).pillTop(stripTop: stripTop, stripHeight: mode.strip, tabHeight: mode.tab, scale: scale)
+                let top = metrics.pillTop(stripTop: stripTop, scale: scale)
                 #expect(top >= 0, "\(mode.name) stripTop \(stripTop) @\(scale)x: \(top)")
                 #expect(top + mode.tab <= mode.strip, "\(mode.name) stripTop \(stripTop) @\(scale)x: \(top)")
             }
         }
     }
 
-    @Test func aPaddedOrFloatingStripKeepsItsPillsInside() {
-        let line = TopRowLine(centerY: 16)
-        // Compact with `layout.panePadding: 12`: the strip starts at 12, at or below where the pill would start.
-        #expect(line.pillTop(stripTop: 12, stripHeight: 28, tabHeight: 24, scale: 2) == 0)
-        // Floating panes: the card (and its strip) start one gutter down.
-        #expect(line.pillTop(stripTop: 8, stripHeight: 28, tabHeight: 24, scale: 2) == 0)
-        // A small padding still reaches the line: 2 + 2 + 24 / 2 = 16.
-        #expect(line.pillTop(stripTop: 2, stripHeight: 28, tabHeight: 24, scale: 2) == 2)
-        // Spacious under a 2 pt padding: the window-top gap is already met by the padding.
-        #expect(line.pillTop(stripTop: 2, stripHeight: 41, tabHeight: 35, scale: 2) == 0)
-    }
-
-    /// Flat chrome with `layout.cornerPadding: 0`: the pill is as tall as its strip, so the window-top gap
-    /// cannot fit and containment wins: the pill sits at 0, never 1 pt down with its bottom clipped (review
-    /// of #37619). One point of room puts it at 0 or 1, still inside.
+    /// Flat chrome with `layout.cornerPadding: 0`: the pill is as tall as its strip and sits at 0.
     @Test func aPillAsTallAsItsStripStaysInside() {
-        for centerY in [4, 12, 16, 30] as [CGFloat] {
-            for scale in [1, 2] as [CGFloat] {
-                let line = TopRowLine(centerY: centerY)
-                #expect(line.pillTop(stripTop: 0, stripHeight: 24, tabHeight: 24, scale: scale) == 0, "line \(centerY) @\(scale)x")
-                let roomy = line.pillTop(stripTop: 0, stripHeight: 25, tabHeight: 24, scale: scale)
-                #expect(roomy >= 0 && roomy + 24 <= 25, "line \(centerY) @\(scale)x: \(roomy)")
-            }
+        for scale in [1, 2] as [CGFloat] {
+            #expect(PaneChromeMetrics(stripHeight: 24, tabHeight: 24, panePadding: 0).pillTop(stripTop: 0, scale: scale) == 0)
+            let roomy = PaneChromeMetrics(stripHeight: 25, tabHeight: 24, panePadding: 0).pillTop(stripTop: 0, scale: scale)
+            #expect(roomy >= 0 && roomy + 24 <= 25, "@\(scale)x: \(roomy)")
         }
     }
 
@@ -122,7 +141,7 @@ import Testing
                     let line = TopRowLine(centerY: TopRowLine.tabsCenterY(metrics, scale: scale))
                     #expect(metrics.cardTop(centeringPillOn: line.centerY, scale: scale) == 0, "\(mode.name) padding \(padding) @\(scale)x")
                     let stripTop = PaneChromeMetrics.snap(padding, scale)
-                    #expect(line.pillTop(stripTop: stripTop, stripHeight: mode.strip, tabHeight: mode.tab, scale: scale) == metrics.pillTop(scale: scale),
+                    #expect(metrics.pillTop(stripTop: stripTop, scale: scale) == metrics.pillTop(scale: scale),
                             "\(mode.name) padding \(padding) @\(scale)x")
                 }
             }

@@ -13,7 +13,7 @@ import {
   APP_COOKIE_IMPORT_LOOK,
   cookieImportModel,
   type CookieImportCardModel,
-  type CookieImportChoice,
+  type CookieImportCommand,
 } from "../../browser-chrome/cookie-import/model";
 import "../../ui/ui.css";
 import "../shared/pageBase.css";
@@ -49,8 +49,8 @@ export function mountCookieImportPage(root: HTMLElement, client: PageClient): ()
     }
     for (const listener of listeners) listener();
   });
-  const send = (choice: CookieImportChoice, revision: number) =>
-    void client.call("cmux.cookie-import.command", { type: choice, revision });
+  const send = (command: CookieImportCommand, revision: number) =>
+    void client.call("cmux.cookie-import.command", { ...command, revision });
   // The host sizes the card from the height of each state it pushed, and again when the width it
   // gave changes the wrapping (a pane resize).
   const report = () => {
@@ -69,7 +69,7 @@ export function mountCookieImportPage(root: HTMLElement, client: PageClient): ()
       <CookieImportCard
         model={current.model}
         look={APP_COOKIE_IMPORT_LOOK}
-        onChoice={(choice) => send(choice, current.revision)}
+        onChoice={(command) => send(command, current.revision)}
         glass={false}
       />
     ) : null;

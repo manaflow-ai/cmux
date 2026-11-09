@@ -309,6 +309,10 @@ final class CEFRuntime {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
                 observeDisplays()
                 ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }
+                ChromiumAccessibilityPress.install { [weak self] window, frame in
+                    guard let window else { return }
+                    self?.windowRequests.linkClicks.recordAccessibilityPress(in: window, frame: frame)
+                }
                 onReady?()
             }
             self.trigger = trigger
@@ -430,7 +434,8 @@ final class CEFRuntime {
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
             // Debug Settings (DEV and NIGHTLY), read when Chromium starts: on the first page, well after
             // the override file loaded; Release keeps the default.
-            asyncLiveResize: true
+            asyncLiveResize: true,
+            initialProfileDirectory: storage.initialProfileDirectory
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")

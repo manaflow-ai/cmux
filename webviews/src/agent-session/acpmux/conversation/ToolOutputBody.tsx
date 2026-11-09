@@ -12,7 +12,8 @@ import { ChevronRight } from "./icons";
 import { Markdown } from "./Markdown";
 import { menuPartRef } from "./menuParts";
 import { watchOutputViewport } from "./outputViewport";
-import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
+import { OutputMore } from "./toolOutput";
+import { previewedOutput, useOutput } from "./toolOutputModel";
 import type { ToolResult } from "./toolResult";
 
 /// Its own component keeps the sideways watcher mounted with the Raw body when a reader switches

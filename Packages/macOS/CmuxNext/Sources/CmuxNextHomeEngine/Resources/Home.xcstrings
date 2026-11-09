@@ -18170,6 +18170,270 @@
         }
       }
     },
+    "home.startQueuedAgent.notQueued": {
+      "comment": "Refusal of Start Queued Agent Now (home.startQueuedAgent): the named agent is not in the Chief's queue (it started, or there is no such agent).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That agent is not waiting in the Chief’s queue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الوكيل لا ينتظر في قائمة انتظار Chief."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taj agent ne čeka u redu Chiefa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den agent venter ikke i Chiefs kø."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Agent wartet nicht in der Warteschlange des Chiefs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ese agente no está esperando en la cola del Chief."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet agent n’attend pas dans la file du Chief."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quell’agente non è in coda nel Chief."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そのエージェントは Chief のキューで待機していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារនោះមិនកំពុងរង់ចាំក្នុងជួររបស់ Chief ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그 에이전트는 Chief의 대기열에서 기다리고 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den agenten venter ikke i Chiefs kø."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten agent nie czeka w kolejce Chiefa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esse agente não está esperando na fila do Chief."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот агент не ждёт в очереди Chief."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์นั้นไม่ได้รออยู่ในคิวของ Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ajan Chief’in kuyruğunda beklemiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей агент не чекає в черзі Chief."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent đó không đang chờ trong hàng đợi của Chief."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该智能体不在 Chief 的队列中等待。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該代理不在 Chief 的佇列中等待。"
+          }
+        }
+      }
+    },
+    "home.startQueuedAgent.noChiefHome": {
+      "comment": "Refusal of Start Queued Agent Now (home.startQueuedAgent) with no Chief's Home open that can start agents.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Queued Agent Now works in a Chief’s Home"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل «بدء الوكيل المنتظر الآن» في صفحة Home الخاصة بالـ Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreni agenta iz reda sada radi u Chiefovom Home prozoru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent i kø nu virker i en Chiefs Home"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartenden Agenten jetzt starten funktioniert im Home eines Chiefs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar ahora el agente en cola funciona en el Home de un Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrer maintenant l’agent en attente fonctionne dans le Home d’un Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvia ora l’agente in coda funziona nella Home di un Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「待機中のエージェントを今すぐ開始」は Chief の Home で使えます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្ដើមភ្នាក់ងារដែលកំពុងរង់ចាំឥឡូវ ដំណើរការនៅក្នុង Home របស់ Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대기 중인 에이전트 지금 시작은 Chief의 Home에서 사용할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent i kø nå virker i en Chiefs Home"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchom teraz agenta z kolejki działa w Home Chiefa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agora o agente na fila funciona no Home de um Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Запустить агента из очереди сейчас» работает в Home Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มเอเจนต์ที่รอคิวตอนนี้ใช้ได้ใน Home ของ Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sıradaki ajanı şimdi başlat, bir Chief’in Home’unda çalışır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Запустити агента з черги зараз» працює в Home Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bắt đầu agent đang chờ ngay hoạt động trong Home của Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“立即启动排队中的智能体”需在 Chief 的 Home 中使用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「立即啟動排隊中的代理」需在 Chief 的 Home 中使用"
+          }
+        }
+      }
+    },
     "handlers.misc.home.deleteConversationTitle": {
       "comment": "Home: the question Delete Conversation… asks.",
       "extractionState": "manual",
