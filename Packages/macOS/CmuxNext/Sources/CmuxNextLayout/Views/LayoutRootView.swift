@@ -194,7 +194,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
-        driver.onSettle = { [weak self] in self?.landMotion() }
+        driver.onSettle = { [weak self] in _ = self?.landMotion() }
         context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
         context.userMotionStepped = { [weak self] in self?.setLayoutInMotion(true) }
         context.userMotionEnded = { [weak self] in
@@ -534,8 +534,11 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     // MARK: Frames
 
     /// The final layout now, in one pass: Reduce Motion turned on mid-flight, or the window went out
-    /// of sight (`DisplayLinkDriver.motionSettle`).
-    func landMotion() {
+    /// of sight (`DisplayLinkDriver.motionSettle`). `waitsForContent`: a Reduce Motion frame tick, in which a key press's
+    /// held snap may wait for its terminals' programs (``LayoutFrameInput/presentWaiting(waitsForContent:)``); returns
+    /// whether one still waits.
+    @discardableResult
+    func landMotion(waitsForContent: Bool = false) -> Bool {
         defer { onFramePlaced?() }
         // A drag's newest pointer first, as in a frame (its window went out of sight mid-drag): it lands in this one pass.
         let input = LayoutFrameInput(root: self)
@@ -545,12 +548,13 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             view.settleCanvasCamera()
         }
         for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
-        input.presentWaiting()
+        let snapWaits = input.presentWaiting(waitsForContent: waitsForContent)
         applyScreenFrames()
         highlight.settle()
         updateVisibility()
         flushOverlaySync()
         setLayoutInMotion(false)
+        return snapWaits
     }
 
     /// ``advanceFrame(_:)``'s body (`LayoutRootView+AvoiderBatch`).
@@ -567,8 +571,9 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         }
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames but a drag's.
         if context.reduceMotion {
-            landMotion()
-            return dragging
+            // A key press's snap that waits for its terminals' programs needs the next tick (RESIZE P0 20).
+            let snapWaits = landMotion(waitsForContent: true)
+            return dragging || snapWaits
         }
         defer { onFramePlaced?() }
         // One motion policy per frame (it reads the animation settings), not one per spring.
@@ -580,7 +585,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             if view.step(dt, policy: policy) { moving = true }
             if view.stepCanvasCamera(dt, policy: policy) { moving = true }
         }
-        input.presentWaiting()
+        let snapWaits = input.presentWaiting()
         let screenSpring = policy.spring(.screen)
         for id in Array(screenFrames.keys) {
             if screenFrames[id]?.advance(dt, parameters: screenSpring) == true { moving = true }
@@ -597,7 +602,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         if !moving && !gesturing { setLayoutInMotion(false) }
         // A strip pan and a divider drag keep the ticks a little after each event (`ScreenContentView.panTickTail`);
         // a gesture with a still pointer needs none after that.
-        return moving || panning || dragging
+        return moving || panning || dragging || snapWaits
     }
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.

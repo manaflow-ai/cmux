@@ -103986,6 +103986,166 @@
 
       ],
       "category" : "sidebar",
+      "cliName" : "action sidebar-float-on-hover-on",
+      "computed" : {
+        "canonical_action_id" : "sidebar.floatOnHover.on",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarSectionActionCatalog",
+      "hint" : null,
+      "id" : "sidebar.floatOnHover.on",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "sidebar",
+        "float",
+        "floating",
+        "hover",
+        "peek",
+        "edge",
+        "overlay",
+        "reveal",
+        "hidden",
+        "auto hide"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "sidebarBackground",
+            "folder" : "options",
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 139,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "sidebar.squares.left",
+      "targets" : [
+
+      ],
+      "title" : "Float Hidden Sidebar on Hover",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "action sidebar-float-on-hover-off",
+      "computed" : {
+        "canonical_action_id" : "sidebar.floatOnHover.off",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarSectionActionCatalog",
+      "hint" : null,
+      "id" : "sidebar.floatOnHover.off",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "sidebar",
+        "float",
+        "floating",
+        "hover",
+        "peek",
+        "edge",
+        "overlay",
+        "off",
+        "never",
+        "disable"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "sidebarBackground",
+            "folder" : "options",
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 140,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "sidebar.left",
+      "targets" : [
+
+      ],
+      "title" : "Never Float Hidden Sidebar",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
       "cliName" : "action sidebar-group-by-none",
       "computed" : {
         "canonical_action_id" : "sidebar.groupBy.none",
