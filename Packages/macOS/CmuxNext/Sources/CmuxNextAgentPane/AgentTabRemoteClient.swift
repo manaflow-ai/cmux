@@ -84,11 +84,8 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         return await client.servesSide()
     }
 
-    public func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> String {
-        let session = try await mapped {
-            Data(try await client.side(throughSeq: throughSeq, prompt: prompt, promptID: promptID).utf8)
-        }
-        return String(decoding: session, as: UTF8.self)
+    public func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> Data {
+        try await mapped { try await client.side(throughSeq: throughSeq, prompt: prompt, promptID: promptID) }
     }
 
     public func close() async { await client.close() }

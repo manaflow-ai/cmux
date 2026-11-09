@@ -78,16 +78,17 @@ pub(super) fn call(attachment: &Attachment, params: Params) -> Result<Value, Ref
     // Followed and remembered like a listed child, so `new-conversation-tab` admits its tab
     // beside the chat and its changes stream on this attachment.
     attachment.follow_children(std::slice::from_ref(&side));
-    // The turn's own reply comes when it ends: not waited for, as `agent-session-prompt`'s.
-    let prompted = prompt.is_some_and(|(text, id)| {
-        let params = json!({
-            "sessionId": side,
-            "prompt": [{"type": "text", "text": text}],
-            "_meta": {"acpmux": {"promptId": id}},
-        });
-        link.send_ignoring_reply("session/prompt", attachment.stamp(params)).is_ok()
-    });
-    Ok(json!({"sessionId": side, "prompted": prompted}))
+    let Some((text, id)) = prompt else {
+        return Ok(json!({"sessionId": side, "prompted": false}));
+    };
+    // Sent and confirmed as `agent-session-prompt`'s (a phone's keeps its asking policy). The side
+    // chat is open either way; a prompt acpmux did not take answers `prompted: false` and why, so
+    // the app opens the side chat and keeps the text for the user to send again.
+    let blocks = vec![json!({"type": "text", "text": text})];
+    Ok(match submit_prompt(attachment, &side, blocks, id) {
+        Ok(_) => json!({"sessionId": side, "prompted": true}),
+        Err(refusal) => json!({"sessionId": side, "prompted": false, "notSent": refusal.code()}),
+    })
 }
 
 #[cfg(test)]

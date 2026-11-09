@@ -8016,9 +8016,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             if (snapshotRef.current?.sideChatOnMachine) {
               const text = typeof prompt === "string" ? prompt.trim() : "";
               const boundary = live === true ? "live" : Number(throughSeq);
-              const sessionId = await client.sideChatOnMachine(boundary, text || undefined);
-              if (!sessionId || !chat) throw new Error("");
-              await postNative("chat.sideChat", { sessionId, ...split });
+              const side = await client.sideChatOnMachine(boundary, text || undefined);
+              if (!side || !chat) throw new Error("");
+              await postNative("chat.sideChat", { sessionId: side.sessionId, ...split });
+              // The side chat is open; a prompt it did not take stays in the composer, which says why.
+              if (side.notSent) throw new CmuxCommandRefused(translate("prompt.notSent", { reason: side.notSent }));
               return;
             }
             const sessionId = await client.forkAside(live === true ? "live" : Number(throughSeq));
@@ -8659,6 +8661,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const prompt = args?.trim();
       return callNative("chat.side", { ...target, splitRight: true, ...(prompt ? { prompt } : {}) }).catch(
         (error: unknown) => {
+          // The side chat opened but its prompt was not sent: that refusal says so itself.
+          if (error instanceof CmuxCommandRefused) throw error;
           const reason = errorMessage(error);
           throw new CmuxCommandRefused(
             reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),

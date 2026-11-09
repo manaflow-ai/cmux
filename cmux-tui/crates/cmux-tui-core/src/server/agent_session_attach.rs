@@ -1522,6 +1522,18 @@ fn prompt(
     if attachment.author.is_some() && blocks.iter().any(|block| block["type"] != "text") {
         return Err(Refusal::NotTrusted);
     }
+    submit_prompt(attachment, &attachment.session, blocks, prompt_id)
+}
+
+/// Sends `blocks` to `session` (the attached chat, or a side chat it opened) as prompt
+/// `prompt_id` and answers once acpmux accepted it (`_acpmux/prompt_accepted`), or refuses: a
+/// prompt acpmux never took is never reported sent.
+pub(super) fn submit_prompt(
+    attachment: &Attachment,
+    session: &str,
+    blocks: Vec<Value>,
+    prompt_id: String,
+) -> Result<Value, Refusal> {
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     {
         let mut prompts = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner());
@@ -1531,7 +1543,7 @@ fn prompt(
         prompts.insert(prompt_id.clone(), sender);
     }
     let mut params = json!({
-        "sessionId": attachment.session,
+        "sessionId": session,
         "prompt": blocks,
         "_meta": {"acpmux": {"promptId": prompt_id}},
     });

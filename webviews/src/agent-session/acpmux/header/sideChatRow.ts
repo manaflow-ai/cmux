@@ -18,8 +18,10 @@ export function sideChatPlace(chat: {
   onMachine: boolean | undefined;
 }): SideChatPlace | undefined {
   if (chat.quick) return undefined;
-  if (chat.localCwd !== undefined) return "local";
-  return chat.onMachine ? "machine" : undefined;
+  // The machine's own answer first: a Cloud chat's summary names its folder there (`localCwd`)
+  // without a host, and this Mac's acpmux cannot fork a chat it does not hold.
+  if (chat.onMachine) return "machine";
+  return chat.localCwd !== undefined ? "local" : undefined;
 }
 
 /// Why a side chat cannot fork the chat now in `place`, as `forkRefusal` words it: a working chat

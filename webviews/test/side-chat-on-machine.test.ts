@@ -13,6 +13,8 @@ const snapshot = (over: Partial<AcpmuxSnapshot>): AcpmuxSnapshot =>
 test("a chat on another machine forks there when its machine opens side chats", () => {
   expect(sideChatPlace({ quick: false, localCwd: "/Users/me/api", onMachine: undefined })).toBe("local");
   expect(sideChatPlace({ quick: false, localCwd: undefined, onMachine: true })).toBe("machine");
+  // A Cloud chat's summary names its folder there without a host: its machine still forks it.
+  expect(sideChatPlace({ quick: false, localCwd: "/root/api", onMachine: true })).toBe("machine");
   // A machine whose cmux predates side chats there offers none, as before.
   expect(sideChatPlace({ quick: false, localCwd: undefined, onMachine: undefined })).toBeUndefined();
   // Quick Chat's panel has no split beside it.

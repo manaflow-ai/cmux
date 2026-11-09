@@ -36,9 +36,12 @@ import Testing
 
         func servesSide() async -> Bool { served }
 
-        func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> String {
+        /// A prompt "refuse me" is one acpmux did not take: the side chat opens, the prompt is not sent.
+        func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> Data {
             calls.withLock { $0.append("\(throughSeq.map(String.init) ?? "live") \(prompt ?? "-")") }
-            return "acp_side_\(calls.withLock { $0.count })"
+            var answer: [String: Any] = ["sessionId": "acp_side_\(calls.withLock { $0.count })", "prompted": prompt != nil]
+            if prompt == "refuse me" { answer["prompted"] = false; answer["notSent"] = "agent_session.timeout" }
+            return try JSONSerialization.data(withJSONObject: answer)
         }
     }
 
@@ -88,11 +91,18 @@ import Testing
         try await Self.waitUntil { frames.reply(3) != nil }
         #expect((frames.reply(2)?["result"] as? [String: Any])?["sessionId"] as? String == "acp_side_1")
         #expect((frames.reply(3)?["result"] as? [String: Any])?["sessionId"] as? String == "acp_side_2")
-        #expect(client.calls.withLock { $0 } == ["4 -", "live try a queue"])
+        #expect((frames.reply(3)?["result"] as? [String: Any])?["notSent"] == nil)
+        // A prompt acpmux did not take: the side chat still opens, and the page hears why.
+        wire.send(#"{"jsonrpc":"2.0","id":4,"method":"_acpmux/side_chat","params":{"sessionId":"sub","live":true,"prompt":"refuse me"}}"#) { _ in }
+        try await Self.waitUntil { frames.reply(4) != nil }
+        let refused = frames.reply(4)?["result"] as? [String: Any]
+        #expect(refused?["sessionId"] as? String == "acp_side_3")
+        #expect(refused?["notSent"] as? String == "agent_session.timeout")
+        #expect(client.calls.withLock { $0 } == ["4 -", "live try a queue", "live refuse me"])
         let parents = await MainActor.run {
-            ["acp_side_1", "acp_side_2"].map { RemoteAgentSessionLinks.shared.parent(of: $0, host: host) }
+            ["acp_side_1", "acp_side_2", "acp_side_3"].map { RemoteAgentSessionLinks.shared.parent(of: $0, host: host) }
         }
-        #expect(parents == ["acp_1", "acp_1"])
+        #expect(parents == ["acp_1", "acp_1", "acp_1"])
     }
 
     @Test func anotherChatOrABadBoundaryOpensNothing() async throws {

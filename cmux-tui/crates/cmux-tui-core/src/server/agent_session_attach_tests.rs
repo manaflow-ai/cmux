@@ -392,7 +392,7 @@ fn serve(
                     let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
                 }
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
-                    "sessionId": SESSION, "promptId": params["_meta"]["acpmux"]["promptId"],
+                    "sessionId": params["sessionId"], "promptId": params["_meta"]["acpmux"]["promptId"],
                     "turnId": "turn_1", "queued": false}});
                 writeln!(writer, "{accepted}").unwrap();
                 None
@@ -1693,4 +1693,32 @@ fn a_side_chat_forks_the_pinned_session_tags_it_and_prompts_it() {
         assert_code(&client.request(bad), "agent_session.bad_request");
     }
     fake.no_frame();
+}
+
+/// A phone on the Cloud carrier keeps its asking policy in a side chat, as in the chat itself
+/// (`agent-session-prompt`): the daemon marks the side chat's first prompt `via: cloud-mobile`.
+#[test]
+fn a_phones_side_chat_prompt_keeps_the_phones_asking_policy() {
+    let fake = FakeAcpmux::start("side-phone");
+    let mux = mux_with(&fake, "asa-side-phone");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "side-phone");
+    assert_eq!(client.request(json!({"cmd":"carrier-role","vmk":"owner"}))["ok"], json!(true));
+    let info = client.request(json!({"cmd":"set-client-info","kind":"ios",
+        "capabilities":["cloud-mobile-chat-v1","conversation-tabs-v1","agent-session-tabs-v1"]}));
+    assert_eq!(info["ok"], json!(true), "{info}");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let reply = client.request(json!({"cmd":"agent-session-side","surface":surface,"live":true,
+                                      "prompt":"Try it in Rust","prompt_id":"side-p2"}));
+    assert_eq!(reply["data"], json!({"sessionId": "acp_side_1", "prompted": true}), "{reply}");
+    let _ = fake.frame();
+    let _ = fake.frame();
+    let prompt = fake.frame();
+    assert_eq!(prompt["method"], json!("session/prompt"));
+    assert_eq!(prompt["params"]["sessionId"], json!("acp_side_1"));
+    assert_eq!(
+        prompt["params"]["_meta"],
+        json!({"acpmux": {"promptId": "side-p2", "via": "cloud-mobile"}})
+    );
 }

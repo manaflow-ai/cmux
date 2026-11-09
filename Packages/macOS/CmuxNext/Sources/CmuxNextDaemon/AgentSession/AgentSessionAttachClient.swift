@@ -418,8 +418,8 @@ public actor AgentSessionAttachClient {
     /// `agent-session-side` (`agent-session-side-v1`): New side chat and `/side [prompt]` of this
     /// attached chat. That machine's acpmux forks the tab's own session (`throughSeq` nil: as it is
     /// now, its turn going on), tags the fork the chat's side chat and sends it `prompt`; answers
-    /// the side chat's session id there.
-    public func side(throughSeq: Int?, prompt: String? = nil, promptID: String = UUID().uuidString.lowercased()) async throws -> String {
+    /// the daemon's `{sessionId, prompted, notSent?}` (`notSent`: why acpmux did not take `prompt`).
+    public func side(throughSeq: Int?, prompt: String? = nil, promptID: String = UUID().uuidString.lowercased()) async throws -> Data {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.forkUnsupported, message: "a read-only agent session cannot open a side chat")
         }
@@ -440,7 +440,7 @@ public actor AgentSessionAttachClient {
               let session = object["sessionId"] as? String, !session.isEmpty else {
             throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-side answered no session")
         }
-        return session
+        return data
     }
 
     /// `agent-session-typing` (`agent-session-presence-v1`): the person starts or stops typing in

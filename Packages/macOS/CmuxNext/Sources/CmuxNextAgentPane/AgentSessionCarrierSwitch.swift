@@ -505,7 +505,7 @@ public nonisolated final class AgentSessionCarrierSwitch: AgentSessionRemoteClie
     public func servesLogin() async -> Bool { (try? await call { await $0.servesLogin() }) ?? false }
     public func login(_ op: String, _ fields: [String: String]) async throws -> Data { try await call { try await $0.login(op, fields) } }
     public func servesSide() async -> Bool { (try? await call { await $0.servesSide() }) ?? false }
-    public func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> String {
+    public func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> Data {
         try await call { try await $0.side(throughSeq: throughSeq, prompt: prompt, promptID: promptID) }
     }
 

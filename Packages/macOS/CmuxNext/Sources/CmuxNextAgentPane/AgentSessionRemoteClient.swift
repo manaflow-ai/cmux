@@ -54,8 +54,9 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func servesSide() async -> Bool
     /// New side chat and `/side [prompt]` (`agent-session-side-v1`): that machine's acpmux forks
     /// this chat (`throughSeq` nil: as it is now), tags the fork its side chat and sends it
-    /// `prompt`. Answers the side chat's session id on that machine.
-    func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> String
+    /// `prompt`. Answers `{sessionId, prompted, notSent?}`: the side chat's id on that machine, and
+    /// why acpmux did not take `prompt` when it did not.
+    func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> Data
 }
 
 extension AgentSessionRemoteClient {
@@ -93,7 +94,7 @@ extension AgentSessionRemoteClient {
     public func servesLogin() async -> Bool { false }
     /// A daemon without `agent-session-side-v1` opens no side chat there.
     public func servesSide() async -> Bool { false }
-    public func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> String {
+    public func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> Data {
         throw AgentSessionRemoteError(code: "agent_session.fork_unsupported", message: "Update cmux on that machine to open a side chat there.")
     }
     public func login(_ op: String, _ fields: [String: String]) async throws -> Data {

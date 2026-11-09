@@ -367,11 +367,20 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         let parent = state.withLock { $0.resolved ?? $0.session } ?? ""
         let linksHost = host, alias = linksAlias.flatMap { $0 != host ? $0 : nil }
         run(id) { client in
-            let side = try await client.side(throughSeq: request.throughSeq, prompt: request.prompt,
-                                             promptID: UUID().uuidString.lowercased())
+            let answer = try await client.side(throughSeq: request.throughSeq, prompt: request.prompt,
+                                               promptID: UUID().uuidString.lowercased())
+            guard let object = (try? JSONSerialization.jsonObject(with: answer)) as? [String: Any],
+                  let side = object["sessionId"] as? String, !side.isEmpty else {
+                throw AgentSessionRemoteError(code: "agent_session.refused", message: "no side chat opened")
+            }
             // The daemon's answer, never the page's: under the tab's host and the daemon's own.
             await Self.noteSide(side, parent: parent, hosts: [linksHost] + (alias.map { [$0] } ?? []))
-            return Self.json(["sessionId": side])
+            // `notSent`: acpmux did not take the prompt; the page opens the side chat and keeps it.
+            var reply: [String: Any] = ["sessionId": side]
+            if request.prompt != nil, object["prompted"] as? Bool != true {
+                reply["notSent"] = object["notSent"] as? String ?? "agent_session.refused"
+            }
+            return Self.json(reply)
         }
     }
 

@@ -11210,8 +11210,12 @@ export class AcpmuxDirectClient {
   /// (`sideChatOnMachine`): that machine forks the open chat through `throughSeq` (`live`: as it is
   /// now, its turn going on), tags the fork its side chat and sends it `prompt`, in one call, and
   /// the side chat runs there, in the chat's folder (the app's RemoteAcpmuxWire, cmux-tui
-  /// agent_session_side.rs). Answers its id there, which the host then opens beside the chat.
-  async sideChatOnMachine(throughSeq: number | "live", prompt?: string): Promise<string | undefined> {
+  /// agent_session_side.rs). Answers its id there, which the host then opens beside the chat, and
+  /// `notSent`, why that machine's acpmux did not take `prompt` when it did not.
+  async sideChatOnMachine(
+    throughSeq: number | "live",
+    prompt?: string,
+  ): Promise<{ sessionId: string; notSent?: string } | undefined> {
     const sessionId = this.selectedSessionId;
     if (!this.features.has(SIDE_CHAT_FEATURE) || !sessionId || this.forking) return undefined;
     this.forking = true;
@@ -11222,7 +11226,9 @@ export class AcpmuxDirectClient {
         ...boundary,
         ...(prompt ? { prompt } : {}),
       });
-      return typeof result?.sessionId === "string" && result.sessionId ? result.sessionId : undefined;
+      if (typeof result?.sessionId !== "string" || !result.sessionId) return undefined;
+      const notSent = typeof result.notSent === "string" ? { notSent: result.notSent } : {};
+      return { sessionId: result.sessionId, ...notSent };
     } finally {
       this.forking = false;
     }
