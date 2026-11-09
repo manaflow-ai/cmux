@@ -155,6 +155,11 @@ export default agentPaneEntry({
       note: "Two subagent steps and an interim stop (silent), the suite's final result, the bench's failure. On the call: no row for the silent ones, the suite's call marked new, the failure's line in sight.",
       snapshot: chat(weighedChat),
     },
+    "weighed-hover": {
+      note: "The background turn's line under the pointer: its words light all the way through, as a tool row's do (Leo, 2026-11-09).",
+      snapshot: chat(weighedChat),
+      play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
+    },
     "call-opened": {
       note: "The suite's call opened: its output, then the agent's reply to its end.",
       snapshot: chat(weighedChat),
