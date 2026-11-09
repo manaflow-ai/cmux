@@ -5,6 +5,11 @@
 // `agents.integrations` opens it), it reads status only once open and changes nothing without a
 // click. A row whose file is in the way (`conflict`) offers no Install: it says what is there and
 // gives the command to run by hand once it is moved.
+//
+// The `link-<app>` rows come first, under "Your other apps": the cmux MCP server in Claude desktop,
+// Claude Code and the Codex desktop app (`acpmux desktop link`), with Connect, Reconnect (an entry
+// another cmux build wrote) and Disconnect. Leo, 2026-11-09: someone who keeps another desktop app
+// should still want cmux running, as "a good transport between everybody".
 import { useCallback, useId, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { agentDisplayName } from "../../../agent-session/acpmux/agents";
@@ -14,6 +19,35 @@ import type { IntegrationRow, IntegrationsRun, IntegrationsState } from "../ops"
 import { t } from "../strings";
 
 type Gesture = Exclude<IntegrationsRun["action"], "refresh">;
+
+/** The id prefix of a link row (cmux-tui agent_hook_links.rs). */
+const LINK = "link-";
+
+/** A link row's app (`claude-desktop`, `claude-code`, `codex`), or null for a hook row. */
+export function linkApp(id: string): string | null {
+  return id.startsWith(LINK) ? id.slice(LINK.length) : null;
+}
+
+/** A link row's name: the app's own name, untranslated, and Codex's with both of its surfaces. */
+function linkTitle(app: string): string {
+  switch (app) {
+    case "claude-desktop":
+      return "Claude desktop";
+    case "claude-code":
+      return "Claude Code";
+    case "codex":
+      return t("settingsWindow.agentIntegrations.links.app.codex");
+    default:
+      return app;
+  }
+}
+
+/** The words of a gesture: Connect, Reconnect and Disconnect for a link row. */
+function gestureLabel(gesture: Gesture, link: boolean): string {
+  if (!link) return t(`settingsWindow.agentIntegrations.${gesture}`);
+  const word = gesture === "install" ? "connect" : gesture === "repair" ? "reconnect" : "disconnect";
+  return t(`settingsWindow.agentIntegrations.links.${word}`);
+}
 
 /** What a row offers: Install when absent, Repair and Remove when partial, Remove when installed. */
 function gestures(row: IntegrationRow): Gesture[] {
@@ -43,25 +77,33 @@ function Row({
   onCopy: (text: string) => void;
 }) {
   const titleId = useId();
+  const app = linkApp(row.id);
+  const link = app !== null;
   const blocked = row.state === "conflict" || row.state === "unavailable";
   const manual = `${command} ${row.id}`;
+  const stateKey = link ? "links.state" : "state";
   return (
     <div className="row accounts-row" data-integration={row.id} data-integration-state={row.state}>
       <div className="row-main">
         <span className="accounts-mark" aria-hidden="true">
-          <AgentMark agent={row.id} size={16} />
+          <AgentMark agent={app ? (app.startsWith("claude") ? "claude" : "codex") : row.id} size={16} />
         </span>
         <div className="row-label">
           <div className="row-title" id={titleId}>
-            {agentDisplayName(row.id)}
+            {app ? linkTitle(app) : agentDisplayName(row.id)}
           </div>
           {row.path && <div className="row-help selectable font-mono">{row.path}</div>}
-          {blocked && (
+          {blocked && link && (
+            <div className="row-help" data-integration-reason={row.reason ?? "unreadable"}>
+              {t(`settingsWindow.agentIntegrations.links.${row.state === "conflict" ? "conflict" : "unreadable"}`)}
+            </div>
+          )}
+          {blocked && !link && (
             <div className="row-help" data-integration-reason={row.reason ?? "unreadable"}>
               {t(`settingsWindow.agentIntegrations.conflict.${row.reason ?? "unreadable"}`)}
             </div>
           )}
-          {blocked && row.state === "conflict" && (
+          {blocked && !link && row.state === "conflict" && (
             // The command to run once the file is moved: a value to copy, on its own line.
             <div className="row-help selectable">
               <code className="font-mono" data-integration-command="">
@@ -80,7 +122,7 @@ function Row({
             className={blocked || row.state === "partial" ? "badge badge-warning" : "badge"}
             data-integration-badge=""
           >
-            {t(`settingsWindow.agentIntegrations.state.${row.state}`)}
+            {t(`settingsWindow.agentIntegrations.${stateKey}.${row.state}`)}
           </span>
           {gestures(row).map((gesture) => (
             <Button
@@ -92,10 +134,10 @@ function Row({
               disabled={busy}
               onClick={() => onRun(gesture)}
             >
-              {t(`settingsWindow.agentIntegrations.${gesture}`)}
+              {gestureLabel(gesture, link)}
             </Button>
           ))}
-          {row.state === "conflict" && (
+          {row.state === "conflict" && !link && (
             <Button
               type="button"
               className="button"
@@ -143,6 +185,19 @@ export function AgentIntegrations({ focus }: { focus: string | null }) {
     [store],
   );
   const command = state?.command ?? "cmux agent hook install";
+  const providers = state?.providers ?? [];
+  const links = providers.filter((entry) => linkApp(entry.id) !== null);
+  const hooks = providers.filter((entry) => linkApp(entry.id) === null);
+  const row = (entry: IntegrationRow) => (
+    <Row
+      key={entry.id}
+      row={entry}
+      command={command}
+      busy={busy !== null}
+      onRun={(gesture) => void run(entry.id, gesture)}
+      onCopy={(text) => void store.copy(text)}
+    />
+  );
   return (
     <section className="group" data-card="agentIntegrations">
       <details
@@ -182,20 +237,17 @@ export function AgentIntegrations({ focus }: { focus: string | null }) {
             {t("settingsWindow.agentIntegrations.checking")}
           </div>
         )}
-        {state && state.providers.length > 0 && (
-          <div className="rows">
-            {state.providers.map((row) => (
-              <Row
-                key={row.id}
-                row={row}
-                command={command}
-                busy={busy !== null}
-                onRun={(gesture) => void run(row.id, gesture)}
-                onCopy={(text) => void store.copy(text)}
-              />
-            ))}
+        {links.length > 0 && (
+          <div className="rows" data-integrations-links="">
+            <div className="row-title" role="heading" aria-level={3}>
+              {t("settingsWindow.agentIntegrations.links.title")}
+            </div>
+            <div className="row-help">{t("settingsWindow.agentIntegrations.links.help")}</div>
+            {links.map(row)}
+            <div className="row-help">{t("settingsWindow.agentIntegrations.links.restart")}</div>
           </div>
         )}
+        {hooks.length > 0 && <div className="rows">{hooks.map(row)}</div>}
         <div className="row-help">{t("settingsWindow.agentIntegrations.restart")}</div>
         <div className="row-help">{t("settingsWindow.agentIntegrations.manual")}</div>
         <div className="row-help selectable flex items-center gap-2">
