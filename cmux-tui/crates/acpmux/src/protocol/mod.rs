@@ -285,6 +285,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKTREE_CLEAN, Request),
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
+        untyped(method::MUX_COLD_ARCHIVE, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         keyed::<params::KillParams>(method::MUX_KILL, Request),
         untyped(method::MUX_KEEP, Request),

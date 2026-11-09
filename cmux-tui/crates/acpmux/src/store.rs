@@ -20,6 +20,8 @@ mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
 mod deferred;
 pub use deferred::{Deferral, Keep};
+mod cold;
+pub use cold::{COLD_FILE, ColdStats, StagedCold};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
@@ -502,6 +504,37 @@ pub struct SessionMeta {
     /// parent's do. Never copied to a fork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegator: Option<String>,
+    /// The chat's log is in its cold archive (`hub/cold_archive.rs`, `store/cold.rs`): what the
+    /// chat list shows of it without opening the archive. Cleared when the log comes back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cold: Option<ColdPreview>,
+}
+
+/// A cold-archived chat's preview, kept in `session.json` (`SessionMeta::cold`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ColdPreview {
+    /// Unix milliseconds.
+    pub archived_at: u64,
+    /// The prompts and replies its log held.
+    pub messages: u64,
+    /// The log's bytes on the disk before, and the archive's.
+    pub bytes_before: u64,
+    pub bytes_after: u64,
+    /// Its last few messages, oldest first, each cut short.
+    #[serde(default)]
+    pub last: Vec<PreviewMessage>,
+}
+
+/// One message of a [`ColdPreview`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewMessage {
+    /// `user`, `assistant` or `tool`.
+    pub role: String,
+    pub text: String,
+    /// Unix milliseconds.
+    pub at: u64,
 }
 
 /// The turn whose auth evidence a credential replacement made obsolete. It proves a change,
@@ -1031,6 +1064,25 @@ pub trait Store: Send + Sync {
     fn commit_compaction(&self, _id: &str, _staged: Staged) -> Result<bool> {
         Ok(false)
     }
+    /// Writes a cold archive of `id`'s log beside it and checks it (`store/cold.rs`); None
+    /// without a log to archive, or for a store that keeps none.
+    fn stage_cold(&self, _id: &str) -> Result<Option<StagedCold>> {
+        Ok(None)
+    }
+    /// Puts `staged` in place of the log, unless the log changed since (false). The caller holds
+    /// the chat's append lock.
+    fn commit_cold(&self, _id: &str, _staged: StagedCold) -> Result<bool> {
+        Ok(false)
+    }
+    /// Puts a cold-archived chat's log back; false when it was not archived. Any read of the log
+    /// does this on its own; the hub calls it to open a chat on purpose.
+    fn rehydrate(&self, _id: &str) -> Result<bool> {
+        Ok(false)
+    }
+    /// The chat's log is in its cold archive. A few `lstat`s, no read.
+    fn is_cold(&self, _id: &str) -> bool {
+        false
+    }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -1154,6 +1206,9 @@ pub struct LocalStore {
     sync_failed: std::sync::atomic::AtomicBool,
     /// [`Store::unlisted`]: folders whose `session.json` is there and did not read.
     unlisted: Mutex<std::collections::BTreeSet<String>>,
+    /// Held by a cold archive's commit and by a rehydrate (`store/cold.rs`), always after the
+    /// writers' lock when both are taken: two reads of an archived chat rehydrate it once.
+    cold: Mutex<()>,
 }
 
 /// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
@@ -1203,6 +1258,7 @@ impl LocalStore {
             sealed: Default::default(),
             sync_failed: Default::default(),
             unlisted: Default::default(),
+            cold: Default::default(),
         })
     }
 
@@ -1219,7 +1275,18 @@ impl LocalStore {
         self.root.join(id)
     }
 
+    /// The log's segments, oldest first. A cold-archived chat's log is rehydrated first
+    /// (`store/cold.rs`): only a chat with no segment pays for the look, one `lstat`.
     fn segments(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
+        let segments = self.segment_files(id)?;
+        if segments.is_empty() && self.rehydrate(id)? {
+            return self.segment_files(id);
+        }
+        Ok(segments)
+    }
+
+    /// The segments on the disk now, never rehydrated.
+    fn segment_files(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
         let dir = self.dir(id).join("events");
         let mut out = Vec::new();
         let Ok(rd) = std::fs::read_dir(&dir) else {
@@ -1307,11 +1374,14 @@ impl LocalStore {
     /// chat's log however little of it stays. Every session the hub creates logs `created`
     /// right after its first save, so a record without a log is a purged session's that a
     /// late save wrote back.
+    /// A cold archive (`store/cold.rs`) is a log too, and is not opened.
     fn has_records(&self, id: &str) -> Result<bool> {
-        if std::fs::symlink_metadata(self.marker(id)).is_ok() {
+        if std::fs::symlink_metadata(self.marker(id)).is_ok()
+            || std::fs::symlink_metadata(self.cold_path(id)).is_ok()
+        {
             return Ok(true);
         }
-        for (_, path) in self.segments(id)? {
+        for (_, path) in self.segment_files(id)? {
             // An unreadable segment counts as a log: the session is listed as before.
             match std::fs::symlink_metadata(&path) {
                 Ok(meta) if meta.len() == 0 => {}
@@ -1527,6 +1597,8 @@ impl Store for LocalStore {
 
     /// Segment `000000`, written beside the log under a temporary name and renamed in whole.
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        // An archived log comes back before a segment is written beside it.
+        self.rehydrate(id)?;
         let _open = self.writable()?;
         let dir = self.dir(id).join("events");
         crate::config::private_state_dir(&self.dir(id))?;
@@ -1733,6 +1805,23 @@ impl Store for LocalStore {
         LocalStore::commit_compaction(self, id, staged)
     }
 
+    fn stage_cold(&self, id: &str) -> Result<Option<StagedCold>> {
+        LocalStore::stage_cold(self, id)
+    }
+
+    fn commit_cold(&self, id: &str, staged: StagedCold) -> Result<bool> {
+        let _open = self.writable()?;
+        LocalStore::commit_cold(self, id, staged)
+    }
+
+    fn rehydrate(&self, id: &str) -> Result<bool> {
+        LocalStore::rehydrate(self, id)
+    }
+
+    fn is_cold(&self, id: &str) -> bool {
+        LocalStore::is_cold(self, id)
+    }
+
     fn seal(&self) {
         *self.sealed.write().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
     }
@@ -1868,6 +1957,7 @@ impl LocalStore {
         // A strict read learns that the log's segments could not be listed (`segments` lists
         // none then).
         if strict {
+            self.rehydrate(id)?;
             std::fs::read_dir(self.dir(id).join("events"))?;
         }
         let segments = self.segments(id)?;

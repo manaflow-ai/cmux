@@ -130,6 +130,7 @@ mod log_deferral;
 mod log_load;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
+mod cold_archive;
 mod machine_info;
 mod repo_sync;
 mod retention;
@@ -2587,6 +2588,7 @@ impl Hub {
     }
 
     pub fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
+        self.warm_chat_id(id);
         self.store.events(id, after, limit)
     }
 
@@ -2605,6 +2607,8 @@ impl Hub {
         let Some(session) = live else {
             return self.store.scan(id, after, visit);
         };
+        // A cold-archived chat's log comes back first, and its preview goes (`cold_archive.rs`).
+        self.warm_chat(&session);
         // After a hard stop the log can be ahead of the saved `lastSeq`, until the chat's log is
         // loaded (`load_logs`, after the daemon's ready line) or its first append: its tail is
         // counted first, so the cap below leaves out only a line whose record is not appended

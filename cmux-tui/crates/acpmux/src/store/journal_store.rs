@@ -871,6 +871,32 @@ impl Store for JournalStore {
             Store::commit_compaction(&inner.local, id, staged)
         })
     }
+    fn stage_cold(&self, id: &str) -> Result<Option<StagedCold>> {
+        self.inner.fenced(|| Store::stage_cold(&self.inner.local, id))
+    }
+    /// As `commit_compaction`: no journal record of the chat may be past the checkpoint, or a
+    /// replay would write its lines into an `events/` beside the archive. The caller holds the
+    /// chat's append lock. The renames and folder syncs run in `counted_sync`.
+    fn commit_cold(&self, id: &str, staged: StagedCold) -> Result<bool> {
+        let inner = &self.inner;
+        let covered = {
+            let order = inner.order.lock_or_recover();
+            !order.frozen
+                && order.log_lsn.get(id).is_none_or(|newest| *newest <= order.checkpointed)
+        };
+        if !covered {
+            inner.checkpoint()?;
+        }
+        inner.counted_sync("a cold-archived event log failed to sync", || {
+            Store::commit_cold(&inner.local, id, staged)
+        })
+    }
+    fn rehydrate(&self, id: &str) -> Result<bool> {
+        self.inner.fenced(|| Store::rehydrate(&self.inner.local, id))
+    }
+    fn is_cold(&self, id: &str) -> bool {
+        Store::is_cold(&self.inner.local, id)
+    }
     /// The `forget` record under the appends' lock, then the folder's removal off it, without a
     /// wait for the record: the replay never makes a folder that is gone again. Then the chat's
     /// repair file, if its repair failed at the open (after the folder: a crash between the two

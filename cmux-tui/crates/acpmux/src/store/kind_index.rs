@@ -259,6 +259,7 @@ impl LocalStore {
         // A strict read learns that the log's segments could not be listed (`segments` lists
         // none then), as `scan_strict` does.
         if strict {
+            self.rehydrate(id)?;
             std::fs::read_dir(self.dir(id).join("events"))?;
         }
         let copied = kinds.iter().all(|k| INDEXED_KINDS.contains(k));

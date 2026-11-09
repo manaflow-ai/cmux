@@ -424,6 +424,9 @@ rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled
 icu_normalizer = { version = "2.2", default-features = false, features = ["compiled_data"] }
 sha2 = "0.10"
 tar = "0.4"
+# Cold archive of old agent chats (acpmux src/store/cold.rs): one zstd file per chat.
+# Builds the bundled C library (zstd-sys through cc, already in the graph).
+zstd = { version = "0.13", default-features = false }
 # XML parser for the SVG icon sanitizer (cmux-tui-core). Already in the graph
 # through plist at this version; no DTD support, MIT licensed.
 quick-xml = { version = "0.41", default-features = false }

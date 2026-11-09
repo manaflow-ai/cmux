@@ -64,6 +64,9 @@ impl Hub {
         // The calls that wait for the load (`wait_logs`) answer even when it fails.
         let _ready = LogsReady(&self.logs_ready);
         let mut sessions = self.sessions();
+        // A cold-archived chat's log is not read (`cold_archive.rs`): it holds nothing to restore,
+        // and a read would bring it back. Its first open reads it.
+        sessions.retain(|s| s.meta.lock().unwrap_or_else(|e| e.into_inner()).cold.is_none());
         sessions.sort_by_cached_key(|s| {
             let m = s.meta();
             (m.status == SessionStatus::Closed, std::cmp::Reverse(m.updated_at))
@@ -126,6 +129,19 @@ impl Hub {
     }
 
     async fn session_log_at(self: &Arc<Self>, session: &Arc<Session>, on_screen: bool) {
+        // A cold-archived chat being opened: its log comes back, then is read as any other's
+        // (`cold_archive.rs`; the startup pass left it).
+        if session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold.is_some() {
+            let (hub, s) = (self.clone(), session.clone());
+            let warm = move || {
+                hub.warm_chat(&s);
+                hub.load_session_log(&s);
+            };
+            if let Err(e) = tokio::task::spawn_blocking(warm).await {
+                tracing::error!(session = %session.id, "rehydrating the chat failed: {e}");
+            }
+            return;
+        }
         if self.session_log_loaded(session) {
             return;
         }
