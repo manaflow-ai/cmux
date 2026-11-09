@@ -672,8 +672,11 @@ def start_locked(args, path, ident, tag, root):
     current = holds.read_text().strip() if holds.is_file() else ""
     built_from = entry / "sources.json"
     # --fresh builds even when HEAD's own build is cached: a layout change the app refused needs it.
+    # HEAD's own cached build is run again only when nothing but CmuxNextApp Swift was uncommitted when
+    # it was made (its `reusable` mark): another uncommitted input of it may be reverted by now.
     if not reused and (args.fresh or not ((entry / "live.app").is_dir() and (entry / "build/xcodebuild.log").is_file()
-                                          and current == head and built_from.is_file())):
+                                          and current == head and built_from.is_file()
+                                          and (entry / "reusable").is_file())):
         print(f"live mode: building the live code build of {head[:12]} (once per commit; log {log})",
               file=sys.stderr, flush=True)
         holds.unlink(missing_ok=True)  # a build that stops half way leaves no commit's intermediates
