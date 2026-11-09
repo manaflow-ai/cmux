@@ -120,6 +120,10 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_COMPLETE {
         return hub.complete(conn.origin, &params).await;
     }
+    // So does a hunk's summary (`hub/hunk_summary.rs`), which runs one on a cache miss.
+    if m == crate::rpc::method::MUX_HUNK_SUMMARY {
+        return hub.hunk_summary(conn.origin, &params).await;
+    }
     if let Some(reply) = offers::dispatch(hub, conn, m, &params) {
         return reply;
     }
