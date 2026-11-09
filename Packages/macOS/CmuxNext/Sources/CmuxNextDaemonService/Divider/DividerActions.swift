@@ -6,6 +6,16 @@ public import CmuxNextLayout
 /// What Insert New opens at a divider (`divider.insertNew`'s `kind`).
 public enum DividerInsertKind: String, Sendable {
     case terminal, browser, agentChat, newTabPage
+
+    /// What the daemon must serve for this kind's split to carry the insertion's `around` and sizing: without it the
+    /// kind's fallback (a plain split, or a tab moved to a split) splits only the target pane (review of #37733).
+    var splitCapabilities: [DaemonCapability] {
+        switch self {
+        case .terminal: [.terminalPlacementEnv]
+        case .browser: [.frontendBrowserTabSplit, .splitClientKeys]
+        case .agentChat, .newTabPage: [.conversationTabSplit]
+        }
+    }
 }
 
 /// A window's workspace as the divider actions act on it (the app's workspace content).
@@ -73,13 +83,13 @@ public struct DividerActions {
         guard let (workspace, split) = divider(invocation, host), let plan = workspace.layoutModel.dividerInsertPlan(at: split)
         else { return .refused(RefusalStrings.noDivider) }
         let daemon = workspace.daemon
-        guard daemon.supports(DaemonCapability.splitAround.rawValue) else {
-            return .refused(daemon.missingCapabilityMessage(DaemonCapability.splitAround.rawValue))
+        let kind = invocation["kind"]?.stringValue.flatMap(DividerInsertKind.init(rawValue:)) ?? .terminal
+        if let missing = ([.splitAround] + kind.splitCapabilities).first(where: { !daemon.supports($0.rawValue) }) {
+            return .refused(daemon.missingCapabilityMessage(missing.rawValue))
         }
         // A first side that is a split the daemon has not named yet (one still opening) cannot be wrapped.
         let around = plan.around.map { workspace.handles.splits[$0] }
         if case .some(.none) = around { return .refused(RefusalStrings.noDivider) }
-        let kind = invocation["kind"]?.stringValue.flatMap(DividerInsertKind.init(rawValue:)) ?? .terminal
         let insertion = DividerInsertion(around: around ?? nil, sizing: plan.sizing)
         let refusal = workspace.openAtDivider(kind, from: plan.target, horizontal: plan.axis == .horizontal,
                                               insertion: insertion, origin: invocation.origin)
