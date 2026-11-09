@@ -487,7 +487,7 @@ fn non_output_read_pages_every_other_kind_across_seek_windows() {
 /// that ran for weeks: two of every three records are terminal output of
 /// `output_bytes` each, the rest `workspace.focus`. Returns the registry and
 /// the non-output sequences.
-fn output_heavy_sealed_registry(
+pub(crate) fn output_heavy_sealed_registry(
     segments: u64,
     output_bytes: usize,
 ) -> (WorkspaceRegistry, Vec<u64>) {

@@ -388,6 +388,41 @@ impl Mux {
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
         };
         let mut fold = self.agent_roster_worker.fold.lock().unwrap_or_else(PoisonError::into_inner);
+        // The start's unfinished replay comes first, a slice per pass: its
+        // records are older than any a request asks for, and they apply no
+        // deltas (their effects happened when they first committed).
+        let mut replayed = None;
+        if self.agent_roster_replaying() {
+            let mut slot =
+                self.agent_roster_worker.replay.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(replay) = slot.as_mut() {
+                #[cfg(test)]
+                fold.note_io_for_test();
+                let reader = fold.reader(&self.journal_kernel);
+                let journal = BackgroundRosterJournal { mux: self, reader };
+                let slice = Instant::now() + agent_roster_restore::BACKGROUND_SLICE;
+                match replay.fold(&journal, &mut &self.agent_roster, Some(slice)) {
+                    Ok(agent_roster_restore::ReplayProgress::Paused) => {
+                        drop(slot);
+                        drop(fold);
+                        self.continue_agent_roster_replay_later();
+                        return pass.retire;
+                    }
+                    Ok(agent_roster_restore::ReplayProgress::Done { diagnostic }) => {
+                        *slot = None;
+                        replayed = Some(diagnostic);
+                    }
+                    Err(error) => {
+                        // A read that fails (I/O, a busy database) is tried
+                        // again by the next request or maintenance tick.
+                        eprintln!("cmux-tui: the background agent roster replay failed: {error}");
+                        return pass.retire;
+                    }
+                }
+            }
+            drop(slot);
+            self.agent_roster_worker.replaying.store(false, Ordering::Release);
+        }
         let mut target = pass.wanted;
         // The head a retirement waits for. It is read after the close
         // recorded the retirement, so every event of the closed terminal is at
@@ -498,6 +533,14 @@ impl Mux {
             }
         }
         drop(fold);
+        if let Some(diagnostic) = replayed {
+            eprintln!("cmux-tui: the background agent roster replay finished");
+            // The reconcile the start skipped while the roster was behind.
+            self.reconcile_agent_roster_projections();
+            if let Some(diagnostic) = diagnostic {
+                self.report_internal_diagnostic(diagnostic);
+            }
+        }
         for (delta, kind) in deltas {
             self.apply_roster_delta(delta, &kind);
         }
@@ -514,6 +557,11 @@ impl Mux {
     /// projection is a separately committed compatibility view for clients.
     /// Compare durable values first so a healthy restart emits no mutations.
     pub(super) fn reconcile_agent_roster_projections(&self) {
+        // A roster still replaying is behind the journal: its entries are
+        // older than the projections. The replay reconciles when it is done.
+        if self.agent_roster_replaying() {
+            return;
+        }
         let entries = self
             .agent_roster
             .lock()
@@ -534,6 +582,9 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) {
+        if self.agent_roster_replaying() {
+            return;
+        }
         let entry = self
             .agent_roster
             .lock()
@@ -772,4 +823,62 @@ impl Mux {
 /// evidence write.
 fn reducer_owned(entry: &crate::journal_reducers::RosterEntry) -> bool {
     matches!(entry.agent_source(), AgentSource::Plugin | AgentSource::Detected)
+}
+
+/// The background replay's journal: the roster reader's own connection for
+/// the indexed read (no registry lock), the registry for the rare salvaging
+/// read, and the writer's connection alone for saves, as a pass saves.
+struct BackgroundRosterJournal<'a> {
+    mux: &'a Mux,
+    reader: Option<&'a crate::workspace_registry::SessionJournalReader>,
+}
+
+impl agent_roster_restore::RosterJournal for BackgroundRosterJournal<'_> {
+    fn without_output_after(
+        &self,
+        cursor: u64,
+        through: u64,
+        limit: usize,
+    ) -> anyhow::Result<(Vec<crate::workspace_registry::SessionJournalRecord>, u64)> {
+        match self.reader {
+            Some(reader) => reader.without_output_after(cursor, through, limit),
+            None => self.mux.session_journal_without_output_after(cursor, through, limit),
+        }
+    }
+
+    fn after_salvaging(
+        &self,
+        cursor: u64,
+        limit: usize,
+    ) -> anyhow::Result<crate::workspace_registry::session_journal::salvage::SalvagedJournalPage>
+    {
+        self.mux
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .session_journal_after_salvaging(cursor, limit)
+    }
+
+    fn subject_ids_in_range(
+        &self,
+        kind: &str,
+        start: u64,
+        end: u64,
+    ) -> anyhow::Result<Vec<String>> {
+        self.mux
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .journal_subject_ids_in_range(kind, start, end)
+    }
+
+    fn save(&self, cursor: u64, snapshot: &str) -> anyhow::Result<()> {
+        use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+        self.mux.registry_connection.put_journal_reducer_state(
+            AGENT_ROSTER_REDUCER_ID,
+            AGENT_ROSTER_REDUCER_VERSION,
+            cursor,
+            snapshot,
+        )
+    }
 }

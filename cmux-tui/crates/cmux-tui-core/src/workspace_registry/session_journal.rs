@@ -2660,7 +2660,7 @@ pub(crate) fn unix_epoch_ms() -> anyhow::Result<u64> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 mod actors;
 mod digest_reader;

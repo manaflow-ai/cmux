@@ -129,6 +129,16 @@ impl RosterControl {
         true
     }
 
+    /// Asks the owner for another pass of unfinished background work, unless
+    /// it is stopping: work left then is saved and resumed at the next start.
+    fn continue_later(&self) {
+        let mut requests = self.lock();
+        if !requests.stopping {
+            requests.pending = true;
+            self.wake.notify_one();
+        }
+    }
+
     /// The owner finishes the work recorded so far, then ends.
     fn stop(&self) {
         self.lock().stopping = true;
@@ -160,6 +170,13 @@ pub(in crate::mux) struct AgentRosterWorker {
     pub(in crate::mux) fold: Mutex<AgentRosterFold>,
     control: Arc<RosterControl>,
     thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// The roster replay the daemon's start left for the owner
+    /// (`agent_roster_restore::STARTUP_BUDGET`). Only the owner's passes
+    /// take it, a slice at a time.
+    pub(in crate::mux) replay: Mutex<Option<agent_roster_restore::AgentRosterReplay>>,
+    /// The replay is not done: the roster may be behind the journal the
+    /// start found, so the startup projection reconcile waits for it.
+    pub(in crate::mux) replaying: AtomicBool,
 }
 
 impl Drop for AgentRosterWorker {
@@ -270,6 +287,27 @@ impl Mux {
                 STOP_WAIT.as_secs()
             );
         }
+    }
+
+    /// Hands the start's unfinished roster replay to the owner and wakes it.
+    pub(in crate::mux) fn continue_agent_roster_replay(
+        &self,
+        replay: agent_roster_restore::AgentRosterReplay,
+    ) {
+        let worker = &self.agent_roster_worker;
+        *worker.replay.lock().unwrap_or_else(PoisonError::into_inner) = Some(replay);
+        worker.replaying.store(true, Ordering::Release);
+        worker.control.continue_later();
+    }
+
+    /// Asks the owner for another pass of the background replay.
+    pub(in crate::mux) fn continue_agent_roster_replay_later(&self) {
+        self.agent_roster_worker.control.continue_later();
+    }
+
+    /// Whether the start's roster replay is still running in the background.
+    pub(in crate::mux) fn agent_roster_replaying(&self) -> bool {
+        self.agent_roster_worker.replaying.load(Ordering::Acquire)
     }
 
     /// Records roster work for the owner and wakes it: a fold through
