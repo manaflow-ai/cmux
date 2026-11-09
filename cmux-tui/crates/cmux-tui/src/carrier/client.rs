@@ -51,9 +51,9 @@ use super::contract::{
     Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line, routes_line,
 };
 use super::source::{
-    CARRIER_AUTH, CARRIER_LANES, CarrierRoutes, CurrentRoute, RouteSet, carrier_routes,
+    CARRIER_AUTH, CARRIER_LANES, CachedGroup, CarrierRoutes, CurrentRoute, RouteSet, carrier_routes,
 };
-use super::ssh::{SshSetup, ssh_route};
+use super::ssh::{SshRefusal, SshSetup, ssh_route};
 use crate::remote_runtime::{
     InitialRouteAttempt, InitialRouteAttemptError, RouteFailure, select_initial_route,
 };
@@ -101,6 +101,9 @@ pub(super) struct DialPlan {
     pub fresh_sessions: FreshSessions,
     /// Where the ssh backup carrier's pieces are ([`super::ssh`]).
     pub ssh: Arc<SshSetup>,
+    /// The platform's refusal of the ssh carrier for good, once one came:
+    /// every later attempt of this dial leaves the route out.
+    pub ssh_refusal: SshRefusal,
 }
 
 /// A failure of the connection step: a provider error is the relay's (or,
@@ -325,7 +328,14 @@ async fn attempt(
     step.set(Step::Relay);
     let session = random_session()?;
     let provider = Arc::new(relay_provider(&answer, tickets, plan.deadline)?);
-    let ssh = ssh_route(&plan.ssh, &answer, &plan.machine, plan.source.clone(), plan.deadline);
+    let ssh = ssh_route(
+        &plan.ssh,
+        &answer,
+        &plan.machine,
+        plan.source.clone(),
+        plan.deadline,
+        &plan.ssh_refusal,
+    );
     step.mark(|marks| marks.ssh = Some(ssh.as_ref().map_or_else(|absent| absent.code(), |_| "on")));
     let set = carrier_routes(&answer, provider, ssh.ok());
     let mut route = RouteAttempt {
@@ -378,16 +388,26 @@ struct RouteAttempt<'a> {
 /// daemon that is not the pinned one, or that refused the grant) ends the
 /// dial: every route reaches the same daemon. A carrier's own failure (the
 /// ticket, the relay, the park) lets the next route try, and the dial retry
-/// the round when `retryable`. An ssh route's
-/// failure is always retryable: it never ends a dial the relay may still
-/// make, and a refused `:22` right after a machine's create (the mesh ACL
-/// takes the machine at its next ensure) passes later.
-pub(super) fn route_error(failure: Failure, ssh: bool) -> InitialRouteAttemptError<Failure> {
-    if ssh {
-        return InitialRouteAttemptError::Route {
-            error: Failure { retryable: true, ..failure },
-            retryable: true,
-        };
+/// the round when `retryable`. An ssh route's failure never ends a dial
+/// the relay may still make, and is retryable: a refused `:22` right after
+/// a machine's create (the mesh ACL takes the machine at its next ensure)
+/// passes later. One the platform refused for good is not: the route is
+/// left out from then on ([`SshRefusal`]).
+pub(super) fn route_error(failure: Failure, kind: RouteKind) -> InitialRouteAttemptError<Failure> {
+    match kind {
+        RouteKind::Ssh => {
+            return InitialRouteAttemptError::Route {
+                error: Failure { retryable: true, ..failure },
+                retryable: true,
+            };
+        }
+        RouteKind::SshRefused => {
+            return InitialRouteAttemptError::Route {
+                error: Failure { retryable: false, fresh_session: false, ..failure },
+                retryable: false,
+            };
+        }
+        RouteKind::Relay => {}
     }
     if failure.retryable || failure.step <= Step::Parked {
         let retryable = failure.retryable;
@@ -395,6 +415,15 @@ pub(super) fn route_error(failure: Failure, ssh: bool) -> InitialRouteAttemptErr
     } else {
         InitialRouteAttemptError::Fatal(failure)
     }
+}
+
+/// Which kind of route failed, for [`route_error`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RouteKind {
+    Relay,
+    Ssh,
+    /// An ssh route the platform refused for good.
+    SshRefused,
 }
 
 #[async_trait]
@@ -415,14 +444,23 @@ impl InitialRouteAttempt<Dialed, Failure> for RouteAttempt<'_> {
         index: usize,
         request: ConnectRequest,
     ) -> Result<Dialed, InitialRouteAttemptError<Failure>> {
-        let ssh = self.set.dialers.get(index).is_some_and(|d| d.is_ssh());
         let result = self.connect_route(index, request).await;
         if let Err(failure) = &result
             && index == 0
         {
             self.first = Some(failure.clone());
         }
-        result.map_err(|failure| route_error(failure, ssh))
+        let dialer = self.set.dialers.get(index);
+        let kind = match dialer {
+            Some(dialer) if dialer.refused().is_some() => {
+                // The connect log says why the route is gone.
+                self.step.mark(|marks| marks.ssh = Some(super::ssh::Absent::Refused.code()));
+                RouteKind::SshRefused
+            }
+            Some(dialer) if dialer.is_ssh() => RouteKind::Ssh,
+            _ => RouteKind::Relay,
+        };
+        result.map_err(|failure| route_error(failure, kind))
     }
 }
 
@@ -459,6 +497,10 @@ impl RouteAttempt<'_> {
                 }
             },
         };
+        // The connection and the routes hold the same cached group, so the
+        // routes see it retired once the session moves off it.
+        let cached = CachedGroup::new(tracked);
+        let tracked: Arc<dyn LinkGroup> = cached.clone();
         let remaining = plan.deadline.saturating_duration_since(Instant::now());
         let config = ClientConnectionConfig {
             identity: plan.identity.clone(),
@@ -477,7 +519,7 @@ impl RouteAttempt<'_> {
         let routes: Arc<dyn ReconnectGroupSource> = Arc::new(CarrierRoutes::new(
             RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
             index,
-            tracked.clone(),
+            cached,
             self.session,
             self.current.clone(),
         ));

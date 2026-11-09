@@ -31,8 +31,8 @@ use std::io::Write as _;
 use std::net::IpAddr;
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -47,7 +47,7 @@ use tokio::time::Instant;
 use url::Url;
 use zeroize::Zeroizing;
 
-use super::answer::{CarrierAnswer, CarrierSource, SshCandidate, now_unix};
+use super::answer::{CarrierAnswer, CarrierSource, SourceError, SshCandidate, now_unix};
 use super::client::RESUME_DEADLINE;
 use crate::remote_runtime::ResolvedRouteCandidate;
 
@@ -105,6 +105,23 @@ pub(super) fn default_hub() -> Option<PathBuf> {
         .filter(|path| cmux_unix_socket::fits(path))
 }
 
+/// A refusal the platform means for good (ssh-endpoint's 501, an answer
+/// that is not a carrier key's), kept for the rest of one dial: its routes
+/// leave ssh out from then on, and say why, instead of asking again.
+#[derive(Clone, Debug, Default)]
+pub(super) struct SshRefusal(Arc<OnceLock<String>>);
+
+impl SshRefusal {
+    /// The refusal's reason, once there is one.
+    pub(super) fn get(&self) -> Option<&str> {
+        self.0.get().map(String::as_str)
+    }
+
+    fn set(&self, reason: String) {
+        let _ = self.0.set(reason);
+    }
+}
+
 /// Why an answer's dial has no ssh route.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Absent {
@@ -117,6 +134,9 @@ pub(super) enum Absent {
     /// No carrier key: no private state directory, or the key could not be
     /// read or made.
     Key,
+    /// The platform refused the carrier key for good earlier in the dial
+    /// ([`SshRefusal`]).
+    Refused,
 }
 
 impl Absent {
@@ -126,6 +146,7 @@ impl Absent {
             Self::Candidate => "no_candidate",
             Self::Tunnel => "no_tunnel",
             Self::Key => "no_key",
+            Self::Refused => "refused",
         }
     }
 }
@@ -144,8 +165,12 @@ pub(super) fn ssh_route(
     machine: &str,
     source: Arc<dyn CarrierSource>,
     deadline: Instant,
+    refusal: &SshRefusal,
 ) -> Result<Arc<SshRoute>, Absent> {
     let candidate = answer.ssh.clone().ok_or(Absent::Candidate)?;
+    if refusal.get().is_some() {
+        return Err(Absent::Refused);
+    }
     let hub = setup.hub.as_deref().filter(|hub| hub_up(hub)).ok_or(Absent::Tunnel)?;
     let exe = setup.exe.as_deref().ok_or(Absent::Tunnel)?;
     let state = setup.state.as_deref().ok_or(Absent::Key)?;
@@ -171,6 +196,7 @@ pub(super) fn ssh_route(
         source,
         provider,
         dial_deadline: deadline,
+        refusal: refusal.clone(),
         authorized_until: AtomicU64::new(0),
         authorizing: tokio::sync::Mutex::new(()),
     }))
@@ -442,6 +468,8 @@ pub(super) struct SshRoute {
     provider: SshProvider,
     /// The deadline of the dial that built the route.
     dial_deadline: Instant,
+    /// The dial's permanent refusal, shared by every route it builds.
+    refusal: SshRefusal,
     /// Unix seconds; 0 before the first authorization.
     authorized_until: AtomicU64,
     /// One authorization at a time.
@@ -471,22 +499,38 @@ impl SshRoute {
         if self.dial_deadline > now { self.dial_deadline.min(cap) } else { cap }
     }
 
+    /// Why the platform refused this dial's carrier key for good, if it did.
+    pub(super) fn refused(&self) -> Option<&str> {
+        self.refusal.get()
+    }
+
     /// Authorizes the carrier key unless an earlier authorization still
     /// holds, and writes the pin from the answer's host key. The answer must
     /// name the candidate's own host, port and user. Waiting for another
     /// authorization's turn and the platform's answer both end by
-    /// [`Self::authorize_by`]; every failure is a retryable link error, so
-    /// the runner tries again (a dial) or redials (a resume).
+    /// [`Self::authorize_by`]. Every failure is a link error the reconnect
+    /// loop retries, so a resume goes on to the next route; one the platform
+    /// means for good is also kept as the dial's [`SshRefusal`], and no
+    /// later link asks again.
     pub(super) async fn authorize(&self) -> Result<(), ProviderError> {
+        if let Some(reason) = self.refused() {
+            return Err(dropped(reason));
+        }
         if self.authorized_at(now_unix()) {
             return Ok(());
         }
         let started = Instant::now();
         let by = self.authorize_by(started);
         match tokio::time::timeout_at(by, self.authorize_now()).await {
-            Ok(result) => result.map_err(|detail| {
-                ProviderError::Link(LinkError::Transport(format!("carrier ssh key: {detail}")))
-            }),
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) if !error.retryable => {
+                self.refusal.set(error.detail);
+                Err(dropped(self.refused().unwrap_or("refused")))
+            }
+            Ok(Err(error)) => Err(ProviderError::Link(LinkError::Transport(format!(
+                "carrier ssh key: {}",
+                error.detail
+            )))),
             Err(_) => Err(ProviderError::Link(LinkError::Transport(format!(
                 "carrier ssh key: no authorization within {} ms",
                 by.saturating_duration_since(started).as_millis()
@@ -494,25 +538,22 @@ impl SshRoute {
         }
     }
 
-    async fn authorize_now(&self) -> Result<(), String> {
+    async fn authorize_now(&self) -> Result<(), SourceError> {
         let _one = self.authorizing.lock().await;
         if self.authorized_at(now_unix()) {
             return Ok(());
         }
-        let endpoint = self
-            .source
-            .ssh_endpoint(&self.machine, &self.public_key)
-            .await
-            .map_err(|e| e.detail)?;
+        let endpoint = self.source.ssh_endpoint(&self.machine, &self.public_key).await?;
         let candidate = &self.candidate;
         if endpoint.host != candidate.host
             || endpoint.port != candidate.port
             || endpoint.user != candidate.user
         {
-            return Err("the endpoint names another host than the answer".into());
+            return Err(SourceError::retry("the endpoint names another host than the answer"));
         }
-        write_pin(&self.pin, endpoint.host, endpoint.port, &endpoint.host_key)
-            .map_err(|e| format!("the pin could not be written ({:?})", e.kind()))?;
+        write_pin(&self.pin, endpoint.host, endpoint.port, &endpoint.host_key).map_err(|e| {
+            SourceError::retry(format!("the pin could not be written ({:?})", e.kind()))
+        })?;
         self.authorized_until.store(endpoint.expires_at, Ordering::Release);
         Ok(())
     }
@@ -534,6 +575,11 @@ impl SshRoute {
         let inner = self.provider.connect(request).await?;
         Ok(Arc::new(SshGroup { route: self.clone(), inner }))
     }
+}
+
+/// The link error of a route the platform refused for good.
+fn dropped(reason: &str) -> ProviderError {
+    ProviderError::Link(LinkError::Transport(format!("carrier ssh route dropped: {reason}")))
 }
 
 /// The ssh provider's group, with the carrier key authorized before each

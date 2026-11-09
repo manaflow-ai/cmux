@@ -187,6 +187,44 @@ fn a_session_on_the_relay_fails_over_to_ssh_and_keeps_its_stream() {
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
 }
 
+/// A session fails over to ssh and, when ssh goes down too, back to the
+/// relay: the relay route connects a fresh group (the first one was closed
+/// when the session left it) and the same mux connection still answers.
+#[test]
+fn a_session_fails_over_to_ssh_and_back_to_a_fresh_relay_group() {
+    let world = world_ssh(true);
+    let mut child = dial(&world);
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+    std::thread::spawn(move || {
+        for line in stderr.lines().map_while(Result::ok) {
+            eprintln!("dial stderr: {line}");
+        }
+    });
+    let lines = lines(&mut child);
+    let mut stdin = child.stdin.take().unwrap();
+    let (_, pushed) = round_trip(&mut stdin, &lines, 1);
+    assert_eq!(pushed, "{\"event\":\"pushed\",\"conn\":0}\n");
+
+    world.cut.send_replace(true);
+    let (_, pushed) = round_trip(&mut stdin, &lines, 2);
+    assert_eq!(pushed, "{\"event\":\"pushed\",\"conn\":0}\n", "the same mux connection");
+    log_with(&world, "phase=resume carrier=ssh:0 outcome=ok");
+
+    // The relay is back; ssh goes down.
+    world.cut.send_replace(false);
+    std::fs::write(&world.ssh_cut, b"").unwrap();
+    let (_, pushed) = round_trip(&mut stdin, &lines, 3);
+    assert_eq!(pushed, "{\"event\":\"pushed\",\"conn\":0}\n", "still the same mux connection");
+    let log = log_with(&world, "phase=resume carrier=relay:0 outcome=ok");
+    let connects =
+        log.lines().filter(|l| l.starts_with("cloud.connect ") && l.contains(" phase=connect "));
+    assert_eq!(connects.count(), 1, "no new dial: {log}");
+    drop(stdin);
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+}
+
 /// Without a tunnel hub the dial is the relay's alone, and says why.
 #[test]
 fn without_a_tunnel_hub_the_ssh_group_is_left_out_and_the_log_says_so() {

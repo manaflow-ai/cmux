@@ -299,6 +299,7 @@ async fn connection(
         phases: shared.log.clone(),
         fresh_sessions: Default::default(),
         ssh: shared.ssh.clone(),
+        ssh_refusal: super::ssh::SshRefusal::default(),
     };
     let plan = &plan;
     let outcome = tokio::select! {

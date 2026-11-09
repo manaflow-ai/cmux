@@ -10,7 +10,11 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use cmux_remote::connection::ConnectionError;
-use cmux_remote::provider::{ConnectRequest, LinkRequest, RelayClientConfig, RelayProvider};
+use cmux_remote::crypto::AuthKind;
+use cmux_remote::link::LinkError;
+use cmux_remote::provider::{
+    ConnectRequest, LinkGroup, LinkRequest, ProviderError, RelayClientConfig, RelayProvider,
+};
 use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
 use serde_json::{Value, json};
 use tokio::time::Instant;
@@ -18,14 +22,14 @@ use tokio::time::Instant;
 use super::super::answer::{
     CarrierAnswer, CarrierSource, SourceError, SshEndpoint, parse_answer, read_ssh_endpoint,
 };
-use super::super::client::route_error;
+use super::super::client::{RouteKind, route_error};
 use super::super::contract::{Failure, Phase, Step, routes_line};
-use super::super::source::carrier_routes;
+use super::super::source::{CachedGroup, CarrierRoutes, CurrentRoute, carrier_routes};
 use super::{
-    Absent, CarrierKey, SshSetup, openssh_private_key, pin_line, public_line_of, ssh_arguments,
-    ssh_route, write_pin,
+    Absent, CarrierKey, SshRefusal, SshSetup, openssh_private_key, pin_line, public_line_of,
+    ssh_arguments, ssh_route, write_pin,
 };
-use crate::remote_runtime::InitialRouteAttemptError;
+use crate::remote_runtime::{InitialRouteAttemptError, ReconnectRouteAttempt};
 
 const MACHINE: &str = "vm_0123456789abcdefghij";
 
@@ -218,7 +222,8 @@ fn the_ssh_group_comes_after_the_relay_only_when_every_piece_is_there() {
     let (full, _hub) = setup(dir.path(), true);
     let with_ssh = answer(Some(candidate()));
 
-    let route = ssh_route(&full, &with_ssh, MACHINE, source.clone(), far()).unwrap();
+    let route = ssh_route(&full, &with_ssh, MACHINE, source.clone(), far(), &SshRefusal::default())
+        .unwrap();
     let set = carrier_routes(&with_ssh, relay(), Some(route));
     let urls: Vec<_> = set.routes.iter().map(|r| r.endpoint.to_string()).collect();
     assert_eq!(urls, ["relay+do://relay.example", "ssh://cmux@10.20.0.7:22"]);
@@ -231,7 +236,9 @@ fn the_ssh_group_comes_after_the_relay_only_when_every_piece_is_there() {
     assert_eq!(alone.dialers[0].name(), "relay:0");
 
     let absent = |setup: &SshSetup, answer: &CarrierAnswer| {
-        ssh_route(setup, answer, MACHINE, source.clone(), far()).map(|_| ()).unwrap_err()
+        ssh_route(setup, answer, MACHINE, source.clone(), far(), &SshRefusal::default())
+            .map(|_| ())
+            .unwrap_err()
     };
     assert_eq!(absent(&full, &answer(None)), Absent::Candidate);
     let quiet = tempfile::tempdir().unwrap();
@@ -251,8 +258,15 @@ async fn a_link_authorizes_the_carrier_key_once_and_pins_the_endpoint_s_host_key
     let dir = tempfile::tempdir().unwrap();
     let (full, _hub) = setup(dir.path(), true);
     let source = endpoints("10.20.0.7", super::now_unix() + 900);
-    let route =
-        ssh_route(&full, &answer(Some(candidate())), MACHINE, source.clone(), far()).unwrap();
+    let route = ssh_route(
+        &full,
+        &answer(Some(candidate())),
+        MACHINE,
+        source.clone(),
+        far(),
+        &SshRefusal::default(),
+    )
+    .unwrap();
     route.authorize().await.unwrap();
     route.authorize().await.unwrap();
     assert_eq!(source.calls.load(Ordering::SeqCst), 1, "held until near its expiry");
@@ -264,7 +278,15 @@ async fn a_link_authorizes_the_carrier_key_once_and_pins_the_endpoint_s_host_key
 
     // A key about to expire is authorized again.
     let soon = endpoints("10.20.0.7", super::now_unix() + 30);
-    let route = ssh_route(&full, &answer(Some(candidate())), MACHINE, soon.clone(), far()).unwrap();
+    let route = ssh_route(
+        &full,
+        &answer(Some(candidate())),
+        MACHINE,
+        soon.clone(),
+        far(),
+        &SshRefusal::default(),
+    )
+    .unwrap();
     route.authorize().await.unwrap();
     route.authorize().await.unwrap();
     assert_eq!(soon.calls.load(Ordering::SeqCst), 2);
@@ -273,7 +295,9 @@ async fn a_link_authorizes_the_carrier_key_once_and_pins_the_endpoint_s_host_key
     let other = tempfile::tempdir().unwrap();
     let (full, _hub) = setup(other.path(), true);
     let moved = endpoints("10.20.0.8", super::now_unix() + 900);
-    let route = ssh_route(&full, &answer(Some(candidate())), MACHINE, moved, far()).unwrap();
+    let route =
+        ssh_route(&full, &answer(Some(candidate())), MACHINE, moved, far(), &SshRefusal::default())
+            .unwrap();
     assert!(route.authorize().await.is_err());
     assert!(!other.path().join("state").join(MACHINE).join("known_hosts").exists());
 }
@@ -380,17 +404,23 @@ fn ssh_runs_with_the_carrier_key_the_pin_and_the_tunnel_only() {
 
 #[test]
 fn an_ssh_route_s_failure_never_ends_the_dial_but_a_relay_handshake_refusal_does() {
-    let kinds = |failure: Failure, ssh: bool| match route_error(failure, ssh) {
+    let kinds = |failure: Failure, kind: RouteKind| match route_error(failure, kind) {
         InitialRouteAttemptError::Route { retryable, .. } => format!("route retryable={retryable}"),
         InitialRouteAttemptError::Fatal(_) => "fatal".into(),
     };
     let refused = || Failure::fatal(Step::Handshake, "the daemon refused the grant");
-    assert_eq!(kinds(refused(), false), "fatal");
-    assert_eq!(kinds(refused(), true), "route retryable=true");
-    assert_eq!(kinds(Failure::fatal(Step::Relay, "x"), true), "route retryable=true");
-    assert_eq!(kinds(Failure::fatal(Step::Relay, "x"), false), "route retryable=false");
-    assert_eq!(kinds(Failure::fatal(Step::Ticket, "x"), false), "route retryable=false");
-    assert_eq!(kinds(Failure::retry(Step::Handshake, "x"), false), "route retryable=true");
+    assert_eq!(kinds(refused(), RouteKind::Relay), "fatal");
+    assert_eq!(kinds(refused(), RouteKind::Ssh), "route retryable=true");
+    assert_eq!(kinds(Failure::fatal(Step::Relay, "x"), RouteKind::Ssh), "route retryable=true");
+    assert_eq!(kinds(Failure::fatal(Step::Relay, "x"), RouteKind::Relay), "route retryable=false");
+    assert_eq!(kinds(Failure::fatal(Step::Ticket, "x"), RouteKind::Relay), "route retryable=false");
+    assert_eq!(
+        kinds(Failure::retry(Step::Handshake, "x"), RouteKind::Relay),
+        "route retryable=true"
+    );
+    // An ssh route the platform refused for good is not tried again.
+    let gone = Failure::retry(Step::Handshake, "carrier ssh route dropped: 501");
+    assert_eq!(kinds(gone, RouteKind::SshRefused), "route retryable=false");
 }
 
 #[test]
@@ -428,8 +458,15 @@ async fn an_open_whose_key_is_never_authorized_fails_retryable_by_the_deadline()
     let dir = tempfile::tempdir().unwrap();
     let (full, _hub) = setup(dir.path(), true);
     let deadline = Instant::now() + Duration::from_millis(300);
-    let route =
-        ssh_route(&full, &answer(Some(candidate())), MACHINE, Arc::new(Silent), deadline).unwrap();
+    let route = ssh_route(
+        &full,
+        &answer(Some(candidate())),
+        MACHINE,
+        Arc::new(Silent),
+        deadline,
+        &SshRefusal::default(),
+    )
+    .unwrap();
     // The pre-warm holds the one authorization turn while it waits.
     route.prewarm();
     tokio::task::yield_now().await;
@@ -456,11 +493,120 @@ async fn an_open_whose_key_is_never_authorized_fails_retryable_by_the_deadline()
     // After the dial, a resume's authorization gets its own window.
     let now = Instant::now();
     assert_eq!(route.authorize_by(now), now + super::AUTHORIZE_TIMEOUT);
-    let ahead =
-        ssh_route(&full, &answer(Some(candidate())), MACHINE, Arc::new(Silent), far()).unwrap();
+    let ahead = ssh_route(
+        &full,
+        &answer(Some(candidate())),
+        MACHINE,
+        Arc::new(Silent),
+        far(),
+        &SshRefusal::default(),
+    )
+    .unwrap();
     assert_eq!(ahead.authorize_by(now), now + super::AUTHORIZE_TIMEOUT, "capped");
     let close = now + Duration::from_secs(3);
-    let soon =
-        ssh_route(&full, &answer(Some(candidate())), MACHINE, Arc::new(Silent), close).unwrap();
+    let soon = ssh_route(
+        &full,
+        &answer(Some(candidate())),
+        MACHINE,
+        Arc::new(Silent),
+        close,
+        &SshRefusal::default(),
+    )
+    .unwrap();
     assert_eq!(soon.authorize_by(now), close, "the dial's own deadline");
+}
+
+fn ssh_request(route: &super::SshRoute) -> ConnectRequest {
+    ConnectRequest {
+        endpoint: route.candidate().endpoint,
+        session: SessionId([7; 16]),
+        lane_policy: LanePolicy::Auto,
+        routing: BTreeMap::new(),
+    }
+}
+
+/// A source whose ssh-endpoint answers the platform's reply `status`.
+fn refusing(status: u16) -> Arc<Endpoints> {
+    let body = json!({"ok": false, "error": {"code": "not_implemented", "message": "no"}});
+    Arc::new(Endpoints {
+        endpoint: read_ssh_endpoint(status, &body, super::now_unix()),
+        calls: AtomicUsize::new(0),
+    })
+}
+
+/// ssh-endpoint's 501 is a refusal for good: the link fails with the
+/// reason, nothing asks again, and the dial's later routes leave ssh out
+/// and say why. A 503 stays a retry.
+#[tokio::test]
+async fn a_permanent_ssh_endpoint_refusal_drops_the_route_for_the_dial() {
+    let dir = tempfile::tempdir().unwrap();
+    let (full, _hub) = setup(dir.path(), true);
+    let with_ssh = answer(Some(candidate()));
+    let refusal = SshRefusal::default();
+    let source = refusing(501);
+    let route = ssh_route(&full, &with_ssh, MACHINE, source.clone(), far(), &refusal).unwrap();
+    let error = route.authorize().await.unwrap_err();
+    assert!(
+        error.to_string().contains("carrier ssh route dropped: cmux-platform answered 501"),
+        "{error}"
+    );
+    // A resume moves on to the next route rather than ending the session.
+    assert!(ConnectionError::Provider(error).is_retryable_carrier_failure());
+    assert!(route.authorize().await.is_err());
+    assert_eq!(source.calls.load(Ordering::SeqCst), 1, "not asked again");
+    assert_eq!(route.refused(), Some("cmux-platform answered 501 not_implemented"));
+    let set = carrier_routes(&with_ssh, relay(), Some(route.clone()));
+    assert!(set.dialers[1].refused().is_some());
+    assert!(set.dialers[0].refused().is_none());
+    let again = ssh_route(&full, &with_ssh, MACHINE, source.clone(), far(), &refusal);
+    assert_eq!(again.map(|_| ()).unwrap_err(), Absent::Refused);
+    assert_eq!(Absent::Refused.code(), "refused");
+    // A resume's rotation skips it at once.
+    let group = CachedGroup::new(route.group(ssh_request(&route)).await.unwrap());
+    let routes = CarrierRoutes::new(set, 1, group, SessionId([7; 16]), Arc::default());
+    let skipped = routes.connect(1, ssh_request(&route), AuthKind::Grant).await;
+    let Err(skipped) = skipped else { panic!("a refused route connects no group") };
+    assert!(skipped.to_string().contains("carrier ssh route dropped"), "{skipped}");
+    assert_eq!(source.calls.load(Ordering::SeqCst), 1);
+
+    let busy = refusing(503);
+    let fresh = SshRefusal::default();
+    let route = ssh_route(&full, &with_ssh, MACHINE, busy.clone(), far(), &fresh).unwrap();
+    let error = route.authorize().await.unwrap_err();
+    assert!(error.to_string().contains("carrier ssh key: cmux-platform answered 503"), "{error}");
+    assert!(route.authorize().await.is_err());
+    assert_eq!(busy.calls.load(Ordering::SeqCst), 2, "a retryable refusal is asked again");
+    assert_eq!(fresh.get(), None);
+}
+
+/// The routes' cache hands a route's group back while it is open, and once
+/// the connection closed it (moving the session off it), connects a fresh
+/// one: no route resumes on a closed group.
+#[tokio::test]
+async fn a_route_s_group_closed_by_the_connection_is_replaced_not_reused() {
+    let dir = tempfile::tempdir().unwrap();
+    let (full, _hub) = setup(dir.path(), true);
+    let with_ssh = answer(Some(candidate()));
+    let source = endpoints("10.20.0.7", super::now_unix() + 900);
+    let route =
+        ssh_route(&full, &with_ssh, MACHINE, source, far(), &SshRefusal::default()).unwrap();
+    let first = CachedGroup::new(route.group(ssh_request(&route)).await.unwrap());
+    let current = Arc::new(CurrentRoute::default());
+    let set = carrier_routes(&with_ssh, relay(), Some(route.clone()));
+    let routes = CarrierRoutes::new(set, 1, first.clone(), SessionId([7; 16]), current.clone());
+    let as_dyn = |group: &Arc<CachedGroup>| -> Arc<dyn LinkGroup> { group.clone() };
+
+    let again = routes.connect(1, ssh_request(&route), AuthKind::Grant).await.unwrap();
+    assert!(Arc::ptr_eq(&again, &as_dyn(&first)), "the open group is reused");
+    assert_eq!(current.get(), "ssh:0");
+
+    // The connection retires the group it moved off.
+    first.close().await.unwrap();
+    let request = LinkRequest { lane: Lane::Interactive, generation: 1 };
+    let Err(closed) = first.open(request).await else { panic!("a closed group opens nothing") };
+    assert!(matches!(closed, ProviderError::Link(LinkError::Closed)), "{closed}");
+    let fresh = routes.connect(1, ssh_request(&route), AuthKind::Grant).await.unwrap();
+    assert!(!Arc::ptr_eq(&fresh, &as_dyn(&first)), "a closed group is never handed back");
+    let cached = routes.connect(1, ssh_request(&route), AuthKind::Grant).await.unwrap();
+    assert!(Arc::ptr_eq(&cached, &fresh), "and the fresh one is cached in its place");
 }

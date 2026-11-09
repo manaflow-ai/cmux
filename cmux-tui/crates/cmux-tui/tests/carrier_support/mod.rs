@@ -622,6 +622,9 @@ pub struct SshWorld {
     /// The fake ssh client, and the file it writes its arguments to.
     pub fake_ssh: std::path::PathBuf,
     pub ssh_args: std::path::PathBuf,
+    /// While this file exists the fake ssh's links end, and new ones exit
+    /// at once (the ssh carrier is down).
+    pub ssh_cut: std::path::PathBuf,
     /// Cuts every relay connection, and refuses new ones.
     pub cut: watch::Sender<bool>,
     _hub: std::os::unix::net::UnixListener,
@@ -656,14 +659,28 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
     let hub_listener = std::os::unix::net::UnixListener::bind(&hub).unwrap();
     let ssh_args = dir.path().join("ssh-args");
     let fake_ssh = dir.path().join("fake-ssh");
+    let ssh_cut = dir.path().join("ssh-cut");
     // sshd runs the key's forced command whatever the client asks; this
-    // stand-in does the same, without the network or the ProxyCommand.
+    // stand-in does the same, without the network or the ProxyCommand. The
+    // link ends when `ssh_cut` appears (stdin goes to the command through
+    // fd 3: a background command's own stdin is /dev/null).
     std::fs::write(
         &fake_ssh,
         format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" >> '{}'\nexec '{BIN}' remote-link --stdio --session carrier-ssh --link-socket '{}'\n",
-            ssh_args.display(),
-            link.display()
+            "#!/bin/sh\n\
+             printf '%s\\n' \"$@\" >> '{args}'\n\
+             [ -e '{cut}' ] && exit 255\n\
+             exec 3<&0\n\
+             '{BIN}' remote-link --stdio --session carrier-ssh --link-socket '{link}' <&3 &\n\
+             child=$!\n\
+             while kill -0 \"$child\" 2>/dev/null; do\n\
+             if [ -e '{cut}' ]; then kill \"$child\"; exit 255; fi\n\
+             sleep 0.05\n\
+             done\n\
+             wait \"$child\"\n",
+            args = ssh_args.display(),
+            cut = ssh_cut.display(),
+            link = link.display(),
         ),
     )
     .unwrap();
@@ -732,6 +749,7 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
         hub,
         fake_ssh,
         ssh_args,
+        ssh_cut,
         cut,
         _hub: hub_listener,
         _link: link_server,

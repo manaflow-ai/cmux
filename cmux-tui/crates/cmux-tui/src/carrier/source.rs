@@ -9,21 +9,25 @@
 //! tries them in that order on the same runner ([`select_initial_route`] in
 //! [`super::client`]); a resume rotates from the route after the one that
 //! failed ([`next_reconnect_route`]), so a session on the relay fails over
-//! to ssh, and back, on the same session, resumed by sequence. The relay
-//! route resumes on the group the dial connected (its opens fetch a fresh
-//! ticket each), or one it connects then; an ssh route makes a fresh group
-//! each time (each link is its own `ssh` run).
+//! to ssh, and back, on the same session, resumed by sequence. Each route
+//! resumes on the group it last connected while that group is open (the
+//! relay's opens fetch a fresh ticket each; each ssh link is its own `ssh`
+//! run), and connects a new one once the connection retired it
+//! ([`CachedGroup`]).
 //!
 //! [`select_initial_route`]: crate::remote_runtime::select_initial_route
 
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
 use cmux_remote::connection::ReconnectGroupSource;
 use cmux_remote::crypto::AuthKind;
+use cmux_remote::link::{FrameLink, LinkError};
+use cmux_remote::observability::TransportSnapshot;
 use cmux_remote::provider::{
-    ConnectRequest, LinkGroup, ProviderError, RelayProvider, TransportProvider,
+    CarrierEvidence, ConnectRequest, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
+    RelayProvider, TransportProvider,
 };
 use cmux_remote_protocol::{LanePolicy, SessionId};
 
@@ -56,6 +60,15 @@ impl RouteDialer {
 
     pub(super) fn is_ssh(&self) -> bool {
         matches!(self, Self::Ssh(_))
+    }
+
+    /// Why the platform refused this route for the rest of the dial (an ssh
+    /// route only, [`super::ssh::SshRefusal`]).
+    pub(super) fn refused(&self) -> Option<&str> {
+        match self {
+            Self::Relay(_) => None,
+            Self::Ssh(route) => route.refused(),
+        }
     }
 
     /// A group on this route.
@@ -109,24 +122,69 @@ impl CurrentRoute {
     }
 }
 
+/// A group the route cache holds. Closing it (the connection retires the
+/// group it moved off, `reconnect_once`) takes it out of the cache for
+/// good, so no route resumes on a closed group, whatever kind it is.
+pub(super) struct CachedGroup {
+    inner: Arc<dyn LinkGroup>,
+    closed: AtomicBool,
+}
+
+impl CachedGroup {
+    pub(super) fn new(inner: Arc<dyn LinkGroup>) -> Arc<Self> {
+        Arc::new(Self { inner, closed: AtomicBool::new(false) })
+    }
+
+    fn is_open(&self) -> bool {
+        !self.closed.load(Ordering::Acquire)
+    }
+}
+
+#[async_trait]
+impl LinkGroup for CachedGroup {
+    fn description(&self) -> &str {
+        self.inner.description()
+    }
+    fn capabilities(&self) -> ProviderCapabilities {
+        self.inner.capabilities()
+    }
+    fn evidence(&self) -> &CarrierEvidence {
+        self.inner.evidence()
+    }
+    async fn transport_snapshot(&self) -> TransportSnapshot {
+        self.inner.transport_snapshot().await
+    }
+    async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+        if !self.is_open() {
+            return Err(ProviderError::Link(LinkError::Closed));
+        }
+        self.inner.open(request).await
+    }
+    async fn close(&self) -> Result<(), ProviderError> {
+        self.closed.store(true, Ordering::Release);
+        self.inner.close().await
+    }
+}
+
 /// An established carrier session's next route after its current one
 /// failed.
 pub(super) struct CarrierRoutes {
     routes: Vec<ResolvedRouteCandidate>,
     dialers: Vec<RouteDialer>,
-    /// The connected relay group of each route, by index (`None`: none yet).
-    groups: Mutex<Vec<Option<Arc<dyn LinkGroup>>>>,
+    /// Each route's last connected group, by index (`None`: none yet).
+    groups: Mutex<Vec<Option<Arc<CachedGroup>>>>,
     session: SessionId,
     next: AtomicUsize,
     current: Arc<CurrentRoute>,
 }
 
 impl CarrierRoutes {
-    /// The routes of a session that connected route `selected` on `group`.
+    /// The routes of a session that connected route `selected` on `group`,
+    /// the very group the connection holds, so its retirement is seen here.
     pub(super) fn new(
         set: RouteSet,
         selected: usize,
-        group: Arc<dyn LinkGroup>,
+        group: Arc<CachedGroup>,
         session: SessionId,
         current: Arc<CurrentRoute>,
     ) -> Self {
@@ -143,8 +201,10 @@ impl CarrierRoutes {
         }
     }
 
-    fn cached(&self, index: usize) -> Option<Arc<dyn LinkGroup>> {
-        self.groups.lock().unwrap_or_else(PoisonError::into_inner).get(index).cloned().flatten()
+    /// Route `index`'s group while it is open.
+    fn cached(&self, index: usize) -> Option<Arc<CachedGroup>> {
+        let groups = self.groups.lock().unwrap_or_else(PoisonError::into_inner);
+        groups.get(index).cloned().flatten().filter(|group| group.is_open())
     }
 }
 
@@ -175,13 +235,17 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for CarrierRoutes {
             .dialers
             .get(index)
             .ok_or_else(|| ProviderError::Configuration("the carrier has no such route".into()))?;
-        let group = match (dialer.is_ssh(), self.cached(index)) {
-            (false, Some(group)) => group,
-            _ => {
-                let group = dialer.connect(request).await?;
-                if !dialer.is_ssh()
-                    && let Some(slot) =
-                        self.groups.lock().unwrap_or_else(PoisonError::into_inner).get_mut(index)
+        if let Some(reason) = dialer.refused() {
+            return Err(ProviderError::Link(LinkError::Transport(format!(
+                "carrier ssh route dropped: {reason}"
+            ))));
+        }
+        let group = match self.cached(index) {
+            Some(group) => group,
+            None => {
+                let group = CachedGroup::new(dialer.connect(request).await?);
+                if let Some(slot) =
+                    self.groups.lock().unwrap_or_else(PoisonError::into_inner).get_mut(index)
                 {
                     *slot = Some(group.clone());
                 }
