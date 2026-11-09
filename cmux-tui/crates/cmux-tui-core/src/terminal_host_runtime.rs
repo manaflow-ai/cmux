@@ -1085,6 +1085,20 @@ mod unix {
         }
     }
 
+    /// Sets the read timeout of a host link, where a link the host already closed
+    /// counts as set. macOS fails setsockopt with EINVAL (or ENOTCONN) once both
+    /// directions of the socket are shut down, as after the host ended. A read on
+    /// that link returns its queued frames and then EOF without a wait, so no
+    /// timeout is needed, and the exit frame or record still decides the result.
+    fn set_link_read_timeout(link: &UnixStream, timeout: Option<Duration>) -> std_io::Result<()> {
+        match link.set_read_timeout(timeout) {
+            Err(error) if matches!(error.raw_os_error(), Some(libc::EINVAL | libc::ENOTCONN)) => {
+                Ok(())
+            }
+            result => result,
+        }
+    }
+
     pub struct HostAttachment {
         pub record: TerminalHostRecord,
         pub record_path: PathBuf,
@@ -1658,9 +1672,11 @@ mod unix {
                             !remaining.is_zero(),
                             "terminal host did not acknowledge termination"
                         );
-                        reader
-                            .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
-                            .context("set terminal-host termination timeout")?;
+                        set_link_read_timeout(
+                            reader,
+                            Some(remaining.max(Duration::from_millis(1))),
+                        )
+                        .context("set terminal-host termination timeout")?;
                         let frame = read_frame(reader, MAX_FRAME_PAYLOAD)
                             .map_err(protocol_io_error)?
                             .ok_or_else(|| {
@@ -1686,8 +1702,7 @@ mod unix {
                         return Ok(());
                     }
                 })();
-                let restored = reader
-                    .set_read_timeout(previous_timeout)
+                let restored = set_link_read_timeout(reader, previous_timeout)
                     .context("restore terminal-host timeout after termination");
                 response.and(restored)
             })();
@@ -1718,8 +1733,7 @@ mod unix {
                         !remaining.is_zero(),
                         "terminal host did not exit before the termination deadline"
                     );
-                    reader
-                        .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
+                    set_link_read_timeout(reader, Some(remaining.max(Duration::from_millis(1))))
                         .context("set terminal-host termination timeout")?;
                     let frame = match read_frame(reader, MAX_FRAME_PAYLOAD) {
                         Ok(Some(frame)) => frame,
@@ -1748,8 +1762,7 @@ mod unix {
                     return Ok(TerminalHostExitRecord::new(&identity, exit));
                 }
             })();
-            let restored = reader
-                .set_read_timeout(previous_timeout)
+            let restored = set_link_read_timeout(reader, previous_timeout)
                 .context("restore terminal-host timeout after termination");
             match result {
                 Ok(record) => {
