@@ -156,8 +156,7 @@ impl Renewal {
         let thread = std::thread::Builder::new()
             .name("cmux-link-hold-renewal".into())
             .spawn(move || {
-                while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(RENEW_EVERY)
-                {
+                while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(RENEW_EVERY) {
                     let _ = sync_cli::machine_call(&socket, "git.seed.status", json!({"job": job}));
                 }
             })

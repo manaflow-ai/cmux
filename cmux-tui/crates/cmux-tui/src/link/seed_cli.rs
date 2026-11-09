@@ -247,7 +247,12 @@ pub(super) fn run(args: &[String]) -> i32 {
 }
 
 enum Command {
-    Pull { socket: PathBuf, local: PathBuf, remote: String, base: pull::Base },
+    Pull {
+        socket: PathBuf,
+        local: PathBuf,
+        remote: String,
+        base: pull::Base,
+    },
     /// `head_first`: the chat's folder below LOCAL (`""` for LOCAL), as a start-chat copy.
     Push {
         socket: PathBuf,
