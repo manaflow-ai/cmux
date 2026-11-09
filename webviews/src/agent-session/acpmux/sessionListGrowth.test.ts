@@ -258,6 +258,8 @@ test("a list keeps only the last few lists it was made from alive", () => {
   expect(replacedSince(lists[last - STEPS - 1], lists[last - STEPS])).toBeUndefined();
   expect(replacedSince(lists[499], lists[500])).toBeUndefined();
   expect(replacedSince(lists[last - STEPS + 1], lists[last - STEPS + 2])).toEqual([(last - STEPS + 1) % 10]);
+});
+
 test("a session listed twice in place of another, then back, is in the folder input again", () => {
   const by = new SessionsBy(folderFields);
   const a = () => counted(1);
