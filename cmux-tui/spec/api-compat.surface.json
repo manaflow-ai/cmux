@@ -12022,6 +12022,43 @@
         "nullable": true
       }
     },
+    "request:shell-read": {
+      "/after": {
+        "ty": "uint64"
+      },
+      "/run": {
+        "ty": "string",
+        "required": true
+      },
+      "/wait_ms": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
+    "request:shell-run": {
+      "/command": {
+        "ty": "string",
+        "required": true
+      },
+      "/cwd": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/run": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/scope": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:shell-stop": {
+      "/run": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:shutdown-daemon": {
       "/end_terminals": {
         "ty": "boolean"
@@ -21074,6 +21111,24 @@
     },
     "response:set-window-title": {},
     "response:set-workspace-metadata": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:shell-read": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:shell-run": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:shell-stop": {
       "/data": {
         "ty": "json",
         "required": true
