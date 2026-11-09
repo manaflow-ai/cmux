@@ -162,19 +162,14 @@ pub struct Helper<S> {
     stream: BufReader<S>,
     next_id: u64,
     /// Whether the admission reply listed [`LOCK_CAPABILITY`]: the helper reads the screen lock
-    /// right before a tool runs.
+    /// right before a tool runs. A helper without it gets no call.
     checks_lock: bool,
 }
 
 /// The admission capability of a helper that reads the screen lock after its last await before
-/// a tool runs (`ConsentGate.lockCapability`). A call can wait in the helper (on a takeover)
-/// after this bridge read the lock; only such a helper closes that window.
-///
-/// A helper without it still gets calls, after this bridge's own read just before it sends one:
-/// every DEV build embeds a prebuilt helper (`cua-helper-dev.pin.json`) that the signing workflow
-/// can rebuild only from a `feat-cmux-next` commit that has the check, so refusing it here would
-/// stop Computer Use in every DEV build until then (review of #37239, round 8). Once the pin
-/// lists the capability, [`Helper::checks_lock`] decides again (design/lock-bridge.md item 3).
+/// a tool runs (`ConsentGate.lockCapability`). A call can wait in the helper (on consent, on a
+/// takeover) after this bridge read the lock, so only such a helper is sent one; a DEV build's
+/// prebuilt helper from before the check is not (review of #37239, rounds 8 and 9).
 pub const LOCK_CAPABILITY: &str = "screen-lock-at-execution-v1";
 
 #[cfg(unix)]
@@ -216,11 +211,6 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         Ok(helper)
     }
 
-    /// Whether this helper reads the screen lock itself right before a tool runs.
-    pub fn checks_lock(&self) -> bool {
-        self.checks_lock
-    }
-
     /// `tools/list` or `tools/call`; returns the helper's `result`. A call fails with
     /// [`MAC_LOCKED`](crate::mac_lock::MAC_LOCKED) if `locked()` says the screen locked while it
     /// waited for the connection or the consent answer.
@@ -232,6 +222,9 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         locked: impl Fn() -> bool,
     ) -> Result<Value> {
         if method == "tools/call" {
+            if !self.checks_lock {
+                bail!(crate::cua_lock_gate::HELPER_OUTDATED);
+            }
             // Only the admitted host can select the machine's consent authority.
             // Never consult this agent descendant's HOME, ACPMUX_HOME or socket env.
             let status = tokio::time::timeout(
@@ -441,6 +434,9 @@ where
                         Err((_, text)) if text == crate::mac_lock::MAC_LOCKED => {
                             crate::cua_lock_gate::locked_result()
                         }
+                        Err((_, text)) if text == crate::cua_lock_gate::HELPER_OUTDATED => {
+                            crate::cua_lock_gate::outdated_result()
+                        }
                         Err((_, text)) => {
                             json!({"content": [{"type":"text", "text":text}], "isError":true})
                         }
@@ -510,6 +506,9 @@ where
                 }
                 if e.to_string() == crate::mac_lock::MAC_LOCKED {
                     return Err((-32000, crate::mac_lock::MAC_LOCKED.to_owned()));
+                }
+                if e.to_string() == crate::cua_lock_gate::HELPER_OUTDATED {
+                    return Err((-32000, crate::cua_lock_gate::HELPER_OUTDATED.to_owned()));
                 }
                 *helper = None;
                 if attempt == 1 || !is_connection_error(&e) {
