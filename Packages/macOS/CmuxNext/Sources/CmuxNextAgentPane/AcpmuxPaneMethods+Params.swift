@@ -137,6 +137,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
         "_acpmux/context": (["sessionId"], []),
         "_acpmux/ledger": (["since", "until", "limit", "groupBy"], []),
+        "_acpmux/team_audit": (["since", "until", "groupBy", "format"], []),
         "_acpmux/review_queue": (["localOnly", "limit"], []),
         "_acpmux/review_verdict": (["prUrl", "sessionId", "verdict", "comment"], []),
         "_acpmux/audit": (["since", "until", "sessionId", "limit", "cursor"], []),

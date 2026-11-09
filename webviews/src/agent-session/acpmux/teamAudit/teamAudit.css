@@ -1,0 +1,11 @@
+/* Team (teamAudit/TeamAuditScreen.tsx): History > Costs' controls, strip and status (ledger.css),
+   then a table with a column per measure. The key column takes the room left and ellipsizes; the
+   measure columns hold tabular numbers and scroll sideways in a narrow pane. */
+.tma-scroll{overflow:auto}
+.tma-table{width:100%;border-collapse:collapse;font-size:var(--text-detail);font-variant-numeric:tabular-nums}
+.tma-table th,.tma-table td{padding:var(--ds-space-1) var(--ds-space-2);text-align:right;white-space:nowrap}
+.tma-table thead th{font-weight:var(--weight-regular);color:var(--agent-muted)}
+.tma-table tbody tr:hover{background:color-mix(in srgb,var(--agent-text) 5%,transparent)}
+.tma-table .tma-key{max-width:240px;overflow:hidden;text-overflow:ellipsis;text-align:left;font-size:var(--text-body);font-weight:var(--weight-regular);color:var(--agent-text)}
+.tma-table thead .tma-key{font-size:var(--text-detail);color:var(--agent-muted)}
+.tma-saved{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

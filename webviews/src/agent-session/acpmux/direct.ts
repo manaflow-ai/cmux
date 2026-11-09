@@ -11463,6 +11463,11 @@ export class AcpmuxDirectClient {
   async ledger(params: Record<string, unknown>): Promise<unknown> {
     return this.request("_acpmux/ledger", params, 15_000);
   }
+  /// The team's agent spend for History > Team (`_acpmux/team_audit`, teamAudit/teamAuditModel.ts):
+  /// acpmux reads cmux-platform with its sign-in. An older acpmux answers method not found.
+  async teamAudit(params: Record<string, unknown>): Promise<unknown> {
+    return this.request("_acpmux/team_audit", params, 45_000);
+  }
   /// Every ask waiting on the person across agents and machines, for History > Waiting on you
   /// (`_acpmux/review_queue`, queue/queueModel.ts).
   async reviewQueue(params: Record<string, unknown> = {}): Promise<unknown> {

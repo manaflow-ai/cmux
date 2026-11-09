@@ -79,6 +79,7 @@ import { followMotion } from "../agent-session/acpmux/conversation/followMotion.
 import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
 import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
 import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
+import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -165,6 +166,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   sendStopMorph,
   sendMenuLook,
   fieldGrowthMotion,
+  teamAudit,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

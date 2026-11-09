@@ -64,6 +64,7 @@ mod ledger;
 mod offers;
 mod search;
 mod stats;
+mod team_audit;
 mod workspace_purge;
 
 use crate::no_panic::JsonExt;
@@ -185,6 +186,10 @@ pub(super) async fn route(
     // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
     if m == crate::rpc::method::MUX_LEDGER {
         return ledger::handle(hub, conn.origin, &params);
+    }
+    // The team's spend, from cmux-platform with this daemon's sign-in: local and the app's pane.
+    if m == crate::rpc::method::MUX_TEAM_AUDIT {
+        return team_audit::handle(conn.origin, &params).await;
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
