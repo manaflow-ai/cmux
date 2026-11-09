@@ -134,7 +134,7 @@
   "sidebar.updateCard.automaticControl": {"case": "keep", "why": "A look comparison for the update card's Automatic Updates control; the switch is the default look."},
   "sidebar.updateCard.button": {"case": "keep", "why": "A look comparison of update button fills; the primary default is the chosen one."},
   "sidebar.updateCard.simulatePending": {"case": "keep", "why": "A test hook that pretends an update is staged to show the Update Ready card; nothing installs."},
-  "sidebar.workspaceTitleMotion": {"case": "keep", "why": "An animation comparison for late titles; the instant default is the current look."},
+  "sidebar.workspaceTitleMotion": {"case": "keep", "why": "An animation comparison for late and renamed titles; the roll default is the current look."},
   "sidebar.workspacesAsTabs": {"case": "keep", "why": "An off-by-default prototype that remaps Cmd-Shift-[ and ]; changing the default would change the shipped keys."},
   "status.iconSet": {"case": "keep", "why": "A look comparison of status icon sets that the Debug menu also writes; the Codex-like default is the chosen one."},
   "status.indicator.style": {"case": "keep", "why": "A look comparison that overrides the status indicator style everywhere; the arc default is the shipped look."},

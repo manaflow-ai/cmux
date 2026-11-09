@@ -167,6 +167,13 @@ enum HomeMapping {
                let card = HomeApprovalRowProvider.part(question) { shown = [card] }
             else if case .widget(let widget) = p, let widgets = HomeWidgetRowProvider.installed,
                     let card = widgets.part(widget, key: HomeWidgetRowProvider.key(item, part: i)) { shown = [card] }
+            // A failed Chief turn's "(turn failed on …: …)" tail is a card in plain words, after what it said.
+            else if isChief(item.author, summary), case .text(let text, _) = p, let failure = HomeTurnFailure(text: text),
+                    let card = HomeTurnFailureRowProvider.part(failure) {
+                let lead = failure.lead.isEmpty ? [] : self.parts(.text(failure.lead), media: media, progress: item.attachmentProgress,
+                                                                   markdown: markdown, links: links)
+                shown = lead + [card]
+            }
             else { shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links) }
             parts += shown
             owners += Array(repeating: i, count: shown.count)

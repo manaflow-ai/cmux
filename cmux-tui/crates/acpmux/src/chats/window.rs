@@ -17,6 +17,29 @@ use super::search::Needle;
 use super::text::ChatText;
 use super::{ChatActivity, ChatQuery, chat_value, key_text, parse_key};
 
+#[cfg(test)]
+thread_local! {
+    /// How many row values this thread built: the cost a window's tests count.
+    static VALUES_BUILT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many row values this thread built so far (tests count a window's work with it).
+#[cfg(test)]
+pub(crate) fn values_built() -> usize {
+    VALUES_BUILT.with(std::cell::Cell::get)
+}
+
+/// A chat's row value as `_acpmux/chats` sends it, with its activity: the costly part of a row
+/// (the entry serialized, the activity fields cloned), so a window builds it only for a row it
+/// shows.
+fn row_value(chat: &IndexedChat, activity: &ChatActivity) -> Value {
+    #[cfg(test)]
+    VALUES_BUILT.with(|n| n.set(n.get() + 1));
+    let mut value = chat_value(chat);
+    activity.decorate(&mut value);
+    value
+}
+
 /// What a window shows: `{window, gen?, query?, harness?, folder?, account?, limit?, topLevel?,
 /// exclude?, keys?}`. `gen` is the client's generation of the window's spec: acpmux keeps the
 /// highest it saw and echoes it in every message, so requests that run out of order never leave a
@@ -251,11 +274,7 @@ pub fn rows(
     activity: &ChatActivity,
     text: Option<&ChatText>,
 ) -> WindowRows {
-    let decorated = |chat: &IndexedChat| {
-        let mut value = chat_value(chat);
-        activity.decorate(&mut value);
-        value
-    };
+    let decorated = |chat: &IndexedChat| row_value(chat, activity);
     if let Some(keys) = &spec.keys {
         let rows = keys
             .iter()
@@ -305,7 +324,9 @@ pub fn rows(
 
 /// A query window: every chat the filter and the exclusions pass, ranked by the palette ranker,
 /// then (with `content`) the others whose text holds the query's words, newest first; the first
-/// `limit` of them and the total that matched.
+/// `limit` of them and the total that matched. The ranker reads each chat's cheap rank entry; a
+/// row value (the entry serialized, its activity cloned) is built only for a row the window
+/// shows, so a keystroke builds at most `limit` of them however many chats match.
 // perf-hot: 150ms chats-window-query (p95 per keystroke over 2,000 chats)
 fn ranked_rows(
     spec: &WindowSpec,
@@ -315,7 +336,7 @@ fn ranked_rows(
     text: Option<&ChatText>,
 ) -> WindowRows {
     let home = dirs::home_dir().map(|home| home.to_string_lossy().trim_end_matches('/').to_owned());
-    let mut candidates: Vec<(String, Value)> = Vec::new();
+    let mut candidates: Vec<(String, &IndexedChat)> = Vec::new();
     let mut entries = Vec::new();
     for chat in index.newest_first() {
         if !spec.filter.matches(chat) {
@@ -325,9 +346,7 @@ fn ranked_rows(
         if spec.exclude.contains(&key) {
             continue;
         }
-        let mut value = chat_value(chat);
-        activity.decorate(&mut value);
-        if spec.top_level && !value.get("parent").is_none_or(Value::is_null) {
+        if spec.top_level && activity.has_parent(&key) {
             continue;
         }
         let entry = &chat.entry;
@@ -339,15 +358,15 @@ fn ranked_rows(
             entry.harness.id(),
             home.as_deref(),
         ));
-        candidates.push((key, value));
+        candidates.push((key, chat));
     }
     let order = ranked(query, entries, spec.history.as_ref().map(|h| (h.now, h.frecency.clone())));
     let mut total = order.len();
-    let mut slots: Vec<Option<(String, Value)>> = candidates.into_iter().map(Some).collect();
     let mut rows: Vec<Row> = order
         .iter()
         .take(spec.filter.limit)
-        .filter_map(|&i| slots.get_mut(i).and_then(Option::take))
+        .filter_map(|&i| candidates.get(i))
+        .map(|(key, chat)| (key.clone(), row_value(chat, activity)))
         .collect();
     let needle = text.filter(|_| spec.content).zip(Needle::parse(query).ok());
     let mut filling = false;
@@ -356,8 +375,8 @@ fn ranked_rows(
         let found = text.search(&needle);
         let titled: HashSet<usize> = order.into_iter().collect();
         // The candidates are in the index's order: newest first.
-        for (i, slot) in slots.iter_mut().enumerate() {
-            let Some(hit) = slot.as_ref().and_then(|(key, _)| found.get(key)) else { continue };
+        for (i, (key, chat)) in candidates.iter().enumerate() {
+            let Some(hit) = found.get(key) else { continue };
             if titled.contains(&i) {
                 continue;
             }
@@ -365,12 +384,12 @@ fn ranked_rows(
             if rows.len() >= spec.filter.limit {
                 continue;
             }
-            let Some((key, mut value)) = slot.take() else { continue };
+            let mut value = row_value(chat, activity);
             if let (Some(said), Some(object)) = (ChatText::hit(hit, &needle), value.as_object_mut())
             {
                 object.insert("match".into(), said);
             }
-            rows.push((key, value));
+            rows.push((key.clone(), value));
         }
     }
     WindowRows {
@@ -486,6 +505,10 @@ impl WindowState {
         Some(message)
     }
 }
+
+#[cfg(test)]
+#[path = "window_scale_tests.rs"]
+mod scale_tests;
 
 #[cfg(test)]
 mod tests {

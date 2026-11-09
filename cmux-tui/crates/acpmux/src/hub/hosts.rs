@@ -264,6 +264,10 @@ impl Hub {
         off: &OffLatch,
     ) -> Option<Arc<ChildAgent>> {
         session.floor.left_host_read.store(false, Ordering::SeqCst);
+        // An agent that cannot keep the chat's policy is stopped, not reached (`policy_mode.rs`).
+        if self.refuse_unheld(session).await {
+            return None;
+        }
         if !off.off() {
             let learning = child.clone();
             tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
@@ -639,6 +643,12 @@ impl Hub {
             "host_adopted",
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
+        // An agent that cannot keep the chat's policy (a build without its gate, a policy narrowed
+        // while no daemon reached it) does not run on (`policy_mode.rs`).
+        if self.refuse_unheld(session).await {
+            hold.take();
+            return Ok(());
+        }
         let work = self.recovery_work(session, &incarnation, resume_after);
         // Handed on before recovery, which may take the family gate itself.
         if let (Some(record), Some(hold)) = (child.host_record(), hold.take()) {

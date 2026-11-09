@@ -123,10 +123,14 @@ fn disk_margin() -> u64 {
 }
 
 /// Journal tables the swap rebuilds; every other table is copied as is.
-const REBUILT_TABLES: [&str; 6] = [
+const REBUILT_TABLES: [&str; 7] = [
     "session_journal",
     "journal_segments",
     "journal_segment_kinds",
+    // Keyed by the old segment ids: the rebuilt segments get theirs from
+    // the reducer record backfill, which starts over when its cursor's
+    // segment is gone.
+    "journal_segment_reducer_records",
     "journal_subject_index",
     "journal_event_index",
     "journal_pruned_ranges",
