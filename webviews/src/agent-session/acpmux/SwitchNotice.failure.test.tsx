@@ -46,7 +46,7 @@ afterEach(async () => {
   saved.clear();
 });
 
-async function render(container: HTMLElement, error: string, ran: string[], code?: string) {
+async function render(container: HTMLElement, error: string, ran: string[], code?: string, installs = true) {
   await act(async () => {
     root ??= createRoot(container);
     root.render(
@@ -54,6 +54,7 @@ async function render(container: HTMLElement, error: string, ran: string[], code
         switching={{ harness: "claude", name: "Claude Code", phase: "failed", error, ...(code && { code }) }}
         onRetry={() => ran.push("retry")}
         onAction={(action) => ran.push(action)}
+        installs={installs}
       />,
     );
   });
@@ -82,6 +83,21 @@ test("an agent that is not installed says so and offers Install, the raw words u
   expect(ran).toEqual(["install", "retry"]);
 });
 
+test("a chat on another machine says the agent is not installed there, with no Install that would run here", async () => {
+  const container = installDom();
+  await render(container, "spawn codex-acp: No such file or directory (os error 2)", [], undefined, false);
+  expect(sentence(container)).toBe("Claude Code isn't installed on this machine.");
+  expect(buttons(container)).not.toContain("Install");
+  expect(buttons(container)).toContain("Retry");
+});
+
+test("a missing folder is not a missing agent: no Install", async () => {
+  const container = installDom();
+  await render(container, "spawn claude-agent-acp: No such file or directory (os error 2): cwd /work/gone", []);
+  expect(sentence(container)).toBe("Claude Code couldn’t start.");
+  expect(buttons(container)).not.toContain("Install");
+});
+
 test("a start that could not reach its server says that, not the socket error", async () => {
   const container = installDom();
   const raw = "connect ECONNREFUSED 127.0.0.1:443";
@@ -98,6 +114,21 @@ test("an unknown start failure still reads as a sentence, and Copy error copies 
   await press(container, "Copy error");
   expect(copied).toEqual([raw]);
   expect(buttons(container)).toContain("Copied");
+});
+
+test("a refusal written as plain sentences keeps them, as before", async () => {
+  const container = installDom();
+  const text = "build-box did not start the agent in time. Try again.";
+  await render(container, text, []);
+  expect(sentence(container)).toBe(`Couldn't start Claude Code: ${text}`);
+  expect(details(container)).toBeNull();
+});
+
+test("acpmux's own not-installed sentence still offers Install", async () => {
+  const container = installDom();
+  await render(container, "Claude Code is not installed on this machine.", []);
+  expect(sentence(container)).toBe("Claude Code isn't installed on this machine.");
+  expect(buttons(container)).toContain("Install");
 });
 
 test("a coded refusal written for people keeps its own sentence and has no Details", async () => {
