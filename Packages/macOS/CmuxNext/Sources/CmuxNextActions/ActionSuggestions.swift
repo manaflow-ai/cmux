@@ -37,6 +37,12 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     /// The user's Chiefs (Archive Chief, Make Primary Chief, Delete Chief…'s `chief`), by agent id, the
     /// primary first: the palette's pick of which Chief, where the CLI takes its id.
     public static let homeChiefs = "homeChiefs"
+    /// This Mac's Chiefs (Edit Chief…, Set Chief Model…, Set Chief Effort…'s `chief`), by agent id: the
+    /// Chiefs of its own registry, which `cmux chief edit|engine` change.
+    public static let localChiefs = "localChiefs"
+    /// The agents in this Mac's conversations that are no Chief (Make Agent a Chief…'s `agent`), by
+    /// participant id.
+    public static let adoptableAgents = "adoptableAgents"
     /// The names of this Mac's layout templates (New Workspace from Template's `template`).
     public static let layoutTemplates = "layoutTemplates"
     /// Backgrounds a pane may take (`pane.setBackground`): the bundled art, by title.

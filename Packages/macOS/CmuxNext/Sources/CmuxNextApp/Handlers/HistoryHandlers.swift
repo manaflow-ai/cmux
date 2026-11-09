@@ -76,6 +76,12 @@ enum HistoryHandlers {
             let kind = invocation["kind"]?.stringValue.flatMap(HistoryEntry.Kind.init(rawValue:))
             services.history.clear(kinds: kind.map { [$0] } ?? [], range: range)
         })
+        // Forget Site…: the History page's Forget This Site, every profile (`cmux history remove-site`).
+        registry.bindEffect("history.removeSite", effect: { invocation in
+            guard let site = HistorySite(invocation["host"]?.stringValue) else { return .refused(HistorySite.needsSite) }
+            services.history.removePages(host: site.host)
+            return .done
+        })
         bindLayoutUndo(registry, context)
     }
 

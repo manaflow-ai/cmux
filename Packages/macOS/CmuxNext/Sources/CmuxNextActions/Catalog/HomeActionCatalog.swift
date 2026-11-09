@@ -19,8 +19,11 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
             // Invite to Team sends only from its dialog, where the person sees the seat cost and
             // presses Send: a CLI or agent run waits for that answer.
             descriptor.waitsForPerson = descriptor.id == "home.inviteToTeam"
-            // `home.chiefPetEnabled` is a user-only setting: only a person turns the pet on.
-            descriptor.isPersonOnly = ["home.toggleChiefPet", "home.messageChiefPet", "home.messageChiefFromAnyApp"].contains(descriptor.id)
+            // `home.chiefPetEnabled` is a user-only setting: only a person turns the pet on. Only the
+            // person adopts a Chief or sets its engine (the owner refuses an agent's `cmux chief
+            // adopt|engine`), so no script reaches the owner through these as the app.
+            descriptor.isPersonOnly = ["home.toggleChiefPet", "home.messageChiefPet", "home.messageChiefFromAnyApp",
+                                       "home.adoptChief", "home.setChiefModel", "home.setChiefEffort"].contains(descriptor.id)
             return descriptor
         }
     }
@@ -30,6 +33,12 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
     private static var chiefArgument: ActionArgument {
         ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string,
                        suggestions: ActionSuggestions(source: ActionSuggestions.homeChiefs, pinned: []))
+    }
+
+    /// Which of this Mac's Chiefs an Edit or engine change acts on: a pick of its registry's Chiefs.
+    private static var localChief: ActionArgument {
+        ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string,
+                       suggestions: ActionSuggestions(source: ActionSuggestions.localChiefs, pinned: []))
     }
 
     private static var all: [ActionDescriptor] {
@@ -259,6 +268,47 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 arguments: [chiefArgument],
                 cliName: "home delete-chief", destructive: true,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // This Mac's Chief registry, the palette form of `cmux chief edit|engine|adopt` (the owner's
+            // `chief.profile.*` and `chief.engine.set`, which the CLI calls itself: ownerVerb).
+            // Edit Chief… opens the Chief's editor page (Home's `#/chief/<agent>/edit`).
+            ActionDescriptor(
+                id: "home.editChief", title: t("action.home.editChief", "Edit Chief…"),
+                keywords: ["home", "chief", "edit", "profile", "role", "personality", "instructions", "tools", "backend", "lock"],
+                category: .window, symbol: "pencil", surfaces: [.palette, .keyboard],
+                arguments: [localChief],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
+                id: "home.setChiefModel", title: t("action.home.setChiefModel", "Set Chief Model…"),
+                keywords: ["home", "chief", "engine", "model", "backend", "llm"],
+                category: .window, symbol: "cpu", surfaces: [.palette, .keyboard],
+                arguments: [localChief, ActionArgument(name: "model", title: t("argument.home.chief.model", "Model"), kind: .string)],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
+                id: "home.setChiefEffort", title: t("action.home.setChiefEffort", "Set Chief Effort…"),
+                keywords: ["home", "chief", "engine", "effort", "reasoning", "thinking"],
+                category: .window, symbol: "gauge.with.dots.needle.50percent", surfaces: [.palette, .keyboard],
+                arguments: [localChief, ActionArgument(name: "effort", title: t("argument.home.chief.effort", "Effort"), kind: .enumeration([
+                    ActionEnumCase(value: "low", title: t("argument.home.chief.effort.low", "Low")),
+                    ActionEnumCase(value: "medium", title: t("argument.home.chief.effort.medium", "Medium")),
+                    ActionEnumCase(value: "high", title: t("argument.home.chief.effort.high", "High")),
+                    ActionEnumCase(value: "xhigh", title: t("argument.home.chief.effort.xhigh", "Extra High")),
+                    ActionEnumCase(value: "max", title: t("argument.home.chief.effort.max", "Max")),
+                    ActionEnumCase(value: "default", title: t("argument.home.chief.effort.default", "Default")),
+                ]))],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noTargetSurface)
+            ),
+            // An agent of the person's conversations becomes a Chief under its own id; its
+            // conversations and history stay (`chief.profile.adopt`, owner only, never a page).
+            ActionDescriptor(
+                id: "home.adoptChief", title: t("action.home.adoptChief", "Make Agent a Chief…"),
+                keywords: ["home", "chief", "adopt", "agent", "promote", "make"],
+                category: .window, symbol: "person.badge.plus", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "agent", title: t("argument.home.chief.agent", "Agent"), kind: .string,
+                                           suggestions: ActionSuggestions(source: ActionSuggestions.adoptableAgents, pinned: []))],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noTargetSurface)
             ),
             // On Home the tab keys move through the chat list (Lawrence 2026-10-21): Ctrl-Tab /
             // Ctrl-Shift-Tab, Cmd-Shift-] / [ and Ctrl-1…9, scoped to the Home page and the docked Home

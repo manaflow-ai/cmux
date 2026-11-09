@@ -14164,6 +14164,164 @@
     },
     {
       "args" : [
+        {
+          "kind" : "string",
+          "name" : "chief",
+          "required" : true
+        }
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action home-edit-chief",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.editChief",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Edit Chief…",
+      "title_key" : "action.home.editChief",
+      "title_table" : "HomeActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "chief",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "model",
+          "required" : true
+        }
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action home-set-chief-model",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.setChiefModel",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Chief Model…",
+      "title_key" : "action.home.setChiefModel",
+      "title_table" : "HomeActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "chief",
+          "required" : true
+        },
+        {
+          "kind" : "enum",
+          "name" : "effort",
+          "required" : true,
+          "values" : [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "default"
+          ]
+        }
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action home-set-chief-effort",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.setChiefEffort",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Chief Effort…",
+      "title_key" : "action.home.setChiefEffort",
+      "title_table" : "HomeActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "agent",
+          "required" : true
+        }
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action home-adopt-chief",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.adoptChief",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Make Agent a Chief…",
+      "title_key" : "action.home.adoptChief",
+      "title_table" : "HomeActions"
+    },
+    {
+      "args" : [
 
       ],
       "cli" : "focusMove",
@@ -38951,37 +39109,6 @@
       "args" : [
 
       ],
-      "cli" : "guiOnly",
-      "cli_name" : "settings personalize",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "appearance.personalize",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Personalization…",
-      "title_key" : "action.appearance.personalize",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
-
-      ],
       "cli" : "stepAdjust",
       "cli_name" : "settings increase-interface-size",
       "context_menu" : "stepAdjust",
@@ -39369,6 +39496,37 @@
       "palette_suggested" : null,
       "title" : "Copy Logs",
       "title_key" : "action.help.copyLogs",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action help-clear-error-log",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "help.clearErrorLog",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Clear Error Log",
+      "title_key" : "action.help.clearErrorLog",
       "title_table" : "ActionCatalog"
     },
     {
@@ -43713,6 +43871,41 @@
       "palette_suggested" : null,
       "title" : "Clear History…",
       "title_key" : "action.history.clear",
+      "title_table" : "HistoryActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "host",
+          "required" : true
+        }
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action history-remove-site",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "history.removeSite",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Forget Site…",
+      "title_key" : "action.history.removeSite",
       "title_table" : "HistoryActions"
     },
     {

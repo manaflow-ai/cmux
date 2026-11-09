@@ -43,6 +43,15 @@ nonisolated enum HelpLinkActionCatalog: ActionCatalogGroup {
                 keywords: ["logs", "errors", "diagnostics", "copy", "clipboard", "bug report", "support"], category: .settings,
                 symbol: "doc.on.clipboard", surfaces: [.palette, .menu], mainMenu: .help, surfacePlan: gui
             ),
+            // Empties the error journal (`cmux errors clear`, the app's errors.clear), so Copy Logs after a
+            // repro holds only what the repro logged.
+            ActionDescriptor(
+                id: "help.clearErrorLog",
+                title: String(localized: "action.help.clearErrorLog", defaultValue: "Clear Error Log", bundle: .module),
+                keywords: ["logs", "errors", "diagnostics", "clear", "reset", "journal", "bug report"], category: .settings,
+                symbol: "trash", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noObject)
+            ),
         ]
     }
 }
