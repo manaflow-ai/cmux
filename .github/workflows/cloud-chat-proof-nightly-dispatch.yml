@@ -15,10 +15,6 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: cloud-chat-proof-nightly-dispatch
-  cancel-in-progress: false
-
 jobs:
   proof:
     if: github.repository == 'manaflow-ai/cmux'
