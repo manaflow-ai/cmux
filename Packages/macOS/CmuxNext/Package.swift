@@ -1183,7 +1183,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextFilesTests",
-            dependencies: ["CmuxNextFiles", "CmuxNextTestSupport"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextFiles",
+                "CmuxNextTestSupport",
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         // The Files pane's AppKit views over CmuxNextFiles: list (NSTableView), icons
