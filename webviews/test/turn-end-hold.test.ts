@@ -3,7 +3,7 @@
 // kinda hitches/shifts a bit?").
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { foldsToHold, withHeldFolds } from "../src/agent-session/acpmux/conversation/turnEndHold";
+import { foldsToHold, oneKeyPerMessageRun, withHeldFolds } from "../src/agent-session/acpmux/conversation/turnEndHold";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 
 let at = 0;
@@ -45,10 +45,12 @@ test("work in view stays open at the turn's end; the reader's place keeps its ro
   const folded = turnView(ended, new Set());
   expect(ids(folded)).not.toContain("t1");
   expect(ids(running)).toContain("t1");
-  const held = hold(["n2", "t2", "answer"]);
+  // While it ran, every row drew as it came, the short notes between the runs too (cmux#38339): the
+  // reader saw the run "t1" and the reply.
+  const held = hold(["t1", "answer"]);
   expect(held).toContain("worked-u");
   const open = turnView(ended, withHeldFolds(new Set(), new Set(held)));
-  for (const id of ["n2", "t2", "answer"]) expect(ids(open)).toContain(id);
+  for (const id of ["t1", "answer"]) expect(ids(open)).toContain(id);
 });
 
 test("a reader in older turns, or only on the prompt and the reply, holds nothing open", () => {
@@ -68,9 +70,10 @@ test("rows in the unchanged prefix are not looked at", () => {
   expect(foldsToHold(ended, view, view, view.length, ["t1"], new Set())).toEqual([]);
 });
 
-// cmux#33300: a message run open while the turn ran folds under the turn's "Worked for" at its end.
-// A member the reader had in view gave the hold its own run key besides the one the run's line
-// toggles, so the run stayed open on the first close and needed a second click.
+// cmux#33300: a message run folds under the turn's "Worked for" at its end. A member the reader had
+// in view gave the hold its own run key besides the one the run's line toggles, so the run stayed
+// open on the first close and needed a second click. A running turn draws no message run
+// (cmux#38339): its line forms at the turn's end, over rows the reader has in view.
 test("a message run held open at the turn's end closes on one click", () => {
   const tool = (id: string, extra: Record<string, unknown> = {}) => ({
     kind: "tool",
@@ -91,17 +94,18 @@ test("a message run held open at the turn's end closes on one click", () => {
     row("p-answer", "assistant", { text: "Every lane has its orders. ".repeat(6) + "\n\n- one\n- two" }),
   ];
   const done = [...turn, row("p-end", "turnSummary", { status: "completed", durationMs: 9_000 })];
-  const codex = { liveRuns: true, lineBelow: true, agentFamily: "codex" } as const;
-  // While the turn ran, the reader opened its run of messages.
-  const closedLive = turnView(turn, new Set(), { ...codex, working: true });
-  const line = closedLive.find((each) => each.kind === "messageRun")!;
-  expect(line.messageRun?.rows).toEqual(expect.arrayContaining(["run-1", "report", "run-2"]));
-  const open = new Set([line.id]);
+  const codex = { agentFamily: "codex" } as const;
+  // While the turn ran, its rows drew as they came, with no message run's line over them.
+  const open = new Set<string>();
   const live = turnView(turn, open, { ...codex, working: true });
-  expect(ids(live)).toContain("run-2");
-  // The turn ends with a later member of the run in view: the hold keeps the turn's fold open.
-  const held = foldsToHold(done, turnView(done, open, codex), live, undefined, ["report", "run-2"], open);
+  expect(live.some((each) => each.kind === "messageRun")).toBe(false);
+  for (const id of ["run-1", "report", "run-2"]) expect(ids(live)).toContain(id);
+  // The turn ends with two members of the run in view: the hold keeps the turn's fold open, and the
+  // run open by the one key its line toggles (App.tsx shapes the view with the held folds first).
+  const each = foldsToHold(done, turnView(done, open, codex), live, undefined, ["report", "run-2"], open);
+  const held = oneKeyPerMessageRun(each, turnView(done, new Set([...open, ...each]), codex));
   expect(held).toContain("worked-p");
+  expect(held.filter((key) => key.startsWith("messageRun-"))).toHaveLength(1);
   const expanded = new Set([...open, ...held]);
   const kept = turnView(done, expanded, codex);
   const keptLine = kept.find((each) => each.kind === "messageRun")!;

@@ -104,6 +104,7 @@
     "cmux-next-perf-budgets.yml: Start the frame-pacing bench on feat-cmux-next": "baseline 2026-11-04",
     "cmux-next-perf-budgets.yml: Start the next part now": "polls (tests/test_ci_no_github_token_polling.py): the scan reads every loop of a script the step runs; perf-cron.py's sleeping loop is in run-part, which this step never runs",
     "cmux-next-perf-budgets.yml: Store the part, compare, keep the regression issue": "polls (tests/test_ci_no_github_token_polling.py): the scan reads every loop of a script the step runs; perf-cron.py's sleeping loop is in run-part, which this step never runs",
+    "cmux-next-perf-bench.yml: xbench on a fleet mini": "only off feat-cmux-next (main's daily cron): one commits read for the tip sha (curl --retry 2); git ls-remote from the gateway mini timed out (run 42187585623), and a run on feat-cmux-next reads github.sha instead",
     "cmux-next-pr-autofix.yml: Apply and commit": "baseline 2026-11-04",
     "cmux-next-pr-autofix.yml: Changed areas": "baseline 2026-11-04",
     "cmux-next-pr-autofix.yml: Generated files this pull request did not cause": "baseline 2026-11-04",

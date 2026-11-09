@@ -8,9 +8,8 @@
 //! initiator's static key. A key that is not a configured peer is dropped
 //! there, before any session state exists, and gets no answer.
 //!
-//! A datagram's source is a route: a UDP address, or a gateway and the
-//! address inside its tunnel. Both are handled the same way, and roaming
-//! moves a peer to the route of its latest authenticated datagram.
+//! A datagram's source is its UDP address, and roaming moves a peer to the
+//! address of its latest authenticated datagram.
 
 use boringtun::noise::handshake::parse_handshake_anon;
 use boringtun::noise::{Packet, Tunn, TunnResult};

@@ -709,14 +709,14 @@ impl ServiceStream {
     }
 
     pub async fn send_on(&self, lane: Lane, payload: Bytes) -> Result<(), ServiceError> {
-        let lane = if self.service == Service::TcpTunnel { Lane::Tunnel } else { lane };
+        let lane = if is_tunnel(self.service) { Lane::Tunnel } else { lane };
         let _outbound = self.outbound[lane as usize].lock().await;
         self.require_active()?;
         if self.terminal.closing.load(Ordering::Acquire) {
             return Err(ServiceError::Closed);
         }
         let state = self.state.load(Ordering::Acquire);
-        let closed = if self.service == Service::TcpTunnel {
+        let closed = if is_tunnel(self.service) {
             state & (STREAM_LOCAL_FIN | STREAM_RESET) != 0
         } else {
             state != 0
@@ -798,7 +798,7 @@ impl ServiceStream {
             && (chunk.finished || chunk.reset)
         {
             receiver.remote_finished_delivered = true;
-            if self.service == Service::TcpTunnel {
+            if is_tunnel(self.service) {
                 let flag =
                     if chunk.reset { STREAM_REMOTE_FIN | STREAM_RESET } else { STREAM_REMOTE_FIN };
                 self.state.fetch_or(flag, Ordering::AcqRel);
@@ -822,7 +822,7 @@ impl ServiceStream {
             return Ok(());
         }
         self.terminal.closing.store(true, Ordering::Release);
-        let lane = if self.service == Service::TcpTunnel { Lane::Tunnel } else { lane };
+        let lane = if is_tunnel(self.service) { Lane::Tunnel } else { lane };
         let lanes = close_lanes(self.service, &lane);
         for lane in lanes {
             let _outbound = self.outbound[*lane as usize].lock().await;
@@ -836,13 +836,13 @@ impl ServiceStream {
             self.terminal.local.fetch_or(bit, Ordering::AcqRel);
         }
         self.require_active()?;
-        let committed = if self.service == Service::TcpTunnel {
+        let committed = if is_tunnel(self.service) {
             STREAM_LOCAL_FIN
         } else {
             STREAM_LOCAL_FIN | STREAM_REMOTE_FIN
         };
         let previous = self.state.fetch_or(committed, Ordering::AcqRel);
-        if self.service != Service::TcpTunnel || previous & STREAM_REMOTE_FIN != 0 {
+        if !is_tunnel(self.service) || previous & STREAM_REMOTE_FIN != 0 {
             let lane_mask = lanes.iter().fold(0, |mask, lane| mask | lane_bit(*lane));
             self.closed.lock().await.insert_on(self.id, lane_mask);
             self.registrations.lock().await.remove(&self.id);
@@ -858,7 +858,7 @@ impl ServiceStream {
         // carrier cannot deliver FIN ahead of the reason. Tunnel streams must
         // use the tunnel lane for both frames.
         self.close_on(lane).await?;
-        if self.service == Service::TcpTunnel {
+        if is_tunnel(self.service) {
             // A rejected OPEN is terminal; unlike an accepted tunnel, it does
             // not wait for the peer's half-close. Mark it complete so Drop
             // does not send a RESET after the ordered rejection and FIN.
@@ -909,7 +909,7 @@ fn drain_failed_receiver(receiver: &mut StreamReceiver) {
 impl Drop for ServiceStream {
     fn drop(&mut self) {
         let previous = self.state.fetch_or(STREAM_RESET, Ordering::AcqRel);
-        let complete = if self.service == Service::TcpTunnel {
+        let complete = if is_tunnel(self.service) {
             previous & (STREAM_LOCAL_FIN | STREAM_REMOTE_FIN)
                 == STREAM_LOCAL_FIN | STREAM_REMOTE_FIN
         } else {
@@ -1023,8 +1023,8 @@ async fn reader_loop(reader: ReaderLoop) {
                     break;
                 }
             };
-            if (control.0 == Service::TcpTunnel && frame.lane != Lane::Tunnel)
-                || (control.0 != Service::TcpTunnel && frame.lane == Lane::Tunnel)
+            if (is_tunnel(control.0) && frame.lane != Lane::Tunnel)
+                || (!is_tunnel(control.0) && frame.lane == Lane::Tunnel)
             {
                 let _ = fatal.send(Some("service open frame used an invalid lane".into()));
                 break;
@@ -1149,7 +1149,7 @@ async fn reader_loop(reader: ReaderLoop) {
             let _ = fatal.send(Some(format!("frame for unknown stream {}", frame.stream)));
             break;
         };
-        if service == Service::TcpTunnel
+        if is_tunnel(service)
             && (frame.lane != Lane::Tunnel || stream_generation != Some(frame.generation))
         {
             let _ = fatal.send(Some("tunnel stream frame crossed its generation boundary".into()));
@@ -1250,11 +1250,7 @@ async fn reader_loop(reader: ReaderLoop) {
         };
         match sender.try_send(chunk) {
             Ok(()) if !finished => {}
-            Ok(())
-                if service != Service::TcpTunnel
-                    || reset
-                    || prior_state & STREAM_LOCAL_FIN != 0 =>
-            {
+            Ok(()) if !is_tunnel(service) || reset || prior_state & STREAM_LOCAL_FIN != 0 => {
                 streams.lock().await.remove(&frame.stream);
                 closed
                     .lock()
@@ -1382,7 +1378,7 @@ async fn send_reset_or_close_session(
 fn reset_no_longer_needed(completion: Option<&(Arc<AtomicU8>, Service)>) -> bool {
     let Some((state, service)) = completion else { return false };
     let state = state.load(Ordering::Acquire);
-    if *service == Service::TcpTunnel {
+    if is_tunnel(*service) {
         state & (STREAM_LOCAL_FIN | STREAM_REMOTE_FIN) == STREAM_LOCAL_FIN | STREAM_REMOTE_FIN
     } else {
         state & (STREAM_LOCAL_FIN | STREAM_REMOTE_FIN) != 0
@@ -1449,8 +1445,7 @@ async fn reset_tunnel_streams(streams: &Mutex<HashMap<u64, StreamRegistration>>,
         let stale = streams
             .iter()
             .filter(|(_, registration)| {
-                registration.service == Service::TcpTunnel
-                    && registration.generation != Some(generation)
+                is_tunnel(registration.service) && registration.generation != Some(generation)
             })
             .map(|(stream, _)| *stream)
             .collect::<Vec<_>>();
@@ -1468,7 +1463,7 @@ fn default_lane(service: Service) -> Lane {
         | Service::TerminalBytes
         | Service::ComputerUse => Lane::Interactive,
         Service::WorkspaceRpc => Lane::Control,
-        Service::TcpTunnel => Lane::Tunnel,
+        Service::TcpTunnel | Service::LocalSocket | Service::Acpmux => Lane::Tunnel,
     }
 }
 
@@ -1507,16 +1502,23 @@ fn rejected_open_tombstone_lane_mask(service: Service, open_lane: Lane) -> u8 {
     tombstone_lane_mask(service, open_lane) | legal_tombstone_lane_mask(service)
 }
 
+/// A raw byte stream on the Tunnel lane, bound to its generation and never
+/// replayed: [`Service::TcpTunnel`], [`Service::LocalSocket`] and
+/// [`Service::Acpmux`].
+fn is_tunnel(service: Service) -> bool {
+    matches!(service, Service::TcpTunnel | Service::LocalSocket | Service::Acpmux)
+}
+
 fn open_lane(service: Service) -> Lane {
-    if service == Service::TcpTunnel { Lane::Tunnel } else { Lane::Control }
+    if is_tunnel(service) { Lane::Tunnel } else { Lane::Control }
 }
 
 fn reset_lane(service: Service) -> Lane {
-    if service == Service::TcpTunnel { Lane::Tunnel } else { Lane::Control }
+    if is_tunnel(service) { Lane::Tunnel } else { Lane::Control }
 }
 
 fn generation_for_service(service: Service, generation: u64) -> Option<u64> {
-    (service == Service::TcpTunnel).then_some(generation)
+    is_tunnel(service).then_some(generation)
 }
 
 #[derive(Debug)]

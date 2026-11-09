@@ -54,7 +54,6 @@ enum SurfaceDiagnosticsReport {
                     object["surface_swaps"] = JSONValue(diagnostics.swappedSurfaces)
                     object["local_history_mismatch"] = JSONValue(diagnostics.localHistoryMismatches)
                     object["local_snapshots"] = JSONValue(diagnostics.localSnapshots)
-                    object["skipped_images"] = JSONValue(diagnostics.skippedImages)
                     object["last_frame_holds"] = JSONValue(diagnostics.lastFrameHolds)
                     object["frame_held"] = .bool(diagnostics.holdingFrame)
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
@@ -88,7 +87,7 @@ enum SurfaceDiagnosticsReport {
             "last_frames": .object(services.cache.lastFrames.report.mapValues { JSONValue($0) }),
             "parked_workspaces": JSONValue(services.windows.controllers.reduce(0) { $0 + $1.parked.count }),
             "hibernated_workspaces": JSONValue(services.workspaceHibernation.hibernated.count),
-            "workspaces_hibernated_total": JSONValue(services.workspaceHibernation.hibernatedCount),
+            "workspaces_hibernated_total": JSONValue(services.workspaceHibernation.hibernatedCount), "terminals_freed_total": JSONValue(services.workspaceHibernation.freedCount),
             "workspace_pages": .object((services.cache.hibernation?.workspacePageOutcomes ?? [:]).mapValues { JSONValue($0) }),
             "hibernation": hibernation(services),
         ]
@@ -132,7 +131,7 @@ enum SurfaceDiagnosticsReport {
             "frozen": .array(hibernation.frozen.sorted().map(JSONValue.string)),
             // Each live page's lifecycle phase (workspace hibernation discards only `mountedHidden` ones).
             "page_phases": .object(Dictionary(uniqueKeysWithValues: services.cache.browsers.keys.map { ($0, JSONValue.string(services.cache.phase(of: $0).rawValue)) })),
-            "chat_pages": .array(services.madeAgentTabs?.views.keys.sorted().map(JSONValue.string) ?? []),
+            "chat_pages": .array(services.madeAgentTabs?.views.keys.map(\.key).sorted().map(JSONValue.string) ?? []),
             "neighbor_radius": JSONValue(hibernation.neighborRadius),
             "awake_neighbors": .array(hibernation.awakeNeighbors.sorted().map(JSONValue.string)),
             "prewarmed_total": JSONValue(hibernation.prewarmedCount),

@@ -6,7 +6,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { runStretches, ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
+import { runStretches } from "../src/agent-session/acpmux/conversation/toolGroups";
+import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { toolGroupLabel, toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 import { toolRunSummary } from "../src/agent-session/acpmux/conversation/toolRunSummary";
 import { translate } from "../src/agent-session/acpmux/i18n";
@@ -152,7 +153,7 @@ test("an ended turn's opened Worked for folds a run that edited, edit and all", 
     { id: "done", kind: "assistant", version: 1, at: at(3), text: "Retries are in." },
     { id: "s", kind: "turnSummary", version: 1, at: at(4), status: "completed", toolCount: 5 },
   ];
-  const work = turnView(rows, new Set(["worked-u"]), { liveRuns: true }).find(
+  const work = turnView(rows, new Set(["worked-u"])).find(
     (entry) => entry.kind === "activity" && entry.id.startsWith("work") && entry.settled,
   )!;
   expect(work.foldRun).toBe(true);
@@ -160,5 +161,5 @@ test("an ended turn's opened Worked for folds a run that edited, edit and all", 
   expect(html).toContain("Edited a file, ran a command, and performed 3 other actions");
   expect(lines(work)).toBe(1);
   // The reply is never folded: it stays its own row after the fold.
-  expect(turnView(rows, new Set(), { liveRuns: true }).some((entry) => entry.id === "done")).toBe(true);
+  expect(turnView(rows, new Set()).some((entry) => entry.id === "done")).toBe(true);
 });

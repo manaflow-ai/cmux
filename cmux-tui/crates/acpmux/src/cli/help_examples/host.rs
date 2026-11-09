@@ -316,6 +316,27 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine key",
+        &[
+            ("Print the line a new machine adds to authorized_keys", "acpmux machine key"),
+            ("Make an ed25519 key when this machine has none", "acpmux machine key --create"),
+        ],
+    ),
+    (
+        "machine agents",
+        &[
+            (
+                "See whether Claude Code and Codex are ready on mini-3",
+                "acpmux machine agents mini-3",
+            ),
+            ("Install Claude Code there", "acpmux machine agents mini-3 --install claude"),
+            (
+                "Sign Codex in there from this terminal",
+                "acpmux machine agents mini-3 --login codex",
+            ),
+        ],
+    ),
+    (
         "machine deps",
         &[
             ("Restore this project's dependencies from the cache", "acpmux machine deps warm"),

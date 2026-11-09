@@ -257,7 +257,10 @@ public final class LayoutModel {
         // start) stands in, not the screen's first: the close's first frame already moves the
         // camera toward it (Lawrence 2026-10-20, closing the last column).
         let fallback = focusedPane.flatMap { Self.neighbor(of: $0, in: previous, on: activeScreen) } ?? activeScreen?.layout.panes.first
-        if focusedPane != fallback { focusedPane = fallback }
+        if focusedPane != fallback {
+            dismissFocusRing() // nobody keyed the stand-in
+            focusedPane = fallback
+        }
     }
 
     /// The pane of `screen` nearest before `closed` in its old order (`old`), else the nearest
@@ -393,6 +396,7 @@ public final class LayoutModel {
         guard activeScreenID != id, let screen = screens.first(where: { $0.id == id }) else { return }
         activeScreenID = id
         if focusedPane.map({ !screen.layout.contains($0) }) ?? true {
+            dismissFocusRing()
             focusedPane = screen.layout.panes.first
         }
         emit(.selectScreen(id))
@@ -499,11 +503,28 @@ public final class LayoutModel {
 
     /// Called by the view when pane visibility changes. `keepAlive`
     /// includes the visible panes.
+    /// The root's layout pass reports here (``LayoutRootView/updateVisibility()``): the compares read the stored sets
+    /// unobserved (``LayoutPassReads``), or the next report would mark the root for one more layout.
     public func reportVisiblePanes(_ panes: Set<PaneID>, keepAlive: Set<PaneID>) {
-        if visiblePanes != panes { visiblePanes = panes }
+        if _visiblePanes != panes { visiblePanes = panes }
         let keepAlive = keepAlive.union(panes)
-        if keepAlivePanes != keepAlive { keepAlivePanes = keepAlive }
+        if _keepAlivePanes != keepAlive { keepAlivePanes = keepAlive }
     }
+
+    /// What the root's layout pass reads, unobserved. AppKit (macOS 26 and later) tracks each observable read in a view's
+    /// `layout()` and marks the view for layout when that value changes. The root lays out from its snapshot syncs
+    /// (`LayoutRootView.sync`), so its pass must not subscribe it: a key press's `screens` change re-ran the root's
+    /// layout in the spring's first frame with no size change (RESIZE P0 5, `KeyResizeLayoutsPerFrameTests`). Same
+    /// values as the observed properties; read them nowhere a change must be heard.
+    @MainActor struct LayoutPassReads {
+        let model: LayoutModel
+        var activeScreenID: ScreenID? { model._activeScreenID }
+        var focusedPane: PaneID? { model._focusedPane }
+        var activeScreen: LayoutScreen? { model._screens.first { $0.id == model._activeScreenID } }
+    }
+
+    /// The reads for the root's layout pass (``LayoutPassReads``).
+    var layoutPassReads: LayoutPassReads { LayoutPassReads(model: self) }
 
     func emit(_ intent: LayoutIntent) {
         intentHandler?(intent)

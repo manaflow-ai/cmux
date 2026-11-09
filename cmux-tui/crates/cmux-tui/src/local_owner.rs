@@ -120,6 +120,8 @@ const REAP_INTERVAL: Duration = Duration::from_secs(1);
 /// file first means the owner exited (a lost bind race or a crash).
 pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 
+mod carried_launch;
+pub(crate) use carried_launch::CarriedLaunch;
 mod exit_with;
 mod install_key;
 mod replace;
@@ -232,8 +234,11 @@ pub(crate) struct OwnerSpec {
     /// owner has no terminal of its own, so the client passes these values
     /// through the private startup contract before it creates a PTY.
     pub initial_host_colors: Option<cmux_tui_core::DefaultColors>,
-    /// `--terminal-reap-grace-seconds` for the owner. Reaping is opt-in, so
-    /// `None` starts an owner that never reaps unplaced terminals.
+    /// `--terminal-reap-grace-seconds` for the owner. `None` starts it with
+    /// the default grace ([`cmux_tui_core::DEFAULT_TERMINAL_REAP_GRACE`]):
+    /// an owner a client starts ends every terminal that has had no tab for
+    /// the grace. Without it each closed tab's shell ran until the session
+    /// ended (W5-O, bench round 4: five hidden shells after 8 min).
     pub terminal_reap_grace: Option<Duration>,
     /// `--exit-with-pid` for an owner this call spawns (`exit_with`).
     pub exit_with_pid: Option<ExitWith>,
@@ -251,6 +256,10 @@ pub(crate) struct OwnerSpec {
     /// The loopback WebSocket listener for an owner this call spawns; a
     /// running owner keeps the listener it was started with.
     pub websocket: Option<EnsureWebSocket>,
+    /// Launch environment of the owner a `server restart` replaces
+    /// ([`CarriedLaunch`]), set on an owner this call spawns before the
+    /// values this client passes itself.
+    pub carried_env: Vec<(String, String)>,
 }
 
 /// A validated, client-ready owner.
@@ -842,7 +851,12 @@ fn ready_pipe(command: &mut Command) -> io::Result<(std::fs::File, io::PipeWrite
 }
 
 fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
-    let program = platform::self_exe_for_spawn()?;
+    // A build staged beside this binary goes in now, while no owner runs this
+    // session: the owner starts from the new file (staged_update.rs).
+    let program = match crate::staged_update::promote_own_binary() {
+        Some(binary) => binary,
+        None => platform::self_exe_for_spawn()?,
+    };
     let mut command = Command::new(program);
     command.arg("--headless");
     command.arg("--session").arg(&spec.session);
@@ -853,9 +867,8 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(term) = &spec.term {
         command.arg("--term").arg(term);
     }
-    if let Some(grace) = spec.terminal_reap_grace {
-        command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
-    }
+    let grace = spec.terminal_reap_grace.unwrap_or(cmux_tui_core::DEFAULT_TERMINAL_REAP_GRACE);
+    command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
     if let Some(exit_with) = spec.exit_with_pid {
         command.arg(EXIT_WITH_PID_ARG).arg(exit_with.arg());
     }
@@ -878,16 +891,14 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         }
     }
     configure_detached_owner_environment(&mut command);
+    for (key, value) in &spec.carried_env {
+        command.env(key, value);
+    }
     if let Some(tools) = &spec.chief_tools_socket {
         command.env("CMUX_TUI_CHIEF_TOOLS_SOCKET", tools);
     }
     if let Some(brains) = &spec.chief_brains {
         command.env(cmux_tui_core::chief_brains::ENV, brains);
-    }
-    // R-LIFECYCLE stage 1's switch, when off, reaches only the owner this
-    // call spawns (headless.rs `take_owner_keepers_switch`); on is the default.
-    if !crate::headless::owner_keepers_switch() {
-        command.env(crate::headless::OWNER_KEEPERS_ENV, "0");
     }
     // The app directory settings this client took at start go to the owner
     // daemon it spawns only (cx-e0cs): the owner takes them out of its own

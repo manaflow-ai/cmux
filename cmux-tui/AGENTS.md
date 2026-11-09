@@ -9,9 +9,29 @@ Maintainers do not run `cargo`, `rustc`, or Zig on their local Mac and do not us
 
 Use `--filter` during focused development. It accepts one Rust test-name substring and verifies that the filter selects at least one test on hosted Linux and macOS. The reserved `chatmux_relay` (or `chatmux-relay`) selector runs the complete `chatmux-relay` package because Cargo test names do not include package names. Use `--full` for the merge gate. Full mode runs the complete Linux and macOS suites, package builds, and a Windows-hosted binary execution check.
 
-The script rejects dirty or unpushed work, verifies the exact commit in every hosted job, waits for completion, prints failed logs, and downloads the macOS arm64 TUI and userland agent detector to `cmux-tui/target/hosted/<commit>/cmux-tui` and `cmux-tui/target/hosted/<commit>/cmux-agent-screen-detection`. Running those downloaded binaries on the Mac is allowed.
+The script rejects dirty or unpushed work, verifies the exact commit in every hosted job, waits for completion, prints failed logs, and downloads the macOS arm64 TUI and userland agent detector to `cmux-tui/target/hosted/<commit>/cmux-tui` and `cmux-tui/target/hosted/<commit>/cmux-agent-screen-detection`. Running those downloaded binaries on the Mac is allowed. When the wait ends (`CMUX_TUI_HOSTED_TIMEOUT_SECONDS`, default 7200) before the run is done, the script does not cancel the run: it prints the run URL and `glaeda-gh wait run manaflow-ai/cmux/<id>`, and exits with status 3. Wait on that run; do not start a second one. Ctrl-C or `--cancel-on-timeout` cancels the hosted run.
 
 `rust-toolchain.toml` is the single Rust toolchain source for hosted TUI tests, package builds, and live conformance. Change that file instead of adding a workflow-specific Rust version.
+
+## Daemon edits: swap the running daemon
+
+To try a daemon edit (`crates/cmux-tui-core`, `crates/cmux-tui`, `crates/acpmux`) on a running session,
+swap the daemon for the new build. Don't end its terminals or kill it. Run the new build's own CLI:
+
+```bash
+<new build>/cmux-tui --session <name> server restart   # same as `cmux daemon restart`
+<new build>/cmux-tui-acpmux daemon restart             # agent sessions
+```
+
+`server restart` stops the session's daemon the way an update hands it off, waits for it to exit,
+and starts the daemon of the binary you ran. That daemon adopts every terminal: the same shells,
+their scrollback and their input. `acpmux daemon restart` does the same for agent sessions, which
+keep their conversation. On a Mac, the new build is the binary `verify-cmux-tui-hosted.sh` downloads
+to `cmux-tui/target/hosted/<commit>/` (above). A tagged app's session is `cmux-app-<tag>`. The app
+hands its session back to the daemon bundled in it on its next launch, unless that bundle carries
+your build (`CMUX_NEXT_TUI_BIN=<path> scripts/reload.sh --tag <tag>`).
+`scripts/cmux-next/daemon-swap-check.py --old A --new B` checks a swap between two builds end to end
+(HQ#7149 L7 runs it hourly against NIGHTLYs).
 
 ## Settings in the CLI and MCP
 

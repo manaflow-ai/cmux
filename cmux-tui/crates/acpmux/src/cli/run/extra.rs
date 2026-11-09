@@ -398,6 +398,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             all_idle,
             interrupt,
             leave_dirty,
+            carry_changes,
             cwd,
             dry_run,
             from,
@@ -408,6 +409,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 all_idle,
                 interrupt,
                 leave_dirty,
+                carry_changes,
                 cwd,
                 dry_run,
                 resume_there: false,
@@ -541,7 +543,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         v.get("sessions").and_then(Value::as_u64).unwrap_or(0),
                         v.get("liveAgents").and_then(Value::as_u64).unwrap_or(0)
                     );
-                    if let Some(line) = crate::hub::views::outdated_hosts_line(&v) {
+                    if let Some(line) = crate::hub::views::other_build_hosts_line(&v) {
                         println!("{line}");
                     }
                     println!(
@@ -694,6 +696,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::Approvals { cmd }) => {
             crate::cli::host_approvals::run(cmd, json_out).await
         }
+        // This machine's own key file or ssh agent; no daemon.
+        Command::Host(PeerCmd::Key { create }) => crate::cli::host_ssh_key::run(create, json_out),
         Command::Host(PeerCmd::Join {
             ticket,
             name,
@@ -1040,6 +1044,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Candidates { probe } => {
                     return crate::cli::host_candidates::run(&client, probe, json_out).await;
                 }
+                PeerCmd::Agents { target, install, login } => {
+                    let peers = client.request("_acpmux/peers", json!({})).await?;
+                    let list =
+                        peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let (name, host, _) = crate::cli::host_enroll::pick_target(&list, &target);
+                    return crate::cli::host_agents::run(&name, &host, install, login, json_out);
+                }
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
@@ -1047,7 +1058,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 | PeerCmd::Leave { .. }
                 | PeerCmd::Consent { .. }
                 | PeerCmd::Vault { .. }
-                | PeerCmd::Deps { .. } => {
+                | PeerCmd::Deps { .. }
+                | PeerCmd::Key { .. } => {
                     return Err(anyhow!(
                         "host join, leave, consent, vault and deps are handled before daemon connection"
                     ));

@@ -6,9 +6,18 @@
 // - `page-load`: this document loaded (`type`: navigate, reload, back_forward).
 // - `visibility`: the document became hidden or visible (WebKit follows the window's occlusion).
 // - `transcript-mount`: the transcript's root mounted; `n` over 1 is a remount on this page.
-// - `long-frame`: a frame over 100 ms while the page is visible. Cheap: a `long-animation-frame`
-//   observer where the engine has one; otherwise frames are timed only while the page changes
-//   (a DOM mutation arms a frame watch that stops a second after the last one), never in a loop.
+// - `transcript-replace`: the chat on screen drew a frame with none of its rows from before (an
+//   empty transcript, or every row built anew), after a reset of it (direct.ts `noteReplace`):
+//   `cause` names the reset, `blank` an empty frame, `n` the chat's count on this page.
+// - `long-frame`: a frame over 100 ms while the page is visible, from a `long-animation-frame`
+//   observer where the engine has one, else from the frame watch below.
+// - `frames`: how smoothly the page drew while it changed, at most once a second: `n` frames that
+//   followed a DOM change, their intervals' `p50`, `p95` and `max` in ms, `miss120` and `miss60`
+//   (intervals that missed a 120 Hz or a 60 Hz frame), `over50`, and `ms` the span covered (Leo,
+//   2026-11-07: "find, like, where we're dropping frames"). `cmux perf record` reads them.
+//
+// Frames are timed only while the page changes: a DOM mutation arms a frame watch that stops a
+// second after the last one, never a loop that runs while the page is still.
 //
 // No text of the chat goes out: kinds, numbers and short words. Events are sent in batches at
 // most once a second, through the app's own WebKit handler only: the gallery's stand-in and tests send nothing.
@@ -32,7 +41,9 @@ export class FlickerLog {
   constructor(
     private readonly send: Send,
     private readonly now: () => number = Date.now,
-    private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = setTimeout,
+    // Called through a closure: Chromium refuses `setTimeout` called as this object's method.
+    private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = (run, ms) =>
+      setTimeout(run, ms),
   ) {}
 
   record(kind: string, fields: Record<string, string | number | boolean> = {}): void {
@@ -62,43 +73,115 @@ export class FlickerLog {
   }
 }
 
-/// Times frames while `armed` keeps being called; reports each over LONG_FRAME_MS while visible.
+/// Interval bounds of the `frames` event: a 120 Hz frame is 8.3 ms and a 60 Hz one 16.7 ms, so an
+/// interval past one and a half of either is a frame the page missed.
+const MISS_120_MS = 12.5;
+const MISS_60_MS = 25;
+const OVER_MS = 50;
+/// The longest span one `frames` event covers.
+const WINDOW_MS = 1000;
+
+export type FrameStats = {
+  n: number;
+  p50: number;
+  p95: number;
+  max: number;
+  miss120: number;
+  miss60: number;
+  over50: number;
+  ms: number;
+};
+
+/// The `frames` fields of one window's intervals (ms, any order); nothing for an empty window.
+export function frameStats(intervals: readonly number[], span: number): FrameStats | undefined {
+  if (!intervals.length) return undefined;
+  const sorted = [...intervals].sort((a, b) => a - b);
+  const at = (share: number) => sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))]!;
+  const round = (ms: number) => Math.round(ms * 10) / 10;
+  return {
+    n: sorted.length,
+    p50: round(at(0.5)),
+    p95: round(at(0.95)),
+    max: round(sorted.at(-1)!),
+    miss120: sorted.filter((ms) => ms > MISS_120_MS).length,
+    miss60: sorted.filter((ms) => ms > MISS_60_MS).length,
+    over50: sorted.filter((ms) => ms > OVER_MS).length,
+    ms: Math.round(span),
+  };
+}
+
+/// Times frames while `arm` keeps being called; reports each over LONG_FRAME_MS while visible,
+/// and the intervals of frames that drew a change as one `frames` summary a second at most.
 export class FrameWatch {
   private last: number | undefined;
   private until = 0;
   private running = false;
+  /// A change came since the last frame: the next frame draws it.
+  private pending = false;
+  /// The last frame drew a change: the interval after it is that change's cost.
+  private drew = false;
+  private intervals: number[] = [];
+  /// The span of the counted intervals: the first one's start and the newest one's end.
+  private windowStart: number | undefined;
+  private windowEnd = 0;
 
   constructor(
     private readonly report: (ms: number) => void,
     private readonly visible: () => boolean,
     private readonly frame: (run: (time: number) => void) => void,
     private readonly now: () => number,
+    private readonly summary: (stats: FrameStats) => void = () => undefined,
   ) {}
 
   arm(): void {
     this.until = this.now() + WATCH_MS;
+    this.pending = true;
     if (this.running) return;
     this.running = true;
     // From the change itself: a frame that the change made long is the first one timed.
     this.last = this.visible() ? this.now() : undefined;
+    this.drew = false;
     this.frame((time) => this.tick(time));
   }
 
   /// The page was hidden: the next gap spans the hidden time, so it is not a frame.
   reset(): void {
     this.last = undefined;
+    this.drew = false;
+    this.endWindow();
   }
 
   private tick(time: number): void {
     const visible = this.visible();
-    if (visible && this.last !== undefined && time - this.last > LONG_FRAME_MS)
-      this.report(Math.round(time - this.last));
+    if (visible && this.last !== undefined) {
+      const ms = time - this.last;
+      if (ms > LONG_FRAME_MS) this.report(Math.round(ms));
+      // A change is drawn in the frame after it, so its cost is the interval that starts at that
+      // frame: one interval per frame that drew a change, however many changes it drew. The first
+      // interval runs from the change, not from a frame, so it is no frame's length.
+      if (this.drew) {
+        this.windowStart ??= this.last;
+        this.windowEnd = time;
+        this.intervals.push(ms);
+        if (time - this.windowStart >= WINDOW_MS) this.endWindow();
+      }
+    }
+    this.drew = visible && this.pending;
+    this.pending = false;
     this.last = visible ? time : undefined;
     if (this.now() >= this.until) {
       this.running = false;
+      this.endWindow();
       return;
     }
     this.frame((next) => this.tick(next));
+  }
+
+  private endWindow(): void {
+    const stats = frameStats(this.intervals, this.windowEnd - (this.windowStart ?? this.windowEnd));
+    this.intervals = [];
+    this.windowStart = undefined;
+    if (stats) this.summary(stats);
   }
 }
 
@@ -107,6 +190,11 @@ let log: FlickerLog | undefined;
 /// The transcript's root mounted (App.tsx VirtualTranscript); nothing before startFlickerLog.
 export function noteTranscriptMount(): void {
   log?.transcriptMounted();
+}
+
+/// The chat on screen was replaced whole (direct.ts `noteReplace`); nothing before startFlickerLog.
+export function noteTranscriptReplace(cause: string, blank: boolean, n: number): void {
+  log?.record("transcript-replace", { cause, blank, n });
 }
 
 /// Long frames from the engine's `long-animation-frame` entries; false when it has none or refuses
@@ -160,26 +248,25 @@ function install(win: Window): void {
   const longFrame = (ms: number) => flicker.record("long-frame", { ms });
   const types = (globalThis as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver
     ?.supportedEntryTypes;
-  let watch: FrameWatch | undefined;
-  if (!observeLongFrames(types, doc, longFrame)) {
-    watch = new FrameWatch(
-      longFrame,
-      () => doc.visibilityState === "visible",
-      (run) => win.requestAnimationFrame(run),
-      () => win.performance.now(),
-    );
-    const armed = watch;
-    new MutationObserver(() => armed.arm()).observe(doc.documentElement, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-  }
+  // With the engine's long frames, the watch's own would be the same frames twice.
+  const engineLongFrames = observeLongFrames(types, doc, longFrame);
+  const watch = new FrameWatch(
+    engineLongFrames ? () => undefined : longFrame,
+    () => doc.visibilityState === "visible",
+    (run) => win.requestAnimationFrame(run),
+    () => win.performance.now(),
+    (stats) => flicker.record("frames", stats),
+  );
+  new MutationObserver(() => watch.arm()).observe(doc.documentElement, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
 
   doc.addEventListener("visibilitychange", () => {
     flicker.record("visibility", { state: doc.visibilityState });
-    watch?.reset();
-    if (doc.visibilityState === "visible") watch?.arm();
+    watch.reset();
+    if (doc.visibilityState === "visible") watch.arm();
   });
   win.addEventListener("pagehide", () => flicker.flush());
 }

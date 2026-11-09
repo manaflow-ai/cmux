@@ -13,6 +13,13 @@ import Testing
         var lines: [String] = []
     }
 
+    /// False fails `_acpmux/accounts` (the daemon restarting).
+    final class Answers: Sendable {
+        let accounts = OSAllocatedUnfairLock(initialState: true)
+        /// `_acpmux/harness/health` calls: coming forward makes none.
+        let healthChecks = OSAllocatedUnfairLock(initialState: 0)
+    }
+
     struct Call: Sendable, Equatable {
         let method: String
         let params: [String: String]
@@ -27,19 +34,28 @@ import Testing
       {"id":"claude-key","family":"claude","name":"Work key","home":null,"signedIn":true,"enabled":true,
        "builtin":false,"default":false,"key":true},
       {"id":"claude-login","family":"claude","name":"Claude Code login","home":null,"signedIn":true,
-       "enabled":true,"builtin":true,"default":true}
+       "enabled":true,"builtin":true,"default":true},
+      {"id":"codex-off","family":"codex","name":"Turned off","home":"/Users/alex/.cmux/accounts/codex-off",
+       "signedIn":true,"enabled":false,"builtin":false,"default":false}
     ]}
     """.utf8)
 
-    private func make() async -> (harnesses: SettingsHarnesses, terminal: Terminal, calls: OSAllocatedUnfairLock<[Call]>) {
+    private func make() async -> (harnesses: SettingsHarnesses, terminal: Terminal, calls: OSAllocatedUnfairLock<[Call]>,
+                                  reads: OSAllocatedUnfairLock<Int>, answers: Answers) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-account-actions-\(UUID().uuidString)")
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
             socketPath: directory.appending(path: "a.sock").path, daemonArguments: [], childEnvironment: [:])
         let terminal = Terminal()
         let calls = OSAllocatedUnfairLock<[Call]>(initialState: [])
+        // `_acpmux/accounts` reads, apart from the gestures' calls.
+        let reads = OSAllocatedUnfairLock(initialState: 0)
+        let answers = Answers()
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "claude", kind: "claude-stdio", source: "path")] },
-            fetchHealth: { _, _ in Data(#"{"harnesses":[]}"#.utf8) },
+            fetchHealth: { _, _ in
+                answers.healthChecks.withLock { $0 += 1 }
+                return Data(#"{"harnesses":[]}"#.utf8)
+            },
             openTerminal: { line in
                 terminal.lines.append(line)
                 return true
@@ -51,12 +67,19 @@ import Testing
                     if let list = value as? [String] { return list.joined(separator: ",") }
                     return nil
                 }
-                if method != .accounts { calls.withLock { $0.append(Call(method: method.rawValue, params: flat)) } }
+                // Each refresh's usage reads are SettingsHarnessesAccountsTests'.
+                if method == .accounts {
+                    reads.withLock { $0 += 1 }
+                    guard answers.accounts.withLock({ $0 }) else { throw AcpmuxRPCError(code: -32000, message: "daemon restarting") }
+                }
+                if method != .accounts, method != .accountUsage {
+                    calls.withLock { $0.append(Call(method: method.rawValue, params: flat)) }
+                }
                 return method == .accounts ? Self.accountsReply : Data("{}".utf8)
             },
             userHome: URL(fileURLWithPath: "/Users/alex", isDirectory: true))
         await harnesses.refresh()
-        return (harnesses, terminal, calls)
+        return (harnesses, terminal, calls, reads, answers)
     }
 
     private func gesture() -> PageCallContext {
@@ -66,7 +89,7 @@ import Testing
     @Test func statePassesDefaultAndKey() async throws {
         let h = await make()
         let accounts = try #require(h.harnesses.state["accounts"]?.arrayValue)
-        #expect(accounts.map { $0["default"] } == [.bool(true), .bool(false), .bool(false), .bool(true)])
+        #expect(accounts.map { $0["default"] } == [.bool(true), .bool(false), .bool(false), .bool(true), .bool(false)])
         #expect(accounts[2]["key"] == .bool(true))
     }
 
@@ -107,6 +130,14 @@ import Testing
         ])
     }
 
+    @Test func makeDefaultRefusesAnAccountTurnedOff() async throws {
+        let h = await make()
+        await #expect(throws: PageError.self) {
+            _ = try await h.harnesses.run(["action": "accountDefault", "account": "codex-off"], context: gesture())
+        }
+        #expect(h.calls.withLock { $0 }.isEmpty)
+    }
+
     @Test func renameSetsTheNameAndTheClaudeLoginHasNone() async throws {
         let h = await make()
         _ = try await h.harnesses.run(["action": "accountRename", "account": "claude-2", "name": " Work "], context: gesture())
@@ -125,6 +156,38 @@ import Testing
         await #expect(throws: PageError.self) {
             _ = try await h.harnesses.run(["action": "accountSignOut", "account": "claude-key"], context: gesture())
         }
+    }
+
+    /// The logout runs in its tab after the gesture's own refresh: Settings coming forward reads the
+    /// accounts again, once; coming forward with no sign-in or sign-out typed reads nothing.
+    @Test func settingsComingForwardAfterASignOutReadsTheAccountsAgainOnce() async throws {
+        let h = await make()
+        let before = h.reads.withLock { $0 }
+        _ = try await h.harnesses.run(["action": "focus"], context: nil)
+        #expect(h.reads.withLock { $0 } == before)
+        _ = try await h.harnesses.run(["action": "accountSignOut", "account": "claude-2"], context: gesture())
+        let signedOut = h.reads.withLock { $0 }
+        let checks = h.answers.healthChecks.withLock { $0 }
+        _ = try await h.harnesses.run(["action": "focus"], context: nil)
+        #expect(h.reads.withLock { $0 } == signedOut + 1)
+        #expect(h.answers.healthChecks.withLock { $0 } == checks, "coming forward reads only the accounts")
+        _ = try await h.harnesses.run(["action": "focus"], context: nil)
+        #expect(h.reads.withLock { $0 } == signedOut + 1)
+    }
+
+    /// A read that fails when Settings comes forward keeps the sign-out to read again next time.
+    @Test func aFailedReadAfterASignOutReadsAgainNextTime() async throws {
+        let h = await make()
+        _ = try await h.harnesses.run(["action": "accountSignOut", "account": "claude-2"], context: gesture())
+        h.answers.accounts.withLock { $0 = false }
+        let failed = h.reads.withLock { $0 }
+        _ = try await h.harnesses.run(["action": "focus"], context: nil)
+        #expect(h.reads.withLock { $0 } == failed + 1)
+        #expect(h.harnesses.pendingLogins == ["claude-2"])
+        h.answers.accounts.withLock { $0 = true }
+        _ = try await h.harnesses.run(["action": "focus"], context: nil)
+        #expect(h.reads.withLock { $0 } == failed + 2)
+        #expect(h.harnesses.pendingLogins.isEmpty)
     }
 
     @Test func signInTypesTheLoginInTheAccountsFolderAndAKeyHasNone() async throws {

@@ -8,13 +8,18 @@ extension ChatController {
     /// The viewer open over this pane, if any.
     var pictureViewer: HomePictureViewer? { host.subviews.lazy.compactMap { $0 as? HomePictureViewer }.first }
 
-    /// A click at `point` (in the card's body, top-left origin) on a table card of a body `width` wide: opens the
-    /// picture there; false when the click is not on a loaded picture.
-    func openTablePicture(_ part: CustomPart, at point: CGPoint, width: CGFloat) -> Bool {
+    /// A click at `point` (in the card's body, top-left origin) on a table card of a body `width` wide whose body
+    /// is at `body` in the pane: opens the picture there, growing out of its thumbnail; a Before|After table opens
+    /// on its slider. False when the click is not on a loaded picture.
+    func openTablePicture(_ part: CustomPart, at point: CGPoint, width: CGFloat, body: CGPoint = .zero) -> Bool {
         guard let source = HomeTableRowProvider.picture(part, at: point, width: width),
               let table = HomeTableRowProvider.payload(part)?.table,
               let gallery = HomePictureGallery(table: table, opening: source) else { return false }
-        presentPictures(gallery) { item in await Self.decode(item) }
+        let grid = HomeTableGrid(table, available: width)
+        let thumbnail = grid.pictureRects(at: body).first { $0.source == source }
+        let image = grid.slots.lazy.flatMap { $0 }.flatMap { $0 }.first { $0.source == source }?.image
+        let from = thumbnail.flatMap { t in image.map { (rect: t.rect, image: $0) } }
+        presentPictures(gallery, from: from) { item in await Self.decode(item) }
         return true
     }
 
@@ -41,8 +46,9 @@ extension ChatController {
     }
 
     /// Opens `gallery` over this pane through the main-actor seam (``HomePictureViewerMount``).
-    private func presentPictures(_ gallery: HomePictureGallery, load: @escaping HomePictureViewer.Load) {
-        _ = HomePictureViewerMount(host: host).open(gallery, load: load, onClose: { [weak self] in
+    private func presentPictures(_ gallery: HomePictureGallery, from thumbnail: (rect: CGRect, image: CGImage)? = nil,
+                                 load: @escaping HomePictureViewer.Load) {
+        _ = HomePictureViewerMount(host: host).open(gallery, from: thumbnail, load: load, onClose: { [weak self] in
             self?.focusCompose()
         }, onReply: { [weak self] url in
             guard let self else { return }

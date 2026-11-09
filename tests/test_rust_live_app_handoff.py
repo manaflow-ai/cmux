@@ -6,7 +6,9 @@ brings up the next owner. A no-show puts the file back; `stop` restores the app'
 The owner is a real process (sleep); a thread plays the app, starting the next owner from the file
 once the old one exits. No cmux build or app is needed."""
 import importlib.util
+import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -171,6 +173,68 @@ class AppHandoffTests(unittest.TestCase):
 
         swapper.cli = lambda _bin, *words, timeout=60: hang(*words, timeout=timeout)
         self.assertIsNone(swapper.owner(self.new, timeout=0.5))
+
+    @unittest.skipUnless(Path("/proc/self/exe").exists(), "reads /proc")
+    def test_an_owner_whose_file_a_swap_renamed_over_is_still_this_apps_owner(self):
+        # On Linux the owner's /proc/PID/exe reads "PATH (deleted)" right after the new build is renamed over
+        # PATH, and so does `server status`'s pid. Before: no owner, no SIGTERM, a 35 s wait and a rollback.
+        bin_dir = self.tmp / "cmux DEV.app" / "Contents" / "Resources" / "bin"
+        bin_dir.mkdir(parents=True)
+        file = bin_dir / "cmux"
+        shutil.copy2(shutil.which("sleep"), file)
+        owner = subprocess.Popen([str(file), "600"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(owner.wait)
+        self.addCleanup(owner.kill)
+        staged = bin_dir / ".cmux.new"
+        shutil.copy2(shutil.which("sleep"), staged)
+        os.replace(staged, file)
+        self.assertTrue(os.readlink(f"/proc/{owner.pid}/exe").endswith(" (deleted)"))
+        swapper = rust_live.Swapper(None, "/fake.sock", state=self.state)
+        # The status a cmux-tui of today prints: its text form pads `pid`, so the JSON form is asked for.
+        swapper.cli = lambda _bin, *words, **_k: subprocess.CompletedProcess(
+            words, 0, json.dumps({"pid": owner.pid, "status": "running"}) if "--json" in words else f"pid         {owner.pid}\n", "")
+        self.assertEqual(swapper.owner(file), (owner.pid, file))
+        self.assertEqual(swapper.app_file(file), file.resolve())
+
+    def test_a_restore_whose_daemon_never_comes_back_says_so_and_keeps_the_marker(self):
+        app = FakeApp(self.tmp)
+        self.addCleanup(app.close)
+        swapper = self.swapper(app)
+        swapper.swap({"cmux-tui": self.new})
+        app.respawn = False
+        old = rust_live.APP_OWNER_SECS
+        rust_live.APP_OWNER_SECS = 0.5
+        self.addCleanup(setattr, rust_live, "APP_OWNER_SECS", old)
+        with self.assertRaisesRegex(RuntimeError, "run stop again"):
+            swapper.restore_app()
+        self.assertEqual(app.file.read_text(), "base build\n")
+        self.assertTrue(swapper.marker().is_file())
+
+    def test_stop_finishes_a_restore_the_watcher_left_and_says_when_it_cannot(self):
+        # The watcher's own restore timed out and it exited: its pid file is gone, its marker is not.
+        # Before: `stop` said "not watching" and nothing put the app's build back.
+        app = FakeApp(self.tmp)
+        self.addCleanup(app.close)
+        self.swapper(app).swap({"cmux-tui": self.new})
+        status = lambda self_, _cli, **_k: app.status()
+        self.addCleanup(setattr, rust_live.Swapper, "owner", rust_live.Swapper.owner)
+        rust_live.Swapper.owner = status
+        old_env = os.environ.get("CMUX_RUST_LIVE_STATE_DIR")
+        os.environ["CMUX_RUST_LIVE_STATE_DIR"] = str(self.state)
+        self.addCleanup(lambda: os.environ.pop("CMUX_RUST_LIVE_STATE_DIR") if old_env is None
+                        else os.environ.__setitem__("CMUX_RUST_LIVE_STATE_DIR", old_env))
+        app.respawn = False
+        old = rust_live.APP_OWNER_SECS
+        rust_live.APP_OWNER_SECS = 0.5
+        self.addCleanup(setattr, rust_live, "APP_OWNER_SECS", old)
+        self.assertEqual(rust_live.command_stop(None), 1)
+        self.assertTrue(any(self.state.glob("app-original-*.json")))
+        app.respawn = True
+        app.owner = app.start()
+        self.assertEqual(rust_live.command_stop(None), 0)
+        self.assertEqual(app.file.read_text(), "base build\n")
+        self.assertEqual(app.builds_run[-1], "base build\n")
+        self.assertFalse(any(self.state.glob("app-original-*.json")))
 
     def test_a_daemon_outside_an_app_still_restarts_through_the_cli(self):
         swapper = rust_live.Swapper("s", None, state=self.state)

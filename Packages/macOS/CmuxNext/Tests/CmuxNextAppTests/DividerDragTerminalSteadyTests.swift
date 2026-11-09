@@ -16,9 +16,8 @@ import Testing
 /// background where it was wider, and the release's spring held its final size; pixel-perfect's trace (STATUS 13764)
 /// counted 157-159 held ticks per col-drag-2 film, the surface up to 150 pt off its pane.
 /// Real terminal sessions behind the app's ResizeCoordinator (`SplitTerminalResizeCountTests`); the test is the clock and
-/// runs each frame's layout pass. With `motion.frameOwner.terminals` off (pinned before each frame: the store is
-/// process-wide), so each size is the view's at once; `TerminalDividerDragFrameTests` checks the drag on screen with the
-/// switch on and off.
+/// runs each frame's layout pass. cmux-ad m26 (T-KEYS) deleted `motion.frameOwner.terminals` and its off path, so no
+/// switch is pinned; `TerminalDividerDragFrameTests` checks the drag on screen.
 @MainActor
 @Suite(.closesItsWindows)
 struct DividerDragTerminalSteadyTests {
@@ -33,12 +32,10 @@ struct DividerDragTerminalSteadyTests {
         return "\(label): \(pane)'s surface \(surface.size) at x \(surface.minX) in a \(area) area"
     }
 
-    /// One display frame with the switch off, then the frame's layout pass. Returns whether anything still moves.
+    /// One display frame, then the frame's layout pass. Returns whether anything still moves.
     @discardableResult
     static func frame(_ screen: Harness.Screen) async -> Bool {
-        PaneGroundCoversPaneTests.ownFrames(false)
         let moving = await screen.step()
-        PaneGroundCoversPaneTests.ownFrames(false)
         screen.root.layoutSubtreeIfNeeded() // sync-layout: the frame's own layout pass, as the frame tick runs it
         return moving
     }
@@ -47,7 +44,6 @@ struct DividerDragTerminalSteadyTests {
         _ = NSApplication.shared
         let screen = Harness.Screen(Harness.pair)
         defer { screen.close() }
-        defer { PaneGroundCoversPaneTests.releaseFrames() }
         try screen.attachTerminal("p1")
         try screen.attachTerminal("p2")
         await screen.drain()
@@ -91,7 +87,6 @@ struct DividerDragTerminalSteadyTests {
         _ = NSApplication.shared
         let screen = Harness.Screen(Harness.pair)
         defer { screen.close() }
-        defer { PaneGroundCoversPaneTests.releaseFrames() }
         try screen.attachTerminal("p1")
         try screen.attachTerminal("p2")
         await screen.drain()
@@ -130,7 +125,6 @@ struct DividerDragTerminalSteadyTests {
         _ = NSApplication.shared
         let screen = Harness.Screen(Harness.pair)
         defer { screen.close() }
-        defer { PaneGroundCoversPaneTests.releaseFrames() }
         try screen.attachTerminal("p1")
         try screen.attachTerminal("p2")
         await screen.drain()

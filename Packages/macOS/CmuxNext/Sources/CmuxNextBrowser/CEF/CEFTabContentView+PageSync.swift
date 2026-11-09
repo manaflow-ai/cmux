@@ -6,6 +6,9 @@ nonisolated enum CEFPageSyncReason: Hashable, Sendable {
     case drag
     /// A key resize's spring moves the pane: the page follows its pane in every frame.
     case keyResize
+    /// A split's, close's or zoom's spring resizes the pane (``CEFTabContentView`` as ``PaneMotionTargeting``): the page
+    /// follows its pane in every frame, as in a key resize.
+    case paneSpring
 }
 
 /// Page sync (fork API 27): every page window over this pane waits, up to a bounded deadline, for Chromium's frame at each
@@ -37,12 +40,15 @@ extension CEFTabContentView {
     /// The container moves to another superview in the same window (its tab moved to another pane: `BrowserPageArea.show`
     /// adds it there, so no window change is sent) or out of one: the resize of the pane it leaves is not its resize any
     /// more. Its wait shares end and its held size (a drag hold or a key hold) drops; the new pane's chrome holds it
-    /// again only if that pane is in a key resize itself (`BrowserChromeView.attach`). A move into the first superview,
-    /// or to the same one, keeps all.
+    /// again only if that pane is in a key resize itself (`BrowserChromeView.attach`). Its page window comes back too: no
+    /// end of the old pane's motion reaches it any more, and a detached window takes no click. A move into the first
+    /// superview, or to the same one, keeps all.
     func leavePaneResize(for newSuperview: NSView?) {
-        guard let superview, newSuperview !== superview, heldPageSize != nil || pageMotionHold != nil || !pageSyncReasons.isEmpty else { return }
+        guard let superview, newSuperview !== superview,
+              heldPageSize != nil || pageMotionHold != nil || !pageSyncReasons.isEmpty || motionHosting != nil else { return }
         dropHold()
         endAllPageSync()
+        paneMotion(active: false)
     }
 
     /// The container left its window mid-resize: it may never hear the resize's end, so every wait ends now.

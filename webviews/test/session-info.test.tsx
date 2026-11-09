@@ -4,8 +4,9 @@
 // panel at the right of the chat with where it runs (Environment), how much of the context window
 // it used (Context), its MCP servers (Connectors), the pull requests it opened or touched
 // (Changes), its subagents and the chats its agent started, a Cloud VM's included, its background
-// commands and what it produced (Outputs). It is open by
-// default, stays open (or closed) in each chat pane on its own, floats outside the chat's layout so it never
+// commands and what it produced (Outputs). It starts closed
+// (session-info-closed-default.test.ts), so each case here opens it before its chat binds; it stays
+// open (or closed) in each chat pane on its own, floats outside the chat's layout so it never
 // moves or reflows the chat (Settings Push always takes a column), hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
 // Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
@@ -24,8 +25,8 @@ import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { resetChangesStatuses } from "../src/agent-session/acpmux/session-info/changesStatus";
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import {
-  SessionInfo,
   sessionInfoTopOffset,
   sessionInfoOverChat,
   sessionInfoPushes,
@@ -38,13 +39,14 @@ import {
   sessionInfoFits,
   FLOAT_MARGIN,
   pushes,
-  useSessionInfo,
-} from "../src/agent-session/acpmux/session-info/SessionInfo";
+} from "../src/agent-session/acpmux/session-info/sessionInfoModel";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import {
   SESSION_INFO_WIDTH,
   sessionInfoState,
   resetSessionInfoState,
   setSessionInfoMore,
+  setSessionInfoOpen,
   setSessionInfoSection,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
@@ -54,7 +56,7 @@ import {
   type StartedSession,
 } from "../src/agent-session/acpmux/started/startedSessions";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
-import { openSourceFile } from "../src/agent-session/acpmux/session-info/SourcesSection";
+import { openSourceFile } from "../src/agent-session/acpmux/session-info/sourcesSectionModel";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
@@ -107,6 +109,8 @@ function installDom(sessionInfo: boolean): HTMLElement {
   Object.assign(scope, replacements);
   resetSessionInfoState();
   setSessionInfoMore(true);
+  // Opened before the chat binds: the first chat's own choice (a new pane starts closed).
+  setSessionInfoOpen(true);
   return dom.window.document.getElementById("root")!;
 }
 
@@ -504,12 +508,14 @@ test("open, closed, Show more and width are this pane's, and another pane's chan
 test("a pane switched to another chat shows that chat's Session Info at once, never playing the last one out", async () => {
   const container = installDom(true);
   const chatB = { ...localChat, sessionId: "chat-b" };
-  // Chat B was left closed, chat A open. Chat A is new to the pane, so it opens whatever chat B chose
-  // (Lucas, 2026-11-06: "New chats still default to open").
+  // Chat B was left closed, chat A open. Chat A is new to the pane, so it starts closed whatever
+  // chat B chose (Leo, 2026-11-07), and the person opens it there.
   await render(container, chatB);
   await click(toggle(container)!);
   expect(panel(container)).toBeNull();
   await render(container, localChat);
+  expect(panel(container)).toBeNull();
+  await click(toggle(container)!);
   expect(panel(container)).not.toBeNull();
   // Every phase change of a Session Info panel while the pane switches to chat B (chat A's panel
   // turning to `leaving` is the last chat's panel playing out over chat B).
@@ -613,14 +619,14 @@ test("stages by the pane's width: pushing the chat centered beside it, over the 
   // A short wide pane keeps it floating in the free gutter, as does a handoff review's wide form.
   expect(sessionInfoStage("overlay", { width: 1600, height: 440 }, 320)).toBe("float");
   expect(sessionInfoStage("overlay", tall(1600), 320, undefined, true)).toBe("float");
-  expect(sessionInfoStage("overlay", tall(1100), 320)).toBe("push");
   // Leo, 2026-11-03: "the agent chat's horizontal width shouldn't be shifted its position sure but it
   // itself and its text shouldn't be affected by the session info if it would need to be then session
   // info should be an overlay". Pushed, the column is pinned at its whole-pane width, so it pushes
-  // wherever that pinned column fits beside the panel (its 62.5% share at 1200px too; Lucas, 2026-11-06:
-  // the chat shifts left as Codex's does). Where even the pinned column cannot fit (its 720px floor at
-  // 740px), it lies over the chat instead.
+  // wherever that pinned column fits beside the panel (Chat Text Width's 800px at 1200px; Lucas,
+  // 2026-11-06: the chat shifts left as Codex's does). Where even the pinned column cannot fit (at 1100px
+  // and 740px), it lies over the chat instead.
   expect(sessionInfoStage("overlay", tall(1200), 320)).toBe("push");
+  expect(sessionInfoStage("overlay", tall(1100), 320)).toBe("overlay");
   expect(sessionInfoStage("overlay", tall(740), 320)).toBe("overlay");
   expect(sessionInfoStage("overlay", tall(528), 320)).toBe("overlay");
   expect(sessionInfoStage("overlay", tall(370), 320)).toBe("overlay");
@@ -635,8 +641,8 @@ test("stages by the pane's width: pushing the chat centered beside it, over the 
   // Unmeasured, it is nowhere yet: in the gutter.
   expect(sessionInfoStage("overlay", { width: 0, height: 0 }, 320)).toBe("float");
   // Settings Push always: wherever its whole room keeps the pinned column; elsewhere over the chat.
-  for (const width of [1800, 1300, 1100]) expect(sessionInfoStage("push", tall(width), 320)).toBe("push");
-  for (const width of [740, 528, 370]) expect(sessionInfoStage("push", tall(width), 320)).toBe("overlay");
+  for (const width of [1800, 1300, 1200]) expect(sessionInfoStage("push", tall(width), 320)).toBe("push");
+  for (const width of [1100, 740, 528, 370]) expect(sessionInfoStage("push", tall(width), 320)).toBe("overlay");
   expect(sessionInfoPushes("overlay", tall(1420), 320)).toBe(true);
   expect(sessionInfoPushes("overlay", tall(528), 320)).toBe(false);
 });
@@ -649,7 +655,7 @@ test("pushing, the pinned column moves left, keeps its width and is centered bes
     const panel = pushedWidth(pane, 320);
     const room = pushedRoom(pane, panel);
     const chat = pane - room;
-    expect(room % 8).toBe(0);
+    expect(room % 2).toBe(0);
     expect(pushKeepsColumn(pane, room)).toBe(true);
     // Pushed, the page pins the column at its whole-pane width, centered unrounded in the chat
     // (sessionInfo.css): it fits with the two page edges, and ends a margin clear of the panel.
@@ -686,7 +692,7 @@ test("the panel takes each stage's place as the pane narrows and widens", async 
   expect(panel(container)?.dataset.placement).toBe("push");
   expect(panel(container)?.style.width).toBe("320px");
   // Narrower panes where the pinned column fits beside it: it pushes by the whole panel too.
-  for (const width of [1420, 1200, 1100]) {
+  for (const width of [1420, 1200]) {
     await act(async () => {
       paneWidth = width;
       for (const observer of observers) observer();
@@ -703,9 +709,10 @@ test("the panel takes each stage's place as the pane narrows and widens", async 
       container.querySelector<HTMLElement>(".acpmux-shell")!.style.getPropertyValue("--acpmux-session-info-column"),
     ).toBe(`${transcriptColumn(width).width}px`);
   }
-  // 740px: even the pinned column cannot fit beside it, so it lies over the chat and pins nothing.
+  // 1100px: Chat Text Width's 800px pinned column cannot fit beside it, so it lies over the chat and pins
+  // nothing.
   await act(async () => {
-    paneWidth = 740;
+    paneWidth = 1100;
     for (const observer of observers) observer();
   });
   expect(panel(container)?.dataset.placement).toBe("overlay");
@@ -807,7 +814,7 @@ test("the right gutter holds the panel only in a wide pane", () => {
   // Unmeasured, it is nowhere yet.
   expect(sessionInfoOverChat(0, 320)).toBe(false);
   // A wider column (the user's Text Width) leaves a 250px gutter.
-  expect(sessionInfoOverChat(1600, 320, { min: 720, max: 1100, share: 1, prose: Infinity })).toBe(true);
+  expect(sessionInfoOverChat(1600, 320, { min: 720, max: 1100 })).toBe(true);
   // A handoff review's 760px form: measured against the form's own gutter.
   expect(sessionInfoOverChat(1600, 320, undefined, true)).toBe(false);
   expect(sessionInfoOverChat(1200, 320, undefined, true)).toBe(true);
@@ -905,12 +912,12 @@ test("Connectors says how many to reconnect, else how many connected, else None;
   );
   expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentryConnecting"]);
 
-  // None failed: how many are connected.
+  // None failed: how many the harness loaded, never a green connected count.
   await render(container, {
     ...base,
     summary: { ...base.summary!, mcpServers: [{ name: "github", status: "connected" }] },
   });
-  expect(meta(section(container, "connectors"))).toBe("1 connected");
+  expect(meta(section(container, "connectors"))).toBe("1 loaded");
 
   // A harness that reports none: the section stays, folded, with one plain line, None (Lucas,
   // 2026-11-05: Usage and Connectors always show).
@@ -967,7 +974,8 @@ test("Changes lists the pull requests the chat opened or touched, open ones firs
     ]),
   );
   // Usage and Connectors always show in the chat's own panel (None here), under the Show more line.
-  expect(sectionIds(container)).toEqual(["environment", "context", "changes", "usage", "connectors"]);
+  // The pull requests it opened and merged are also its Outputs (producedLinks.ts).
+  expect(sectionIds(container)).toEqual(["environment", "context", "outputs", "changes", "usage", "connectors"]);
   const changes = section(container, "changes")!;
   expect(meta(changes)).toBe("9");
   const listed = () => [...changes.querySelectorAll<HTMLElement>("li.acpmux-session-info-pr")];

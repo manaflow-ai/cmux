@@ -12,6 +12,57 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Upstream terminal performance picks: style-run scan and RefCountedSet dead-ID reuse (ghostty-next)
+
+- Fork PR #90 (`lane/upstream-refcount-rowscan`, on `1740c4452`): `cherry-pick -m 1 -x` of upstream ghostty-org/ghostty
+  #15111 (merge `171a4e044`, with its regression fix `d1ce0c465`) and #15121 (merge `b5d9c93da`). The pin is the release
+  branch `release/cmux-538a3e2e-upstream-picks` at `8379ecc8a`: the same two picks on `538a3e2ef` (fork PR #86), so
+  #86 stays in the pin until both merge to fork `main`.
+- What: `src/terminal/render.zig` `RowBuilder.scan` finds a row's style runs in one pass; `src/terminal/ref_counted_set.zig`
+  `add` reuses a dead item's ID in place once every ID was handed out, instead of returning `NeedsRehash` (which made
+  every caller clone the whole page). Bench-only: `ghostty-bench +terminal-stream --scrollback-max-bytes` and a
+  `ghostty-gen +hyperlink` generator.
+- Why: Leo's dependency fork trawl (2026-11-07). `ghostty-bench`, 10 interleaved runs per binary, median ms:
+  terminal-stream 120x80 links 122.5 -> 81.8 (1.50x), styled-heavy 80.8 -> 49.9 (1.62x); screen-clone styled-heavy
+  render-locked 191.1 -> 147.6 (1.30x) at 120x80 and 135.9 -> 106.2 (1.28x) at 160x50. No row slower beyond noise.
+- Review: fork PR #90 got a different-family SHIP at `8352952d0` and merged to fork `main` as `e23cc1c36`. The release
+  branch commits are the same patches (`git patch-id --stable`: #15111 `e175f06dacd8` on `5083bc441` and `77fe41a73`,
+  #15121 `5557340f3480` on `8352952d0` and `8379ecc8a`), and `git diff 8352952d0 8379ecc8a` is exactly #86's diff.
+- Conflict notes: none; the next upstream sync brings both, so drop these picks then.
+
+### An update draws at once while a host size's frame waits for the embedder's present (ghostty-next)
+
+- Fork PR #86 (`fix/renderer-draws-now-for-a-waiting-host-frame`, head `538a3e2ef`, on `1740c4452`); the pin is the fix
+  release branch `release/cmux-1740c445-resize-p0-10` at `538a3e2ef` until #86 merges to fork `main`.
+- What: `src/renderer/Thread.zig` `drawsNow` gets `host_frame_waits` (`Metal.hostFrameWaits`: the embedder presents host
+  sizes, a host size is set and its frame was not taken yet, `fresh.armed`). While it holds, every frame update draws at
+  once instead of at the next display-link tick. A frame the renderer shows itself, off main, at the host size ends
+  the wait (`fresh.shown_generation`), so at rest and in the renderer's own present mode output stays paced.
+- Why: cmux RESIZE P0 10 (T render hop). In a key-resize spring the next refresh's size goes to Ghostty after each commit
+  and draws at once; the program's redraw for the grid just sent was parsed ~3 ms later but waited for the next tick
+  (the resize frame counted as drawn since the tick), raced cmux's present, and the next host size dropped it: the
+  program's grid showed 2-4 refreshes behind its pane.
+- Conflict notes: keep the `host_frame_waits` term in `drawsNow` when upstream changes the vsync pacing rule.
+
+### A resize's prompt clear waits for the shell (ghostty-next, opt-in)
+
+- Fork PR #85 (head `e6d6eec09`, on `850bb9849`), merged to fork `main` as `1740c4452`.
+  GhosttyNextKit `xcframework-1740c44523895c3c0ec8f89203741abf3ca7efa3-apple-v6` (zip sha256 `ba1abb11...4ec426`, run 42336304101). New C API option
+  `GHOSTTY_TERMINAL_OPT_PROMPT_REDRAW_WAITS_FOR_SHELL` (1028), `Terminal.flags.prompt_redraw_waits_for_shell`, default
+  off. cmux-tui's `ghostty-vt` turns it on for every terminal (host and daemon mirrors); the app's surfaces turn it on in
+  `src/termio/Manual.zig` (`Termio.swapTerminalLocked` keeps it on a terminal swap).
+- What: a resize that would clear a redrawable prompt keeps it and stores `Terminal.prompt_redraw_pending` (the grid
+  and prompt rows the shell drew at, from the first resize the shell has not answered). The stream handler's next
+  action calls `Terminal.settlePromptRedraw`: the clear runs if the grid differs from the drawn grid (and marks the
+  terminal dirty), else the prompt stays. A GHOSTSNP snapshot taken while a clear is pending carries it in the optional
+  record PROMPT_REDRAW (tag 11, `src/terminal/snapshot/prompt_redraw.zig`, between CONTINUATION and READY), so a
+  restored mirror clears at the same byte as the owner. Older decoders skip the record.
+- Why: close-then-type P0 (empty fresh screen). zsh reads two SIGWINCHes of a 34 -> 35 -> 34 bounce as one, finds its
+  old size and redraws nothing; the immediate clear left the prompt blank.
+- Conflict notes: keep `settlePromptRedraw` first in `Handler.vt` and `Handler.vtPrintAscii` (both
+  `stream_terminal.zig` and `termio/stream_handler.zig`), keep `.prompt_redraw = .false` for the primary screen's
+  resize while the option is on, and keep record tag 11 free for PROMPT_REDRAW.
+
 ### The reflow preview re-wraps each frame's grid off the terminal lock (ghostty-next)
 
 - Fork `main` at the merge commit `850bb9849` (fork PR #84, on `383b27d73`). #84 ports fork PR #83 (merged on

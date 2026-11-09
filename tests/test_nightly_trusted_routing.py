@@ -29,9 +29,7 @@ DOC = yaml.safe_load(nightly_expand(WORKFLOW_FILE.read_text()))
 SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-dmg')
 # They, their picker and the cmux NIGHTLY-identity copy's release-signer jobs (all on the signer route itself)
 # have their own routes, outside the 16/32 rule.
-# sentry-dsyms-nightly (a network-bound Sentry upload, off the build's path) takes the signer route too.
-SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-signer-app', 'legacy-signer-dmg',
-                                   'sentry-dsyms-nightly')
+SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-signer-app', 'legacy-signer-dmg')
 TAIL_CONTROL_JOBS = (
     'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
     'report-nightly-failure', 'close-nightly-failure-issue',
@@ -45,12 +43,12 @@ NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
 SIGNING_SLOT = 'glaeda-trusted-next-signing'
 HOSTED = 'ubuntu-24.04'
 OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
-# Secret jobs that stay on GitHub-hosted Ubuntu until glaeda gives them the whole mini (its SIGNING_JOBS; the
-# glaeda signing-jobs patch), never Blacksmith. Every other nightly job runs on our own minis
-# (test_nightly_owned_minis_only.py).
-HOSTED_SECRET_JOBS = ('promote-nightly-next-acked', 'keep-published-dsyms', 'sentry-dsyms-nightly',
-                      'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
-                      'republish-nightly-deltas')
+# The tail's secret jobs that stay on GitHub-hosted Ubuntu, outside the push group, never Blacksmith
+# (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
+HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel')
+# On our minis for nightly-next only; classic and RC keep GitHub-hosted Ubuntu, as their release uploads may wait out
+# the rate limit for 360 min (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED).
+NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
 
 DEFAULT_POOL_MEMBERS = {
     'linux_2': 'blacksmith-2vcpu-ubuntu-2404',
@@ -268,9 +266,10 @@ class NightlyTrustedRouting(unittest.TestCase):
         # the std pool (test_nightly_sign_runner.py OWNED_ONLY_JOBS); the early native jobs
         # (build-nightly-inputs, the Ghostty helper) fall back to the nightly slot.
         # The secret-bearing jobs and their pickers end on the signer's label instead (SIGNING_SLOT);
-        # promote-nightly-next keeps its earlier route (a main dispatch, which the signer refuses).
+        # promote-nightly-next keeps its earlier route (a main dispatch, which the signer refuses), and its retired
+        # (if: false) acked twin shares it.
         self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs',
-                                'promote-nightly-next', 'verify-final-dmg-nightly',
+                                'promote-nightly-next', 'promote-nightly-next-acked', 'verify-final-dmg-nightly',
                                 'verify-recovered-nightly-next', 'verify-signed-nightly'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's; its
@@ -446,11 +445,18 @@ class NightlyTrustedRouting(unittest.TestCase):
                                    'vars.LINUX_RUNNER': runner, 'github.run_attempt': attempt,
                                    'vars.RUNNER_POOLS': json.dumps({'linux': runner or 'blacksmith-4vcpu-ubuntu-2404'}),
                                    'needs.decide.outputs.track': 'nightly-next',
+                                   'github.ref': 'refs/heads/nightly-next',
                                    'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                    'needs.prepare-nightly-variant-primary.result': primary}
                         allowed = {HOSTED} if name in HOSTED_SECRET_JOBS else OUR_LABELS - {HOSTED}
                         with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary):
                             self.assertIn(evaluate(parse_expression(source), context), allowed)
+                        if name in NIGHTLY_NEXT_ONLY_OWNED:
+                            # Classic (main) and RC runs: hosted, so their rate-limit waits never hold the signer.
+                            for ref in ('refs/heads/main', 'refs/heads/rc/1.2'):
+                                with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary, ref=ref):
+                                    self.assertEqual(evaluate(parse_expression(source), {
+                                        **context, 'github.ref': ref, 'needs.decide.outputs.track': 'nightly'}), HOSTED)
         self.assertGreater(checked, 20)
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_the_nightly_only_builder(self):
@@ -487,10 +493,14 @@ class NightlyTrustedRouting(unittest.TestCase):
     def test_next_runs_do_not_hold_the_workflow_lock_for_post_publication_checks(self):
         group = DOC["concurrency"]["group"]
         self.assertIn(
-            "github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' && 'push' || "
+            "github.ref == 'refs/heads/nightly-next' && ((github.event_name == 'push' || "
+            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && 'push' || "
+            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_sign_stage != '' && 'sign' || "
             "format('run-{0}', github.run_id))",
             group,
         )
+        # A loop run's dispatched tail (nightly_next_post_publish) is run-scoped: it never holds the push group.
+        self.assertNotIn("nightly_next_post_publish", group)
         self.assertIn("github.ref_name == 'main' && 'nightly-shared'", group)
 
     def test_owned_next_and_main_have_independent_pending_slots(self):

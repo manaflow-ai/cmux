@@ -1,0 +1,19 @@
+[package]
+name = "cmux-bookmarks-ops"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The home daemon's bookmark reads and imports beyond the op reducer: the Netscape file codec, text search, the omnibar rank and the import plans"
+
+# Its own crate, not cmux-bookmarks-core: the app links that one through the app FFI
+# (its pin covers every crate the FFI reaches), and none of this runs in the app.
+[dependencies]
+# `url`: links are checked with the URL parser the store uses, so the reader skips what it would refuse.
+cmux-bookmarks-core = { workspace = true, features = ["url"] }
+serde = { workspace = true, features = ["derive"] }
+unicode-normalization = { workspace = true }
+
+[lints]
+workspace = true

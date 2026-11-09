@@ -50,6 +50,22 @@ struct TerminalDragShownGridTests {
             }
         }
         record()
+        // A commit the presenter's own refresh turns make (during the drag's 12 ms pace, between the turns the test
+        // drives) also shows a size: each present records the grid its frame fits, in its pass, with the bounds the pass
+        // gave it. Sampled only after the test's commits, a size that showed for one refresh inside the pace and was
+        // replaced before the next sample counted as never shown (fleet 990efb42 at 5840aea3a60: 55x33 and 67x33, while
+        // 54x33 and 56x33 were sampled).
+        let presenter = TerminalFramePresenter.forWindow(screen.window)
+        presenter.presentedHook = { presented in
+            guard let index = screen.sessions.firstIndex(where: { $0.surfaceView === presented }) else { return }
+            let view = screen.sessions[index].surfaceView
+            if let layer = view.layer, let frame = view.presentedFrame, let fits = Rig.GridSample(screen.sessions[index]).fits,
+               Int((layer.bounds.width * layer.contentsScale).rounded()) == frame.width,
+               Int((layer.bounds.height * layer.contentsScale).rounded()) == frame.height {
+                shown[index].insert(Rig.text(fits))
+            }
+        }
+        defer { presenter.presentedHook = nil }
 
         view.handleDrag(kind: .split("x"), event: .began(start, []))
         let moves = 40

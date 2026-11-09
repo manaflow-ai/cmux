@@ -50,7 +50,7 @@ struct CloudBringBack {
             return perform(tab: tab) { try await reshow(shown, tab: tab) }
         }
         guard let record = tab.agentSession, record.host.hasPrefix(MachineRegistry.registryHostPrefix),
-              let session = record.session ?? services.agentTabs.sessions[services.agentTabs.resolve(tab.id)],
+              let session = record.session ?? services.agentTabs.sessions[services.agentTabs.tabKey(of: tab)],
               let entry = services.cloud.movedChats.entry(host: record.host, session: session) else {
             throw ActionFailure(message: CloudBringBackStrings.notFromMove)
         }
@@ -212,7 +212,7 @@ struct CloudBringBack {
         let daemon = services.daemon, tabs = services.agentTabs
         guard let connection = daemon.connection, let host = tabs.localHost else { throw DaemonError.notConnected }
         let record = AgentSessionRef(host: host, hostName: tabs.localHostName, session: shown.session, harness: shown.harness)
-        let workspace = WorkspaceKey.generate()
+        let workspace = NewWorkspacePlacements.placedKey(in: services.windows) // placed like Cmd-N, not at the daemon's slot
         let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: shown.name, on: connection, repair: services.emptyWorkspaces) { result in
             try await connection.createTerminal(in: result.key, cwd: shown.folder)
             return try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,

@@ -135,7 +135,6 @@ Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserNeverReloadsByItselfTests.
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefBrainWatchShutdownTests.swift	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 54a3f33d4843); determinize, then remove
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloseTabKeepsPaneTests.swift	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 422fbe401c39); determinize, then remove
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClosedTerminalKeepsRunningTests.swift	sleep-then-assert	feat-cmux-next debt while the gate was red (added in e3009959aa2e); determinize, then remove
-Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudCodexBrokerAdapterTests.swift	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 88484f956f10); determinize, then remove
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudRequestAskerGoneTests.swift	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 69367a1599c0); determinize, then remove
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudStartSessionAsksTests.swift	sleep-then-assert	feat-cmux-next debt while the gate was red (added in cd41244b98a3); determinize, then remove
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudVmHostTests.swift	sleep-then-assert	feat-cmux-next debt while the gate was red (added in 02c6927f2986); determinize, then remove

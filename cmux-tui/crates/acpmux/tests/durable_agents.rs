@@ -11,6 +11,8 @@ mod bg_caller_restart;
 #[cfg(target_os = "linux")]
 #[path = "durable_agents/bg_replaced_binary.rs"]
 mod bg_replaced_binary;
+#[path = "durable_agents/caller_identity_restart.rs"]
+mod caller_identity_restart;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
 #[path = "support/daemon_env.rs"]
@@ -210,6 +212,18 @@ impl Daemon {
         let mut child = self.child.take().unwrap();
         child.kill().unwrap();
         child.wait().unwrap();
+    }
+
+    /// `session`'s `session.json` as the next daemon reads it, with this daemon down. After a
+    /// kill the event journal may hold a change no checkpoint wrote yet (a new chat's file is
+    /// written by a checkpoint): its lines go to the files first, as the next open's replay
+    /// writes them (`store::catch_up_journal`). An edit of the file afterwards is what an older
+    /// build or a lagging writer left: the journal then holds nothing older to replay over it.
+    fn saved_meta_path(&self, session: &str) -> PathBuf {
+        assert!(self.child.is_none(), "the daemon still runs");
+        acpmux::store::catch_up_journal(&acpmux::config::StoreConfig::default(), &self.home)
+            .unwrap_or_else(|e| panic!("catch up the event journal: {e:#}"));
+        self.home.join("sessions").join(session).join("session.json")
     }
 
     /// The daemon is stopped the way an update or the supervisor stops it.
@@ -427,9 +441,9 @@ async fn agent_turn_survives_a_daemon_crash_and_completes_after_adoption() {
 }
 
 /// A live agent host says its build, the host record's (`hostBuild`): this daemon's own here, so
-/// neither the chat (`hostOutdated`) nor `daemon status` (`outdatedHosts`) calls it older.
+/// neither the chat (`hostBuildDiffers`) nor `daemon status` (`hostsOnOtherBuilds`) says it differs.
 #[tokio::test]
-async fn a_live_host_on_the_daemons_build_is_not_outdated() {
+async fn a_live_host_on_the_daemons_build_does_not_differ() {
     let daemon = Daemon::new("hostbuild", "approve-all");
     let session = new_session(&daemon).await;
     let mut rpc = daemon.rpc().await;
@@ -445,8 +459,8 @@ async fn a_live_host_on_the_daemons_build_is_not_outdated() {
     let info = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
     assert_eq!(info["hostBuild"], host["host_build"], "{info}");
     assert_eq!(info["hostBuild"], status["build"], "the host runs the daemon's build");
-    assert_eq!(info["hostOutdated"], false, "{info}");
-    assert_eq!(status["outdatedHosts"], 0, "{status}");
+    assert_eq!(info["hostBuildDiffers"], false, "{info}");
+    assert_eq!(status["hostsOnOtherBuilds"], 0, "{status}");
     assert_eq!(status["liveAgents"], 1, "{status}");
 }
 
@@ -1288,11 +1302,13 @@ async fn an_adopted_agent_without_a_recorded_token_restarts_after_its_turn() {
 
     daemon.sigterm();
     drop(client);
-    // What an older host's record looks like: no caller token.
+    // What an older host's record looks like: no caller token. An older daemon kept no
+    // registry of the tokens it gave out either (`caller_registry.rs`).
     let mut record = host.clone();
     assert!(record.as_object_mut().unwrap().remove("caller_token").is_some());
     let path = daemon.home.join("hosts").join(format!("{session}.json"));
     std::fs::write(&path, record.to_string()).unwrap();
+    std::fs::remove_file(daemon.home.join("caller-tokens.json")).unwrap();
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
     daemon.wait_event(&kept, "host_adopted", |e| e["kind"] == "host_adopted");
@@ -2019,6 +2035,11 @@ async fn a_queued_prompt_keeps_its_provenance_across_a_daemon_crash() {
     let queued = daemon.wait_event(&session, "queued record", |e| {
         e["kind"] == "queued" && e["msg"]["promptId"] == "q-prov"
     });
+    // The daemon says what it knows beside what the sender gave: a local process proved no
+    // sender (`prompt_provenance::observed`).
+    let mut provenance = provenance;
+    provenance["verified"] = json!(false);
+    provenance["transport"] = json!("unix");
     assert_eq!(queued["msg"]["_meta"]["provenance"], provenance, "{queued:#}");
 
     daemon.sigkill();
@@ -2375,7 +2396,7 @@ async fn a_host_a_daemon_left_while_it_started_ends_under_mdm_off_by_the_argv_it
     drop(rpc);
     assert!(alive(harness_pid), "the daemon's death ended the agent");
     // What the next daemon reads: the argv that agent runs.
-    let saved = daemon.home.join("sessions").join(&session).join("session.json");
+    let saved = daemon.saved_meta_path(&session);
     let meta: Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
     assert!(
         meta["spawnArgv"].as_array().is_some_and(|a| a.iter().any(|v| v == "--yolo")),
@@ -3168,7 +3189,7 @@ async fn an_older_option_report_does_not_hide_a_bare_answer_under_mdm_off() {
 async fn a_null_options_answer_is_saved_as_before() {
     let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
                       "FAKE_MODE_OPTION": "1", "FAKE_BARE_OPTION_ANSWER": "null"}});
-    let (daemon, mut rpc) = proven_daemon("mdmnullsave", fake, &[]).await;
+    let (mut daemon, mut rpc) = proven_daemon("mdmnullsave", fake, &[]).await;
     let session = new_session(&daemon).await;
     let full = json!({"sessionId": session,
                       "prompt": [{"type": "text", "text": "set-mode-option: full-access"}]});
@@ -3176,6 +3197,10 @@ async fn a_null_options_answer_is_saved_as_before() {
     let set = json!({"sessionId": session, "configId": "mode", "value": "normal"});
     let r = rpc.reply("session/set_config_option", set).await;
     assert!(r.get("error").is_none(), "{r}");
+    // What the next daemon reads: the shutdown's seal writes every saved change into
+    // `session.json` (the event journal holds it until a checkpoint).
+    daemon.sigterm();
+    drop(rpc);
     let saved = daemon.home.join("sessions").join(&session).join("session.json");
     let meta: Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
     let kept = meta["configOptions"].as_array().into_iter().flatten();

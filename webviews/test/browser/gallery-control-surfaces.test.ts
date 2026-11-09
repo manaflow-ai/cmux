@@ -41,6 +41,20 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
         "A reply footer's Retry and its model switch are one split control (TurnRows.tsx TurnFooter); both halves share one pill, never a box around the row.",
     },
     {
+      selector: ".cv-message-retry",
+      kind: "hover",
+      control: ".cv-message-retry > .cv-iconbtn",
+      reason:
+        "A prompt's Retry and its model switch are the same split control as a reply footer's (MessageActions.tsx, conversation.css .cv-message-retry); both halves share one pill, never a box around the row.",
+    },
+    {
+      selector: ".hc-msg",
+      kind: "hover",
+      control: ".hc-msg button",
+      reason:
+        "A Home channel message is one row that washes whenever the pointer is over it (styles.css .hc-msg:hover), the channel list's row hover; a button in it (a code block's Copy, its actions) shares that wash, never a box of its own.",
+    },
+    {
       selector: '.diff-pill[role="toolbar"]',
       kind: "plate",
       reason: "The standalone floating diff toolbar is its own glass surface, not trailing tools on a row.",

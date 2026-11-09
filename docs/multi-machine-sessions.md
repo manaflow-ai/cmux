@@ -449,6 +449,38 @@ with the link in place of the Cloud socket:
 - the source keeps a "Moved to MacBook" ledger row (as `CloudMovedChats`)
   so **Continue on Studio** brings it back.
 
+**A move never ends a running command silently** (lens review: a running
+build is work). A process can't move between machines, so a terminal whose
+foreground process is not its shell (a dev server, a build, a test watcher,
+or an agent CLI such as `claude` run in a terminal tab) can't simply reopen
+on the target. The move card names each one with its command ("Terminal 2
+is running `npm run dev`").
+
+- **By default it stays running on the source.** Its writes stay in the
+  source's folder; the move copies the folder once and doesn't sync it
+  afterward. On the source, the moved workspace keeps only its running tabs,
+  live and closable, under the "Moved to MacBook" row, and **Continue on
+  Studio** puts them back in the returning workspace instead of opening new
+  shells.
+- **What the target sees depends on its grants on the source** (a move
+  grants nothing more). With no grant, the target shows the tab as "Running
+  on Studio" with the command name from the move. With `view`, it also
+  streams the output read-only. With `control`, it also takes input, over
+  the lanes a phone already uses. Each is checked against the source's own
+  `DeviceTrust` and trust epoch when it's used.
+- **Stop and Reopen on MacBook** on the card ends that one command and opens
+  a fresh shell in the same folder on the target. The command is ended only
+  after the receiver confirms the move's last step (when the source marks
+  the workspace moved); a move that fails or is cancelled ends nothing.
+- **A move started by an agent** always leaves running commands where they
+  are.
+
+Chats aren't terminals: a running chat turn moves and continues on the
+target (`agent-transfer-v1`, #30567). Idle terminals move as above. The move
+PR tests a running command left on the source and reached from the target
+under each grant, Stop and Reopen ending only the command named on the card
+and only after the last step commits, and a failed move ending nothing.
+
 Neither pump may simply be pointed at a Mac. `fs-v1` is served only by a
 Cloud host today, and `agent-transfer-v1` refuses remote and stamped
 clients, both on purpose. A Mac serves them on the link only behind a new

@@ -18,7 +18,9 @@ work="$(mktemp -d)"
 # This script and the lane runner (with --path) come from this PR's head: the checkout below
 # replaces the tree.
 cp scripts/ci/run_python_test_lane.py "$work/run_python_test_lane.py"
-git fetch --quiet --no-tags --depth=2 origin "$sha" || { echo "error: cannot fetch $sha" >&2; exit 3; }
+depth=()  # --depth only in a checkout that is already shallow, so a full clone stays full
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=2)
+git fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} origin "$sha" || { echo "error: cannot fetch $sha" >&2; exit 3; }
 git checkout --quiet --force "$sha"
 cp "$work/run_python_test_lane.py" scripts/ci/run_python_test_lane.py
 bash scripts/ci/init-submodule.sh ghostty >/dev/null

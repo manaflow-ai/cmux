@@ -2,7 +2,8 @@ import { useContext, useId, useLayoutEffect, useState, type ReactNode } from "re
 import type { AcpmuxRow } from "../model";
 import { useT } from "../i18n";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
-import { groupSender, MessageGroupHead } from "./MessageGroupHead";
+import { MessageGroupHead } from "./MessageGroupHead";
+import { groupSender } from "./messageGroupHeadModel";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
@@ -12,8 +13,10 @@ import { messageRunSummary } from "./messageRuns";
 import { NoticeMark } from "./NoticeMark";
 import { useFold } from "./fold";
 import { foldPlays } from "./transcriptView";
-import type { NoticeSeverity } from "./agentNotice";
+import { hoverMessages, shortSender } from "./MessageGroupHover";
+import { senderName } from "./senderIdentity";
 import "./LaneNoticeBatch.css";
+import { foldSeverity } from "./laneNoticeBatchModel";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -22,20 +25,7 @@ const isWaiting = (row: AcpmuxRow) => row.kind === "queuedMessage" || row.steer 
 
 /// A sender's short name for the row's hover: its name after the last `/` ("gcp-agent-lane-1/ux-owner"
 /// reads "ux-owner").
-const senderShortName = (name: string) => (name.split("/").at(-1) ?? "").trim();
-
-/// The strongest severity among a fold's tools' notices (agentNotice.ts) that its head shows: a fire
-/// whenever one is in it, else, when every member is a notice, the strongest of theirs; undefined
-/// for a fold whose head keeps the sender's mark. Also whether every member is a notice.
-export function foldSeverity(rows: readonly AcpmuxRow[]): { severity?: NoticeSeverity; allNotices: boolean } {
-  const severities = rows.map((row) =>
-    row.incoming?.kind === "message" ? row.incoming.message.notice?.severity : undefined,
-  );
-  const allNotices = severities.length > 0 && severities.every(Boolean);
-  if (severities.includes("fire")) return { severity: "fire", allNotices };
-  if (!allNotices) return { allNotices };
-  return { severity: severities.includes("warn") ? "warn" : "info", allNotices };
-}
+const senderShortName = (name: string) => shortSender(name);
 
 /// Reports that arrived together keep their own message controls behind one disclosure.
 export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; renderMessage(row: AcpmuxRow): ReactNode }) {
@@ -64,7 +54,7 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
   const verdicts = Object.entries(batch.verdicts)
     .map(([verdict, n]) => `${n} ${verdict}`)
     .join(", ");
-  const names = [...new Set(batch.threads.map(({ sender }) => sender).filter(Boolean))].join(", ");
+  const names = [...new Set(batch.threads.map(({ sender }) => senderName(sender)).filter(Boolean))].join(", ");
   // Delivered messages read "Received N messages", N the messages, with no session names at rest:
   // the senders' short names are its hover (Leo, 2026-11-02: "can't we simply just display most of
   // these as recieved x messages and all of them get revealed then we can expand the messages").
@@ -106,6 +96,13 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
           className="cv-lane-batch__toggle"
           ariaLabel={[count, received ? shortNames : detail].filter(Boolean).join(". ")}
           mark={folded.severity && <NoticeMark severity={folded.severity} />}
+          // Its hover lists the messages, newest first, not a wall of names (MessageGroupHover.tsx).
+          messages={hoverMessages(
+            batch.rows.map((member) => (member.incoming?.kind === "message" ? member.incoming.message : undefined)),
+            // A delivery that held only its thread's preview stands for the thread's whole count.
+            batch.rows.map((member) => member.inboxThread?.count),
+            batch.rows.map((member) => member.at),
+          )}
         />
       ) : (
         // Reports and reviews: their kind's glyph in the icon column, and the one trailing chevron

@@ -223,7 +223,7 @@ public final class HoverCardCoordinator {
         if !liveResizeEnded, Motion.isLiveResizing(window) { return }
         // Content moving under a held button (a click's relayout, a drag) changes nothing: a hit
         // of nil here would end the click's quiet, and the card would come back on release.
-        if mouseButtonDown() { followShownTarget(); return }
+        if mouseButtonDown() { followShownTarget(); updateCardMouse(); return }
         if machine.phase == .idle, machine.lastHit == nil {
             guard let window, window.frame.contains(currentPointer()) else { return }
         }
@@ -236,6 +236,7 @@ public final class HoverCardCoordinator {
             send(.targetRemoved(active.id))
         }
         followShownTarget()
+        updateCardMouse()
     }
 
     public func dismiss(_ reason: HoverDismissal) {
@@ -279,12 +280,14 @@ public final class HoverCardCoordinator {
         guard machine.shownTarget?.id == id, let body = owners[id]?.source?.hoverCardBody(for: id) else { return }
         body.applyTheme()
         panel?.refit()
+        updateCardMouse()
     }
 
     /// Refits a shown card after a local disclosure changes its height without reconfiguring it.
     public func refit(_ id: HoverTargetID) {
         guard machine.shownTarget?.id == id else { return }
         panel?.refit()
+        updateCardMouse()
     }
 
     /// The card shows `id` now.
@@ -311,6 +314,7 @@ public final class HoverCardCoordinator {
         draining = false
         updateActivation()
         updateMonitor()
+        updateCardMouse()
         pruneOwners()
     }
 
@@ -341,7 +345,9 @@ public final class HoverCardCoordinator {
             self.panel = panel
             panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
                           themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
-                          cornerRadius: body.cornerRadius, applyTheme: body.applyTheme)
+                          cornerRadius: body.cornerRadius, entrance: body.entrance, applyTheme: body.applyTheme)
+            // `present` lets an interactive card take the mouse; off the card it gives it back now.
+            updateCardMouse()
             // A hover card whose row's escape slot already holds the pointer (it rested in the
             // sidebar's margin beside the row) goes at once: the slot never shows its row's card.
             if case .shown(let shown) = machine.phase, shown.id == target.id, escapeTarget(at: currentPointer()) == target.id {
@@ -382,52 +388,6 @@ public final class HoverCardCoordinator {
             self.monitor = nil
         }
         updateMoveMonitor()
-    }
-
-    /// One key press, click or wheel scroll seen by the dismissal monitor: it ends the card and
-    /// passes the event on. Returns the event to deliver, nil when the card took it.
-    ///
-    /// A wheel scroll with the pointer on the shown card is the card's (Lawrence 2026-10-19,
-    /// u3320: "If I open a card, move my mouse over, and start scrolling, the card just
-    /// disappears"): the card ignores the mouse, so the window under it would scroll. The card
-    /// scrolls its own scroll view (a long timeline) instead, stays, and the event goes no further.
-    func handleMonitoredEvent(_ event: NSEvent) -> NSEvent? {
-        if let panel, panel.isInteractive, panel.isShowingCard {
-            let belongsToParent = event.window.map { window in
-                sequence(first: window, next: \.parent).contains { $0 === panel.parent }
-            } ?? false
-            let pointerOnCard = panel.cardFrame.contains(currentPointer())
-            if event.type == .keyDown, belongsToParent, pointerOnCard,
-               let body = panel.body as? any HoverCardInteractiveBody,
-               body.handleHoverCardKeyDown(event) {
-                return nil
-            }
-            let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
-            if panel.cardFrame.contains(point) {
-                if event.type == .leftMouseDown,
-                   let body = panel.body as? any HoverCardInteractiveBody,
-                   body.acceptsHoverCardMouse(at: point, in: panel) {
-                    // Let the interactive card's row receive the click. Its
-                    // action dismisses after it focuses the selected tab.
-                    return event
-                }
-            }
-        }
-        if event.type == .scrollWheel, let panel, machine.shownTarget != nil, panel.isShowingCard {
-            // A real event names the window under the pointer; a synthesized one may name none.
-            let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
-            if panel.cardFrame.contains(point) {
-                panel.scrollCard(with: event, at: point)
-                return nil
-            }
-        }
-        let reason: HoverDismissal = switch event.type {
-        case .keyDown: .keyDown
-        case .scrollWheel: .scrollWheel
-        default: .click
-        }
-        dismiss(reason)
-        return event
     }
 
     /// While a card shows, pointer moves on it or just off it reach the machine: leaving the

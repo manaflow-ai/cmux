@@ -1,4 +1,4 @@
-//! The event log through the journal (`store.journal`, R-DURABILITY S2; DESIGN.md 3.3b): a line
+//! The event log through the journal (always on, R-DURABILITY S2; DESIGN.md 3.3b): a line
 //! the store says is durable survives an OS crash, a kill keeps every line once, and a chat that
 //! was deleted stays deleted.
 //!
@@ -23,7 +23,7 @@ const CHAT: &str = "chat-a";
 const WAIT: Duration = Duration::from_secs(10);
 
 fn config() -> StoreConfig {
-    StoreConfig { journal: true, ..StoreConfig::default() }
+    StoreConfig::default()
 }
 
 fn journal_config() -> cmux_journal::Config {
@@ -222,9 +222,12 @@ fn a_chat_made_again_after_its_delete_keeps_its_files_through_a_replay() {
 
 // ------------------------------------------------- review of #34901 (FIX at ab0e9535d9da)
 
-/// A store with the switch off on `home` (the logs alone).
-fn open_off(home: &Path) -> Box<dyn Store> {
-    super::open(&StoreConfig::default(), home).unwrap_or_else(|e| panic!("open the store: {e:#}"))
+/// The store an older build (no event journal: the logs alone, as a downgrade runs) opens on
+/// `home`.
+fn open_older_build(home: &Path) -> Box<dyn Store> {
+    let store = LocalStore::new(home.join("sessions"), config().segment_bytes)
+        .unwrap_or_else(|e| panic!("open the store as an older build: {e:#}"));
+    Box::new(store)
 }
 
 /// A line written straight into the newest log segment of `id`, as a log line whose journal
@@ -273,9 +276,10 @@ fn zero_log_lines(home: &Path, id: &str, seqs: &[u64]) {
     }
 }
 
-/// Finding 1a: a kill with the switch on, a run with it off, then the switch on again.
+/// Finding 1a (from when the journal had a switch): a kill, a run of an older build that does not
+/// replay this journal and writes more lines, then this build again.
 #[test]
-fn lines_written_with_the_switch_off_survive_turning_it_on_again() {
+fn lines_an_older_build_wrote_after_a_kill_survive_the_replay() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(20);
     let store = open(home.path(), &journal);
@@ -287,17 +291,17 @@ fn lines_written_with_the_switch_off_survive_turning_it_on_again() {
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let killed = journal.restart(Crash::Process);
     drop(store);
-    let off = open_off(home.path());
+    let older = open_older_build(home.path());
     for seq in 6..=9 {
-        off.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+        older.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
     }
-    off.flush().unwrap_or_else(|e| panic!("{e:#}"));
-    drop(off);
+    older.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(older);
     let store = open(home.path(), &killed);
     assert_eq!(
         seqs(store.as_ref(), CHAT),
         (1..=9).collect::<Vec<_>>(),
-        "the lines written with the switch off are gone"
+        "the lines the older build wrote are gone"
     );
 }
 
@@ -649,11 +653,11 @@ fn a_crash_right_after_a_checkpoint_reports_no_damage() {
     assert_eq!(seqs(&reopened, CHAT), vec![1, 2]);
 }
 
-/// Switch off after a crash with it on: the start with the switch off writes the journal's lines
-/// that the logs lost back first, so every acknowledged line is there (the catch-up of DESIGN.md
-/// 3.6).
+/// The daemon's store (`store::open`, its journal on the real file system) after an OS crash
+/// that its logs lost writes in: the next open writes the journal's lines that the logs lost back
+/// first, so every acknowledged line is there (the replay of DESIGN.md 3.6).
 #[test]
-fn switching_off_after_a_crash_keeps_every_acknowledged_line() {
+fn the_daemon_store_keeps_every_acknowledged_line_after_an_os_crash() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let store = super::open(&config(), home.path()).unwrap_or_else(|e| panic!("{e:#}"));
     store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
@@ -666,8 +670,8 @@ fn switching_off_after_a_crash_keeps_every_acknowledged_line() {
     drop(store);
     // An OS crash: the logs lose their writes since the flush; the journal synced its records.
     lose_unsynced_log_writes(home.path(), &synced);
-    let off = open_off(home.path());
-    assert_eq!(seqs(off.as_ref(), CHAT), (1..=5).collect::<Vec<_>>());
+    let next = super::open(&config(), home.path()).unwrap_or_else(|e| panic!("{e:#}"));
+    assert_eq!(seqs(next.as_ref(), CHAT), (1..=5).collect::<Vec<_>>());
 }
 
 /// An agent's streamed output is a `Stream` record, synced with the next acknowledged batch or a
@@ -1209,8 +1213,8 @@ fn checkpoint_lsn(home: &Path) -> u64 {
 
 /// F2 and F3 of the review of #35562, at the root: a chat whose repair failed keeps only its own
 /// lines for the next start; the checkpoint of every other chat goes on. (A hold of the global
-/// checkpoint kept every chat's records past it, so a start with the switch off replayed them
-/// again, a retention rewrite came undone, and the journal grew with each restart.)
+/// checkpoint kept every chat's records past it, so each start replayed them again, a retention
+/// rewrite came undone, and the journal grew with each restart.)
 #[test]
 fn a_failed_repair_does_not_hold_the_checkpoint_of_other_chats() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));

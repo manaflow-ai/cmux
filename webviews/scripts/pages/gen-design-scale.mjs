@@ -44,8 +44,20 @@ function load() {
     assert(sizes.join() === sorted.join(), `${group} run small to large, one size each`);
   }
   assert(data.icons.map((icon) => icon.px).join() === "12,14,16,20", "grid.md's icon scale is 12, 14, 16, 20");
-  for (const level of data.glass)
+  for (const level of data.glass) {
     assert(level.tint > 0 && level.tint < 90, `glass ${level.name} is never opaque (surface-roles nearOpaque 0.9)`);
+    assert(
+      level.artTint === undefined || (level.artTint > 0 && level.artTint < level.tint),
+      `glass ${level.name}'s artTint is clearer than its tint`,
+    );
+    assert(["level", "mode"].includes(level.kind), `glass ${level.name} is a level or a mode`);
+    assert(GLASS_FILTER.test(level.blur), `glass ${level.name}'s blur is blur(<px>) saturate(<n>)`);
+  }
+  const levels = data.glass.filter((level) => level.kind === "level").map((level) => level.name);
+  assert(
+    levels.join() === "chrome,popover,menu,chip",
+    "the glass levels are chrome, popover, menu and chip (design/glass.md)",
+  );
   assert(data.elevation.length === 2, "exactly two shadows");
   for (const color of data.colors)
     assert(color.var.startsWith("--cmux-") && !color.var.includes("#"), `colour ${color.name} names a host variable`);
@@ -53,9 +65,14 @@ function load() {
 }
 
 const px = (value) => `${value}px`;
+// A glass level's backdrop filter: the blur radius and the saturation, nothing else.
+const GLASS_FILTER = /^blur\(([\d.]+)px\) saturate\([\d.]+\)$/;
 const glassVars = (level) => ({
   tint: [`--ds-glass-${level.name}-tint`, `${level.tint}%`],
   blur: [`--ds-glass-${level.name}-${level.blurName ?? "blur"}`, level.blur],
+  // The radius alone, for a surface that blurs without the level's saturation (the diff's bars).
+  radius: [`--ds-glass-${level.name}-radius`, px(Number(level.blur.match(GLASS_FILTER)[1]))],
+  artTint: level.artTint === undefined ? null : [`--ds-glass-${level.name}-art-tint`, `${level.artTint}%`],
 });
 const colorValue = (color) =>
   `var(${color.var}, ${color.app ? `var(${color.app}, ${color.fallback})` : color.fallback})`;
@@ -74,8 +91,11 @@ function cssBlock(data) {
     out.push(`  --ds-radius-${radius.name}: ${radius.var ?? px(radius.px)};${note}`);
   }
   for (const level of data.glass) {
-    const { tint, blur } = glassVars(level);
-    out.push(`  /* glass ${level.name}: ${level.for} */`, `  ${tint[0]}: ${tint[1]};`, `  ${blur[0]}: ${blur[1]};`);
+    const { tint, blur, radius, artTint } = glassVars(level);
+    out.push(`  /* glass ${level.name} (${level.kind}): ${level.for} */`, `  ${tint[0]}: ${tint[1]};`);
+    if (artTint) out.push(`  ${artTint[0]}: ${artTint[1]};`);
+    out.push(`  ${blur[0]}: ${blur[1]};`);
+    if (level.kind === "level") out.push(`  ${radius[0]}: ${radius[1]};`);
   }
   out.push("  --ds-glass-edge: var(--cmux-hairline);");
   for (const entry of data.elevation)
@@ -84,7 +104,20 @@ function cssBlock(data) {
   out.push("}");
   const dark = data.elevation.map((entry) => `    --elevation-${entry.name}: ${shadow(entry, "dark")};`);
   out.push("@media (prefers-color-scheme: dark) {", '  :root:not([data-theme="light"]) {', ...dark, "  }", "}");
-  out.push(':root[data-theme="dark"] {', ...dark.map((line) => line.slice(2)), "}", END);
+  out.push(':root[data-theme="dark"] {', ...dark.map((line) => line.slice(2)), "}");
+  // Reduce Transparency (the system's or the host's): no level blurs, so a surface that names a level
+  // directly, outside .ui-glass, still turns solid with the rest (its own rule gives it the opaque fill).
+  const still = data.glass
+    .filter((level) => level.kind === "level")
+    .map((level) => `  ${glassVars(level).blur[0]}: none;`);
+  out.push(
+    "@media (prefers-reduced-transparency: reduce) {",
+    "  :root {",
+    ...still.map((line) => `  ${line}`),
+    "  }",
+    "}",
+  );
+  out.push(":root[data-reduce-transparency] {", ...still, "}", END);
   return out.join("\n");
 }
 
@@ -165,6 +198,7 @@ function ts(data, type, motion) {
         const { tint, blur } = glassVars(level);
         return {
           name: level.name,
+          kind: level.kind,
           tint: tint[0],
           blur: blur[0],
           tintPercent: level.tint,

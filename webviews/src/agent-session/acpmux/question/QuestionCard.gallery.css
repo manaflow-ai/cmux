@@ -31,3 +31,47 @@
   content: "\2713  ";
   color: var(--agent-soft, var(--agent-text));
 }
+
+/* Leo 2026-11-05, of the pill, option rows and custom answer: "kind of ugly". Three looks of the
+   restyle over the same card; "capsule" ships (styles.css, questionCard.css). Outline rings the
+   pill the way the live-line pill does and rules the rows full width with an underlined
+   custom answer; bare drops the pill's capsule to the dot and words, fills the chosen radio with the
+   accent and keeps the custom answer as a soft filled row. */
+.acpmux-question-visual-gallery[data-question-look="outline"] .acpmux-question-status-pill {
+  background: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-question-input) 55%, transparent);
+}
+.acpmux-question-visual-gallery[data-question-look="outline"] .acpmux-question-rows {
+  padding: 0;
+}
+.acpmux-question-visual-gallery[data-question-look="outline"] .acpmux-question-row {
+  padding: 12px;
+  border-radius: 0;
+}
+.acpmux-question-visual-gallery[data-question-look="outline"] .acpmux-question-row + .acpmux-question-row {
+  box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-question-edge);
+}
+.acpmux-question-visual-gallery[data-question-look="outline"] .acpmux-question-other textarea {
+  border-radius: 0;
+  background: none;
+  box-shadow: inset 0 -1px 0 var(--acpmux-question-edge);
+}
+.acpmux-question-visual-gallery[data-question-look="bare"] .acpmux-question-status-pill {
+  padding: 0;
+  background: none;
+}
+.acpmux-question-visual-gallery[data-question-look="bare"] .acpmux-question-mark[data-chosen]:not([data-multi]) {
+  border-color: var(--agent-accent, var(--agent-text));
+  background: var(--agent-accent, var(--agent-text));
+}
+.acpmux-question-visual-gallery[data-question-look="bare"] .acpmux-question-mark[data-chosen]:not([data-multi])::after {
+  background: var(--agent-on-accent, var(--acpmux-base));
+}
+.acpmux-question-visual-gallery[data-question-look="bare"] .acpmux-question-row.acpmux-question-other[data-row-editing] {
+  background-color: var(--acpmux-question-highlight);
+}
+.acpmux-question-visual-gallery[data-question-look="bare"] .acpmux-question-other textarea {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}

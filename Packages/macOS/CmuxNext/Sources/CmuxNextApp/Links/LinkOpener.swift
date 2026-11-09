@@ -64,13 +64,11 @@ final class LinkOpener {
         placement = { [weak services] in services?.settings?.snapshot.linkPlacement ?? .fallback }
     }
 
-    /// The pane a link opened from tab `key` (a tab id or resource id) starts from: the pane
-    /// showing that tab, else the active window's focused pane.
-    func source(tab key: String?) -> PaneController? {
-        guard let services else { return nil }
-        if let key, let (_, pane) = services.locateTabOnAnyMachine(key), let controller = services.paneController(for: pane) { return controller }
-        if let key, let controller = services.paneController(showingTab: key) { return controller }
-        return services.windows.active?.focusedPane
+    /// The pane an open from tab `key` (a tab id or resource id) starts from (``route(tab:)``): never another workspace's focused pane.
+    func source(tab key: String?) -> PaneController? { route(tab: key).pane }
+    func route(tab key: String?) -> LinkSourceRoute<PaneController> {
+        services.map { services in let found = key.flatMap { key in services.locateTabOnAnyMachine(key) } // one lookup answers shown: and exists:
+            return LinkSourceRoute<PaneController>.resolve(key: key, shown: { key in found.flatMap { services.paneController(for: $0.1) } ?? services.paneController(showingTab: key) }, exists: { _ in found != nil }, focused: { services.windows.active?.focusedPane }) } ?? .none
     }
 
     /// The pane showing `view` (a Home or agent chat, a cmux page) in any window, or nil: a click
@@ -125,7 +123,7 @@ final class LinkOpener {
             return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil } ?? column.first
         }
         return LinkOpenPlacement(setting: besideChat ? .splitRight : placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right, column: column,
-                                                              sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds)
+            sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) })
     }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.

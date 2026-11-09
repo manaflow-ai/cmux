@@ -262,6 +262,25 @@ pub enum PeerCmd {
         #[arg(long)]
         probe: bool,
     },
+    /// This machine's ssh public key: the one line a new machine lists in its
+    /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
+    /// ed25519 key when this machine has none (never over an existing key).
+    Key {
+        #[arg(long)]
+        create: bool,
+    },
+    /// Claude Code and Codex on MACHINE (a machine name or ssh host): installed, signed
+    /// in, and what can be offered. Nothing installs or signs in unless a flag asks.
+    Agents {
+        #[arg(value_name = "MACHINE")]
+        target: String,
+        /// Install it there with its vendor's official installer (`harness install`).
+        #[arg(long, value_name = "ID", conflicts_with = "login")]
+        install: Option<String>,
+        /// Sign it in there, in this terminal (`harness login` over ssh -t).
+        #[arg(long, value_name = "ID")]
+        login: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

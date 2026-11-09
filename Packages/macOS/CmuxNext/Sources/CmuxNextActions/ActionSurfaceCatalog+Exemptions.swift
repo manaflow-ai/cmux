@@ -18,7 +18,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.toggleDockFloating", "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop",
         "window.toggleDockBottom", "window.toggleDockOrientation",
         // The window dock (user 2026-11-05).
-        "home.openChiefDock", "window.movePaneToDock", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
+        "home.openChiefDock", "home.undockChief", "window.movePaneToDock", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
         "window.dockEdgeLeft", "window.dockEdgeRight", "window.dockEdgeTop", "window.dockEdgeBottom",
         "help.showCrashLogs", "palette.mobileConnect", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "pane.focus", "screen.focus", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
@@ -88,7 +88,7 @@ nonisolated extension ActionSurfaceCatalog {
         "screenGroup.save", "screenGroup.unsave", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
         "terminal.keep", "clearScreenKeepScrollback", "resetTerminal", "reconnectPane", "resumeCommandSet",
         "agentPaneZoomIn", "agentPaneZoomOut", "agentPaneZoomReset",
-        "resumeCommandClear", "palette.terminalOpenDirectory", "browserReload",
+        "resumeCommandClear", "terminal.runLastCommandAgain", "palette.terminalOpenDirectory", "browserReload",
         "browserHardReload", "browser.openInChromium", "browser.openInWebKit", "browser.resetPinnedTab", "browser.editSource", "file.openAsPage", "splitBrowserRight", "splitBrowserDown",
         "palette.browserOpenDefault", "palette.browserClearHistory", 
         "browserScreenshotPage", "browserTheme", "browserDevice", "browserFitDesktop", "browserFit", "browserFitDesktop1280", 
@@ -114,10 +114,10 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.forkAgentConversationNewColumnRight", "palette.forkAgentConversationNewColumnLeft", "palette.forkAgentConversationNewRow",
         "newCloudWorkspace", "newCloudMachine", "palette.cloud.fork", "palette.cloud.snapshot",
         "palette.cloud.restore", "palette.cloud.promoteTemplate", "palette.cloud.status", "palette.cloud.ports",
-        "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudSSH", "cloudExec", "cloudSetupGitHub", "cloudEnrollMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
+        "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudSSH", "cloudExec", "cloudSetupGitHub", "cloudApplyMachineConfig", "cloudDeliverSecrets", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
         "cloudFileMkdir", "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
         "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
-        "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudShareMachine", "cloudKillMachine", "cloudResizeMachine",
+        "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",
         "cloudDiagnostics", "cloudPauseMachine", "cloudResumeMachine", "cloudSetIdlePause", "cloudSetNetworkAccess", "cloudOpenDesktop", "cloudDomainList", "cloudPublicationList", "cloudProvisionAPI", "cloudAPIKeyList", "cloudAPIKeyRevoke", "cloudListMachines", "palette.cloud.deleteSnapshot", "palette.auth.signIn", "palette.auth.signOut", "accounts.show", "palette.mobileConnect", "accounts.refresh",
         "accounts.reauthenticate", "accounts.connect", "accounts.remove", "accounts.githubConnect", "remote.connect", "remote.newGroup", "remote.removeGroup", "machine.reconnect", "remote.newWorkspace",
         "remote.openTerminalHere", "remote.openRemote", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget",
@@ -173,7 +173,7 @@ nonisolated extension ActionSurfaceCatalog {
         .ownerVerb: ownerVerbActions,
         .guiOnly: [
             "agentHistory.show", "music.open", "music.stop", "palette.forkAgentConversationTo",
-            "notifications.dismissHighlight", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
+            "notifications.dismissHighlight", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize", "appearance.personalize",
             "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about",
             "revealWorkspaceInFinder", "workspaceGroup.editConfig", "manageLayouts",
@@ -189,7 +189,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.extensions.webStore", "browser.extension.options", "browserProfile.manageExtensions",
             "toggleSidebar", "toggleRightSidebar", "switchRightSidebarToFiles", "switchRightSidebarToFind",
             "switchRightSidebarToSessions", "switchRightSidebarToFeed", "switchRightSidebarToDock",
-            "switchRightSidebarToMachines", "showNotifications", "feed.show", "palette.openTerminalChatView",
+            "switchRightSidebarToMachines", "showNotifications", "palette.openTerminalChatView",
             "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
             "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker",
             "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "settings.customizeMenus", "ghostty.showDiagnostics", "palette.searchShortcuts", "agentPane.searchChats",
@@ -199,6 +199,8 @@ nonisolated extension ActionSurfaceCatalog {
             "hints.show", "sidebar.profileMenu", "browser.downloads.showFolder",
             // `cmux live start|stop` is the CLI (cli/app/live.rs); these are its palette and Settings face.
             "liveWeb.start", "liveWeb.stop",
+            // `cmux live start|stop --swift` is the CLI (cli/app/live.rs); the app quits mid-run.
+            "liveSwift.start", "liveSwift.stop",
         ],
         .liveInput: [
             "palette.toggleDictation",

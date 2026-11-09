@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import os
 
@@ -111,6 +112,25 @@ public actor CmuxConfigFile {
         }
     }
 
+    /// Writes `text` beside the file as `<file name>.<suffix>` (the record a launch migration keeps
+    /// of what it changed, so the person can see and undo it); nothing reads it back.
+    @discardableResult
+    public func writeBeside(suffix: String, text: String) throws -> URL {
+        let url = self.url.resolvingSymlinksInPath()
+        let record = url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
+        try Data(text.utf8).blockingWrite(to: record, options: .atomic)
+        return record
+    }
+
+    /// Whether ``writeBeside(suffix:text:)`` left a record named `suffix` beside the file (a regular
+    /// file; a folder of that name is not one).
+    public func hasRecordBeside(suffix: String) -> Bool {
+        let url = self.url.resolvingSymlinksInPath()
+        let record = url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
+        var isDirectory: ObjCBool = false
+        return FileManager.checked.fileExists(atPath: record.path, isDirectory: &isDirectory) && !isDirectory.boolValue
+    }
+
     /// The parsed document. A missing file is an empty object.
     public func document() throws -> JSONValue {
         let text = try source()
@@ -163,6 +183,38 @@ public actor CmuxConfigFile {
             }
         }
         if updated != current { try publish(updated) }
+    }
+
+    /// Removes each path whose value is still `expected` in the file as it is now, then each object
+    /// those removals emptied, in one atomic publish; a path changed since the caller read it stays.
+    /// Read and write share one actor turn, so no other write of this file lands between them.
+    /// With `recordBeside`, `record(removed, before)` is written beside the file first
+    /// (`writeBeside`), so a failed record write leaves the file as it was. Returns the removed
+    /// paths and the text before the publish.
+    public func removeUnchanged(
+        _ expected: [(path: [String], value: JSONValue)],
+        recordBeside suffix: String? = nil,
+        record: @Sendable (_ removed: [[String]], _ before: String) throws -> String = { _, _ in "" }
+    ) throws -> (removed: [[String]], before: String) {
+        guard expected.allSatisfy({ !$0.path.isEmpty }) else { throw Failure.invalidPath("") }
+        let current = try source()
+        let root = try validated(current)
+        let removed = expected.filter { root.value(at: $0.path) == $0.value }.map(\.path)
+        for path in removed { try managedGuard.checkRemove(path) }
+        var updated = current
+        for path in removed { updated = try JSONC.removing(path, in: updated) }
+        // Deepest first, so an object a removal empties goes before its parent is checked.
+        for parent in Set(removed.flatMap { path in (1..<path.count).map { Array(path.prefix($0)) } })
+            .sorted(by: { $0.count > $1.count }) {
+            if case .object(let members)? = try JSONC.parse(updated).value(at: parent), members.isEmpty {
+                updated = try JSONC.removing(parent, in: updated)
+            }
+        }
+        if updated != current {
+            if let suffix { try writeBeside(suffix: suffix, text: record(removed, current)) }
+            try publish(updated)
+        }
+        return (removed, current)
     }
 
     private func validated(_ text: String) throws -> JSONValue {

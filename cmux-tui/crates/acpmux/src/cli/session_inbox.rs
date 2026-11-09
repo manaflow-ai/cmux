@@ -73,7 +73,7 @@ pub fn describe(reply: &Value) -> String {
         }
         let from = |t: &Value| {
             let names = t["from"].as_array().cloned().unwrap_or_default();
-            names.iter().map(s).collect::<Vec<_>>().join(", ")
+            names.iter().map(&s).collect::<Vec<_>>().join(", ")
         };
         let lines: Vec<String> = threads
             .iter()

@@ -249,6 +249,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
     /// The host pressure indicator after the band and the badge (`layoutTitlebarAccessories`).
     var hostPressureIndicator: NSView? { didSet { oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
+    /// Swift live mode's "Live mode" mark, last in the top row (`layoutTitlebarAccessories`).
+    var liveModeBadge: NSView? { didSet { oldValue?.removeFromSuperview(); liveModeBadge.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
 
     var onHintGeometryChange: (() -> Void)?
     /// Called from layout when the band's presence changed, so strips under
@@ -301,7 +303,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
             lightsMaxX = local.maxX
-            midY = local.midY
+            midY = WindowTitlebar.topRowLine(in: window).map { bounds.maxY - $0.centerY } ?? local.midY
         }
         let presence = toolbarBandPresence
         let bandHeight = TitlebarBandButton.side
@@ -322,6 +324,15 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
         layoutRightPanel(rowHeight: rowHeight)
         layoutTitlebarAccessories(midY: midY)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        // Pixel-aligned titlebar frames depend on the window's current scale. A
+        // display move can change it without changing the view bounds, so mark
+        // the whole chrome for a fresh layout instead of leaving half-point
+        // edges until the next unrelated token update.
+        needsLayout = true
     }
 
     /// Called after `show(_:)` swaps the content (a top page or a workspace).
@@ -408,6 +419,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         paintBackground()
+        applyMainPane() // the window's lit rim (`Metrics.windowEdgeInset`) depends on the window
     }
 
     /// A later subview must not cover the window's agent cursor while it

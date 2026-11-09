@@ -152,6 +152,9 @@ pub(super) fn handle_resource_connection_message(
         operation if super::participant_avatars::handles(operation) => {
             super::participant_avatars::handle(mux, client, request, writer)
         }
+        operation if super::cloud_api::handles(operation) => {
+            super::cloud_api::handle(mux, client, request, writer)
+        }
         ResourceOperation::SessionShutdown => {
             handle_resource_session_shutdown(mux, client, request, id, writer)
         }

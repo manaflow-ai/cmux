@@ -1,7 +1,7 @@
 // l10n-allow-file: synthetic senders and prompts, and the visible copy they read as.
 // Messages from other chats next to each other share one tick on the prompt rail (Leo, 2026-11-03:
 // "i've always been on the fence about messages from other chats showing up in that prompt jump
-// scroll rail individual elements"; incoming.experiment.ts, default `folded-secondary`). The person's
+// scroll rail individual elements"; incoming.experiment.ts, default `folded`). The person's
 // prompts keep a tick each; a run of other chats' messages is one tick, in the same column, whose card
 // reads "Received N messages" from its senders, as the transcript's row for them does. The folded
 // tick jumps to the run's first message, takes its place in the Tab and arrow order, and bookmarks
@@ -133,11 +133,12 @@ test("a run of other chats' messages is one tick whose card reads Received N mes
     expect(rail.tick(1).closest("li")!.getAttribute("aria-setsize")).toBe("4");
     expect(rail.tick(1).hasAttribute("data-incoming")).toBe(true);
     expect(rail.tick(2).hasAttribute("data-incoming")).toBe(false);
-    // Other chats' ticks draw a step dimmer at rest.
-    expect(rail.host.querySelector(".acpmux-minimap__rail")!.hasAttribute("data-incoming-dim")).toBe(true);
+    // Other chats' ticks draw at the person's weight at rest, so the rail keeps one rhythm.
+    expect(rail.host.querySelector(".acpmux-minimap__rail")!.hasAttribute("data-incoming-dim")).toBe(false);
 
     await rail.focus(1);
-    expect(rail.host.querySelector(".acpmux-minimap__from")!.textContent).toBe("From lane-box-1/ux-owner");
+    // The run's one sender has a session id, so the card names it as the transcript does.
+    expect(rail.host.querySelector(".acpmux-minimap__from")!.textContent).toBe("lane-box-1/ux-owner · Other session");
     expect(rail.host.querySelector(".acpmux-minimap__prompt")!.textContent).toBe("Received 3 messages");
     expect(rail.tick(1).getAttribute("aria-label")).toContain("Received 3 messages");
     // A single message keeps its own words.

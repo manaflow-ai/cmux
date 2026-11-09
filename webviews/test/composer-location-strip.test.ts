@@ -280,15 +280,15 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 1,
     );
     expect((await rows()).map((row) => row.text)).toEqual(["cmux · fleet-ci"]);
-    await page.getByRole("combobox", { name: "Search projects" }).fill("src");
+    await page.getByRole("combobox", { name: "Search folders or type a path" }).fill("src");
     await page.waitForFunction(
       () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 3,
     );
-    // Choose folder… closes the list, after the folders and the other existing rows.
+    // The actions under the folders: one way to pick a folder, no Add project beside it.
     const actions = await page
       .locator(".acpmux-location-menu .acpmux-location-action")
       .evaluateAll((all) => all.map((row) => (row.textContent ?? "").trim()));
-    expect(actions).toEqual(["New Worktree", "Add project", "Choose folder…"]);
+    expect(actions).toEqual(["Add folder…", "New Worktree"]);
     // ↓ moves the highlight from the first match to the next; Escape closes back to the strip.
     const highlighted = () =>
       page.evaluate(() =>
@@ -319,7 +319,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(projectRect!.y).toBeGreaterThanOrEqual(viewportRect!.y);
     expect(projectRect!.y + projectRect!.height).toBeLessThanOrEqual(viewportRect!.y + viewportRect!.height);
     expect(viewportRect!.y + viewportRect!.height).toBeLessThanOrEqual(rect!.y + rect!.height);
-    const search = page.getByRole("combobox", { name: "Search projects" });
+    const search = page.getByRole("combobox", { name: "Search folders or type a path" });
     await search.press("ArrowDown");
     await search.press("ArrowDown");
     await search.press("ArrowRight");
@@ -438,12 +438,12 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.waitForFunction(() => document.querySelector(".acpmux-location-row[data-worktree]"));
     expect(await page.locator(".acpmux-location-menu").count()).toBe(1);
     // A branch search lists the worktree it names under its repository; the repository's name, once.
-    await page.getByRole("combobox", { name: "Search projects" }).fill("unread");
+    await page.getByRole("combobox", { name: "Search folders or type a path" }).fill("unread");
     await page.waitForFunction(
       () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 2,
     );
     expect(await rows()).toEqual(["cmux · issue-22273-runaway-children", "  feat-cmux-next-unread-ring-classic"]);
-    await page.getByRole("combobox", { name: "Search projects" }).fill("cmux");
+    await page.getByRole("combobox", { name: "Search folders or type a path" }).fill("cmux");
     await page.waitForFunction(
       () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 1,
     );
@@ -625,10 +625,10 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     ["strip-where-machine-cloud", 430, "Cloud", null],
     ["strip-where-machine-cloud", 244, "Cloud", null],
     ["strip-where-machine-cloud", 243, false, null],
-    ["strip-where-machine-machine-picked", 430, "Another machine", "gpu-box"],
-    ["strip-where-machine-machine-picked", 402, "Another machine", "gpu-box"],
-    ["strip-where-machine-machine-picked", 401, "Another machine", false],
-    ["strip-where-machine-machine-picked", 346, "Another machine", false],
+    ["strip-where-machine-machine-picked", 430, "Remote", "gpu-box"],
+    ["strip-where-machine-machine-picked", 402, "Remote", "gpu-box"],
+    ["strip-where-machine-machine-picked", 401, "Remote", false],
+    ["strip-where-machine-machine-picked", 346, "Remote", false],
     ["strip-where-machine-machine-picked", 345, false, false],
     ["strip-combined", 244, "This Mac", null],
     ["strip-combined", 243, false, null],
@@ -765,7 +765,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     for (const query of ["relay", "/Users/you/src/relay"]) {
       test(`${entry} highlights ${query} as the active project before Enter`, async () => {
         const page = await open(entry, variant, 720);
-        const field = page.getByRole("combobox", { name: "Search projects" });
+        const field = page.getByRole("combobox", { name: "Search folders or type a path" });
         await field.fill(query);
         await page.waitForFunction(() => document.querySelector("[data-highlighted]"));
         const activeId = await field.getAttribute("aria-activedescendant");
@@ -789,14 +789,16 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   ]) {
     test(`${entry} keeps pinned actions deliberately reachable by keyboard`, async () => {
       const page = await open(entry, variant, 720);
-      const field = page.getByRole("combobox", { name: "Search projects" });
+      const field = page.getByRole("combobox", { name: "Search folders or type a path" });
       await field.fill("relay");
       await page.waitForFunction(() => document.querySelector("[data-highlighted]")?.textContent?.includes("relay"));
-      await field.press("ArrowDown");
-      const activeId = await field.getAttribute("aria-activedescendant");
+      // The actions sit under the folders, No folder last: the arrows reach it after the matches.
       const highlighted = page.locator("[data-highlighted]");
+      for (let press = 0; press < 6 && !(await highlighted.textContent())?.includes("No folder"); press++)
+        await field.press("ArrowDown");
+      const activeId = await field.getAttribute("aria-activedescendant");
       expect(await highlighted.getAttribute("id")).toBe(activeId);
-      expect(await highlighted.textContent()).toContain("Do not work in a project");
+      expect(await highlighted.textContent()).toContain("No folder");
       await field.press("Enter");
       expect(await page.evaluate(() => document.documentElement.dataset.galleryProjectAction)).toBe("none");
       expect(await page.evaluate(() => document.documentElement.dataset.galleryProjectPicked)).toBeUndefined();
@@ -832,7 +834,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await list.evaluate((node) => {
       node.scrollTop = 0;
     });
-    await page.getByRole("combobox", { name: "Search projects" }).focus();
+    await page.getByRole("combobox", { name: "Search folders or type a path" }).focus();
     for (let index = 0; index < 40; index++) await page.keyboard.press("ArrowDown");
     expect(await last.getAttribute("data-highlighted")).not.toBeNull();
     expect(

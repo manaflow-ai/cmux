@@ -4,7 +4,8 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
 import { Composer } from "./Composer";
-import { HarnessHealthNotice, type HarnessHealth, type UpdateOffer } from "./HarnessHealthNotice";
+import { HarnessHealthNotice } from "./HarnessHealthNotice";
+import { type HarnessHealth, type UpdateOffer } from "./harnessHealthNoticeModel";
 import { NoticeSlot } from "./NoticeSlot";
 
 /// The started Codex chat the notice sits in.

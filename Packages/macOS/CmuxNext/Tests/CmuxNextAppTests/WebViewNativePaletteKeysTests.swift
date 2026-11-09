@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextFocus
+import CmuxNextFocusUI
 import CmuxNextTestSupport
 import Testing
 import WebKit
@@ -109,7 +110,7 @@ import WebKit
         let webView = WKWebView(frame: panel.contentView?.bounds ?? .zero)
         panel.contentView?.addSubview(webView)
         #expect(panel.makeFirstResponder(webView))
-        #expect(KeyRouter.webContentHasKeys(in: panel))
+        #expect(panel.webContentHasKeys)
         let router = router()
         let cmdShiftP = try Self.cmdShiftP()
         #expect(router.routesNativePaletteKey(cmdShiftP, in: panel))
@@ -131,7 +132,7 @@ import WebKit
         let field = NSTextView(frame: panel.contentView?.bounds ?? .zero)
         panel.contentView?.addSubview(field)
         #expect(panel.makeFirstResponder(field))
-        #expect(!KeyRouter.webContentHasKeys(in: panel))
+        #expect(!panel.webContentHasKeys)
         #expect(!router().routesNativePaletteKey(try Self.cmdShiftP(), in: panel))
         #expect(ran.ids.isEmpty)
     }

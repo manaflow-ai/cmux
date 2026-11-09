@@ -246,6 +246,12 @@ pub struct StartRequest {
     /// Work in a new git worktree of the folder's repository
     /// (`subsession_worktree.rs`) instead of the folder itself.
     pub worktree: bool,
+    /// Internal race capability, derived from the owning person's authenticated request.
+    /// Never populated from ordinary sub-session RPC fields. A peer-origin parent still
+    /// owns a real folder on this daemon; its owner may explicitly race there.
+    pub(crate) owner_authorized_race: bool,
+    /// Internal durable race identity; never populated from an RPC request.
+    pub(crate) race_id: Option<String>,
     /// Start it as a fork of the parent's chat as it is now (`hub/fork.rs`), the way Fork
     /// Conversation forks one: it has the parent's history, runs its harness, model and
     /// folder, and shows it was forked from the parent. No harness, model, effort, folder
@@ -415,6 +421,12 @@ impl Hub {
         })
     }
 
+    /// How many of `parent`'s child slots are in use now, counted as a start's reservation
+    /// counts them (`races.rs` checks a race fits before it starts).
+    pub(super) fn subsession_slots_used(&self, parent: &str) -> u32 {
+        self.subsessions.used(parent, &self.waking_children(parent))
+    }
+
     /// `parent`'s open children with a prompt on its way to a turn: queued (for the turn lock or
     /// a run slot), or holding the turn lock while their harness starts. The index counts the
     /// ones among them that are not live (`Index::reserve`), so a wake never lets a start take
@@ -497,6 +509,20 @@ impl Hub {
             .collect()
     }
 
+    fn race_active(parent: &Session, race_id: Option<&str>) -> bool {
+        let Some(race_id) = race_id else { return true };
+        parent.read_meta(|m| {
+            m.races.iter().any(|race| {
+                race.id == race_id && matches!(race.state.as_str(), "running" | "reviewing")
+            })
+        })
+    }
+
+    fn race_cancelled() -> RpcError {
+        RpcError::invalid_params("race was cancelled before its sub-session prompt was accepted")
+            .with_data(json!({"reason": "race.cancelled"}))
+    }
+
     /// `_acpmux/subsession/start`: `parent`'s agent starts a child with a
     /// first prompt. Answers once the prompt is accepted.
     pub async fn start_subsession(
@@ -531,6 +557,9 @@ impl Hub {
         let pm = parent.meta();
         if pm.status == SessionStatus::Closed {
             return Err(RpcError::invalid_params("a closed session starts no sub-session"));
+        }
+        if !Self::race_active(parent, req.race_id.as_deref()) {
+            return Err(Self::race_cancelled());
         }
         let limits = self.subsession_effective(&pm);
         // One depth for every way a session starts another (`lineage.rs`).
@@ -627,7 +656,8 @@ impl Hub {
         // Its worktree is made, and its harness spawns, only in the very folder checked.
         let (cwd, worktree) = if req.worktree {
             folder.still_here()?;
-            let mut kept = self.subsession_worktree(pm, &folder, &short).await?;
+            let mut kept =
+                self.subsession_worktree(pm, &folder, &short, req.owner_authorized_race).await?;
             kept.source_decided = decided;
             let start = super::subsession_guard::CheckedFolder::resolve(&kept.made.cwd)?;
             // The folder resolved is in the worktree just made, not one that took its place.
@@ -684,6 +714,7 @@ impl Hub {
             // person's default start mode only under a full-access parent.
             keep_harness_mode: true,
             subsession: Some(link),
+            created_by: Some(super::created_by::agent(&parent.id, pm)),
             lineage: Some(lineage),
             ..Default::default()
         };
@@ -709,6 +740,10 @@ impl Hub {
         if let Err(e) = self.settle_subsession(parent, pm, &probe, cwd, req.name.as_deref()).await {
             return Err(self.close_refused(&probe, e).await);
         }
+        if !Self::race_active(parent, req.race_id.as_deref()) {
+            let _ = self.kill(&probe, false).await;
+            return Err(Self::race_cancelled());
+        }
         let cm = probe.meta();
         // At its prompt's acceptance: the parent's log has `started` only for a child that runs,
         // and before that turn's `turn_ended`.
@@ -717,7 +752,7 @@ impl Hub {
         let started: Box<dyn FnOnce() + Send> =
             Box::new(move || hub.subsession_started(&to, &child, &prompt, asked));
         let accepted = self
-            .send_family_prompt(
+            .send_family_prompt_inner(
                 parent,
                 &probe,
                 text_block(&req.prompt),
@@ -726,6 +761,17 @@ impl Hub {
                 false,
                 Some(started),
                 None,
+                req.race_id.as_deref().map(|race_id| {
+                    let parent = parent.clone();
+                    let race_id = race_id.to_owned();
+                    Arc::new(move || {
+                        if Self::race_active(&parent, Some(&race_id)) {
+                            Ok(())
+                        } else {
+                            Err(Self::race_cancelled())
+                        }
+                    }) as Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>
+                }),
             )
             .await;
         let accepted = match accepted {
@@ -762,12 +808,14 @@ impl Hub {
 
     /// A new worktree of `folder`'s repository for a sub-session named
     /// `name` (`subsession_worktree.rs`), made off the async runtime. Only
-    /// on this machine: a remote parent's folder is not here.
+    /// on this machine. A peer-created session's remote origin remains restricted unless
+    /// the owning person explicitly authorized this race on the daemon that owns it.
     async fn subsession_worktree(
         &self,
         pm: &SessionMeta,
         checked: &super::subsession_guard::CheckedFolder,
         name: &str,
+        owner_authorized_race: bool,
     ) -> Result<KeptWorktree, RpcError> {
         let folder: &Path = checked;
         let refuse = |why: String| {
@@ -777,7 +825,7 @@ impl Hub {
                 json!({"cwd": folder}),
             )
         };
-        if pm.remote_origin {
+        if pm.remote_origin && !owner_authorized_race {
             return Err(refuse("this session runs on another machine".into()));
         }
         let (folder2, held, name2) = (folder.to_path_buf(), checked.held(), name.to_owned());
@@ -816,6 +864,25 @@ impl Hub {
         accepted: Option<Box<dyn FnOnce() + Send>>,
         saved: Option<crate::attach::Saved>,
     ) -> Result<Value, RpcError> {
+        self.send_family_prompt_inner(
+            from, to, blocks, prompt_id, steer, interrupt, accepted, saved, None,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn send_family_prompt_inner(
+        self: &Arc<Self>,
+        from: &Arc<Session>,
+        to: &Arc<Session>,
+        blocks: Vec<Value>,
+        prompt_id: Option<String>,
+        steer: bool,
+        interrupt: bool,
+        accepted: Option<Box<dyn FnOnce() + Send>>,
+        saved: Option<crate::attach::Saved>,
+        race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
+    ) -> Result<Value, RpcError> {
         let fm = from.meta();
         let mut provenance = json!({
             "kind": PROVENANCE_KIND,
@@ -851,6 +918,7 @@ impl Hub {
                 None => on_accepted,
             },
             provenance: Some(provenance),
+            race_guard,
             ..PromptOptions::default()
         };
         let (hub, to2) = (self.clone(), to.clone());
@@ -863,6 +931,12 @@ impl Hub {
             answer
         });
         match rx.await {
+            Ok(v) if v.get("raceCancelled") == Some(&Value::Bool(true)) => {
+                Err(RpcError::invalid_params(
+                    v.get("error").and_then(Value::as_str).unwrap_or("race was cancelled"),
+                )
+                .with_data(json!({"reason": "race.cancelled"})))
+            }
             Ok(v) => Ok(v),
             // Dropped before acceptance: the prompt was refused.
             Err(_) => match turn.await {
@@ -1159,56 +1233,193 @@ impl Hub {
         self.reply_between(s, last.saturating_sub(4000), last)
     }
 
+    /// The session's last agent message for a model race. Races send the full
+    /// reviewer response to the verdict parser, so it is masked but never
+    /// truncated.
+    pub(crate) fn last_reply_unbounded(&self, s: &Session) -> Option<String> {
+        let last = s.meta().last_seq;
+        // Read backwards in pages until this turn's start. A turn can emit more
+        // than 4,000 update records, so the summary path's fixed tail is not
+        // sufficient for a race verdict.
+        let mut before = last.saturating_add(1);
+        let mut pages = Vec::new();
+        loop {
+            let page = self
+                .events_page(
+                    &s.id,
+                    0,
+                    Some(before),
+                    512,
+                    None,
+                    true,
+                    &crate::hub::EventFilter::all(),
+                )
+                .ok()?;
+            if page.events.is_empty() {
+                break;
+            }
+            let starts_turn = page.events.iter().any(|e| e.kind == "turn_started");
+            before = page.events.first().map(|e| e.seq)?;
+            pages.push(page.events);
+            if starts_turn || !page.has_more {
+                break;
+            }
+        }
+        pages.reverse();
+        let events = pages.into_iter().flatten().collect::<Vec<_>>();
+        masked_reply(&events, last, None)
+    }
+
     /// [`Hub::last_reply`] among the records after `after` up to `upto` only (the last 4000 of
     /// them): one turn's reply, read after later turns began (the Cloud hand-off reports,
     /// `daemon/cloud_handoff.rs`).
     pub fn reply_between(&self, s: &Session, after: u64, upto: u64) -> Option<String> {
+        self.reply_between_with_limit(s, after, upto, Some(MAX_REPLY_CHARS))
+    }
+
+    fn reply_between_with_limit(
+        &self,
+        s: &Session,
+        after: u64,
+        upto: u64,
+        max_chars: Option<usize>,
+    ) -> Option<String> {
         let after = after.max(upto.saturating_sub(4000));
         let count = usize::try_from(upto.saturating_sub(after)).unwrap_or(4000);
         let events = self.events(&s.id, after, count).ok()?;
-        let mut reply = String::new();
-        let mut open = false;
-        for e in events.into_iter().take_while(|e| e.seq <= upto) {
-            if e.dir == "mux" && matches!(e.kind.as_str(), "turn_started" | "user_message") {
-                open = false;
-                continue;
-            }
-            let update = e.dir == "in"
-                && !e.kind.ends_with(".replay")
-                && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
-                && e.msg.pointer("/params/_meta/acpmux/subagent").is_none();
-            if !update {
-                continue;
-            }
-            match e.kind.as_str() {
-                "agent_message_chunk" => {
-                    if !open {
-                        reply.clear();
-                        open = true;
-                    }
-                    let chunk = e.msg.pointer("/params/update/content/text");
-                    reply.push_str(chunk.and_then(Value::as_str).unwrap_or_default());
+        masked_reply(&events, upto, max_chars)
+    }
+}
+
+/// Extract and mask one turn's agent reply. `max_chars` is only applied to the
+/// normal session summary path; race callers pass `None` so a reviewer result
+/// remains valid JSON even when it is longer than the summary cap.
+fn masked_reply(
+    events: &[crate::store::EventRecord],
+    upto: u64,
+    max_chars: Option<usize>,
+) -> Option<String> {
+    let mut reply = String::new();
+    let mut open = false;
+    for e in events.iter().take_while(|e| e.seq <= upto) {
+        if e.dir == "mux" && matches!(e.kind.as_str(), "turn_started" | "user_message") {
+            open = false;
+            continue;
+        }
+        let update = e.dir == "in"
+            && !e.kind.ends_with(".replay")
+            && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
+            && e.msg.pointer("/params/_meta/acpmux/subagent").is_none();
+        if !update {
+            continue;
+        }
+        match e.kind.as_str() {
+            "agent_message_chunk" => {
+                if !open {
+                    reply.clear();
+                    open = true;
                 }
-                "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => open = false,
-                _ => {}
+                let chunk = e.msg.pointer("/params/update/content/text");
+                reply.push_str(chunk.and_then(Value::as_str).unwrap_or_default());
             }
+            "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => open = false,
+            _ => {}
         }
-        let reply = reply.trim();
-        if reply.is_empty() {
-            return None;
-        }
-        // Mask before the cut: a cut through a secret leaves a head the
-        // scanner no longer recognizes, and that head would go out unmasked.
-        let masked = crate::secret_scan::mask(reply);
-        let mut cut: String = masked.chars().take(MAX_REPLY_CHARS).collect();
-        if masked.chars().count() > MAX_REPLY_CHARS {
+    }
+    let reply = reply.trim();
+    if reply.is_empty() {
+        return None;
+    }
+    // Mask before the cut: a cut through a secret leaves a head the
+    // scanner no longer recognizes, and that head would go out unmasked.
+    let masked = crate::secret_scan::mask(reply);
+    if let Some(max_chars) = max_chars {
+        let mut cut: String = masked.chars().take(max_chars).collect();
+        if masked.chars().count() > max_chars {
             cut.push('…');
         }
-        Some(cut)
+        return Some(cut);
     }
+    Some(masked)
 }
 
 /// A prompt of `text` alone.
 fn text_block(text: &str) -> Vec<Value> {
     vec![json!({"type": "text", "text": text})]
+}
+
+#[cfg(test)]
+mod reply_tests {
+    use super::*;
+    use crate::store::{MemoryStore, SessionMeta};
+
+    #[test]
+    fn unbounded_reply_keeps_long_reviewer_text() {
+        let text = format!(r#"{{"winnerId":"c1","reason":"{}"}}"#, "x".repeat(4_480));
+        let events = text
+            .chars()
+            .enumerate()
+            .map(|(index, chunk)| crate::store::EventRecord {
+                seq: u64::try_from(index + 1).unwrap(),
+                at: 0,
+                dir: "in".into(),
+                kind: "agent_message_chunk".into(),
+                msg: json!({
+                    "method": method::SESSION_UPDATE,
+                    "params": {"update": {"content": {"text": chunk.to_string()}}}
+                }),
+                host_seq: None,
+            })
+            .collect::<Vec<_>>();
+        let last = u64::try_from(events.len()).unwrap();
+        assert!(events.len() > MAX_REPLY_CHARS);
+        assert_eq!(masked_reply(&events, last, None).unwrap(), text);
+        assert!(masked_reply(&events, last, Some(MAX_REPLY_CHARS)).unwrap().ends_with('…'));
+    }
+
+    #[test]
+    fn unbounded_reply_pages_past_four_thousand_stored_chunks() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let hub = Hub::new(config, Box::new(MemoryStore::default()));
+        let session: Arc<Session> = hub.insert_test_session(
+            serde_json::from_value::<SessionMeta>(json!({
+                "schema": crate::store::META_SCHEMA,
+                "id": "race-review",
+                "name": "race review",
+                "harness": "codex",
+                "cwd": "/tmp",
+                "status": "running",
+                "createdAt": 1,
+                "updatedAt": 2
+            }))
+            .unwrap(),
+        );
+        hub.save_meta(&session);
+        let mut chunk_id = 0u64;
+        let mut update = |text: &str| {
+            chunk_id += 1;
+            hub.append(
+                &session,
+                "in",
+                "agent_message_chunk",
+                json!({
+                    "method": method::SESSION_UPDATE,
+                    "params": {"update": {"content": {"text": text}, "chunkId": chunk_id}}
+                }),
+            );
+        };
+        hub.append(&session, "mux", "turn_started", json!({"turnId": "old"}));
+        update("old turn");
+        hub.append(&session, "mux", "turn_started", json!({"turnId": "review"}));
+        let expected = format!(r#"{{"winnerId":"c1","reason":"{}"}}"#, "x".repeat(4_480));
+        for chunk in expected.chars() {
+            update(&chunk.to_string());
+        }
+
+        let got = hub.last_reply_unbounded(&session).expect("review reply");
+        assert_eq!(got, expected);
+        assert!(got.len() > MAX_REPLY_CHARS);
+        assert!(serde_json::from_str::<Value>(&got).is_ok());
+    }
 }

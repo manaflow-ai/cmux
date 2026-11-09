@@ -29,7 +29,7 @@ pub(super) const SESSION: &str = "acp_session_1";
 pub(super) struct FakeAcpmux {
     directory: PathBuf,
     pub(super) socket: PathBuf,
-    frames: Receiver<Value>,
+    pub(super) frames: Receiver<Value>,
     connections: Receiver<UnixStream>,
     current: Option<UnixStream>,
     transfer_blocked: Arc<Mutex<HashSet<String>>>,
@@ -170,6 +170,33 @@ pub(super) struct Fixture {
     /// most [`WAIT`], or until its sender is gone).
     pub(super) events_gate: Option<Arc<Mutex<Receiver<()>>>>,
     pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
+    pub(super) phone: Option<PhoneFloor>,
+}
+
+/// The fake's Cloud mobile floor: whether it reports one, the family a new session runs, and
+/// the session's mode (`session/set_mode` changes it, unless `stuck`).
+#[derive(Clone)]
+pub(super) struct PhoneFloor {
+    pub(super) strict: bool,
+    pub(super) family: &'static str,
+    pub(super) mode: Arc<Mutex<String>>,
+    pub(super) stuck: bool,
+    /// When set, the start's first `_acpmux/web_modes` (the table, before any session) waits
+    /// for one message on it (at most [`WAIT`], or until its sender is gone).
+    pub(super) table_gate: Option<Arc<Mutex<Receiver<()>>>>,
+}
+
+impl PhoneFloor {
+    /// acpmux's `Hub::cloud_mobile_mode_asks` for a Claude or Codex bridge session.
+    fn asks(&self) -> bool {
+        let mode = self.mode.lock().unwrap();
+        match self.family {
+            "claude" => matches!(mode.as_str(), "default" | "plan"),
+            "codex" => mode.as_str() == "ask",
+            _ => false,
+        }
+    }
 }
 
 fn serve(
@@ -188,6 +215,44 @@ fn serve(
         let id = frame["id"].clone();
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
+            "_acpmux/web_modes" if fixture.phone.is_some() => {
+                let phone = fixture.phone.as_ref().unwrap();
+                if params.get("sessionId").is_none()
+                    && let Some(gate) = &phone.table_gate
+                {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
+                // acpmux's own table: Codex and opencode are refused Web families, and a Codex
+                // bridge session holds to the phone floor only through `cloudMobileAsks`.
+                let mut table = json!({
+                    "families": {"claude": ["default", "plan"]},
+                    "refusedFamilies": ["codex", "opencode"],
+                    "session": {"family": phone.family, "mode": phone.mode.lock().unwrap().clone(),
+                                "cloudMobileAsks": phone.asks()},
+                });
+                if phone.strict {
+                    table["cloudMobileStrictFloor"] = json!(1);
+                } else {
+                    table["session"].as_object_mut().unwrap().remove("cloudMobileAsks");
+                }
+                Some(table)
+            }
+            // acpmux's catalog lists every family it runs, opencode included, so a family with
+            // no phone mode resolves and is refused by the phone floor, not the catalog.
+            "_acpmux/harnesses" if fixture.phone.is_some() => Some(json!({
+                "defaultHarness": fixture.phone.as_ref().unwrap().family,
+                "families": {"claude": {}, "codex": {}, "opencode": {}},
+                "harnesses": {},
+            })),
+            "session/set_mode" if fixture.phone.is_some() => {
+                let phone = fixture.phone.as_ref().unwrap();
+                if !phone.stuck {
+                    *phone.mode.lock().unwrap() =
+                        params["modeId"].as_str().unwrap_or_default().to_owned();
+                }
+                Some(json!({}))
+            }
+            "_acpmux/kill" => Some(json!({})),
             "_acpmux/web_modes" if fixture.start_folder_trusted.is_some() => Some(json!({
                 "families": {"claude": ["default"]}, "refusedFamilies": [],
                 "session": {"family": "claude", "mode": "default"},
@@ -278,6 +343,11 @@ fn serve(
                 })
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
+            "_acpmux/context" | "_acpmux/context_override" => Some(json!({
+                "sessionId": params["sessionId"],
+                "parts": [{"source": "cmux", "text": "Read early.", "tokens": 3}],
+                "overrides": {"scope": params["scope"], "text": params["text"]},
+            })),
             "session/set_model" | "session/set_mode" => Some(json!({})),
             // A Cloud chat's sign-in: a wrong code is refused with acpmux's reason.
             "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
@@ -535,6 +605,31 @@ impl Client {
         }
     }
 
+    /// Whether the daemon ends this connection (end of stream) within `timeout`; any line read
+    /// before it is dropped.
+    pub(super) fn ends_within(&mut self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut line = String::new();
+        while Instant::now() < deadline {
+            line.clear();
+            match self.reader.read_line(&mut line) {
+                Ok(0) => return true,
+                Ok(_) => continue,
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    continue;
+                }
+                // A reset is the connection ending too.
+                Err(_) => return true,
+            }
+        }
+        false
+    }
+
     /// The next `agent-session-*` event (buffered first).
     pub(super) fn event(&mut self, timeout: Duration) -> Option<Value> {
         if let Some(index) = self.events.iter().position(is_agent_event) {
@@ -608,6 +703,7 @@ pub(super) fn assert_code(reply: &Value, code: &str) {
 include!("agent_session_observe_tests.rs");
 include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
+include!("agent_session_context_tests.rs");
 
 // MARK: Capability and trust
 
@@ -663,6 +759,9 @@ fn every_verb(surface: SurfaceId) -> Vec<Value> {
         json!({"id":10,"cmd":"agent-session-set-mode","surface":surface,"mode_id":"plan"}),
         json!({"id":11,"cmd":"agent-session-set-config","surface":surface,
                "config_id":"effort","value":"high"}),
+        json!({"id":13,"cmd":"agent-session-context","surface":surface,"op":"get"}),
+        json!({"id":14,"cmd":"agent-session-context","surface":surface,"op":"set",
+               "scope":"user","text":"Read early."}),
     ]
 }
 

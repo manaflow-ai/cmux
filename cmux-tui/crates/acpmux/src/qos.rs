@@ -11,19 +11,21 @@
 //!
 //! | Tier | Who | macOS | Linux |
 //! |---|---|---|---|
-//! | [`Tier::Serving`] | the daemon | disk I/O at `IOPOL_UTILITY`; CPU unchanged | unchanged |
+//! | [`Tier::Serving`] | the daemon | unchanged: acknowledged replies wait on the event journal's sync, so its disk I/O stays at the default tier ([`enter_daemon`]) | unchanged |
 //! | [`Tier::Agent`] | agent hosts, background-task runners, and everything they start | CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | nice +5 |
-//! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread at `QOS_CLASS_BACKGROUND` for the pass (CPU throttled; its disk I/O stays at the daemon's utility tier), then back | unchanged |
-//! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` for the read (CPU only: its disk I/O stays at the daemon's utility tier), then back | unchanged |
+//! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread at `QOS_CLASS_BACKGROUND` for the pass (CPU throttled; its disk I/O at the background class's tier), then back | unchanged |
+//! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` for the read (its CPU; its disk I/O stays at the daemon's default tier), then back | unchanged |
 //!
 //! The daemon keeps its CPU priority: the app waits on it for every streamed
 //! frame, so demoting it would put a person's own stream behind agent
-//! compiles. Its disk work (journals, the store) yields to the app's, the
-//! reads a person is waiting on to open a chat ([`on_screen`]) too: a thread's
-//! disk I/O tier is the most throttled of the process's, its own and its QoS
-//! class's (xnu `thread_policy.c`), and the process is at utility, so only the
-//! CPU of those reads is raised. A per-thread I/O policy cannot lift it either,
-//! and it drops the thread out of QoS (`imp::ThreadOnScreen`).
+//! compiles. Its disk I/O stays at the default tier too: an acknowledged
+//! reply waits on the event journal's sync, which a utility tier throttles
+//! 15-30x under another app's disk work (STATUS 11554). Only its background
+//! threads yield, each for its whole life ([`background_thread`]: the event
+//! journal's checkpointer), since a thread's disk I/O tier is the most
+//! throttled of the process's, its own and its QoS class's (xnu
+//! `thread_policy.c`). A per-thread I/O policy also drops the thread out of
+//! QoS (`imp::ThreadOnScreen`), so a reused pool thread never takes it.
 //!
 //! macOS gives no call that clamps a running process, and a thread's QoS does
 //! not survive exec into another program (a probe on a fleet mini: a child's
@@ -56,7 +58,8 @@ use std::ffi::OsString;
 /// How much a process yields to the person at the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
-    /// The daemon: the app waits on it, so only its disk I/O yields.
+    /// The daemon: the app waits on it, and its replies wait on the event journal's sync, so
+    /// nothing of it yields (only its background threads, [`background_thread`]).
     Serving,
     /// Agent work: hosts, harnesses and every tool they run.
     Agent,
@@ -102,17 +105,11 @@ fn agent_background() -> bool {
     std::env::var_os(ENV).is_some_and(|v| v == "background")
 }
 
-/// The daemon's tier once its config is read: with `store.journal` on, acknowledged replies wait
-/// on the journal's sync, so the daemon keeps the default disk tier (lead rule 2026-11-04: a reply
-/// the person waits for never waits on a throttled sync) and only its background threads yield
-/// ([`background_thread`]). Without the journal, [`Tier::Serving`] as before.
-pub fn enter_daemon(journal: bool) {
-    if journal {
-        // The default disk tier: nothing to set (the CPU is unchanged for the daemon either way).
-        return;
-    }
-    enter(Role::Daemon);
-}
+/// The daemon's tier: acknowledged replies wait on the event journal's sync, so the daemon keeps
+/// the default disk tier (lead rule 2026-11-04: a reply the person waits for never waits on a
+/// throttled sync) and only its background threads yield ([`background_thread`]). Nothing to
+/// set: the CPU is unchanged for the daemon too.
+pub fn enter_daemon() {}
 
 /// The calling thread, dedicated to background work for its whole life (the event journal's
 /// checkpointer): its disk I/O at the utility tier. Only for a thread that does nothing else: a
@@ -133,7 +130,8 @@ pub fn enter(role: Role) {
         return;
     }
     match tier(role) {
-        Tier::Serving => imp::disk_utility(),
+        // Nothing: acknowledged replies wait on the event journal's sync ([`enter_daemon`]).
+        Tier::Serving => {}
         // Opt-in: the whole agent tree in background (hq#4947's 55 -> 6 ms
         // drag lag), at the cost of agent speed (module docs).
         Tier::Agent if agent_background() => imp::process_background(),
@@ -307,8 +305,8 @@ mod imp {
         unsafe { libc::setpriority(PRIO_DARWIN_PROCESS, 0, PRIO_DARWIN_BG) };
     }
 
-    /// This thread at background QoS until dropped (CPU throttled; its disk I/O stays at the
-    /// process's utility tier), then back to the class it had. Not the per-thread
+    /// This thread at background QoS until dropped (CPU throttled; its disk I/O at the background
+    /// class's tier), then back to the class it had. Not the per-thread
     /// `setpriority(PRIO_DARWIN_THREAD, BG)`: like a thread-scope `setiopolicy_np`, it drops the
     /// thread out of QoS for good (see [`ThreadOnScreen`]).
     pub(super) struct ThreadBackground {
@@ -338,9 +336,9 @@ mod imp {
         }
     }
 
-    /// This thread at user-initiated QoS until dropped, then back to the class it had. CPU only:
-    /// its disk I/O tier stays at the process's utility tier, the most throttled of the
-    /// process's, its QoS's and its own (xnu `thread_policy.c`). No thread-scope `setiopolicy_np`: on macOS 26 and 27 that call
+    /// This thread at user-initiated QoS until dropped, then back to the class it had. Its disk
+    /// I/O tier is the most throttled of the process's (the default, [`super::enter_daemon`]), its
+    /// QoS's and its own (xnu `thread_policy.c`). No thread-scope `setiopolicy_np`: on macOS 26 and 27 that call
     /// drops the thread out of QoS (it reads unspecified) and makes every later
     /// `pthread_set_qos_class_self_np` on the thread fail with EPERM, so a reused pool thread
     /// could never be raised again (fleet probes 01949bb5 and 3b349221, 2026-10-31).

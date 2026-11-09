@@ -77,6 +77,9 @@ extension LayoutRootView: ScrollGestureOwning {
             handleMonitoredKey(event.keyCode, from: event.window)
             return event
         }
+        if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type), handleMonitoredChildPress(from: event.window) {
+            return event
+        }
         guard event.window === window, window != nil else { return event }
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
@@ -95,6 +98,15 @@ extension LayoutRootView: ScrollGestureOwning {
     func handleMonitoredKey(_ keyCode: UInt16, from source: NSWindow?) {
         guard keyCode == 53, let window, let source, source === window || source.parent === window else { return }
         model.dismissFocusRing()
+    }
+
+    /// A press in a page window of this one (a Chromium page) is a click in that pane: its ring
+    /// goes and the press goes on to the page. False for any other window, child panels included
+    /// (a divider's mouse catcher, an overlay): those are no click in a pane.
+    func handleMonitoredChildPress(from source: NSWindow?) -> Bool {
+        guard let window, let source, source.parent === window, WindowOverlayHost.isPageWindow(source) else { return false }
+        model.dismissFocusRing()
+        return true
     }
 
     /// A press at `locationInWindow` (the window's coordinates), as the monitor sees it before AppKit

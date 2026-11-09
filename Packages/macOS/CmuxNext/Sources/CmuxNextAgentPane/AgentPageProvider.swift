@@ -20,7 +20,7 @@ public extension PageDescriptor {
                      frame: [AgentPaneRenderFrame.source, "cmux-page://cmux.agent/__artifact", "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      media: ["'self'"],
                      script: ["'wasm-unsafe-eval'"], inlineScript: false),
-        dynamicPrefixes: [AgentPageMediaResource.prefix],
+        dynamicPrefixes: [AgentPageMediaResource.prefix, AgentPaneChatSnapshots.prefix],
         // Permission cards (Allow once, Allow for chat), tool cards, Push, Apply and Remove act on one click and
         // appear when the agent decides: a click meant only to bring the window forward must not answer them.
         acceptsFirstMouse: false)
@@ -35,16 +35,17 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.commandAvailability", "pane.framePacing", "pane.painted", "pane.clientReady", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView", "pane.setComposerRing", "pane.setRemoteControl", "pane.noticeAction", "tips.state",
-            "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump",
+            "pane.checkpointAvailability", "pane.commandAvailability", "pane.framePacing", "pane.painted", "pane.clientReady", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView", "pane.setComposerRing", "pane.setDictationSource", "pane.setRemoteControl", "pane.noticeAction", "tips.state",
+            "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump", "cloud.preview.open",
             "newTab.remember", "newTab.setTemplate", "newTab.editWidgets", "nowPlaying.command", "readAloud.speak", "readAloud.stop", "chat.attention.open", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
-            "project.list", "project.icon", "agent.avatar", "agent.avatar.set", "agent.avatar.remove", "chief.face", "harness.symbol", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "machine.share.self", "chat.attach.choose", "chat.attach.dropped", "chat.attach.source", "attachment.sourceIcon", "app.action", "chats.open", "chats.openInTerminal", "chats.watch", "chats.page",
-            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.moveToMachine", "pane.tabState", "pane.tabRowTools", "pane.sessionInfo", "pane.sessionInfo.overlays", "pane.copyText", "pane.tabRowTools.set", "pane.tabRowTools.openMenu", "chat.toolCard.respond", "chat.computerUsePreview", "chat.upload", "chat.btw.inline", "chat.sideChat", "chat.subagentPane", "chat.subagentShown", "chat.subagentBack", "chat.processTerminal", "chat.openTab", "chat.offer.open", "chat.asks.open", "chat.asks.answer", "chat.newHere", "chat.unsentDraft", "chat.leftover", "chat.leftoverTaken", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
+            "project.list", "project.icon", "agent.avatar", "agent.avatar.set", "agent.avatar.remove", "agent.mini", "agent.mini.show", "chief.face", "harness.symbol", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "machine.share.self", "share.op", "chat.attach.choose", "chat.attach.dropped", "chat.attach.source", "attachment.sourceIcon", "app.action", "chats.open", "chats.resume", "chats.openInTerminal", "chats.watch", "chats.page",
+            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.moveToMachine", "pane.tabState", "pane.tabRowTools", "pane.sessionInfo", "pane.sessionInfo.overlays", "pane.glass", "pane.toastAvoidance", "pane.copyText", "pane.tabRowTools.set", "pane.tabRowTools.openMenu", "chat.toolCard.respond", "chat.computerUsePreview", "chat.upload", "chat.btw.inline", "chat.sideChat", "chat.subagentPane", "chat.subagentShown", "chat.subagentBack", "chat.processTerminal", "chat.openTab", "chat.tryAnotherApproach", "chat.offer.open", "chat.asks.open", "chat.asks.answer", "chat.newHere", "chat.unsentDraft", "chat.leftover", "chat.leftoverTaken", "chat.scrollAnchor", "chat.scrollAnchor.get", "chat.tail", "chat.tail.get", "chat.snapshot.put", "chat.snapshot.get", "chat.draftAttachments", "chat.draftAttachments.get", "chat.asks.pending",
             "shell.run", "shell.read", "shell.stop", "harness.update", "harness.restart",
             "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
-            "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio", "dictation.recording.upload", "dictation.recording.cancel",
+            "externalAccess.openSettings",
+            "dictation.toggle", "dictation.handoff", "dictation.sources", "dictation.watchMicrophone", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio", "dictation.recording.upload", "dictation.recording.cancel",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
-            "chat.missing", "uiPointer.report", "acpmux.restart", "acpmux.restartStuck", "sandbox.run", "sandbox.state", "cloud.startChat", "cloud.repickChat", "cloud.handoffTurn",
+            "chat.missing", "uiPointer.report", "acpmux.restart", "acpmux.restartStuck", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn",
             // The composer streams every upload (cloudUploads.ts); without these the page fell back to one frame, which refuses a file over 24 MiB (#28647).
             "chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel",
             // The model menu's Add account (App.tsx); the old bridge took it, the page host refused it unknown_op.
@@ -134,6 +135,9 @@ public final class AgentPageProvider: PageProvider {
     public var tailHost: (any AgentPaneHostProviding)?
     /// The pane's tab (``AgentPaneModel/tabKey``), which a chat's place is kept by. ``AgentPaneView`` sets it.
     public var tabKey: @MainActor () -> String? = { nil }
+    /// Whether this page's chat may keep its drawn copy (``AgentPaneChatSnapshots``): false in an
+    /// incognito window, and until ``AgentPaneView`` sets it.
+    public var keepsChatSnapshots: @MainActor () -> Bool = { false }
     /// The debug UI pointer report from an app-owned page. The native picker
     /// owns the crop and composer delivery; the page only supplies metadata.
     public var onUiPointerReport: @MainActor (JSONValue) -> Void = { _ in }
@@ -380,6 +384,11 @@ public final class AgentPageProvider: PageProvider {
         if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op, tab: tabKey()) }
         if AgentPaneTailCache.handles(method: method) {
             return try await Self.tail(method, params: params, op: op, host: tailHost, pageGeneration: tailGeneration)
+        }
+        // The chat's drawn copy for its next document (AgentPaneChatSnapshots): the chat's, never the model's.
+        if AgentPaneChatSnapshots.handles(method: method) {
+            return try await AgentPaneTailCache.shared.snapshots.reply(method, params: params, op: op, allowed: keepsChatSnapshots(),
+                                                                 pageGeneration: tailGeneration)
         }
         // Needs you's read of a chat's open requests: the host's, never the relay's (AgentPanePendingAsks).
         if method == "chat.asks.pending" { return try await pendingAsks.reply(params, op: op, socket: pendingAsksSocket()) }

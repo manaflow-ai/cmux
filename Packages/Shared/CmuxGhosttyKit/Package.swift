@@ -104,7 +104,7 @@ import PackageDescription
 // size's frame itself with ghostty_surface_host_frame in the transaction that
 // gives the view its bounds, and reports its commit with
 // ghostty_surface_host_frame_committed (#70; cmux FRAME OWNER REFACTOR S4,
-// behind motion.frameOwner.terminals).
+// the frame owner).
 //
 // Since 635c6c12a..7d43bb68b (release/cmux-9ce9b7d0-e2, fork PR #71): an
 // off-main present never commits while it holds [CATransaction lock]. #70's
@@ -139,6 +139,25 @@ import PackageDescription
 // held; the live terminal is copied under the lock only when it changed. No C
 // API change (cmux-ad m18, T-REWRAP).
 //
+// Since 850bb9849..1740c4452 (fork PR #85): a resize's OSC 133 prompt clear
+// waits for the shell's next byte and runs only if the grid differs from the
+// grid the shell drew at (option PROMPT_REDRAW_WAITS_FOR_SHELL, 1028; the
+// app's surfaces turn it on in termio Manual). A size bounce the shell reads
+// as one SIGWINCH no longer leaves a new pane empty (close-then-type P0).
+//
+// Since 1740c4452..538a3e2ef (fork PR #86): while cmux presents host sizes
+// and a frame of a new host size waits for that present, every renderer
+// update draws at once (Thread drawsNow, Metal.hostFrameWaits), not at the
+// next display-link tick: the program's redraw for the grid just sent is in
+// the frame cmux presents (RESIZE P0 10, T render hop). A frame the renderer
+// shows itself at the host size ends the wait, so at rest output stays paced.
+//
+// Since 538a3e2ef..8379ecc8a (fork PR #90, release branch
+// release/cmux-538a3e2e-upstream-picks): upstream #15111 (one-scan style runs
+// in RowBuilder.scan) and #15121 (RefCountedSet reuses dead IDs instead of
+// a whole-page clone), picked onto the #86 pin. ghostty-bench: 1.24-1.62x on
+// styled and hyperlink streams and render-state updates.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -162,8 +181,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-850bb98497044f6632310c303a68974b6289af4b-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "f8b0c65707292cce8fa34fa195b529206a45b6f2b53b187c5b401339e233006f"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-8379ecc8a15003e9c267deb7856285a68a368412-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "9c43e0935b822a8cccfec7039fb21fd16135e2936c43a9dd43a9ff09399d69ca"
         ),
     ]
 )

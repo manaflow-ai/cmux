@@ -236,6 +236,53 @@ const expandAway: Play = async (ctx) => {
   expect(after.scrollHeight > before.scrollHeight + 20, "away from the bottom nothing grew down", { before, after });
 };
 
+/// A turn still running at the bottom, its first two commands done under "Ran 2 commands" (Leo,
+/// 2026-11-06, on a recording under load: "the entire tool call expansion apparatus is borked" and
+/// "way too discontinuous"). Opening the group while the agent goes on: a third command joins it
+/// mid-fold. `cmuxGalleryArrive` (set by the play) delivers that next snapshot as acpmux would, so a
+/// frame test can land it on any frame of the fold (transcript-expand-under-load.test.ts).
+const runningHead = [...earlier, ...middle, user("Run the fetch tests and show me the log", 6)];
+const runCommands = [
+  command("Run the fetch tests", "bun test fetch", log),
+  command("Show the test log", "tail -n 12 fetch.log", log),
+];
+const slowCommand = command("Run the slow case", "bun test fetch --slow", log);
+const reply = assistant("Two runs pass; checking the slow case next.", 4, { id: "expand-at-bottom-reply" });
+const runningSnapshot = chat([...runningHead, activity(runCommands, 5, { id: "expand-at-bottom-run" }), reply], {
+  title: "Fetch tests",
+  isWorking: true,
+});
+const arrivedSnapshot = chat(
+  [
+    ...runningHead,
+    activity([...runCommands, slowCommand], 5, { id: "expand-at-bottom-run", version: 2 }),
+    { ...reply, version: 2 },
+  ],
+  { title: "Fetch tests", isWorking: true },
+);
+
+declare global {
+  interface Window {
+    /** The under-load scene's next snapshot: a third command joins the group. */
+    cmuxGalleryArrive?: () => void;
+  }
+}
+
+/// At the bottom of the running turn, with the next snapshot armed for the test to deliver. A running
+/// turn keeps its run open while it runs (turns.ts `codexRuns`), so the reader has shut it first, at
+/// the very bottom, and gone back to the end.
+const armUnderLoad: Play = async (ctx) => {
+  await atBottom(ctx);
+  await settle(ctx);
+  const group = ctx.document.querySelector<HTMLElement>(GROUP);
+  if (group?.getAttribute("aria-expanded") === "true") {
+    await toggleAndSettle(ctx, group, "false");
+    await toEnd(ctx);
+  }
+  const view = ctx.document.defaultView!;
+  view.cmuxGalleryArrive = () => view.cmuxAcpmuxBridge?.receive(structuredClone(arrivedSnapshot));
+};
+
 export default agentPaneEntry({
   id: "agent-pane.expand-at-bottom",
   title: "Opening a line at the bottom",
@@ -270,6 +317,11 @@ export default agentPaneEntry({
       note: "Play: a tall group open (a 40-line log), the view back at its very bottom, then the group closed: the bottom stays pinned and the text above comes down.",
       snapshot: chat(tallRows, { title: "Fetch tests" }),
       play: collapseTallGroup,
+    },
+    "under-load": {
+      note: "A running turn scrolled to the very bottom with “Ran 2 commands” shut by the reader. Opened while a third command joins the group: one motion, the bottom stays pinned, nothing overlaps.",
+      snapshot: runningSnapshot,
+      play: armUnderLoad,
     },
     "expand-away": {
       note: "Away from the bottom an earlier turn's “Worked for” line opens down: the line and the view stay where they were.",

@@ -1,4 +1,6 @@
 #if os(iOS)
+import CmuxMobileDesign
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -48,8 +50,8 @@ struct ChiefLiveBubble: View {
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 16)
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .animation(.easeOut(duration: 0.2), value: session.shownLive?.step)
-        .animation(.easeOut(duration: 0.2), value: expanded)
+        .animation(.easeOut(duration: 0.2).unlessReduceMotion, value: session.shownLive?.step)
+        .animation(.easeOut(duration: 0.2).unlessReduceMotion, value: expanded)
         // A new run starts collapsed.
         .onChange(of: session.shownLive?.key) { expanded = false }
         .accessibilityIdentifier("chief.live.bubble")
@@ -199,7 +201,7 @@ struct ChiefLiveDetailRow: View {
                 }
             }
             if detail.isRunning {
-                ProgressView().controlSize(.mini)
+                CmuxSpinner().controlSize(.mini)
             }
         }
     }

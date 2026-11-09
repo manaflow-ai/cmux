@@ -63,7 +63,7 @@ extension ActionDescriptor {
         "palette.copyIdentifiers", "workspaceGroup.copyID", "cloudCopyMachineID", "agentChat.copyIdentifier",
         // Diagnostics, recovery and one-time setup.
         "palette.restartSocketListener", "palette.restartServer", "palette.attemptUpdate", "openDebugSettings",
-        "help.featureFlags", "help.showCrashLogs", "ghostty.showDiagnostics", "home.saveFlightRecording", "home.agentMessagePlayground", "home.mcpConnectPlayground", "home.chiefTeleportPlayground",
+        "help.featureFlags", "help.showCrashLogs", "ghostty.showDiagnostics", "home.saveFlightRecording", "home.agentMessagePlayground", "home.mcpConnectPlayground", "home.compareTablePlayground", "home.chiefTeleportPlayground",
         "taskManager.killProcess", "palette.installCLI", "palette.uninstallCLI", "palette.makeDefaultBrowser",
         "palette.makeDefaultTerminal", "palette.switchAppChannel", "updates.rollback", "updates.installEarlierBuild", "palette.shortcutKeymap",
         "workspace.importClassic", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
@@ -246,7 +246,7 @@ extension ActionDescriptor {
                           "appearance.chromeStyle.default", "appearance.chromeStyle.bare", "appearance.chromeStyle.card",
                           "appearance.chromeStyle.cardOutlined", "appearance.chromeStyle.flat",
                           "appearance.chromeStyle.flatSidebarLine", "appearance.chromeStyle.floating",
-                          "appearance.chromeStyle.panes", "appearance.chromeStyle.twoTone",
+                          "appearance.chromeStyle.panes", "appearance.chromeStyle.twoTone", "appearance.chromeStyle.blocks",
                       ]),
         PaletteFamily("paneChrome", title: familyTitle("palette.family.paneChrome", "Pane Borders and Focus Ring…"),
                       symbol: "square.dashed", members: [

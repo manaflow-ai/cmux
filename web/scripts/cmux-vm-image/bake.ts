@@ -4,7 +4,7 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--native-receiver] [--layered]
+ *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered]
  *
  * - --layered: the image as cached layers, system -> agents -> app (layers.ts); only a layer whose inputs
  *   changed rebuilds. Dev snapshots only; the full bake stays the weekly and manual source of truth.
@@ -56,7 +56,12 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
-import { renderVmGuestModelPlaneEnvFile, VM_GUEST_MODEL_PLANE_ENV_PATH, vmEdgeAliasDomain, vmGuestModelPlaneEnv } from "../../services/coderouter/vmGuestEnv";
+import {
+  renderVmGuestModelPlaneEnvFile,
+  VM_GUEST_MODEL_PLANE_ENV_PATH,
+  vmEdgeAliasDomain,
+  vmGuestModelPlaneEnv,
+} from "../../services/coderouter/vmGuestEnv";
 import {
   cmuxTuiAcpmuxLinkCommand,
   cmuxTuiInstallCommand,
@@ -79,16 +84,58 @@ import {
   devboxTerminfoInstallCommand,
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
-import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPaths, setUpDevTree, uploadDevTreeScript, DEV_TREE_SCRIPT, FIRST_BUILD } from "./dev-tree";
+import {
+  devTreeCredentialCheckCommand,
+  devTreeLock,
+  devTreeSizes,
+  devTreeUserPaths,
+  setUpDevTree,
+  uploadDevTreeScript,
+  DEV_TREE_SCRIPT,
+  FIRST_BUILD,
+} from "./dev-tree";
 import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
-import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines, RD_SOCKET, RD_SOCKET_UNIT, rdHostPath, rdSetupCommand } from "./agent-tools";
+import {
+  AGENT_TOOLS_PROFILE,
+  agentToolsDaemonEnv,
+  agentToolsFiles,
+  agentToolsLinkCommand,
+  browserRoleBakePhases,
+  daemonEnvLines,
+  RD_SOCKET,
+  RD_SOCKET_UNIT,
+  rdHostPath,
+  rdSetupCommand,
+} from "./agent-tools";
 import { BROWSER_ROLE } from "./browser-probe";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
-import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
+import {
+  argValue,
+  createVm,
+  deleteVm,
+  firstExec,
+  freestyleClient,
+  hasFlag,
+  Ledger,
+  run,
+  StepLog,
+  type Vm,
+} from "./guest";
 import { aptUpdateCommand } from "./apt-update";
-import { baseInputTree, cachedInstallCommand, imagePackagesCommand, layerLabel, isAppProgram, layerKeys, layerName, overlayPrepareCommand, overlayPruneCommand, type LayerName } from "./layers";
+import {
+  baseInputTree,
+  cachedInstallCommand,
+  imagePackagesCommand,
+  layerLabel,
+  isAppProgram,
+  layerKeys,
+  layerName,
+  overlayPrepareCommand,
+  overlayPruneCommand,
+  type LayerName,
+} from "./layers";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, SELF_UPDATE_OFF, hostConfig, hostUnit } from "./host-agent";
 import {
   METADATA_GUARD_FILE,
@@ -98,7 +145,20 @@ import {
   metadataGuardRules,
   metadataGuardUnit,
 } from "../../services/vms/images/metadataGuard";
-import { cronAtAllowCommand, cronAtAllowProblems, SSH_LOGIN_GROUP, SSH_SYNC_UNIT, SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPamProblems, sshdPolicyProblems, splitSshdBakeOutput, sshSyncUnit } from "./sshd";
+import {
+  cronAtAllowCommand,
+  cronAtAllowProblems,
+  SSH_LOGIN_GROUP,
+  SSH_SYNC_UNIT,
+  SSHD_DROP_IN,
+  sshdBakeCommand,
+  sshdDropIn,
+  sshdListenProblems,
+  sshdPamProblems,
+  sshdPolicyProblems,
+  splitSshdBakeOutput,
+  sshSyncUnit,
+} from "./sshd";
 import {
   aptClosureProblems,
   bakedPrograms,
@@ -149,8 +209,6 @@ export type BakeOptions = {
   promotion: boolean;
   /** Bake the agent tools (agent-tools.ts); off by default. */
   agentTools?: boolean;
-  /** Dedicated development VM API image; direct images keep their existing startup. */
-  nativeReceiver?: boolean;
   /** Team VM image (TEAM_VM_SNAPSHOT): adds the team files root /srv/team (teamVmDirsCommand). */
   teamVm?: boolean;
   /** Bake the cmux dev tree (dev-tree.ts); off by default. */
@@ -309,8 +367,8 @@ function coderouterProfileScript(): string {
 }
 
 /** The boot unit (`cmux host run`); `extraEnv` (agent tools) reaches every terminal it creates. */
-export function daemonUnit(extraEnv: Readonly<Record<string, string>> = {}, nativeReceiver = false): string {
-  return hostUnit(daemonEnvLines(extraEnv), STORE_PATH, nativeReceiver);
+export function daemonUnit(extraEnv: Readonly<Record<string, string>> = {}): string {
+  return hostUnit(daemonEnvLines(extraEnv), STORE_PATH);
 }
 
 /** Park the daemon for the snapshot. No template terminal in this image: every per-machine file goes. */
@@ -334,6 +392,42 @@ function parkCommand(): string {
     // The roles are parked now; a clone of this snapshot updates itself.
     `rm -f ${SELF_UPDATE_OFF}`,
     "echo daemon-parked",
+  ].join(" && ");
+}
+
+/** Files a machine makes for itself at bind (cmux-host cloud/wire.rs, identity.rs RECEIPT, carrier_entry.rs): a snapshot holding one gives it to every clone. */
+export const PER_MACHINE_FILES = [
+  "/var/lib/cmux/bind.json",
+  "/var/lib/cmux/bound.json",
+  "/var/lib/cmux/install/key.json",
+  "/var/lib/cmux/install/identity.json",
+  "/var/lib/cmux/wg/key.json",
+  "/var/lib/cmux/carrier.json",
+  "/run/cmux/carrier-grant.json",
+  "/etc/cmux/daemon-instance-id",
+] as const;
+
+/**
+ * Right before the snapshot (only the machine-health arm follows it): a clone resumes with cmux-host and acpmux already running (nothing waits on
+ * their start), and holds no per-machine identity, which each clone mints at bind (cmux-host's rekey: machine-id,
+ * random seed, SSH host key; the session host: its remote identity). `root` prefixes every path (tests only).
+ */
+export function snapshotReadyCommand(root = ""): string {
+  const files = PER_MACHINE_FILES.map((f) => sq(`${root}${f}`)).join(" ");
+  return [
+    cmuxTuiLayoutSelector(),
+    `systemctl is-active ${DAEMON_UNIT} >/dev/null`,
+    "pgrep -f '[a]cpmux daemon run' >/dev/null",
+    `for f in ${files}; do if [ -e "$f" ]; then echo "per-machine file in the snapshot: $f" >&2; exit 1; fi; done`,
+    `state=${sq(root)}"$CMUX_TUI_HOME/.local/state"`,
+    // Fail closed: a missing tree holds nothing, but one that exists and cannot be scanned refuses the snapshot.
+    'held=""',
+    // find does not follow a symlinked start point, so an identity tree behind one would pass unseen: refuse it.
+    'if [ -L "$state/cmux/remote" ]; then echo "per-machine identity tree is a symlink: $state/cmux/remote" >&2; exit 1; fi',
+    'if [ -e "$state/cmux/remote" ]; then held="$(find "$state/cmux/remote" -name identity.json)" || { echo "cannot scan $state/cmux/remote for per-machine identity" >&2; exit 1; }; fi',
+    'for f in "$state/cmux-tui/sessions/machine-id" "$state/cmux-tui/sessions/resource-effect-pepper"; do if [ -e "$f" ] || [ -L "$f" ]; then held="$held $f"; fi; done',
+    'if [ -n "$held" ]; then echo "per-machine identity in the snapshot: $held" >&2; exit 1; fi',
+    "echo snapshot-ready",
   ].join(" && ");
 }
 
@@ -734,12 +828,7 @@ async function installDevTree(ctx: Ctx): Promise<void> {
 
 async function startDaemon(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
-  if (ctx.options.nativeReceiver) {
-    // A new image with the old pin must fail before it becomes a candidate.
-    await L.step(vm, "native-receiver-supported", `${HOST_CLI} --help | grep -F -- '--native-receiver'`);
-    ctx.result.nativeReceiver = true;
-  }
-  await writeGuestFile(vm, `/etc/systemd/system/${DAEMON_UNIT}`, daemonUnit(ctx.options.agentTools ? agentToolsDaemonEnv(ctx.lock) : {}, ctx.options.nativeReceiver), 0o644);
+  await writeGuestFile(vm, `/etc/systemd/system/${DAEMON_UNIT}`, daemonUnit(ctx.options.agentTools ? agentToolsDaemonEnv(ctx.lock) : {}), 0o644);
   // The builder never updates itself (cmux host update): the snapshot carries the lock's
   // cmux-tui, and parkCommand removes the marker so every clone does update.
   await L.step(vm, "daemon-unit", `systemd-analyze verify /etc/systemd/system/${DAEMON_UNIT} && mkdir -p /etc/cmux && touch ${SELF_UPDATE_OFF} && rm -f /etc/cmux/bake-instance-id && systemctl daemon-reload && systemctl enable ${DAEMON_UNIT} >/dev/null 2>&1 && systemctl restart ${DAEMON_UNIT} && systemctl is-active ${DAEMON_UNIT}`);
@@ -758,6 +847,29 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   for (const file of AGENT_SIGN_IN_FILES) await writeGuestFile(vm, file.path, devboxFileBytes(file.name), 0o644);
   await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
+  await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
+}
+
+/**
+ * acpmux (started in wireCmuxTui) read the login shell before the model plane existed, and a clone resumes that
+ * process from the snapshot. Its cache's fingerprint (the startup files) cannot see the model-plane file they source,
+ * so nothing re-reads it: Codex started without the edge's placeholder key (gateway-e2e run 42382330319). Drop the
+ * cache and restart acpmux so the snapshot holds a daemon that read the final login shell; clean.py then drops the
+ * cache this read writes, so a cold boot reads its own. `grep -q` checks the key's name only, never a value.
+ */
+export function acpmuxLoginEnvRefreshCommand(): string {
+  const user = 'XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER"';
+  return [
+    cmuxTuiLayoutSelector(),
+    'if [ "$CMUX_TUI_LAYOUT" != user ]; then echo acpmux-login-env-no-service; exit 0; fi',
+    'cache="$CMUX_TUI_HOME/.acpmux/login-env.json"',
+    'rm -f "$cache"',
+    `${user} systemctl --user restart acpmux.service`,
+    'i=0; while [ "$i" -lt 60 ] && [ ! -s "$cache" ]; do i=$((i + 1)); sleep 1; done',
+    'test -s "$cache" || { echo "acpmux did not read the login shell after its restart" >&2; exit 1; }',
+    'grep -q OPENAI_API_KEY "$cache" || { echo "acpmux login environment lacks OPENAI_API_KEY" >&2; exit 1; }',
+    "echo acpmux-login-env-fresh",
+  ].join(" && ");
 }
 
 async function finalizeAndCollect(ctx: Ctx): Promise<void> {
@@ -774,10 +886,11 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   result.npmCacheMb = Number((await L.step(vm, "npm-cache-size", npmCacheSizeCommand())).trim());
   // The SBOM and file manifest: here, or after the snapshot on the same builder (--defer-inventory).
   if (!options.deferInventory) await collectInventory(vm, L, options, lock, result, name);
-  await L.step(vm, "tmp-empty", `rm -rf /tmp/cmux-out /tmp/cmux-syft /root/.cache && ${TMP_LEFTOVERS} | head -5; test -z "$(${TMP_LEFTOVERS})"`);
+  await L.step(vm, "tmp-empty", `rm -rf /tmp/cmux-out /tmp/cmux-out-syft /root/.cache && ${TMP_LEFTOVERS} | head -5; test -z "$(${TMP_LEFTOVERS})"`);
   result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
+  await L.step(vm, "snapshot-ready", snapshotReadyCommand());
   await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
 }
 
@@ -786,33 +899,45 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
  * With --defer-inventory it runs on the builder right after the snapshot (inventory.ts, beside the smoke), so the
  * tree it reads is the snapshot's: nothing else runs on the builder in between.
  */
-export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string): Promise<void> {
+/** The error the collect throws when a step rejected, if any: a step that ran and failed wins over the other step's
+ * cut connection, so inventory.ts never retries past a guest failure. */
+export function inventoryFailure(settled: ReadonlyArray<PromiseSettledResult<unknown>>): unknown {
+  const failed = settled.filter((s): s is PromiseRejectedResult => s.status === "rejected").map((s) => s.reason as unknown);
+  return failed.find((reason) => /\bstep \S+ failed\b/.test(String(reason))) ?? failed[0];
+}
+
+export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
   const syft = lock.tools.syft;
-  await L.step(vm, "out-dir", "mkdir -p /tmp/cmux-out");
-  await writeGuestFile(vm, "/tmp/cmux-out/manifest.py", readFileSync(path.join(GUEST_DIR, "manifest.py")), 0o755);
+  await L.step(vm, "out-dir", `mkdir -p ${out}`);
+  await writeGuestFile(vm, `${out}/manifest.py`, readFileSync(path.join(GUEST_DIR, "manifest.py")), 0o755);
   // The dev tree is the recorded commit, public crates and toolchains (result.devTree), not hashed or catalogued file by file.
   const skip = options.devTree ? devTreeUserPaths(devTreeLock(lock)) : [];
-  // Both read the final tree and write only under /tmp (which both exclude), so they run at once.
-  const [manifest, sbomOut] = await Promise.all([L.step(vm, "file-manifest", `python3 /tmp/cmux-out/manifest.py /tmp/cmux-out/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9 /tmp/cmux-out/manifest.tsv`), L.step(vm, "sbom", [
-    `mkdir -p /tmp/cmux-syft && curl -fsSL --retry 3 -o /tmp/cmux-syft/syft.tgz ${sq(syft.url)}`,
-    `printf '%s  %s\\n' ${syft.sha256} /tmp/cmux-syft/syft.tgz | sha256sum -c --quiet -`,
-    `test "$(stat -c %s /tmp/cmux-syft/syft.tgz)" = ${syft.size}`,
-    "tar -xzf /tmp/cmux-syft/syft.tgz -C /tmp/cmux-syft syft",
+  // Both read the final tree and write only under /tmp (which both exclude), so they run at once. A retry (inventory.ts)
+  // passes its own OUT, so a cut-off try still running on the guest never shares its files.
+  // allSettled: neither step is left running here when this throws.
+  const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`), L.step(vm, "sbom", [
+    `mkdir -p ${out}-syft && curl -fsSL --retry 3 -o ${out}-syft/syft.tgz ${sq(syft.url)}`,
+    `printf '%s  %s\\n' ${syft.sha256} ${out}-syft/syft.tgz | sha256sum -c --quiet -`,
+    `test "$(stat -c %s ${out}-syft/syft.tgz)" = ${syft.size}`,
+    `tar -xzf ${out}-syft/syft.tgz -C ${out}-syft syft`,
     "t=$(date +%s)",
-    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=/tmp/cmux-syft timeout 280 /tmp/cmux-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=/tmp/cmux-out/sbom.cdx.json -q`,
+    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft timeout 280 ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
     "echo syft-secs $(( $(date +%s) - t ))",
-    "gzip -9 /tmp/cmux-out/sbom.cdx.json",
+    `gzip -9f ${out}/sbom.cdx.json`,
   ].join(" && "))]);
+  const failed = inventoryFailure(settled);
+  if (failed !== undefined) throw failed;
+  const [manifest, sbomOut] = settled.map((s) => (s as PromiseFulfilledResult<string>).value);
   result.manifest = manifest.trim();
   result.syft = sbomOut.trim();
   const sbomFile = path.join(options.outDir, `sbom-${name}.cdx.json`);
   const manifestFile = path.join(options.outDir, `manifest-${name}.tsv`);
   Object.assign(result, { sbomFile, manifestFile });
-  writeFileSync(sbomFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/sbom.cdx.json.gz"))));
-  writeFileSync(manifestFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/manifest.tsv.gz"))));
+  writeFileSync(sbomFile, gunzipSync(Buffer.from(await vm.fs.readFile(`${out}/sbom.cdx.json.gz`))));
+  writeFileSync(manifestFile, gunzipSync(Buffer.from(await vm.fs.readFile(`${out}/manifest.tsv.gz`))));
   const sbom = JSON.parse(readFileSync(sbomFile, "utf8")) as { components?: unknown[] };
   result.sbomComponents = sbom.components?.length ?? 0;
-  await L.step(vm, "inventory-tmp-clean", "rm -rf /tmp/cmux-out /tmp/cmux-syft");
+  await L.step(vm, "inventory-tmp-clean", `rm -rf ${out} ${out}-syft`);
 }
 
 /** Every step of a full bake, from the provider base to the finalized tree (before the snapshot). */
@@ -888,7 +1013,7 @@ const REPO_ROOT = path.resolve(HERE, "../../..");
 
 /** The flags that change what the base layer holds. */
 export function layerFlags(options: BakeOptions): string[] {
-  return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree", options.nativeReceiver && "native-receiver"].filter((f): f is string => Boolean(f));
+  return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree"].filter((f): f is string => Boolean(f));
 }
 
 /** Every snapshot on the account, page by page (one default page can miss a cached layer's slug). */
@@ -1008,13 +1133,12 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--native-receiver] [--layered [--defer-inventory]]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered [--defer-inventory]]");
   if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
   if (hasFlag("--layered", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv) || hasFlag("--update-lock", argv))) throw new Error("--layered is for dev snapshots from a fixed lock; the full bake makes production copies and promotions");
   if (hasFlag("--defer-inventory", argv) && !hasFlag("--layered", argv)) throw new Error("--defer-inventory needs --layered; the full bake records its SBOM and manifest before the snapshot");
   // The dev tree is a checkout of this commit, so a cached system layer would carry a stale one.
   if (hasFlag("--layered", argv) && hasFlag("--dev-tree", argv)) throw new Error("--layered cannot cache --dev-tree (a per-commit checkout); use the full bake");
-  if (hasFlag("--native-receiver", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv))) throw new Error("--native-receiver is for dedicated development VM API images only");
   if (hasFlag("--prod-copy", argv) && hasFlag("--dev-tree", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --prod-copy");
   if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
@@ -1027,7 +1151,6 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     keepBuilder: hasFlag("--keep-builder", argv),
     promotion: hasFlag("--promotion", argv),
     agentTools: hasFlag("--agent-tools", argv),
-    nativeReceiver: hasFlag("--native-receiver", argv),
     teamVm: hasFlag("--team-vm", argv),
     devTree: hasFlag("--dev-tree", argv),
     prodCopy: hasFlag("--prod-copy", argv),

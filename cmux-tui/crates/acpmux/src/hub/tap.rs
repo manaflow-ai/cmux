@@ -235,6 +235,8 @@ impl Hub {
                             tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                         // The model request failed and Claude Code tries again (`turn_retry.rs`).
                         if let Some(retry) = retry {
+                            // A sign-in the model API refuses ends the turn at its second retry.
+                            tap_hub.end_sign_in_refused(&tap_session, &retry);
                             tap_hub.turn_retrying(&tap_session, retry);
                         }
                         return logged;
@@ -296,6 +298,17 @@ impl Hub {
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && let Some(params) = value.get_mut("params")
             {
+                // Gemini's plan approval names its plan file only: the update carries the plan
+                // (`gemini_plan.rs`), in the log every client reads.
+                if params.get("update").is_some_and(super::gemini_plan::names_plan) {
+                    let cwd =
+                        tap_session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
+                    super::gemini_plan::with_plan_update(
+                        params,
+                        &cwd,
+                        &super::gemini_plan::gemini_homes(),
+                    );
+                }
                 // The chat's own thread is never one of its subagents. Seed the
                 // native roots (the current one and the earlier ones a daemon restart
                 // forgot) before handling updates so echoed root activity cannot
@@ -321,6 +334,9 @@ impl Hub {
                 // (`wrap_up_suggestion.rs`).
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
                     crate::wrap_up_suggestion::observe(&tap_session.id, &params["update"]);
+                    if let Some(update) = params.get("update") {
+                        crate::memory_inbox::observe(&tap_session.id, update);
+                    }
                 }
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
                     todo_plan =
@@ -384,16 +400,13 @@ impl Hub {
             if running_changed {
                 let count =
                     tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner()).running_count();
-                tap_hub.append(
-                    &tap_session,
-                    "mux",
-                    super::views::SUBAGENTS_RUNNING,
-                    json!({"count": count}),
-                );
+                tap_hub.subagents_running(&tap_session, count);
             }
             // A background shell, a subagent's too (`processes.rs`).
             if d == "in" && kind == "background_task_update" {
                 tap_hub.note_process(&tap_session, &rec, output.as_deref());
+                // A dev server's URL, from its output file (`process_preview.rs`).
+                tap_hub.watch_previews(&tap_session);
             }
             // A failed subagent's retry, once its end is logged (`subagent_retry.rs`).
             if d == "in"

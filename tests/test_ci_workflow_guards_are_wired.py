@@ -82,6 +82,26 @@ UNWIRED: set[str] = {
     # nightly_next_artifact_check.py equal to NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY; run it by hand when that
     # helper or the workflows that call it change.
     "tests/test_nightly_next_artifact_check.py",
+    # lane = "manual" for the same rule. It checks that the nightly-next tail jobs run in the dispatched
+    # post-publish run, off the push group; run it by hand after changing those jobs or their dispatch.
+    "tests/test_nightly_next_tail_off_push_group.py",
+    # lane = "manual" for the same rule. It checks the single nightly-next loop: one push group held through the
+    # GitHub release, the rest of the tail dispatched, and the retry at the newest head; run it by hand after
+    # changing decide, retry-nightly-next or dispatch-published-in.
+    "tests/test_nightly_next_single_loop.py",
+    # lane = "manual" for the same rule. It checks the nightly-next build and sign stages (the push run builds,
+    # dispatch-nightly-next-sign hands the unsigned app to a sign run in its own group); run it by hand after
+    # changing decide, the sign-stage dispatch, retry-nightly-next or resume-unsigned-nightly.py.
+    "tests/test_nightly_next_pipeline.py",
+    # lane = "manual" for the same rule. It checks that every nightly upload-artifact step has one retry that keeps
+    # the first try's condition; run it by hand after adding or changing an upload in nightly.yml.
+    "tests/test_nightly_artifact_uploads_retry.py",
+    # lane = "manual" for the same rule. It checks that the nightly deltas are built without the Sparkle key, off
+    # the whole-Mac hold; run it by hand after changing build-nightly-deltas, generate-nightly-deltas or their scripts.
+    "tests/test_nightly_deltas_keyless_prebuild.py",
+    # lane = "manual" for the same rule. It runs decide's browser-import block from nightly.yml in node and
+    # checks the outputs the build and publish jobs read; run it by hand after changing that block.
+    "tests/test_nightly_next_notary_full_import.py",
     # lane = "manual" for the same rule (their tests/test-execution.toml entries say so: wiring them as
     # linux-guard reddened tooling-tests on every pull request). Run each by hand after changing what it reads:
     # .github/runners.json linux_sizes or a Blacksmith Linux runs-on (#30360);

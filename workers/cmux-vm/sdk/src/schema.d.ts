@@ -1581,6 +1581,11 @@ export interface components {
             _tag: "PaymentRequired";
         };
         VmImageList: {
+            /**
+             * @description "configured": items are in the operator's configured order, the first being the image in use. Absent: the order carries no meaning.
+             * @enum {string}
+             */
+            order?: "configured";
             items: components["schemas"]["VmImage"][];
         };
         /** @description Public image identity; provider snapshot references are never returned. */

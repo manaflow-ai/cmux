@@ -18,7 +18,25 @@ public enum DaemonConnectionState: Sendable, Equatable {
 /// batches at most once per frame (`run(connection:scheduler:)`).
 @Observable @MainActor
 public final class DaemonStore: StateResourceQueries {
-    public internal(set) var workspaces: [WorkspaceModel] = [] { didSet { adoptUnread() } }
+    /// The workspaces in daemon order. While the intent overlay is lifted, writes are held and the lift publishes
+    /// only the net change, once (`DaemonStore+OverlayPublication.swift`).
+    public internal(set) var workspaces: [WorkspaceModel] {
+        get {
+            access(keyPath: \.workspaces)
+            return workspaceList
+        }
+        set {
+            guard listBeforeLift == nil else {
+                workspaceList = newValue
+                return
+            }
+            withMutation(keyPath: \.workspaces) { workspaceList = newValue }
+            adoptUnread()
+        }
+    }
+    @ObservationIgnored var workspaceList: [WorkspaceModel] = []
+    /// The list when the overlay lifted (writes held until it is back); nil otherwise.
+    @ObservationIgnored var listBeforeLift: [WorkspaceModel]?
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
     @ObservationIgnored public internal(set) var unreadTabReads = 0
@@ -437,10 +455,31 @@ public final class DaemonStore: StateResourceQueries {
     /// (`DaemonConnection.observeRetriesSpent`): its header reads offline, not connecting (HQ
     /// #4877 G4). Cleared by the next connect and by a new attempt.
     public private(set) var retriesSpent = false
+    /// The reconnect parked while the store still read connected: its disconnect drains on a later
+    /// frame, which then applies the mark (``DaemonConnectionChange``). Cleared by the next connect.
+    private(set) var parkedBeforeDisconnect = false
+    /// Connections the store applied (``DaemonConnectionChange/connected(_:_:)``).
+    public private(set) var connects = 0
 
     public func noteRetriesSpent(_ spent: Bool) {
-        if spent, case .connected = connectionState { return }
+        if spent, case .connected = connectionState {
+            parkedBeforeDisconnect = true
+            return
+        }
+        if !spent { parkedBeforeDisconnect = false }
         if retriesSpent != spent { retriesSpent = spent }
+    }
+
+    /// The disconnect drained: a park noted before it applies now.
+    func applyParkedBeforeDisconnect() {
+        guard parkedBeforeDisconnect else { return }
+        parkedBeforeDisconnect = false
+        noteRetriesSpent(true)
+    }
+
+    func noteConnected() {
+        connects += 1
+        noteRetriesSpent(false)
     }
 
     // MARK: Derived state

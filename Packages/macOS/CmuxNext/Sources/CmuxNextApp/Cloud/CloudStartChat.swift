@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextTabs
 import Foundation
 
 /// A new chat's first send with Cloud picked as where it runs (`cloud.startChat`,
@@ -20,29 +21,34 @@ import Foundation
 @MainActor
 struct CloudStartChat {
     let services: AppServices
+    /// Where the start's questions show (its first login, the login copy consent, Codex's sign-in): the
+    /// sending pane's card for a composer start; nil asks in a dialog on the active window.
+    var asker: AgentPaneCloudAsker?
 
     /// The page's runner for every pane (``AgentPageChats/seed(_:)``): `view` is the pane that sent.
     static func runner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any] {
         { [weak tabs, weak services] view, start in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             // Only a tab of this Mac's daemon: the folder it names is copied from this Mac.
-            guard let view, let key = tabs?.views.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(key),
+            guard let view, let scoped = tabs?.views.entries.first(where: { $0.value === view })?.key,
+                  let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine),
                   services.machines.daemon(forTab: tab).isLocal else {
                 return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
             }
-            return await CloudStartChat(services: services).reply(start, tab: tab) { [weak view] step in
+            return await CloudStartChat(services: services, asker: .card(view, start: start.key)).reply(start, tab: tab) { [weak view] step in
                 if let view { start.progress(step, to: view) }
             }
         }
     }
 
-    /// The page's reply: success with the machine's name, or a refusal in the person's words. `retried`: Retry's start, no card waits for it.
+    /// The page's reply: success with the machine's name, or a refusal in the person's words. The card
+    /// says a failure, with Retry when another try can help (the same start again under its key, so a
+    /// machine already made or a folder already copied is reused): no toast.
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
-    func reply(_ start: AgentPaneCloudStart, tab: TabModel, retried: Bool = false, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
+    func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
         if let refusal = Self.refusal(services) {
             return AgentPaneReply.failure(code: refusal, message: Self.refusalMessage(refusal))
         }
-        let toastID = "cloud-start-" + tab.id
         do {
             let account = services.cloud.account
             let origin = Origin(tab: tab, chat: start.cwd ?? tab.cwd, workspace: services.workspaceID(ofTab: tab.id), account: account) { [services] in
@@ -54,30 +60,16 @@ struct CloudStartChat {
                 }
             }
             let machine = try await run(start, from: origin, report: report)
-            CmuxToastCenter.shared.close(id: toastID) // an earlier try's Retry toast, in every window
             return AgentPaneReply.success(["machine": machine])
         } catch is CloudMachineCap.RunHere { // the cap card's Run on This Mac: the page sends it here (cloudRun.ts)
-            CmuxToastCenter.shared.close(id: toastID) // every window: the start may have begun in one no longer in front
             return AgentPaneReply.failure(code: CloudMachineCap.runHereCode, message: CloudMachineCap.runHereCode)
         } catch {
             let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
             services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public)")
-            // A failure a retry can help (the machine didn't connect, a copy that timed out) offers Retry: the
-            // same start again under its key, so a machine already made or a folder already copied is reused.
-            var retry: (@MainActor () -> Void)?
-            if (error as? CloudMove.Failure)?.retry != nil {
-                let tabID = tab.id
-                retry = { [weak services] in
-                    // The tab is found again by id: a tab closed since then retries nothing.
-                    guard let services, let (tab, _) = services.locateTab(tabID) else { return }
-                    // task-owner: one retried start; it ends with the chat opening or its own failure toast
-                    _ = Task { _ = await CloudStartChat(services: services).reply(start, tab: tab, retried: true) }
-                }
-            }
-            // The card says the failure; a toast only where Retry lives, or for a retry no card waits for.
-            if retry != nil || retried { CloudMove.toast(services, toastID, message, duration: .seconds(retry == nil ? 12 : 30), retry: retry) } else { CmuxToastCenter.shared.close(id: toastID) }
-            return AgentPaneReply.failure(code: "cloud_start_failed", message: message)
+            // A failure a retry can help (the machine didn't connect, a copy that timed out) gets the card's Retry (cloudRun.ts
+            // `cloudStartKeys`); a plan refusal keeps its own code, so the card offers Upgrade or This Mac (CloudStartView).
+            return AgentPaneReply.failure(code: CloudMachineCreation.proRefusal(error) == nil ? "cloud_start_failed" : "cloud_plan_required", message: message, details: nil, retryable: (error as? CloudMove.Failure)?.retry != nil, origin: "native")
         }
     }
 
@@ -186,9 +178,9 @@ struct CloudStartChat {
               trusted: Bool = false, tabKey: String, targetPane: String? = nil, cli: CloudMoveCLI, copy: CloudMovedChats.Entry? = nil) async throws -> String {
         guard !start.attachments.isEmpty else { return try await openUploaded(start, from: origin, on: machine, cwd: cwd, trusted: trusted, tabKey: tabKey, targetPane: targetPane, cli: cli, copy: copy) }
         await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { machine.daemon.supports(DaemonCapability.agentSessionContent.rawValue) }, update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
-        guard machine.daemon.supports(DaemonCapability.agentSessionContent.rawValue), let carry = AgentPaneCloudAttachments(start.attachments), let pastes = CloudUploads.pastes,
+        guard machine.daemon.supports(DaemonCapability.agentSessionContent.rawValue), let carry = AgentPaneCloudAttachments(start.attachments, files: start.carriedFiles, staged: start.stagedFiles), let pastes = CloudUploads.pastes,
               let binary = services.cloud.move.cli, let socket = await machine.daemon.connection?.endpoint?.socketPath,
-              let root = cwd.flatMap({ CloudAccessAsks.remoteRoot($0, roots: services.cloud.move.workRoots) }) ?? services.cloud.move.workRoots.first else { throw CloudMove.Failure(message: CloudUploadStrings.failed) }
+              let root = cwd.flatMap(services.cloud.move.workRoot(of:)) ?? services.cloud.move.workRoots.first else { throw CloudMove.Failure(message: CloudUploadStrings.failed) }
         let access = CloudAccessCLI(binary: binary)
         return try await carry.withUploaded(in: pastes, upload: { paths in
             try Self.checkAccount(origin.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
@@ -232,8 +224,8 @@ struct CloudStartChat {
             appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
-        services.agentTabs.pageChats.cloudStarted[opened.key] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace,
-                                                                                        account: origin.account, machineID: machine.machineID)
+        services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace,
+                                                                                                                               account: origin.account, machineID: machine.machineID)
         await origin.close()
         return machine.machine.title
     }

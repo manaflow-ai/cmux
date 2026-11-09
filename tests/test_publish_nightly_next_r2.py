@@ -510,7 +510,9 @@ class PublicationBoundaryTests(unittest.TestCase):
         self.assertIn("steps.upload_next_appcasts.outputs.publication_refused == 'true'", publish["outputs"]["refused"])
         for name in ("publish-nightly-next-github", "generate-nightly-deltas", "republish-nightly-deltas",
                      "sign-release-notes", "publish-release-notes"):
-            self.assertIn("needs.publish-nightly.outputs.refused != 'true'", jobs[name]["if"], name)
+            # The tail jobs read publish-nightly's outputs through published-build (publish_<x>).
+            self.assertIn("needs.published-build.outputs.publish_refused != 'true'", jobs[name]["if"], name)
+        self.assertEqual(jobs["published-build"]["outputs"]["publish_refused"], "${{ steps.record.outputs.publish_refused }}")
         steps = publish["steps"]
         write = next(i for i, step in enumerate(steps) if step.get("id") == "upload_next_appcasts")
         for name in ("Hand the published feed to the GitHub release job", "Upload the published feed for the GitHub release job"):

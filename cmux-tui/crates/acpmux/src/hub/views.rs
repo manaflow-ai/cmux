@@ -6,7 +6,7 @@ use cmux_json::JsonSet as _;
 mod host_build;
 mod host_load;
 
-pub(crate) use host_build::{host_outdated, outdated_host_line, outdated_hosts_line};
+pub(crate) use host_build::{host_build_differs, other_build_host_line, other_build_hosts_line};
 
 /// The mux record of a change in how many subagents a session runs (`hub/tap.rs`), which
 /// watchers hear as `_acpmux/session_changed` with the new `subagentsRunning`.
@@ -108,7 +108,8 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 /// The session's status dot, decided here once so every client draws the
 /// same one (cx-zlox). First match wins:
 ///
-/// - `input`: a permission or question waits for the person.
+/// - `input`: a permission or question waits for the person, here or in an
+///   open sub-session below it (`subsessionsWaiting`, `asks_below.rs`).
 /// - `working`: a turn runs.
 /// - `failed`: the last turn failed (also when the agent then exited).
 /// - `lost`: the agent process is gone (`disconnected`, or a peer's
@@ -144,6 +145,9 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         "disconnected" if !summary["turn"].is_null() => Some("lost"),
         "waiting" => Some("input"),
         _ if pending => Some("input"),
+        // A sub-session below it waits on the person: its run stalls there until someone answers,
+        // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
+        _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
@@ -229,7 +233,13 @@ pub fn lane(summary: &Value) -> Value {
             "working",
             summary["turn"]["startedAt"].as_u64().or(summary["subagentsWorkingSince"].as_u64()),
         ),
-        Some("input") => ("input", summary["inputSince"].as_u64().or(updated)),
+        Some("input") => (
+            "input",
+            summary["inputSince"]
+                .as_u64()
+                .or(summary["subsessionsWaitingSince"].as_u64())
+                .or(updated),
+        ),
         Some("failed") => ("failed", ended),
         Some("lost") if in_turn => ("lost", updated),
         Some("lost") => ("lost", summary["lastTurn"]["endedAt"].as_u64().or(updated)),
@@ -434,6 +444,17 @@ impl Hub {
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
+        let loop_episode = if m.status == SessionStatus::Closed
+            || turn.as_ref().is_none_or(|current| {
+                session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
+                    != Some(current.turn_id.as_str())
+            }) {
+            None
+        } else {
+            session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).active().cloned()
+        };
+        // Harness failure state has scheduling meaning beyond the UI. A tool loop remains a
+        // running turn and is reported separately as `loopEpisode`.
         let stuck =
             (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
         let stopping = turn.as_ref().is_some_and(|t| {
@@ -459,6 +480,16 @@ impl Hub {
             stuck_reason: stuck.map(|s| s.0),
             stuck_since: stuck.map(|s| s.1),
             stuck_error: stuck.map(|s| s.2.to_owned()),
+            loop_episode: loop_episode.map(|episode| {
+                crate::protocol::session::LoopEpisodeSummary {
+                    episode_id: episode.episode_id,
+                    since: episode.since,
+                    count: episode.count,
+                    diagnosis: episode.diagnosis,
+                    hint: episode.hint,
+                }
+            }),
+            harness_sandbox_failed: session.harness_sandbox_failed.get().copied(),
             agent_session_id: m.agent_session_id.clone(),
             retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,
@@ -474,6 +505,7 @@ impl Hub {
             parent: lineage.as_ref().map(|l| l.parent.clone()),
             root: lineage.as_ref().map_or_else(|| m.id.clone(), |l| l.root.clone()),
             spawn_tool_call_id: lineage.as_ref().and_then(|l| l.tool_call_id.clone()),
+            created_by: m.created_by.clone(),
             pull_requests: m.pull_requests.clone(),
             started_by: m.subsession.as_ref().map(|l| l.started_by.clone()),
             short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
@@ -490,8 +522,10 @@ impl Hub {
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
             // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
-            // session/new or session/load): the busy("starting") of `stop_if_idle.rs`.
-            starting: session.spawn_lock.try_lock().is_err(),
+            // session/new or session/load): the busy("starting") of `stop_if_idle.rs`. So is a
+            // prompt's start that waits to be tried again (`start_retry.rs`).
+            starting: session.spawn_lock.try_lock().is_err()
+                || session.start_retry_waits.load(Ordering::SeqCst),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some() && m.moved_to.is_none(),
             // Moved away for good (`transfer_out.rs` commit): where it runs now.
@@ -536,7 +570,8 @@ impl Hub {
                     // Another agent's message the person's Stop holds (`cancel.rs`): it waits for
                     // their next completed turn or a resume, not for the turn to end.
                     held_by_stop: q.held
-                        && q.run.agent.is_some()
+                        && (q.run.agent.is_some()
+                            || super::inbox::is_notice(q.run.provenance.as_ref()))
                         && session.stop_hold.load(Ordering::SeqCst) != 0,
                     from_agent: q.run.agent.clone(),
                     // The sending session and its harness, as the daemon bound them.
@@ -546,6 +581,15 @@ impl Hub {
                     class: q.run.class,
                     author: crate::author::listed(q.run.provenance.as_ref()),
                     subagent_retry: super::subagent_retry::listed(q.run.provenance.as_ref()),
+                    provenance: super::digest::listed_provenance(
+                        q.run.provenance.as_ref(),
+                        q.run.agent.as_deref(),
+                    ),
+                    inbox_notice: q
+                        .run
+                        .provenance
+                        .clone()
+                        .filter(|p| super::inbox::is_notice(Some(p))),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named_sourced(
                         &q.run.blocks,
@@ -620,6 +664,10 @@ impl Hub {
         }
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
+        let waiting = self.subsessions_waiting(session);
+        summary.set("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count)));
+        summary.set("subsessionsWaitingSince", json!(waiting.map(|(_, since)| since)));
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
         // being able to see the # of associated subagents and whatnot"): its running subagents,
         // their first names, and its running background commands (`running_work`).
@@ -631,10 +679,10 @@ impl Hub {
         summary.set("subagentsRunning", json!(work.subagents));
         summary.set("subagentNames", json!(work.names));
         summary.set("commandsRunning", json!(work.commands));
-        // The build its live agent host runs, and whether that is older than this daemon's: a
+        // The build its live agent host runs, and whether it differs from this daemon's: a
         // host that has not hibernated since an update (`views/host_build.rs`).
         let host_build = host_build::live_host_build(session);
-        summary.set("hostOutdated", json!(host_outdated(host_build.as_deref(), build())));
+        summary.set("hostBuildDiffers", json!(host_build_differs(host_build.as_deref(), build())));
         summary.set("hostBuild", json!(host_build));
         if notice && let Some(turn) = summary.get_mut("turn").and_then(Value::as_object_mut) {
             // A History of the person's prompts leaves it out (`turn.notice`).
@@ -737,12 +785,12 @@ impl Hub {
                 "stuckSince": since, "stuckError": error}))
             })
             .collect();
-        let (mut live, mut outdated) = (0, 0);
+        let (mut live, mut other_build) = (0, 0);
         for s in &sessions {
             if let Some(child) = s.child.lock().await.as_ref() {
                 live += 1;
-                if host_outdated(child.host_build().as_deref(), build()) {
-                    outdated += 1;
+                if host_build_differs(child.host_build().as_deref(), build()) {
+                    other_build += 1;
                 }
             }
         }
@@ -780,8 +828,8 @@ impl Hub {
             // pressure-aware admission would say. Nothing is deferred on it.
             "shadowAdmission": crate::shadow_admission::last_verdicts(),
             "liveAgents": live,
-            // Live agent hosts still on an older build than this one (`views/host_build.rs`).
-            "outdatedHosts": outdated,
+            // Live agent hosts still on another build than this one (`views/host_build.rs`).
+            "hostsOnOtherBuilds": other_build,
             "stuckSessions": stuck,
             "disk": disk,
             // macOS: whether this daemon's agents can read the login keychain

@@ -37,8 +37,8 @@ extension ActionRegistry {
 
     /// `makeContextMenu`'s rows without Customize Menu…, detached for another menu to take (a pane's own).
     public func contextMenuItems(for context: ActionMenuContext, target: ActionTargetRef? = nil,
-                                 entries: [ContextMenuEntry]? = nil) -> [NSMenuItem] {
-        let menu = makeContextMenu(for: context, target: target, entries: entries, customize: false)
+                                 entries: [ContextMenuEntry]? = nil, machineID: String? = nil) -> [NSMenuItem] {
+        let menu = makeContextMenu(for: context, target: target, entries: entries, customize: false, machineID: machineID)
         let items = menu.items
         menu.removeAllItems()
         return items
@@ -57,10 +57,17 @@ extension ActionRegistry {
     /// a catalog row. Nil when `id` is not in the catalog or an administrator turned it off.
     public func makeContextMenuItem(for id: ActionID, in context: ActionMenuContext, target: ActionTargetRef? = nil,
                                     arguments: [String: ActionValue] = [:], title: String? = nil) -> NSMenuItem? {
+        makeArgumentMenuItem(for: id, target: target, arguments: arguments, implied: Self.impliedContext(for: context), title: title)
+    }
+
+    /// A row of a menu that is not a right-click context menu (the titlebar Back / Forward list) whose
+    /// arguments are known only when it opens: it runs `id` with `arguments`, like a catalog row. Nil when
+    /// `id` is not in the catalog or an administrator turned it off.
+    public func makeArgumentMenuItem(for id: ActionID, target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:],
+                                     implied: ActionContext = [], title: String? = nil) -> NSMenuItem? {
         guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil,
               let item = makeMenuItem(for: id) else { return nil }
-        item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments,
-                                                   implied: Self.impliedContext(for: context))
+        item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments, implied: implied)
         item.keyEquivalent = ""
         item.keyEquivalentModifierMask = []
         if let title { item.title = title }

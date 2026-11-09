@@ -1,9 +1,12 @@
 // The thread minimap's model: one tick per user message at the pane's left edge
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
+import { withoutRelayLabelOfMessage } from "../conversation/relayEnvelope";
+import { senderName } from "../conversation/senderIdentity";
 import { transcriptColumn, type AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
 import { inboxCounts } from "../conversation/inboxNotice";
 import { MOTION_MS } from "../../../motion/scale.generated";
+import type { SenderReference } from "../senderIdentity";
 
 export type ReplySpan = { text: string; bold: boolean; code?: true };
 export type ReplyBlock = { kind: "paragraph" | "item"; spans: ReplySpan[] };
@@ -15,6 +18,8 @@ export type MinimapTurnMetadata = {
   links: string[];
   failed?: boolean;
   failure?: string;
+  /** A received agent message keeps its identity; it is not labelled as the person's prompt. */
+  sender?: SenderReference;
 };
 export type MinimapTurn = {
   /// The user row's index in the transcript rows (and in the layout's tops).
@@ -84,15 +89,21 @@ export function railPlacement(
 /// 2026-11-04: "the left side session rail should just be having a nicer max height instead of going
 /// all the way up and down. make it look like codex's size." and "the height of the left scroll rail
 /// should never be affected by anything"). Only a view too short to hold it still clips it
-/// (railRoom). `fixed-480` ships at twice the original height and pitch; the gallery compares the arms.
-/// A `fixed` arm is one height whatever the chat, window or bottom stack (Leo, 2026-11-04: "the height
-/// of the left scroll rail should never be affected by anything"): only a view too short for it clips it.
+/// (railRoom). A `fixed` arm is one height whatever the chat, window or bottom stack (Leo, 2026-11-04:
+/// "the height of the left scroll rail should never be affected by anything"): only a view too short
+/// for it clips it. `fixed-480` (twice the height and pitch) spread the ticks 20 px apart (Leo,
+/// 2026-11-05: "the rail, ok keep it at this max size, but don't reduce the density. y'all reduced the
+/// density"). A `fit` arm keeps that maximum as a slot and draws the ticks at the 10 px pitch in a rail
+/// as tall as they are inside it. `fit` says where the rail sits in its slot: at the slot's top it only
+/// grows down, so it never shifts as a chat grows (Leo, 2026-11-03: "i just don't like it when the
+/// thing shifts"). `fit-480` ships; the gallery compares the arms.
 export type RailHeightConfig = {
   initial: number;
   maxRows: number;
   maxShare: number;
   fixed?: boolean;
   pitch?: number;
+  fit?: "top" | "center" | "bottom";
 };
 export const RAIL_HEIGHTS = {
   "fixed-200": { initial: 200, maxRows: 20, maxShare: 1, fixed: true },
@@ -100,13 +111,17 @@ export const RAIL_HEIGHTS = {
   "fixed-360": { initial: 360, maxRows: 24, maxShare: 1, fixed: true, pitch: ROW_PITCH * 1.5 },
   "fixed-480": { initial: 480, maxRows: 24, maxShare: 1, fixed: true, pitch: ROW_PITCH * 2 },
   "fixed-280": { initial: 280, maxRows: 28, maxShare: 1, fixed: true },
+  "fit-480": { initial: 480, maxRows: 48, maxShare: 1, fixed: true, fit: "top" },
+  "fit-480-center": { initial: 480, maxRows: 48, maxShare: 1, fixed: true, fit: "center" },
+  "fit-480-bottom": { initial: 480, maxRows: 48, maxShare: 1, fixed: true, fit: "bottom" },
+  "fit-240": { initial: 240, maxRows: 24, maxShare: 1, fixed: true, fit: "top" },
   "initial-240-max-80": { initial: 240, maxRows: 96, maxShare: 0.8 },
   "initial-320-max-92": { initial: 320, maxRows: 128, maxShare: 0.92 },
   "initial-400-max-96": { initial: 400, maxRows: 160, maxShare: 0.96 },
   "initial-480-max-full": { initial: 480, maxRows: 200, maxShare: 1 },
 } as const satisfies Record<string, RailHeightConfig>;
 export type RailHeightArm = keyof typeof RAIL_HEIGHTS;
-export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fixed-480";
+export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fit-480";
 /// The fisheye by row distance from the hovered (or scrubbed) row: 26, 20, 14, 10, then 6 px.
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
 /// Space kept free above and below the card inside the transcript's viewport.
@@ -134,9 +149,13 @@ export const SETTLE_FRAMES = 45;
 /// The landing highlight on the prompt's bubble.
 export const HIGHLIGHT_MS = 1400;
 export const HIGHLIGHT_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
-/// Blocks of a reply the preview keeps (the card clamps to four lines).
-const PREVIEW_BLOCKS = 4;
-const PREVIEW_CHARS = 360;
+/// What of a reply the preview keeps: enough to fill the card's few lines at its widest (it clamps
+/// them, threadMinimap.css), held for every turn, so a short bounded excerpt.
+export type PreviewLimits = { blocks: number; chars: number };
+const PREVIEW: PreviewLimits = { blocks: 6, chars: 480 };
+/// What the card shows once the pointer moves into it (PreviewCard `more`): read only for the card
+/// that opens it, from its reply's row, and still bounded, so its cost is the same in any chat.
+const PREVIEW_MORE: PreviewLimits = { blocks: 24, chars: 2400 };
 const METADATA_TEXT_LIMIT = 1024;
 const PR_LINK = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+(?:#[\w.-]+)?/g;
 
@@ -314,7 +333,8 @@ export function railRoom(viewportHeight: number, foot = viewportHeight): { top: 
 /// 70% of the window, after which the rows scroll. It fits the room the transcript gives it
 /// (railRoom: its viewport less the mask's bands), so a short pane's rows all scroll into view and no
 /// tick sits under the transcript's fades (Leo 2026-10-22: "it wouldn't show the highlighted bottom
-/// ... it just didn't go to the bottom"). A `fixed` arm is its one height, clipped only by that room.
+/// ... it just didn't go to the bottom"). A `fixed` arm is its one height, clipped only by that room
+/// (railSlot); a `fit` one is as tall as its rows, up to that slot.
 /// The others are never shorter than the band, the `band` prompts on screen: in a pane too short for
 /// both, the mask's clearance gives way first, up to the whole view.
 export function railHeight(
@@ -328,10 +348,10 @@ export function railHeight(
   if (count <= 0) return 0;
   const room = railRoom(viewportHeight, foot);
   // A fixed rail does not grow for the band: its list scrolls to keep the band in view (railScrollTop).
-  if (config.fixed)
-    return viewportHeight > 0
-      ? Math.max(0, Math.min(config.initial, Math.floor(room.bottom - room.top)))
-      : config.initial;
+  if (config.fixed) {
+    const slot = railSlot(config, viewportHeight, foot);
+    return config.fit ? Math.min(count * (config.pitch ?? ROW_PITCH), slot) : slot;
+  }
   const height = Math.min(
     Math.max(count * ROW_PITCH, config.initial),
     config.maxRows * ROW_PITCH,
@@ -342,6 +362,29 @@ export function railHeight(
   const need = Math.min(count, Math.max(1, band)) * ROW_PITCH;
   const view = viewportHeight > 0 ? Math.floor(Math.min(viewportHeight, foot)) : Infinity;
   return Math.max(0, height >= need ? height : Math.min(need, view));
+}
+
+/// A fixed arm's box: its one height, clipped only by the room the view gives the rail (railRoom).
+export function railSlot(config: RailHeightConfig, viewportHeight: number, foot = viewportHeight): number {
+  const room = railRoom(viewportHeight, foot);
+  return viewportHeight > 0
+    ? Math.max(0, Math.min(config.initial, Math.floor(room.bottom - room.top)))
+    : config.initial;
+}
+
+/// The top of a rail `height` tall: a `fit` arm's rail sits in its slot, placed as the slot of its
+/// full height would be (railTop), so the rows it adds never move it; every other rail is its box.
+export function railFitTop(
+  height: number,
+  viewportHeight: number,
+  foot = viewportHeight,
+  config: RailHeightConfig = RAIL_HEIGHTS[DEFAULT_RAIL_HEIGHT],
+): number {
+  if (!config.fixed || !config.fit) return railTop(height, viewportHeight, foot);
+  const slot = railSlot(config, viewportHeight, foot);
+  const top = railTop(slot, viewportHeight, foot);
+  const spare = Math.max(0, slot - height);
+  return config.fit === "top" ? top : config.fit === "bottom" ? top + spare : top + Math.round(spare / 2);
 }
 
 /// The rail's top in the transcript's viewport: centered on it, as the Codex rail is, then moved as
@@ -461,6 +504,26 @@ export function jumpGlideStart(from: number, target: number, viewport: number): 
 /// chat's snapshot hashes and previews only the turns that changed.
 const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
 
+/// Each turn's reply row, for the longer excerpt the card reads only when the pointer moves into it
+/// (`replyMore`). Weak by the turn, so a turn that goes takes its entry with it.
+const replyRows = new WeakMap<MinimapTurn, AcpmuxRow>();
+/// The longer excerpt of a reply row's text, kept while the row's text is the same.
+const moreOf = new WeakMap<AcpmuxRow, { text: string; blocks: readonly ReplyBlock[] }>();
+
+/// The longer excerpt of `turn`'s reply that the card shows expanded: bounded (PREVIEW_MORE), read
+/// once per reply text, and only for the turn whose card the pointer moved into. A turn with no reply
+/// row (an earlier prompt the index names) keeps its own preview.
+export function replyMore(turn: MinimapTurn): readonly ReplyBlock[] {
+  const row = replyRows.get(turn);
+  const text = row?.text;
+  if (!row || !text) return turn.reply;
+  const held = moreOf.get(row);
+  if (held?.text === text) return held.blocks;
+  const blocks = replyPreview(text, PREVIEW_MORE);
+  moreOf.set(row, { text, blocks });
+  return blocks;
+}
+
 type CardState = { metadata: MinimapTurnMetadata; files: ReadonlySet<string> };
 type CardContribution = {
   version: number;
@@ -485,7 +548,26 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
   const shape = `${row.kind}:${row.ended ?? ""}:${row.foldRun ?? ""}:${row.settled ?? ""}`;
   const cached = previous?.version === row.version && previous.shape === shape ? previous : undefined;
   if (cached && cached.before === before) return cached.state;
-  let state = before ?? { metadata: { at: row.at, links: [] }, files: noFiles };
+  let state = before ?? {
+    metadata: {
+      at: row.at,
+      links: [],
+      // An app or persona label (`[from Muse]`), a Chief or a person names its own sender; the
+      // session it came through never replaces that name, so such a card keeps its "From <name>"
+      // line (IncomingMessageCard.tsx looks no chat up for these either).
+      ...(prompt.incoming?.kind === "message" &&
+        !prompt.incoming.message.app &&
+        !prompt.incoming.message.chief &&
+        !prompt.incoming.message.fromPerson && {
+          sender: {
+            name: prompt.incoming.message.name,
+            sessionId: prompt.incoming.message.sessionId,
+            relation: prompt.incoming.message.relation,
+          },
+        }),
+    },
+    files: noFiles,
+  };
   let metadata = state.metadata;
   let files = state.files;
   // A link discovered in a still-streaming reply is not stable yet. Read only its bounded prefix
@@ -534,9 +616,16 @@ export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from" | "
 /// sort of thing?").
 export function promptSender(row: AcpmuxRow): string | undefined {
   const incoming = row.incoming;
-  if (incoming?.kind === "message") return incoming.message.name || undefined;
+  if (incoming?.kind === "message") return senderName(incoming.message.name) || undefined;
   if (incoming?.kind === "inbox") return inboxCounts(incoming.notice).senders.join(", ") || undefined;
   return undefined;
+}
+
+/// A turn's prompt as its tick shows it: another agent's message without the broker's label around
+/// it (conversation/relayEnvelope.ts), the person's as written.
+function promptText(row: AcpmuxRow): string {
+  const text = (row.text ?? "").trim();
+  return row.incoming?.kind === "message" ? withoutRelayLabelOfMessage(text).trim() : text;
 }
 
 /// The turns of `rows`, the ticks they draw, and the rows they were read from.
@@ -636,6 +725,7 @@ export function minimapTurns(
       // A reply streamed on past its preview (replyPreview stops once the preview is full): the
       // turn is the same, so the list of turns can be too.
       kept.reply = reply;
+      if (reply) replyRows.set(kept.turn, reply);
       tail.push(kept.turn);
     } else {
       const turn: MinimapTurn = {
@@ -644,12 +734,13 @@ export function minimapTurns(
         key: turnKey(sessionId, user),
         // Keep explicit prompt line breaks for the hover card; its CSS clamps the title without
         // changing what the person wrote. Spaces are normalized by white-space: pre-line there.
-        prompt: (user.text ?? "").trim(),
+        prompt: promptText(user),
         ...withSender(user),
         reply: sameReply ? kept.turn.reply : reply?.text ? replyPreview(reply.text) : [],
         metadata: nextMetadata,
       };
       turnsByPrompt.set(user, { turn, sessionId, reply });
+      if (reply) replyRows.set(turn, reply);
       tail.push(turn);
     }
     user = undefined;
@@ -659,12 +750,16 @@ export function minimapTurns(
   const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
   for (let index = reuse && keep > 0 ? start : 0; index < rows.length; index += 1) {
     const row = rows[index]!;
+    // A "Worked for" that folds its turn's prompt (other agents' messages, conversation/turns.ts
+    // `shapedTurn`) starts the turn in the prompt's place, open or closed; the prompt's copy the
+    // open fold draws under it starts none. The turn keeps its tick, its key and its prompt.
+    const folded = row.foldedPrompt;
     // A steer goes on with its turn (turnStart.ts): it starts no minimap turn.
-    if (opensTurn(row)) {
+    if (folded || (opensTurn(row) && !(user && isFoldedPrompt(row, user, userIndex, rows)))) {
       close();
-      user = row;
+      user = folded ?? row;
       userIndex = index;
-      details = cardState(row, row);
+      details = cardState(user, user);
     } else if (user) {
       if (!reply && row.kind === "assistant" && row.text) {
         reply = row;
@@ -722,7 +817,7 @@ export function minimapTurns(
           index: -1,
           id: row.id,
           key: turnKey(sessionId, row),
-          prompt: (row.text ?? "").trim(),
+          prompt: promptText(row),
           ...withSender(row),
           reply: [],
         }));
@@ -753,6 +848,11 @@ export function minimapTurns(
   const loaded = sameTicks ? oldTicks! : ticksOf(list, oldTicks);
   return withEarlier(list, loaded, old as MinimapTurn[]);
 }
+
+/// Whether `row` is the open fold's copy of `user`, the prompt the "Worked for" at `rows[at]` folds:
+/// the prompt itself, or a delivery its inbox notice draws as (laneNoticeBatches.ts).
+const isFoldedPrompt = (row: AcpmuxRow, user: AcpmuxRow, at: number, rows: readonly AcpmuxRow[]) =>
+  rows[at]?.foldedPrompt === user && (row.id === user.id || row.inboxSource === user.id);
 
 /// A turn's `from`, only when it has one, so a person's turn keeps the shape it had.
 function withSender(row: AcpmuxRow): Pick<MinimapTurn, "from"> {
@@ -886,14 +986,15 @@ export function turnScrollTop(turn: MinimapTurn, tops: RowTops): number {
 }
 
 /// The start of a reply as blocks with bold/code spans; fenced code, heading marks and link targets drop.
-export function replyPreview(markdown: string): ReplyBlock[] {
+export function replyPreview(markdown: string, limits: PreviewLimits = PREVIEW): ReplyBlock[] {
+  const { blocks: maxBlocks, chars: maxChars } = limits;
   const blocks: ReplyBlock[] = [];
   let chars = 0;
   let fenced = false;
   let paragraph: string[] = [];
   const push = (kind: ReplyBlock["kind"], text: string) => {
-    if (blocks.length >= PREVIEW_BLOCKS || chars >= PREVIEW_CHARS) return;
-    const spans = inlineSpans(text.slice(0, PREVIEW_CHARS - chars));
+    if (blocks.length >= maxBlocks || chars >= maxChars) return;
+    const spans = inlineSpans(text.slice(0, maxChars - chars));
     if (!spans.length) return;
     chars += spans.reduce((sum, span) => sum + span.text.length, 0);
     blocks.push({ kind, spans });
@@ -905,7 +1006,7 @@ export function replyPreview(markdown: string): ReplyBlock[] {
   // A streaming reply previews again on every token: stop reading once the preview is full, and
   // read line by line instead of splitting the whole reply.
   for (let start = 0; start <= markdown.length;) {
-    if (blocks.length >= PREVIEW_BLOCKS || chars >= PREVIEW_CHARS) break;
+    if (blocks.length >= maxBlocks || chars >= maxChars) break;
     const newline = markdown.indexOf("\n", start);
     const end = newline < 0 ? markdown.length : newline;
     const line = markdown.slice(start, end).trim();
@@ -1040,8 +1141,13 @@ const foldedTurns = new WeakMap<MinimapTurn, { run: readonly MinimapTurn[]; turn
 function foldedTurn(run: readonly MinimapTurn[]): MinimapTurn {
   const first = run[0]!;
   const held = foldedTurns.get(first);
-  if (held && held.run.length === run.length && held.run.every((turn, i) => turn === run[i])) return held.turn;
   const last = run.at(-1)!;
+  // The run's card expands to its last message's reply (`replyMore`), which streams on in place.
+  const lastReply = replyRows.get(last);
+  if (held && held.run.length === run.length && held.run.every((turn, i) => turn === run[i])) {
+    if (lastReply) replyRows.set(held.turn, lastReply);
+    return held.turn;
+  }
   const turn: MinimapTurn = {
     ...first,
     from: senders(run),
@@ -1049,6 +1155,7 @@ function foldedTurn(run: readonly MinimapTurn[]): MinimapTurn {
     metadata: last.metadata,
     members: run.map((member) => member.id),
   };
+  if (lastReply) replyRows.set(turn, lastReply);
   foldedTurns.set(first, { run, turn });
   return turn;
 }

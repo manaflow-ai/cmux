@@ -1,7 +1,10 @@
 import AppKit
+import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextLayout
 import CmuxNextSidebar
 
@@ -10,7 +13,7 @@ import CmuxNextSidebar
 // focus model, titlebar and actions see; the others are parked contents (no focus topology) whose views stay on
 // screen in their slots. A press in one focuses it (`ShellWindow.sendEvent`), as does a click on its sidebar row; a
 // click on a row off screen shows that workspace alone. `SidebarModel.onScreen` is the set on screen. With the
-// toggle off none of this runs: the set stays nil and onScreen empty.
+// toggle off the set stays nil and onScreen empty, also while window docks arrange the frame (`setOnScreen`).
 extension WindowController {
     /// The gap between workspaces shown side by side.
     static var multiViewGap: CGFloat { Metrics.space2 }
@@ -24,7 +27,9 @@ extension WindowController {
     /// the turn that shows a workspace or a page, so no frame shows the old arrangement.
     func arrangeOnScreen() {
         let multi = SidebarTunables.multiViewOn, docking = LayoutTunables.dockedWorkspaces.value
-        guard multi || docking else { return leaveMultiView() }
+        // The Chief panel (`WindowController+ChiefPanel`): floating over the stage or docked beside it, never over Home.
+        let panel = syncChiefPanel()
+        guard multi || docking || panel != nil else { return leaveMultiView() }
         guard let content else {
             // A top page or the connecting view fills the content area: no workspace is on screen.
             clearArrangement()
@@ -42,7 +47,8 @@ extension WindowController {
             pendingDocks[id] = nil
             if docking { docks.dock(id, at: edge) }
         }
-        docks.prune(keeping: alive)
+        let home = frameHome
+        docks.prune { alive($0) && $0 != home } // Home never docks as a workspace (an older build's record may hold it)
         _ = docks.reveal(shown)
         let stage = docks.isEmpty ? shown : docks.stage(focused: shown, previous: state.stageWorkspaceID,
                                                          recency: state.workspaceRecency, listed: members)
@@ -58,7 +64,7 @@ extension WindowController {
             state.viewSet = set
             services.windows.recordSaver.stateDidChange(state)
         }
-        guard set != nil || !docks.visible.isEmpty else {
+        guard set != nil || !docks.visible.isEmpty || panel != nil else {
             clearArrangement()
             return setOnScreen([shown])
         }
@@ -87,10 +93,14 @@ extension WindowController {
         let gap = Self.multiViewGap, geometry = WindowFrameGeometry(gap: Self.multiViewGap)
         let floating = Set(docks.visible.filter { $0.mode == .overlay }.map(\.workspace))
         for (id, view) in views { view.applyDockedWorkspaceChrome(floating: floating.contains(id)) }
-        host.stackFloatingDocks(front: Set(floating.compactMap { views[$0].map(ObjectIdentifier.init) }))
+        var front = Set(floating.compactMap { views[$0].map(ObjectIdentifier.init) })
+        if panel != nil, let panelView = chiefPanelView { front.insert(ObjectIdentifier(panelView)) } // above every workspace
+        host.stackFloatingDocks(front: front)
         let frame = docks
-        host.arrangeContent = { bounds in
-            let placement = geometry.place(frame, in: CGRect(origin: .zero, size: bounds.size))
+        host.arrangeContent = { [weak self] bounds in
+            // A docked Chief takes its edge first; a floating one leaves the stage the whole area.
+            let area = panel.flatMap { self?.chiefPanelView?.place($0, in: bounds, gap: gap) } ?? CGRect(origin: .zero, size: bounds.size)
+            let placement = geometry.place(frame, in: area)
             var frames = placement.docks.map { (id: $0.workspace, frame: $0.frame) }
             if let set {
                 frames += set.frames(in: placement.stage, gap: gap)
@@ -245,7 +255,7 @@ extension WindowController {
     }
 
     private func setOnScreen(_ ids: Set<String>) {
-        let value = Set(ids.map(SidebarWorkspaceID.init))
+        let value = Self.multiViewEnabled ? Set(ids.map(SidebarWorkspaceID.init)) : []
         if sidebar.model.onScreen != value { sidebar.model.onScreen = value }
     }
 }
@@ -267,10 +277,74 @@ extension WindowController: WindowDockFrame {
     }
     func frameClaim(_ id: String) { services.windows.claim(workspaceID: id, in: state, select: false) }
     func frameSaveRecord() { services.windows.recordSaver.stateDidChange(state) }
+    var frameHome: String? { services.home.dock.isClassic ? nil : services.windowHomes.home(in: state.id)?.id }
+    var frameChiefPanel: ChiefPanel { get { state.chiefPanel } set { state.chiefPanel = newValue } }
+    var frameChiefPanelArm: ContinuousClock.Instant? { get { chiefPanelArm } set { chiefPanelArm = newValue } }
+    var frameChiefPanelShown: Bool { chiefPanelView.map { $0.superview === root.contentHost } ?? false }
+    var frameChiefPanelHasKeys: Bool { frameChiefPanelShown && chiefPanelView?.hasKeys == true }
+    func frameChiefPanelLies(toward direction: LayoutDirection) -> Bool { chiefPanelView?.lies(toward: direction, docked: state.chiefPanel.dockedEdge) ?? false }
+    func frameFocusChiefPanel() { chiefPanelView?.focusChief((chiefPanelView?.chief as? InternalPageView)?.focusTarget ?? (chiefPanelView?.chief as? HomeHostView)?.focusTarget) }
+    func frameFocusStage(toward direction: LayoutDirection?) { focusStagePane(toward: direction) }
+    func frameChiefPanelDidChange() { frameDidChange() }
 
     /// Places the changed frame now and saves the window record on settle.
     func frameDidChange() {
         arrangeOnScreen()
         frameSaveRecord()
+    }
+}
+
+// The Chief panel's window side (rules: `WindowDockFrame+ChiefPanel`; view: `ChiefPanelView`); it borrows Home's Chief view.
+extension WindowController {
+    /// Mounts or takes away the panel for this arrangement; the panel when it draws (open, the stage not Home, a
+    /// Chief view to hold).
+    func syncChiefPanel() -> ChiefPanel? {
+        guard chiefPanelBelongsOnScreen, let chief = chiefPanelSource?() ?? homeChiefView() else { removeChiefPanel(); return nil }
+        let view = chiefPanelView ?? makeChiefPanelView()
+        if view.superview !== root.contentHost { root.contentHost.addSubview(view) }
+        if view.floating != (state.chiefPanel.dockedEdge == nil) { view.setFloating(state.chiefPanel.dockedEdge == nil) }
+        view.hold(chief)
+        return state.chiefPanel
+    }
+
+    /// Takes the panel off screen; Home's pane that shows the Chief tab takes its view back.
+    func removeChiefPanel() {
+        guard let view = chiefPanelView, view.superview != nil else { return }
+        let hadKeys = view.hasKeys
+        let homeContent = content?.workspace.id == frameHome ? content : frameHome.flatMap { parked[$0] }
+        let panes = homeContent.map { Array($0.panes.values) } ?? []
+        if let chief = view.release() { for pane in panes where pane.view.content === chief { _ = pane.view.show(chief) } }
+        view.removeFromSuperview()
+        if hadKeys, homeContent !== content { frameFocusStage(toward: nil) }
+    }
+
+    /// The stage's pane nearest the panel (`direction` says where from), else its focused pane, takes the keys.
+    func focusStagePane(toward direction: LayoutDirection?) {
+        guard let content, let window else { return }
+        let focused = content.focus.state.pane.flatMap(content.paneController(key:))
+        let order = focused.flatMap { content.layoutModel.screen(containing: $0.layoutPaneID)?.layout.visualPanes } ?? []
+        let nearest = direction.flatMap { $0 == .right || $0 == .down ? order.first : order.last }.flatMap { content.panes[$0] }
+        guard let pane = nearest ?? focused else { return }
+        content.layoutModel.focus(pane.layoutPaneID, notify: false, source: .keyMove(byPerson: true))
+        content.focus.send(.focusPane(pane.layoutPaneID.rawValue, source: .intent))
+        if let target = pane.currentContent?.focusTarget, window.firstResponder !== target { window.makeFirstResponder(target) }
+    }
+
+    /// The view of Home's Chief tab: the Home page in its pinned chat dock (its live view), else a conversation tab.
+    private func homeChiefView() -> NSView? {
+        guard let home = frameHome, let (workspace, daemon) = services.machines.workspace(id: home) else { return nil }
+        return workspace.chiefPanelTabs.lazy.compactMap { tab -> NSView? in tab.page == nil ? self.services.home.tabView(for: tab)
+            : self.services.pages.existingView(tab.id) ?? self.services.pages.view(forStoreTab: tab, in: daemon.store, local: daemon.isLocal, window: self) }.first
+    }
+
+    private func makeChiefPanelView() -> ChiefPanelView {
+        let settings = services.settings, look = ChiefPanelScreenLook(share: { [weak services] in services?.chiefScreenShare }, settings: { settings })
+        let view = ChiefPanelView(title: HomeStrings.chiefName, actions: .init(
+            toggleDock: { [weak self] in self.map { $0.toggleChiefPanelDock(edge: $0.services.chiefDockEdge) } }, hide: { [weak self] in self?.hideChiefPanel() },
+            moved: { [weak self] in self?.state.chiefPanel.floatingFrame = $0; self?.frameChiefPanelDidChange() }, stop: { [weak self] in _ = self?.services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) },
+            toggleSeesScreen: look.toggle, opened: { [weak self] in look.panelOpened(window: self?.window?.title) }))
+        view.follow({ ChiefPanelStyle(rawValue: settings?.snapshot.chiefPanelStyle ?? "") ?? .default }, seesScreen: { look.seesScreen })
+        chiefPanelView = view
+        return view
     }
 }

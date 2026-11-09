@@ -642,7 +642,6 @@ def test_every_web_bundle_input_outside_webviews_runs_the_web_checks() -> None:
         "schemas/settings/settings-schema.json",
         "web/data/model-catalog/snapshot.json",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
     ):
         assert want in outside, want
     assert any(path.startswith("release-notes/next/highlights/") for path in outside)
@@ -664,7 +663,7 @@ def test_swift_and_unread_catalog_edits_do_not_run_the_web_checks() -> None:
     ]
     assert unread, "every CmuxNext catalog is read by a web page; pick another unread path"
     for path in (
-        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsPageLayout.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsPageLayout+Categories.swift",
         unread[0],
     ):
         assert module.classify_files([path]).web is False, path

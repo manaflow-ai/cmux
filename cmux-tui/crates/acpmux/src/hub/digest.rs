@@ -81,11 +81,34 @@ pub(super) struct Part {
 /// `_meta.acpmux.fromAgent`, or the name of the session a connection proved it runs in. With
 /// none, its provenance says: a message another session sent (`session_message`, also when a
 /// paused agent pair releases it, `agent_pairs.rs`) or a lane's task result card (`tasks.rs`) is
-/// that session's, by its name.
+/// that session's, by its name. A message the person edited (`editedBy`, `queue_edit.rs`) is
+/// theirs to clear, hold and digest, here and after a restart: it names its sender only to the
+/// agent ([`named_sender`]).
 pub(super) fn agent_sender(provenance: Option<&Value>, declared: Option<&str>) -> Option<String> {
     if let Some(name) = declared {
         return Some(name.to_owned());
     }
+    if provenance.is_some_and(|p| p.get(crate::prompt_provenance::EDITED_BY).is_some()) {
+        return None;
+    }
+    named_sender(provenance)
+}
+
+/// `provenance` for a queue listing (`QueuedPromptSummary.provenance`) when the prompt has no
+/// agent to act for (`agent`) but still names a sender to draw: another agent's message the person
+/// edited, or an unverified prompt. `None` for any other.
+pub(super) fn listed_provenance(provenance: Option<&Value>, agent: Option<&str>) -> Option<Value> {
+    let p = provenance?;
+    if agent.is_some() {
+        return None;
+    }
+    let edited =
+        p.get(crate::prompt_provenance::EDITED_BY).is_some() && named_sender(Some(p)).is_some();
+    (edited || crate::prompt_provenance::is_unverified(Some(p))).then(|| p.clone())
+}
+
+/// The sender `provenance` names when it is another agent's message, edited or not.
+pub(super) fn named_sender(provenance: Option<&Value>) -> Option<String> {
     let p = provenance?;
     let kind = p.get("kind").and_then(Value::as_str);
     if !matches!(
@@ -211,7 +234,7 @@ impl Hub {
             }
             queue
                 .iter_mut()
-                .filter(|q| q.held && q.run.agent.is_some())
+                .filter(|q| q.held && q.goes_in_by_itself())
                 .map(|q| {
                     q.held = false;
                     q.prompt_id.clone()
@@ -229,17 +252,20 @@ impl Hub {
         }
     }
 
-    /// After a hold: the agent messages it held go in again by themselves after the
+    /// After a hold: the prompts it held that do not wait for Resume (agent messages, inbox
+    /// notices, and the person's own up to `PERSON_RETRIES` times, `QueuedPrompt::waits_for_resume`)
+    /// go in again by themselves after the
     /// `autoResumeDelaysMs` wait for their hold count (the last wait once those are used up; the
     /// default waits when it is `[]`), or once more while a continuation of the cut turn may
     /// still answer (it releases them). Only these holds: a message released and held again
     /// since waits its own next wait. Also run for the holds a daemon start restored
     /// (`resume_queues`).
     pub(super) fn retry_held_agent_messages(self: &Arc<Self>, session: &Arc<Session>) {
+        let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
         let held: Vec<(String, usize)> = session
             .queue()
             .iter()
-            .filter(|q| q.held && q.run.agent.is_some())
+            .filter(|q| q.held && !q.waits_for_resume(stop_held))
             .map(|q| (q.prompt_id.clone(), q.retries))
             .collect();
         let Some(retries) = held.iter().map(|(_, n)| *n).max() else { return };
@@ -468,8 +494,8 @@ impl Hub {
             if let Some(display_parts) = &q.run.display_parts {
                 queued.set("displayParts", display_parts.clone());
             }
+            let mut queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
             super::session::mark_pasted(&mut queued, &q.run.blocks);
-            let queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
             self.append(session, "mux", "queued", queued);
         }
         // Held: by this failure, or before an inbox digest took them. Their retry is scheduled
@@ -480,6 +506,15 @@ impl Hub {
             let mut msg = json!({"held": held, "requeued": true});
             if by_stop {
                 msg.set("reason", json!("stop"));
+            } else {
+                // Agent messages go in again by themselves (`queue.rs` `pause_queue`'s field): a
+                // client reads no pause from them.
+                let retrying: Vec<&String> = taken
+                    .iter()
+                    .filter(|q| held.contains(&&q.prompt_id) && !q.waits_for_resume(false))
+                    .map(|q| &q.prompt_id)
+                    .collect();
+                msg.set("retrying", json!(retrying));
             }
             self.append(session, "mux", "queue_paused", msg);
         }
@@ -588,6 +623,17 @@ mod tests {
         let card = crate::prompt_provenance::task_result("s1", "lane-b", "s2", "t-1", "done");
         assert_eq!(agent_sender(Some(&card), None).as_deref(), Some("lane-b"));
         assert_eq!(agent_sender(None, Some("coord-deputy")).as_deref(), Some("coord-deputy"));
+        // One the person edited is theirs, after a restart too; it still names its sender.
+        let edited =
+            json!({"kind": "agent_message", "fromName": "lane-a", "editedBy": {"actor": "owner"}});
+        assert_eq!(agent_sender(Some(&edited), None), None);
+        assert_eq!(named_sender(Some(&edited)).as_deref(), Some("lane-a"));
+        // A queue listing keeps it, and an unverified prompt's, to draw; none for the others.
+        assert_eq!(listed_provenance(Some(&edited), None), Some(edited.clone()));
+        let unverified = crate::prompt_provenance::unverified("s2", "unix", Default::default());
+        assert_eq!(listed_provenance(Some(&unverified), None), Some(unverified.clone()));
+        assert_eq!(listed_provenance(Some(&message), Some("lane-a")), None);
+        assert_eq!(listed_provenance(Some(&message), None), None);
         assert_eq!(agent_sender(None, None), None, "a plain prompt is the person's");
         let resume = json!({"kind": "auto_resume", "promptId": "p", "attempt": 1, "turnId": "t"});
         assert_eq!(agent_sender(Some(&resume), None), None, "a continuation is the person's");

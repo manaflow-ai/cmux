@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -263,7 +264,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 // The Mac's Show Hidden Conversations: what Delete Conversation from List hid lists again.
                 Button {
                     theme.haptics.selection()
-                    withAnimation(theme.motion.smooth.animation) { hiddenRows.showAll() }
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { hiddenRows.showAll() }
                 } label: {
                     Text(hiddenCount == 1 ? String(localized: "Show 1 Hidden Conversation")
                         : String(localized: "Show \(hiddenCount) Hidden Conversations"))
@@ -307,7 +308,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 // The Mac's Unread toggle: all or unread only, the filled glyph while on.
                 Button {
                     theme.haptics.selection()
-                    withAnimation(theme.motion.smooth.animation) { unreadOnly.toggle() }
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { unreadOnly.toggle() }
                 } label: {
                     Label("Unread", systemImage: unreadOnly ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
@@ -336,7 +337,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                             titleVisibility: .visible, presenting: deleting) { row in
             Button(String(localized: "Delete"), role: .destructive) {
                 theme.haptics.selection()
-                withAnimation(theme.motion.smooth.animation) { hiddenRows.hide(row) }
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { hiddenRows.hide(row) }
             }
             .accessibilityIdentifier("home.delete.confirm")
             Button(String(localized: "Cancel"), role: .cancel) {}
@@ -365,7 +366,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             Text("A new Cloud Chief with its own conversation and memory.")
         }
         // The memo's revision moves only when the shown list does (no comparison of every row per pass).
-        .animation(theme.motion.smooth.animation, value: listMemo.revision)
+        .animation(theme.motion.smooth.animation.unlessReduceMotion, value: listMemo.revision)
     }
 
     private func rowModel(_ row: MacHomeRow, stamp: MessagesStamp) -> HomeListRow.Model {
@@ -488,7 +489,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     private func selectHome(_ id: String) {
         guard let team = store.activeTeam, id != homeMacID else { return }
         theme.haptics.selection()
-        withAnimation(theme.motion.smooth.animation) { macFilter.select(.mac(id), in: team.id) }
+        withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { macFilter.select(.mac(id), in: team.id) }
         // The chosen Mac is linked and focused: its Chief and its Home show.
         if macs.contains(where: { $0.id == id && $0.isOnline }) { selectMac?(id) }
     }
@@ -533,7 +534,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .buttonStyle(.borderless)
         .disabled(sources.isChanging)
         if sources.isChanging {
-            ProgressView().controlSize(.small)
+            CmuxSpinner().controlSize(.small)
         }
         if let error = sources.changeError {
             Text(error)
@@ -721,8 +722,8 @@ struct HomeTile: View, Identifiable {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier(identifier)
-        .animation(theme.motion.snappy.animation, value: working)
-        .animation(theme.motion.snappy.animation, value: bubble)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: working)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: bubble)
     }
 
     private var accessibilityLabel: Text {
@@ -814,7 +815,7 @@ struct MacConversationScreen: View {
                     .accessibilityIdentifier("home.conversation.retry")
                 }
             } else {
-                ProgressView().accessibilityIdentifier("home.conversation.loading")
+                CmuxSpinner().accessibilityIdentifier("home.conversation.loading")
             }
         }
         // Owned by the screen: a retry button disappearing cannot cancel the load it requested.

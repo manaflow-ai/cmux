@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b'
+IR_SHA256 = '2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8'
 
 
 @dataclass(frozen=True)
@@ -2520,6 +2520,7 @@ COMMANDS = {
         None,
         {
             'data': CommandFieldMetadata(None, None),
+            'filename': CommandFieldMetadata(None, 'terminal-file-paste-v1'),
             'lease': CommandFieldMetadata(None, None),
             'mime': CommandFieldMetadata(None, None),
             'offset': CommandFieldMetadata(None, None),
@@ -3470,6 +3471,7 @@ COMMANDS = {
             'generation': CommandFieldMetadata(None, None),
             'keep_layout': CommandFieldMetadata(12, 'end-terminals-keep-layout-v1'),
             'pid': CommandFieldMetadata(None, None),
+            'restart': CommandFieldMetadata(12, None),
         },
     ),
     'sidebar-plugin': CommandMetadata(
@@ -3507,6 +3509,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'before': CommandFieldMetadata(12, 'split-before-v1'),
             'cols': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(12, 'terminal-env-v1'),
             'dir': CommandFieldMetadata(None, None),
@@ -3604,6 +3607,18 @@ COMMANDS = {
             'marker_epoch': CommandFieldMetadata(None, None),
             'max_bytes': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-last-command': CommandMetadata(
+        'terminal-last-command',
+        'control',
+        12,
+        'terminal-last-command-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
     'terminal-ports': CommandMetadata(
@@ -4038,6 +4053,7 @@ EVENTS = {
     'selection-changed': EventMetadata('selection-changed', 12, 'tree-selection-deltas-v1', ('subscribe-deltas',), 'emitted'),
     'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
+    'stash-changed': EventMetadata('stash-changed', 12, 'stash-v1', ('subscribe',), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),
     'surface-output': EventMetadata('surface-output', 5, None, ('subscribe',), 'emitted'),

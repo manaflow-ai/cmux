@@ -3,7 +3,7 @@
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
 set -euo pipefail
 # cx-f58x: compile out browser-import code as `decide` chose (the
-# notary tests, and every nightly-next build while
+# notary tests, and every nightly-next build when nightly.yml sets
 # NIGHTLY_NEXT_BROWSER_DATA_IMPORT=compiled-out).
 echo "browser import variant: $IMPORT_VARIANT (flags: ${SWIFT_IMPORT_FLAGS:-none}, empty browser-sources.json: $EMPTY_BROWSER_SOURCES)"
 notary_test_flags=(build)
@@ -145,15 +145,30 @@ summarize_release_build() {
 finish_host_build() {
   [[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py finish-host "$host_root"
 }
-# A live CAS failure is recoverable: preserve the build's incremental inputs,
-# then retry once with Xcode's local cache. Other compile failures remain red.
+# A build on the fleet cache that fails for any reason retries once with Xcode's local cache, keeping the
+# build's incremental inputs. The fleet cache has failed in one form after another (a corrupt object, a missing
+# module key, a precompile's "CAS operation failed", a compiler crash reading the CAS; runs 42100189059,
+# 42524304475, 42527779911, 42535989825), and matching each error's text lost to the next form. A real
+# compile error fails the retry the same way, so it costs at most one extra build, on a nightly that is red
+# anyway. A build without the fleet cache retries only on a runtime CAS diagnostic, as before.
 set +e
 run_release_build 0 2>&1 | tee "$RUNNER_TEMP/nightly-release-build.log"
 release_status=${PIPESTATUS[0]}
 set -e
-if [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
-  echo "::warning::managed fleet compilation cache failed; retrying the Release build with the local cache"
+release_retry=""
+if [[ "$release_status" -ne 0 && "$build_cache" == fleet ]]; then
+  release_retry="the Release build failed on the managed fleet compilation cache"
+elif [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
+  release_retry="the compilation cache failed"
+fi
+if [[ -n "$release_retry" ]]; then
+  echo "::warning::$release_retry (status $release_status); retrying the Release build once with the local cache"
+  # The one retry. Its failure ends the step red; there is no third build.
+  set +e
   run_release_build 1 2>&1 | tee "$RUNNER_TEMP/nightly-release-build-retry.log"
+  retry_status=${PIPESTATUS[0]}
+  set -e
+  [[ "$retry_status" -eq 0 ]] || exit "$retry_status"
   summarize_release_build "$RUNNER_TEMP/nightly-release-build-retry.log" "$([[ $build_cache == fleet ]] && echo fallback || echo "$build_cache")"
   finish_host_build
 elif [[ "$release_status" -eq 0 ]]; then

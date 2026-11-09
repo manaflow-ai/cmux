@@ -172,6 +172,17 @@ impl Mux {
         let (mut plan, before, tabs) = prepared?;
         let committed = persist_public_topology_result(operation, &mut plan.result, &plan.deltas)
             .and_then(|()| {
+                // After the result took its public value from the full deltas.
+                if plan.prunes_stated
+                    && let Some(deltas) = registry.prune_stated_projection_deltas(&plan.deltas)?
+                {
+                    plan.deltas = deltas;
+                    // Pruned deltas no longer restate every resource.
+                    plan.restates_all = false;
+                }
+                anyhow::Ok(())
+            })
+            .and_then(|()| {
                 #[cfg(test)]
                 {
                     *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
@@ -204,6 +215,9 @@ impl Mux {
             }
         } else {
             self.subscribers.publish_deferred_session_paths(session_paths);
+        }
+        if plan.restates_all && !commit.replayed {
+            registry.record_full_projection_fold(commit.revision, &plan.deltas);
         }
         // `apply` consumes the plan; keep what the tree delta needs.
         let ledger = plan

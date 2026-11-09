@@ -7,15 +7,13 @@
 // when the list or the sort changes.
 import { memo, useMemo, useState } from "react";
 import { useT, type Translate } from "../i18n";
-import { AgentMark } from "../../shared/AgentMark";
 import { agentTone } from "../subagents/agentTones";
-import { TonedIcon } from "../subagents/TonedIcon";
+import { SenderIcon } from "../subagents/SenderIcon";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import type { AcpmuxSessionEntry } from "../sessionList";
+import type { UsageEntry } from "./usageEntries";
 import {
   byUsage,
-  cacheUsageRows,
   type SessionUsageStats,
   UNKNOWN,
   type UsageCacheLayout,
@@ -26,25 +24,15 @@ import {
 import type { AcpmuxUsageLimits } from "../model";
 import { planLimitRows } from "../usageLimits";
 import "./UsageSection.css";
+import { USAGE_SHOWN } from "./usageSectionModel";
+import { cacheUsageRows } from "../usageStats";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
-/// Rows the list shows before View all.
-export const USAGE_SHOWN = 5;
-
 /// Gallery arms for the own-metrics leading column. The shared slot is the shipped treatment:
 /// it aligns this chat's metrics with peer-session rows without repeating a generic icon on every
 /// number. The other arms keep the prior flush treatment and show the icon alternative.
 export type UsageOwnRowLayout = "flush" | "slot" | "icon";
-
-/// The section's one-line value: this chat's 24h cost, else its 24h tokens.
-export function usageMeta(t: Translate, stats: SessionUsageStats | undefined, locale?: string): string | undefined {
-  if (!stats) return undefined;
-  if (stats.costUsd24h !== undefined)
-    return t("sessionInfo.usage.cost24hValue", { cost: usageCost(stats.costUsd24h, locale) });
-  if (stats.tokens24h !== undefined)
-    return t("sessionInfo.usage.tokens24hValue", { tokens: usageTokens(stats.tokens24h, locale) });
-  return undefined;
-}
 
 /// What a row of this chat's numbers offers next (Leo's rule via acpmux-owner: every number has a
 /// next step): Compact for the context, the Subagents section for its subagents, and a Restart
@@ -134,8 +122,9 @@ export const UsageSection = memo(function UsageSection({
 }: {
   /// This chat's (`summary.usageStats`).
   own?: SessionUsageStats;
-  /// Every session acpmux lists, this Mac's and its peers' (the snapshot's `sessions`).
-  sessions: readonly AcpmuxSessionEntry[];
+  /// Every session acpmux lists, this Mac's and its peers' (the snapshot's `sessions`), or only what
+  /// this section reads of them (usageEntries.ts).
+  sessions: readonly UsageEntry[];
   chatId?: string;
   /// Opens a listed chat, this Mac's or a peer's; without it the rows are plain text.
   onOpen?: (sessionId: string) => void;
@@ -239,54 +228,54 @@ export const UsageSection = memo(function UsageSection({
             </fieldset>
           </div>
           <ul className="acpmux-session-info-list" data-sort={sort}>
-            {shown.map((entry) => {
-              const stats = entry.usageStats!;
-              const place = entry.peer ?? entry.host;
-              // A peer's chat is named `<peer>/<name>` (acpmux hub/peers.rs); the row names the peer
-              // after the title, so the title drops it.
-              const named = entry.displayTitle || entry.title || entry.name || entry.sessionId;
-              const title =
-                entry.peer && named.startsWith(`${entry.peer}/`) ? named.slice(entry.peer.length + 1) : named;
-              const mark = (
-                <span className="acpmux-lineage__icon">
-                  {entry.harness ? (
-                    <AgentMark
-                      agent={entry.harness}
+            <WindowedRows
+              items={shown}
+              render={(entry) => {
+                const stats = entry.usageStats!;
+                const place = entry.peer ?? entry.host;
+                // A peer's chat is named `<peer>/<name>` (acpmux hub/peers.rs); the row names the peer
+                // after the title, so the title drops it.
+                const named = entry.displayTitle || entry.title || entry.name || entry.sessionId;
+                const title =
+                  entry.peer && named.startsWith(`${entry.peer}/`) ? named.slice(entry.peer.length + 1) : named;
+                const mark = (
+                  <span className="acpmux-lineage__icon">
+                    <SenderIcon
+                      harness={entry.harness}
+                      tone={agentTone(entry.sessionId)}
                       size={ROW_ICON}
-                      fallback={<TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(entry.sessionId)} row />}
+                      fallback="agent.chat"
                     />
-                  ) : (
-                    <TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(entry.sessionId)} row />
-                  )}
-                </span>
-              );
-              const body = (
-                <>
-                  {mark}
-                  <span className="acpmux-session-info-row__name">{title}</span>
-                  {place && <span className="acpmux-session-info-row__detail">{place}</span>}
-                  <span className="acpmux-session-info-row__end acpmux-session-info-usage__value">
-                    {sortValue(stats, sort, locale)}
                   </span>
-                </>
-              );
-              const current = entry.sessionId === chatId || undefined;
-              return (
-                <li key={entry.sessionId} data-current={current}>
-                  {onOpen && !current ? (
-                    <button
-                      type="button"
-                      className="acpmux-session-info-row acpmux-session-info-row--button"
-                      onClick={() => onOpen(entry.sessionId)}
-                    >
-                      {body}
-                    </button>
-                  ) : (
-                    <div className="acpmux-session-info-row">{body}</div>
-                  )}
-                </li>
-              );
-            })}
+                );
+                const body = (
+                  <>
+                    {mark}
+                    <span className="acpmux-session-info-row__name">{title}</span>
+                    {place && <span className="acpmux-session-info-row__detail">{place}</span>}
+                    <span className="acpmux-session-info-row__end acpmux-session-info-usage__value">
+                      {sortValue(stats, sort, locale)}
+                    </span>
+                  </>
+                );
+                const current = entry.sessionId === chatId || undefined;
+                return (
+                  <li key={entry.sessionId} data-current={current}>
+                    {onOpen && !current ? (
+                      <button
+                        type="button"
+                        className="acpmux-session-info-row acpmux-session-info-row--button"
+                        onClick={() => onOpen(entry.sessionId)}
+                      >
+                        {body}
+                      </button>
+                    ) : (
+                      <div className="acpmux-session-info-row">{body}</div>
+                    )}
+                  </li>
+                );
+              }}
+            />
           </ul>
           {folds && (
             <button

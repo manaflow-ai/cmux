@@ -26,8 +26,46 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     /// keeps them equal). The agent pane has its own override (`CMUX_NEXT_AGENT_PANE_DEV_URL`); an
     /// app page is never served from it.
     static let pageIDs: Set<String> = [
-        "cmux.apps", "cmux.artifacts", "cmux.changelog", "cmux.chief-inspector", "cmux.chief-usage", "cmux.chief-views", "cmux.cloud", "cmux.coderouter", "cmux.debug-settings", "cmux.diff", "cmux.editor", "cmux.files", "cmux.github", "cmux.history", "cmux.home-channels",
-        "cmux.icon-picker", "cmux.import-history", "cmux.keybindings", "cmux.markdown", "cmux.mobile-pairing", "cmux.passwords", "cmux.settings", "cmux.stats",
+        "cmux.apps",
+        "cmux.artifacts",
+        "cmux.bookmarks",
+        "cmux.changelog",
+        "cmux.chief-inspector",
+        "cmux.chief-usage",
+        "cmux.chief-views",
+        "cmux.cloud",
+        "cmux.cloud-progress",
+        "cmux.coderouter",
+        "cmux.cookie-import",
+        "cmux.debug-settings",
+        "cmux.diff",
+        "cmux.editor",
+        "cmux.files",
+        "cmux.github",
+        "cmux.group-editor",
+        "cmux.history",
+        "cmux.home-channels",
+        "cmux.home-chat-colors",
+        "cmux.home-messages",
+        "cmux.icon-picker",
+        "cmux.import-history",
+        "cmux.keybindings",
+        "cmux.machines",
+        "cmux.markdown",
+        "cmux.mobile-pairing",
+        "cmux.onboarding",
+        // What shows over a window's content (dialogs).
+        "cmux.overlay",
+        "cmux.page-info",
+        "cmux.passwords",
+        "cmux.server-cards",
+        "cmux.settings",
+        "cmux.stash",
+        "cmux.stats",
+        "cmux.tasks",
+        "cmux.site-settings",
+        "cmux.site-data",
+        "cmux.certificate",
     ]
 
     /// The agent chat's page host (`cmux.agent`), which the server serves at `/agent-pane/` (the
@@ -101,6 +139,20 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         let path = URLComponents(url: request, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? request.path
         let query = URLComponents(url: request, resolvingAgainstBaseURL: false)?.percentEncodedQuery.map { "?" + $0 } ?? ""
         return URL(string: base + path + query)
+    }
+
+    /// Whether `request` is `page`'s document (its root or its entry), the request a dev server
+    /// must answer with HTML.
+    static func isDocument(_ request: URL, page: PageDescriptor) -> Bool {
+        let components = request.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        return components.isEmpty || components == [page.entry]
+    }
+
+    /// Whether `contentType` (a `Content-Type` value) is HTML. A document answer that is not (a
+    /// proxy's text error, a missing type) is not used: drawn as text it showed the page's source.
+    public static func isHTML(_ contentType: String?) -> Bool {
+        guard let essence = contentType?.split(separator: ";", maxSplits: 1).first else { return false }
+        return essence.trimmingCharacters(in: .whitespaces).lowercased() == "text/html"
     }
 
     /// The page's policy plus the server: the Vite client's HMR socket and its reconnect ping.

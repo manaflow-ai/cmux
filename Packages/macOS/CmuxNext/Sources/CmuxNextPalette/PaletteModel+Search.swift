@@ -3,7 +3,8 @@ import CmuxNextActions
 extension PaletteModel {
     /// Asks every provider of a list page for items: immediate items land
     /// now (the first frame is never empty), async ones merge as they arrive.
-    func load(_ state: PageState) {
+    /// The hidden providers in `reading` read now, not after the frame.
+    func load(_ state: PageState, reading: Set<String> = []) {
         state.needsLoad = false
         guard case .list(let page) = state.kind else { return }
         state.cancel()
@@ -15,7 +16,7 @@ extension PaletteModel {
         let defersHidden = page.filtersByQuery && state.query.allSatisfy(\.isWhitespace)
         var deferred: [any PaletteProvider] = []
         for provider in page.providers {
-            if defersHidden, !provider.showsItemsForEmptyQuery {
+            if defersHidden, !provider.showsItemsForEmptyQuery, !reading.contains(provider.id) {
                 state.providerItems[provider.id] = shownDeferredItems[page.id]?[provider.id] ?? []
                 deferred.append(provider)
                 continue

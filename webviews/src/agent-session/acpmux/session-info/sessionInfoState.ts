@@ -3,11 +3,12 @@
 // other side too when you do one... they should all be individual per pane"): a toggle, a drag or a
 // fold in one pane never reaches another. Every chat pane is its own page, so the page's copy is the
 // pane's; it is kept in localStorage under the chat's session (``bindSessionInfoPane``) so the pane
-// shows it again after a relaunch, and no page listens for another's writes. A chat with no state of
-// its own yet (a new chat) opens it, whatever another chat chose (Lucas, 2026-11-06: "If you close it:
-// that choice is remembered per chat. New chats still default to open"); its width and folds are the
-// last ones set in any pane. Where the pane has no room for it, it starts closed (SessionInfo.tsx
-// `sessionInfoFits`). With no storage (a private window, a test) the page's own copy holds them.
+// shows it again after a relaunch, and no page listens for another's writes. A pane with no state of
+// its own yet (a new chat, a new tab on a chat) starts with it closed, whatever another pane chose
+// (Leo, 2026-11-07: "don't have it constantly opened by default ... if you have it on your main agent
+// pane, you don't necessarily want it to auto open on the next one"): opening it is a pane's own
+// choice, kept for that pane and never copied into the next one. Its width and folds are the last ones
+// set in any pane. With no storage (a private window, a test) the page's own copy holds them.
 //
 // A chat opened in a split beside another chat (a subagent's pane, a chat its agent started) starts
 // with Session Info closed: it does not inherit the parent's or the last choice (Leo, 2026-11-03: "i
@@ -23,7 +24,8 @@
 // handshake `tab`, or `acpmux-pane-tab` for a page a tab adopted later: ``setTab``) keeps its state
 // under that tab's key (``tabEntry``): one tab's toggle or reload never takes the other's state. Each
 // save writes the chat's key too, so the chat's key holds its latest state in any tab: what a tab with
-// no state of its own shows (a tab opened on the chat later, a chat saved before keys were per tab).
+// no state of its own takes its width and folds from (a tab opened on the chat later, a chat saved
+// before keys were per tab); never its open, which was another tab's choice.
 import { useSyncExternalStore } from "react";
 
 export type SessionInfoSectionId =
@@ -71,8 +73,7 @@ export const DEFAULT_SECTIONS: SessionInfoSections = {
 
 /// The last width and folds set in any pane: the defaults for a pane with no state of its own. These
 /// were the one shared state before 2026-10-25, so an old install's choice is the default too. The open
-/// choice once was too (OPEN_KEY); since 2026-11-06 a new chat opens whatever it said, and it is only
-/// cleared.
+/// choice once was too (OPEN_KEY); it is no longer read (a new pane starts closed), only cleared.
 const OPEN_KEY = "cmux.agentPane.inspector.open";
 const WIDTH_KEY = "cmux.agentPane.inspector.width";
 const SECTIONS_KEY = "cmux.agentPane.inspector.sections";
@@ -206,9 +207,9 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
       return [];
     }
   };
-  /// Open: a new chat shows it (its closing is the chat's own, never the next chat's).
+  /// Closed: a pane opens it itself, and that opening is the pane's own, never the next pane's.
   const defaults = (): State => ({
-    open: true,
+    open: false,
     width: widthOf(Number(read(WIDTH_KEY))),
     sections: sectionsOf(parse(read(SECTIONS_KEY))),
     sourcesAll: false,
@@ -285,7 +286,8 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
   const listeners = new Set<() => void>();
   const current = (): State => (state ??= defaults());
   /// Chat key `key`'s saved state for this pane: its tab's own, else the chat's (``tabEntry``), with
-  /// the raw value it was read from (``shownFor``'s cache).
+  /// the raw value it was read from (``shownFor``'s cache). A tab with no entry of its own takes the
+  /// chat's width and folds but starts closed: the chat's open was another tab's choice.
   const savedFor = (key: string): { raw: string | null; state: State | undefined } => {
     if (tab) {
       const raw = read(SESSION_INFO_PANE_PREFIX + tabEntry(key, tab));
@@ -293,16 +295,18 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
       if (own) return { raw, state: own };
     }
     const raw = read(SESSION_INFO_PANE_PREFIX + key);
-    return { raw, state: storedState(raw) };
+    const chat = storedState(raw);
+    return { raw, state: tab && chat?.open ? { ...chat, open: false } : chat };
   };
-  /// What a pane with no saved state of its own starts with: what it shows now, open (a new chat),
-  /// closed for a split pane. The same object while `current()` is, so a snapshot read stays stable.
-  /// A choice made before the chat had a session (``setOpen`` with no pane bound) is that chat's.
+  /// What a pane with no saved state of its own starts with: what it shows now, closed (a new chat, a
+  /// split pane), so an open in the chat it showed before never carries over. The same object while
+  /// `current()` is, so a snapshot read stays stable. A choice made before the chat had a session
+  /// (``setOpen`` with no pane bound) is that chat's.
   let freshOf: { from: State; open: boolean; state: State } | undefined;
   let unboundChoice = false;
-  const fresh = (key: string): State => {
+  const fresh = (): State => {
     const now = current();
-    const open = unboundChoice ? now.open : !key.startsWith(SPLIT_PREFIX);
+    const open = unboundChoice ? now.open : false;
     if (now.open === open) return now;
     if (freshOf?.from !== now || freshOf.open !== open) freshOf = { from: now, open, state: { ...now, open } };
     return freshOf.state;
@@ -324,29 +328,34 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
     },
     /// What the pane shows for chat `sessionId`, read before the pane is bound to it, so a pane
     /// switched to another chat draws that chat's state from its first frame: the chat's saved
-    /// state, else what the pane shows now (a new chat inherits it).
+    /// state, else closed (a new chat, with or without its session yet, inherits only width and folds).
     shownFor(sessionId: string | undefined): State {
-      if (!sessionId || sessionId === pane) return current();
+      if (sessionId === pane) return current();
+      if (!sessionId) return fresh();
       const key = tabEntry(sessionId, tab);
       const saved = savedFor(sessionId);
       if (peeked?.key !== key || peeked.raw !== saved.raw) peeked = { key, raw: saved.raw, state: saved.state };
-      return peeked.state ?? fresh(sessionId);
+      return peeked.state ?? fresh();
     },
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => void listeners.delete(listener);
     },
     /// The pane shows chat `sessionId` (a relaunch, a new chat's first session, another chat in the
-    /// pane): it shows that chat's saved state, or keeps what it shows (closed under a split pane's
-    /// key, ``sessionInfoPaneKey``) and saves it as the chat's.
-    /// No session (a new chat not started yet, a harness switch): nothing is saved until one comes,
-    /// and the pane keeps what it shows.
+    /// pane): it shows that chat's saved state, or starts closed and saves that as the chat's.
+    /// No session (a new chat not started yet, a harness switch): nothing is saved until one comes;
+    /// a pane leaving a chat for a new one starts closed, and an open made before the session comes
+    /// is the new chat's.
     bind(sessionId: string | undefined) {
       if (sessionId === pane) return;
-      pane = sessionId || undefined;
-      if (!pane) return;
+      if (!sessionId) {
+        const start = fresh();
+        pane = undefined;
+        return update(start, false);
+      }
+      pane = sessionId;
       const saved = savedFor(pane).state;
-      const start = saved ?? fresh(pane);
+      const start = saved ?? fresh();
       unboundChoice = false;
       if (saved) return update(saved, false);
       save(pane, start);

@@ -138,8 +138,13 @@ impl Watches {
         let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.saved.watches.is_empty() && inner.saved.pending.is_empty()
     }
-    pub fn remove(&self, id: &str) -> Result<bool, RpcError> {
-        self.change(|s| s.watches.remove(id).is_some())
+    /// Remove a watch: it makes no new wake. Wakes it already owes stay pending and are still
+    /// delivered (`drain`), since their events happened before the removal; returns how many.
+    pub fn remove(&self, id: &str) -> Result<Option<usize>, RpcError> {
+        self.change(|s| {
+            s.watches.remove(id)?;
+            Some(s.pending.values().filter(|d| watch_of(d) == Some(id)).count())
+        })
     }
     pub fn start(hub: &Arc<Hub>) {
         for _ in 0..REMOTE_WORKERS {
@@ -250,7 +255,7 @@ fn commit(
                 "_meta": {"acpmux": {"promptId": id, "resend": true, "steer": true,
                     "watchId": w.id, "watchDone": resolved}}});
             saved.pending.insert(id.clone(), Delivery { id, target: w.to.clone(), request,
-                caller: w.caller.clone(), state: State::Queued, attempts: 0, never_sent: false, relay_post: None, error: None,
+                caller: w.caller.clone(), unproven_caller: None, state: State::Queued, attempts: 0, never_sent: false, relay_post: None, error: None,
                 accepted: None, created_at: now, updated_at: now });
         }
     })
@@ -364,6 +369,12 @@ async fn remote_worker(hub: Arc<Hub>) {
         }
     }
 }
+fn watch_of(d: &Delivery) -> Option<&str> {
+    d.request.pointer("/_meta/acpmux/watchId").and_then(Value::as_str)
+}
+// Delivered is the recipient's acceptance (queued or steered into its turn), not that its agent
+// read the wake; Held hands the wake to the outbox, which runs it when the person resumes the
+// pair. Either way the outbox owns it from here, so the watch stops owing it.
 fn drain(hub: &Arc<Hub>, retry: bool) {
     let pending = hub.watches.inner.lock().unwrap_or_else(|e| e.into_inner()).saved.pending.clone();
     for d in pending.into_values() {
@@ -372,8 +383,7 @@ fn drain(hub: &Arc<Hub>, retry: bool) {
                 if let Err(e) = hub.watches.change(|s| {
                     s.pending.remove(&d.id);
                     if d.request.pointer("/_meta/acpmux/watchDone") == Some(&json!(true))
-                        && let Some(id) =
-                            d.request.pointer("/_meta/acpmux/watchId").and_then(Value::as_str)
+                        && let Some(id) = watch_of(&d)
                     {
                         s.watches.remove(id);
                     }

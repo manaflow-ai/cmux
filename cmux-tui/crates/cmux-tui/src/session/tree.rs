@@ -16,9 +16,9 @@ use cmux_tui_core::{
 use serde_json::Value;
 
 mod tab_view;
-use tab_view::parse_notification;
 pub(crate) use tab_view::parse_program_status;
-pub use tab_view::{TabNotificationView, TabView};
+pub use tab_view::{TabAttentionView, TabNotificationView, TabView};
+use tab_view::{parse_attention, parse_notification};
 
 #[derive(Clone, Default)]
 pub struct TreeView {
@@ -605,9 +605,13 @@ impl PaneView {
     }
 }
 
+/// `attention`: the attention marks of live tabs by public tab id, as the
+/// mux's presentation snapshot holds them (`tab-attention-v1`).
 pub fn tree_from_state_with_notifications(
     state: &State,
     notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    attention: &HashMap<String, cmux_tui_core::TabAttentionRecord>,
+    git_branches: &HashMap<SurfaceId, String>,
 ) -> TreeView {
     let ids = state
         .workspaces
@@ -670,11 +674,22 @@ pub fn tree_from_state_with_notifications(
                     notification: notifications.get(sid).map(|notification| TabNotificationView {
                         unread: notification.unread,
                         level: notification.level.as_str(),
+                        sequence: notification.notification,
                     }),
                     program_status: state
                         .surfaces
                         .get(sid)
                         .and_then(|surface| surface.shown_program_status()),
+                    attention: state
+                        .surfaces
+                        .get(sid)
+                        .and_then(|surface| surface.resource_identity())
+                        .and_then(|identity| attention.get(identity.tab_id.as_str()))
+                        .map(|mark| TabAttentionView {
+                            reason: std::sync::Arc::from(mark.reason.as_str()),
+                            at_ms: mark.at_ms,
+                        }),
+                    git_branch: git_branches.get(sid).cloned(),
                 })
                 .collect(),
         })
@@ -827,6 +842,12 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .unwrap_or(false),
                             notification: tab.get("notification").and_then(parse_notification),
                             program_status: parse_program_status(tab),
+                            attention: parse_attention(tab),
+                            git_branch: tab
+                                .get("git_branch")
+                                .and_then(Value::as_str)
+                                .filter(|branch| !branch.is_empty())
+                                .map(str::to_string),
                         })?;
                         if raw_active_tab == Some(raw_index) {
                             active_tab = Some(compact_index);

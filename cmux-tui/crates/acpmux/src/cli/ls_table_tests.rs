@@ -75,6 +75,7 @@ fn stuck_says_why_in_a_few_words() {
         (json!({"state": "stuck", "stuckReason": "capacity"}), "stuck", "capacity"),
         (json!({"state": "stuck", "stuckReason": "harness_unavailable"}), "stuck", "harness down"),
         (json!({"state": "idle", "lane": {"state": "failed"}}), "idle", "failed turn"),
+        (json!({"harnessSandboxFailed": NOW - 60_000}), "running", "harness sandbox"),
         (
             json!({"lane": {"state": "working", "stalledSince": NOW - 12 * 60_000}}),
             "running",
@@ -154,20 +155,20 @@ fn warn_is_one_word_and_shows_only_while_a_row_has_one() {
     );
 }
 
-/// A live agent host on an older build than the daemon's (`hostOutdated`) shows in WARN: `old
+/// A live agent host on another build than the daemon's (`hostBuildDiffers`) shows in WARN: `other
 /// build` in the compact view, with the host's build in wide; a host on the daemon's build or no
 /// host shows nothing.
 #[test]
-fn warn_names_a_live_host_on_an_older_build() {
-    let current = with(lane("new"), json!({"hostBuild": "def", "hostOutdated": false}));
+fn warn_names_a_live_host_on_another_build() {
+    let current = with(lane("new"), json!({"hostBuild": "def", "hostBuildDiffers": false}));
     assert!(!compact(&[lane("a"), current.clone()]).contains("WARN"));
-    let old = with(lane("old"), json!({"hostBuild": "abc", "hostOutdated": true}));
+    let old = with(lane("old"), json!({"hostBuild": "abc", "hostBuildDiffers": true}));
     let out = compact(&[current, old.clone()]);
     assert!(out.lines().next().unwrap().ends_with("WARN"), "{out}");
-    assert!(out.lines().any(|l| l.starts_with("old") && l.ends_with("old build")), "{out}");
-    assert!(out.lines().any(|l| l.starts_with("new") && !l.contains("old build")), "{out}");
+    assert!(out.lines().any(|l| l.starts_with("old") && l.ends_with("other build")), "{out}");
+    assert!(out.lines().any(|l| l.starts_with("new") && !l.contains("other build")), "{out}");
     let wide = render(&[old], Some(&[]), View { all: false, wide: true }, false, NOW);
-    assert!(wide.contains("old build: abc"), "{wide}");
+    assert!(wide.contains("other build: abc"), "{wide}");
 }
 
 #[test]

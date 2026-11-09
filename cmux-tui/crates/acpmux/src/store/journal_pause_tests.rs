@@ -14,7 +14,7 @@ use std::time::Duration;
 const WAIT: Duration = Duration::from_secs(10);
 
 fn open(home: &Path, seed: u64) -> Arc<dyn Store> {
-    let config = StoreConfig { journal: true, ..StoreConfig::default() };
+    let config = StoreConfig::default();
     let journal_config = cmux_journal::Config {
         retry_min: Duration::from_millis(1),
         retry_max: Duration::from_millis(5),

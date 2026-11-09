@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b.
+// cmux-tui mux protocol 12, IR 2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2798,6 +2798,8 @@ pub type ParkTabsResult = T::JsonValue;
 pub struct PasteImageRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub data: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub filename: Optional<String>,
     pub lease: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mime: Optional<String>,
@@ -3723,6 +3725,8 @@ pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep_layout: Option<bool>,
     pub pid: u32,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub restart: Optional<bool>,
 }
 
 #[rustfmt::skip]
@@ -3749,6 +3753,8 @@ pub struct SnapshotRequestRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SplitRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub before: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3856,6 +3862,15 @@ pub struct TerminalHistoryRequest {
 
 #[rustfmt::skip]
 pub type TerminalHistoryResult = T::TerminalHistoryPagesResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TerminalLastCommandRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5259,6 +5274,9 @@ impl CmuxClient {
     }
 
     pub fn paste_image(&mut self, request: PasteImageRequest) -> Result<PasteImageResult> {
+        if !request.filename.is_missing() {
+            self.require_capability_field("paste-image", "terminal-file-paste-v1")?;
+        }
         self.execute(&PASTE_IMAGE_METADATA, &request)
     }
 
@@ -5698,6 +5716,9 @@ impl CmuxClient {
             self.require_protocol_field("shutdown-daemon", 12)?;
             self.require_capability_field("shutdown-daemon", "end-terminals-keep-layout-v1")?;
         }
+        if !request.restart.is_missing() {
+            self.require_protocol_field("shutdown-daemon", 12)?;
+        }
         self.execute(&SHUTDOWN_DAEMON_METADATA, &request)
     }
 
@@ -5710,6 +5731,10 @@ impl CmuxClient {
     }
 
     pub fn split(&mut self, request: SplitRequest) -> Result<SplitResult> {
+        if request.before.is_some() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "split-before-v1")?;
+        }
         if !request.cwd.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-env-v1")?;
@@ -5786,6 +5811,10 @@ impl CmuxClient {
 
     pub fn terminal_history(&mut self, request: TerminalHistoryRequest) -> Result<TerminalHistoryResult> {
         self.execute(&TERMINAL_HISTORY_METADATA, &request)
+    }
+
+    pub fn terminal_last_command(&mut self, request: TerminalLastCommandRequest) -> Result<T::TerminalLastCommandResult> {
+        self.execute(&TERMINAL_LAST_COMMAND_METADATA, &request)
     }
 
     pub fn terminal_ports(&mut self, request: TerminalPortsRequest) -> Result<T::TerminalPortsResult> {

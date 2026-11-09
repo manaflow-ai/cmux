@@ -194,6 +194,10 @@ impl Refusal {
 /// hostd refuses this service with `unknown_service`) and say so.
 pub const LINK_PROTOCOL: u32 = 2;
 
+/// The largest message the daemon's acpmux WebSocket sends or takes (acpmux `server/mod.rs`
+/// `WS_MAX_MESSAGE_BYTES`).
+const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
+
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
 /// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
 /// reaches a port on this Mac's loopback).
@@ -372,32 +376,39 @@ async fn cloud_acpmux(
     let mut phone_message = MessageAssembler::default();
     let mut adapter = CloudAcpAdapter::new(machine_id.clone(), team_id.clone());
     let mut tick = tokio::time::interval(Duration::from_secs(1));
-    loop {
-        tokio::select! {
-            event = receiver.recv() => match event {
-                Some(ChannelEvent::Data(bytes)) => {
-                    let Some(message) = phone_message.push(&bytes)? else { continue; };
-                    let request: Value = serde_json::from_str(message.as_str())
-                        .map_err(|_| Refusal::new("bad_request", "Cloud ACP frame is not JSON"))?;
-                    let effects = adapter.phone(request).map_err(|_| Refusal::new("bad_request", "Cloud ACP request refused"))?;
+    let served = async {
+        loop {
+            tokio::select! {
+                event = receiver.recv() => match event {
+                    Some(ChannelEvent::Data(bytes)) => {
+                        let Some(message) = phone_message.push(&bytes)? else { continue; };
+                        let request: Value = serde_json::from_str(message.as_str())
+                            .map_err(|_| Refusal::new("bad_request", "Cloud ACP frame is not JSON"))?;
+                        let effects = adapter.phone(request).map_err(|_| Refusal::new("bad_request", "Cloud ACP request refused"))?;
+                        if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+                    }
+                    Some(ChannelEvent::Closed(_)) | None => break,
+                },
+                native = read_cloud_line(&mut read, &mut native_line) => {
+                    let line = native?;
+                    let response: Value = serde_json::from_slice(&line)
+                        .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned invalid JSON"))?;
+                    let effects = adapter.native(response).map_err(|_| Refusal::new("unavailable", "Cloud native reply refused"))?;
                     if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
                 }
-                Some(ChannelEvent::Closed(_)) | None => break,
-            },
-            native = read_cloud_line(&mut read, &mut native_line) => {
-                let line = native?;
-                let response: Value = serde_json::from_slice(&line)
-                    .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned invalid JSON"))?;
-                let effects = adapter.native(response).map_err(|_| Refusal::new("unavailable", "Cloud native reply refused"))?;
-                if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
-            }
-            _ = tick.tick() => {
-                let effects = adapter.expire();
-                if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+                _ = tick.tick() => {
+                    let effects = adapter.expire();
+                    if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+                }
             }
         }
+        Ok::<(), Refusal>(())
     }
-    Ok(())
+    .await;
+    // However the channel ended, a start still in flight closes its empty tab on the machine
+    // (best effort: the carrier may be gone too).
+    let _ = apply_cloud_effects(&mut write, sender, adapter.abandon()).await;
+    served
 }
 
 const MAX_CLOUD_NATIVE_LINE: usize = 8 * 1024 * 1024;
@@ -1096,7 +1107,13 @@ async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> R
             format!("Bearer {token}").parse().map_err(|_| Refusal::new("unavailable", "bad acpmux token"))?,
         );
     }
-    let (socket, _) = tokio_tungstenite::connect_async(request)
+    // acpmux's own limits (its `WS_MAX_MESSAGE_BYTES`): tungstenite's default 16 MiB frame made
+    // the push watcher drop an older acpmux's 24.8 MB watch list and ask again, about once a
+    // minute for hours (2026-11-06).
+    let limits = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+        .max_message_size(Some(ACPMUX_MAX_MESSAGE_BYTES))
+        .max_frame_size(Some(ACPMUX_MAX_MESSAGE_BYTES));
+    let (socket, _) = tokio_tungstenite::connect_async_with_config(request, Some(limits), false)
         .await
         .map_err(|e| Refusal::new("unavailable", format!("acpmux: {e}")))?;
     Ok(socket)
@@ -2024,6 +2041,35 @@ async fn receive_upload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A reply in one frame past tungstenite's default 16 MiB frame limit reads whole: an older
+    /// acpmux sends its whole watch list so (24.8 MB on one Mac, 2026-11-06), and the push
+    /// watcher dropped it and asked again about every minute.
+    #[tokio::test]
+    async fn the_acpmux_socket_takes_a_frame_past_16_mib() {
+        use futures_util::{SinkExt as _, StreamExt as _};
+        use tokio_tungstenite::tungstenite::Message as WsMessage;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/", listener.local_addr().unwrap());
+        let reply = "x".repeat(20 << 20);
+        let sent = reply.clone();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let limits = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+                .max_message_size(Some(ACPMUX_MAX_MESSAGE_BYTES))
+                .max_frame_size(Some(ACPMUX_MAX_MESSAGE_BYTES));
+            let mut socket = tokio_tungstenite::accept_async_with_config(stream, Some(limits)).await.unwrap();
+            socket.send(WsMessage::Text(sent.into())).await.unwrap();
+            // Held open until the client has read the frame.
+            let _ = socket.next().await;
+        });
+        let target = AcpmuxTarget::Fixed { url, token: None };
+        let mut socket = connect_acpmux_as(&target, None).await.unwrap();
+        let read = socket.next().await.expect("a frame").expect("read whole, not refused for its size");
+        assert_eq!(read.into_text().unwrap().len(), reply.len());
+        drop(socket);
+        server.await.unwrap();
+    }
 
     /// The daemon down: only the Chat Folders are shared and no Mac page loads.
     #[tokio::test]

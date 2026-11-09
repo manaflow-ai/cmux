@@ -198,7 +198,7 @@ pub enum Input {
         ws: Option<String>,
     },
     /// Where a subagent's workspace opens (`control show`), sent at its
-    /// start whether or not it opens then (`subagents.showWorkspaces`).
+    /// start whether or not it opens then (sidebar_choice.rs).
     SubagentWorkspaceSlot {
         id: String,
         name: String,
@@ -488,6 +488,13 @@ pub enum Input {
         name: String,
         reply: Sender<serde_json::Value>,
     },
+    /// chief.stop {start: name} (Start now on a queued agent in Home):
+    /// that queued subagent starts at once, past the live cap; answers
+    /// `{"started": bool, ...}`.
+    StartSubagent {
+        name: String,
+        reply: Sender<serde_json::Value>,
+    },
     /// chief.stop {all: true} ("Stop all agents"): the running turn and
     /// every subagent at work or queued; answers `{"stopped": bool,
     /// "subagents": [ids]}`.
@@ -538,6 +545,10 @@ pub struct ReactionFields {
     pub classifier_prompt: Option<String>,
     /// `true`, `false` or `default`.
     pub reactions_can_wake: Option<String>,
+    /// The Chief turns' permission mode (`engine::parse_mode_flag`: a mode,
+    /// or `unset` to clear), cmux#37392. Not a reaction field: it rides in
+    /// this box so `EngineRequest` stays small (clippy large_enum_variant).
+    pub permission_mode: Option<String>,
 }
 
 impl From<DaemonEvent> for Input {
@@ -1828,6 +1839,9 @@ impl Brain {
             }
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
+            }
+            Input::StartSubagent { name, reply } => {
+                let _ = reply.send(self.start_subagent_now(&name));
             }
             Input::StopAll { reply } => {
                 let _ = reply.send(self.stop_all());

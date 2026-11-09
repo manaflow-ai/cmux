@@ -35,9 +35,11 @@ const COMMANDS: &[&str] = &[
     "agent-session-permission",
     "agent-session-detach",
     "agent-session-children",
+    "agent-session-fork",
     "agent-session-media",
     "agent-session-typing",
     "agent-session-view",
+    "agent-session-context",
     "agent-transfer-receive",
     "agent-transfer-write",
     "agent-transfer-finish",
@@ -95,8 +97,14 @@ const CAPABILITIES: &[&str] = &[
     terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
     terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
     terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
-    terminal_snapshot::TERMINAL_SNAPSHOT_IMAGES_CAPABILITY,
     WORKSPACE_REGISTRY_CAPABILITY,
+    // The rest of what the app requires (`DaemonCapability.required`): the commands behind them
+    // (`split`, `set-viewport-pane-width`, `undo-layout`) are in COMMANDS. A link that left them out
+    // read as a refused daemon, and the app updated the machine on every reconnect, also one already
+    // on its own build (2026-11-07: "started but its agent didn't (cmux-tui connection closed: EOF)").
+    VIEWPORT_SPLITS_CAPABILITY,
+    VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+    LAYOUT_UNDO_CAPABILITY,
     LAYOUT_DELTA_CAPABILITY,
     SESSION_IDENTITY_CAPABILITY,
     TERMINAL_ENV_CAPABILITY,
@@ -117,7 +125,9 @@ const CAPABILITIES: &[&str] = &[
     AGENT_SESSION_START_VM_KIND_CAPABILITY,
     AGENT_SESSION_START_MODEL_CAPABILITY,
     agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
     agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY,
+    AGENT_SESSION_FORK_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY,
     agent_inventory::CAPABILITY,
@@ -299,5 +309,16 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::TerminalClipboardSubscribe { .. } => true,
         Command::NewConversationTab(params) => params.native_agent_tab(mux),
         _ => terminal::allows(mux, client, command),
+    }
+}
+
+#[cfg(test)]
+mod fork_admission_tests {
+    use super::*;
+
+    #[test]
+    fn a_native_owner_may_fork_its_attached_chat() {
+        assert!(admits(r#"{"cmd":"agent-session-fork","surface":1,"through_seq":3}"#));
+        assert!(CAPABILITIES.contains(&AGENT_SESSION_FORK_CAPABILITY));
     }
 }

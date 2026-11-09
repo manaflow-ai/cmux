@@ -170,9 +170,11 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
       }
     });
 
-    // Leo, 2026-11-03: "the grabber is too close to the thumb scroll thing in fact why dont we have the
-    // drag grabber to the left of the title in that session info?" (it was on the right since 2026-10-31).
-    test("hovering a section shows its handle left of its title, inside the panel, and nothing moves", async () => {
+    // Leo, 2026-11-06: "if you look at the spacing of claude code, they have theirs at the right". The grip
+    // went left on 2026-11-03 only because it sat by the scrollbar's thumb; the body draws none since.
+    // Leo, 2026-11-07: "the grip and the lef tside aren't flush". The grip shows at its head's right end in
+    // the count's place, its dots on the rows' right text edge, and the count fades out under it.
+    test("hovering a section shows its faint handle at its head's right end, in the count's place, and nothing moves", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         // The handle's width and the body's insets are grid tokens since #27570.
@@ -187,7 +189,15 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
           );
         expect(await opacity()).toBe("0");
         await page.hover('section[data-section="outputs"] .ui-disclosure-trigger');
-        expect(await opacity()).toBe("1");
+        // Faint on its head's hover, as the reference's; full only on the grip itself. It fades in over the
+        // quick step.
+        await page.waitForFunction(
+          () =>
+            getComputedStyle(
+              document.querySelector('section[data-section="outputs"] > .acpmux-session-info-section__handle')!,
+            ).opacity === "0.7",
+        );
+        expect(await opacity()).toBe("0.7");
         expect(await boxes(page)).toEqual(before);
         const inside = await page.evaluate(() => {
           const handle = document
@@ -203,19 +213,22 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             .getBoundingClientRect();
           return {
             inBody: handle.left >= body.left - 0.5 && handle.right <= body.right + 0.5,
-            // Leo, 2026-11-01: "the dragger is a bit too close to the thumb".
-            clearOfScrollbar: scrollport - handle.right >= 3.5,
-            // Before the head's icon column: one grid gap (the head's padding) into the section.
-            beforeIconColumn: handle.right <= section.left + 8.5,
-            leftOfTitle: handle.right <= title.left,
+            // Clear of the panel's edge.
+            clearOfEdge: scrollport - handle.right >= 3.5,
+            // Its dots end on the rows' right text edge: the head's trailing padding, one grid gap, in.
+            dotsOnTextEdge: Math.round(
+              section.right -
+                document
+                  .querySelector('section[data-section="outputs"] > .acpmux-session-info-section__handle svg')!
+                  .getBoundingClientRect().right,
+            ),
             titleAtIconColumn: Math.round(title.left - section.left),
           };
         });
         expect(inside).toEqual({
           inBody: true,
-          clearOfScrollbar: true,
-          beforeIconColumn: true,
-          leftOfTitle: true,
+          clearOfEdge: true,
+          dotsOnTextEdge: 8,
           // The heads have no icon, and the title starts on the rows' icon column: the head's leading
           // padding, one grid gap (Lucas, 2026-11-05, Session Info lab).
           titleAtIconColumn: 8,
@@ -225,17 +238,23 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
       }
     });
 
-    // Leo, 2026-11-04, of the grip centred on the Subagents head's left edge, half on its pill and half
-    // off: "this is off". Lucas, 2026-11-05, Session Info lab: the grip "looks strange and poorly
-    // positioned" inside the pill. On every head the dots, two columns of three, sit wholly in the body's
-    // left gutter left of the pill, on its middle line, clear of the title.
-    test("a head's grip sits in the gutter left of its pill, on its middle line", async () => {
+    // Leo, 2026-11-06: "I do not like the layout and proportion of the dragger." On every head the dots,
+    // two columns of three at the reference's size, end on the rows' right text edge in the count's place
+    // (the count fades out under them; 2026-11-07: "the grip and the lef tside aren't flush"), on the
+    // head's middle line, and the head draws no fill.
+    test("a head's grip takes its count's place on the rows' right text edge, on its middle line", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         await show(page, { grid: true });
         for (const id of ["subagents", "context", "outputs"]) {
           const head = `section[data-section="${id}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`;
           await page.hover(head);
+          await page.waitForFunction((head) => {
+            const section = document.querySelector(head)!.closest("section")!;
+            const meta = section.querySelector(".acpmux-session-info-section__meta");
+            const handle = section.querySelector(":scope > .acpmux-session-info-section__handle")!;
+            return getComputedStyle(handle).opacity === "0.7" && (!meta || getComputedStyle(meta).opacity === "0");
+          }, head);
           const fit = await page.evaluate((head) => {
             const trigger = document.querySelector(head)!;
             const pill = trigger.getBoundingClientRect();
@@ -243,23 +262,26 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
               .closest("section")!
               .querySelector(":scope > .acpmux-session-info-section__handle svg")!
               .getBoundingClientRect();
-            // The icon's ink (its shapes, not its 16px box), else the title.
-            const icon = trigger.querySelector(".acpmux-session-info-section__icon");
-            const nextLeft = icon
-              ? Math.min(
-                  ...[...icon.querySelectorAll("path, circle, rect, line, polyline, polygon, ellipse")].map(
-                    (shape) => shape.getBoundingClientRect().left,
-                  ),
-                )
-              : trigger.querySelector(".acpmux-session-info-section__title")!.getBoundingClientRect().left;
+            const meta = trigger.querySelector(".acpmux-session-info-section__meta");
+            const gap = Number.parseFloat(getComputedStyle(trigger).paddingRight);
             return {
-              inGutter: dots.right <= pill.left + 0.5,
-              beforeNext: nextLeft - dots.right >= 0.5,
+              onTextEdge: Math.abs(dots.right - (pill.right - gap)) <= 1,
+              countGivesWay: !meta || getComputedStyle(meta).opacity === "0",
+              noFill: getComputedStyle(trigger).backgroundColor === "rgba(0, 0, 0, 0)",
               onMiddleLine: Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) <= 0.5,
               tall: dots.height > dots.width,
+              small: dots.width <= 6 && dots.height <= 10,
             };
           }, head);
-          expect({ id, ...fit }).toEqual({ id, inGutter: true, beforeNext: true, onMiddleLine: true, tall: true });
+          expect({ id, ...fit }).toEqual({
+            id,
+            onTextEdge: true,
+            countGivesWay: true,
+            noFill: true,
+            onMiddleLine: true,
+            tall: true,
+            small: true,
+          });
         }
       } finally {
         await page.close();

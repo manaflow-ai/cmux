@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { previewDocument } from "./HtmlPreview";
+import { previewDocument } from "./htmlPreviewModel";
 import type { AgentQuestion } from "./model";
 import { QuestionCard } from "./QuestionCard";
 

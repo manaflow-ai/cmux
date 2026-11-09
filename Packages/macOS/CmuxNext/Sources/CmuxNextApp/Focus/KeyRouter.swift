@@ -229,7 +229,7 @@ final class KeyRouter: BrowserKeyRouting {
         let (controller, kind) = focus(for: window)
         guard let controller, let window, kind == .content else {
             cancelChord()
-            return false
+            return routesToolWindowKey(event, in: window)
         }
         return dispatch(event, in: window, controller: controller, facts: facts(in: window, controller: controller))
     }

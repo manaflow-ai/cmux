@@ -322,9 +322,614 @@ fn a_file_hash_covers_every_byte_past_one_read_buffer() {
     assert_eq!(store::sha256_file(&path).unwrap(), sha(&bytes));
 }
 
+/// A claimed spare resumed at 21:28:35 and its updater restarted the services
+/// at 21:28:41, killing the Mac's first dial (nightly 8d8fc7a, 2026-11-06): no
+/// flip within the connect hold of a start, a bind or a resume.
+#[cfg(target_os = "linux")]
 #[test]
-fn a_running_relay_chat_holds_the_update() {
-    assert_eq!(relay_chats_busy(0), None);
-    assert_eq!(relay_chats_busy(1).as_deref(), Some("1 relay chat"));
-    assert_eq!(relay_chats_busy(3).as_deref(), Some("3 relay chats"));
+fn a_resume_holds_the_restart_while_the_first_link_comes_up() {
+    use std::time::Duration;
+
+    let gate_dir = tempfile::tempdir().unwrap();
+    let held = gate::Gate::new(&Paths::new(gate_dir.path()));
+    held.hold(T0_MS, role::CONNECT_HOLD);
+    assert_eq!(held.held_left(T0_MS), Some(role::CONNECT_HOLD));
+    assert_eq!(held.held_left(T0_MS + 60_000), Some(role::CONNECT_HOLD - Duration::from_secs(60)));
+    let end = T0_MS + role::CONNECT_HOLD.as_millis() as u64;
+    assert_eq!(held.held_left(end), None);
+    // A later resume extends the hold; an earlier one never shortens it.
+    held.hold(T0_MS + 120_000, role::CONNECT_HOLD);
+    assert_eq!(held.held_left(end), Some(Duration::from_secs(120)));
+    held.hold(T0_MS, role::CONNECT_HOLD);
+    assert_eq!(held.held_left(end), Some(Duration::from_secs(120)));
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let mut updater = role::UpdaterRole::new(paths.clone());
+    cmux_server_core::role::Role::on_event(
+        &mut updater,
+        &cmux_server_core::role::HostEvent::Resumed,
+    )
+    .unwrap();
+    let left = role::held_for(&paths).expect("a resume holds the next flip");
+    assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
+}
+
+/// Review F1 of #37256: a resume while an update downloads or stages still
+/// holds that update's flip, which looks at the hold right before it.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_hold_that_starts_during_staging_holds_the_flip() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let mut updater = role::UpdaterRole::new(paths.clone());
+    cmux_server_core::role::Role::on_event(
+        &mut updater,
+        &cmux_server_core::role::HostEvent::Resumed,
+    )
+    .unwrap();
+    match role::held_outcome(&paths) {
+        Some(role::Outcome::Busy(why)) => assert!(why[0].contains("connect hold"), "{why:?}"),
+        other => panic!("the flip is not held: {other:?}"),
+    }
+}
+
+/// A new machine is a restore of the bake's snapshot: `realtime - boottime`
+/// jumps by the stopped time, which starts the connect hold before the
+/// supervisor's `Resumed` arrives; a clock sync's drift does not.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_snapshot_restore_counts_from_the_clock_offset_not_a_sync() {
+    let second = 1_000_000_000_i128;
+    assert!(!role::restored_between(None, 50 * second));
+    assert!(!role::restored_between(Some(50 * second), 50 * second + second / 2));
+    assert!(role::restored_between(Some(50 * second), 50 * second + 3 * 24 * 3600 * second));
+}
+
+/// Attached carrier sessions hold an update, an unreadable list too, and only
+/// for [`carrier::CARRIER_MAX_HOLD`]: then the update goes at the next idle
+/// gap of the agent turns, and the bound is reported once. No sessions ends
+/// the hold, so the next attach gets a whole one.
+#[test]
+fn carrier_sessions_hold_the_flip_up_to_the_bound() {
+    use std::time::{Duration, Instant};
+
+    use carrier::{CARRIER_MAX_HOLD, CarrierHold};
+
+    let t0 = Instant::now();
+    let mut hold = CarrierHold::default();
+    let idle = hold.look(t0, Ok(Vec::new()));
+    assert_eq!(idle.busy, None);
+    assert!(!idle.new_session);
+
+    let mac = vec!["device-a/s1".to_owned()];
+    let attached = hold.look(t0 + Duration::from_secs(60), Ok(mac.clone()));
+    assert!(attached.busy.as_deref().is_some_and(|why| why.contains("1 carrier session")));
+    assert!(attached.new_session, "a session the last look did not see is a new connect");
+
+    let later = hold.look(t0 + Duration::from_secs(60) + CARRIER_MAX_HOLD / 2, Ok(mac.clone()));
+    assert!(later.busy.is_some(), "still inside the bound");
+    assert!(!later.new_session);
+
+    let unknown = hold.look(
+        t0 + Duration::from_secs(60) + CARRIER_MAX_HOLD / 2,
+        Err("its admin channel answered exit status: 1".to_owned()),
+    );
+    assert!(unknown.busy.as_deref().is_some_and(|why| why.contains("unknown")), "{unknown:?}");
+
+    let passed = hold.look(t0 + Duration::from_secs(60) + CARRIER_MAX_HOLD, Ok(mac.clone()));
+    assert_eq!(passed.busy, None, "a stuck session holds no update past the bound");
+    assert!(passed.bound_passed);
+    let again = hold.look(t0 + Duration::from_secs(120) + CARRIER_MAX_HOLD, Ok(mac));
+    assert_eq!(again.busy, None);
+    assert!(!again.bound_passed, "the bound is reported once");
+
+    // The Mac leaves; its next attach is held from that look on.
+    let t1 = t0 + 2 * CARRIER_MAX_HOLD;
+    assert_eq!(hold.look(t1, Ok(Vec::new())).busy, None);
+    let back = hold.look(t1 + Duration::from_secs(5), Ok(vec!["device-a/s2".to_owned()]));
+    assert!(back.busy.is_some());
+    assert!(back.new_session);
+}
+
+/// The admin channel's list: connected and reconnecting (inside the resume
+/// lease) sessions are attached, a restart would end both; closed ones are not.
+#[test]
+fn attached_carrier_sessions_are_connected_or_reconnecting() {
+    let list = json!([
+        {"device_id": "d1", "session_id": "a", "generation": 1, "state": "connected",
+         "resume_lease_remaining_ms": null, "lane_bindings": [], "physical_link_count": 1},
+        {"device_id": "d1", "session_id": "b", "generation": 2, "state": "reconnecting",
+         "resume_lease_remaining_ms": 9000, "lane_bindings": [], "physical_link_count": 0},
+        {"device_id": "d2", "session_id": "c", "generation": 1, "state": "closed",
+         "resume_lease_remaining_ms": null, "lane_bindings": [], "physical_link_count": 0},
+        {"device_id": "d2", "session_id": "d", "generation": 1, "state": "disconnected",
+         "resume_lease_remaining_ms": null, "lane_bindings": [], "physical_link_count": 0},
+    ]);
+    assert_eq!(
+        carrier::attached_sessions_in(&list.to_string()),
+        Some(vec!["d1/a#1".to_owned(), "d1/b#2".to_owned()])
+    );
+    assert_eq!(carrier::attached_sessions_in("[]"), Some(Vec::new()));
+    assert_eq!(carrier::attached_sessions_in("{\"error\": \"no daemon\"}"), None);
+    assert_eq!(carrier::attached_sessions_in("remote daemon is not running"), None);
+}
+
+/// A claimed spare raises neither `Resumed` nor `Bound`; what its updater
+/// sees is the person's first carrier session. A session the last look did
+/// not see starts the connect hold, so the flip waits through that first
+/// connect even once the carrier hold's bound has passed.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_new_carrier_session_starts_the_connect_hold() {
+    use std::time::Duration;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    assert_eq!(role::carrier_busy_from(&paths, Ok(Vec::new())), None);
+    let busy = role::carrier_busy_from(&paths, Ok(vec!["claimer/first-link".to_owned()]));
+    assert!(busy.is_some(), "an attached session holds the update");
+    let left = role::held_for(&paths).expect("a new carrier session holds the next flip");
+    assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
+    match role::held_outcome(&paths) {
+        Some(role::Outcome::Busy(why)) => assert!(why[0].contains("connect hold"), "{why:?}"),
+        other => panic!("the flip is not held: {other:?}"),
+    }
+}
+
+/// The Cloud role's bind commit (a fresh machine bound to its person) starts
+/// the connect hold through the same call, which the supervisor's `Bound`
+/// (an instance id change) does not cover.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_bind_commit_starts_the_connect_hold() {
+    use std::time::Duration;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    assert!(role::hold_connects(&paths), "no restart pending: the bind goes");
+    let left = role::held_for(&paths).expect("a bind holds the next flip");
+    assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
+}
+
+#[cfg(target_os = "linux")]
+const SECOND_NS: i128 = 1_000_000_000;
+/// A boot time of the pause tests (ns).
+#[cfg(target_os = "linux")]
+const B0: i128 = 5_000_000 * SECOND_NS;
+
+/// The pause watch at `B0`, its last look, with no pause found yet.
+#[cfg(target_os = "linux")]
+fn watch_at_b0() -> crate::agent::PauseWatch {
+    let watch = crate::agent::PauseWatch::new();
+    watch.looked(B0, false);
+    watch
+}
+
+/// The boot and wall clock `s` seconds after `B0` / `T0_MS`.
+#[cfg(target_os = "linux")]
+fn at(s: i128) -> (i128, u64) {
+    (B0 + s * SECOND_NS, T0_MS + u64::try_from(s).unwrap() * 1000)
+}
+
+/// Review F1 of #38280: each look at `realtime - boottime` compares with the
+/// look just before it, so many clock syncs, each below a restore's jump,
+/// never start the connect hold however far they move the clock in total.
+/// One real jump still does.
+#[cfg(target_os = "linux")]
+#[test]
+fn many_small_clock_syncs_never_start_a_restore_hold() {
+    let step = crate::agent::RESUME_CLOCK_JUMP_NS - 1;
+    let mut last = None;
+    let mut offset = 0_i128;
+    assert!(!role::restore_look(&mut last, offset), "the first look has nothing to compare");
+    for _ in 0..1000 {
+        offset += step;
+        assert!(!role::restore_look(&mut last, offset), "a sync started a hold at {offset}");
+    }
+    assert!(offset > 1000 * crate::agent::RESUME_CLOCK_JUMP_NS / 2, "the syncs added up");
+    assert!(role::restore_look(&mut last, offset + 3600 * 1_000_000_000), "a restore");
+    assert!(!role::restore_look(&mut last, offset + 3600 * 1_000_000_000 + step));
+}
+
+/// A claimed spare is a paused machine resumed, and on Freestyle the boot
+/// clock runs through the pause (every production probe machine, 2026-11-07
+/// to 11-08, reports one boot at 2026-10-31T03:02Z), so `realtime - boottime`
+/// never moves. The worker's 60 s wait ends at once on the resume and its
+/// hold ran out before the pause: 17 of 45 production chat runs flipped 1 to
+/// 184 s after the create. The pause watch counted it: that holds the flip.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pause_the_watch_found_starts_the_connect_hold() {
+    use std::sync::atomic::AtomicU64;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let gate = gate::Gate::new(&paths);
+    let watch = watch_at_b0();
+    let handled = AtomicU64::new(watch.pause_seq());
+    // An ordinary minute, the watch looking every 10 s: no hold.
+    watch.looked(at(60).0, false);
+    assert!(!role::hold_if_paused(&paths, &watch, &handled, at(65)));
+    assert_eq!(gate.held_left(at(65).1), None);
+    // Paused 40 minutes in its pool, then claimed: the watch found it.
+    watch.looked(at(65 + 2400).0, true);
+    let resumed = at(65 + 2401);
+    assert!(role::hold_if_paused(&paths, &watch, &handled, resumed));
+    assert_eq!(gate.held_left(resumed.1), Some(role::CONNECT_HOLD));
+    // Handled: the next look, with the watch fresh, holds no more.
+    assert!(!role::hold_if_paused(&paths, &watch, &handled, at(65 + 2405)));
+}
+
+/// A wait or check that ends at the resume can look before the watch wakes
+/// from the same pause: a watch that has not looked for longer than a pause
+/// takes to find is still waking from one, and that holds too.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pause_the_watch_has_not_woken_from_yet_holds() {
+    use std::sync::atomic::AtomicU64;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let watch = watch_at_b0();
+    let handled = AtomicU64::new(watch.pause_seq());
+    // 25 s since its last look: within a tick and its slack.
+    assert!(!role::hold_if_paused(&paths, &watch, &handled, at(25)));
+    // 3 minutes since: the machine was stopped.
+    assert!(role::hold_if_paused(&paths, &watch, &handled, at(180)));
+    assert!(gate::Gate::new(&paths).held_left(at(180).1).is_some());
+}
+
+/// Design review of #39049 (cloud-v0-lead): a spare paused 3 minutes during
+/// a check and then claimed is held, whether the check returns early (its
+/// busy look timed out across the pause) or goes on to its flip.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_three_minute_pause_during_a_check_that_returns_early_holds() {
+    use std::sync::atomic::AtomicU64;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let watch = watch_at_b0();
+    let handled = AtomicU64::new(watch.pause_seq());
+    let clock = || at(182);
+    let outcome = role::check_step(&paths, &watch, &handled, &clock, || {
+        // The busy look: paused 3 minutes, then the watch woke and found it.
+        watch.looked(at(181).0, true);
+        role::Outcome::Busy(vec!["acpmux: timed out".to_owned()])
+    });
+    assert!(matches!(outcome, role::Outcome::Busy(_)), "{outcome:?}");
+    assert_eq!(gate::Gate::new(&paths).held_left(at(182).1), Some(role::CONNECT_HOLD));
+
+    // A quick check that returns early holds nothing.
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let watch = watch_at_b0();
+    let handled = AtomicU64::new(watch.pause_seq());
+    let quick = || at(2);
+    role::check_step(&paths, &watch, &handled, &quick, || role::Outcome::Current("abc".to_owned()));
+    assert_eq!(gate::Gate::new(&paths).held_left(at(2).1), None);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_three_minute_pause_during_a_check_holds_its_flip() {
+    use std::sync::atomic::AtomicU64;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let watch = watch_at_b0();
+    let handled = AtomicU64::new(watch.pause_seq());
+    // Paused 3 minutes during the staging download; the watch found it.
+    watch.looked(at(181).0, true);
+    let mut last = Some(0);
+    assert!(role::flip_look(&paths, &watch, &handled, &mut last, 0, at(182)));
+    let gate = gate::Gate::new(&paths);
+    assert_eq!(gate.held_left(at(182).1), Some(role::CONNECT_HOLD));
+    // The flip runs inside the gate, which refuses it while the hold is on.
+    assert!(gate.run(at(182).1, true, |_| ()).is_err(), "the flip ran under the hold");
+}
+
+/// Review F2 of #39049: a pause the watch found after the previous wait's
+/// last look and before the next step began is still held. Comparing the
+/// pause's time with the step's start missed it; the count the worker keeps
+/// across steps does not.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pause_found_between_two_steps_holds() {
+    use std::sync::atomic::AtomicU64;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let watch = watch_at_b0();
+    let handled = AtomicU64::new(watch.pause_seq());
+    // The wait's last look at 60 s found nothing.
+    watch.looked(at(60).0, false);
+    assert!(!role::hold_if_paused(&paths, &watch, &handled, at(60)));
+    // Between the wait and the check: a 3-minute pause, which the watch found.
+    watch.looked(at(250).0, true);
+    // The check starts after that and returns early; its look still holds.
+    let clock = || at(255);
+    role::check_step(&paths, &watch, &handled, &clock, || role::Outcome::Current("abc".to_owned()));
+    assert_eq!(gate::Gate::new(&paths).held_left(at(255).1), Some(role::CONNECT_HOLD));
+}
+
+/// Review F1 of #39049: where a restore stops the boot clock, the pause watch
+/// stays fresh and the supervisor counts the restore only when its clock-set
+/// dispatch runs. A flip that looks before that dispatch is still held by
+/// its own `realtime - boottime` look.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_restore_the_supervisor_has_not_dispatched_holds_the_flip() {
+    use std::sync::atomic::AtomicU64;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let watch = watch_at_b0();
+    let handled = AtomicU64::new(watch.pause_seq());
+    // The watch looked a moment ago and counted nothing: no found() yet.
+    watch.looked(at(5).0, false);
+    let offset = 1_000 * SECOND_NS;
+    let mut last = Some(offset);
+    // A sync's drift: no hold.
+    assert!(!role::flip_look(&paths, &watch, &handled, &mut last, offset + SECOND_NS, at(6)));
+    // Restored after an hour stopped: realtime moved against the boot clock.
+    assert!(role::flip_look(&paths, &watch, &handled, &mut last, offset + 3600 * SECOND_NS, at(7)));
+    assert_eq!(gate::Gate::new(&paths).held_left(at(7).1), Some(role::CONNECT_HOLD));
+}
+
+/// Review F2 of #38326: the health timeout's rollback waits while carrier
+/// sessions are attached, looking again every minute, and stops waiting when
+/// the role stops.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_health_timeout_rollback_waits_for_carrier_sessions() {
+    let mut looks =
+        vec![None, Some("1 carrier session(s) attached".to_owned()), Some("1".to_owned())];
+    let mut carrier = || looks.pop().flatten();
+    // `wait` with no message times out after BUSY_RETRY: too slow for a test,
+    // so a Check stands in for each minute.
+    let (tx, rx_checks) = std::sync::mpsc::channel();
+    tx.send(role::Msg::Check).unwrap();
+    tx.send(role::Msg::Check).unwrap();
+    assert!(role::timeout_rollback_waits(&mut carrier, &rx_checks), "it rolls back once idle");
+    assert!(looks.is_empty(), "it looked until the sessions left");
+
+    let mut attached = || Some("1 carrier session(s) attached".to_owned());
+    tx.send(role::Msg::Stop).unwrap();
+    assert!(!role::timeout_rollback_waits(&mut attached, &rx_checks), "a stop ends the wait");
+}
+
+/// Review F2 of #38326: the guard's rollback waits for carrier sessions too,
+/// and the bound ends that wait: past CARRIER_MAX_HOLD a stuck session no
+/// longer keeps a build that never proved itself.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
+    use std::cell::Cell;
+    use std::time::{Duration, Instant};
+
+    let t0 = Instant::now();
+    let clock = Cell::new(t0);
+    let mut hold = carrier::CarrierHold::default();
+    let mut carrier = || hold.look(clock.get(), Ok(vec!["stuck/session".to_owned()])).busy;
+    let mut slept = Duration::ZERO;
+    role::guard_rollback_waits(&mut carrier, |d| {
+        slept += d;
+        clock.set(clock.get() + d);
+    });
+    assert!(slept >= carrier::CARRIER_MAX_HOLD, "it rolled back after {slept:?}");
+    assert!(slept < carrier::CARRIER_MAX_HOLD + Duration::from_secs(120), "{slept:?}");
+
+    let mut idle = || None;
+    let mut slept = Duration::ZERO;
+    role::guard_rollback_waits(&mut idle, |d| slept += d);
+    assert_eq!(slept, Duration::ZERO, "no session, no wait");
+}
+
+/// Review F1 of #38326 (P2): a reconnect inside the resume lease keeps its
+/// device and session ids and bumps only the generation. It is a new connect:
+/// past the carrier hold's bound it still starts the connect hold.
+#[test]
+fn a_reconnect_in_the_resume_lease_is_a_new_session_past_the_bound() {
+    use std::time::Duration;
+
+    use carrier::{CARRIER_MAX_HOLD, CarrierHold};
+
+    let row = |generation: u64| {
+        json!([{"device_id": "mac", "session_id": "s1", "generation": generation,
+                "state": "connected", "resume_lease_remaining_ms": null,
+                "lane_bindings": [], "physical_link_count": 1}])
+        .to_string()
+    };
+    let t0 = std::time::Instant::now();
+    let mut hold = CarrierHold::default();
+    let first = carrier::attached_sessions_in(&row(1)).unwrap();
+    assert!(hold.look(t0, Ok(first.clone())).new_session);
+    let past = hold.look(t0 + CARRIER_MAX_HOLD, Ok(first));
+    assert_eq!(past.busy, None, "past the bound");
+    assert!(!past.new_session);
+
+    let reconnected = carrier::attached_sessions_in(&row(2)).unwrap();
+    let look = hold.look(t0 + CARRIER_MAX_HOLD + Duration::from_secs(60), Ok(reconnected));
+    assert!(look.new_session, "a reconnect that bumped the generation is a new connect");
+}
+
+/// Review F2 of #38326 (P2): when every read failed (here past the bound),
+/// the first list that reads holds the update as a new connect: its
+/// sessions were never seen, so they start the connect hold.
+#[test]
+fn the_first_read_after_failed_reads_counts_its_sessions_as_new() {
+    use std::time::Duration;
+
+    use carrier::{CARRIER_MAX_HOLD, CarrierHold};
+
+    let t0 = std::time::Instant::now();
+    let mut hold = CarrierHold::default();
+    let unknown = || Err("its admin channel answered exit status: 1".to_owned());
+    assert!(hold.look(t0, unknown()).busy.is_some(), "an unreadable list holds");
+    let past = hold.look(t0 + CARRIER_MAX_HOLD, unknown());
+    assert_eq!(past.busy, None, "the unreadable list's hold is bounded");
+    assert!(!past.new_session);
+
+    let read =
+        hold.look(t0 + CARRIER_MAX_HOLD + Duration::from_secs(60), Ok(vec!["mac/s1#1".to_owned()]));
+    assert!(read.new_session, "sessions never seen before are new");
+    // The first look with nothing to compare counts its sessions too.
+    let mut fresh = CarrierHold::default();
+    assert!(fresh.look(t0, Ok(vec!["mac/s1#1".to_owned()])).new_session);
+    assert!(!CarrierHold::default().look(t0, Ok(Vec::new())).new_session);
+}
+
+/// Review F2 of #38326, the exact sequence: reads of the session list fail
+/// (past the carrier hold's bound), then the first one that reads shows an
+/// attached session, and that look starts the 5-minute connect hold.
+#[cfg(target_os = "linux")]
+#[test]
+fn failed_reads_then_an_attached_session_start_the_connect_hold() {
+    use std::time::{Duration, Instant};
+
+    use carrier::{CARRIER_MAX_HOLD, CarrierHold};
+
+    let dir = tempfile::tempdir().unwrap();
+    let held = gate::Gate::new(&Paths::new(dir.path()));
+    let start = || {
+        held.hold(T0_MS, role::CONNECT_HOLD);
+    };
+    let t0 = Instant::now();
+    let mut hold = CarrierHold::default();
+    for minute in 0..=CARRIER_MAX_HOLD.as_secs() / 60 {
+        let at = t0 + Duration::from_secs(minute * 60);
+        let look = hold.look(at, Err("its admin channel answered exit status: 1".to_owned()));
+        role::act_on_look(look, start);
+    }
+    assert_eq!(held.held_left(T0_MS), None, "failed reads start no connect hold");
+
+    let at = t0 + CARRIER_MAX_HOLD + Duration::from_secs(120);
+    let look = hold.look(at, Ok(vec!["mac/s1#1".to_owned()]));
+    role::act_on_look(look, start);
+    let left = held.held_left(T0_MS).expect("the first readable session starts the connect hold");
+    assert_eq!(left, role::CONNECT_HOLD);
+}
+
+/// Review P1s of #38483 at b82f2bf1: the connect hold and the pending
+/// restart live in the state dir (`gate::Gate`, one flock-guarded file), not
+/// in a process's memory, so `cmux host update check` (its own process),
+/// the guard and the service all see them. Two handles on one root stand in
+/// for the service and the CLI.
+fn gate_handles() -> (tempfile::TempDir, gate::Gate, gate::Gate) {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    (dir, gate::Gate::new(&paths), gate::Gate::new(&paths))
+}
+
+const T0_MS: u64 = 1_794_000_000_000;
+
+/// (a) The CLI's check sees the service's connect hold and doesn't flip;
+/// once the hold ends it does.
+#[test]
+fn a_cli_check_sees_the_service_connect_hold_and_does_not_flip() {
+    use std::time::Duration;
+
+    let (_dir, service, cli) = gate_handles();
+    assert!(service.hold(T0_MS, gate::CONNECT_HOLD), "a bind with no restart pending goes");
+    let mut ran = false;
+    let held = cli.run(T0_MS + 60_000, true, |_| ran = true);
+    assert!(held.is_err_and(|left| left == gate::CONNECT_HOLD - Duration::from_secs(60)));
+    assert!(!ran, "the CLI flipped during the service's connect hold");
+    assert_eq!(cli.held_left(T0_MS + 60_000), Some(gate::CONNECT_HOLD - Duration::from_secs(60)));
+
+    let after = T0_MS + gate::CONNECT_HOLD.as_millis() as u64;
+    assert_eq!(cli.held_left(after), None);
+    assert!(cli.run(after, true, |_| ran = true).is_ok());
+    assert!(ran, "past the hold the CLI flips");
+}
+
+/// (b) A restart the CLI queued is pending for the service: a bind there
+/// refuses until the restarted service clears the mark at its start.
+#[test]
+fn a_cli_queued_restart_refuses_binds_until_the_service_restarts() {
+    let (_dir, service, cli) = gate_handles();
+    assert!(cli.run(T0_MS, true, |queued| queued()).is_ok());
+    assert!(
+        !service.hold(T0_MS + 1_000, gate::CONNECT_HOLD),
+        "a bind went out with a restart pending"
+    );
+    assert!(!service.hold(T0_MS + 30_000, gate::CONNECT_HOLD), "still pending 30 s on");
+    // The restarted cmux-host clears the mark before it accepts binds.
+    service.service_started();
+    assert!(service.hold(T0_MS + 31_000, gate::CONNECT_HOLD), "the restarted service binds");
+}
+
+/// (c) The pending mark lasts at most RESTART_PENDING_FOR: a restart that
+/// never came can't block binds for ever.
+#[test]
+fn a_pending_restart_mark_expires_after_its_bound() {
+    let (_dir, service, cli) = gate_handles();
+    assert!(cli.run(T0_MS, false, |queued| queued()).is_ok(), "a rollback runs under no hold too");
+    let bound = gate::RESTART_PENDING_FOR.as_millis() as u64;
+    assert!(!service.hold(T0_MS + bound - 1, gate::CONNECT_HOLD));
+    assert!(service.hold(T0_MS + bound, gate::CONNECT_HOLD), "the mark outlived its bound");
+}
+
+/// A bind in the service that lands while the CLI's gate runs waits on the
+/// flock until the CLI queued its restart, then refuses; a rollback (which
+/// the hold doesn't stop) is serialized the same way.
+#[test]
+fn a_bind_waits_for_another_process_gate_and_sees_its_restart() {
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    for honor_hold in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_owned();
+        let (in_window, window) = mpsc::channel::<()>();
+        let cli = std::thread::spawn(move || {
+            gate::Gate::new(&Paths::new(&root)).run(T0_MS, honor_hold, |queued| {
+                in_window.send(()).unwrap();
+                std::thread::sleep(Duration::from_millis(200));
+                queued();
+                Instant::now()
+            })
+        });
+        window.recv().unwrap();
+        let may_bind =
+            gate::Gate::new(&Paths::new(dir.path())).hold(T0_MS + 100, gate::CONNECT_HOLD);
+        let bind_done = Instant::now();
+        let queued_at = cli.join().unwrap().unwrap();
+        assert!(bind_done >= queued_at, "the bind did not wait for the gate");
+        assert!(!may_bind, "a bind went out between the flip and the restart");
+    }
+}
+
+/// Review F1 of #38326's P2s: the connection list fails closed. An entry
+/// that is not a session object, an unknown state or a missing field makes
+/// the whole list unreadable (`None`, which holds the update), never an
+/// empty list that lets a restart cut an attached session.
+#[test]
+fn a_malformed_connection_list_fails_closed() {
+    let row = |state: &str| {
+        json!({"device_id": "d", "session_id": "s", "generation": 1, "state": state,
+               "resume_lease_remaining_ms": null, "lane_bindings": [], "physical_link_count": 1})
+    };
+    assert_eq!(carrier::attached_sessions_in("[null]"), None, "[null]");
+    assert_eq!(carrier::attached_sessions_in("[1, \"x\"]"), None);
+    let unknown = json!([row("connected"), row("half-open")]);
+    assert_eq!(carrier::attached_sessions_in(&unknown.to_string()), None, "an unknown state");
+    for field in ["device_id", "session_id", "generation", "state"] {
+        let mut entry = row("connected");
+        entry.as_object_mut().unwrap().remove(field);
+        let list = json!([entry]).to_string();
+        assert_eq!(carrier::attached_sessions_in(&list), None, "missing {field}");
+    }
+    let mut wrong = row("connected");
+    wrong["generation"] = json!("1");
+    assert_eq!(
+        carrier::attached_sessions_in(&json!([wrong]).to_string()),
+        None,
+        "a string generation"
+    );
+    // Known states still read.
+    let fine = json!([row("connected"), row("closed")]).to_string();
+    assert_eq!(carrier::attached_sessions_in(&fine), Some(vec!["d/s#1".to_owned()]));
 }

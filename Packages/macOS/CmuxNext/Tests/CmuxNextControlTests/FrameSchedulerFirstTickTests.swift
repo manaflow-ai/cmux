@@ -46,7 +46,7 @@ import Testing
         let first = Self.elapsed(frames: 4, interval: interval, on: scheduler, media: media)
         #expect(first.count == 4)
         #expect(first.allSatisfy { abs($0 - interval) < 1e-9 }, "every tick, the first included, is one refresh (\(interval)): \(first)")
-        // Idle (the link is dropped), then a new animation: its first frame is one refresh again.
+        // Idle (the link pauses), then a new animation: its first frame is one refresh again.
         media.now += 2
         let again = Self.elapsed(frames: 3, interval: interval, on: scheduler, media: media)
         #expect(again.allSatisfy { abs($0 - interval) < 1e-9 }, "after an idle period too: \(again)")

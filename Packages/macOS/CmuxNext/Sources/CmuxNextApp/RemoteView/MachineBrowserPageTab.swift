@@ -18,7 +18,7 @@ final class MachineBrowserPageTab: BrowserTab {
     let profileID: BrowserProfileID
     let presentation: BrowserPresentation = .inView
     private(set) var state: BrowserTabState
-    let favicon: NSImage? = NSImage.icon(.browser, size: 16)
+    let favicon: NSImage? = NSImage.icon(.tabBrowser, size: 16)
     let pendingPrompts: [BrowserPrompt] = []
     @ObservationIgnored weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored weak var keyRouter: (any BrowserKeyRouting)?

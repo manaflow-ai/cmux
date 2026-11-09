@@ -43,10 +43,40 @@ public final class LiveCode {
 
     private var engine: LiveEngine?
 
+    /// Swift live mode is on (`cmux live start --swift`): this is a live code build (reload.sh marks
+    /// its Info.plist `CMUXLiveCodeBuild`) and it watches a live folder. A normal build with Labs >
+    /// Live Code on watches too, but its functions cannot be repointed, so it is not live. It stays on
+    /// until the app quits; live mode ends with a restart into the normal build.
+    public private(set) var isLive = false
+    /// Work waiting for live mode to start (each window's "Live mode" badge), run once when it does.
+    private var whenLiveStarts: [@MainActor () -> Void] = []
+    private let isLiveCodeBuild = Bundle.main.object(forInfoDictionaryKey: "CMUXLiveCodeBuild") as? Bool == true
+
+    /// Runs `body` now if live mode is on, else once when it starts. Stop condition: it runs at most
+    /// once and the list empties when it does; a build that cannot go live keeps nothing.
+    public func whenLive(_ body: @escaping @MainActor () -> Void) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard isLiveCodeBuild else { return }
+        if isLive { body() } else { whenLiveStarts.append(body) }
+        #endif // a Release build never watches, so nothing waits
+    }
+
     private func watch(_ folder: LiveFolder) {
         let engine = LiveEngine(folder: folder)
         self.engine = engine
-        Task.detached(priority: .utility) { await engine.start() }
+        Task.detached(priority: .utility) { [weak self] in
+            guard await engine.start() else { return }
+            await self?.watching()
+        }
+    }
+
+    /// The engine watches its folder: in a live code build, live mode is on.
+    private func watching() {
+        isLive = isLiveCodeBuild
+        guard isLive else { return }
+        let waiting = whenLiveStarts
+        whenLiveStarts = []
+        for body in waiting { body() }
     }
 
     /// Every window's views draw and lay out again: their next `updateLayer`, `draw` and `layout`
@@ -116,10 +146,11 @@ actor LiveEngine {
         #endif
     }
 
-    func start() {
+    /// Opens and watches the folder; false when it cannot.
+    func start() -> Bool {
         guard let opened = folder.open() else {
             folder.append("live code: cannot watch \(folder.url.path)")
-            return
+            return false
         }
         // What is already there belongs to an earlier run, maybe of an older build: never load it.
         seen = Set(opened.names)
@@ -139,6 +170,7 @@ actor LiveEngine {
             break
         }
         writeStatus()
+        return true
     }
 
     /// The folder's names after a change: each new one is handled once, in name order.

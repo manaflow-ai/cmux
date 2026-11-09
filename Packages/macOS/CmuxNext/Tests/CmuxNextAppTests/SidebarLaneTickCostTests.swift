@@ -51,7 +51,7 @@ import Testing
             // The feed's row source, each map counted (as the app's `laneRowSource` composes it).
             let feed = feed
             let counting: SidebarMapping.RowSource = { [unowned self] workspace, machine, make in
-                feed.row(SidebarWorkspaceID(workspace.id), machine: machine) { self.mapped += 1; return make() }
+                feed.row(SidebarWorkspaceID(workspace.id), machine: machine, make: make.then { self.mapped += 1; return $0 })
             }
             feed.beginPass(inputs: 0)
             let sections = SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),

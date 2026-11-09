@@ -15,7 +15,7 @@ pub struct StartArgs {
     #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
     pub host: String,
     /// HARNESS[/MODEL], for example codex/gpt-6-astra.
-    #[arg(long, short)]
+    #[arg(long, short, visible_alias = "harness")]
     pub model: Option<String>,
     /// Absolute folder on the destination machine.
     #[arg(long)]

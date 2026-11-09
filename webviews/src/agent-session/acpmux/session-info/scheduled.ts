@@ -10,7 +10,7 @@
 // item ends (`nextScheduledChange`), never a per-second poll, and clears it on unmount or when the
 // items change.
 import { useContext, useEffect, useState } from "react";
-import { SubagentClockContext } from "../subagents/SubagentGroup";
+import { SubagentClockContext } from "../subagents/subagentGroupModel";
 import type { SummaryWakeup } from "../summary/sessionSummary";
 import { formatDuration } from "../conversation/turns";
 import type { PaneLanguage, StringKey, Translate } from "../i18n";

@@ -5,8 +5,6 @@ public import CmuxNextDesign
 /// Tabs: Use Scrolling Tabs and Tabs: Use Shrinking Tabs (`tabs.overflow.scroll`, `tabs.overflow.shrink`)
 /// and Settings write it. A crowded strip never asks: it scrolls, keeping the selected tab in view.
 public nonisolated struct TabOverflowSetting: Sendable {
-    public static let configPath = ["tabs", "overflow"]
-    public static let fallback: TabOverflow = .shrink
 
     public init() {}
 

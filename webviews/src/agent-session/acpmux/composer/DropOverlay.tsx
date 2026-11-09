@@ -10,29 +10,9 @@
 import { useLayoutEffect, useRef } from "react";
 import "./dropOverlay.css";
 import { createPortal } from "react-dom";
-import { type StringKey, type Translate, useT } from "../i18n";
-import type { DragSummary, DropOverlayState } from "./dropOverlayState";
-
-const DROP_LABELS = {
-  title: "composer.drop.title",
-  refusedTitle: "composer.drop.refusedTitle",
-  imagesUnsupported: "composer.imagesUnsupported",
-  photos: "composer.drop.photos",
-  pdf: "composer.drop.pdf",
-  pdfs: "composer.drop.pdfs",
-  files: "composer.drop.files",
-} as const satisfies Record<string, StringKey>;
-
-/// What the drag holds, in a few words ("3 photos", "PDF", "2 files"); empty when the engine showed
-/// no items.
-export function dropHint(summary: DragSummary, t: Translate): string {
-  const n = summary.count;
-  if (n === 0) return "";
-  if (summary.kind === "photos") return t(DROP_LABELS.photos, { n });
-  if (summary.kind === "pdfs") return n === 1 ? t(DROP_LABELS.pdf) : t(DROP_LABELS.pdfs, { n });
-  return t(DROP_LABELS.files, { n });
-}
-
+import { useT } from "../i18n";
+import type { DropOverlayState } from "./dropOverlayState";
+import { DROP_LABELS, dropHint } from "./dropOverlayModel";
 /// The overlay for `state`. `container`: the chat column it draws in (the closest `.acpmux-main`);
 /// unset, it draws in place. `landingTarget`: the composer's box, which the ring goes around (with
 /// none, the ring goes around the column). `onLanded` runs when the landing fade ends (the overlay

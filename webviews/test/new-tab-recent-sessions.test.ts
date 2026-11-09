@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { recentSessions } from "../src/agent-session/acpmux/NewTabPage";
+import { recentSessions } from "../src/agent-session/acpmux/newTabModel";
 import { recentChatCards } from "../src/agent-session/acpmux/newtab/screenModel";
 import { normalizedSessionEntry, type AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 

@@ -32,6 +32,8 @@ const PROVIDER_NAMES: Record<string, string> = {
   moonshot: "Moonshot",
   openai: "OpenAI",
   opencode: "OpenCode",
+  "opencode-go": "OpenCode Go",
+  "opencode-zen": "OpenCode Zen",
   openrouter: "OpenRouter",
   qwen: "Qwen",
   together: "Together",

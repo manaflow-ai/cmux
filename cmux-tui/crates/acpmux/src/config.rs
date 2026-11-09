@@ -869,6 +869,11 @@ pub enum PermissionPolicy {
     /// Claude Code's "accept edits" without needing Claude's own mode.
     ApproveEdits,
     DenyAll,
+    /// A reviewer's read-only shell: what approve-reads approves runs unasked (reads, searches
+    /// and read-only shell commands such as `git log`, `git diff`, `grep`, `rg`, `ls`, `cat`,
+    /// `sed -n`, `hub/shell_readonly.rs`), and every other tool call is denied at once, so a
+    /// session with no person to ask never waits.
+    Review,
 }
 
 impl std::str::FromStr for PermissionPolicy {
@@ -880,6 +885,7 @@ impl std::str::FromStr for PermissionPolicy {
             "approve-reads" => Ok(Self::ApproveReads),
             "approve-edits" | "accept-edits" => Ok(Self::ApproveEdits),
             "deny-all" => Ok(Self::DenyAll),
+            "review" => Ok(Self::Review),
             other => Err(format!("unknown permission policy: {other}")),
         }
     }
@@ -893,6 +899,7 @@ impl std::fmt::Display for PermissionPolicy {
             Self::ApproveReads => "approve-reads",
             Self::ApproveEdits => "approve-edits",
             Self::DenyAll => "deny-all",
+            Self::Review => "review",
         };
         f.write_str(s)
     }
@@ -2050,7 +2057,7 @@ pub use discover::{
 mod peer;
 pub use peer::PeerConfig;
 mod store_config;
-pub use store_config::{StoreConfig, StoreMode, store_journal_enabled};
+pub use store_config::{StoreConfig, StoreMode};
 mod pool;
 pub use pool::PoolConfig;
 mod btw;

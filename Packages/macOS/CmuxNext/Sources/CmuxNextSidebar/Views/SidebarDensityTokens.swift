@@ -44,8 +44,10 @@ enum SidebarDensityTokens {
     static var rowHeightWithSubtitle: CGFloat { rowHeight + SidebarStyle.detailLineHeight }
     /// A machine or section header in the list, and a band's header.
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }
-    /// Rows inset from the sidebar edge, and their content from the row edge.
-    static var horizontalInset: CGFloat { SidebarRowTokens.current.horizontalInset }
+    /// Rows inset from the sidebar edge, and their content from the row edge: `SidebarRowTokens.horizontalInset`'s
+    /// rule, read from its two inputs. Every row frame reads it several times (`SidebarListView.frame(for:)`), and
+    /// `SidebarRowTokens.current` builds the whole token set, fonts too, for each read.
+    static var horizontalInset: CGFloat { isComfortable ? Metrics.space4 : Metrics.space3 }
     static var iconBox: CGFloat { isComfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox }
     /// Compatibility name used by the existing session-tree layout. The tree's base indent is
     /// independent of the sidebar's group nesting grid and remains the original space4.

@@ -181,6 +181,8 @@ fn last_turn_end(row: &Value, turn: &str) -> Option<Result<Value>> {
         "status": last.get("status"),
         "stopReason": last.get("stopReason"),
         "error": last.get("errorText"),
+        "errorKind": last.get("errorKind"),
+        "recovery": last.get("recovery"),
     });
     turn_end(method::MUX_EVENT, &json!({"dir": "mux", "kind": "turn_result", "msg": msg}))
         .map(|(_, end)| end)
@@ -218,7 +220,19 @@ fn turn_end(m: &str, p: &Value) -> Option<(String, Result<Value>)> {
     };
     let end = if failed {
         let error = msg.get("error").and_then(Value::as_str).unwrap_or("the turn failed");
-        Err(anyhow!("{error}"))
+        // A typed failure keeps its kind and recovery (`recovery.rs`), as the turn's own
+        // prompt gets them, so the wait's error names them (`output::agent_error`).
+        let typed: serde_json::Map<String, Value> = ["errorKind", "recovery"]
+            .into_iter()
+            .filter_map(|k| msg.get(k).filter(|v| v.is_string()).map(|v| (k.to_owned(), v.clone())))
+            .collect();
+        if typed.is_empty() {
+            Err(anyhow!("{error}"))
+        } else {
+            let mut e = crate::rpc::RpcError::internal(error);
+            e.data = Some(Value::Object(typed));
+            Err(crate::client::DaemonError(e).into())
+        }
     } else {
         let stop = msg.get("stopReason").filter(|s| s.is_string()).cloned();
         let stop = stop.unwrap_or_else(|| json!("end_turn"));
@@ -326,5 +340,39 @@ mod tests {
         // A session update is no turn's end.
         let update = json!({"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk"}});
         assert!(s.heard(method::SESSION_UPDATE, &update).is_none());
+    }
+
+    /// A steered turn that failed typed (`auth.signed_out` and its recovery on the turn's end)
+    /// fails the steer's wait with them, as the turn's own prompt does (#37541), not text only.
+    #[test]
+    fn a_typed_turn_failure_keeps_its_kind_and_recovery() {
+        let msg = json!({"turnId": "t1", "status": "failed", "error": "Failed to authenticate.",
+            "errorKind": "auth.signed_out", "recovery": "Sign in to Claude."});
+        let (_, end) = turn_end(method::MUX_EVENT, &event("turn_result", msg)).unwrap();
+        let e = end.unwrap_err();
+        assert_eq!(e.to_string(), "Failed to authenticate.");
+        let data = e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone());
+        let data = data.expect("the failure keeps the turn's typed fields");
+        assert_eq!(data["errorKind"], "auth.signed_out");
+        assert_eq!(data["recovery"], "Sign in to Claude.");
+        // An untyped failure stays text.
+        let msg = json!({"turnId": "t1", "status": "failed", "error": "agent said no"});
+        let (_, end) = turn_end(method::MUX_EVENT, &event("turn_result", msg)).unwrap();
+        assert!(end.unwrap_err().downcast_ref::<crate::client::DaemonError>().is_none());
+    }
+
+    /// The same turn's typed failure read from the session row's `lastTurn` (a wait that saw
+    /// the end there, not as an event) keeps its kind and recovery too.
+    #[test]
+    fn a_typed_last_turn_keeps_its_kind_and_recovery() {
+        let row = json!({"lastTurn": {"turnId": "t1", "status": "failed",
+            "errorText": "Failed to authenticate.", "errorKind": "auth.signed_out",
+            "recovery": "Sign in to Claude."}});
+        let e = last_turn_end(&row, "t1").unwrap().unwrap_err();
+        assert_eq!(e.to_string(), "Failed to authenticate.");
+        let data = e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone());
+        let data = data.expect("the row's failure keeps its typed fields");
+        assert_eq!(data["errorKind"], "auth.signed_out");
+        assert_eq!(data["recovery"], "Sign in to Claude.");
     }
 }

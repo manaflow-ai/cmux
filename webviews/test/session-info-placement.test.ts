@@ -145,12 +145,12 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     });
 
     // Leo, 2026-11-01: "why does the session info not push the layout left ever anymore". Where pushing
-    // keeps the transcript's column at its width (1100px and 1420px panes) it pushes under the header:
+    // keeps the transcript's column at its width (1200px and 1420px panes) it pushes under the header:
     // the chat keeps the pane's width and its column moves left (SessionInfo.tsx pushedRoom,
     // sessionInfo.css --acpmux-session-info-shift), and the panel covers no row and not the composer.
     // Where a push would narrow the column it lies over the chat instead (the 370/528/740px cases below;
     // Leo, 2026-11-03: "if it would need to be then session info should be an overlay").
-    for (const width of [1100, 1420]) {
+    for (const width of [1200, 1420]) {
       test(`${name}: in a ${width}px pane it pushes the chat left and covers no row`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
@@ -195,7 +195,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     // position sure but it itself and its text shouldn't be affected by the session info if it would need
     // to be then session info should be an overlay". In these panes a push would narrow the column: it
     // lies over the chat, its foot above the composer's top, so the composer shows whole and the chat
-    // keeps the pane's width. Under 648px a saved open state leaves the chat alone until the toggle.
+    // keeps the pane's width. A new chat's Session Info waits for the toggle at every width.
     for (const width of [370, 528, 740]) {
       const over = true;
       test(`${name}: in a ${width}px pane it lies over the chat above the composer, and the composer shows whole`, async () => {
@@ -209,7 +209,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           );
           const toggle = page.locator("button.acpmux-session-info-toggle");
           await toggle.waitFor({ timeout: 10_000 });
-          // Session Info's saved state is open (the default): only a pane with room shows it unasked.
+          // A new chat starts with Session Info closed (#37576), whatever the pane's room: never unasked.
           const unasked = (await toggle.getAttribute("aria-pressed")) === "true";
           const { panel } = await openSessionInfo(page);
           // The card's foot settles on the composer's top (sessionInfo.css data-foot-moves).
@@ -243,7 +243,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
             composerWhole: composer.left >= main.left - 0.5 && composer.right <= main.right + 0.5,
             lastRowWhole: last.left >= main.left - 0.5 && last.right <= main.right + 0.5,
           }).toEqual({
-            unasked: width >= 648,
+            unasked: false,
             placement: over ? "overlay" : "push",
             // Under 648px it is a popover (Lucas, 2026-11-06: "In a narrow layout: it becomes a popover
             // and starts closed"): over the chat, with no foot of its own over the composer.
@@ -285,7 +285,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     // "this BECAME A FUCKING SIDEBAR FOR NO FUCKING REASON ALL THIS FUCKING DEAD SPACE"): floating or
     // pushing, the panel is under half the pane's height with this chat's few short sections, and
     // the foot of the column it takes is the chat's page, not the panel.
-    for (const width of [1100, 1600]) {
+    for (const width of [1200, 1600]) {
       test(`${name}: in a ${width}px pane the panel hugs its sections and leaves the column's foot empty`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
@@ -311,11 +311,11 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     // A pane that narrows or widens past the gutter's room (a split opening beside it, a window drag)
     // draws the panel in its new place in the frame that draws the new width (Leo 2026-10-21: "WHY
     // DOES IT FLICKER"). The pane's width was read in a ResizeObserver and set as state that React
-    // drew a frame or more later. Where the new gutter cannot hold it (1100px) it pushes the chat in
+    // drew a frame or more later. Where the new gutter cannot hold it (1200px) it pushes the chat in
     // that same frame.
     for (const [from, to] of [
-      [1600, 1100],
-      [1100, 1600],
+      [1600, 1200],
+      [1200, 1600],
     ] as const)
       test(`${name}: from ${from}px to ${to}px the first frame at the new width has the panel in its new place`, async () => {
         current = browsers.get(name)!;

@@ -85,10 +85,12 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "author",
     "beforePromptId",
     "callerSession",
+    "cancelToken",
     "class",
     "cliHost",
     "compression",
     "context",
+    "createdBy",
     "cwd",
     "decisionNonce",
     "disallowedTools",
@@ -134,6 +136,8 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "requireFullAccess",
     "resend",
     "route",
+    "senderHarness",
+    "senderHarnessChecked",
     "spawnToolCallId",
     "startLater",
     "steer",
@@ -176,6 +180,8 @@ keyed! {
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.
     BookmarkSetParams: ["sessionId", "seq", "bookmarked"];
+    /// `_acpmux/memory_resolve`.
+    MemoryResolveParams: ["sessionId", "offerId", "file", "accept", "dismiss"];
     /// `_acpmux/btw`.
     BtwParams: ["sessionId", "question", "model", "inline"];
     /// `_acpmux/chat/route.set`.
@@ -207,7 +213,7 @@ keyed! {
     /// `initialize`.
     InitializeParams: ["protocolVersion", "clientCapabilities", "clientInfo"];
     /// `_acpmux/kill`.
-    KillParams: ["sessionId", "purge"];
+    KillParams: ["sessionId", "purge", "cancelFork", "cancelToken"];
     /// `_acpmux/mcp/reconnect`.
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.

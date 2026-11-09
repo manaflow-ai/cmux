@@ -7,7 +7,7 @@
 // Session Info.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, user } from "../../../gallery/fixtures/acpmux";
-import { minutesAgo } from "../../../gallery/clock";
+import { minutesAgo, recentRun } from "../../../gallery/clock";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 
 const claude = (id: string, task: string, minutes: number, state: Subagent["state"]): Subagent => ({
@@ -19,8 +19,8 @@ const claude = (id: string, task: string, minutes: number, state: Subagent["stat
   harness: "claude",
   state,
   background: true,
-  startedAt: minutesAgo(minutes),
-  ...(state !== "running" && { endedAt: minutesAgo(minutes - 1.5) }),
+  // What ended lingers in the hat only for its grace (trayLinger.ts): it ended just now.
+  ...(state === "running" ? { startedAt: minutesAgo(minutes) } : recentRun(minutes, 1.5)),
   ...(state === "running" && { action: "Read subagents.css" }),
 });
 

@@ -48,7 +48,8 @@ jobs:
           # A thin client on the gateway runner (glaeda GATEWAY_JOBS): only the summary script it runs
           # here, no other blob. The measure worker checks the tree out itself.
           filter: blob:none
-          sparse-checkout: scripts/measure/screen-stream-eval
+          sparse-checkout: /scripts/measure/screen-stream-eval/
+          sparse-checkout-cone-mode: false
       - name: the last successful daily run
         id: previous
         env:

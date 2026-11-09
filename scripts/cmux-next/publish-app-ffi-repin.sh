@@ -4,14 +4,39 @@ set -euo pipefail
 branch=app-ffi-repin
 staging="${branch}-stage-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}"
 manifest=Packages/macOS/CmuxNext/Package.swift
-remote_head() { git ls-remote origin "refs/heads/$1" | cut -f1; }
+# Read heads from GitHub itself, not `git ls-remote origin`: the runner serves
+# git reads of origin from a cache that can lag a push made a second earlier
+# (run 42493097381 failed "the re-pin head moved" right after its own push).
+# Prints nothing for a missing branch; any other failed read fails loud.
+# gh prints a failed call's error body on stdout too, so print only a head read.
+remote_head() {
+  local err="$RUNNER_TEMP/remote-head.err" head
+  if head="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$1" --jq '.object.sha' 2>"$err")"; then
+    [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::refs/heads/$1 read as '$head'" >&2; return 1; }
+    echo "$head"
+    return 0
+  fi
+  grep -q 'HTTP 404' "$err" && return 0
+  echo "::error::could not read refs/heads/$1 from GitHub: $(cat "$err")" >&2
+  return 1
+}
 
-scripts/cmux-next/repin-app-ffi.sh "$GITHUB_SHA" "$CHECKSUM"
+# Latest wins: pin the newest published release on feat-cmux-next, whichever run
+# published it, never this run's tag by default and never an unpublished head.
+# Step-A pushes change the FFI sources faster than releases publish, so the
+# base's sources may be ahead of the release picked here; it reads that
+# release's SOURCE_SHA and SHA256SUMS itself (a 404 skips the release), and
+# merge_hold accepts the pin once the app compiles against it.
+picked="$(python3 scripts/cmux-next/newest_app_ffi_release.py)"
+read -r pin_sha CHECKSUM <<<"$picked"
+[[ "$pin_sha" =~ ^[0-9a-f]{40}$ && "$CHECKSUM" =~ ^[0-9a-f]{64}$ ]] \
+  || { echo "::error::no published app FFI release to pin (picked: $picked)" >&2; exit 1; }
+TAG="cmux-app-ffi-$pin_sha"
+scripts/cmux-next/repin-app-ffi.sh "$pin_sha" "$CHECKSUM"
 if git diff --quiet -- "$manifest"; then
-  echo "feat-cmux-next already pins $TAG"
+  echo "feat-cmux-next already pins $TAG, the newest published release"
   exit 0
 fi
-scripts/cmux-next/check-app-ffi-pin.sh --verify-release
 tip="$(git rev-parse HEAD)"
 previous="$(remote_head "$branch")"
 # Resetting the stable head to the unpinned base auto-closes its PR. Only this
@@ -53,7 +78,7 @@ if ! git push --force-with-lease="refs/heads/$branch:$previous" origin "$pin_com
 fi
 [[ "$(remote_head "$branch")" == "$pin_commit" ]] || { echo "::error::the re-pin head moved" >&2; exit 1; }
 
-body="Pins CCmuxAppFFI to [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG) (checksum \`$CHECKSUM\`), published by run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID, which checked it with check-app-ffi-pin.sh --verify-release. A newer publish updates this branch.
+body="Pins CCmuxAppFFI to [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG) (checksum \`$CHECKSUM\`), the newest published app FFI release on feat-cmux-next (latest wins: newer FFI commits whose release is not published are skipped). Run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID read its SOURCE_SHA and SHA256SUMS. A newer publish updates this branch.
 
 ## Changelog
 

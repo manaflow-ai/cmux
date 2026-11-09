@@ -16,6 +16,11 @@ extension PaletteController {
             guard let self, self.isVisible else { return }
             self.model.reload()
         }
+        // The same for an on/off command whose setting's write lands after its row ran (Chat Minimap).
+        registry.paletteStateDidChange = { [weak self] in
+            guard let self, self.isVisible else { return }
+            self.model.reload()
+        }
     }
 
     /// Reads the user's aliases and pins (cmux.json), with the built-in aliases, into the searcher. A change ranks the empty

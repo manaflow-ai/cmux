@@ -11,7 +11,7 @@ import CmuxNextTestSupport
 import CmuxNextWakeups
 
 /// The Machines section's machines joined through the hub: rows from `cmux machine list` (none
-/// while the store has no service), online by a heartbeat within 90 s, revoked ones dropped, Revoke and Rotate through the CLI and a fresh read after, Check
+/// while the store has no service), online by a heartbeat within 30 s, revoked ones dropped, Revoke and Rotate through the CLI and a fresh read after, Check
 /// as the Check Machine checklist on `machine doctor ID`, and the "…" menu's items.
 @MainActor @Suite(.closesItsWindows, .serialized) struct JoinedMachineRowsTests {
     // The service's closures are @Sendable and run off the main actor: the fakes are not isolated to it.
@@ -21,6 +21,7 @@ import CmuxNextWakeups
         var lists = 0
         var revoked: [String] = []
         var rotated: [String] = []
+        var removed: [String] = []
         var answer = true
         var on = true
         /// Whether the test's section is on screen, and whether a list read covers it (the window is
@@ -39,13 +40,34 @@ import CmuxNextWakeups
                         if answer { rows = rows.map { $0.id == id ? Fake.machine(id, $0.name, state: .revoked) : $0 } }
                         return answer
                     },
-                    rotate: { [self] id in rotated.append(id); return answer })
+                    rotate: { [self] id in rotated.append(id); return answer },
+                    remove: { [self] id in
+                        removed.append(id)
+                        if answer { rows.removeAll { $0.id == id } }
+                        return answer
+                    })
             })
         }
 
         static func machine(_ id: String, _ name: String, state: JoinedMachine.State = .online, mesh: String? = nil) -> JoinedMachine {
             JoinedMachine(id: id, name: name, state: state, platform: "linux", meshPeerId: mesh, joinTokenId: "jt_\(id)", mintedBy: "you@example.com")
         }
+    }
+
+    /// Remove runs `device remove` (the service's `remove`) and reads the list again: a removed
+    /// machine is gone from it; a refused one stays and its row says the Remove failed.
+    @Test func removeTakesTheMachineOffTheListOrSaysItFailed() async {
+        let fake = Fake()
+        fake.rows.append(Fake.machine("m_2", "build-box"))
+        let store = fake.store()
+        await store.refresh()
+        #expect(await store.perform(.remove, "m_1"))
+        #expect(fake.removed == ["m_1"])
+        #expect(store.machines.map(\.id) == ["m_2"])
+        fake.answer = false
+        #expect(!(await store.perform(.remove, "m_2")))
+        #expect(store.machines.map(\.id) == ["m_2"])
+        #expect(store.failed["m_2"] == .remove)
     }
 
     @Test func theStoreListsNothingWhileItHasNoService() async {
@@ -59,19 +81,19 @@ import CmuxNextWakeups
         #expect(fake.lists == 1)
     }
 
-    /// An online row turns offline once its heartbeat passes the 90 s window, offline and revoked rows
+    /// An online row turns offline once its heartbeat passes the 30 s window, offline and revoked rows
     /// stay as they are, and the next deadline is the first online row's expiry.
     @Test func anOnlineRowAgesOfflinePastTheHeartbeatWindow() {
         let t0 = Date(timeIntervalSince1970: 1_000_000)
         let fresh = JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: t0)
-        let older = JoinedMachine(id: "m_2", name: "b", state: .online, heartbeatAt: t0.addingTimeInterval(-30))
+        let older = JoinedMachine(id: "m_2", name: "b", state: .online, heartbeatAt: t0.addingTimeInterval(-10))
         let off = JoinedMachine(id: "m_3", name: "c", state: .offline, heartbeatAt: t0)
-        #expect(fresh.aged(now: t0.addingTimeInterval(90)).state == .online)
-        #expect(fresh.aged(now: t0.addingTimeInterval(91)).state == .offline)
+        #expect(fresh.aged(now: t0.addingTimeInterval(30)).state == .online)
+        #expect(fresh.aged(now: t0.addingTimeInterval(31)).state == .offline)
         #expect(off.aged(now: t0.addingTimeInterval(1)).state == .offline, "aging never brings a row online")
         #expect(JoinedMachine(id: "m_4", name: "d", state: .online).aged(now: .distantFuture).state == .online,
                 "no readable heartbeat: the CLI's word stands")
-        #expect(JoinedMachine.nextExpiry([fresh, older, off]) == t0.addingTimeInterval(60))
+        #expect(JoinedMachine.nextExpiry([fresh, older, off]) == t0.addingTimeInterval(20))
         #expect(JoinedMachine.nextExpiry([off]) == nil)
     }
 
@@ -310,8 +332,7 @@ import CmuxNextWakeups
         #expect(!(await store.perform(.rotate, "m_1")))
         #expect(fake.rotated == ["m_1"])
         #expect(store.failed["m_1"] == .rotate)
-        let caption = JoinedMachineStrings.caption(store.machines[0], failed: store.failed["m_1"])
-        #expect(caption.contains("rotate"), "the row's caption says the rotate failed: \(caption)")
+        // The row's caption says so: the page reads `failed` (webviews/src/pages/machines, joinedCaption).
     }
 
     @Test func joinedRowsFollowTheConnectedOnesAndCarryWhoMadeTheirLine() {
@@ -322,9 +343,7 @@ import CmuxNextWakeups
         #expect(row.id == "joined:m_1")
         #expect(row.isConnected)
         #expect(row.joined?.mintedBy == "you@example.com")
-        #expect(JoinedMachineStrings.caption(online, failed: nil) == "Online · Linux · added by you@example.com")
         #expect(!MachineSectionRow.joined(revoked, health: nil).isConnected)
-        #expect(JoinedMachineStrings.caption(revoked, failed: nil).hasPrefix("Revoked"))
     }
 
     /// The joined machines' menu rows bound as the app binds them, on `store`.
@@ -385,18 +404,19 @@ import CmuxNextWakeups
         let doctor = [AddMachineFlowTests.step("listed", "ok"), AddMachineFlowTests.step("heartbeat", "fail", "last seen 9 min ago",
                                                                                          fix: "Run cmux machine doctor on lane-vm-3")]
         host.scripts = [doctor + [AddMachineFlowTests.report("lane-vm-3", "m_1", ok: false, doctor)]]
-        let model = AddMachineModel(services: host.services())
-        model.beginJoinedCheck(id: "m_1", name: "lane-vm-3")
-        _ = await model.finished()
+        let runs = AddMachineRuns(services: host.services())
+        runs.beginJoinedCheck(id: "m_1", name: "lane-vm-3")
+        _ = await runs.finished()
         #expect(host.commands == [.joinedDoctor(id: "m_1")])
         #expect(HostCommand.joinedDoctor(id: "m_1").arguments == ["machine", "doctor", "m_1", "--json", "--cloud-token-stdin"])
         #expect(HostCommand.joinedDoctor(id: "m_1").needsAccount)
         #expect(!HostCommand.doctor(host: "h", fix: false).needsAccount)
-        #expect(model.runName == "lane-vm-3")
+        #expect(runs.run?.name == "lane-vm-3")
         #expect(host.recorded.map(\.0) == ["joined:m_1"], "the row's mark follows the check")
-        #expect(!model.buttons.map(\.action).contains(.fix), "the minting end fixes nothing on another machine")
-        #expect(model.buttons.map(\.action) == [.copyDetails, .done])
-        #expect(model.checklist.rows.map(\.step.rawValue) == ["listed", "heartbeat"], "only the steps the joined check sent, no ssh enroll rows")
+        runs.fix()
+        #expect(host.commands.count == 1, "the minting end fixes nothing on another machine")
+        // The card lists only the steps the joined check sent, no ssh enroll rows (its checklist starts empty).
+        #expect(runs.run?.events.first == .start(joined: true))
     }
 
     @Test func theJoinedCardOffersShowInMachines() async {
@@ -523,17 +543,6 @@ import CmuxNextWakeups
             .filter { $0.kind == .joined }
         #expect(rows.map(\.name) == ["lane-vm-3", "gpu-west"], "the revoked machine has no row")
         #expect(rows.map(\.isConnected) == [true, false])
-        #expect(JoinedMachineStrings.caption(store.machines[1], failed: nil) == "Offline · Linux · added by you@example.com")
-        #expect(JoinedMachineStrings.platform("macos") == "macOS")
-        #expect(JoinedMachineStrings.platform("freebsd") == "freebsd")
-    }
-
-    @Test func aJoinedMachineTheAppConnectsToStaysOneLinkedRow() {
-        let machine = Fake.machine("m_1", "lane-vm-3", mesh: "ssh-7")
-        let linked = MachineSectionRow(id: "ssh-7", name: "lane-vm-3", isConnected: true, isLocal: false, joined: machine)
-        #expect(linked.isLinked, "the daemon's row keeps New Workspace")
-        #expect(!MachineSectionRow.joined(machine, health: nil).isLinked, "a mesh-only row has no workspace link")
-        #expect(MachineSectionRow(id: "ssh-8", name: "x", isConnected: true, isLocal: false).isLinked)
     }
 
     @Test func theSecretReachesTheCLIOnStdinOnly() async throws {
@@ -551,30 +560,30 @@ import CmuxNextWakeups
         let host = AddMachineFlowTests.FakeHost()
         host.scripts = [[]]
         host.stops = [HostCLIStopFixture(message: "Sign in to cmux to check this machine.")]
-        let model = AddMachineModel(services: host.services())
-        model.beginJoinedCheck(id: "m_1", name: "lane-vm-3")
-        _ = await model.finished()
-        #expect(model.checklist.failing?.detail == "Sign in to cmux to check this machine.")
+        let runs = AddMachineRuns(services: host.services())
+        runs.beginJoinedCheck(id: "m_1", name: "lane-vm-3")
+        #expect(await runs.finished() == "Sign in to cmux to check this machine.")
+        #expect(runs.run?.events.last == .stop("Sign in to cmux to check this machine."))
     }
 
     @Test func aJoinedCheckThatFailsAfterItsRowsKeepsTheReason() async {
         let host = AddMachineFlowTests.FakeHost()
         host.scripts = [[AddMachineFlowTests.step("listed", "ok")]]
         host.stops = [HostCLIStopFixture(message: "the hub stopped answering")]
-        let model = AddMachineModel(services: host.services())
-        model.beginJoinedCheck(id: "m_1", name: "lane-vm-3")
-        _ = await model.finished()
-        #expect(model.checklist.rows.map(\.step.rawValue) == ["listed", "check"])
-        #expect(model.checklist.failing?.detail == "the hub stopped answering")
+        let runs = AddMachineRuns(services: host.services())
+        runs.beginJoinedCheck(id: "m_1", name: "lane-vm-3")
+        _ = await runs.finished()
+        // The card adds a Check it row for a stop with no row open (webviews checklist test).
+        #expect(runs.run?.events == [.start(joined: true), .line(AddMachineFlowTests.step("listed", "ok")), .stop("the hub stopped answering")])
     }
 
     @Test func checkOnADaemonRowRecordsUnderThatRow() async {
         let host = AddMachineFlowTests.FakeHost()
         let doctor = [AddMachineFlowTests.step("listed", "ok")]
         host.scripts = [doctor + [AddMachineFlowTests.report("lane-vm-3", "m_1", ok: true, doctor)]]
-        let model = AddMachineModel(services: host.services())
-        model.beginJoinedCheck(id: "m_1", name: "lane-vm-3", rowID: "ssh-7")
-        _ = await model.finished()
+        let runs = AddMachineRuns(services: host.services())
+        runs.beginJoinedCheck(id: "m_1", name: "lane-vm-3", rowID: "ssh-7")
+        _ = await runs.finished()
         #expect(host.recorded.map(\.0) == ["ssh-7"], "the daemon row the machine shows on gets the mark")
     }
 
@@ -590,121 +599,5 @@ import CmuxNextWakeups
         gate.release()
         await read.value
         #expect(store.machines.isEmpty, "the slower read does not bring back rows")
-    }
-
-    /// A mouse event for the row's handlers (they read nothing from it).
-    static var click: NSEvent {
-        NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
-                           context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-    }
-
-    /// A joined row's AppKit view on `machine`, laid out at the sidebar's width.
-    static func rowView(_ machine: JoinedMachine, busy: Bool = false, failed: JoinedMachineChange? = nil, menuOpen: Bool = false,
-                        actions: JoinedMachineRowView.Actions = .init()) -> JoinedMachineRowView {
-        let row = MachineSectionRow.joined(machine, health: nil)
-        let view = JoinedMachineRowView()
-        view.frame = NSRect(x: 0, y: 0, width: 300, height: JoinedMachineMetrics.rowHeight)
-        view.update(.init(row: row, machine: machine, busy: busy, failed: failed, menuOpen: menuOpen), actions)
-        view.layoutSubtreeIfNeeded()
-        return view
-    }
-
-    @Test func theRowShowsItsMoreButtonOnlyOnHoverOrWhileItsMenuIsOpen() {
-        let machine = Fake.machine("m_1", "lane-vm-3")
-        let idle = Self.rowView(machine)
-        #expect(idle.more.alphaValue == 0, "the more button waits for the pointer")
-        #expect(idle.spinner.isHidden)
-        idle.setHovered(true)
-        #expect(idle.more.alphaValue == 1)
-        idle.setHovered(false)
-        #expect(idle.more.alphaValue == 0)
-        let open = Self.rowView(machine, menuOpen: true)
-        #expect(open.more.alphaValue == 1 && open.more.hover.state.pressed, "an open menu keeps it shown and lit")
-        let busy = Self.rowView(machine, busy: true)
-        #expect(!busy.spinner.isHidden && busy.more.isHidden, "a running change shows the spinner in its place")
-    }
-
-    /// A capture showed "lane-v…" with room to spare and a spinner on idle rows once they were in a
-    /// window (the spinner shows itself while it spins).
-    @Test func theRowShowsItsWholeNameAndNoSpinnerWhenIdleInAWindow() throws {
-        _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 60), styleMask: [.borderless], backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        let view = Self.rowView(Fake.machine("m_1", "lane-vm-3"))
-        window.contentView?.addSubview(view)
-        view.layoutSubtreeIfNeeded()
-        let needed = ceil(try #require(view.name.cell).cellSize.width)
-        #expect(view.name.frame.width >= needed, "the name has room: it is not cut short")
-        #expect(view.spinner.isHiddenOrHasHiddenAncestor, "an idle row shows no spinner in a window")
-        let busy = Self.rowView(Fake.machine("m_2", "gpu-west"), busy: true)
-        window.contentView?.addSubview(busy)
-        #expect(!busy.spinner.isHidden)
-    }
-
-    @Test func theMoreButtonOpensTheActionsMenu() {
-        var made = 0
-        let menu = NSMenu()
-        let view = Self.rowView(Fake.machine("m_1", "lane-vm-3"), actions: .init(menu: { made += 1; return menu }))
-        var shown: [NSMenu] = []
-        view.more.presentMenu = { menu, _ in shown.append(menu) }
-        menu.addItem(withTitle: "Check", action: nil, keyEquivalent: "")
-        view.more.mouseDown(with: Self.click)
-        #expect(made == 1)
-        #expect(shown.map(ObjectIdentifier.init) == [ObjectIdentifier(menu)], "the registry's menu, made on the press")
-    }
-
-    @Test func newWorkspaceNeedsALinkToTheMachine() {
-        var opened = 0
-        let meshOnly = Self.rowView(Fake.machine("m_1", "lane-vm-3"), actions: .init(newWorkspace: { opened += 1 }))
-        #expect(!meshOnly.add.isEnabled, "a machine reached through the mesh alone has no link for a workspace")
-        #expect(meshOnly.add.themedToolTip == JoinedMachineStrings.noWorkspace)
-        let failed = Self.rowView(Fake.machine("m_1", "lane-vm-3"), failed: .rotate)
-        #expect(failed.snapshot?.caption == JoinedMachineStrings.caption(Fake.machine("m_1", "lane-vm-3"), failed: .rotate))
-        #expect(failed.snapshot?.failed == true)
-        #expect(opened == 0)
-    }
-
-    /// The section as the sidebar shows it: This Mac, then the hub's machines (an online Linux box, an
-    /// offline Mac) with the revoked one gone: `Packages/macOS/CmuxNext/.build/machines-section-hub.png`.
-    @Test func theSectionWithHubMachinesRenders() throws {
-        _ = NSApplication.shared
-        let store = JoinedMachineStore(service: { nil })
-        store.apply([Fake.machine("m_1", "lane-vm-3"),
-                     JoinedMachine(id: "m_2", name: "studio-mini", state: .offline, platform: "macos", mintedBy: "you@example.com"),
-                     Fake.machine("m_3", "old-box", state: .revoked)])
-        let hub = MachineSectionRow.rows(MachineRegistry(local: DaemonService()), health: MachineHealthStore(), joined: store)
-            .filter { $0.kind == .joined }
-        let section = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: { _ in }, addMachine: {}))
-        section.update([MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true)] + hub, style: .compact)
-        #expect(section.shownLines.contains("lane-vm-3 · Online · Linux · added by you@example.com"))
-        #expect(section.shownLines.contains("studio-mini · Offline · macOS · added by you@example.com"))
-        #expect(!section.shownLines.contains { $0.contains("old-box") }, "a revoked machine has no row")
-        section.frame = NSRect(x: 0, y: 0, width: 300, height: 220)
-        section.layoutSubtreeIfNeeded()
-        let image = try AddMachineShotsTests.render(section)
-        let data = try AddServerShotsTests.png(AddServerShotsTests.contactSheet([("Machines: hub machines", image)]))
-        let out = AddServerShotsTests.packageRoot.appending(path: ".build/machines-section-hub.png")
-        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: out)
-    }
-
-    /// The rows as a picture: `Packages/macOS/CmuxNext/.build/machines-joined-rows.png`.
-    @Test func theJoinedRowsRender() throws {
-        _ = NSApplication.shared
-        let rows = [Self.rowView(Fake.machine("m_1", "lane-vm-3"), menuOpen: true),
-                    Self.rowView(Fake.machine("m_2", "gpu-west", state: .offline)),
-                    Self.rowView(Fake.machine("m_3", "old-box", state: .revoked)),
-                    Self.rowView(Fake.machine("m_4", "build-box"), busy: true)]
-        let stack = NSStackView(views: rows)
-        stack.orientation = .vertical
-        stack.spacing = 2
-        stack.frame = NSRect(x: 0, y: 0, width: 300, height: CGFloat(rows.count) * (JoinedMachineMetrics.rowHeight + 2))
-        stack.layoutSubtreeIfNeeded()
-        let image = try AddMachineShotsTests.render(stack)
-        #expect(image.size.height >= 4 * JoinedMachineMetrics.rowHeight)
-        let out = AddServerShotsTests.packageRoot.appending(path: ".build/machines-joined-rows.png")
-        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try AddServerShotsTests.png(AddServerShotsTests.contactSheet([("joined rows", image)])).write(to: out)
     }
 }
