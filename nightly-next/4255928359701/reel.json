@@ -1,0 +1,317 @@
+{
+  "version": 1,
+  "build": "4255928359701",
+  "notes": "notes/4255928359701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 39155,
+      "title": "acpmux: steer chats to the send tool, not acpmux send in Bash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39148,
+      "title": "cmux-tui: a per-kind write budget warns when the registry journal or acpmux's log churns",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39158,
+      "title": "mobile link: a lost probe on the held path refreshes the others; tests know relays by address",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39143,
+      "title": "ci(guards): the small static checks run in two jobs, not eight",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39165,
+      "title": "Ledger tests: give the empty-seed hold test its own scratch folder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39108,
+      "title": "action catalog dump: appearance.personalize has its hint key, as every dumped action",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38966,
+      "title": "macos-stubs: dedupe Security.tbd; allowlist the stub header and cross-link probe (fleet rule lint)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39104,
+      "title": "Typing in an agent chat never blinks the tab's or workspace's unread dot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39153,
+      "title": "tests(rust-live): wait on the fake app's next owner, fake the kill; no sleeps",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39073,
+      "title": "cmux-host updater: the pause record reaches the operator's update check",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39156,
+      "title": "cmux-tui-core: the router owns 92 connection operations (resource_attach base red since #38293)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39048,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-0ee67db0f28dae50381e01e015fcd36a1b1d1958",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38996,
+      "title": "ci(nightly-next): a weekly rollback drill pulls a canary off a drill feed through the real rollback jobs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39152,
+      "title": "tests(base-red): fake the deadline alarm and the stalled gh, no wall-clock asserts",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39150,
+      "title": "cloud journey: each leaked-machine delete ends within its 5 min bound",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39142,
+      "title": "The composer and its hat hold still while a turn ticks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39126,
+      "title": "Composer: a recording the host makes for the chat loads at the caret, never in the strip first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39128,
+      "title": "cmux mcp: cmux_exec takes its script as code too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38492,
+      "title": "Agent chats: New since you looked",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39088,
+      "title": "Session Info: push the chat only when there is no room left",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38913,
+      "title": "acpmux tests: use a neutral host name in the outbox attribution fixture",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39144,
+      "title": "cmux-wg: a late version-1 hello after the peer upgraded cannot split two version-2 sides",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38943,
+      "title": "webviews: neutral host name in the live tool output reach-wrapper case",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39011,
+      "title": "cmux carrier tunnel: the Mac's tunnel into the team's provider Cloud mesh (S6 G3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39090,
+      "title": "Agent pane: the side panel's edge drags like a split divider",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39109,
+      "title": "acpmux app_orphan_exit: copy the bundle's binary in a cp process (ETXTBSY)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38407,
+      "title": "cmux NEXT: classic cmux migration rules move to Rust (classic_import.plan/.record on the daemon)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39076,
+      "title": "acpmux: a sandboxed remote chain starts with a working Bash (subprocess env scrub off)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39114,
+      "title": "remote_stream_bench: --drop-at cuts a two-host viewer's path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39121,
+      "title": "cmux-wg: resend in-flight tunnel data at once when the path changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38339,
+      "title": "Agent chat: a running turn keeps its tool calls in sight and folds once, in one motion, when it ends",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38881,
+      "title": "Cloud phone chat: the daemon advertises cloud-mobile-chat-v1",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39098,
+      "title": "cloud journey: list, then delete by exact id, the staging account's leaked journey machines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39119,
+      "title": "cmux mcp: cmux_exec always loads in Claude Code (no tool-search round trip)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39115,
+      "title": "acpmux: Claude chats get the cmux chat rules, not only a pointer to cmux:cmux-chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39113,
+      "title": "cmux agent skills: shorter descriptions for the skill listing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39107,
+      "title": "cmux-tui carrier tests: the stand-in session daemons take the role stamp",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38880,
+      "title": "Cloud phone channel: a phone's carrier stream reaches only hostd's adapter commands, a chat start included",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38990,
+      "title": "acpmux: ledger first load is crash safe, recreated chats are audited again, Request changes keeps its comment",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37298,
+      "title": "cmux NEXT: Add Machine on React, on the shared card panel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38194,
+      "title": "cmux-next: Cmd-W pane close focus matches classic Bonsplit",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39062,
+      "title": "cmux-wg: ultra hello acknowledgements name the instance they acknowledge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38989,
+      "title": "mobile link: route choice by the shared path selector, with quiet-path failover",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38999,
+      "title": "Cloud environment sheet: rows keep a client-side id, so removing a secret keeps every other row's open header",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39049,
+      "title": "cmux-host updater: hold every flip on the supervisor's pause watch, the one pause detector",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39046,
+      "title": "cmux-rd host: the link-close fallback test exercises an active link again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39018,
+      "title": "git seed: a Mac folder seed can open the chat at its head (machine side)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39097,
+      "title": "cmux-transport: a tie on the longest prefix takes the slowest medium, in any order",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38694,
+      "title": "cmux NEXT: a restored chat draws its kept tail without waiting for acpmux's open",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39030,
+      "title": "Agent chat: a Cloud chat's background task opens its terminal on its machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39082,
+      "title": "Plan build follow-ups: one build call per approval, the plan's turn stops, a refusal says why, a durable build record",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
