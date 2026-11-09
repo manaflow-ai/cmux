@@ -3,6 +3,7 @@ public import CmuxNextPages
 public import CmuxNextSettings
 import CmuxNextCompat
 import Foundation
+import WebKit
 public import Observation
 
 extension PageDescriptor {
@@ -42,7 +43,7 @@ public struct SetupCardEnvironment {
 public final class SetupCardHost {
     public let page: PageWebView
     public let provider: SetupCardPageProvider
-    /// The card's height in points; 0 before the page measured it.
+    /// The card's height in points at the page's zoom; 0 before the page measured it.
     public private(set) var height: CGFloat = 0
     /// Called after each height change.
     public var onHeightChange: (() -> Void)?
@@ -57,10 +58,23 @@ public final class SetupCardHost {
         self.page = page
         self.provider = provider
         provider.onSize = { [weak self] height in
-            guard let self, height != self.height else { return }
-            self.height = height
-            self.onHeightChange?()
+            self?.cssHeight = height
+            self?.resize()
         }
+        // The page follows interface and chat zoom: its CSS height is drawn at the zoom's scale.
+        page.onZoomChange = { [weak self] in self?.resize() }
+    }
+
+    /// The page's last measured height in CSS px.
+    private var cssHeight: CGFloat = 0
+
+    /// The card's height in points: its CSS height at the page's zoom (as ``WebCardPanel`` sizes its card).
+    private func resize() {
+        let zoom = page.webKitView.pageZoom * page.webKitView.magnification
+        let next = ceil(cssHeight * max(zoom, 0.01))
+        guard next != height else { return }
+        height = next
+        onHeightChange?()
     }
 
     public func close() {
