@@ -155,3 +155,19 @@ test("a saved width is on the parent before the first paint, and leaves with the
   );
   expect(shell.style.getPropertyValue("--share")).toBe("");
 });
+
+test("an edge that leaves mid-drag gives the page its cursor and frames back", () => {
+  const doc = render(
+    <div className="pane">
+      <SplitEdge side="right" property="--list-width" storageKey="test.gone" min={160} max={400} />
+    </div>,
+  );
+  const edge = doc.querySelector(".ui-split-edge")!;
+  place(doc.querySelector(".pane")!, 0, 200);
+  pointer(edge, "pointerdown", 200);
+  pointer(edge, "pointermove", 260);
+  expect(doc.documentElement.dataset.splitResizing).toBe("");
+  render(<div className="pane" />);
+  expect(doc.documentElement.dataset.splitResizing).toBeUndefined();
+  expect(localStorage.getItem("test.gone")).toBeNull();
+});

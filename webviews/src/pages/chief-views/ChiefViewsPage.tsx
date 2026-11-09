@@ -119,7 +119,7 @@ export function ChiefViewsPage({
               {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx); each placement
                   keeps its own width. */}
               <SplitEdge
-                side="left"
+                side="start"
                 property="--chief-views-side-width"
                 storageKey={`cmux.chiefViews.side.${layout.side.placement}.width`}
                 min={200}

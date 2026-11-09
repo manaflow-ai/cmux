@@ -206,7 +206,7 @@ export function DebugSettingsPage({ store, strings }: { store: DebugSettingsStor
         </nav>
         {/* The sections' line is the split's divider and drags as one (ui/SplitEdge.tsx). */}
         <SplitEdge
-          side="right"
+          side="end"
           property="--debug-settings-sidebar-width"
           storageKey="cmux.debugSettings.sidebar.width"
           min={160}

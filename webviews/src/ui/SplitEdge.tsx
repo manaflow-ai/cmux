@@ -86,7 +86,12 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
     const stored = readStored(storageKey);
     if (stored !== undefined) apply(Math.min(max, Math.max(min, stored)));
     return () => {
-      if (drag.current) cancelAnimationFrame(drag.current.frame);
+      // A pane that leaves mid-drag gets no pointerup: its markers leave with it.
+      if (drag.current) {
+        cancelAnimationFrame(drag.current.frame);
+        drag.current = undefined;
+        delete document.documentElement.dataset.splitResizing;
+      }
       element?.style.removeProperty(property);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the edge's place and key are fixed for its life
