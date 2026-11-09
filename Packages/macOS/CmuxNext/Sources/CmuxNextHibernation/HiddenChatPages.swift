@@ -157,13 +157,25 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
         guard let turns else { return }
         turnKeys = keys
         turnObservation?.cancel()
+        let read: @MainActor @Sendable () -> TurnsRead = { [weak self] in
+            TurnsRead(watching: turns.watching, busy: keys.filter { self?.host?.pageTurnBusy($0) == true })
+        }
+        // What the replan that armed this saw, read now: a turn that changes before the stream's first value
+        // (it starts on a later turn) differs from it and replans, so no change between the two is lost.
+        let seen: TurnsRead? = replanFirst ? nil : read()
         turnObservation = Task { [weak self] in
-            var first = !replanFirst
-            for await _ in ObservationStream({ [weak self] in (turns.watching, keys.filter { self?.host?.pageTurnBusy($0) == true }) }) {
-                if first { first = false; continue }
+            var last = seen
+            for await now in ObservationStream(read) where now != last {
+                last = now
                 self?.replan()
             }
         }
+    }
+
+    /// The turn facts a replan reads: whether the watch is up, and which observed pages' turns run or wait.
+    private struct TurnsRead: Equatable, Sendable {
+        var watching: Bool
+        var busy: Set<String>
     }
 
     /// Follows the turns of the pages hidden or frozen now, when they changed since the last observation.

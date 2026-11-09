@@ -45,4 +45,22 @@ struct HiddenChatTurnCostTests {
         await rig.settle { rig.tabs.existingView("tab_hidden") == nil }
         #expect(rig.tabs.existingView("tab_hidden") == nil, "the hidden chat's turn end did not release it")
     }
+
+    /// Review of #39291: a page hidden while its turn runs re-arms the observer; a turn that ends before the
+    /// observer's first value still replans (the arm's own read is the baseline, not the stream's first value).
+    @Test func aTurnThatEndsRightAfterItsChatHidesStillLetsItGo() async throws {
+        let rig = AgentPageHibernationTests.Rig()
+        defer { rig.window.closeAfterTest() }
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .critical)
+        rig.turns.setState(.working, session: "s-quick")
+        rig.records["tab_quick"] = AgentSessionRef(host: AgentPageHibernationTests.thisMac, hostName: "This Mac", session: "s-quick",
+                                                   harness: "claude")
+        rig.elapsed += .seconds(AgentPageHibernation.minimumHidden + 1)
+        _ = try rig.hiddenChat("tab_quick", session: "s-quick")
+        rig.elapsed += .seconds(AgentPageHibernation.minimumHidden + 1)
+        rig.hibernation.replan() // due, kept for its turn: the observer re-arms for this page
+        rig.turns.setState(.done, session: "s-quick") // before the observer's task first runs
+        await rig.settle { rig.tabs.existingView("tab_quick") == nil }
+        #expect(rig.tabs.existingView("tab_quick") == nil, "a turn end right after the re-arm was lost")
+    }
 }
