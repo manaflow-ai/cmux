@@ -239,6 +239,20 @@ mod tests {
         assert!(bridge.send(" ", codex, "hi").is_err());
     }
 
+    /// A message the person or an agent sends goes whole, whatever its size: no 64 KiB limit.
+    #[test]
+    fn send_path_a_bridge_message_of_any_size_is_delivered_whole() {
+        let (_dir, bridge) = bridge();
+        let codex = app("codex").unwrap();
+        let text = "a long paste ".repeat(5 * 1024 * 1024 / 13);
+        assert!(text.len() > 4 << 20);
+        bridge.send("Claude Desktop", codex, &text).unwrap();
+        let (read, more) = bridge.inbox(codex, true).unwrap();
+        assert_eq!(more, 0);
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].text, text.trim());
+    }
+
     #[test]
     fn a_read_returns_at_most_max_read_and_counts_the_rest() {
         let (_dir, bridge) = bridge();

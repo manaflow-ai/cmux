@@ -161,6 +161,28 @@ async fn a_rekey_sends_the_new_key_before_it_replaces_the_key_file() {
 
 /// Peers reach this machine by its current node key and cannot learn a rotated one yet: a
 /// rotation is refused before anything is written or sent, and names them.
+/// A success whose answer is long (a platform record with large fields) still names its key: the
+/// whole answer is read, so the rekey finishes instead of staying indeterminate.
+#[tokio::test]
+async fn send_path_a_long_platform_answer_that_names_the_key_finishes_the_rekey() {
+    let dir = tempfile::tempdir().unwrap();
+    let platform = platform(dir.path().into(), None, |seen| {
+        let (status, mut record) = takes_the_key(seen);
+        record["note"] = json!("n".repeat(200 * 1024));
+        (status, record)
+    })
+    .await;
+    let rekeys = tokio::sync::Mutex::new(());
+    let answer =
+        rekey_once(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, |_| Ok(()))
+            .await
+            .unwrap();
+    let sent = platform.seen.lock().unwrap()[0].body["wgPublicKey"].as_str().unwrap().to_owned();
+    assert_eq!(answer["wgPublicKey"], sent.as_str());
+    assert_eq!(public_of(dir.path()), sent, "the key file holds the key the platform took");
+    assert!(!KeyFile::NodePending.path_in(dir.path()).exists(), "no pending key is left");
+}
+
 #[tokio::test]
 async fn a_rotation_that_would_strand_peers_is_refused_and_names_them() {
     let dir = tempfile::tempdir().unwrap();

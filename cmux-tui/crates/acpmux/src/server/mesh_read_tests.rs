@@ -288,6 +288,77 @@ async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
     assert_eq!(replies, [format!("echo: {big}")]);
 }
 
+/// A hub that answers every message slowly, within each wait: the first read says its answer is
+/// held in `count` parts, and each part read gets one byte.
+struct Slow {
+    count: u64,
+    each: Duration,
+    bodies: Mutex<std::collections::HashMap<String, String>>,
+}
+
+impl MeshHub for Slow {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("unused")) })
+    }
+
+    fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async move {
+            let id = format!("msg_{}", uuid::Uuid::now_v7().simple());
+            self.bodies.lock().unwrap().insert(id.clone(), m.body.clone());
+            Ok(serde_json::from_value(json!({"messageId": id, "state": "queued", "createdAt": 1}))
+                .unwrap())
+        })
+    }
+
+    fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async move {
+            tokio::time::sleep(self.each).await;
+            let body = self.bodies.lock().unwrap().get(id).cloned().unwrap_or_default();
+            let result = if body.contains("_acpmux/readPart") {
+                json!({"part": "eA=="})
+            } else {
+                json!({"_acpmuxParts": {"id": "held", "count": self.count}})
+            };
+            let mut receipt: Receipt = serde_json::from_value(
+                json!({"messageId": id, "state": "delivered", "createdAt": 1}),
+            )
+            .unwrap();
+            receipt.result = Some(result.to_string());
+            Ok(receipt)
+        })
+    }
+}
+
+/// A read in parts ends within a total time that grows with its parts: a hub that answers
+/// each part just inside its own wait cannot hold the asker for hours.
+#[tokio::test(start_paused = true)]
+async fn send_path_a_read_in_parts_ends_within_its_total_time() {
+    let hub = Slow { count: 700, each: Duration::from_secs(10), bodies: Mutex::default() };
+    let started = tokio::time::Instant::now();
+    let page = json!({"limit": 200, "maxBytes": 1 << 20});
+    let failed =
+        read(&hub, "machine-b", "big-record", method::MUX_EVENTS, &page).await.unwrap_err();
+    let took = started.elapsed();
+    // 700 parts at 10 s each is 7000 s; the total for 700 parts is about an hour.
+    assert!(took < Duration::from_secs(3700), "the read took {took:?}");
+    assert_eq!(
+        failed.data.as_ref().and_then(|d| d["reason"].as_str()),
+        Some("mesh.read_unanswered"),
+        "{failed:?}"
+    );
+}
+
 #[tokio::test]
 async fn a_read_runs_only_a_read_method() {
     let b = machine_b();

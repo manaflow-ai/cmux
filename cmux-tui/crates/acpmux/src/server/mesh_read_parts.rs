@@ -58,3 +58,30 @@ impl ReadParts {
         Some(part)
     }
 }
+
+#[cfg(test)]
+impl ReadParts {
+    /// The bytes of every answer held now.
+    fn held_bytes(&self) -> usize {
+        self.held.lock().unwrap_or_else(|e| e.into_inner()).values().map(|h| h.text.len()).sum()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Answers whose askers never read their parts do not pile up without end: the oldest go
+    /// first, and the newest answer is always held whole.
+    #[test]
+    fn send_path_held_answers_stay_within_a_total_and_the_newest_is_kept() {
+        let parts = ReadParts::default();
+        let answer = |n: u8| String::from_utf8(vec![b'a' + n; 8 << 20]).unwrap();
+        let ids: Vec<String> = (0..9).map(|n| parts.hold("s", answer(n))).collect();
+        assert!(parts.held_bytes() <= 64 << 20, "{} bytes held", parts.held_bytes());
+        let first = parts.part(&ids[8], "s", 0, 4).unwrap();
+        let first = base64::engine::general_purpose::STANDARD.decode(first).unwrap();
+        assert_eq!(first, b"iiii");
+        assert!(parts.part(&ids[0], "s", 0, 4).is_none(), "the oldest went first");
+    }
+}
