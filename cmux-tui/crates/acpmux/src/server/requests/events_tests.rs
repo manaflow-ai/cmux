@@ -47,8 +47,8 @@ fn a_read_past_the_saved_last_seq_gets_the_logs_tail_before_the_log_loads() {
 
     // A read from inside the saved run says the log's end too, so a cursor moves past it.
     let hub = hard_stopped();
-    let page = handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "afterSeq": 1}), None)
-        .unwrap();
+    let page =
+        handle(&hub, method::MUX_EVENTS, &json!({"sessionId": "c", "afterSeq": 1}), None).unwrap();
     assert_eq!(seqs(&page), [2, 3, 4, 5]);
     assert_eq!(page["lastSeq"], 5);
 

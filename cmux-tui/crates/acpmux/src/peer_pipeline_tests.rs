@@ -290,9 +290,7 @@ async fn a_chat_attached_again_without_history_is_reported_as_lagged() {
     let mut connected = false;
     let mut reattached = Vec::new();
     // Every notice of the handshake and the attaches after it, until the link goes quiet.
-    while let Ok(Some((_, _, notice))) =
-        tokio::time::timeout(RTT * 10, notices.recv()).await
-    {
+    while let Ok(Some((_, _, notice))) = tokio::time::timeout(RTT * 10, notices.recv()).await {
         match notice {
             PeerNotice::Connected => connected = true,
             PeerNotice::Notification { method: m, params, .. } if m == REATTACHED_NOTICE => {
