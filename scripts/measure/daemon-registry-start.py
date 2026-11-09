@@ -192,25 +192,31 @@ def main():
     # The first exec of a binary just linked pays for macOS's check of it, before main and
     # without opening a registry. Two `--version` execs before the timed starts pay it and
     # show it (the first against the second), so the starts time only the owner.
-    # The generator's writes are still going to disk: the first durable sync a start makes
-    # (anywhere: the drive flush queues behind them) would wait for them. Wait for them here,
-    # timed: a full fsync of each file the generator wrote (on macOS, sync returns at once).
-    sync_started = time.monotonic()
-    os.sync()
+    # A registry written or cloned seconds ago leaves the volume a large flush to finish: the
+    # first full fsync (or create) anywhere on it waits for that, about 2 s on a fleet Mac,
+    # wherever in the start it falls (2026-11-09: the owner's first atomic write, and a
+    # thread's open beside it). Let the volume settle first: a timed full fsync of a scratch
+    # file each second, until three in a row take under 100 ms (at most 120 s).
+    settle_started = time.monotonic()
     full_fsync = getattr(fcntl, "F_FULLFSYNC", None)
-    for path in (registry, Path(str(registry) + "-wal")):
-        if not path.exists():
-            continue
-        descriptor = os.open(path, os.O_RDWR)
-        try:
+    flushes, fast = [], 0
+    while fast < 3 and time.monotonic() - settle_started < 120:
+        flush_started = time.monotonic()
+        probe = os.path.join(args.home, f".drs-settle-{len(flushes)}")
+        with open(probe, "wb") as handle:
+            handle.write(b"settle")
+            handle.flush()
             if full_fsync is not None:
-                fcntl.fcntl(descriptor, full_fsync)
+                fcntl.fcntl(handle.fileno(), full_fsync)
             else:
-                os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-    sync_ms = round((time.monotonic() - sync_started) * 1000, 1)
-    print("DRS-SYNC " + json.dumps({"sync_ms": sync_ms}), flush=True)
+                os.fsync(handle.fileno())
+        os.unlink(probe)
+        took = round((time.monotonic() - flush_started) * 1000, 1)
+        flushes.append(took)
+        fast = fast + 1 if took < 100 else 0
+        time.sleep(1)
+    sync_ms = round((time.monotonic() - settle_started) * 1000, 1)
+    print("DRS-SYNC " + json.dumps({"settle_ms": sync_ms, "flush_ms": flushes}), flush=True)
     execs = []
     for _ in range(2):
         exec_started = time.monotonic()
