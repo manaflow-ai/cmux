@@ -7,6 +7,7 @@ import type {
   CloudEnvironmentsState,
   HarnessesState,
   HostLists,
+  IntegrationRow,
   ProviderAccount,
 } from "./ops";
 import { minutesAgo } from "../../gallery/clock";
@@ -249,6 +250,11 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     return [setting.key, value];
   }),
 );
+/** A `link-<app>` row of `agent hook status` (cmux-tui agent_hook_links.rs). */
+function linkRow(app: string, path: string, state: IntegrationRow["state"]): IntegrationRow {
+  return { id: `link-${app}`, path, state, reason: null, detail: null, error: null };
+}
+
 const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = {}): SettingsPageVariant => ({
   section,
   host,
@@ -405,6 +411,56 @@ Object.assign(variants, {
     note: "Agent integrations in a build without the cmux CLI: it says so and gives the command.",
     focus: "agents.integrations",
     integrations: { loading: false, problem: "unavailable", command: "cmux agent hook install", providers: [] },
+  }),
+  // "Your other apps": the cmux MCP server in Claude desktop, Claude Code and Codex
+  // (`agent hook status` link- rows), above the hooks.
+  "agents-integrations-links": variant("agents", {
+    note: "Your other apps: Claude desktop connected, Claude Code not yet, Codex linked by another cmux build (Reconnect).",
+    focus: "agents.integrations",
+    integrations: {
+      loading: false,
+      problem: null,
+      command: "cmux agent hook install",
+      providers: [
+        linkRow("claude-desktop", "~/Library/Application Support/Claude/claude_desktop_config.json", "installed"),
+        linkRow("claude-code", "~/.claude.json", "absent"),
+        linkRow("codex", "~/.codex/config.toml", "partial"),
+        { id: "claude", path: "~/.claude/settings.json", state: "installed", reason: null, detail: null, error: null },
+        { id: "codex", path: "~/.codex/hooks.json", state: "absent", reason: null, detail: null, error: null },
+      ],
+    },
+  }),
+  "agents-integrations-links-blocked": variant("agents", {
+    note: "Your other apps: Codex already has a server named cmux that cmux did not add (no Connect); Claude desktop's settings file is unreadable.",
+    focus: "agents.integrations",
+    integrations: {
+      loading: false,
+      problem: null,
+      command: "cmux agent hook install",
+      providers: [
+        {
+          ...linkRow("claude-desktop", "~/Library/Application Support/Claude/claude_desktop_config.json", "unavailable"),
+          reason: "unreadable",
+        },
+        { ...linkRow("codex", "~/.codex/config.toml", "conflict"), reason: "not_owned" },
+      ],
+    },
+  }),
+  "agents-integrations-links-error": variant("agents", {
+    note: "Your other apps: Connect on Claude Code failed because its CLI is not on the login PATH; the row says what to run.",
+    focus: "agents.integrations",
+    integrations: {
+      loading: false,
+      problem: null,
+      command: "cmux agent hook install",
+      providers: [
+        {
+          ...linkRow("claude-code", "~/.claude.json", "absent"),
+          error: "link-claude-code: the claude CLI is not on PATH; run: claude mcp add-json --scope user cmux '{…}'",
+        },
+        linkRow("codex", "~/.codex/config.toml", "installed"),
+      ],
+    },
   }),
   "agents-harnesses-account-added": variant("agents", {
     note: "Codex right after Add account: ChatGPT 3 has a shadow home of its own, waits for its sign-in, and is on for routing.",
