@@ -1,6 +1,10 @@
-// The prompt rail on the pane's left edge keeps the spacing the right-edge rail has: the same inset from
-// its edge to its ticks, the same room from its ticks to the text, the same top, and one pitch between
-// rows (ask "Fix scroll redraw flicker in session info; fix left session rail spacing").
+// The prompt rail on the pane's left edge keeps the spacing the right-edge rail has (Leo, 2026-11-06: "you
+// guys didn't fix the spacing on this left side session rail thing"): the same inset from its edge to
+// its ticks, the same top, one pitch between rows, and resting ticks of one length in every state.
+// Session Info pushes the chat's column left, toward the left rail and away from a right one: the left
+// rail's hit width shrank to keep the text its clicks, and its ticks' line box shrank with it, so the
+// pushed left rail drew its resting ticks 4.6 px long beside the right rail's 6 (and a narrow pane's
+// 2.8). Now only the room between the ticks and the text shrinks (restTick.experiment.ts `steady`).
 // SESSION-RAIL-SPACING lines print each side's measured spacing.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -8,6 +12,7 @@ import { mkdir } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
+import { tickLength } from "../src/agent-session/acpmux/threadMinimap/model";
 
 await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -80,6 +85,8 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
       const r = (n: number) => Math.round(n * 10) / 10;
       const tops = bars.map((bar) => bar.top).sort((a, b) => a - b);
       const pitches = [...new Set(tops.slice(1).map((top, i) => r(top - tops[i]!)))];
+      // The resting ticks' drawn lengths (the band's lit ticks are as long; only a hovered one grows).
+      const lengths = [...new Set(bars.map((bar) => r(bar.width)))];
       return {
         side,
         railEdge: r(side === "right" ? paneRight - rail.right : rail.left - paneLeft),
@@ -88,6 +95,7 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
         railTop: r(rail.top - box.top),
         railWidth: r(rail.width),
         pitches,
+        lengths,
         occluded: nav.hasAttribute("data-occluded"),
         scrollbar: scroller.offsetWidth - scroller.clientWidth - scroller.clientLeft,
         bars: bars.length,
@@ -117,6 +125,9 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
         expect(left.railTop).toBe(right.railTop);
         expect(left.pitches).toEqual(right.pitches);
         expect(Math.abs(left.tickToText - right.tickToText)).toBeLessThanOrEqual(1);
+        // Every resting tick at its one length (model.ts tickLength(0)), the narrow pane's too.
+        expect(left.lengths).toEqual([Math.round(tickLength(0) * 10) / 10]);
+        expect(right.lengths).toEqual(left.lengths);
       } finally {
         await page.close();
       }
@@ -134,7 +145,7 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
         const page = await pane!.open({ width, height: 760, colorScheme: "dark" });
         try {
           await closeSessionInfo(page);
-          const sides: Record<string, unknown> = {};
+          const sides: Record<string, Awaited<ReturnType<typeof spacing>> & { placement: string | null }> = {};
           for (const side of ["left", "right"] as const) {
             await railSide(page, side, push);
             await page.locator(`.acpmux-minimap__rail[data-side="${side}"]:not(.acpmux-scrollmap)`).waitFor();
@@ -151,6 +162,16 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
             await closeSessionInfo(page);
           }
           console.log(`SESSION-RAIL-SPACING-INFO ${width} ${push ? "push" : "open"} ${JSON.stringify(sides)}`);
+          const { left, right } = sides as Record<"left" | "right", Awaited<ReturnType<typeof spacing>>>;
+          // Session Info open or pushing leaves the left rail's ticks where and as long as the right
+          // rail's: the same edge inset, top, pitch and resting length.
+          expect(left.tickEdge).toBe(right.tickEdge);
+          expect(left.railTop).toBe(right.railTop);
+          expect(left.pitches).toEqual(right.pitches);
+          expect(left.lengths).toEqual([Math.round(tickLength(0) * 10) / 10]);
+          expect(right.lengths).toEqual(left.lengths);
+          // The text never reaches the left rail's resting ticks.
+          expect(left.tickToText).toBeGreaterThan(0);
         } finally {
           await page.close();
         }
