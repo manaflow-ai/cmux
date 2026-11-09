@@ -403,6 +403,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         return try await client.media(path: path)
     }
 
+    public func loadRemoteMediaRange(_ path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        guard let client = state.withLock({ $0.client }) else {
+            throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
+        }
+        return try await client.mediaRange(path: path, offset: offset, length: length, handle: handle)
+    }
+
     /// A login frame as the daemon's `agent-session-login` step: its `op` and fields; nil when a
     /// field is missing or not text, or a frame that names a chat names another than this one.
     static func login(_ method: String, _ params: [String: Any], names: (Any?) -> Bool) -> (String, [String: String])? {

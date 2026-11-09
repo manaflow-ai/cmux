@@ -5386,134 +5386,134 @@
         }
       }
     },
-    "cloud.failed.tunnelKeyRequired": {
-      "comment": "Rotate Cloud Tunnel Key without a key. --public-key is the flag; keep it as is. WireGuard is a product name.",
+    "cloud.failed.tunnelDaemonUnavailable": {
+      "comment": "A Cloud tunnel attach, detach or key rotation that this Mac's acpmux agent daemon did not take (it is not running, or did not accept the app's proof). Cloud is a product name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pass this Mac's new WireGuard public key for the tunnel with --public-key <key>."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "トンネル用のこの Mac の新しい WireGuard 公開鍵を --public-key <key> で指定してください。"
+            "value": "This Mac's agent daemon did not take the Cloud tunnel change. Open an agent chat to start it, then try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مرّر مفتاح WireGuard العام الجديد لهذا الـ Mac الخاص بالنفق باستخدام --public-key <key>."
+            "value": "لم يقبل برنامج الوكيل الخفي على جهاز Mac هذا تغيير نفق Cloud. افتح محادثة وكيل لتشغيله، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Proslijedite novi WireGuard javni ključ ovog Maca za tunel pomoću --public-key <key>."
+            "value": "Agent daemon na ovom Macu nije prihvatio promjenu Cloud tunela. Otvorite chat s agentom da ga pokrenete, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Angiv denne Macs nye offentlige WireGuard-nøgle til tunnelen med --public-key <key>."
+            "value": "Agent-daemonen på denne Mac tog ikke imod ændringen af Cloud-tunnelen. Åbn en agentchat for at starte den, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Übergib den neuen öffentlichen WireGuard-Schlüssel dieses Macs für den Tunnel mit --public-key <key>."
+            "value": "Der Agent-Daemon auf diesem Mac hat die Änderung am Cloud-Tunnel nicht angenommen. Öffne einen Agent-Chat, um ihn zu starten, und versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indica la nueva clave pública de WireGuard de este Mac para el túnel con --public-key <key>."
+            "value": "El daemon de agentes de este Mac no aceptó el cambio del túnel de Cloud. Abre un chat de agente para iniciarlo y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indiquez la nouvelle clé publique WireGuard de ce Mac pour le tunnel avec --public-key <key>."
+            "value": "Le daemon d'agents de ce Mac n'a pas accepté la modification du tunnel Cloud. Ouvrez une discussion d'agent pour le démarrer, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Passa la nuova chiave pubblica WireGuard di questo Mac per il tunnel con --public-key <key>."
+            "value": "Il daemon degli agenti su questo Mac non ha accettato la modifica al tunnel Cloud. Apri una chat con un agente per avviarlo, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のエージェントデーモンが Cloud トンネルの変更を受け付けませんでした。エージェントチャットを開いて起動してから、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បញ្ជូនសោសាធារណៈ WireGuard ថ្មីរបស់ Mac នេះសម្រាប់ផ្លូវរូងដោយប្រើ --public-key <key>។"
+            "value": "ដេមិនភ្នាក់ងារនៅលើ Mac នេះមិនបានទទួលការផ្លាស់ប្ដូរផ្លូវរូងក្រោមដី Cloud ទេ។ បើកការជជែកភ្នាក់ងារដើម្បីចាប់ផ្ដើមវា រួចព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터널에 사용할 이 Mac의 새 WireGuard 공개 키를 --public-key <key>로 지정하십시오."
+            "value": "이 Mac의 에이전트 데몬이 Cloud 터널 변경을 받지 않았습니다. 에이전트 채팅을 열어 시작한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oppgi denne Macens nye offentlige WireGuard-nøkkel for tunnelen med --public-key <key>."
+            "value": "Agent-daemonen på denne Macen tok ikke imot endringen av Cloud-tunnelen. Åpne en agentchat for å starte den, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Podaj nowy publiczny klucz WireGuard tego Maca dla tunelu za pomocą --public-key <key>."
+            "value": "Demon agentów na tym Macu nie przyjął zmiany tunelu Cloud. Otwórz czat z agentem, aby go uruchomić, i spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Passe a nova chave pública WireGuard deste Mac para o túnel com --public-key <key>."
+            "value": "O daemon de agentes deste Mac não aceitou a alteração do túnel do Cloud. Abra um chat de agente para iniciá-lo e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Укажите новый открытый ключ WireGuard этого Mac для туннеля через --public-key <key>."
+            "value": "Демон агентов на этом Mac не принял изменение туннеля Cloud. Откройте чат с агентом, чтобы запустить его, и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ระบุคีย์สาธารณะ WireGuard ใหม่ของ Mac เครื่องนี้สำหรับทันเนลด้วย --public-key <key>"
+            "value": "เดมอนเอเจนต์บน Mac เครื่องนี้ไม่รับการเปลี่ยนแปลงทันเนล Cloud เปิดแชทเอเจนต์เพื่อเริ่มเดมอน แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Mac'in tünel için yeni WireGuard ortak anahtarını --public-key <key> ile iletin."
+            "value": "Bu Mac'teki ajan arka plan hizmeti Cloud tüneli değişikliğini kabul etmedi. Başlatmak için bir ajan sohbeti açın, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Передайте новий відкритий ключ WireGuard цього Mac для тунелю через --public-key <key>."
+            "value": "Демон агентів на цьому Mac не прийняв зміну тунелю Cloud. Відкрийте чат з агентом, щоб запустити його, і спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Truyền khóa công khai WireGuard mới của máy Mac này cho đường hầm bằng --public-key <key>."
+            "value": "Trình nền tác nhân trên máy Mac này không nhận thay đổi đường hầm Cloud. Mở một cuộc trò chuyện với tác nhân để khởi động nó, rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请用 --public-key <key> 传入这台 Mac 用于隧道的新 WireGuard 公钥。"
+            "value": "这台 Mac 上的智能体守护进程未接受 Cloud 隧道的更改。打开一个智能体聊天以启动它，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請用 --public-key <key> 傳入這台 Mac 用於通道的新 WireGuard 公開金鑰。"
+            "value": "這台 Mac 上的代理程式常駐程式未接受 Cloud 通道的變更。開啟一個代理程式聊天以啟動它，然後再試一次。"
           }
         }
       }
@@ -11680,138 +11680,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "請用 --path <publication> 傳入發布的 id 或主機名稱；`cmux cloud publication-list` 會列出它們。"
-          }
-        }
-      }
-    },
-    "cloud.network.networkIDRequired": {
-      "comment": "A tunnel network action ran without a network id. --path <network-id> is the CLI flag and `cmux cloud network-list` a command; keep both as they are.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pass the network id with --path <network-id>; `cmux cloud network-list` lists ids."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مرّر معرّف الشبكة باستخدام --path <network-id>؛ يعرض `cmux cloud network-list` المعرّفات."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Proslijedite id mreže pomoću --path <network-id>; `cmux cloud network-list` prikazuje id-ove."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Angiv netværks-id'et med --path <network-id>; `cmux cloud network-list` viser id'erne."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gib die Netzwerk-ID mit --path <network-id> an; `cmux cloud network-list` listet die IDs auf."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pasa el id de la red con --path <network-id>; `cmux cloud network-list` muestra los ids."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indiquez l'identifiant du réseau avec --path <network-id> ; `cmux cloud network-list` affiche les identifiants."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passa l'id della rete con --path <network-id>; `cmux cloud network-list` elenca gli id."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ネットワーク ID を --path <network-id> で指定してください。`cmux cloud network-list` で ID の一覧を表示できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បញ្ជូនលេខសម្គាល់បណ្ដាញដោយប្រើ --path <network-id>; `cmux cloud network-list` បង្ហាញលេខសម្គាល់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "--path <network-id>로 네트워크 ID를 전달하세요. `cmux cloud network-list`로 ID 목록을 볼 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oppgi nettverks-ID-en med --path <network-id>; `cmux cloud network-list` viser ID-ene."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podaj identyfikator sieci w --path <network-id>; `cmux cloud network-list` wyświetla identyfikatory."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passe o id da rede com --path <network-id>; `cmux cloud network-list` lista os ids."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Передайте идентификатор сети через --path <network-id>; `cmux cloud network-list` показывает идентификаторы."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ส่งรหัสเครือข่ายด้วย --path <network-id> `cmux cloud network-list` แสดงรายการรหัส"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ağ kimliğini --path <network-id> ile verin; `cmux cloud network-list` kimlikleri listeler."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Передайте ідентифікатор мережі через --path <network-id>; `cmux cloud network-list` показує ідентифікатори."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Truyền id mạng bằng --path <network-id>; `cmux cloud network-list` liệt kê các id."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用 --path <network-id> 传入网络 id；`cmux cloud network-list` 会列出 id。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用 --path <network-id> 傳入網路 id；`cmux cloud network-list` 會列出 id。"
           }
         }
       }

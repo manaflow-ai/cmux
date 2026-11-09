@@ -5,6 +5,7 @@
 //! module at its old path (`cmux_tui_core::platform`, ...).
 
 pub mod file_birth;
+pub mod codex_config_lock;
 #[cfg(unix)]
 pub mod host_exe;
 mod kinfo_proc;
