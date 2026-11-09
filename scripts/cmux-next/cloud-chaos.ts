@@ -247,12 +247,20 @@ function answerOf(msg: any): any {
   return msg.data ?? msg.result ?? {};
 }
 
+/** What the chat and the guest terminal need of a carrier dial (ClientDial; a fake in the tests). */
+export type DialLike = {
+  dials: number;
+  start(): void;
+  request(frame: Record<string, unknown>, timeoutMs?: number): Promise<any>;
+  stop(): void;
+};
+
 /**
  * One more `cmux carrier dial`, the client's: requests matched to their answers by id, every other line handed to
  * `onLine`. A dial that ends rejects what it still owed and is dialed again, and `onDial` runs once each new dial
  * says it connected, so the client can attach again as the app does after its redial.
  */
-class ClientDial {
+class ClientDial implements DialLike {
   dials = 0;
   private child: ReturnType<typeof spawn> | null = null;
   private pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
@@ -333,6 +341,30 @@ class ClientDial {
   }
 }
 
+/**
+ * The chat tab's current numeric surface, from the machine's tree (`list-workspaces`, as hostd's Cloud ACP adapter
+ * resolves its chats): the tab whose stable `tab_resource_id` is `tab`, else (a daemon that gave no tab id, or a tab
+ * that lost it) the lowest surface whose agent tab is bound to `session`. A session host restart restores the mux
+ * with new surface ids, so a surface held from before it names nothing, or another tab. Null when no tab matches.
+ */
+export async function resolveChatSurface(request: (frame: Record<string, unknown>) => Promise<any>, tab: string, session: string): Promise<number | null> {
+  const tree = answerOf(await request({ cmd: "list-workspaces" }));
+  let bySession: number | null = null;
+  for (const workspace of Array.isArray(tree?.workspaces) ? tree.workspaces : []) {
+    for (const screen of Array.isArray(workspace?.screens) ? workspace.screens : []) {
+      for (const pane of Array.isArray(screen?.panes) ? screen.panes : []) {
+        for (const t of Array.isArray(pane?.tabs) ? pane.tabs : []) {
+          if (typeof t?.surface !== "number") continue;
+          if (tab && t.tab_resource_id === tab) return t.surface;
+          const bound = t.conversation?.agent_session?.session;
+          if (session && bound === session && (bySession === null || t.surface < bySession)) bySession = t.surface;
+        }
+      }
+    }
+  }
+  return bySession;
+}
+
 /** One record as the client received it, and how: on the live push or in a page it read after (re)attaching. */
 type Received = { seq: number; record: any; via: "live" | "page" };
 
@@ -343,17 +375,25 @@ type Received = { seq: number; record: any; via: "live" | "page" };
  * After a new dial, or an `agent-session-closed`, it attaches again from the newest seq it holds (`after_seq`) and
  * pages forward until it has caught up, as the attach contract says (cmux-tui-core `agent_session_attach.rs`).
  *
+ * It holds the chat by its stable tab id (`tab_resource_id`) and session, never by a numeric surface across a redial:
+ * a session host restart restores the mux with new surface ids, so before every (re)attach and every prompt it looks
+ * the tab's current surface up again (resolveChatSurface).
+ *
  * Every delivery is kept in arrival order, so the judge sees a replay that started early (a seq again) or late (a
  * gap). A live push of a seq it already holds is dropped and counted, as the app drops it (`acp tail -f` does too);
  * live pushes that arrive while it pages are held until the page is in.
  */
-class ChatClient {
+export class ChatClient {
   received: Received[] = [];
   /** Indexes into `received` where a re-attach's page began. */
   reconnects: number[] = [];
   held = 0;
   overlaps = 0;
   surface: number | null = null;
+  /** The chat tab's stable id (`new-conversation-tab`'s `tab_resource_id`); "" from a daemon that gives none. */
+  tab = "";
+  /** How many times the tab came back on another surface (a session host restart). */
+  surfaceMoves = 0;
   session = "";
   attaches = 0;
   lastError = "";
@@ -362,13 +402,13 @@ class ChatClient {
   private stash: any[] = [];
   private stopped = false;
   private reattaching = false;
-  readonly dial: ClientDial;
+  readonly dial: DialLike;
   private ready: Promise<void>;
   private readyNow!: () => void;
 
-  constructor(private ctx: ChaosContext) {
+  constructor(private ctx: ChaosContext, makeDial: (onLine: (m: any) => void, onDial: () => void) => DialLike = (onLine, onDial) => new ClientDial(ctx, onLine, onDial)) {
     this.ready = new Promise((r) => (this.readyNow = r));
-    this.dial = new ClientDial(ctx, (m) => this.onLine(m), () => this.onDial());
+    this.dial = makeDial((m) => this.onLine(m), () => this.onDial());
   }
 
   /** Dial, make the chat tab and start the chat in it; the first attach sets the baseline seq. */
@@ -382,6 +422,7 @@ class ChatClient {
     const tab = answerOf(await this.dial.request({ cmd: "new-conversation-tab", workspace: ws.workspace, agent_session: { host: `registry:${registry}`, harness } }));
     if (typeof tab.surface !== "number") throw new Error(`new-conversation-tab gave no surface: ${JSON.stringify(tab).slice(0, 200)}`);
     this.surface = tab.surface;
+    this.tab = typeof tab.tab_resource_id === "string" ? tab.tab_resource_id : "";
     const started = answerOf(await this.dial.request({ cmd: "agent-session-start", surface: tab.surface, harness, vm_kind: "owner" }, 120_000));
     this.session = String(started.session ?? "");
     if (!this.session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
@@ -390,6 +431,7 @@ class ChatClient {
 
   /** The prompt, as the app sends it. */
   async prompt(text: string): Promise<void> {
+    await this.resolveSurface();
     answerOf(await this.dial.request({ cmd: "agent-session-prompt", surface: this.surface, prompt_id: `chaos-${Date.now().toString(36)}`, text }, 60_000));
   }
 
@@ -436,6 +478,16 @@ class ChatClient {
     void this.reattach();
   }
 
+  /** Looks the chat tab's current surface up again (it changes when the session host restarts). */
+  private async resolveSurface(): Promise<void> {
+    const now = await resolveChatSurface((f) => this.dial.request(f), this.tab, this.session);
+    if (now === null) throw new Error(`the chat's tab (${this.tab || `session ${this.session}`}) is not in the machine's tree`);
+    if (now === this.surface) return;
+    this.ctx.log?.(`chaos: the chat's tab is now surface ${now} (was ${this.surface})`);
+    this.surfaceMoves += 1;
+    this.surface = now;
+  }
+
   /** Attach again from the newest seq held, until it works or the client stops. */
   private async reattach(): Promise<void> {
     if (this.reattaching) return;
@@ -443,6 +495,7 @@ class ChatClient {
     try {
       while (!this.stopped && !this.attached) {
         try {
+          await this.resolveSurface();
           await this.attach(this.held);
         } catch (e) {
           this.lastError = (e as Error).message;
@@ -514,11 +567,22 @@ export class SeqTerminal {
   private stopped = false;
   private loop: Promise<void> | null = null;
 
-  constructor(private dial: ClientDial, readonly n: number, readonly file: string) {}
+  constructor(private dial: DialLike, readonly n: number, readonly file: string) {}
 
-  /** The machine command: one number per line, paced, tee'd to `file`. */
+  /**
+   * The machine command: one number per line, paced, tee'd to `file`, and then the terminal stays up until the leg
+   * has read it all and writes `file.done` (releaseCommand), at most SEQ_HOLD_S. Its lines take about 30 s, less than
+   * a turn with a 60 s drop in it; a terminal that ended would answer a read under its snapshot's coverage with the
+   * whole snapshot from offset 0 (which assembleTerminal takes, but the live path is the one the leg means to judge).
+   */
   static script(n: number, file: string): string {
-    return `i=0; while [ "$i" -lt ${n} ]; do i=$((i+1)); echo "$i"; sleep 0.1; done | tee ${shq(file)}; sleep 2`;
+    return `i=0; while [ "$i" -lt ${n} ]; do i=$((i+1)); echo "$i"; sleep 0.1; done | tee ${shq(file)}; ` +
+      `h=0; while [ ! -e ${shq(`${file}.done`)} ] && [ "$h" -lt ${SEQ_HOLD_S} ]; do h=$((h+1)); sleep 1; done`;
+  }
+
+  /** Ends the terminal's hold (script). */
+  static releaseCommand(file: string): string {
+    return `touch ${shq(`${file}.done`)}`;
   }
 
   async start(tag: string): Promise<void> {
@@ -555,7 +619,7 @@ export class SeqTerminal {
   }
 
   lines(): number {
-    return this.reads.map((r) => r.text).join("").split("\n").filter((l) => /^\d+\s*$/.test(l.replace(/\r/g, ""))).length;
+    return assembleTerminal(this.reads).text.split("\n").filter((l) => /^\d+\s*$/.test(l.replace(/\r/g, ""))).length;
   }
 }
 
@@ -659,7 +723,8 @@ async function terminalVerdict(ctx: ChaosContext, term: SeqTerminal | null, star
   let machineLines = 0;
   for (const until = Date.now() + 90_000; Date.now() < until && machineLines < term.n; await sleep(2_000)) machineLines = await count();
   await term.finish(() => term.lines(), 30_000);
-  const r = await ctx.exec(`sha256sum ${shq(term.file)} 2>&1; rm -f ${shq(term.file)}`, 30_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+  // Every line is read: the terminal may end now.
+  const r = await ctx.exec(`sha256sum ${shq(term.file)} 2>&1; ${SeqTerminal.releaseCommand(term.file)}; rm -f ${shq(term.file)} ${shq(`${term.file}.done`)}`, 30_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
   const machineSha256 = /^([0-9a-f]{64})\s/.exec(r.stdout)?.[1];
   if (!machineSha256) return { ok: false, text: `terminal: the machine copy could not be read: ${r.stdout.slice(-200)}` };
   const v = judgeTerminal({ n: term.n, reads: term.reads, machineSha256, sha256: (t) => createHash("sha256").update(t).digest("hex") });
@@ -668,6 +733,8 @@ async function terminalVerdict(ctx: ChaosContext, term: SeqTerminal | null, star
 
 /** How many lines the guest terminal prints during each fault's turn (one each 0.1 s: about the turn's length). */
 export const SEQ_LINES = 300;
+/** How long the guest terminal stays up after its last line, at most, waiting for the leg to have read it all. */
+const SEQ_HOLD_S = 900;
 
 /** A tag the stub's marker regex (`\S+`) and a guest shell word both take as it is. */
 const safeTag = (tag: string) => tag.replace(/[^A-Za-z0-9-]/g, "-");
@@ -722,6 +789,7 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const when = reached >= third ? `mid-turn at step ${reached} of ${COUNT_STEPS}`
         : state.running ? `mid-turn, but the client had seen only step ${reached} of ${COUNT_STEPS}` : `after the turn (${state.status})`;
       const dialsBefore = carrier.dials;
+      const movesBefore = chat.surfaceMoves;
       const resumesBefore = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length;
       // A drop may hold the exec's own answer until it ends, so its budget covers the drop.
       const injectedAt = Date.now();
@@ -747,7 +815,7 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         recover_ms: recover,
         carrier: how,
         turn: turn.text,
-        detail: `injected ${when}; ${recover === null ? `no answer within ${RECOVER_DEADLINE_MS / 1000} s` : `answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}; ${loss.text}; ${terminal.text}`,
+        detail: `injected ${when}; ${recover === null ? `no answer within ${RECOVER_DEADLINE_MS / 1000} s` : `answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}; ${loss.text}${chat.surfaceMoves > movesBefore ? ` (the chat's tab came back on a new surface)` : ""}; ${terminal.text}`,
       };
       ctx.log?.(`chaos: ${f.name}: ${result.detail}`);
       out.push(result);
@@ -918,26 +986,52 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
 export type TerminalRead = { after: number; start: number; next: number; complete: boolean; text: string };
 
 /**
- * Whether the client lost terminal output: the reads it made over the carrier (in order, each from the last one's
- * `next_offset`) against the copy the machine's own `tee` kept of the same `seq 1 n`.
- *
- * - every read starts where it asked (`start_offset` = `after`, which is the last read's `next_offset`) and is
- *   `complete`: no byte skipped, none read twice, no retention cut (the terminal output paths have no ReplayGap
- *   marker; a skip shows as a later start or an incomplete window);
- * - the numbers the client read are 1..n, each once, in order, and their sha256 is the machine copy's.
+ * The terminal's text as the client holds it after `reads` (each asked from the last one's `next_offset`), and what was
+ * wrong with any read. A read answers from where it asked (`start_offset` = `after`) and is appended; or, once the
+ * terminal has ended, a read whose offset falls inside the snapshot's coverage answers with the snapshot's whole
+ * projection from offset 0 to the stream's end (terminal.output_read's documented contract, tested in cmux-tui's
+ * terminal_host_recovery.rs): `start_offset` 0, below `after`, `complete`, `next_offset` at or past `after`. That one
+ * replaces what the client held, as a client of the contract does; it is never appended. Any other start is a skip
+ * (later) or a repeat (earlier), and an incomplete window is output past retention.
  */
-export function judgeTerminal(input: { n: number; reads: TerminalRead[]; machineSha256: string; sha256: (text: string) => string }): LossVerdict {
+export function assembleTerminal(reads: TerminalRead[]): { text: string; problems: string[]; snapshots: number } {
   const problems: string[] = [];
-  const { reads, n } = input;
-  if (!reads.length) return { ok: false, text: "the client read no terminal output" };
+  let text = "";
+  let snapshots = 0;
   for (let i = 0; i < reads.length; i++) {
     const r = reads[i];
     const want = i === 0 ? 0 : reads[i - 1].next;
     if (r.after !== want) problems.push(`read ${i} asked from ${r.after}, not the last read's end ${want}`);
-    else if (r.start !== r.after) problems.push(`read ${i} asked from ${r.after} and got from ${r.start} (${r.start > r.after ? "skipped" : "repeated"} ${Math.abs(r.start - r.after)} bytes)`);
     if (!r.complete) problems.push(`read ${i} from ${r.after} was not complete (output past retention)`);
+    if (r.start === r.after) {
+      text += r.text;
+    } else if (r.start === 0 && r.after > 0 && r.complete && r.next >= r.after) {
+      snapshots += 1;
+      text = r.text;
+    } else if (r.start === 0 && r.after > 0 && r.complete) {
+      problems.push(`read ${i} asked from ${r.after} and got a snapshot from 0 that ends at ${r.next}, before it`);
+    } else if (r.after === want) {
+      problems.push(`read ${i} asked from ${r.after} and got from ${r.start} (${r.start > r.after ? "skipped" : "repeated"} ${Math.abs(r.start - r.after)} bytes)`);
+    }
   }
-  const lines = reads.map((r) => r.text).join("").replace(/\r/g, "").split("\n").map((l) => l.trim()).filter((l) => /^\d+$/.test(l));
+  return { text, problems, snapshots };
+}
+
+/**
+ * Whether the client lost terminal output: the reads it made over the carrier (in order, each from the last one's
+ * `next_offset`) against the copy the machine's own `tee` kept of the same `seq 1 n`.
+ *
+ * - every read is contiguous with the one before and complete, or is the ended terminal's snapshot (assembleTerminal):
+ *   no byte skipped, none read twice, no retention cut (the terminal output paths have no ReplayGap marker; a skip
+ *   shows as a later start or an incomplete window);
+ * - the numbers the client holds are 1..n, each once, in order, and their sha256 is the machine copy's.
+ */
+export function judgeTerminal(input: { n: number; reads: TerminalRead[]; machineSha256: string; sha256: (text: string) => string }): LossVerdict {
+  const { reads, n } = input;
+  if (!reads.length) return { ok: false, text: "the client read no terminal output" };
+  const held = assembleTerminal(reads);
+  const problems = [...held.problems];
+  const lines = held.text.replace(/\r/g, "").split("\n").map((l) => l.trim()).filter((l) => /^\d+$/.test(l));
   const text = lines.length ? `${lines.join("\n")}\n` : "";
   const nums = lines.map(Number);
   const out = nums.findIndex((v, i) => v !== i + 1);
@@ -946,7 +1040,8 @@ export function judgeTerminal(input: { n: number; reads: TerminalRead[]; machine
   const sha = input.sha256(text);
   if (sha !== input.machineSha256) problems.push(`sha256 ${sha.slice(0, 12)} differs from the machine copy's ${input.machineSha256.slice(0, 12)}`);
   if (problems.length) return { ok: false, text: `terminal output lost: ${problems.slice(0, 4).join("; ")}` };
-  return { ok: true, text: `terminal: all ${n} lines over ${reads.length} reads, offsets contiguous, sha256 matches the machine copy` };
+  const snap = held.snapshots ? `, ${held.snapshots} snapshot read${held.snapshots > 1 ? "s" : ""} after the terminal ended taken in place of what was held` : "";
+  return { ok: true, text: `terminal: all ${n} lines over ${reads.length} reads, offsets contiguous${snap}, sha256 matches the machine copy` };
 }
 
 /** The leg as one synthetic-probe row (cmuxterm-hq probes.py): ok only when every injected fault passed. */
