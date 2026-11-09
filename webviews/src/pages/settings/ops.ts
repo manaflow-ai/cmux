@@ -906,6 +906,8 @@ export type ConnectorsState = {
   team?: string | null;
   connectors?: ConnectorWire[];
   error?: string;
+  /** The platform's HTTP status when it refused the list. */
+  status?: number;
 };
 
 /** Settings > Devices (`cmux.settings.devices.state`): this Mac and the person's other devices on

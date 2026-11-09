@@ -2324,13 +2324,13 @@ button.menu-disclosure {
 }
 
 .connectors-initial {
-  width: 16px;
-  height: 16px;
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
   border-radius: var(--ds-radius-sm);
   background: var(--accent-soft);
   font-size: var(--text-caption);
   font-weight: var(--weight-emphasis);
-  line-height: 16px;
+  line-height: var(--ds-icon-16);
   text-align: center;
 }
 

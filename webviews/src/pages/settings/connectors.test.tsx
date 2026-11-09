@@ -1,6 +1,7 @@
 // Settings > Accounts and Devices > Connectors: what the person connected (attention first), then what
 // they can connect; nothing connects without a click; on a team Connect asks who may use it, Only You
-// checked; Disconnect asks first; a provider this server cannot connect says so and offers nothing.
+// checked; Disconnect asks first; a provider this server cannot connect says so and offers nothing; a
+// server without connector management (production until it is switched on) says Connectors are not available.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 import type { MockSettingsProvider } from "./mockProvider";
@@ -107,4 +108,30 @@ test("signed out, the card says where to sign in and lists nothing", async () =>
   });
   expect(card().querySelector("[data-connectors-message]")!.textContent).toContain("Sign in");
   expect(card().querySelector("[data-connector]")).toBeNull();
+});
+
+test("a server without connector management (its older list, or a 400/404) says not available and offers nothing", async () => {
+  const older = {
+    available: true,
+    signedIn: true,
+    team: "team_1",
+    connectors: [
+      { provider: "github", state: "available" },
+      { provider: "google-drive", state: "unavailable" },
+    ],
+  };
+  for (const state of [older, { available: true, signedIn: true, status: 400, error: "team required" }]) {
+    await open((provider) => {
+      provider.connectorsState = state;
+    });
+    expect(card().querySelector("[data-connectors-message]")!.textContent).toContain("aren’t available");
+    expect(card().querySelector("[data-connector]")).toBeNull();
+    page!.unmount();
+    page = null;
+  }
+  // Any other refusal is shown as it came.
+  await open((provider) => {
+    provider.connectorsState = { available: true, signedIn: true, status: 502, error: "HTTP 502" };
+  });
+  expect(card().querySelector("[data-connectors-message]")!.textContent).toBe("HTTP 502");
 });

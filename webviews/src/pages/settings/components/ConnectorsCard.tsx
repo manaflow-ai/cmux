@@ -12,7 +12,13 @@ import { ChoiceGroup } from "../../../ui/ChoiceGroup";
 import { GitHubMark } from "../../../agent-session/acpmux/conversation/icons";
 import { useStore } from "../context";
 import { CONNECTORS_KEY, connectorsQuery } from "../sectionQueries";
-import { connectorRows, connectorsPending, type AvailableRow, type ConnectedRow } from "../connectors";
+import {
+  connectorRows,
+  connectorsOffered,
+  connectorsPending,
+  type AvailableRow,
+  type ConnectedRow,
+} from "../connectors";
 import { t } from "../strings";
 
 type Sharing = "private" | "team";
@@ -60,7 +66,7 @@ export function ConnectorsCard() {
   const drawn = query.isFetched;
   const message = !drawn
     ? null
-    : state === null || !state.available
+    : !connectorsOffered(state)
       ? t("settingsPage.connectors.unavailable")
       : state.signedIn === false
         ? t("settingsPage.connectors.signIn")

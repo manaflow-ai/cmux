@@ -84,6 +84,16 @@ export function connectorRows(state: ConnectorsState | null): ConnectorRows {
   return { connected, available };
 }
 
+/** Whether this server offers connectors to manage: not in a preview, not where the platform refuses
+ * the list as unknown (400/404), and not where it answers the older list without connections (its
+ * connector management not switched on yet, as in production until then). */
+export function connectorsOffered(state: ConnectorsState | null): state is ConnectorsState {
+  if (!state?.available) return false;
+  if (state.status === 400 || state.status === 404) return false;
+  const connectors = state.connectors;
+  return !connectors || connectors.length === 0 || connectors.some((connector) => Array.isArray(connector.connections));
+}
+
 /** Whether any connection waits on the person in their browser (a Connect they started). */
 export function connectorsPending(rows: ConnectorRows): boolean {
   return rows.connected.some((row) => row.status === "pending");

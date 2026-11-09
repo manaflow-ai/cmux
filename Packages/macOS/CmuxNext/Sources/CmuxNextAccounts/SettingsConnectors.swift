@@ -56,12 +56,18 @@ public final class SettingsConnectors: PageProvider {
         }
     }
 
-    /// `{available, signedIn, team, connectors?, error?}`: `available` false only in a preview.
+    /// `{available, signedIn, team, connectors?, error?, status?}`: `available` false only in a preview;
+    /// `status` is the platform's HTTP status when it refused (the page reads 400/404 as "not offered here").
     private func list() async -> JSONValue {
         guard !preview else { return .object(["available": .bool(false)]) }
         guard auth.isSignedIn else { return .object(["available": .bool(true), "signedIn": .bool(false)]) }
+        var status: Int?
         do {
-            let reply = try answer(await get(path: "v1/connectors/"))
+            // The team also rides the query on this GET: a platform without connector management (production
+            // before it is switched on) reads it only there, and answers the list the page shows as not offered.
+            let response = try await get(path: "v1/connectors/" + query(team.map { ["team": $0] } ?? [:]))
+            status = response.status
+            let reply = try answer(response)
             guard case .object(var fields) = reply else { throw PageError.invalidParams("connectors reply") }
             fields["available"] = .bool(true)
             fields["signedIn"] = .bool(true)
@@ -69,7 +75,9 @@ public final class SettingsConnectors: PageProvider {
             return .object(fields)
         } catch {
             let message = (error as? PageError)?.message ?? error.localizedDescription
-            return .object(["available": .bool(true), "signedIn": .bool(true), "error": .string(message)])
+            var fields: [String: JSONValue] = ["available": .bool(true), "signedIn": .bool(true), "error": .string(message)]
+            if let status, !(200..<300).contains(status) { fields["status"] = .number(Double(status)) }
+            return .object(fields)
         }
     }
 
@@ -89,8 +97,8 @@ public final class SettingsConnectors: PageProvider {
         GitHubConnections.backendTeam(project: auth.configuration.stackProjectID, stackTeam: auth.teamID)
     }
 
-    /// EXTRA as a query string. The team goes in the `x-cmux-team` header (``headers``), never here: the
-    /// transport keeps a query only on GET, and a POST's would be escaped into its path.
+    /// EXTRA as a query string. The team goes in the `x-cmux-team` header (``headers``); only a GET may also
+    /// carry it here: the transport keeps a query only on GET, and a POST's would be escaped into its path.
     private func query(_ extra: [String: String]) -> String {
         let items = extra.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
         guard !items.isEmpty else { return "" }
