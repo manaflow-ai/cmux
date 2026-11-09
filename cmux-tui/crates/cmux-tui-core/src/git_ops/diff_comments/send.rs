@@ -8,8 +8,12 @@
 //! whose acknowledgement was lost can only be retried as itself, and acpmux's
 //! duplicate acknowledgement never clears comments it did not receive.
 //! Attempts under one key run one at a time; the root's lock is taken only
-//! for the clear. The reservation goes once the ledger holds the result, or
-//! when acpmux refused the prompt (nothing was taken).
+//! for the clear. The reservation is marked `maybe_delivered` before each
+//! prompt goes out, so once an attempt may have reached acpmux (no answer
+//! came, or the daemon stopped mid hand-over) a later refusal keeps it:
+//! acpmux may hold that prompt id. The reservation goes once the ledger
+//! holds the result, or when acpmux refused the prompt and no earlier attempt
+//! under the key could have reached it.
 //!
 //! The acpmux prompt id is derived from the operation, this daemon session's
 //! durable public id and the key, so two sessions that use the same key
@@ -43,6 +47,10 @@ const RESERVATIONS: &str = "sends";
 struct Reservation {
     key: String,
     fingerprint: Value,
+    /// An attempt under the key went out with no answer: acpmux may hold
+    /// its prompt id, so the key never frees until the ledger answers it.
+    #[serde(default)]
+    maybe_delivered: bool,
 }
 
 /// Hands the review to its acpmux session through `acp_prompt`.
@@ -82,7 +90,15 @@ pub(super) fn send_with(
         if let Some(replayed) = ledger::prior(mux, &key, OPERATION, &fingerprint)? {
             return Ok(replayed);
         }
-        reserve(&reservation, &key, &fingerprint)?;
+        let maybe_delivered = reserve(&reservation, &key, &fingerprint)?;
+        // Marked before the prompt leaves, so a stop mid hand-over keeps the key bound.
+        write_reservation(&reservation, &key, &fingerprint, true)?;
+        // A refusal frees the key only when no attempt under it could have reached acpmux.
+        let refused = |reservation: &Path| {
+            if !maybe_delivered {
+                release(reservation);
+            }
+        };
         let prompt_id = prompt_id(mux, &key);
         // Queued behind a running turn, never steered into it, and marked a
         // resend so acpmux answers a prompt id it already took, even from
@@ -91,7 +107,7 @@ pub(super) fn send_with(
         match hand_over(acp_session, &prompt_id, text.to_owned(), meta) {
             Handover::Delivered => {}
             Handover::Unreachable => {
-                release(&reservation);
+                refused(&reservation);
                 let message = format!(
                     "nothing was sent: acpmux on this machine is not running or runs no \
                      session {acp_session}"
@@ -99,7 +115,7 @@ pub(super) fn send_with(
                 return Err(failed("no_session", message));
             }
             Handover::Failed(error) => {
-                release(&reservation);
+                refused(&reservation);
                 return Err(failed("send_failed", format!("acpmux refused the prompt: {error}")));
             }
             // The key stays bound to this request: only the same send may retry it.
@@ -140,25 +156,33 @@ fn reservation_path(store: &Store, key: &str) -> PathBuf {
 }
 
 /// Binds `key` to `fingerprint`, or `idempotency.conflict` when it is
-/// already bound to another request.
-fn reserve(path: &Path, key: &str, fingerprint: &Value) -> Result<(), ResourceError> {
+/// already bound to another request. Returns whether an earlier attempt
+/// under the key may have reached acpmux; the caller writes the binding.
+fn reserve(path: &Path, key: &str, fingerprint: &Value) -> Result<bool, ResourceError> {
     let existing: Option<Reservation> =
         read_json(path).map_err(|error| io_failed(OPERATION, &error))?;
     match existing {
         Some(reservation) if reservation.key == key && reservation.fingerprint == *fingerprint => {
-            Ok(())
+            Ok(reservation.maybe_delivered)
         }
         Some(_) => Err(ResourceError::idempotency_conflict(key, OPERATION)),
-        None => {
-            let write = || -> io::Result<()> {
-                private_directory(path.parent().unwrap_or(path))?;
-                let reservation =
-                    Reservation { key: key.to_owned(), fingerprint: fingerprint.clone() };
-                write_json(path, &reservation)
-            };
-            write().map_err(|error| io_failed(OPERATION, &error))
-        }
+        None => Ok(false),
     }
+}
+
+fn write_reservation(
+    path: &Path,
+    key: &str,
+    fingerprint: &Value,
+    maybe_delivered: bool,
+) -> Result<(), ResourceError> {
+    let write = || -> io::Result<()> {
+        private_directory(path.parent().unwrap_or(path))?;
+        let reservation =
+            Reservation { key: key.to_owned(), fingerprint: fingerprint.clone(), maybe_delivered };
+        write_json(path, &reservation)
+    };
+    write().map_err(|error| io_failed(OPERATION, &error))
 }
 
 /// Drops a reservation. A leftover one only binds its key to its first

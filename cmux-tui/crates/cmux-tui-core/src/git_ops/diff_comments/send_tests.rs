@@ -128,6 +128,34 @@ fn a_refused_send_frees_its_key() {
 }
 
 #[test]
+fn a_refused_retry_after_a_lost_acknowledgement_keeps_the_key_bound() {
+    let session = session("lost-then-refused");
+    let handed = RefCell::new(Vec::new());
+    let review_a = request("Review A", KEY);
+
+    // acpmux takes review A, but its acknowledgement never comes back.
+    let lost = send(&session, &review_a, Handover::Unsettled("lost".into()), &handed).unwrap_err();
+    assert_eq!(lost.details["reason"], "send_unsettled", "{lost:?}");
+    // A retry finds acpmux unavailable: nothing is taken this time, yet A may be held.
+    let gone = send(&session, &review_a, Handover::Unreachable, &handed).unwrap_err();
+    assert_eq!(gone.details["reason"], "no_session", "{gone:?}");
+    let failed = send(&session, &review_a, Handover::Failed("busy".into()), &handed).unwrap_err();
+    assert_eq!(failed.details["reason"], "send_failed", "{failed:?}");
+
+    // Edited review B under the same key is refused before acpmux, whose
+    // duplicate acknowledgement of A's prompt id would otherwise clear B's comments.
+    let review_b = request("Review B, edited", KEY);
+    let refused = send(&session, &review_b, Handover::Delivered, &handed).unwrap_err();
+    assert_eq!(refused.code, "idempotency.conflict", "{refused:?}");
+    assert_eq!(handed.borrow().len(), 3, "review B never reaches acpmux");
+    assert_eq!(left(&session), 2, "review B's comments survive");
+
+    // Review A itself still finishes.
+    let sent = send(&session, &review_a, Handover::Delivered, &handed).unwrap();
+    assert_eq!(sent["value"]["cleared"], json!(["a", "b"]), "{sent}");
+}
+
+#[test]
 fn prompt_ids_are_stable_per_session_and_distinct_between_sessions() {
     let first = session("first");
     let second = session("second");
