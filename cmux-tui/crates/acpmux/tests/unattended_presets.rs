@@ -345,7 +345,9 @@ fn an_approval_that_is_not_saved_is_not_logged() {
             json!({"name": PRESET, "set": {"harness": "fake", "policy": "approve-all"}}),
         )
         .await;
-        // The config file is a directory, so the save's rename onto it fails.
+        // The log's home exists, as a daemon's does; the config file is a directory, so the
+        // save's rename onto it fails.
+        std::fs::create_dir_all(acpmux::config::home()).unwrap();
         let dir = std::env::temp_dir().join(format!("acpmux-unsaved-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("config.json")).unwrap();
         a.config.write().await.path = Some(dir.join("config.json"));
