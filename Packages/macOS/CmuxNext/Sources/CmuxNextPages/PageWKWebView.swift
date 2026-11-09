@@ -146,6 +146,8 @@ final class PageWKWebView: WKWebView {
     override func mouseUp(with event: NSEvent) { noteUserEvent(event); super.mouseUp(with: event) }
     override func mouseDragged(with event: NSEvent) { noteUserEvent(event); super.mouseDragged(with: event) }
     override func rightMouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.rightMouseDown(with: event) }
+    /// A middle click is the person's too (the bookmarks bar opens a link in a background tab on it).
+    override func otherMouseDown(with event: NSEvent) { noteUserEvent(event); super.otherMouseDown(with: event) }
 
     /// Replaces the Copy-only menu when set (``PageWebView/contextMenuEditor``).
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?

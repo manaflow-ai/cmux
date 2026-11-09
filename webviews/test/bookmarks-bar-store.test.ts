@@ -228,3 +228,55 @@ test("a menu read that lands after the page moved to another profile shows nothi
   await store.openOther(anchor);
   expect(fake.calls.find((entry) => entry.op === BarOps.menu)?.params).toMatchObject({ profile: "p2" });
 });
+
+test("a change event while the tab's profile is read does not strand the bar on the old profile", async () => {
+  const fake = fakeClient();
+  const store = new BookmarksBarStore(fake.client, words);
+  await store.start();
+  let release: () => void = () => undefined;
+  let holding = true;
+  const call = fake.client.call;
+  fake.client.call = async <R>(op: string, params: unknown) => {
+    if (op === HostOps.state && holding) {
+      holding = false;
+      await new Promise<void>((done) => (release = done));
+    }
+    return call<R>(op, params);
+  };
+  fake.setProfile("personal");
+  fake.emit(HostOps.changed, { reason: "state" });
+  await tick();
+  // The tab's profile is still being read when the tree changes and the relay resyncs.
+  fake.bump();
+  fake.emit(BookmarkOps.changed, { browser_profile_id: "default", bookmarks_revision: 2 });
+  fake.emit(BookmarkOps.changed, { resync: true });
+  await tick();
+  release();
+  await tick();
+  await tick();
+  await tick();
+  expect(store.getSnapshot().profile).toBe("personal");
+  expect(store.getSnapshot().loaded).toBe(true);
+});
+
+test("a refused open is logged, not dropped silently", async () => {
+  const fake = fakeClient();
+  const call = fake.client.call;
+  fake.client.call = async <R>(op: string, params: unknown) => {
+    if (op === HostOps.open) throw pageError("cmux.app.user_only", "Needs a click.");
+    return call<R>(op, params);
+  };
+  const store = new BookmarksBarStore(fake.client, words);
+  await store.start();
+  const warned: unknown[][] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => void warned.push(args);
+  try {
+    store.open(store.getSnapshot().items[1]!, "backgroundTab");
+    await tick();
+  } finally {
+    console.warn = warn;
+  }
+  expect(warned).toHaveLength(1);
+  expect(String(warned[0]![0])).toContain("open refused");
+});

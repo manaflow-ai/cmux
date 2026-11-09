@@ -285,6 +285,60 @@ struct BookmarksBarPagesTests {
         menu.menu.performActionForItem(at: 0)
         #expect(host.opened == [node.id], "the tab or profile changed: the pick is dropped")
     }
+
+    /// A page returned before its new profile's row landed reports that row while it waits as a
+    /// spare: the next bar of the first profile must not show it (the cached report and the
+    /// profile it drew are one record).
+    @Test func aReportMadeWhileSpareKeepsTheNextBarOfTheOldProfileHidden() async throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let work = BookmarksBarHostView(tabKey: "tab-work", pages: pages, profile: { "work" })
+        let personal = BookmarksBarHostView(tabKey: "tab-personal", pages: pages, profile: { "personal" })
+        let workAgain = BookmarksBarHostView(tabKey: "tab-work-2", pages: pages, profile: { "work" })
+        let window = Self.window()
+        defer { window.close() }
+        let content = try #require(window.contentView)
+
+        content.addSubview(work)
+        let provider = try #require(work.page?.bar)
+        try await Self.reportEmpty(provider, profile: "work")
+        work.removeFromSuperview()
+        content.addSubview(personal)
+        personal.removeFromSuperview()
+        // The personal row lands after the page went back to the pool.
+        try await Self.reportEmpty(provider, profile: "personal")
+        #expect(provider.drawnProfile == "personal")
+
+        content.addSubview(workAgain)
+        let view = try #require(workAgain.pageView)
+        #expect(workAgain.page?.bar === provider)
+        #expect(view.alphaValue == 0, "the page shows the personal row: hidden until it reports work")
+        try await Self.reportEmpty(provider, profile: "work")
+        #expect(view.alphaValue == 1)
+        workAgain.removeFromSuperview()
+    }
+
+    /// A middle click on the bar's page is the person's gesture: the bar opens a link in a
+    /// background tab on it, and the host takes the open only with a gesture behind it.
+    @Test func aMiddleClickOnTheBarIsAGesture() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bar = BookmarksBarHostView(tabKey: "tab-middle", pages: pages, profile: { "default" })
+        bar.frame = NSRect(x: 0, y: 0, width: 800, height: BookmarksBarHostView.height)
+        let window = Self.window()
+        defer { window.close() }
+        window.contentView?.addSubview(bar)
+        let view = try #require(bar.pageView)
+        #expect(view.recentUserGestureEvent() == nil)
+        let event = try #require(NSEvent.mouseEvent(with: .otherMouseDown, location: NSPoint(x: 10, y: 10), modifierFlags: [],
+                                                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                    context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        view.webView.otherMouseDown(with: event)
+        #expect(view.recentUserGestureEvent() != nil)
+        bar.removeFromSuperview()
+    }
 }
 
 /// A bar host that records what the bar asks of the app.

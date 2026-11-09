@@ -107,6 +107,10 @@ export class BookmarksBarStore {
   private followingPending = false;
   /** Bumped by each stop: a subscription that lands after it is dropped. */
   private session = 0;
+  /** Cancels a profile reload (`reload`) superseded by a newer one or a stop. */
+  private profileGeneration = 0;
+  /** Cancels a row read (`read`) superseded by a newer one or a stop. A row read never cancels a
+   * profile reload, so a change event during a tab switch cannot strand the bar on the old profile. */
   private generation = 0;
   private readonly asking = new Set<string>();
 
@@ -182,6 +186,7 @@ export class BookmarksBarStore {
   stop(): void {
     this.started = false;
     this.session += 1;
+    this.profileGeneration += 1;
     this.generation += 1;
     this.followingPending = false;
     this.following?.();
@@ -193,26 +198,27 @@ export class BookmarksBarStore {
   /** Reads the profile (the tab the bar is in), then its row. */
   async reload(): Promise<void> {
     if (!this.client) return;
-    const generation = ++this.generation;
+    const generation = ++this.profileGeneration;
     let state: StateResult;
     try {
       state = await this.client.call<StateResult>(HostOps.state, {});
     } catch {
       return;
     }
-    if (generation !== this.generation) return;
+    if (generation !== this.profileGeneration) return;
     if (state.browser_profile_id !== this.snapshot.profile) {
       // Another profile's row must not show for a frame: nothing until its own read lands.
       this.set({ ...EMPTY, profile: state.browser_profile_id, otherTitle: state.other_title });
     } else if (state.other_title !== this.snapshot.otherTitle) {
       this.set({ otherTitle: state.other_title });
     }
-    await this.read(generation);
+    await this.read();
   }
 
   /** Re-reads the bar's row and Other Bookmarks' count of the page's profile. */
-  async read(generation = ++this.generation): Promise<void> {
+  async read(): Promise<void> {
     if (!this.client) return;
+    const generation = ++this.generation;
     const profile = this.snapshot.profile;
     try {
       const [bar, other] = await Promise.all([
@@ -262,7 +268,8 @@ export class BookmarksBarStore {
   open(node: Bookmark, disposition: Disposition): void {
     void this.client
       ?.call(HostOps.open, { bookmark: node.id, url: node.url ?? undefined, disposition })
-      .catch(() => undefined);
+      // A refused open (no gesture behind it, an unknown bookmark) is not silent.
+      .catch((error: unknown) => console.warn("cmux bookmarks bar: open refused", error));
   }
 
   /** A folder's native menu under `anchor`: its subtree read now, so the menu is the stored one. */

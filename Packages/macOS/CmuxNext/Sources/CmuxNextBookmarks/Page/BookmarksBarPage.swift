@@ -175,16 +175,17 @@ public final class BookmarksBarHostView: NSView {
         self.page = page
         // Another profile's row must not show for a frame: the page shows once it laid out this
         // tab's row (the strip's fill stands in, as the native bar's did before its tree loaded).
-        page.view.alphaValue = page.bar.drawnProfile == profile ? 1 : 0
         // A page that last drew this profile reports nothing new (its row did not change): the
-        // bar takes its last report, so item frames and menu anchors are this page's.
-        if let last = page.bar.lastLayout, last.profile == profile { shown = last }
+        // bar takes its last report, so item frames and menu anchors are this page's. The report
+        // is the one record of what the page drew, kept while the page waits as a spare too.
+        let drawnHere = page.bar.drawnProfile == profile
+        page.view.alphaValue = drawnHere ? 1 : 0
+        if drawnHere, let last = page.bar.lastLayout { shown = last }
         page.bar.onLayout = { [weak self, weak page] layout in
             // A report for the profile the page drew before it came here is stale: the page stays
             // hidden until it reports this tab's profile.
             guard let self, let page, self.page === page, let drawn = layout.profile, drawn == self.profile() else { return }
             shown = layout
-            page.bar.drawnProfile = drawn
             page.view.alphaValue = 1
         }
         page.view.frame = bounds
@@ -238,11 +239,12 @@ public final class BookmarksBarProvider: PageProvider {
     private weak var host: (any BookmarksBarHost)?
     private let pageHost: BookmarkPageHostProvider
     public weak var page: PageWebView?
-    /// The profile whose row the page drew last (set by the bar view on each layout).
-    public var drawnProfile: String?
     var onLayout: (@MainActor (Layout) -> Void)?
-    /// The page's last layout report (the page sends one only when its row changes).
+    /// The page's last layout report, held or spare (the page sends one only when its row changes):
+    /// the one record of what the page drew.
     public private(set) var lastLayout: Layout?
+    /// The profile whose row the page drew last (its last layout report's).
+    public var drawnProfile: String? { lastLayout?.profile }
     /// The menu on screen and its rows' folders (kept while it is open).
     private var openMenu: BookmarksBarMenu?
     /// The gesture the last write spent (one write per key or pointer event).
