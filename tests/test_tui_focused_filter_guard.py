@@ -163,6 +163,118 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
 
 
+def _cargo_test_step() -> dict:
+    [step] = [step for step in _test_job()["steps"] if step.get("name") == "cargo test"]
+    return step
+
+
+def _run_cargo_test_step(host_os: str, listing: str, ignored: str) -> tuple[int, str, str]:
+    """Run the test job's `cargo test` step in focused mode against a fake cargo.
+
+    The fake prints LISTING for `--list` and IGNORED for `--list --ignored`.
+    Returns the exit code, the cargo calls and what the step wrote to $GITHUB_OUTPUT.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        log = root / "cargo.log"
+        github_output = root / "github-output"
+        github_output.write_text("", encoding="utf-8")
+        cargo = root / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "$*" >> "{log}"\n'
+            'case "$*" in\n'
+            f'  *"--list --ignored"*) printf "%b" "{ignored}" ;;\n'
+            f'  *"--list"*) printf "%b" "{listing}" ;;\n'
+            "esac\n",
+            encoding="utf-8",
+        )
+        cargo.chmod(0o755)
+        script = root / "step.sh"
+        script.write_text(_cargo_test_step()["run"], encoding="utf-8")
+        result = subprocess.run(
+            ["bash", "-e", "-o", "pipefail", str(script)],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=root,
+            env={
+                "PATH": f"{root}:/usr/bin:/bin",
+                "RUNNER_TEMP": str(root),
+                "GITHUB_OUTPUT": str(github_output),
+                "MODE": "focused",
+                "TEST_FILTER": "some_filter",
+                "HOST_OS": host_os,
+            },
+        )
+        calls = log.read_text(encoding="utf-8") if log.exists() else ""
+        outputs = github_output.read_text(encoding="utf-8")
+    return result.returncode, calls, outputs
+
+
+def test_a_host_with_no_matching_test_passes_and_reports_its_count() -> None:
+    """Host-only tests (Linux-only files, macOS-only tests) compile to nothing on the other host.
+
+    A macOS-only filter (macos_app_support_loads_after_xdg, feat run 42626993043)
+    failed the Linux leg with "selected no Rust tests". Each leg now passes a host
+    with no matching test and writes selected_<os>=N; hosted verification fails the
+    run only when both hosts selected 0 (port of #39706).
+    """
+    two = "tui::a: test\\ntui::b: test\\n"
+    code, calls, outputs = _run_cargo_test_step("linux", two, "")
+    assert code == 0 and "selected_linux=2" in outputs.splitlines(), (code, outputs)
+    assert "test --workspace --locked some_filter\n" in calls, calls
+    code, _, outputs = _run_cargo_test_step("macos", two, "tui::b: test\\n")
+    assert code == 0 and "selected_macos=1" in outputs.splitlines(), (code, outputs)
+    code, calls, outputs = _run_cargo_test_step("macos", "", "")
+    assert code == 0 and "selected_macos=0" in outputs.splitlines(), (code, outputs)
+    assert "test --workspace --locked some_filter\n" not in calls, calls
+    # A filter that matches only ignored tests still fails on its host.
+    code, _, _ = _run_cargo_test_step("linux", "tui::a: test\\n", "tui::a: test\\n")
+    assert code == 1
+
+
+def _run_gate(**env_overrides: str) -> tuple[int, str]:
+    """Run hosted verification's gate step with every selected job green, then ENV_OVERRIDES."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    gate = workflow["jobs"]["hosted-verification"]
+    step = next(s for s in gate["steps"] if s.get("name") == "Require selected verification jobs")
+    env = {key: "success" for key, value in gate["env"].items() if key.endswith("_RESULT")}
+    env.update({"MODE": "focused", "TEST_FILTER": "some_test", "PATH": "/usr/bin:/bin", **env_overrides})
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "gate.sh"
+        script.write_text(step["run"], encoding="utf-8")
+        run = subprocess.run(["bash", "-e", str(script)], env=env, capture_output=True, text=True)
+    return run.returncode, run.stdout + run.stderr
+
+
+def test_a_filter_that_one_host_runs_passes_and_one_that_no_host_runs_fails() -> None:
+    """The run fails only when both hosts selected 0 tests; an empty count is not 0.
+
+    The two matrix legs run in parallel. Each sets only its own output key
+    (selected_linux or selected_macos), so neither leg overwrites the other's
+    count in the job's combined outputs; hosted verification gives the verdict.
+    """
+    for linux, macos, want in (("0", "3", 0), ("2", "0", 0), ("1", "1", 0), ("", "0", 0), ("0", "", 0), ("0", "0", 1)):
+        code, output = _run_gate(LINUX_FOCUSED_SELECTED=linux, MACOS_FOCUSED_SELECTED=macos)
+        assert code == want, (linux, macos, output)
+        if want:
+            assert "selected no Rust tests on Linux or macOS" in output, output
+    code, output = _run_gate(MODE="full", TEST_FILTER="", LINUX_FOCUSED_SELECTED="0", MACOS_FOCUSED_SELECTED="0")
+    assert code == 0, output
+
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["test"]
+    step = _cargo_test_step()
+    assert step["env"]["HOST_OS"] == "${{ matrix.os }}"
+    gate_env = workflow["jobs"]["hosted-verification"]["env"]
+    for host, variable in (("linux", "LINUX_FOCUSED_SELECTED"), ("macos", "MACOS_FOCUSED_SELECTED")):
+        assert job["outputs"][f"focused_selected_{host}"] == (
+            "${{ steps.%s.outputs.selected_%s }}" % (step["id"], host)
+        ), host
+        assert gate_env[variable] == "${{ needs.test.outputs.focused_selected_%s }}" % host, variable
+
+
 def main() -> int:
     """Run every test_ function in this file; CI calls the file with plain python3 (no pytest).
 
