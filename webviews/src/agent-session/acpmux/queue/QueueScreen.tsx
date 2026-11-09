@@ -150,7 +150,8 @@ export function QueueScreen({
     (item: QueueItem, kind: "accept" | "changes", text?: string) => {
       // The box closes with the row; a refused verdict brings both back with what was typed, so
       // the person never writes the request again.
-      setComment(undefined);
+      // Only this row's box: another row's words being written stay.
+      comments.close(item.id);
       setNotice(undefined);
       settle(
         item,
@@ -169,7 +170,7 @@ export function QueueScreen({
       );
       list.current?.focus({ preventScroll: true });
     },
-    [settle, verdict, t, comments, setComment],
+    [settle, verdict, t, comments],
   );
 
   const runExport = useCallback(() => {
@@ -212,7 +213,7 @@ export function QueueScreen({
     if (!current || current.host) return;
     if (current.kind === "pr") {
       if (kind === "allow") sendVerdict(current, "accept");
-      else setComment({ id: current.id, text: "" });
+      else comments.open(current.id);
       return;
     }
     // An ask with no single-use answer of that kind (only a lasting grant, or a question) is
@@ -298,6 +299,7 @@ export function QueueScreen({
               denyKey={denyKey}
               onVerdict={sendVerdict}
               onComment={setComment}
+              onOpenComment={comments.open}
               onCancel={() => {
                 setComment(undefined);
                 list.current?.focus({ preventScroll: true });
@@ -412,6 +414,8 @@ type RowProps = {
   denyKey?: string | undefined;
   onVerdict(item: QueueItem, verdict: "accept" | "changes", comment?: string): void;
   onComment(comment: { id: string; text: string } | undefined): void;
+  /// Opens this row's Request changes box, keeping words already typed (comments.ts `open`).
+  onOpenComment(id: string): void;
   onCancel(): void;
 };
 
@@ -433,6 +437,7 @@ const Row = memo(function Row({
   denyKey,
   onVerdict,
   onComment,
+  onOpenComment,
   onCancel,
 }: RowProps) {
   const t = useT();
@@ -512,7 +517,7 @@ const Row = memo(function Row({
                     className="wq-button"
                     tabIndex={-1}
                     aria-keyshortcuts={changesKey}
-                    onClick={() => onComment({ id: item.id, text: "" })}
+                    onClick={() => onOpenComment(item.id)}
                   >
                     {changesKey && <Keycap>{changesKey}</Keycap>}
                     {t("waiting.pr.changes")}

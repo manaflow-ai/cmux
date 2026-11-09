@@ -532,3 +532,23 @@ test("a read asked before the key moved does not count as current once it lands"
   cache.note("a");
   expect(cache.generation()).not.toBe(asked);
 });
+
+test("opening or answering one row never drops the words typed in another's comment box", async () => {
+  const { createComments } = await import("../src/agent-session/acpmux/queue/comments");
+  const comments = createComments();
+  comments.open("a");
+  comments.setDraft({ id: "a", text: "Split the commit" });
+  // Request changes again on the same row keeps what is typed.
+  comments.open("a");
+  expect(comments.get().draft).toEqual({ id: "a", text: "Split the commit" });
+  // Accepting another row leaves this box alone.
+  comments.close("b");
+  expect(comments.get().draft).toEqual({ id: "a", text: "Split the commit" });
+  // Opening another row's box keeps the words beside it.
+  comments.open("b");
+  expect(comments.get().draft).toEqual({ id: "b", text: "" });
+  expect(comments.get().unsent).toBe("Split the commit");
+  // Its own send closes it.
+  comments.close("b");
+  expect(comments.get().draft).toBeUndefined();
+});
