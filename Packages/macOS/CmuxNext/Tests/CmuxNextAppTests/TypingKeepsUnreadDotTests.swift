@@ -62,6 +62,8 @@ struct TypingKeepsUnreadDotTests {
         #expect(run.changes <= 2, "the dot changed \(run.changes) times in \(Self.keys) keys")
         #expect(run.acks == 1, "\(run.acks) acks for one marker")
         #expect(tab.showsUnread)
+        // Under the native indicator budget: it warns at more than 3 rollbacks of one tab in 2 s.
+        #expect(tab.rollbacks.warnings.isEmpty)
     }
 
     /// The daemon keeps the marker unread and its echo restates it (an item another owner holds

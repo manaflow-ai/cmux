@@ -89,6 +89,7 @@ public final class TabModel: Identifiable {
     /// failed. A newer pending value (a second toggle) stays.
     public func dropExpectedMarkedUnread(_ marked: Bool) {
         guard pendingMarkedUnread == marked else { return }
+        rollbacks.rolledBack("marked-unread", tab: id)
         pendingMarkedUnread = nil
         publishMarkedUnread()
     }
@@ -112,6 +113,7 @@ public final class TabModel: Identifiable {
     /// A failed old clear never restores over a newer request or a newer clear.
     public func dropExpectedAttentionClear(_ request: TabAttention) {
         guard pendingAttentionClear == request else { return }
+        rollbacks.rolledBack("attention-clear", tab: id)
         pendingAttentionClear = nil
         attention = recordAttention
     }
@@ -198,6 +200,8 @@ public final class TabModel: Identifiable {
         readingNotification = notification.notification
     }
 
+    /// This tab's optimistic indicator writes rolled back, against the native budget.
+    @ObservationIgnored let rollbacks = IndicatorRollbackBudget()
     /// The marker and the Mark as Unread generation a key in this tab already read.
     @ObservationIgnored private var keystrokeRead: NotificationID?
     @ObservationIgnored private var keystrokeMarkRead: UInt64?
@@ -221,7 +225,9 @@ public final class TabModel: Identifiable {
 
     /// Rolls back ``expectNotificationRead()`` when the acknowledge failed.
     public func dropExpectedNotificationRead() {
-        if readingNotification != nil { readingNotification = nil }
+        guard readingNotification != nil else { return }
+        rollbacks.rolledBack("notification-read", tab: id)
+        readingNotification = nil
     }
 
     /// The tree's notification marker arrived: a read or replaced
