@@ -850,7 +850,15 @@ impl HubChild for cmux_process::Child {
 /// say with no descriptors left): it is still this thread's, so it is killed
 /// and reaped here, and only then reported ended. Dropping it instead would
 /// leave a live hub no stop could reach, holding its socket's lock.
+///
+/// `ECHILD` is the one exception: the child was already reaped elsewhere (an
+/// inherited `SIGCHLD = SIG_IGN` makes the kernel reap it), so this thread no
+/// longer owns its pid, which may now be another process's. It is never
+/// signaled; the hub is reported ended as it is.
 fn kill_and_reap(child: &mut impl HubChild, why: &std::io::Error) -> String {
+    if why.raw_os_error() == Some(libc::ECHILD) {
+        return format!("{:?} (reaped elsewhere)", why.kind());
+    }
     let _ = child.kill();
     match child.wait() {
         Ok(status) => format!("{status} (after {:?})", why.kind()),
