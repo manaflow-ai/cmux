@@ -93,9 +93,13 @@ mod with_link {
             candidates: Vec<String>,
         ) -> io::Result<()> {
             self.offers += 1;
-            // Dropping the old link closes it; media is on the stream until the new one answers.
+            // Dropping the old link closes it; media is on the stream until the new one answers,
+            // and the viewer hears so before the answer.
             self.net = None;
             self.candidates = 0;
+            if self.up {
+                self.state(false, Some("replaced by a new offer".into()))?;
+            }
             let refused = if self.offers > MAX_OFFERS {
                 Some(format!("more than {MAX_OFFERS} offers"))
             } else if session.is_empty() || session.len() > MAX_PROLOGUE {
@@ -422,6 +426,28 @@ mod tests {
         }
         assert!(on_link, "media did not ride the link");
         assert!(!viewer.frames().iter().any(|(ty, _)| *ty == FRAME_DATAGRAM));
+        // A new offer replaces the live link: the viewer hears media is back on the stream.
+        let again = KeyPair::generate().expect("keys");
+        write_control(
+            &mut viewer.stream,
+            &Control::LinkOffer {
+                session: "cloud-2".into(),
+                key: crate::serve::hex(&again.public),
+                candidates: vec![],
+            },
+        )
+        .expect("offer");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut replaced = false;
+        while !replaced && Instant::now() < deadline {
+            carrier.receive(&mut out).expect("receive");
+            replaced = controls(&viewer.frames()).iter().any(|c| {
+                matches!(c, Control::LinkState { up: false, reason: Some(r) } if r.contains("replaced"))
+            });
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(replaced, "no link_state down when a new offer replaced the link");
+        assert!(!carrier.is_up());
         // The viewer closes its link: media falls back to the stream.
         drop(net);
         let deadline = Instant::now() + Duration::from_secs(5);
