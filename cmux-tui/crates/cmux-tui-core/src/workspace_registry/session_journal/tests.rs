@@ -743,8 +743,7 @@ fn a_kind_read_runs_a_bounded_slice_of_an_unfinished_kind_backfill() {
 #[test]
 fn a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished() {
     use crate::synth_registry::{SynthOptions, generate};
-    let root = std::env::temp_dir()
-        .join(format!("cmux-kind-backfill-slice-{}", crate::workspace_registry::new_uuid_v4()));
+    let root = std::env::temp_dir().join(format!("cmux-kind-backfill-slice-{}", new_uuid_v4()));
     let options = SynthOptions {
         session: "slice".into(),
         session_puts: 60_000,
@@ -784,11 +783,11 @@ fn a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished
         "reads": reads,
     });
     eprintln!("kind backfill slice: {numbers}");
-    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.build");
-    let _ = std::fs::create_dir_all(&out);
-    let _ = std::fs::write(out.join("kind-backfill-slice.json"), numbers.to_string());
+    let out = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.build");
+    let _ = fs::create_dir_all(&out);
+    let _ = fs::write(out.join("kind-backfill-slice.json"), numbers.to_string());
     drop(registry);
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&root);
     assert!(report.segments > 8, "{numbers}");
     // The slice and one segment past it, with room for a slow host; the
     // whole backfill is several times that.
