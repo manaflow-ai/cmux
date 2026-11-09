@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42538959613",
+  "recorded_at": "2026-11-09T00:22:33Z",
+  "reason": "cmux-tui 1c566c9abcaf changes the image's cmux-tui (pinned cdf72685fc9e)",
+  "dry_run": false,
+  "cmux_tui": "1c566c9abcafee94297a5f32a158345737823a26",
+  "fixes": [
+    {
+      "sha": "1c566c9abcafee94297a5f32a158345737823a26",
+      "mergedAt": "2026-11-08T15:52:23-08:00",
+      "subject": "remote: a bounded first dial counts abandoned attempts and ends at its maximum duration (#38983)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T00:22:33Z",
+    "snapshot_id": "sh-27244dbb50d146dfaf4026eddbbb9667",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42538959613): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e03e7fc96d7520ee9f1c57f9038eb70a8dc2d7ab",
+    "image": "cloud-native-auto-1c566c9a-42538959613-1",
+    "revision": "ci-42538959613-1",
+    "at": "2026-11-09T00:22:33Z"
+  },
+  "rolled_back": false
+}
