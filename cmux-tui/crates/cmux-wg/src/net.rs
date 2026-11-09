@@ -34,6 +34,7 @@ use crate::stream::WgStream;
 use crate::tcp_stack::{Accepted, TcpStack};
 use crate::timers::TimerSchedule;
 use crate::ultra::{UltraCounters, UltraMode, UltraStats, UltraUnderlay};
+use crate::ultra_hello::{self, Negotiation};
 use crate::underlay::{Origin, SocketPath, Underlay, is_transient};
 use crate::watchdog::Watchdog;
 use crate::wire::packet_source;
@@ -121,7 +122,8 @@ impl WgNet {
         let ultra = Arc::new(UltraCounters::default());
         let mut underlay = UltraUnderlay::new(Box::new(underlay), mode, Arc::clone(&ultra));
         underlay.set_max_datagram(max_datagram);
-        let driver = Driver::new(config, underlay, commands_rx, Arc::clone(&wake))?;
+        let negotiation = Negotiation::new(mode);
+        let driver = Driver::new(config, underlay, negotiation, commands_rx, Arc::clone(&wake))?;
         let wakeups = Arc::clone(&driver.wakeups);
         let drops = Arc::clone(&driver.pacer.drops);
         let handle = tokio::spawn(driver.run());
@@ -313,6 +315,8 @@ struct Driver {
     /// a queued packet leave.
     pacer: Pacer,
     pace_deadline: Option<Instant>,
+    /// The ultra mode agreed with the peer inside the tunnel.
+    negotiation: Negotiation,
     /// Bound datagram-service ports.
     datagram_ports: HashMap<u16, mpsc::Sender<Datagram>>,
     watchdog: Watchdog,
@@ -335,6 +339,7 @@ impl Driver {
     fn new(
         config: WgConfig,
         underlay: UltraUnderlay,
+        negotiation: Negotiation,
         commands: mpsc::Receiver<Command>,
         wake: Arc<Notify>,
     ) -> Result<Self, WgError> {
@@ -369,6 +374,7 @@ impl Driver {
             probe_deadline: None,
             pacer: Pacer::default(),
             pace_deadline: None,
+            negotiation,
             datagram_ports: HashMap::new(),
             watchdog: Watchdog::default(),
             wakeups: Arc::new(AtomicU64::new(0)),
@@ -393,11 +399,17 @@ impl Driver {
                 }
             };
             let watchdog = self.watchdog.deadline(self.pacer.srtt());
-            let next_tick =
-                [self.schedule.next_tick(), self.probe_deadline, self.pace_deadline, watchdog]
-                    .into_iter()
-                    .flatten()
-                    .min();
+            let hello = self.hello_deadline();
+            let next_tick = [
+                self.schedule.next_tick(),
+                self.probe_deadline,
+                self.pace_deadline,
+                watchdog,
+                hello,
+            ]
+            .into_iter()
+            .flatten()
+            .min();
             let timers = async {
                 match next_tick {
                     Some(at) => tokio::time::sleep_until(at).await,
@@ -448,6 +460,9 @@ impl Driver {
                 Event::Command(Some(command)) => self.handle_command(command),
                 Event::Wake | Event::StackDeadline | Event::Drained | Event::Tick => {}
             }
+            // Ahead of the pass's data, so the peer keeps that data for
+            // rebuilding.
+            self.run_ultra_hello();
             self.underlay.flush();
             self.service();
             self.run_probes();
@@ -493,12 +508,22 @@ impl Driver {
                     input = &[];
                 }
                 TunnResult::WriteToTunnelV4(packet, _) | TunnResult::WriteToTunnelV6(packet, _) => {
-                    self.underlay.authenticated(origin);
-                    self.watchdog.on_inbound_data();
                     let allowed = packet_source(packet)
                         .is_some_and(|source| self.config.routes_contain(source));
-                    // A probe is answered here and is not activity.
-                    if let Some(probe) = probing::decode(packet).filter(|_| allowed) {
+                    // The peer's ultra hello is taken before the datagram that
+                    // carried it is reported authenticated, so a mode that
+                    // turns rebuilding on keeps that datagram too.
+                    let hello = ultra_hello::decode(packet).filter(|_| allowed);
+                    if let Some(hello) = hello {
+                        let mode = self.negotiation.receive(hello);
+                        self.underlay.set_mode(mode);
+                    }
+                    self.underlay.authenticated(origin);
+                    self.watchdog.on_inbound_data();
+                    if hello.is_some() {
+                        // Taken above; a hello is not activity.
+                    } else if let Some(probe) = probing::decode(packet).filter(|_| allowed) {
+                        // A probe is answered here and is not activity.
                         let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
                         probing::receive(tunn, &mut self.underlay, scratch, probe, origin.path);
                     } else if allowed
