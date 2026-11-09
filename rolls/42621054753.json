@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42621054753",
+  "recorded_at": "2026-11-09T13:05:17Z",
+  "reason": "cmux-tui 66925fbb41c0 changes the image's cmux-tui (pinned de139d660bae)",
+  "dry_run": false,
+  "cmux_tui": "66925fbb41c0ff93e438f73cd0096ee389815f2d",
+  "fixes": [
+    {
+      "sha": "66925fbb41c0ff93e438f73cd0096ee389815f2d",
+      "mergedAt": "2026-11-09T04:23:20-08:00",
+      "subject": "cmux-tui roster: a stale roster stays stale until rebuilt and is not saved as current while unmarked (#39566)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T13:05:17Z",
+    "snapshot_id": "sh-647f5e7bb18d443c916f2787de7e53b2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42621054753): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0537571e28b67628e7840f8121156760bae2e659",
+    "image": "cloud-native-auto-66925fbb-42621054753-1",
+    "revision": "ci-42621054753-1",
+    "at": "2026-11-09T13:05:17Z"
+  },
+  "rolled_back": false
+}
