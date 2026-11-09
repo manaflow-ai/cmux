@@ -80,7 +80,6 @@ import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
-import { formatDuration } from "../conversation/turns";
 import { type PaneLanguage, usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -109,7 +108,8 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { TrayAgentDetail, TrayLineFold } from "./TrayLineDetail";
 import { StopButton } from "./SubagentGroup";
-import { elapsed, SubagentHarnessContext, useNow } from "./subagentGroupModel";
+import { SubagentHarnessContext } from "./subagentGroupModel";
+import { Elapsed } from "./Elapsed";
 import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { latestLine, toolDetail } from "./trayDetail";
@@ -250,7 +250,10 @@ export const SubagentTray = memo(function SubagentTray({
   // The chat's harness, for a subagent that names none (SubagentGroup.tsx `Avatar`).
   const chatHarness = useContext(SubagentHarnessContext);
   const listId = useId();
-  const now = useNow(items.length > 0);
+  // No clock here: each running time is its own leaf (Elapsed.tsx), so the clock's second draws one
+  // text node per time, never the hat, its header or its lines (Leo, 2026-11-09: "im still sometimes
+  // seeing a flicker on the composer/composer hat when scrolling and things are running in background
+  // aka time is ticking").
   const trayNode = useRef<HTMLElement | null>(null);
   const [narrow, setNarrow] = useState(false);
   // Room for one name in the folded header, not two: a measured narrow tray (an unmeasured one, 0px,
@@ -539,7 +542,7 @@ export const SubagentTray = memo(function SubagentTray({
   // row's end, open or folded, over the line's own time; its words slide over to the counts and its
   // muted step narrows away on the same clock, never popping out or in; the line grows in under it on
   // the shared fold.
-  const loneEnd = lone ? loneHeadOf(t, language, lone, waiting, now, showLatest) : undefined;
+  const loneEnd = lone ? loneHeadOf(t, language, lone, waiting, showLatest) : undefined;
   const loneHead = loneEnd && !open ? loneEnd : undefined;
   const named = !open && !loneHead && foldHead !== "counts" && newest.length > 0;
   const shownNames = named ? newest.slice(0, foldHead === "one" || oneName ? 1 : 2) : [];
@@ -593,6 +596,9 @@ export const SubagentTray = memo(function SubagentTray({
     <section
       ref={setTrayRef}
       className="acpmux-running-tray"
+      // It holds still while the chat streams, ticks and scrolls: only its times tick, in their own
+      // text (Elapsed.tsx). The dev budgets warn otherwise (devkit/perfBudgets.ts `still-surface`).
+      data-perf-still="hat"
       aria-label={t("summary.subagents")}
       data-open={open || undefined}
       data-placement={placement}
@@ -725,13 +731,18 @@ export const SubagentTray = memo(function SubagentTray({
               ) : (
                 <>
                   <span className="acpmux-running-tray__lone-state">{loneEnd.state}</span>
-                  {loneEnd.time !== undefined && ` · ${loneEnd.time}`}
+                  {loneEnd.time !== undefined && (
+                    <>
+                      {" · "}
+                      {loneEnd.time}
+                    </>
+                  )}
                 </>
               )}
             </span>
           ) : (
             <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
-              {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
+              {starts.length > 0 ? <Elapsed since={Math.min(...starts)} /> : undefined}
             </span>
           )}
           {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
@@ -878,7 +889,7 @@ export const SubagentTray = memo(function SubagentTray({
               working={subagentStatus(item.agent, waiting) === "running"}
               state={subagentStateText(t, item.agent, waiting)}
               quiet={quietAgent(item.agent, waiting)}
-              time={formatDuration(elapsed(item.agent, now))}
+              time={agentTime(item.agent)}
               depth={item.depth}
               // Its kind and what it does now are off the line (Leo, 2026-10-31: "a lot of these
               // subtitles are bad"); the tooltip keeps them under its task.
@@ -928,7 +939,7 @@ export const SubagentTray = memo(function SubagentTray({
       const status = commandStatus(item.command);
       const runs = status === "running";
       const processId = runs ? item.command.processId : undefined;
-      const commandElapsed = commandTime(item.command, now);
+      const commandElapsed = commandTime(item.command);
       const ownerParent =
         item.owner?.parent === null || item.owner?.parent === undefined ? undefined : agentsById.get(item.owner.parent);
       // Named in words (session-info/commandRules.ts); the command as typed is its tooltip and the
@@ -1069,7 +1080,8 @@ type LoneHead = {
   latestCode?: boolean;
   status: SubagentStatus;
   state: string;
-  time?: string;
+  /// Its time, ticking in its own leaf while it runs (Elapsed.tsx).
+  time?: ReactNode;
   /// A retry is in progress: its words ("Retrying (2/4) ...") stay on the row, as its line says them.
   retry?: boolean;
   /// A subagent's workflow progress ("1/3 agents"), live from the progress store (AgentLine.tsx).
@@ -1088,7 +1100,6 @@ function loneHeadOf(
   language: PaneLanguage,
   item: TrayItem,
   waiting: ReadonlySet<string>,
-  now: number,
   showLatest: boolean,
 ): LoneHead {
   if (item.kind === "agent") {
@@ -1100,7 +1111,7 @@ function loneHeadOf(
         showLatest && status === "running" && !retry ? latestLine(t, item.agent, awaitsOwnWork(item.agent)) : undefined,
       status,
       state: subagentStateText(t, item.agent, waiting),
-      time: formatDuration(elapsed(item.agent, now)),
+      time: agentTime(item.agent),
       retry,
       agent: item.agent,
       progress: subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined,
@@ -1114,7 +1125,7 @@ function loneHeadOf(
       latestCode: true,
       status,
       state: t(STATUS_LABEL[status]),
-      time: commandTime(item.command, now),
+      time: commandTime(item.command),
     };
   }
   // The chat's retry, as its line reads it (retryState.ts `sessionRetry`): a failed turn that acpmux
@@ -1291,11 +1302,17 @@ const ARRIVALS_PER_UPDATE = 3;
 /// the host's motion is on (shared/pageReveal.ts).
 const entranceMayRun = () => entranceAllowed();
 
-/// How long a command has run, or ran: to its end once it ended.
-function commandTime(command: BackgroundCommand, now: number): string | undefined {
+/// How long a command has run, or ran: to its end once it ended. A running one ticks in its own leaf
+/// (Elapsed.tsx), never in the line or the header that shows it.
+function commandTime(command: BackgroundCommand): ReactNode {
   if (command.startedAt === undefined) return undefined;
-  const end = command.state === "running" ? now : (command.endedAt ?? now);
-  return formatDuration(Math.max(0, end - command.startedAt));
+  return <Elapsed since={command.startedAt} until={command.state === "running" ? undefined : command.endedAt} />;
+}
+
+/// How long a subagent has run, or ran (subagentGroupModel.ts `elapsed`): one waiting on background work
+/// of its own has not ended, so its time keeps going. Ticking in its own leaf (Elapsed.tsx).
+function agentTime(agent: Subagent): ReactNode {
+  return <Elapsed since={agent.startedAt} until={awaitsOwnWork(agent) ? undefined : agent.endedAt} />;
 }
 
 /// A started chat's line: its turn runs, it waits on the person, its turn failed, or it is done.
