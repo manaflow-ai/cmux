@@ -96,21 +96,79 @@ struct ScreenCapture: Sendable {
         return result
     }
 
+    /// How long a window capture may reuse ScreenCaptureKit's window list (reading it costs tens of
+    /// milliseconds per screenshot). A window missing from it, or a capture that fails with it,
+    /// reads it again. Display captures always read it fresh: their exclusions need every app.
+    static let contentReuse: Duration = .seconds(1)
+
+    /// One read of the shareable content and when it was taken.
+    struct CachedContent: @unchecked Sendable {
+        // concurrency-allow: SCShareableContent is an immutable snapshot that ScreenCaptureKit hands out to any task; it is only read after it is stored here.
+        let content: SCShareableContent
+        let at: ContinuousClock.Instant
+    }
+
+    static let cachedContent = OSAllocatedUnfairLock<CachedContent?>(initialState: nil)
+
+    static func freshContent() async throws -> SCShareableContent {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        cachedContent.withLock { $0 = CachedContent(content: content, at: .now) }
+        return content
+    }
+
+    /// Recent content that holds window `id` where it is now, if any. The window's frame decides
+    /// how screenshot pixels map to the desktop, so content whose frame for it differs from the
+    /// window server's current bounds (it moved or resized) is not reused.
+    static func reusableContent(holding id: UInt32) -> SCShareableContent? {
+        let content: SCShareableContent? = cachedContent.withLock { cached in
+            guard let cached, ContinuousClock.now - cached.at < contentReuse else { return nil }
+            return cached.content
+        }
+        guard let content, let window = content.windows.first(where: { $0.windowID == id }),
+              let bounds = currentBounds(of: id), bounds == window.frame else { return nil }
+        return content
+    }
+
+    /// The window server's bounds of window `id` now (global points, top-left origin).
+    static func currentBounds(of id: UInt32) -> CGRect? {
+        guard let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]],
+              let entry = list.first(where: { ($0[kCGWindowNumber as String] as? UInt32) == id }),
+              let bounds = entry[kCGWindowBounds as String] as? NSDictionary
+        else { return nil }
+        return CGRect(dictionaryRepresentation: bounds as CFDictionary)
+    }
+
     static func still(_ target: CaptureTarget) async -> Result<CapturedFrame, Failure> {
+        if case .window(let id) = target, let content = reusableContent(holding: id) {
+            // A capture with the reused list that fails (the window closed or changed) tries once
+            // more with a fresh list below.
+            if case .success(let frame) = await still(target, content: content) { return .success(frame) }
+        }
         do {
-            // Agents never see this process's windows (the agent cursor, the approval panel). The
-            // overlay creates them on the main queue in the order the engine asked (the cursor event
-            // comes before its capture), so main is drained first and every window it already
-            // queued exists; then all windows, not only on-screen ones, are read, so this process is
-            // in `applications` once it has made any window, even one that shows only later.
-            await MainActor.run {}
-            var content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+            // A window capture holds only its window's pixels, so it needs no wait for this
+            // process's own windows. For a display capture they are left out: the overlay creates
+            // them on the main queue in the order the engine asked (the cursor event comes before
+            // its capture), so main is drained first and every window it already queued exists;
+            // then all windows, not only on-screen ones, are read, so this process is in
+            // `applications` once it has made any window, even one that shows only later.
+            if case .display = target { await MainActor.run {} }
+            return await still(target, content: try await freshContent())
+        } catch let error as SCStreamError where error.code == .userDeclined {
+            return .failure(.permission)
+        } catch {
+            return .failure(.failed(String(describing: error)))
+        }
+    }
+
+    static func still(_ target: CaptureTarget, content initial: SCShareableContent) async -> Result<CapturedFrame, Failure> {
+        do {
+            var content = initial
             // Every requested app that still runs must be left out: the capture fails rather than
             // show one (the engine then paints denied windows out whole). One re-read first, for
             // an app that made its first window just now; an app that quit since is not missing.
             if case .display(_, let excluding) = target, !excluding.isEmpty {
                 if !Self.missing(excluding, in: content).isEmpty {
-                    content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+                    content = try await freshContent()
                 }
                 let missing = Self.missing(excluding, in: content)
                 if !missing.isEmpty {
