@@ -530,26 +530,37 @@ pub(crate) fn run(args: &[String]) -> i32 {
             Some(stream) => {
                 mux.close().await;
                 // The datagram link only when the platform turned it on and
-                // `CMUX_RD_LINK=0` does not keep it off.
+                // `CMUX_RD_LINK=0` does not keep it off; else the plain copy.
                 let killed = std::env::var(rd_link::KILL_SWITCH).is_ok_and(|v| v == "0");
-                let stun = rd_link.filter(|_| !killed).map(|link| link.stun);
-                let machine = args.machine.clone();
-                let link_log = route_log::default_path();
-                rd_link::bridge(
-                    stream,
-                    tokio::io::stdin(),
-                    tokio::io::stdout(),
-                    stun,
-                    move |note| {
-                        if let Some(path) = &link_log {
-                            route_log::append(
-                                path,
-                                &format!("cloud.desktop_link machine={machine} {note}\n"),
-                            );
-                        }
-                    },
-                )
-                .await
+                match rd_link.filter(|_| !killed) {
+                    Some(link) => {
+                        let machine = args.machine.clone();
+                        let link_log = route_log::default_path();
+                        rd_link::bridge(
+                            stream,
+                            tokio::io::stdin(),
+                            tokio::io::stdout(),
+                            link.stun,
+                            move |note| {
+                                if let Some(path) = &link_log {
+                                    route_log::append(
+                                        path,
+                                        &format!("cloud.desktop_link machine={machine} {note}\n"),
+                                    );
+                                }
+                            },
+                        )
+                        .await
+                    }
+                    None => {
+                        cmux_remote::bridge::bridge_raw_stream(
+                            stream,
+                            tokio::io::stdin(),
+                            tokio::io::stdout(),
+                        )
+                        .await
+                    }
+                }
             }
             None => mux.bridge(tokio::io::stdin(), tokio::io::stdout()).await,
         };
