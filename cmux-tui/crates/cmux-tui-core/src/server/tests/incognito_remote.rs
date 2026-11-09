@@ -521,7 +521,7 @@ fn a_cloud_phones_channel_is_a_remote_device_without_saying_so() {
                                 "agent-session-tabs-v1"]}),
     );
     assert_eq!(declared["ok"], true, "{declared}");
-    assert!(incognito_remote::is_remote_device(&mux, cloud_phone.0));
+    assert!(crate::server::incognito_remote::is_remote_device(&mux, cloud_phone.0));
 
     let remote = listed(&mux, &cloud_phone);
     assert!(row(&remote, &normal).is_some(), "{remote:?}");
