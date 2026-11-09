@@ -5,6 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import type { ComposerAttachment } from "../attachments";
 import { resetStashForTests, type StashTransport } from "./draftStash";
 import { useDraftStash } from "./useDraftStash";
 
@@ -103,4 +104,38 @@ test("a pick while the prompt is not ready restores nothing and keeps the stashe
   await act(async () => unstash("stash-1"));
   expect(restored).toEqual([]);
   expect(dropped).toEqual([]);
+});
+
+test("a chip that changed while the stash was out (same id) keeps the prompt", async () => {
+  let land: () => void = () => {};
+  const transport: StashTransport = {
+    list: async () => ({ drafts: [] }),
+    push: (_chat, text) =>
+      new Promise((resolve) => (land = () => resolve({ draft: { id: "stash-1", text, attachments: [], at: 1 } }))),
+    get: async () => ({}),
+    drop: async () => ({ removed: true }),
+    move: async () => ({ moved: 0, ids: [] }),
+  };
+  resetStashForTests(transport);
+  const preview = { id: "img", kind: "image", name: "a.png", mimeType: "image/png", size: 3 } as const;
+  let chips: ComposerAttachment[] = [preview];
+  let cleared = 0;
+  let toggle: () => void = () => {};
+  function Probe() {
+    toggle = useDraftStash("chat", {
+      held: () => ({ text: "with an image", attachments: chips }),
+      loading: () => false,
+      clear: () => void (cleared += 1),
+      restore: () => {},
+      focus: () => {},
+    }).toggle;
+    return null;
+  }
+  root = createRoot(installDom());
+  await act(async () => root!.render(<Probe />));
+  await act(async () => toggle());
+  // The original's upload retried and landed: the same chip, now with its path.
+  chips = [{ ...preview, originalPath: "/tmp/a.png" } as ComposerAttachment];
+  await act(async () => land());
+  expect(cleared).toBe(0);
 });

@@ -134,6 +134,8 @@ export function useKeptAttachments(
     // The last chat's chips reach the host before this chat's are read.
     flush();
     const keepHeld = carry.current();
+    // Not read until this read answers: a chat shown again reads its chips again.
+    setReadFor(undefined);
     let current = true;
     void store
       .read(sessionId)

@@ -46,7 +46,9 @@ export function useDraftStash(chat: string, composer: StashedComposer) {
     return (
       now.text === held.text &&
       now.attachments.length === held.attachments.length &&
-      now.attachments.every((chip, index) => chip.id === held.attachments[index]?.id)
+      // The same chips, unchanged: one that changed since (an original's upload retried, adding its
+      // path) is not what acpmux holds.
+      now.attachments.every((chip, index) => chip === held.attachments[index])
     );
   };
   // One stash at a time: a second ⌃S while acpmux takes the draft would stash it twice.
@@ -58,7 +60,7 @@ export function useDraftStash(chat: string, composer: StashedComposer) {
     const held = io.current.held();
     // The prompt empties once acpmux holds the draft; a refusal leaves it as it was.
     void stashDraft(on, held.text, held.attachments)
-      .then((done) => done && showing(on) && stillHeld(held) && io.current.clear())
+      .then((done) => done && showing(on) && stillHeld(held) && !io.current.loading() && io.current.clear())
       .finally(() => {
         stashing.current = false;
       });
