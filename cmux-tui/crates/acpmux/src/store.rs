@@ -536,6 +536,12 @@ pub struct SessionMeta {
     /// parent's do. Never copied to a fork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegator: Option<String>,
+    /// Whom a start through the mesh hub was forwarded for (`_meta.acpmux.via` of the start:
+    /// `app`, `web` or `device`, `server/mesh_relay.rs` `run_control`). A prompt the hub relays to
+    /// this chat carries no mark of its own, so it is held to this one: the app's or a Web
+    /// client's chat stays behind the folder-trust gate (`trust_gate.rs`). A fork keeps it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hub_via: Option<String>,
 }
 
 /// The turn whose auth evidence a credential replacement made obsolete. It proves a change,

@@ -46,6 +46,14 @@ use control_ledger::{Claim, ControlLedger};
 #[path = "mesh_read.rs"]
 pub(crate) mod read;
 
+/// A chat started on a machine only the hub reaches (`mesh_start.rs`).
+#[path = "mesh_start.rs"]
+pub(crate) mod start;
+
+/// A hub-only chat's records, live in the client that opened it (`mesh_follow.rs`).
+#[path = "mesh_follow.rs"]
+pub(crate) mod follow;
+
 /// The loops' timings.
 #[derive(Debug, Clone)]
 pub struct RelayOptions {
@@ -692,8 +700,16 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
         Ok(body) => body,
         Err(e) => return Some(Ack::refused(format!("invalid control body: {e}"))),
     };
-    if body.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
-        return Some(Ack::refused("unsupported control body version"));
+    // Version 2 is a start forwarded for a client (`via`): taking it promises to gate the start
+    // and every prompt the hub relays to its chat by that mark (`hub_via`). A daemon from before
+    // that refuses it here, so nothing starts on a machine that would not keep the promise
+    // (`mesh_start.rs`, `mesh.trust_unsupported`).
+    let version = body.get("version").and_then(serde_json::Value::as_u64);
+    let marked = body.pointer("/params/_meta/acpmux/via").is_some();
+    match (version, op) {
+        (Some(1), _) => {}
+        (Some(2), "start") if marked => {}
+        _ => return Some(Ack::refused("unsupported control body version")),
     }
     let mut params = match op {
         "start" => {
@@ -727,6 +743,13 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
         params["sessionId"] = serde_json::Value::String(session.id.clone());
     }
     let session_id = params.get("sessionId").cloned();
+    // Whom the sending daemon forwarded a start for (`remote_guard::mark_forwarded`): the start
+    // runs gated by it here, and so do the prompts the hub relays to its chat (`deliver`).
+    let via = (op == "start")
+        .then(|| params.pointer("/_meta/acpmux/via").and_then(serde_json::Value::as_str))
+        .flatten()
+        .filter(|via| matches!(*via, "app" | "web" | "device"))
+        .map(str::to_owned);
     let (tx, mut rx) = relay_connection(hub);
     let initialized = rpc_call(
         &tx,
@@ -785,6 +808,23 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
         Ok(result) => {
             let detail =
                 result.get("sessionId").and_then(serde_json::Value::as_str).map(str::to_owned);
+            if let (Some(id), Some(via)) = (detail.as_deref(), via.as_deref()) {
+                // Fail closed: a mark kept only in memory is gone after a restart, and the
+                // chat's relayed prompts would then pass ungated. One retry, then the chat goes.
+                let saved = hub.mark_hub_via(id, via).or_else(|_| hub.mark_hub_via(id, via));
+                if let Err(why) = saved {
+                    if let Ok(session) = hub.resolve(id) {
+                        let gone = crate::heap_future::heap(|| hub.kill(&session, true)).await;
+                        if let Err(e) = gone {
+                            tracing::warn!(session = %id, "removing an unmarked hub start: {e:?}");
+                        }
+                    }
+                    return Some(Ack::refused(format!(
+                        "mesh.start_unsaved: this machine could not save the chat's trust mark \
+                         ({why}), so it did not keep the chat"
+                    )));
+                }
+            }
             Some(Ack::delivered(&message.message_id, detail))
         }
         Err(error) => error.ack(),
@@ -947,6 +987,13 @@ pub async fn deliver(
         relay: None,
     };
     crate::hub::merge_mux_meta(&mut request, sender.mux_fields());
+    // A chat started through the hub for the sender's app or a Web client (`hub_via`): its
+    // relayed prompts are that client's, held to the folder-trust gate (`trust_gate.rs`) and the
+    // Web's rules as a peer link's marked prompt is. A sender cannot drop the mark: it is this
+    // daemon's record of the start.
+    if let Some(via) = hub.hub_via(&session) {
+        crate::hub::merge_mux_meta(&mut request, json!({"via": via}));
+    }
     // The harness the sender says it came from, for the chat's sender chip: the claim only, so
     // the record says self-reported; what the sending daemon checked never crosses the hub.
     if let Some(claim) = message.from.claim.as_ref().and_then(crate::sender_harness::sanitized)

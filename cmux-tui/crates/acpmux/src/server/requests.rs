@@ -1448,9 +1448,26 @@ async fn dispatch_request_with_identity(
                 mux_meta(&params).and_then(|m| m.get("peer")).and_then(Value::as_str)
                 && !peer_name.is_empty()
             {
-                let peer = hub
-                    .peer_by_name(peer_name)
-                    .ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
+                let Some(peer) = hub.peer_by_name(peer_name) else {
+                    // A machine of this person that only the mesh hub reaches (`mesh_start.rs`).
+                    if let Some(reply) =
+                        super::mesh_relay::start::new_on(
+                            hub,
+                            conn,
+                            &params,
+                            peer_name,
+                            created_by_stamp(hub, conn, &params),
+                        )
+                        .await
+                    {
+                        return reply;
+                    }
+                    return Err(RpcError::not_found(format!(
+                        "no peer {peer_name:?}: no linked machine and none of your hub-joined \
+                         machines has that name; `acpmux machine ls` lists them"
+                    ))
+                    .with_data(json!({"reason": "peer.unknown", "peer": peer_name})));
+                };
                 if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
                     return Err(super::trust_gate::peer_unsupported(&peer.name));
                 }

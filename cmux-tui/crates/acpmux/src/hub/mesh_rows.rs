@@ -82,6 +82,38 @@ impl Hub {
             && self.peer_down_for(target).is_none()
     }
 
+    /// Record that session `id` was started through the hub for `via` (`app`, `web` or
+    /// `device`): the prompts the hub relays to it are held to that mark
+    /// (`SessionMeta::hub_via`). Saved before the start's ack, so no relayed prompt comes first.
+    /// Fails when the mark is not on disk: the caller must not keep the chat, since after a
+    /// restart its relayed prompts would pass ungated (`mesh_relay::run_control`).
+    pub(crate) fn mark_hub_via(&self, id: &str, via: &str) -> Result<(), String> {
+        let Some(session) = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(id)
+            .cloned()
+        else {
+            return Err(format!("the started chat {id} is gone"));
+        };
+        session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).hub_via =
+            Some(via.to_owned());
+        #[cfg(test)]
+        if fail_hub_via_save(&session.meta().name) {
+            return Err("test: the save failed".into());
+        }
+        self.write_meta(&session).map_err(|e| {
+            tracing::warn!(session = %id, "saving the hub start's mark failed: {e}");
+            e.to_string()
+        })
+    }
+
+    /// The mark a prompt the hub relays to `session` takes (`SessionMeta::hub_via`).
+    pub(crate) fn hub_via(&self, session: &Session) -> Option<String> {
+        session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).hub_via.clone()
+    }
+
     /// Whether a relayed message is for this daemon: refused when it names another host, or a
     /// daemon id other than `own_daemon` (this daemon's id at the hub, once the hub has told it;
     /// with none known, any daemon id is refused). Every relayed message, control ones included,
@@ -204,4 +236,18 @@ mod mesh_route_tests {
         assert!(!hub.mesh_may_route("dep-land"), "two peers list it");
         assert!(hub.mesh_may_route("other"));
     }
+}
+
+/// Tests only: chats by name whose hub mark fails to save (`mark_hub_via`).
+#[cfg(test)]
+pub(crate) static FAIL_HUB_VIA_SAVES: std::sync::Mutex<Vec<String>> =
+    std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn fail_hub_via_save(name: &str) -> bool {
+    FAIL_HUB_VIA_SAVES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .any(|n| n == name)
 }
