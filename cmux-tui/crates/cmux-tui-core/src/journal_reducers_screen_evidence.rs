@@ -133,6 +133,7 @@ impl AgentRoster {
         state: AgentState,
         visible_idle: bool,
         observed_at_ms: u64,
+        (sequence, rule): (u64, Option<String>),
     ) -> ScreenNote {
         let late = |stored: &ScreenEvidence| {
             stored.producer == producer
@@ -153,8 +154,8 @@ impl AgentRoster {
                     state: state.as_str().to_string(),
                     observed_at_ms,
                     source_session: source_session.map(str::to_owned),
-                    sequence: None,
-                    rule: None,
+                    sequence: Some(sequence),
+                    rule,
                 },
             )
         };

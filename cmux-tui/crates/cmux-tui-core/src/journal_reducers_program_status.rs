@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    AGENT_HOOK_PRODUCER_ID, AgentRoster, RosterDelta, RosterEntry, RosterEvent,
-    agent_state_from_str,
+    AGENT_HOOK_PRODUCER_ID, AgentRoster, FoldDecision, PreviousState, RosterDelta, RosterEntry,
+    RosterEvent, StateCause, agent_state_from_str,
 };
 use crate::{AgentSource, AgentState};
 
@@ -104,8 +104,8 @@ impl AgentRoster {
             agent: existing.agent.clone(),
             updated_at_ms: observed_at_ms,
             since_ms: Some(observed_at_ms),
-            cause: None,
-            previous: None,
+            cause: Some(StateCause::of(event, FoldDecision::ProgramStatusClearedHookBlocker)),
+            previous: Some(PreviousState::of(existing, observed_at_ms)),
         };
         self.entries.insert(terminal_id.to_string(), entry.clone());
         vec![RosterDelta::Upsert { terminal_id: terminal_id.to_string(), entry }]

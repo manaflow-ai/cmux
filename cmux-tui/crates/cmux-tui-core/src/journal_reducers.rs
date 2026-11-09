@@ -41,8 +41,10 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// to the plugin child that saw it, so a restarted plugin cannot clear a block.
 /// Version 9 lets the screen end a hook `working` row whose turn ended with no
 /// hook (Esc, a lost `Stop`) and end a hook session whose agent exited; the
-/// re-fold clears rows that stayed working after either.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 9;
+/// re-fold clears rows that stayed working after either. Version 10 records
+/// why each row holds its state (`cause`, `previous`; `cmux agent explain`);
+/// the re-fold gives every current row its cause from the retained journal.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 10;
 /// Stable envelope used by userland agent plugins. The producer id is the
 /// plugin identity; the payload id must match it before the event is folded.
 pub(crate) const AGENT_PLUGIN_FORMAT: &str = "cmux.agent-plugin.v1";
@@ -715,6 +717,8 @@ impl AgentRoster {
         let mut screen_cleared_blocker = false;
         // What the screen proves about a turn's end or an exit ([`Self::screen_ends_hook_row`]).
         let mut screen_note = ScreenNote::default();
+        // How the fold takes this record ([`StateCause`]), refined by arbitration below.
+        let mut decision = FoldDecision::Screen;
         let (state, source, producer, producer_generation, session, agent, updated_at_ms) = if event
             .plugin_event()
         {
@@ -741,6 +745,7 @@ impl AgentRoster {
                 state,
                 visible_idle,
                 updated_at_ms,
+                (event.sequence, state_reason::matched_rule(event)),
             );
             screen_cleared_blocker =
                 screen_note.cleared_blocker || (state == AgentState::Idle && visible_idle);
@@ -764,6 +769,11 @@ impl AgentRoster {
                 .normalized("source")
                 .and_then(agent_source_from_str)
                 .unwrap_or(AgentSource::Socket);
+            decision = if source == AgentSource::Hook {
+                FoldDecision::HookReport
+            } else {
+                FoldDecision::SocketReport
+            };
             let updated_at_ms =
                 event.normalized_u64("updated_at_ms").unwrap_or(event.committed_at_ms);
             let session = event.normalized("source_session").map(str::to_string);
@@ -793,6 +803,7 @@ impl AgentRoster {
                 return Vec::new();
             };
             let agent = event.adapter_id().map(str::to_string);
+            decision = FoldDecision::LegacyScreen;
             (state, AgentSource::Detected, None, None, None, agent, event.committed_at_ms)
         } else {
             let current =
@@ -854,6 +865,7 @@ impl AgentRoster {
                 self.hook_turn_started_at.insert(terminal_id.to_string(), start);
             }
             let agent = event.adapter_id().map(str::to_string);
+            decision = FoldDecision::Hook;
             (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
         };
         // Source arbitration: hook > screen > socket per terminal. Hook
@@ -893,6 +905,15 @@ impl AgentRoster {
                             state,
                             updated_at_ms,
                         );
+                    if existing_source == AgentSource::Hook {
+                        decision = if dialog_gone {
+                            FoldDecision::ScreenClearedHookBlocker
+                        } else if screen_ended_hook_row {
+                            FoldDecision::ScreenEndedHookTurn
+                        } else {
+                            FoldDecision::ScreenAfterStaleHook
+                        };
+                    }
                     if existing_source == AgentSource::Hook
                         && !dialog_gone
                         && !screen_ended_hook_row
@@ -1031,15 +1052,22 @@ impl AgentRoster {
                 Vec::new()
             };
         }
-        let since_ms = self
-            .entries
-            .get(terminal_id)
-            .filter(|previous| {
-                previous.state == state.as_str()
-                    && previous.source == source.as_str()
-                    && previous.session == session
-            })
-            .map_or(updated_at_ms, RosterEntry::since_ms);
+        let existing = self.entries.get(terminal_id);
+        // A report that keeps the state, source and session keeps when the
+        // state began and the record that set it.
+        let kept = existing.filter(|previous| {
+            previous.state == state.as_str()
+                && previous.source == source.as_str()
+                && previous.session == session
+        });
+        let since_ms = kept.map_or(updated_at_ms, RosterEntry::since_ms);
+        let (cause, previous) = match kept {
+            Some(kept) => (kept.cause.clone(), kept.previous.clone()),
+            None => (
+                Some(StateCause::of(event, decision)),
+                existing.map(|existing| PreviousState::of(existing, updated_at_ms)),
+            ),
+        };
         let entry = RosterEntry {
             state: state.as_str().to_string(),
             source: source.as_str().to_string(),
@@ -1052,8 +1080,8 @@ impl AgentRoster {
                 .or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone())),
             updated_at_ms,
             since_ms: Some(since_ms),
-            cause: None,
-            previous: None,
+            cause,
+            previous,
         };
         if self.entries.get(terminal_id) == Some(&entry) {
             return Vec::new();

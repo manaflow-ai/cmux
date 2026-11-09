@@ -131,6 +131,12 @@ fn bounded(value: Option<&Value>) -> Option<String> {
     Some(text[..end].to_owned())
 }
 
+/// The screen rule a plugin report names (`native.matched_rule`), cut as
+/// every producer string is.
+pub(super) fn matched_rule(event: &RosterEvent<'_>) -> Option<String> {
+    bounded(event.payload.pointer("/native/matched_rule"))
+}
+
 impl StateCause {
     /// The cause `event` records when the fold takes it as `decision`.
     pub(super) fn of(event: &RosterEvent<'_>, decision: FoldDecision) -> Self {

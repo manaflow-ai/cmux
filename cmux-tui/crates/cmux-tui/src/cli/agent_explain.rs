@@ -424,6 +424,7 @@ fn record_parts(
         let program = record["program"].as_str().unwrap_or("-");
         parts.push(fill(messages.program_status, &[program]));
     } else if record.get("producer").is_none()
+        && record["decision"] != "program_status_cleared_hook_blocker"
         && let Some(event) = record["event"].as_str()
     {
         parts.push(fill(messages.hook_event, &[event]));

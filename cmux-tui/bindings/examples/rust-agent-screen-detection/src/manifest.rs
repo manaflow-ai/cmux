@@ -204,6 +204,50 @@ pub struct DetectionInput<'a> {
     pub osc_progress: &'a str,
 }
 
+/// What a reported state rests on (`native.basis` of the journal payload,
+/// which `cmux agent explain` shows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetectionBasis {
+    /// A manifest rule matched the screen.
+    Rule,
+    /// No rule matched: a known agent at rest counts as idle.
+    IdleFallback,
+    /// The screen read idle, but output moved within the activity window.
+    OutputActivity,
+    /// The agent's process appeared; the screen asserted nothing yet.
+    ProcessIdentity,
+    /// The agent's process left the foreground or the terminal.
+    ProcessExit,
+}
+
+impl DetectionBasis {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Rule => "rule",
+            Self::IdleFallback => "idle_fallback",
+            Self::OutputActivity => "output_activity",
+            Self::ProcessIdentity => "process_identity",
+            Self::ProcessExit => "process_exit",
+        }
+    }
+}
+
+/// The most non-empty screen lines one report carries as evidence.
+const EVIDENCE_LINES: usize = 8;
+/// The most characters one report carries as evidence.
+const EVIDENCE_CHARS: usize = 400;
+
+/// The end of the region a rule matched, as the report's evidence: its last
+/// [`EVIDENCE_LINES`] non-empty lines, cut to the last [`EVIDENCE_CHARS`]
+/// characters. `None` when the region is blank.
+fn evidence(region: &str) -> Option<String> {
+    let lines: Vec<&str> = region.lines().filter(|line| !line.trim().is_empty()).collect();
+    let tail = lines[lines.len().saturating_sub(EVIDENCE_LINES)..].join("\n");
+    let count = tail.chars().count();
+    let text: String = tail.chars().skip(count.saturating_sub(EVIDENCE_CHARS)).collect();
+    (!text.is_empty()).then_some(text)
+}
+
 /// What one manifest evaluation concluded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Detection {
@@ -219,6 +263,14 @@ pub struct Detection {
     pub visible_idle: bool,
     pub visible_blocker: bool,
     pub visible_working: bool,
+    /// What the state rests on.
+    pub basis: DetectionBasis,
+    /// The end of the region the matched rule read ([`evidence`]).
+    pub evidence: Option<String>,
+    /// The manifest's version, when it declares one.
+    pub manifest_version: Option<String>,
+    /// Where the manifest came from ([`ManifestSource::kind`]).
+    pub manifest_source: &'static str,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -358,6 +410,7 @@ impl CompiledManifest {
     /// (herdr's `default_known_agent_idle_fallback`).
     pub fn detect(&self, input: DetectionInput<'_>) -> Detection {
         let mut matched: Option<&ManifestRule> = None;
+        let mut matched_region = "";
         let mut regions = HashMap::new();
         for (rule, compiled) in self.manifest.rules.iter().zip(&self.compiled_rules) {
             let (region_text, lower_region_text) = cached_region(&mut regions, input, &rule.region);
@@ -366,9 +419,14 @@ impl CompiledManifest {
             }
             match matched {
                 Some(previous) if previous.priority >= rule.priority => {}
-                _ => matched = Some(rule),
+                _ => {
+                    matched = Some(rule);
+                    matched_region = region_text;
+                }
             }
         }
+        let manifest_version = self.version().map(ToString::to_string);
+        let manifest_source = self.source.kind();
         let Some(rule) = matched else {
             return Detection {
                 state: ScreenState::Idle,
@@ -377,6 +435,10 @@ impl CompiledManifest {
                 visible_idle: false,
                 visible_blocker: false,
                 visible_working: false,
+                basis: DetectionBasis::IdleFallback,
+                evidence: None,
+                manifest_version,
+                manifest_source,
             };
         };
         let state = rule.state.map(ScreenState::from).unwrap_or(ScreenState::Unknown);
@@ -387,6 +449,10 @@ impl CompiledManifest {
             visible_idle: rule.visible_idle && state == ScreenState::Idle,
             visible_blocker: rule.visible_blocker && state == ScreenState::Blocked,
             visible_working: rule.visible_working && state == ScreenState::Working,
+            basis: DetectionBasis::Rule,
+            evidence: evidence(matched_region),
+            manifest_version,
+            manifest_source,
         }
     }
 

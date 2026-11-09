@@ -813,15 +813,23 @@ fn scan_terminal(
 /// it back from the journal record (the record is `sensitive`, so remote
 /// clients never get the screen text).
 pub fn native_payload(emission: &crate::detect::ScreenDetectEmission) -> Value {
-    json!({
+    let mut native = json!({
         "engine":"herdr-manifest-v3",
         "matched_rule":emission.matched_rule,
+        "basis":emission.basis.as_str(),
         "visible":{
             "idle":emission.visible_idle,
             "blocker":emission.visible_blocker,
             "working":emission.visible_working
         }
-    })
+    });
+    if let Some(source) = emission.manifest_source {
+        native["manifest"] = json!({"version":emission.manifest_version, "source":source});
+    }
+    if let Some(evidence) = &emission.evidence {
+        native["evidence"] = json!(evidence);
+    }
+    native
 }
 
 fn prepare_emission(
