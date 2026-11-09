@@ -42,23 +42,37 @@ pub(crate) const WARNING_EVERY_MS: u64 = 10 * 60 * 1000;
 /// Whether `caller` is due `warning` (a `host-budget: HOST over ...` line) at `now_ms`: not when
 /// it heard one for the same host less than [`WARNING_EVERY_MS`] ago. The time it is due is kept
 /// in `dir`, one small file per caller and host; a file that cannot be read or written makes
-/// the line due (a warning lost is worse than one repeated).
+/// the line due (a warning lost is worse than one repeated). Only `dir` itself is made, owner
+/// only, never a missing parent (the acpmux home: review of #39057).
 pub(crate) fn warning_due(dir: &std::path::Path, caller: &str, warning: &str, now_ms: u64) -> bool {
-    use std::hash::{Hash, Hasher};
     let host = warning
         .strip_prefix("host-budget: ")
         .and_then(|rest| rest.split_whitespace().next())
         .unwrap_or(warning);
-    // A stable name: the std hasher with no random keys (`DefaultHasher::new`).
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    (caller, host).hash(&mut hasher);
-    let file = dir.join(format!("{:016x}", hasher.finish()));
+    let file = dir.join(format!("{:016x}", fnv1a([caller, host])));
     let last = std::fs::read_to_string(&file).ok().and_then(|t| t.trim().parse::<u64>().ok());
     if last.is_some_and(|at| now_ms.saturating_sub(at) <= WARNING_EVERY_MS) {
         return false;
     }
-    let _ = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&file, now_ms.to_string()));
+    let mut folder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut folder, 0o700);
+    let made = match folder.create(dir) {
+        Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => Err(e),
+        _ => Ok(()),
+    };
+    let _ = made.and_then(|()| std::fs::write(&file, now_ms.to_string()));
     true
+}
+
+/// FNV-1a (64-bit) of `parts`, each ended by a zero byte: a file name that stays the same across
+/// Rust versions and processes, unlike `DefaultHasher`, whose algorithm std may change.
+fn fnv1a<const N: usize>(parts: [&str; N]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in parts.iter().flat_map(|p| p.bytes().chain([0])) {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 /// The most stdin `machine verdict` reads: a fleet's readings fit many times over.

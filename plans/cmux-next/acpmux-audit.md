@@ -357,7 +357,9 @@ From tui-parity bench round 4, friction 6-10 (owner W5-S). CLI only; no daemon c
   deny some tools, and the default answers those (review of #39057). Not a refusal: W5-L's rule
   refuses a chat's own unenforceable policy, and a default is not the chat's own.
 - Host warning (`cli/host_budget.rs`): once per caller (session or person) and host per 10
-  minutes, kept in `ACPMUX_HOME/host-warnings`; `--json` prints none, as before.
+  minutes, kept in `ACPMUX_HOME/host-warnings` (one file per caller and host, named by a stable
+  FNV-1a hash; only that folder is made, 0700, never a missing home); `--json` prints none, as
+  before.
 - `ls --fields` / `session info --fields --json` (`cli/select.rs` `project_fields`): a selected
   field the record lacks is null, not dropped. `startedBy` is not added: the creator is
   `createdBy`, and `subsession.startedBy` is a sub-session's parent (flagged to the lead).
