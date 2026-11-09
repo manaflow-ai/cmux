@@ -158,7 +158,9 @@ function OpenFrames({ order, scheme }: { order: Order; scheme: Scheme }) {
           <div style={{ position: "absolute", left: 8, top: 40, width: 216, lineHeight: 1.5, opacity: 0.8 }}>
             {TRANSCRIPT.slice(0, 220)}
           </div>
-          {frame.app ? <AppGlass box={MINI} scheme={scheme} at={{ left: 12 + index * 244 + MINI.left, top: 12 + MINI.top }} /> : null}
+          {frame.app ? (
+            <AppGlass box={MINI} scheme={scheme} at={{ left: 12 + index * 244 + MINI.left, top: 12 + MINI.top }} />
+          ) : null}
           {frame.page === "none" ? null : (
             <aside
               className="ui-glass ui-glass-floats"
@@ -186,7 +188,11 @@ function OpenFrames({ order, scheme }: { order: Order; scheme: Scheme }) {
 }
 
 function HostGlassGallery({ look, scheme, menuVeil, order }: Props) {
-  return order ? <OpenFrames order={order} scheme={scheme} /> : <HostGlassPanel look={look} scheme={scheme} menuVeil={menuVeil} />;
+  return order ? (
+    <OpenFrames order={order} scheme={scheme} />
+  ) : (
+    <HostGlassPanel look={look} scheme={scheme} menuVeil={menuVeil} />
+  );
 }
 
 function HostGlassPanel({ look, scheme, menuVeil }: Props) {

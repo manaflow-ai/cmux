@@ -257,7 +257,11 @@ async function settled(page: Page, kind: string, ms = 3000) {
 /** Waits for a new marked surface of `kind`; false when none mounts in `ms`. */
 async function mounted(page: Page, kind: string, before: number, ms = 3000) {
   return page
-    .waitForFunction(([k, n]) => (window as any).glassBench.lives.filter((l: Life) => l.kind === k).length > (n as number), [kind, before] as const, { timeout: ms }) // prettier-ignore
+    .waitForFunction(
+      ([k, n]) => (window as any).glassBench.lives.filter((l: Life) => l.kind === k).length > (n as number),
+      [kind, before] as const,
+      { timeout: ms },
+    )
     .then(() => true)
     .catch(() => false);
 }
