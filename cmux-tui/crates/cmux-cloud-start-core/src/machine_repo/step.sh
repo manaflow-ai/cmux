@@ -166,8 +166,20 @@ forward() {
     status=kept
   fi
 }
-# A warm start's update: fetch (a failed fetch keeps the checkout as it is, as it always has),
-# then fast-forward a checkout with no local changes.
+# The checkout keeps the cmux path it cloned with, so the agent's own push and pull there
+# work (the token is minted or read per git process, never written to the checkout), unless
+# it has a helper of its own for the host. The empty value first drops a global helper for
+# the host in this checkout only.
+keep_helper() {
+  if { [ "$cred" = cmux-github ] || [ "$cred" = cmux-gitlab ]; } && ! git -C "$dir" config --local --get-all "$key.helper" >/dev/null; then
+    git -C "$dir" config --local --add "$key.helper" "" &&
+      git -C "$dir" config --local --add "$key.helper" "$helper" &&
+      git -C "$dir" config --local "$key.useHttpPath" true ||
+      echo "cmux repo: cannot keep the $host path in $dir, so a push there needs credentials" >&2
+  fi
+}
+# A warm start's update inline, when no hold can run it behind the chat: the update a start
+# on an existing checkout has always made (fetch, then fast-forward one with no local changes).
 refresh() {
   net -C "$dir" fetch --quiet --tags origin
   changes=$(g -C "$dir" status --porcelain) || { why="cannot read $dir"; return 1; }
@@ -180,7 +192,18 @@ refresh() {
 if [ "${1:-}" = refresh ]; then
   { [ ! -L "$history_lock" ] || rm -f "$history_lock"; } && exec 9>>"$history_lock" || exit 1
   if command -v flock >/dev/null 2>&1; then flock 9 || exit 1; fi
-  refresh || echo "cmux repo: $why; $dir is kept as it was" >&2
+  # Each path in turn, as `net` does, but a fetch no path can make keeps the checkout as it
+  # was: it never ends this run by `net`'s exit, which would leave the barrier failed (and
+  # rewrite repo-status.json under the start that wrote it).
+  for c in $creds; do
+    use "$c"
+    if g -C "$dir" fetch --quiet --tags origin; then
+      keep_helper
+      changes=$(g -C "$dir" status --porcelain) && { [ -n "$changes" ] || forward || echo "cmux repo: $why; $dir is kept as it was" >&2; }
+      exit 0
+    fi
+  done
+  echo "cmux repo: cannot fetch $url; $dir is kept as it was" >&2
   exit 0
 fi
 sparse() { [ "$(git -C "$dir" config --bool core.sparseCheckout 2>/dev/null)" = true ] && [ -f "$dir/.git/info/sparse-checkout" ]; }
@@ -260,16 +283,7 @@ else
   fi
   status=cloned
 fi
-# The checkout keeps the cmux path it cloned with, so the agent's own push and pull there
-# work (the token is minted or read per git process, never written to the checkout), unless
-# it has a helper of its own for the host. The empty value first drops a global helper for
-# the host in this checkout only.
-if { [ "$cred" = cmux-github ] || [ "$cred" = cmux-gitlab ]; } && ! git -C "$dir" config --local --get-all "$key.helper" >/dev/null; then
-  git -C "$dir" config --local --add "$key.helper" "" &&
-    git -C "$dir" config --local --add "$key.helper" "$helper" &&
-    git -C "$dir" config --local "$key.useHttpPath" true ||
-    echo "cmux repo: cannot keep the $host path in $dir, so a push there needs credentials" >&2
-fi
+keep_helper
 sha=$(g -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
 if [ -n "$tip" ]; then fill_later; elif [ -n "$warm" ]; then fill_later refresh; fi
 result

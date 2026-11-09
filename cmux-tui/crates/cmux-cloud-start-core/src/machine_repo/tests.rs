@@ -847,3 +847,35 @@ fn a_warm_start_keeps_local_changes() {
     assert_eq!(machine.git(&["rev-parse", "HEAD"]), before, "not forwarded");
     assert_eq!(std::fs::read_to_string(machine.checkout().join("AGENTS.md")).unwrap(), "mine");
 }
+
+#[cfg(unix)]
+/// Review F1 (cmux#38997, aafeae5053e): a warm update whose fetch no path could make ended by
+/// `net`'s exit, which left the barrier failed (the chat's tools waited for good) and rewrote
+/// repo-status.json. It now keeps the checkout as it was, ends well, and leaves the record alone.
+#[test]
+fn a_warm_update_that_cannot_fetch_keeps_the_checkout() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, _) = machine.run();
+    assert_eq!(code, 0);
+    machine.settle();
+    let before = machine.git(&["rev-parse", "HEAD"]);
+    // The hold runs the update detached in production: record how it ended, answer held.
+    machine.cmux(
+        "#!/bin/sh\ncase \"$1 $2\" in\n\
+         \"repo wait\") exit 0 ;;\n\
+         \"repo hold\") [ \"$3\" = --help ] && exit 0; shift 4\n\
+         mv \"$HOME/../src\" \"$HOME/../gone\"; \"$@\"; echo $? > \"$HOME/update-exit\"\n\
+         mv \"$HOME/../gone\" \"$HOME/../src\"; exit 0 ;;\n\
+         esac\nexit 2\n",
+    );
+    let (code, record) = machine.run();
+    assert_eq!(
+        (code, record["status"].as_str(), record["fill"].as_str()),
+        (0, Some("updated"), Some("background")),
+        "{record}"
+    );
+    let exit = std::fs::read_to_string(machine.0.join("home/update-exit")).unwrap();
+    assert_eq!(exit.trim(), "0", "the update ends well, so the barrier opens");
+    assert_eq!(machine.git(&["rev-parse", "HEAD"]), before);
+}
