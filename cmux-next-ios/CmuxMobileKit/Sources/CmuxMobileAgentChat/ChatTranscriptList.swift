@@ -1122,10 +1122,12 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     }
 
     /// The transcript row that draws Find in Chat's block `key` (`AgentChatFind.promptKey`:
-    /// the turn's prompt bubble; `AgentChatFind.blockKey`: one block of an answer).
+    /// the turn's prompt bubble; `AgentChatFind.steerKey`: a steered message's row;
+    /// `AgentChatFind.blockKey`: one block of an answer).
     static func rowID(findBlock key: String) -> String {
         guard let bar = key.lastIndex(of: "|") else { return key }
         let owner = key[..<bar], part = key[key.index(after: bar)...]
+        if part == "steer" { return String(owner) }
         return part == "prompt" ? "u-\(owner)" : "\(owner)#\(part)"
     }
 

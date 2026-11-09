@@ -846,6 +846,12 @@ public final class AgentChatStore {
                     steeredPrompt = (turnId, promptId)
                 }
             } else if !spilledTurnIDs.contains(turnId) {
+                // A steer the turn ended before the agent read it runs as this turn's prompt, under
+                // its own id (acpmux `steer_end.rs`): it draws once, here, not also as a steer in
+                // the turn before.
+                if let last = turns.indices.last {
+                    turns[last].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptId } else { false } }
+                }
                 promptedTurnID = turnId
                 startsNewAttempt = false
                 turns.append(AgentTurn(id: turnId, prompt: text, promptID: promptId,

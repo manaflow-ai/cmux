@@ -45,6 +45,12 @@ import Testing
         }
         #expect(drawn.text == "also check the header")
         #expect(drawn.incoming == nil)
+        // Find in Chat reads it, and its match reveals its row.
+        let found = try #require(AgentChatFind.blocks(of: store.turns).first { $0.text == "also check the header" })
+        #expect(found.key == AgentChatFind.steerKey(row: "st-p-2"))
+        #if os(iOS)
+        #expect(ChatTranscriptList.rowID(findBlock: found.key) == "st-p-2")
+        #endif
     }
 
     /// A replay (a reattach, the session log again) brings the turn's prompt and its steer again:
