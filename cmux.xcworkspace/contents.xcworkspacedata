@@ -20,9 +20,6 @@
          location = "group:CmuxAgentQuestion">
       </FileRef>
       <FileRef
-         location = "group:CmuxAPIClient">
-      </FileRef>
-      <FileRef
          location = "group:CmuxAppAttest">
       </FileRef>
       <FileRef
@@ -72,9 +69,6 @@
       </FileRef>
       <FileRef
          location = "group:CmuxSyncStore">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxTerminalClient">
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalSizing">

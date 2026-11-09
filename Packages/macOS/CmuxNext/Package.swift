@@ -1552,22 +1552,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):
-        // tiers, sandbox profiles, grants and the pure policy, plus the consent
-        // sheet, Settings > Apps > Permissions and first-use prompt prototypes.
-        // No daemon; the App supplies the data source and the style setting.
-        .target(
-            name: "CmuxNextAppPermissions",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextApps",
-                "CmuxNextDesign",
-                "CmuxNextIcons",
-            ],
-            resources: [
-                .process("Resources"),
-            ],
-            swiftSettings: uiSwiftSettings
-        ),
         // The workspace checklist's strings (the Todo page and its refusals), kept out of the App.
         .target(
             name: "CmuxNextChecklist",
