@@ -89,7 +89,7 @@ pub async fn run(app: &str) -> Result<()> {
                 "ls" | "last" => call_as(&daemon, &params, None).await,
                 name => error_result(crate::mcp_hint::unknown_tool(
                     name,
-                    ["send", "inbox", "ls", "last"].into_iter(),
+                    ["send", "inbox", "ls", "last"],
                 )),
             }
         },

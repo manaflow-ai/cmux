@@ -144,9 +144,11 @@ fn server_argv(app: App) -> Result<Vec<String>> {
 }
 
 /// `ACPMUX_HOME` when this process has one, so the apps read the same mailboxes (Codex starts
-/// its MCP servers with a short env).
+/// its MCP servers with a short env). Absolute: an app starts its server in another folder.
 fn home_env() -> Option<String> {
-    std::env::var("ACPMUX_HOME").ok().filter(|v| !v.is_empty()).map(|v| format!("ACPMUX_HOME={v}"))
+    let home = std::env::var_os("ACPMUX_HOME").filter(|v| !v.is_empty())?;
+    let home = std::path::absolute(&home).unwrap_or_else(|_| PathBuf::from(home));
+    Some(format!("ACPMUX_HOME={}", home.display()))
 }
 
 async fn connect(app: App, dry_run: bool) -> Vec<Value> {
@@ -187,9 +189,11 @@ async fn connect(app: App, dry_run: bool) -> Vec<Value> {
             Err(e) => step(false, format!("{}: `{}` failed: {e:#}", app.name, shell_line(&add))),
         });
     }
-    if app.harness == "claude"
-        && let Some(path) = claude_app_config()
-    {
+    if app.harness == "claude" {
+        let Some(path) = claude_app_config() else {
+            steps.push(json!({"ok": true, "skipped": true, "text": "Claude Desktop app: not installed on this machine; skipped."}));
+            return steps;
+        };
         let entry = server_entry(&argv, env.as_deref());
         steps.push(if dry_run {
             step(true, format!("would add {SERVER_NAME} to {}", path.display()))
@@ -231,10 +235,14 @@ async fn run_quiet(argv: &[&str]) -> Result<()> {
     Ok(())
 }
 
-/// The Claude Desktop app's config, when the app has a config folder on this machine.
+/// The Claude Desktop app's config, when the app is installed: its config folder exists, or (a
+/// fresh install that has not written one yet) its app bundle does.
 fn claude_app_config() -> Option<PathBuf> {
     let dir = dirs::config_dir()?.join("Claude");
-    dir.is_dir().then(|| dir.join("claude_desktop_config.json"))
+    let bundle =
+        ["/Applications/Claude.app".into(), dirs::home_dir()?.join("Applications/Claude.app")];
+    (dir.is_dir() || bundle.iter().any(|b: &PathBuf| b.is_dir()))
+        .then(|| dir.join("claude_desktop_config.json"))
 }
 
 fn server_entry(argv: &[String], env: Option<&str>) -> Value {
@@ -261,6 +269,9 @@ fn add_to_claude_app_config(path: &Path, entry: &Value) -> Result<()> {
         bail!("mcpServers in {} is not an object; not changed", path.display());
     };
     servers.insert(SERVER_NAME.to_owned(), entry.clone());
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    }
     let mut bytes = serde_json::to_vec_pretty(&config)?;
     bytes.push(b'\n');
     crate::config::write_atomic(path, &bytes)
@@ -297,6 +308,15 @@ mod tests {
         assert_eq!(ours["command"], "/opt/acpmux");
         assert_eq!(ours["args"], json!(["bridge", "mcp", "--as", "claude-desktop"]));
         assert_eq!(ours["env"]["ACPMUX_HOME"], "/h");
+    }
+
+    #[test]
+    fn a_fresh_claude_app_install_gets_its_config_folder_and_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Claude/claude_desktop_config.json");
+        add_to_claude_app_config(&path, &json!({"command": "/opt/acpmux"})).unwrap();
+        let config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(config["mcpServers"][SERVER_NAME]["command"], "/opt/acpmux");
     }
 
     #[test]
