@@ -109,6 +109,15 @@ impl Mux {
                     drop(_creation_handoff);
                     return Ok(self.finish_resource_close(committed));
                 }
+                #[cfg(test)]
+                if let Some(hook) = self
+                    .topology_effect_before_execute
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone()
+                {
+                    hook();
+                }
                 let result = match self.execute_resource_topology_effect(
                     &mutation.actor,
                     operation,
