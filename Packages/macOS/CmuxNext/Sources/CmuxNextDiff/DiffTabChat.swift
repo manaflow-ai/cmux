@@ -1,5 +1,5 @@
 public import CmuxNextAgentPane
-import Foundation
+public import Foundation
 
 /// The chat on this Mac that opened a diff tab (hq #7563): Send to agent hands it the tab's review
 /// comments as one prompt, through acpmux (``AcpmuxReplySender``, the Feed's reply path).
