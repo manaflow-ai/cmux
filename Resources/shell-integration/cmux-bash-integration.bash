@@ -1361,6 +1361,11 @@ _cmux_bash_pr_history_premark() {
     local last_status=$?
     _CMUX_BASH_PR_HISTORY_PRE=""
     _CMUX_BASH_PR_HISTORY_PRE_TEXT=""
+    # As a precmd function it only counts when nothing was put ahead of it.
+    if [[ "${FUNCNAME[1]-}" != "_cmux_prompt_command" &&
+          "${precmd_functions[0]-}" != "_cmux_bash_pr_history_premark" ]]; then
+        return "$last_status"
+    fi
     if _cmux_bash_read_last_history_entry; then
         _CMUX_BASH_PR_HISTORY_PRE="$_CMUX_BASH_HISTORY_NUMBER"
         _CMUX_BASH_PR_HISTORY_PRE_TEXT="$_CMUX_BASH_HISTORY_TEXT"
@@ -1399,25 +1404,47 @@ _cmux_bash_pr_history_prompt() {
 # A hook that must stay last because it arms a DEBUG-trap preexec for the
 # user's next command: bash-preexec's `__bp_interactive_mode`, or starship's
 # own `starship_precmd`. A command after it would fire preexec early.
-_cmux_bash_pr_history_epilogue_re=$'\n''(__bp_interactive_mode|starship_precmd)$'
+_cmux_bash_pr_history_epilogue_re=$'(^|[;\n])[[:space:]]*(__bp_interactive_mode|starship_precmd)$'
+_cmux_bash_pr_history_starship_re=$'(^|[;\n])[[:space:]]*starship_precmd$'
+
+# Strips trailing whitespace and semicolons from REPLY.
+_cmux_bash_pr_history_trim_reply() {
+    while [[ "$REPLY" == *[[:space:]\;] ]]; do REPLY="${REPLY%?}"; done
+}
+
+# Sets REPLY to the variable that should end with the mark. Starship without
+# bash-preexec sets PROMPT_COMMAND=starship_precmd and evaluates the user's
+# earlier hooks from STARSHIP_PROMPT_COMMAND inside it, before it re-arms its
+# timer, so the mark goes last there.
+_cmux_bash_pr_history_mark_host() {
+    REPLY="${PROMPT_COMMAND-}"
+    _cmux_bash_pr_history_trim_reply
+    if [[ -n "${STARSHIP_PROMPT_COMMAND-}" && "$REPLY" =~ $_cmux_bash_pr_history_starship_re ]]; then
+        REPLY=STARSHIP_PROMPT_COMMAND
+    else
+        REPLY=PROMPT_COMMAND
+    fi
+}
 
 # The mark sits on its own line so a user entry ending in `&` or a comment
 # cannot swallow or break it.
 _cmux_bash_pr_history_mark_is_last() {
-    local pc="${PROMPT_COMMAND-}"
-    while [[ "$pc" == *[[:space:]\;] ]]; do pc="${pc%?}"; done
-    if [[ "$pc" =~ $_cmux_bash_pr_history_epilogue_re ]]; then
-        pc="${pc%"${BASH_REMATCH[1]}"}"
-        pc="${pc%$'\n'}"
+    local REPLY
+    _cmux_bash_pr_history_mark_host
+    REPLY="${!REPLY-}"
+    _cmux_bash_pr_history_trim_reply
+    if [[ "$REPLY" =~ $_cmux_bash_pr_history_epilogue_re ]]; then
+        REPLY="${REPLY%"${BASH_REMATCH[2]}"}"
+        _cmux_bash_pr_history_trim_reply
     fi
-    [[ "$pc" == *$'\n'"_cmux_bash_pr_history_mark" ]]
+    [[ "$REPLY" == *$'\n'"_cmux_bash_pr_history_mark" ]]
 }
 
 # Keeps the premark ahead of every other prompt hook and the mark after them.
 # Moves only cmux's own entries; the user's keep their order.
 _cmux_bash_pr_history_keep_marks() {
     local -a fns
-    local fn
+    local fn host var REPLY epilogue=""
     if [[ "${PROMPT_COMMAND-}" == __bp_precmd_invoke_cmd* ]]; then
         if [[ "${precmd_functions[0]-}" != "_cmux_bash_pr_history_premark" ]]; then
             fns=(_cmux_bash_pr_history_premark)
@@ -1428,18 +1455,25 @@ _cmux_bash_pr_history_keep_marks() {
         fi
     fi
     _cmux_bash_pr_history_mark_is_last && return 0
-    local pc="${PROMPT_COMMAND-}" epilogue=""
-    [[ "$pc" == *$'\n'_cmux_bash_pr_history_mark* ]] && _CMUX_BASH_PR_HISTORY_MOVED=1
-    pc="${pc//$'\n'_cmux_bash_pr_history_mark/}"
-    while [[ "$pc" == *[[:space:]\;] ]]; do pc="${pc%?}"; done
-    if [[ "$pc" =~ $_cmux_bash_pr_history_epilogue_re ]]; then
-        epilogue=$'\n'"${BASH_REMATCH[1]}"
-        pc="${pc%"${BASH_REMATCH[1]}"}"
-        while [[ "$pc" == *[[:space:]\;] ]]; do pc="${pc%?}"; done
+    _cmux_bash_pr_history_mark_host
+    host="$REPLY"
+    for var in PROMPT_COMMAND STARSHIP_PROMPT_COMMAND; do
+        REPLY="${!var-}"
+        [[ "$REPLY" == *$'\n'_cmux_bash_pr_history_mark* ]] || continue
+        # Bash already copied this prompt's PROMPT_COMMAND, so this prompt's
+        # mark still runs at its old place and must not be trusted.
+        _CMUX_BASH_PR_HISTORY_MOVED=1
+        REPLY="${REPLY//$'\n'_cmux_bash_pr_history_mark/}"
+        printf -v "$var" '%s' "$REPLY"
+    done
+    REPLY="${!host-}"
+    _cmux_bash_pr_history_trim_reply
+    if [[ "$REPLY" =~ $_cmux_bash_pr_history_epilogue_re ]]; then
+        epilogue=$'\n'"${BASH_REMATCH[2]}"
+        REPLY="${REPLY%"${BASH_REMATCH[2]}"}"
+        _cmux_bash_pr_history_trim_reply
     fi
-    # Bash already copied this prompt's PROMPT_COMMAND, so if this prompt had
-    # a mark, it still runs at its old place and must not be trusted.
-    PROMPT_COMMAND="${pc}"$'\n'"_cmux_bash_pr_history_mark${epilogue}"
+    printf -v "$host" '%s' "${REPLY}"$'\n'"_cmux_bash_pr_history_mark${epilogue}"
 }
 
 _cmux_bash_pr_history_mark() {
