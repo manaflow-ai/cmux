@@ -655,7 +655,9 @@
       const kinds = steps.map(checkWalkthroughStep);
       // The page opens first: a flow that starts with a click opens the target itself.
       const plan = kinds[0] === "open" ? steps.map((s, i) => ({ s, k: kinds[i] })) : [{ s: { open: base }, k: "open", implied: true }, ...steps.map((s, i) => ({ s, k: kinds[i] }))];
-      const owner = String(host.sessionId || "default").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 64) || "default";
+      // A session may be named anything, `..` included: the folder keeps letters, digits, `_` and `-`
+      // under a prefix, so no name can be `.` or `..` and reach the folder above.
+      const owner = `s-${String(host.sessionId || "default").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64)}`;
       const dir = path.join(host.tmpdir, "walkthrough", owner);
       fs.mkdirSync(dir, { recursive: true });
       const run = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
