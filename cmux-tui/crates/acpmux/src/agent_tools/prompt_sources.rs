@@ -251,7 +251,10 @@ mod tests {
         let parts = tools().context_parts(true);
         let skills: Vec<_> = parts.iter().filter(|p| p.source == "cmux-skill-listing").collect();
         let compiled = SKILL_FILES.iter().filter(|(p, _)| p.ends_with("/SKILL.md")).count();
-        assert_eq!(skills.len(), compiled);
+        // No `cmux-secrets` server here, so no `cmux-sudo` listing (`SKILL_SERVERS`).
+        assert_eq!(skills.len(), compiled - 1);
+        assert!(!skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-sudo")), "{skills:?}");
+        assert!(skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-cua")), "{skills:?}");
         assert!(skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-chat")), "{skills:?}");
         for skill in &skills {
             let text = skill.text.as_deref().unwrap();
