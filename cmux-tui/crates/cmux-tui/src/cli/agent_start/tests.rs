@@ -367,9 +367,10 @@ fn w3h_resume_reruns_the_recorded_launcher_with_the_harness_session_and_takes_th
         "the old --resume is replaced, the id is its own argv word"
     );
     assert!(daemon.sent("pane.split").is_empty());
-    let closed = daemon.sent("tab.close");
-    assert_eq!(closed.len(), 1);
-    assert_eq!(closed[0]["tab"], "tab_a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0");
+    // The exited terminal is retired, which takes its tab.
+    let retired = daemon.sent("terminal.close");
+    assert_eq!(retired.len(), 1);
+    assert_eq!(retired[0]["terminal"], OLD);
 }
 
 /// W5-O (bench round 4 orchestration item 5): resume closed the exited

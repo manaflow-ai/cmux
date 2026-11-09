@@ -768,10 +768,20 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
     };
     let name = exited.name.as_deref();
     let created = placement::open(daemon, &pane, &placement, name, cwd.as_deref(), &launch.argv())?;
-    // The exited tab gives its name and place to the resumed agent.
-    let closed = exited.tab.as_deref().is_some_and(|tab| {
-        plan(&["tab", tab, "close"]).is_ok_and(|close| daemon.request(None, close).is_ok())
-    });
+    // The exited tab gives its name and place to the resumed agent. Its
+    // terminal is retired (`terminal <t> close` takes the tab too): a tab
+    // close alone left a tabless exited terminal record (W5-O). `tab close`
+    // is the fallback when the session refuses the terminal close. The
+    // caller's own terminal is never closed.
+    let retire = exited.terminal != created.terminal
+        && env.caller_terminal.as_deref() != Some(exited.terminal.as_str());
+    let retired = retire
+        && plan(&["terminal", &exited.terminal, "close"])
+            .is_ok_and(|close| daemon.request(None, close).is_ok());
+    let closed = retired
+        || exited.tab.as_deref().is_some_and(|tab| {
+            plan(&["tab", tab, "close"]).is_ok_and(|close| daemon.request(None, close).is_ok())
+        });
     let mut report =
         report(name, &launch, Some(harness.as_str()), cwd.as_deref(), &placement, &created);
     report.set(
