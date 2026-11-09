@@ -9,7 +9,7 @@ type Props = { size?: SwitchSize; checked?: boolean };
 function SwitchGallery({ size = "md", checked = false }: Props) {
   const [on, setOn] = useState(checked);
   return (
-    <div className="ui-controls-stage">
+    <div className="ui-controls-stage" data-gallery-capture="">
       <div className="ui-controls-setting">
         <span>Fast mode</span>
         <Switch size={size} checked={on} onCheckedChange={setOn} aria-label="Fast mode" />

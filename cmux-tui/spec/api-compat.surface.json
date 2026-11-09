@@ -929,6 +929,9 @@
         "values": [
           "\"daemon-shutdown\""
         ]
+      },
+      "/restart": {
+        "ty": "boolean"
       }
     },
     "event:detached": {
@@ -3962,6 +3965,19 @@
         "required": true
       },
       "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:stash-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"stash-changed\""
+        ]
+      },
+      "/revision": {
         "ty": "uint64",
         "required": true
       }
@@ -10762,6 +10778,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/filename": {
+        "ty": "string",
+        "nullable": true
+      },
       "/lease": {
         "ty": "string",
         "required": true
@@ -11936,6 +11956,20 @@
         "nullable": true
       }
     },
+    "request:set-terminal-tail-pin": {
+      "/pinned": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/terminal": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
     "request:set-viewport-pane-width": {
       "/pane": {
         "ty": "uint64",
@@ -12019,6 +12053,10 @@
       "/pid": {
         "ty": "uint32",
         "required": true
+      },
+      "/restart": {
+        "ty": "boolean",
+        "nullable": true
       }
     },
     "request:sidebar-plugin": {
@@ -12065,6 +12103,9 @@
       }
     },
     "request:split": {
+      "/before": {
+        "ty": "boolean"
+      },
       "/cols": {
         "ty": "uint16",
         "nullable": true
@@ -12210,6 +12251,16 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "request:terminal-last-command": {
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/terminal_id": {
+        "ty": "string",
+        "nullable": true
       }
     },
     "request:terminal-ports": {
@@ -17312,6 +17363,17 @@
           "working"
         ]
       },
+      "/data/agents/*/status": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "blocked",
+          "done",
+          "idle",
+          "unknown",
+          "working"
+        ]
+      },
       "/data/agents/*/surface": {
         "ty": "uint64",
         "required": true
@@ -20662,6 +20724,12 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/write_path/registry_wal_file_bytes": {
+        "ty": "uint64"
+      },
+      "/data/write_path/registry_wal_file_high_water_bytes": {
+        "ty": "uint64"
+      },
       "/data/write_path/registry_wal_frame_bytes": {
         "ty": "uint64"
       },
@@ -21012,6 +21080,16 @@
         "nullable": true
       }
     },
+    "response:set-terminal-tail-pin": {
+      "/data/pinned": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/terminal": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "response:set-viewport-pane-width": {
       "/data/width": {
         "ty": "float32",
@@ -21245,6 +21323,34 @@
       },
       "/data/surface": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:terminal-last-command": {
+      "/data/last_command": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/last_command/command": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/last_command/ended_at_ms": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/last_command/exit_code": {
+        "ty": "int32",
+        "required": true,
+        "nullable": true
+      },
+      "/data/last_command/started_at_ms": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/terminal_id": {
+        "ty": "string",
         "required": true
       }
     },

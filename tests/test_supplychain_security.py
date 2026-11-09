@@ -22,6 +22,12 @@ def workflow(name: str) -> dict:
     return yaml.load((WORKFLOWS / name).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
+def environment_name(job: dict) -> object:
+    """A job's environment name, whether it is written plain or as {name, deployment: false}."""
+    environment = job.get("environment")
+    return environment.get("name") if isinstance(environment, dict) else environment
+
+
 def run_text(job: dict) -> str:
     return "\n".join(str(step.get("run", "")) for step in job.get("steps", []))
 
@@ -43,7 +49,7 @@ def test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_r
     )
     for name, job_name, environment, runner in cases:
         job = workflow(name)["jobs"][job_name]
-        assert job.get("environment") == environment, f"{name} secrets need {environment}"
+        assert environment_name(job) == environment, f"{name} secrets need {environment}"
         assert job.get("runs-on") == runner, f"{name} must use its declared ephemeral pool"
         assert "fromJSON(vars.RUNNER_POOLS)." in runner
 
@@ -53,7 +59,7 @@ def test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_r
     )
     for name, job_name, environment in shared_secret_readers:
         job = workflow(name)["jobs"][job_name]
-        assert job.get("environment") == environment, f"{name} secrets need {environment}"
+        assert environment_name(job) == environment, f"{name} secrets need {environment}"
 
     claude_triggers = set(workflow("claude.yml")["on"])
     assert claude_triggers == {"issue_comment", "issues"}, (
@@ -90,10 +96,21 @@ def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
             if not names and not inherited:
                 continue
             checked += 1
+            assert not inherited, f"{path.name} {job_name} inherits every caller secret"
+            uses = job.get("uses") or ""
+            if uses.startswith("./.github/workflows/"):
+                # A caller job cannot name an environment; the jobs of the called workflow that read the
+                # passed secrets must, so the environment's branch policy still bounds who gets them.
+                callee = yaml.load((ROOT / uses[2:]).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+                for callee_name, callee_job in (callee.get("jobs") or {}).items():
+                    if set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", yaml.dump(callee_job))) - {"GITHUB_TOKEN"}:
+                        assert callee_job.get("environment"), (
+                            f"{path.name} {job_name} passes secrets to {uses} {callee_name}, which has no environment"
+                        )
+                continue
             assert job.get("environment"), (
                 f"{path.name} {job_name} can receive external credentials without an environment"
             )
-            assert not inherited, f"{path.name} {job_name} inherits every caller secret"
     assert checked >= 50, "dispatchable credential consumers were not comprehensively inspected"
 
     secretless_pr_jobs = (
@@ -195,10 +212,10 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
     assert "secrets.vercel_" not in yaml.dump(docs_deploy)
 
     namespace = workflow("namespace-autofix.yml")["jobs"]["autofix"]
-    assert namespace.get("environment") == "ci-routing-agent"
+    assert namespace.get("environment") == {"name": "ci-routing-agent", "deployment": "false"}
 
     pr_autofix = workflow("cmux-next-pr-autofix.yml")["jobs"]["push"]
-    assert pr_autofix.get("environment") == "cmux-pr-autofix"
+    assert pr_autofix.get("environment") == {"name": "cmux-pr-autofix", "deployment": "false"}
     assert "github.event_name != 'pull_request'" in pr_autofix.get("if", ""), (
         "the protected App job must skip PR refs before environment evaluation"
     )
@@ -211,7 +228,7 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
         ("dogfood-artifact-publish.yml", "capture", "ci-bot"),
     )
     for name, job_name, environment in trusted_automation:
-        assert workflow(name)["jobs"][job_name].get("environment") == environment
+        assert environment_name(workflow(name)["jobs"][job_name]) == environment
 
 
 def test_ci_and_deployment_container_images_are_digest_pinned() -> None:

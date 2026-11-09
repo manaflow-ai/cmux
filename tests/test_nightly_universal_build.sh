@@ -401,14 +401,15 @@ if ! awk '
   /^  generate-nightly-deltas:/ { job="delta"; next }
   /^  republish-nightly-deltas:/ { job="republish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  job == "delta" && /needs: \[decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly(, pick-nightly-sign-runner)?\]/ { saw_publish_need=1 }
+  # The tail jobs read the published build from published-build (in the dispatched run on nightly-next).
+  job == "delta" && /needs: \[published-build, build-nightly-deltas(, pick-nightly-sign-runner)?\]/ { saw_publish_need=1 }
   job == "delta" && /fail-fast: false/ { saw_matrix=1 }
-  job == "republish" && /needs: \[decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, generate-nightly-deltas(, pick-nightly-sign-runner)?\]/ { saw_delta_need=1 }
+  job == "republish" && /needs: \[published-build, generate-nightly-deltas(, pick-nightly-sign-runner)?\]/ { saw_delta_need=1 }
   # The tag itself: commits/<name> resolves a same-named branch (cx-urd.67).
   job == "republish" && /gh api .*git\/ref\/tags\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
   job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_branch_read=1 }
   # The publication moves the tag to the resolved build commit, not the tip.
-  job == "republish" && index($0, "\"$current_sha\" != \"${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}\"") { saw_build_sha=1 }
+  job == "republish" && index($0, "\"$current_sha\" != \"${{ needs.published-build.outputs.resolve_build_sha }}\"") { saw_build_sha=1 }
   job == "republish" && /publish-release-assets\.py/ { saw_republish=1 }
   job == "republish" && /Upload revised appcasts to R2/ { saw_r2=1 }
   END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && !saw_branch_read && saw_build_sha && saw_republish && saw_r2) }
@@ -749,7 +750,8 @@ if ! awk '
   job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
   job == "report" && /issues: write/ { saw_report_perm=1 }
   job == "report" && /\$\{process\.env\.CHANNEL_RELEASE_TAG\}-failure/ { saw_report_label=1 }
-  job == "close" && /needs\.publish-nightly\.result == .success./ { saw_close_gate=1 }
+  # The result of publish-nightly, carried by published-build (another run on nightly-next).
+  job == "close" && /needs\.published-build\.outputs\.publish_result == .success./ { saw_close_gate=1 }
   job == "close" && /state: .closed./ { saw_close=1 }
   END { exit !(saw_report_gate && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
 ' "$WORKFLOW_FILE"; then
@@ -853,7 +855,7 @@ for expected in \
   'release metadata already records the exact' \
   'published, tag marker stale' \
   "needs.publish-nightly.outputs.tag_status == 'stale'" \
-  "needs.publish-nightly.outputs.tag_status == 'updated'"; do
+  "needs.published-build.outputs.publish_tag_status == 'updated'"; do
   if ! grep -Fqi "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: nightly publication recovery contract is missing: $expected"
     exit 1
@@ -925,12 +927,14 @@ BUILD_GATE="needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && 
 # A run whose build a newer published build is above spends no notarization (#33109): the macOS
 # signer adds it as one more top-level conjunct, after the build gate.
 NOT_OVERTAKEN="needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
+# A pipelined nightly-next push builds only; its sign run prepares the variant (one more conjunct).
+NOT_PIPELINED="needs.decide.outputs.pipeline != 'true'"
 # The macOS signer is the fallback when the signer jobs did not produce the DMG (#26335); its
 # prefix only adds conjuncts, so the build_only exclusion still holds.
 SIGN_FALLBACK="!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success'"
 if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
-  || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $BUILD_GATE" ] \
+  || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $BUILD_GATE && $NOT_PIPELINED" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE && $NOT_OVERTAKEN\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
   || [ "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \

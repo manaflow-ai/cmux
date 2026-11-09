@@ -30,21 +30,29 @@ vertical divider left and right, one `debug.mouse` move per display frame:
            one --key-settle-s before the next), so the divider between the columns moves and all 4 resize.
            keys-stress: the same in the STRESS session (its first pane). Per round: display-frame intervals
            and main-thread ms per frame (all frames, and the frames that laid out a view), missed refreshes,
-           and per press the most grids one terminal got (`debug.terminal_final_grid`: at most one per press).
+           per press the most grids one terminal got (`debug.terminal_final_grid`), and the PTY size latency
+           (`pty_ms`, per terminal per press: ms from the trace start, just before the key's `action.run`, to the
+           first PTY winsize the owner applied, `first`, and to the one at the press's final grid, `final`;
+           p50/p95/p99/max per round and pooled in `pty_ms` of the layout; the owner's grid is sampled once per
+           display frame, so a value is up to one refresh late).
 
   --ab KEY runs every round of the drag and key layouts once with the boolean tunable KEY off and once on, in
            this one launch (`debug.tunables set`), the order alternating per round; each layout then reports
            `arms` (terminal_resize_arms.summaries: per arm, the rounds' frames pooled into p50/p95/p99/max)
-           and the run resets KEY after each such layout. `--ab motion.frameOwner.terminals` was FRAME OWNER
-           S4's A/B.
+           and the run resets KEY after each such layout. (`--ab motion.frameOwner.terminals` was FRAME OWNER
+           S4's A/B; cmux-ad m19 deleted that switch.)
 
 The rule for the drag and key layouts: a terminal changes size with its pane in every frame of the motion.
-`debug.terminal_display` samples each terminal shown at the round's start once per display frame, after the frame's
-commit: its pane's size, the size its host asked of it, and the size its layer shows. Each round reports `follow`:
-per terminal, frames sampled, `held` frames (asked is not the pane's size, more than 0.5 pt off) and `lagging` frames
-(shown is not the pane's size), with the first 3 of each, and the round's `held_frames` and `lagging_frames`. A round
-with a held frame fails, and the message names the terminal, its held frames and the first sizes. Lagging frames are
-data only: the frame owner (`motion.frameOwner.terminals`) keeps a frame for 1-4 refreshes by design.
+`debug.terminal_display` samples each terminal shown at the round's start once per frame of its window: after the
+Core Animation commit of the run-loop turn in which that window's frame clock ticked, so a sample is what that frame
+committed. It reads its pane's size, the size its host asked of it, and the size its layer shows. Each round reports
+`follow`: per terminal, frames sampled, `held` frames (asked is not the pane's size, more than 0.5 pt off), `lagging`
+frames (shown is not the pane's size) and `in_flight` frames (a size asked of Ghostty and not shown yet), with the first
+3 held and lagging ones; the frame presenters' counts in the run (`presenter`: presented, keeps, group waits,
+long keeps); and the round's `held_frames` and `lagging_frames`. A round with a held frame fails, and the message names
+the terminal, its held frames and the first sizes; so does a terminal shown at the start that was never sampled.
+Lagging frames are data only: the frame owner (``TerminalFramePresenter``) keeps a frame while its new size is not
+drawn yet; in a spring the next size is drawn ahead, so only the spring's first refresh keeps.
 
 Per layout it records display-frame intervals and main-thread busy time per frame (`debug.frames`,
 missed = an interval over 1.5 refresh periods, each split by cause into main late, commit late or presented late),
@@ -223,7 +231,8 @@ def pane_check(display):
     if checked is None:
         return {"follow": None}
     return {"follow": checked, "held_frames": checked["held_frames"], "held_terminals": checked["held_terminals"],
-            "lagging_frames": checked["lagging_frames"]}
+            "lagging_frames": checked["lagging_frames"], "in_flight_frames": checked["in_flight_frames"],
+            "presenter": checked["presenter"]}
 
 
 def frame_numbers(frames):
@@ -361,6 +370,21 @@ def measure(name):
                    "divider": {"x": round(x0, 1), "height": round(height, 1), "vertical_dividers": len(dividers)}})
 
 
+def pty_latency(traced):
+    """Per terminal of one press's `debug.terminal_final_grid` trace whose PTY took a new winsize: ms from the trace start
+    (just before the key's `action.run`) to the first winsize its owner applied after the start (`first`), and to the
+    first at the view's grid when the trace stopped (`final`, None when the owner never got it). The owner's first mark
+    is its grid at the start."""
+    first, final = [], []
+    for terminal in traced.values():
+        owner = (terminal.get("owner") or [])[1:]
+        if not owner:
+            continue
+        first.append(owner[0]["ms"])
+        final.append(next((mark["ms"] for mark in owner if mark["grid"] == terminal.get("fitted")), None))
+    return {"first": first, "final": final}
+
+
 def measure_keys(name):
     """Ctrl-Shift-L then Ctrl-Shift-H on the focused pane, per round and arm (see the module docstring)."""
     refresh_ms = refresh_period()
@@ -390,7 +414,8 @@ def measure_keys(name):
                 time.sleep(opts.key_settle_s if last else opts.key_gap_ms / 1000)
                 traced = (rpc("debug.terminal_final_grid", {"action": "stop"}) or {}).get("terminals") or {}
                 sends = [len(t.get("sends") or []) for t in traced.values()]
-                press = {"action": action, "terminals_sent": sum(1 for n in sends if n), "max_grids_per_terminal": max(sends, default=0)}
+                press = {"action": action, "terminals_sent": sum(1 for n in sends if n), "max_grids_per_terminal": max(sends, default=0),
+                         "pty_ms": pty_latency(traced)}
                 if isinstance(reply, dict) and (reply.get("error") or reply.get("refused")):
                     press["refused"] = json.dumps(reply)[:200]
                 presses.append(press)
@@ -406,13 +431,17 @@ def measure_keys(name):
             entry.update({"terminals": len(after), "resized_terminals": terminal_resize_verdict.resized(before, after), "frames": numbers,
                           "interval_ms": arms.distribution(raw["intervals_ms"]), "main_ms": arms.distribution(raw["main_ms"]),
                           "motion_main_ms": arms.distribution(raw["motion_main_ms"]), "raw": raw, "presses": presses,
+                          "pty_ms": {kind: arms.distribution([ms for press in presses for ms in press["pty_ms"][kind]])
+                                     for kind in ("first", "final")},
                           "display": display, "counters": counter_delta(before, after), "unsettled_after": unsettled(after)})
             refused = [press["refused"] for press in presses if press.get("refused")]
             if refused:
                 entry["error"] = f"{len(refused)} of {len(presses)} presses refused: {refused[0]}"
             rounds.append(entry)
+    pooled = [press["pty_ms"] for entry in rounds for press in entry.get("presses") or []]
     return finish({"layout": name, "refresh_ms": refresh_ms, "plan": plan, "key_gap_ms": opts.key_gap_ms,
-                   "key_settle_s": opts.key_settle_s, "rounds": rounds})
+                   "key_settle_s": opts.key_settle_s, "rounds": rounds,
+                   "pty_ms": {kind: arms.distribution([ms for press in pooled for ms in press[kind]]) for kind in ("first", "final")}})
 
 
 def history():
@@ -422,6 +451,7 @@ def history():
 def keys():
     """4 terminals in a 2x2 grid, each with history, the bottom-left one focused: its Ctrl-Shift-L and Ctrl-Shift-H
     move the divider between the two columns, so all 4 resize."""
+    # newTab is New Workspace (Cmd-N, WorkspaceActionCatalog): each phase starts in its own one-terminal workspace.
     rpc("action.run", {"action": "newTab", "focus": True})
     wait(lambda: surfaces(), 30)
     history()

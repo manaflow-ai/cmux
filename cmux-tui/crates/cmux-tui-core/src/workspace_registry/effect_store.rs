@@ -936,6 +936,28 @@ impl WorkspaceRegistry {
         self.resource_patch_failures_remaining.set(failures);
     }
 
+    /// Makes the next `failures` topology snapshot reads fail (tests).
+    #[cfg(test)]
+    pub(crate) fn fail_next_topology_snapshots_for_test(&self, failures: u64) {
+        self.topology_snapshot_failures_remaining.set(failures);
+    }
+
+    /// Makes every later effect outcome commit fail inside SQLite, as a full
+    /// disk or an I/O error does, while intent and indeterminate marks still
+    /// commit.
+    #[cfg(test)]
+    pub(crate) fn reject_resource_effect_commits_for_test(&self) {
+        self.connection
+            .get()
+            .execute_batch(
+                "CREATE TEMP TRIGGER reject_resource_effect_commit
+                 BEFORE UPDATE OF state ON resource_effect_receipts
+                 WHEN NEW.state = 'committed'
+                 BEGIN SELECT RAISE(ABORT, 'injected outcome commit failure'); END;",
+            )
+            .unwrap();
+    }
+
     /// Commit every durable side of a topology close before the mux detaches
     /// the corresponding live surfaces. Legacy workspace and terminal event
     /// streams advance in this same transaction as the public tombstones and
@@ -1080,7 +1102,7 @@ fn commit_resource_effect_patch_in_transaction(
     spans: &mut CommitSpans,
     report_closed: bool,
 ) -> anyhow::Result<ResourcePatchCommit> {
-    let (stored_operation, stored_fingerprint, state, _) =
+    let (stored_operation, stored_fingerprint, state, intent_json) =
         read_effect_record(transaction, idempotency_key)?.ok_or_else(|| {
             anyhow::anyhow!("resource effect intent {idempotency_key:?} is missing")
         })?;
@@ -1106,7 +1128,15 @@ fn commit_resource_effect_patch_in_transaction(
         .then(|| crate::state::closed_history_store::closed_seq(transaction))
         .transpose()?;
     let applying = std::time::Instant::now();
-    let (patch, prune) = apply_resource_patch_timed(transaction, patch, sqlite_revision)?;
+    // The stored `created_by` (ask-48544d7525): this commit may run on the
+    // journal writer thread, not the request's, so the request's scope is
+    // not seen here.
+    let intent = serde_json::from_str::<Value>(&intent_json).unwrap_or(Value::Null);
+    let apply = || apply_resource_patch_timed(transaction, patch, sqlite_revision);
+    let (patch, prune) = match intent.get("fields").and_then(Value::as_object) {
+        Some(fields) => crate::state::created_by::scoped_by_fields(fields, apply),
+        None => apply(),
+    }?;
     (spans.prune, spans.apply, spans.written) =
         (prune, applying.elapsed().saturating_sub(prune), patch.changes.len());
     let patch = &patch;

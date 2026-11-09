@@ -6,7 +6,9 @@ brings up the next owner. A no-show puts the file back; `stop` restores the app'
 The owner is a real process (sleep); a thread plays the app, starting the next owner from the file
 once the old one exits. No cmux build or app is needed."""
 import importlib.util
+import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -14,6 +16,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +39,7 @@ class FakeApp:
         self.backoff = backoff
         self.builds_run: list[str] = []
         self.owner = self.start()
+        self.changed = threading.Condition()  # notified each time the app brings up a next owner
         self.stopped = threading.Event()
         self.thread = threading.Thread(target=self.supervise, daemon=True)
         self.thread.start()
@@ -49,11 +53,18 @@ class FakeApp:
             if self.owner.poll() is not None and self.respawn:
                 if self.stopped.wait(self.backoff):  # the app's reconnect backoff
                     break
-                self.owner = self.start()
+                with self.changed:
+                    self.owner = self.start()
+                    self.changed.notify_all()
             time.sleep(0.01)
 
     def status(self):
         return (self.owner.pid, self.file) if self.owner.poll() is None else None
+
+    def wait_for_owner_other_than(self, old: int, timeout: float = 30) -> bool:
+        """Until the app has brought up an owner that is not `old` (the timeout bounds only a failure)."""
+        with self.changed:
+            return self.changed.wait_for(lambda: (self.status() or (old, None))[0] != old, timeout)
 
     def close(self) -> None:
         self.stopped.set()
@@ -140,11 +151,13 @@ class AppHandoffTests(unittest.TestCase):
         missed = []
 
         def wait(cli, old):
-            # The first wait gives up just before the app's new owner (from the new build) answers.
+            # The first wait gives up just before the app's new owner (from the new build) answers: it returns
+            # once that owner is up, as a poll that ran out a moment too soon.
             if missed:
                 return real_wait(cli, old)
             missed.append(old)
-            time.sleep(0.3)
+            if not app.wait_for_owner_other_than(old):
+                raise AssertionError("the app brought up no new owner after the handoff")
             return None
 
         swapper.wait_for_new_owner = wait
@@ -154,14 +167,16 @@ class AppHandoffTests(unittest.TestCase):
         self.assertEqual(app.builds_run, ["base build\n", "pr build\n", "base build\n"])
 
     def test_a_pid_that_is_no_longer_the_owner_gets_no_signal(self):
-        app = FakeApp(self.tmp)
-        self.addCleanup(app.close)
-        stranger = subprocess.Popen(["sleep", "600"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.addCleanup(stranger.wait)
-        self.addCleanup(stranger.kill)
-        self.swapper(app).terminate_owner(app.file, stranger.pid)
-        time.sleep(0.1)
-        self.assertIsNone(stranger.poll())
+        # The owner and the stranger are pids only; a fake kill records every signal sent.
+        swapper = rust_live.Swapper(None, "/fake.sock", state=self.state)
+        owner, stranger = 4242, 4343  # the stranger: an owner that exited, its pid another process's by now
+        swapper.owner = lambda _cli, **_k: (owner, self.new)
+        sent = []
+        with unittest.mock.patch.object(rust_live.os, "kill", lambda pid, sig: sent.append((pid, sig))):
+            swapper.terminate_owner(self.new, stranger)
+            self.assertEqual(sent, [])
+            swapper.terminate_owner(self.new, owner)  # the owner still is: it gets the SIGTERM
+        self.assertEqual(sent, [(owner, signal.SIGTERM)])
 
     def test_a_status_that_hangs_counts_as_no_owner(self):
         swapper = rust_live.Swapper(None, "/fake.sock", state=self.state)
@@ -171,6 +186,68 @@ class AppHandoffTests(unittest.TestCase):
 
         swapper.cli = lambda _bin, *words, timeout=60: hang(*words, timeout=timeout)
         self.assertIsNone(swapper.owner(self.new, timeout=0.5))
+
+    @unittest.skipUnless(Path("/proc/self/exe").exists(), "reads /proc")
+    def test_an_owner_whose_file_a_swap_renamed_over_is_still_this_apps_owner(self):
+        # On Linux the owner's /proc/PID/exe reads "PATH (deleted)" right after the new build is renamed over
+        # PATH, and so does `server status`'s pid. Before: no owner, no SIGTERM, a 35 s wait and a rollback.
+        bin_dir = self.tmp / "cmux DEV.app" / "Contents" / "Resources" / "bin"
+        bin_dir.mkdir(parents=True)
+        file = bin_dir / "cmux"
+        shutil.copy2(shutil.which("sleep"), file)
+        owner = subprocess.Popen([str(file), "600"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(owner.wait)
+        self.addCleanup(owner.kill)
+        staged = bin_dir / ".cmux.new"
+        shutil.copy2(shutil.which("sleep"), staged)
+        os.replace(staged, file)
+        self.assertTrue(os.readlink(f"/proc/{owner.pid}/exe").endswith(" (deleted)"))
+        swapper = rust_live.Swapper(None, "/fake.sock", state=self.state)
+        # The status a cmux-tui of today prints: its text form pads `pid`, so the JSON form is asked for.
+        swapper.cli = lambda _bin, *words, **_k: subprocess.CompletedProcess(
+            words, 0, json.dumps({"pid": owner.pid, "status": "running"}) if "--json" in words else f"pid         {owner.pid}\n", "")
+        self.assertEqual(swapper.owner(file), (owner.pid, file))
+        self.assertEqual(swapper.app_file(file), file.resolve())
+
+    def test_a_restore_whose_daemon_never_comes_back_says_so_and_keeps_the_marker(self):
+        app = FakeApp(self.tmp)
+        self.addCleanup(app.close)
+        swapper = self.swapper(app)
+        swapper.swap({"cmux-tui": self.new})
+        app.respawn = False
+        old = rust_live.APP_OWNER_SECS
+        rust_live.APP_OWNER_SECS = 0.5
+        self.addCleanup(setattr, rust_live, "APP_OWNER_SECS", old)
+        with self.assertRaisesRegex(RuntimeError, "run stop again"):
+            swapper.restore_app()
+        self.assertEqual(app.file.read_text(), "base build\n")
+        self.assertTrue(swapper.marker().is_file())
+
+    def test_stop_finishes_a_restore_the_watcher_left_and_says_when_it_cannot(self):
+        # The watcher's own restore timed out and it exited: its pid file is gone, its marker is not.
+        # Before: `stop` said "not watching" and nothing put the app's build back.
+        app = FakeApp(self.tmp)
+        self.addCleanup(app.close)
+        self.swapper(app).swap({"cmux-tui": self.new})
+        status = lambda self_, _cli, **_k: app.status()
+        self.addCleanup(setattr, rust_live.Swapper, "owner", rust_live.Swapper.owner)
+        rust_live.Swapper.owner = status
+        old_env = os.environ.get("CMUX_RUST_LIVE_STATE_DIR")
+        os.environ["CMUX_RUST_LIVE_STATE_DIR"] = str(self.state)
+        self.addCleanup(lambda: os.environ.pop("CMUX_RUST_LIVE_STATE_DIR") if old_env is None
+                        else os.environ.__setitem__("CMUX_RUST_LIVE_STATE_DIR", old_env))
+        app.respawn = False
+        old = rust_live.APP_OWNER_SECS
+        rust_live.APP_OWNER_SECS = 0.5
+        self.addCleanup(setattr, rust_live, "APP_OWNER_SECS", old)
+        self.assertEqual(rust_live.command_stop(None), 1)
+        self.assertTrue(any(self.state.glob("app-original-*.json")))
+        app.respawn = True
+        app.owner = app.start()
+        self.assertEqual(rust_live.command_stop(None), 0)
+        self.assertEqual(app.file.read_text(), "base build\n")
+        self.assertEqual(app.builds_run[-1], "base build\n")
+        self.assertFalse(any(self.state.glob("app-original-*.json")))
 
     def test_a_daemon_outside_an_app_still_restarts_through_the_cli(self):
         swapper = rust_live.Swapper("s", None, state=self.state)

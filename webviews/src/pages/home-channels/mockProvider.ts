@@ -4,6 +4,7 @@
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { MockPageStreams } from "../shared/pageStreams";
 import { threadOf } from "./model";
+import { fixtureRank, type PaletteRankRequest } from "./paletteRank";
 import {
   HomeOps,
   type HomeAttachment,
@@ -494,6 +495,9 @@ export class MockHomeProvider implements PageClient {
   private readonly pictures = new Map<string, { mediaType: string; data: string }>();
   /** Also serve the host's `cmux.chief.profile.*` relay (a page in the app). */
   hostGrants = false;
+  /** The link the mock answers for a video (gallery `video`: a sample MP4 as a data URL); none:
+   * the video cannot be had, as from an owner without attachment reads. */
+  videoUrl: string | undefined = undefined;
   /** Every committed record state, by Chief id, oldest first (`chief.profile.history`). */
   private readonly revisions = new Map<
     string,
@@ -772,7 +776,16 @@ export class MockHomeProvider implements PageClient {
           conversation: id,
           pinned,
           markedUnread,
-          ...(pinned ? { pinPosition: op === HomeOps.pin && !current.pinned ? Date.now() : current.pinPosition } : {}),
+          ...(pinned
+            ? {
+                pinPosition:
+                  op === HomeOps.pin && typeof params.position === "number"
+                    ? params.position
+                    : op === HomeOps.pin && !current.pinned
+                      ? Date.now()
+                      : current.pinPosition,
+              }
+            : {}),
         };
         const updated = { ...current, pinned, markedUnread, pinPosition: change.pinPosition };
         this.data.conversations[index] = updated;
@@ -917,6 +930,9 @@ export class MockHomeProvider implements PageClient {
         return { avatar: this.pictures.get(String(params.chief)) ?? null } as R;
       case HomeOps.avatar:
         return { avatar: this.pictures.get(String(params.participant)) ?? null } as R;
+      case HomeOps.paletteRank:
+        // The fixture ranker (a case-insensitive substring filter in row order), not the daemon's.
+        return fixtureRank(params as unknown as PaletteRankRequest) as R;
       case "cmux.chief.profile.list":
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
         return {
@@ -1066,7 +1082,8 @@ export class MockHomeProvider implements PageClient {
         return { mimeType: "image/png", byteCount: data.length, offset: 0, data, eof: true } as R;
       }
       case HomeOps.attachmentUrl:
-        // No video bytes in the mock: the player shows its poster.
+        // Without a sample video the mock serves no bytes: the player shows its poster.
+        if (this.videoUrl && params.hash === "f".repeat(64)) return { url: this.videoUrl, expiresInMs: 600_000 } as R;
         throw pageError("cmux.page.unavailable", "the mock serves no video");
       case HomeOps.runs: {
         const turns = (params.turns as string[] | undefined) ?? [];

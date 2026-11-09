@@ -21,9 +21,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let daemon: DaemonService
     let layoutModel = LayoutModel()
     // Built in init in this order (lazy because they hold self; no IUOs).
-    // A Command scroll over a Chromium page asks the page first (layout.pagesHandleCommandScroll).
+    // A Command scroll over a Chromium page asks the page first (layout.pagesHandleCommandScroll); hidden screens mount at idle.
     private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self,
-                                                      pageCommandScroll: services.cache.cef)
+                                                      pageCommandScroll: services.cache.cef, hiddenScreens: FrameBatchQueue(owner: "HiddenScreens", budgeted: .background, on: services.mainWork))
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?
@@ -394,7 +394,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     // MARK: LayoutPaneContentProvider
 
     func makeContentView(for pane: LayoutPaneID) -> NSView {
-        guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
+        guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) ?? workspace.pane(handle) else { return NSView() } // its own model: a reserved one is in no index
         let spare = ProvisionalPane.isStandIn(handle) ? paneSpare.take() : nil // a stand-in pane (a key's create) adopts the views made ahead
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self, spare: spare)
         AfterFrameCommit().run { [weak self] in self?.refillPaneSpare() } // after the key's frame; a motion that started refills when it lands

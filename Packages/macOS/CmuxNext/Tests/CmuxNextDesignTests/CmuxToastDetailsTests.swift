@@ -1,10 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
 import CmuxNextTestSupport
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// A toast's Details shows the details in the toast itself, never somewhere else (Leo 2026-10-29:
-/// "the FUCKING details are FUCKING STUPID BECAUSE IT TAKES YOU TO FUCKING SETTINGS????").
+/// "the FUCKING details are FUCKING STUPID BECAUSE IT TAKES YOU TO FUCKING SETTINGS????"). The
+/// center owns whether they show (`showsDetails(serial:)`, `CmuxToastShown.showsDetails`); the host
+/// only draws it.
 @MainActor
 @Suite(.closesItsWindows)
 struct CmuxToastDetailsTests {
@@ -15,132 +18,38 @@ struct CmuxToastDetailsTests {
                   action: .details("Details"), duration: CmuxToast.untilClosed)
     }
 
-    /// Details shows the detail under the message, selectable, with the button a quiet Hide Details link; again, it
+    private static func window() -> NSWindow {
+        NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
+                 backing: .buffered, defer: true)
+    }
+
+    /// Details shows the detail in the same toast (same serial, same message and detail); again, it
     /// hides it and the toast is as it was.
     @Test func detailsShowTheDetailInTheToastAndHideItAgain() throws {
-        let view = CmuxToastView(toast: Self.toast())
-        view.layoutSubtreeIfNeeded()
-        let closed = view.fittingSize
-        let detail = try #require(view.detailLabel)
-        let button = try #require(view.actionButton)
-        #expect(detail.isHidden)
-        #expect(detail.stringValue == Self.reason)
-        #expect(detail.isSelectable)
-        #expect(view.messageLabel?.themedToolTip == Self.reason)
+        let host = KeepingToastHost()
+        let center = CmuxToastCenter(host: host)
+        let window = Self.window()
+        defer { window.closeAfterTest() }
+        let handle = center.show(Self.toast(), in: window)
+        let closed = try #require(host.shown.last)
+        #expect(!closed.showsDetails)
+        #expect(!center.showsDetails(serial: closed.serial))
+        #expect(closed.toast.detail == Self.reason)
+        #expect(closed.toast.action?.title == "Details")
 
-        button.performClick(nil)
-        view.layoutSubtreeIfNeeded()
-        #expect(view.showsDetails)
-        #expect(!detail.isHidden)
-        // Open, it is a quiet link with an up chevron, never a filled chip (Leo, 2026-11-01).
-        #expect(button.isOn && button.shownFill == nil, "the open Details button is a filled chip")
-        #expect(button.image != nil && button.imagePosition == .imageTrailing, "the open Details button has no chevron")
-        // On the title row's centre line with close.
-        let buttonFrame = button.convert(button.bounds, to: view)
-        let closeFrame = view.closeButton.convert(view.closeButton.bounds, to: view)
-        #expect(abs(buttonFrame.midY - closeFrame.midY) < 0.5, "\(buttonFrame) \(closeFrame)")
-        #expect(view.messageLabel?.maximumNumberOfLines == CmuxToastView.expandedMessageLines, "the message is still cut at three lines")
-        #expect(view.fittingSize.height > closed.height + 8, "the toast did not grow to show the detail")
-        #expect(view.fittingSize.width >= CmuxToastView.expandedMinWidth - 0.5, "the shown detail wraps in a narrow column")
-        #expect(button.accessibilityLabel() == CmuxToastStrings.hideDetails, "the shown details have no Hide Details")
+        center.personRanAction(serial: closed.serial)
+        let open = try #require(host.shown.last)
+        #expect(host.shown.count == 1, "Details showed another toast")
+        #expect(open.serial == closed.serial, "Details replaced the toast")
+        #expect(open.showsDetails && center.showsDetails(serial: open.serial))
+        #expect(open.toast == closed.toast)
 
-        button.performClick(nil)
-        view.layoutSubtreeIfNeeded()
-        #expect(!view.showsDetails && detail.isHidden && !button.isOn && button.image == nil)
-        #expect(button.accessibilityLabel() == "Details")
-        #expect(abs(view.fittingSize.width - closed.width) < 1, "hiding the details left the toast wide")
-        #expect(button.shownFill == nil, "the Details button stayed lit after hiding the details")
-        #expect(abs(view.fittingSize.height - closed.height) < 0.5)
-        #expect(view.messageLabel?.themedToolTip == Self.reason)
-    }
-
-    /// Sized as the overlay host sizes it (its own frame, autoresizing), the shown detail sits
-    /// under the message inside the toast, and the message stays at the top: the row's bottom pin
-    /// is off while the details show, so the two layouts never fight.
-    @Test func theShownDetailSitsUnderTheMessageInsideTheToast() throws {
-        let view = CmuxToastView(toast: Self.toast())
-        view.layoutSubtreeIfNeeded()
-        view.translatesAutoresizingMaskIntoConstraints = true
-        view.frame = NSRect(origin: .zero, size: view.fittingSize)
-        let closedHeight = view.frame.height
-        view.setShowsDetails(true)
-        view.layoutSubtreeIfNeeded()
-        view.setFrameSize(view.fittingSize)
-        view.layoutSubtreeIfNeeded()
-        let detail = try #require(view.detailLabel)
-        let message = try #require(view.messageLabel)
-        let detailFrame = detail.convert(detail.bounds, to: view)
-        let messageFrame = message.convert(message.bounds, to: view)
-        #expect(view.frame.height > closedHeight + 8)
-        #expect(detailFrame.minY >= Metrics.space4 - 0.5 && detailFrame.maxY <= view.bounds.maxY + 0.5, "\(detailFrame) in \(view.bounds)")
-        #expect(messageFrame.minY > detailFrame.maxY - 0.5, "the message is not above the detail: \(messageFrame) \(detailFrame)")
-        #expect(view.bounds.maxY - messageFrame.maxY < closedHeight, "the message left the top of the toast")
-    }
-
-    /// A long detail (a daemon's or SSH's whole failure output) scrolls inside the toast at the
-    /// cap: the toast never grows past it, and the row with Details and close stays inside it.
-    @Test func aLongDetailScrollsAtTheCapAndKeepsTheButtonsInTheToast() throws {
-        let long = (1...200).map { "line \($0): launchctl bootstrap gui/501 failed with 125" }.joined(separator: "\n")
-        let view = CmuxToastView(toast: CmuxToast(id: "daemon-update.failures", message: String(repeating: "Couldn't update lab-mini. ", count: 30),
-                                                  detail: long, action: .details("Details"), duration: CmuxToast.untilClosed))
-        view.layoutSubtreeIfNeeded()
-        view.translatesAutoresizingMaskIntoConstraints = true
-        view.frame = NSRect(origin: .zero, size: view.fittingSize)
-        let closedHeight = view.frame.height
-        view.setShowsDetails(true)
-        view.layoutSubtreeIfNeeded()
-        view.setFrameSize(view.fittingSize)
-        view.layoutSubtreeIfNeeded()
-        let cap = CmuxToastView.detailCap(windowHeight: nil)
-        let scroll = try #require(view.detailScroll)
-        #expect(scroll.frame.height <= cap + 0.5, "the detail grew past its cap: \(scroll.frame.height)")
-        #expect(scroll.documentView!.frame.height > scroll.frame.height, "the long detail does not scroll")
-        // The message's six lines, the row's insets and the capped detail: nothing more.
-        let message = try #require(view.messageLabel)
-        #expect(view.fittingSize.height <= cap + closedHeight + message.frame.height + 2 * Metrics.space4 + 0.5,
-                "the toast grew past the cap: \(view.fittingSize.height)")
-        let button = try #require(view.actionButton)
-        let close = view.closeButton
-        for control in [button, close as NSView] {
-            let frame = control.convert(control.bounds, to: view)
-            #expect(view.bounds.contains(frame), "\(frame) outside \(view.bounds)")
-        }
-    }
-
-    /// A window that shrinks after Details showed caps the detail again and the center sizes the
-    /// toast, so the row with Details and close stays on screen. Shown as the app shows it (the
-    /// center on the window's overlay host): the host's one observer of the window tells the toast,
-    /// which keeps no window observer of its own.
-    @Test func aShorterWindowCapsTheShownDetailAgain() throws {
-        let long = (1...200).map { "line \($0): ssh build-box: install exited 1" }.joined(separator: "\n")
-        let center = CmuxToastCenter(host: CmuxToastOverlayHost())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 1000), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        defer { window.closeWithOverlayHost() }
-        let handle = center.show(CmuxToast(id: "daemon-update.failures", message: "Couldn't update lab-mini",
-                                           detail: long, action: .details("Details"), duration: CmuxToast.untilClosed), in: window)
-        let view = try #require(WindowOverlayHost.host(for: window).handles.lazy.compactMap { $0.content as? CmuxToastView }.first)
-        #expect(center.runAction(id: "daemon-update.failures", in: window))
-        view.layoutSubtreeIfNeeded()
-        let scroll = try #require(view.detailScroll)
-        #expect(abs(scroll.frame.height - 240) < 0.5, "\(scroll.frame.height)")
-        let tall = view.frame.height
-
-        window.setContentSize(NSSize(width: 800, height: 300))
-        view.layoutSubtreeIfNeeded()
-        let cap = CmuxToastView.detailCap(windowHeight: view.window?.contentLayoutRect.height)
-        #expect(cap < 240, "the toast's window did not follow the shorter window: \(cap)")
-        #expect(scroll.frame.height <= cap + 0.5, "the detail kept its old cap: \(scroll.frame.height) > \(cap)")
-        #expect(view.frame.height < tall - 1, "the center did not size the toast again: \(view.frame.height)")
-        #expect(abs(view.frame.height - view.fittingSize.height) < 0.5, "\(view.frame.height) \(view.fittingSize.height)")
+        center.personRanAction(serial: open.serial)
+        let again = try #require(host.shown.last)
+        #expect(again == closed, "hiding the details left the toast changed")
+        #expect(!center.showsDetails(serial: again.serial))
         handle.dismiss()
-    }
-
-    /// The cap is 240 pt, or 40% of a shorter window's height.
-    @Test func theDetailCapFollowsTheWindow() {
-        #expect(CmuxToastView.detailCap(windowHeight: nil) == 240)
-        #expect(CmuxToastView.detailCap(windowHeight: 1000) == 240)
-        #expect(CmuxToastView.detailCap(windowHeight: 400) == 160)
+        #expect(host.shown.isEmpty)
     }
 
     /// A lit control keeps its fill with no pointer on it, and never takes the selection fill;
@@ -151,73 +60,141 @@ struct CmuxToastDetailsTests {
         #expect(ChromeHover.fillColor(ChromeHover.State()) == nil)
     }
 
-    /// The hidden detail never widens the toast: a toast with Details is as wide as one without.
-    @Test func aHiddenDetailKeepsTheToastsWidth() {
-        let with = CmuxToastView(toast: Self.toast())
-        let without = CmuxToastView(toast: CmuxToast(id: "t", message: "Couldn't update lab-mini", action: .details("Details")))
-        with.layoutSubtreeIfNeeded()
-        without.layoutSubtreeIfNeeded()
-        #expect(abs(with.fittingSize.width - without.fittingSize.width) < 1)
-        #expect(abs(with.fittingSize.height - without.fittingSize.height) < 0.5)
-    }
-
     /// Details never ends the toast nor runs the handle's action (nothing opens elsewhere); the
     /// center's runAction (automation, as the button) toggles it the same way.
     @Test func detailsNeverEndTheToastOrRunItsAction() throws {
         let host = KeepingToastHost()
         let center = CmuxToastCenter(host: host)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
-                              backing: .buffered, defer: true)
-        defer { window.closeWithOverlayHost() }
+        let window = Self.window()
+        defer { window.closeAfterTest() }
         let handle = center.show(Self.toast(), in: window)
         var ran = 0
         handle.onAction = { ran += 1 }
-        let view = try #require(host.views.last)
-        let before = view.frame.height
+        let serial = try #require(host.shown.last).serial
 
         #expect(center.runAction(id: "daemon-update.failures", in: window))
-        #expect(view.showsDetails)
-        #expect(view.frame.height > before, "the center did not size the toast to its details")
-        view.actionButton?.performClick(nil)
-        #expect(!view.showsDetails)
+        #expect(center.showsDetails(serial: serial))
+        #expect(host.shown.last?.showsDetails == true, "the host was not told the details show")
+        center.personRanAction(serial: serial)
+        #expect(!center.showsDetails(serial: serial))
+        #expect(host.shown.last?.showsDetails == false)
         handle.runAction()
         #expect(ran == 0, "Details ran the toast's action")
         #expect(!handle.isDismissed, "Details ended the toast")
         #expect(center.toasts(in: window).count == 1)
+        handle.dismiss()
     }
 
-    /// A toast stacked above one showing its details sits above that toast's real height; a slot
-    /// with no toast in it counts as one as tall as this one (a toast pushed out moves one slot
-    /// past the stack before its successor shows, and must stay clear of it).
-    @Test func anEmptySlotBelowCountsAsTallAsTheToast() {
-        let bounds = NSRect(x: 0, y: 0, width: 1200, height: 800)
-        let even = CmuxToastOverlayHost.anchor(slot: 3, height: 36, in: bounds)
-        #expect(CmuxToastOverlayHost.anchor(slot: 3, height: 36, in: bounds, below: [36, 36, 36]) == even)
-    }
-
-    /// A toast stacked above one showing its details sits above that toast's real height.
-    @Test func aToastAboveATallerOneStacksOnItsHeight() {
-        let bounds = NSRect(x: 0, y: 0, width: 1200, height: 800)
-        let flat = CmuxToastOverlayHost.anchor(slot: 1, height: 36, in: bounds)
-        let tall = CmuxToastOverlayHost.anchor(slot: 1, height: 36, in: bounds, below: [120])
-        let base = CmuxToastOverlayHost.anchor(slot: 0, height: 120, in: bounds)
-        #expect(tall.minY == base.minY + 120 + CmuxToastOverlayHost.stackGap)
-        #expect(tall.minY > flat.minY)
-        #expect(CmuxToastOverlayHost.anchor(slot: 1, height: 36, in: bounds, below: [36]) == flat, "equal heights moved")
+    /// Details on one toast leaves the others in its window as they are.
+    @Test func detailsOnOneToastLeaveTheOthersClosed() throws {
+        let host = KeepingToastHost()
+        let center = CmuxToastCenter(host: host)
+        let window = Self.window()
+        defer { window.closeAfterTest() }
+        let other = center.show(CmuxToast(id: "other", message: "Another failure", detail: "why", action: .details("Details")), in: window)
+        let handle = center.show(Self.toast(), in: window)
+        let serial = try #require(host.shown.last).serial
+        center.personRanAction(serial: serial)
+        #expect(host.shown.map(\.showsDetails) == [false, true])
+        other.dismiss()
+        handle.dismiss()
     }
 }
 
-/// Keeps every view it is asked to show, so a test can click its buttons.
+/// The host's other reports: the pointer on a toast and a repeated toast.
+@MainActor
+@Suite(.closesItsWindows)
+struct CmuxToastHostReportTests {
+    /// The pointer on a toast holds it past its time; leaving lets it end.
+    @Test(.timeLimit(.minutes(1))) func hoverPausesTheDismissal() async throws {
+        let host = KeepingToastHost()
+        let clock = ManualClock()
+        let center = CmuxToastCenter(clock: clock, host: host)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        let handle = center.show(CmuxToast(id: "t", message: "Closed “New Tab”", action: .undo(),
+                                           duration: .milliseconds(150)), in: window)
+        let dismissed = AsyncStream.makeStream(of: CmuxToastDismissReason.self)
+        handle.onDismiss = { dismissed.continuation.yield($0) }
+        let serial = try #require(host.shown.last).serial
+        try await clock.waitForSleeper()
+        center.pointer(onToast: serial, true)
+        // On the toast, its time is off: nothing is asleep on the clock, so no amount of time ends it.
+        #expect(clock.sleeperCount == 0)
+        clock.advance(by: .seconds(60))
+        #expect(!handle.isDismissed)
+        #expect(center.toasts(in: window).count == 1)
+        center.pointer(onToast: serial, false)
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(150))
+        for await reason in dismissed.stream {
+            #expect(reason == .timeout)
+            break
+        }
+        #expect(handle.isDismissed)
+        #expect(center.toasts(in: window).isEmpty)
+        #expect(host.shown.isEmpty)
+    }
+
+    /// A repeated toast (the same refusal again) takes the shown one's place: the host is given one
+    /// toast, the new one, in a single change.
+    @Test func aSameIdToastReplacesTheShownOneInPlace() throws {
+        let host = KeepingToastHost()
+        let center = CmuxToastCenter(host: host)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        let first = center.show(CmuxToast(id: "refusal", message: "Can’t close the last tab"), in: window)
+        let shown = try #require(host.shown.last)
+        let renders = host.renders
+
+        let second = center.show(CmuxToast(id: "refusal", message: "Can’t close the last tab"), in: window)
+        #expect(first.isDismissed)
+        #expect(host.renders == renders + 1, "the replacement took more than one change")
+        #expect(host.shown.count == 1)
+        let replacement = try #require(host.shown.first)
+        #expect(replacement.serial != shown.serial)
+        #expect(replacement.toast == shown.toast)
+        second.dismiss()
+    }
+
+    /// A fourth toast pushes the oldest out: the host is given the three newest, oldest first.
+    @Test func aFourthToastPushesTheOldestOut() {
+        let host = KeepingToastHost()
+        let center = CmuxToastCenter(host: host)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        let handles = (1...4).map { center.show(CmuxToast(id: "t\($0)", message: "Toast \($0)"), in: window) }
+        #expect(handles[0].isDismissed)
+        #expect(host.shown.map(\.toast.id) == ["t2", "t3", "t4"])
+        handles.forEach { $0.dismiss() }
+    }
+
+    /// The window closed: its toasts end, and the host is not asked to draw in it again.
+    @Test func aClosedWindowEndsItsToasts() {
+        let host = KeepingToastHost()
+        let center = CmuxToastCenter(host: host)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        let handle = center.show(CmuxToast(id: "t", message: "Saved", duration: CmuxToast.untilClosed), in: window)
+        let renders = host.renders
+        center.windowClosed(window)
+        #expect(handle.isDismissed)
+        #expect(center.toasts(in: window).isEmpty)
+        #expect(host.renders == renders, "the host was asked to draw in a closed window")
+    }
+}
+
+/// Keeps the window's toasts as the center last showed them, and counts the changes.
 @MainActor
 private final class KeepingToastHost: CmuxToastHosting {
-    private(set) var views: [CmuxToastView] = []
-    func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {
-        toast.layoutSubtreeIfNeeded()
-        // As the overlay host does: the toast keeps its own frame.
-        toast.translatesAutoresizingMaskIntoConstraints = true
-        toast.frame = NSRect(origin: .zero, size: toast.fittingSize)
-        views.append(toast)
+    private(set) var shown: [CmuxToastShown] = []
+    private(set) var renders = 0
+    func show(_ toasts: [CmuxToastShown], in window: NSWindow, center: CmuxToastCenter) {
+        shown = toasts
+        renders += 1
     }
-    func move(_ toast: CmuxToastView, to slot: Int) {}
-    func hide(_ toast: CmuxToastView, animated: Bool) {}
 }

@@ -51,9 +51,11 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxDeviceHub"),
         .package(path: "../../Packages/Shared/CmuxScreenKit"),
         .package(path: "../../Packages/Shared/CmuxVNCWebRTC"),
+        // The one spinner, on the period every cmux spinner turns at (shared with the web pages and the Mac).
+        .package(path: "../../Packages/Shared/CmuxSpinner"),
     ],
     targets: [
-        .target(name: "CmuxMobileDesign", resources: [.process("Resources")]),
+        .target(name: "CmuxMobileDesign", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner")], resources: [.process("Resources")]),
         // Push payloads, notification buttons, the App Group outbox and chat
         // snapshots: Foundation and UserNotifications only, so the notification
         // extensions link it without the app's modules (verify/rich-push.md).
@@ -75,9 +77,10 @@ let package = Package(
         .target(name: "CmuxMobileDiff", dependencies: ["CmuxMobileDesign"]),
         // Session artifacts: the reference model and extractor, sources (mock, inline, the Mac's `file`
         // link service), the browser and previews. Shared by the terminal and agent sessions.
-        .target(name: "CmuxMobileArtifacts", dependencies: ["CmuxMobileDesign", "CmuxMobileTransport", "CmuxMobileRealtime"]),
+        .target(name: "CmuxMobileArtifacts", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), "CmuxMobileDesign", "CmuxMobileTransport", "CmuxMobileRealtime"]),
         // ACP agent session model, AgentSessionSource (mock now, acpmux over the link later), chat screen.
         .target(name: "CmuxMobileAgentChat", dependencies: [
+            .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileMarkdown", "CmuxMobileDiff", "CmuxMobileArtifacts", "CmuxMobileTransport",
             "CmuxMobileRealtime",
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
@@ -85,6 +88,7 @@ let package = Package(
             .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
         ], resources: [.process("Resources")]),
         .target(name: "CmuxMobileFeed", dependencies: [
+            .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileMarkdown", "CmuxMobileAgentChat",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
@@ -99,15 +103,16 @@ let package = Package(
         ),
         .target(
             name: "CmuxMobileOnboarding",
-            dependencies: ["CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth"],
+            dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth"],
             resources: [.process("Resources")]
         ),
-        .target(name: "CmuxMobileSettings", dependencies: ["CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileRealtime", "CmuxMobileScreenSharing"], resources: [.process("Resources")]),
+        .target(name: "CmuxMobileSettings", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileRealtime", "CmuxMobileScreenSharing"], resources: [.process("Resources")]),
         // Streamed browser tabs: a Mac browser page as H.264 video over the link's
         // `browser` service (VideoToolbox decode, rb input, rb.page chrome).
         .target(name: "CmuxMobileBrowserStream", dependencies: ["CmuxMobileDesign", "CmuxMobileTransport", "CmuxMobileRealtime"]),
         // Workspaces list and the per-workspace TabsKit navigation (last tab first).
         .target(name: "CmuxMobileWorkspaces", dependencies: [
+            .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileBrowserStream",
             // The + menu's Screen Sharing: the account's Macs and the viewer.
             "CmuxMobileScreenSharing",
@@ -117,6 +122,7 @@ let package = Package(
         // Home: the Messages-style conversation list and the Chief chat over CmuxConversation.
         // CmuxMobileBrowserStream: the info page's Computer card streams a Cloud machine's screen.
         .target(name: "CmuxMobileChief", dependencies: [
+            .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileAgentChat", "CmuxMobileArtifacts", "CmuxMobileNotifications",
             "CmuxMobileBrowserStream",
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
@@ -139,7 +145,10 @@ let package = Package(
             // libghostty ships for iOS only here; macOS `swift test` builds the
             // portable parts (session, detector, extractor, input) without it.
             dependencies: [
+                .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 "CmuxMobileDesign", "CmuxMobileArtifacts", "CmuxMobileTransport", "CmuxMobileRealtime",
+                // Predictive local echo: the shared Rust engine (cmux-terminal-prediction).
+                .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
             ]
@@ -150,6 +159,7 @@ let package = Package(
         // Screen Sharing (Settings → Screen Sharing): the account's Macs from the device hub,
         // the approval flow and the full-screen viewer (CmuxScreenKitUI) of a Mac's screen.
         .target(name: "CmuxMobileScreenSharing", dependencies: [
+            .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign",
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
             .product(name: "CmuxScreenKit", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
@@ -160,9 +170,12 @@ let package = Package(
         .target(
             name: "CmuxMobileVoice",
             dependencies: [
+                .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 "CmuxMobileChief", "CmuxMobileModel", "CmuxMobileDesign", "CmuxMobileRealtime",
                 // libwebrtc for live Chief calls: CmuxVNCWebRTC's, the one build the app links.
                 .product(name: "WebRTC", package: "CmuxVNCWebRTC", condition: .when(platforms: [.iOS])),
+                // The process's libwebrtc field trials (WebRTCFieldTrials), set before the call's factory.
+                .product(name: "CmuxVNCWebRTC", package: "CmuxVNCWebRTC", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxChiefVoiceCore", package: "CmuxChiefVoiceCore"),
                 .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             ],
@@ -171,6 +184,7 @@ let package = Package(
         .target(
             name: "CmuxMobileShell",
             dependencies: [
+                .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileSettings",
                 "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTransport", "CmuxMobileWorkspaces", "CmuxMobileChief", "CmuxMobileLive", "CmuxMobileTerminal",
                 "CmuxMobileBrowserStream", "CmuxMobileNotifications", "CmuxMobileVoice", "CmuxMobileRealtime", "CmuxMobileScreenSharing",
@@ -180,6 +194,10 @@ let package = Package(
             ]
         ),
         .testTarget(name: "CmuxMobileRealtimeTests", dependencies: ["CmuxMobileRealtime"]),
+        .testTarget(name: "CmuxMobileVoiceTests", dependencies: [
+            "CmuxMobileVoice", "CmuxMobileChief", "CmuxMobileModel",
+            .product(name: "CmuxConversationCore", package: "CmuxConversation"),
+        ]),
         .testTarget(name: "CmuxMobileScreenSharingTests", dependencies: [
             "CmuxMobileScreenSharing",
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),

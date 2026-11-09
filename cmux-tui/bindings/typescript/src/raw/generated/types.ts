@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b. */
+/* cmux-tui mux protocol 12, IR b3364f55329e5dc13123ef5f45a34f190b251c48bec2a31c411fbd9ecbbbe1e6. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -31,6 +31,8 @@ export type AgentRecord = {
   "since_ms"?: bigint;
   "source": AgentSource;
   "state": AgentState;
+  /** What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`. */
+  "status"?: (AgentState) | null;
   "surface": Id;
   "updated_at_ms": bigint;
 };
@@ -1193,6 +1195,8 @@ export type ServerStatsWritePath = {
   "effect_intent_batches": bigint;
   "effect_intent_failures": bigint;
   "effect_intents": bigint;
+  "registry_wal_file_bytes"?: bigint;
+  "registry_wal_file_high_water_bytes"?: bigint;
   "registry_wal_frame_bytes"?: bigint;
   "request_effect_commits": bigint;
   "wal_commits"?: bigint;
@@ -1230,6 +1234,11 @@ export type SetTerminalKeepResult = {
   "keep": boolean;
   "terminal_id": string;
   "terminal_resource_id"?: (string) | null;
+};
+
+export type SetTerminalTailPinResult = {
+  "pinned": boolean;
+  "terminal": string;
 };
 
 export type ShownProgramStatus = {
@@ -1524,6 +1533,18 @@ export type TerminalKeyInput = {
   "shifted_codepoint"?: (string) | null;
   "unshifted_codepoint"?: (string) | null;
   "utf8": string;
+};
+
+export type TerminalLastCommand = {
+  "command": string;
+  "ended_at_ms": string;
+  "exit_code": (number) | null;
+  "started_at_ms": string;
+};
+
+export type TerminalLastCommandResult = {
+  "last_command": (TerminalLastCommand) | null;
+  "terminal_id": string;
 };
 
 export type TerminalLifecycle = "launching" | "adopting" | "running" | "exited" | "tombstoned";

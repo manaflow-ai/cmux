@@ -357,14 +357,22 @@ INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh -
 ONE_MINI_TIMEOUT = re.compile(r"\$\{\{ vars\.CI_NIGHTLY_MINI != '' && \d+ \|\| (\d+) \}\}")
 
 
+# One-mini mode first, then the job's own limit: `${{ vars.CI_NIGHTLY_MINI != '' && <cond> && N || <mode off> }}`
+# (republish-nightly-deltas: the capacity wait on nightly-next only, then its by-track limit).
+ONE_MINI_THEN = re.compile(r"\$\{\{ vars\.CI_NIGHTLY_MINI != '' && [^|]+ && \d+ \|\| (.+) \}\}")
+
+
 def mode_off_timeout(value: object) -> str:
     """A timeout-minutes value with one-mini mode off."""
     one_mini = ONE_MINI_TIMEOUT.fullmatch(str(value))
-    return one_mini.group(1) if one_mini else str(value)
+    if one_mini:
+        return one_mini.group(1)
+    then = ONE_MINI_THEN.fullmatch(str(value))
+    return f"${{{{ {then.group(1)} }}}}" if then else str(value)
 
 
 # A job timeout that differs on nightly-next: `${{ ... track == 'nightly-next' && NEXT || OTHER }}`.
-NEXT_TIMEOUT = re.compile(r"\$\{\{ needs\.decide\.outputs\.track == 'nightly-next' && (\d+) \|\| (\d+) \}\}")
+NEXT_TIMEOUT = re.compile(r"\$\{\{ needs\.(?:decide|published-build)\.outputs\.track == 'nightly-next' && (\d+) \|\| (\d+) \}\}")
 # Publish-path jobs whose nightly-next path makes no gh call (republish-nightly-deltas writes
 # deltas and feed to R2), so their nightly-next timeout needs no room for the hour's wait.
 NO_GH_ON_NIGHTLY_NEXT = ("republish-nightly-deltas",)
@@ -418,7 +426,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(job["runs-on"].endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"))
         self.assertNotIn("blacksmith", job["runs-on"])
         self.assertNotIn("RUNNER_POOLS", job["runs-on"])
-        self.assertEqual(job["needs"], ["build-nightly-remote-daemon"])
+        # decide for its pipeline output, and build-nightly-app, which retains the assets in a sign run.
+        self.assertEqual(job["needs"], ["decide", "build-nightly-app", "build-nightly-remote-daemon"])
         self.assertGreaterEqual(int(mode_off_timeout(job["timeout-minutes"])), 65)
         # No consumer can put this advisory job back on the publication path,
         # directly or transitively. A budget wait must not delay the feed.

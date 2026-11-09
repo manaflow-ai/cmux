@@ -34,7 +34,12 @@ impl Peer {
                 tokio::time::timeout(HEALTH_BUDGET, me.request("_acpmux/host_health", json!({})))
                     .await;
             let kept = match reply {
-                Ok(Ok(v)) if v.is_object() => Some(trim(v)),
+                Ok(Ok(v)) if v.is_object() => {
+                    // A plain ssh machine that is also a paired install gets the cmux link as
+                    // its backup path (`peer_overlay.rs`).
+                    me.learn_overlay(&v);
+                    Some(trim(v))
+                }
                 // It answered with an error while still connected: a build
                 // without the method (this one never errors).
                 Ok(Err(_)) if me.connected.load(Ordering::SeqCst) => {
@@ -63,7 +68,18 @@ impl Peer {
 /// already has or nobody reads.
 fn trim(v: Value) -> Value {
     let mut out = serde_json::Map::new();
-    for key in ["os", "arch", "cpus", "load", "ram", "swap", "disk", "liveSessions", "pressure"] {
+    for key in [
+        "os",
+        "arch",
+        "cpus",
+        "load",
+        "ram",
+        "swap",
+        "disk",
+        "liveSessions",
+        "pressure",
+        "pressureAgeMs",
+    ] {
         if let Some(x) = v.get(key).filter(|x| !x.is_null()) {
             out.insert(key.to_owned(), x.clone());
         }

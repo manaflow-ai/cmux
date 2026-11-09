@@ -23,8 +23,8 @@ import { pullLargeRows, readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 import { installAuthorityVersion } from "./domains/user-authority.ts"
-import { DEFAULT_CHIEF_BIND, defaultChiefIdentity } from "./domains/user-chief-default.ts"
-import { deliverSignupChief, type DefaultMachinePlatform } from "./user-chief-provision.ts"
+import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_REBIND, defaultChiefIdentity } from "./domains/user-chief-default.ts"
+import { deliverSignupChief, rebindDefaultChief, type DefaultMachinePlatform, type RebindReply } from "./user-chief-provision.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
@@ -176,6 +176,17 @@ export class UserDO extends OwnerDO<UserState> {
       activate: (agent, owner) => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(agent)).activateDefault(agent, owner),
       bind: (machine, key) => this.submitSystem(DEFAULT_CHIEF_BIND, machine, key, defaultChiefIdentity(entity))
     })
+  }
+
+  /**
+   * The default Chief's brain asks this when its stored VM no longer answers (chief-default-hand.ts): the platform
+   * names the current VM of the same logical machine, and only that is bound (DO RPC, no route reaches it).
+   */
+  async rebindDefaultChief(entity: string, agent: string): Promise<RebindReply> {
+    if (!this.isBound(entity)) return { ok: false, code: "chief.machine.not_default", retryable: false }
+    return rebindDefaultChief(this.signupPlatform(), entity, agent,
+      () => this.isBound(entity) ? this.bind(entity).currentState : undefined,
+      (machine, key) => this.submitSystem(DEFAULT_CHIEF_REBIND, machine, key, defaultChiefIdentity(entity)))
   }
 
   private closeRetryAt: number | null = null // Retry time of a socket close that failed (socket-registry.ts); memory only.

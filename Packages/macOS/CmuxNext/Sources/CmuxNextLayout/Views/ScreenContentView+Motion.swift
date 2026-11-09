@@ -18,6 +18,7 @@ extension ScreenContentView {
             scrollRidesFrames = false
             // At rest (a user pan holds the camera, so hasMotion leaves it out): what a close retired goes now.
             releaseClosing()
+            releasePaneFrameNoticesIfSettled()
             return false
         }
         let frameSpring = policy.spring(motionState.frameSpring)
@@ -42,15 +43,57 @@ extension ScreenContentView {
                 reportLeadingColumn()
             }
         }
+        // Right after its frame's `layout.travel` (no sample in between): the strip camera's points left after this
+        // frame's step, as `travelLeft` is for the panes (New Column moves only the camera).
+        if MotionTrace.isEnabled { MotionTrace.sample("layout.camera", Double(abs(scroll.target - scroll.value))) }
         if !moving { scrollRidesFrames = false }
         applyPresentation()
+        if moving, let window { drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: policy) }
         // The key resize's spring landed (the hosts laid their content out at rest in this pass): the next motion
         // resizes content live again unless another key press holds it.
         if !moving { holdsContentForKeyResize = false }
         // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
         if !moving { releaseClosing() }
+        // The motion landed with no drag and no zoom left: the pane views post again.
+        if !moving { releasePaneFrameNoticesIfSettled() }
         return moving
     }
+    /// The key's turn (T-KEYS 3, `LayoutRootView.keyboardResizeDidChange`): the press's first refresh is drawn ahead as
+    /// each later refresh is, from the springs the press's targets just set, so the frame that shows the press shows each
+    /// terminal at its pane's size in it (keys bench 8554d26b: that frame was the only one a terminal showed off its pane).
+    /// No presentation, no layout and no bounds in the key's turn (S1B); the size drawn ahead takes its grid to the
+    /// program then, so it redraws before the frame shows (RESIZE P0 11).
+    func drawAheadOfKeyPress() {
+        guard let window, hasMotion else { return }
+        drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: Motion.panes.policy)
+    }
+
+    /// Draw ahead (cmux-ad m26, the Chromium model: the renderer gets the size before the compositor needs its frame):
+    /// each pane its key hold's spring still moves hears how much its size changes at the next refresh, from a copy of
+    /// its spring stepped once more by `dt`, the display link's interval to the next frame's target time (one refresh).
+    /// A terminal in it asks Ghostty for that size after this refresh's commit, so the next commit presents the frame
+    /// drawn at it with its bounds. A drag, a Reduce Motion jump (no spring frame after it) and hidden panes draw nothing
+    /// ahead.
+    private func drawAhead(_ dt: Double, policy: MotionPolicy) { // perf-hot: 1ms motion-frame
+        guard holdsContentForKeyResize, !policy.reduceMotion, !isHiddenOrHasHiddenAncestor else { return }
+        let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear), scale = self.scale
+        let strip = stripShift
+        for (pane, frame) in paneFrames where frame.rect != frame.targetRect {
+            guard let host = context.hosts[pane], host.superview === self else { continue }
+            // Placed as `applyPresentation` places it, so the two sizes round to the pixel grid the same way.
+            let offset = CGVector(dx: (geometry.scrolls(pane: pane) ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
+            var next = frame
+            let token = zoomMotion.spring(for: pane, fallback: motionState.frameSpring)
+            _ = next.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
+                                      alphaParameters: appear)
+            let nextRect = next.geometryNearRest ? next.targetRect : next.rect
+            let now = frame.rect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
+            let then = nextRect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
+            let change = CGSize(width: then.width - now.width, height: then.height - now.height)
+            if change != .zero { host.drawAhead(sizeChange: change, keyPress: true) }
+        }
+    }
+
     /// Steps every pane and divider spring by `dt`, no presentation (`step`'s first part). The panes and dividers are
     /// one motion: none settles on its own (an edge with a shorter travel would snap frames before the others and
     /// change the gap beside it); they all land in the frame the last one comes within a quarter point of rest.
@@ -82,10 +125,13 @@ extension ScreenContentView {
         return moving
     }
 
-    /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and
-    /// each row column's, in the change that starts them, once `syncScroll` placed the camera: the
-    /// frame that drops the closed pane already shows its neighbours covering some of its space,
-    /// and the shift the close needs (the last column or row closed) already under way.
+    /// A close's first step of the pane, divider and (riding them) camera springs, the strip's and
+    /// each row column's, in the change that starts them, once `syncScroll` placed the camera. A pane
+    /// close's key turn (`LayoutRootView.syncWithModelForNextFrame`) holds the presentation: the
+    /// step is shown by the first frame tick, which steps again and presents once, so the first
+    /// frame that shows the close already shows its neighbours covering some of the closed pane's
+    /// space and the shift the close needs (the last column or row closed) under way. A change
+    /// that does not hold presentations shows the step in its own turn.
     func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.panes.policy) {
         guard leadsFrame else { return }
         leadsFrame = false
@@ -165,10 +211,12 @@ extension ScreenContentView {
     /// `force` (or a structural change's `forcesPresentation`): everything is re-placed and the overlay syncs.
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
         // The frame tick's input: the pass waits for the frame's one presentation (`LayoutFrameInput`).
-        if context.holdsPresentations {
+        // A snap held for its terminals' frames shows at the next tick (`ScreenContentView+SnapFrame`).
+        if context.holdsPresentations || frameInput.snapWaitsForContent {
             (frameInput.presentationWaiting, forcesPresentation) = (true, forcesPresentation || force)
             return
         }
+        releaseSnapDeparted()
         // Every presentation shows the latest pan and the frame's input: nothing waits after it.
         (frameInput.panPresentationPending, frameInput.presentationWaiting) = (false, false)
         presentationPasses += 1
@@ -241,13 +289,15 @@ extension ScreenContentView {
             clips.append((host, scrolls && pane != zoomMotion.pane))
         }
         // The panes a close took out, each with its own ground on what its neighbours have not covered (FRAME OWNER S3c).
-        let closing = presentClosingPanes(strip: strip, scale: scale)
+        let closing = presentClosingPanes(strip: strip, restStrip: restStrip, scale: scale)
         clips += closing.hosts
         if closing.changed { changed = true }
         // A zoom that landed gives its pane back its place in the stacking order (`rank`).
         if zoomMotion.pane != zooming {
             ensureStacking()
             changed = true
+            // Each pane view the zoom moved posts its one frame notice now (`FrameNoticeHold`).
+            releasePaneFrameNoticesIfSettled()
         }
         // Once every frame is placed: a pane is clipped by the panes in front of it, the panes a
         // zoom covers too (they stay where they were, opaque, `zoomMotion.covered`). A host whose

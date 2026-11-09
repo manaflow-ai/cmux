@@ -75,6 +75,8 @@ fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
     let terminal = request.fields.get("terminal_id").map(parse_terminal_id).transpose()?;
     let state = request.fields.get("state").map(parse_agent_state).transpose()?;
     let state_filter = state.map(AgentState::as_str);
+    // The kept replies are memory only, read before the projection lock.
+    let replies = mux.agent_list_replies(terminal.as_ref());
     // Public agents are durable terminal projections. They remain listable
     // after process exit detaches the runtime and every tab view.
     let values = mux
@@ -83,6 +85,7 @@ fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
                 .public_agent_projections(terminal.as_ref(), state_filter)?
                 .into_iter()
                 .map(|agent| agent.into_public_snapshot(&session_id))
+                .map(|agent| crate::mux::with_agent_list_replies(agent, &replies))
                 .collect::<Vec<_>>())
         })
         .map_err(resource_operation_error)?;
@@ -407,13 +410,17 @@ fn execute_sidebar_input(mux: &Arc<Mux>, prepared: PreparedEffect) -> Result<Val
         Ok(snapshot) => snapshot,
         Err(error) => return effects::commit_known_failure(mux, prepared, error),
     };
-    if surface.write_bytes(&data).is_err() {
-        return Err(effects::mark_indeterminate(mux, prepared));
+    if let Err(error) = surface.write_bytes(&data) {
+        let cause = format!("sidebar input write failed: {:?}", error.kind());
+        return Err(effects::mark_indeterminate(mux, prepared, &cause));
     }
     let value = json!({});
     let after = match current_sidebar_snapshot(mux, &sidebar_id, &session_id) {
         Ok(snapshot) => snapshot,
-        Err(_) => return Err(effects::mark_indeterminate(mux, prepared)),
+        Err(error) => {
+            let cause = format!("the sidebar snapshot after input failed: {}", error.code);
+            return Err(effects::mark_indeterminate(mux, prepared, &cause));
+        }
     };
     match sidebar_input_lifecycle_delta(&sidebar_id, &before, &after) {
         Some(changes) => effects::commit_success(mux, prepared, value, changes),

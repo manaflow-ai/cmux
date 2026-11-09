@@ -35,6 +35,7 @@ NATIVE_ARCH=""
 TAG=""
 LAUNCH=0
 BUILD_ONLY=0
+KEEP_APP=""
 CMUX_DEBUG_LOG=""
 CMUX_DEV_PORT=""
 CMUX_DEV_PORT_END=""
@@ -619,8 +620,9 @@ publish_reload_cli_path() {
   fi
 
   # Legacy pointer (plans/cmux-next/version-skew.md step 7). The app writes
-  # ~/Library/Application Support/cmux/last-app-cli at launch, and the dev
-  # shim and cleanup-dev-builds.sh read that first. This writer stays for one
+  # ~/Library/Application Support/cmux-next/last-app-cli at launch (an older
+  # build: cmux/last-app-cli), and the dev shim and cleanup-dev-builds.sh
+  # read that first. This writer stays for one
   # release only because readers outside this repo still read /tmp: the
   # cmuxterm-hq Tag Opener, local-build-guards and keep-devs.sh, plus app
   # builds older than the app pointer. Remove it once those read last-app-cli.
@@ -730,6 +732,11 @@ Options:
   --build-only           Build and validate a tagged app without replacing or
                          stopping the running tagged app, daemon, or tag state.
                          Cannot be combined with --launch.
+  --keep-app <path>      With --build-only: keep the tagged bundle at <path> instead of
+                         deleting it, its LSEnvironment pointing at the tag's installed path
+                         (CMUX_RELOAD_INSTALLED_APP, default this derived data's), so it can
+                         replace the running tagged app later (live mode,
+                         scripts/live-code/live-mode.py). Prints it as the App path.
   --direct-backend       Use the tag's shared GCP dev web stack (scripts/dev-backend.sh,
                          direct Tailscale transport). cmux-next builds default to local
                          backend mode without it, and Cloud is then unavailable.
@@ -1166,6 +1173,14 @@ while [[ $# -gt 0 ]]; do
       BUILD_ONLY=1
       shift
       ;;
+    --keep-app)
+      KEEP_APP="${2:-}"
+      if [[ -z "$KEEP_APP" ]]; then
+        echo "error: --keep-app requires a path" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
     --prod-auth)
       PROD_AUTH=1
       shift
@@ -1261,6 +1276,10 @@ done
 
 if [[ "$BUILD_ONLY" -eq 1 && "$LAUNCH" -eq 1 ]]; then
   echo "error: --build-only cannot be combined with --launch" >&2
+  exit 1
+fi
+if [[ -n "$KEEP_APP" && ( "$BUILD_ONLY" -ne 1 || -z "$TAG" ) ]]; then
+  echo "error: --keep-app needs --tag and --build-only" >&2
   exit 1
 fi
 
@@ -1408,8 +1427,8 @@ fi
 if [[ -z "${CMUX_DEV_BACKEND_MODE:-}" && -z "${CMUX_DEV_BACKEND_URL:-}" ]]; then
   export CMUX_DEV_BACKEND_MODE=local
 fi
-# The cmuxterm-hq local build guard refuses xcodebuild/cargo below 500 GiB
-# free on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
+# The cmuxterm-hq local build guard refuses xcodebuild/cargo below its own floor
+# (CMUX_BUILD_MIN_FREE_GIB) of free space on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
 # sized for the legacy app and many agents at once. A cold cmux-next tagged
 # build (2026-09-29, tag nxpipe) left 5.8 GiB of DerivedData and lowered
 # free space by at most 10.6 GiB while it ran, so cmux-next reloads use their
@@ -1417,6 +1436,10 @@ fi
 # build. Its default (40 GiB, about 4x that peak) is the one number in
 # cmux-next/tour-requirements.json, so the runners that take tours read the
 # same floor instead of copying it.
+# The floor warns and the build runs anyway: a busy machine makes things
+# slower, never makes them fail (2026-11-06: a fleet try-pr --live-code run
+# with 33 GiB free was refused here). Under the floor it says the free space,
+# the floor and the host, and still lifts the guard's floor for this build.
 cmux_next_requirements="$SCRIPT_DIR/cmux-next/tour-requirements.json"
 cmux_next_default_min_free_gib="$(python3 -c '
 import json, sys
@@ -1428,14 +1451,18 @@ print(value)' "$cmux_next_requirements" 2>/dev/null)" \
 cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-$cmux_next_default_min_free_gib}"
 [[ "$cmux_next_min_free_gib" =~ ^[0-9]+$ ]] \
   || { echo "error: CMUX_NEXT_MIN_FREE_GIB must be a whole number of GiB" >&2; exit 1; }
-cmux_next_free_gib="$(df -Pk "$HOME" | awk 'NR==2{print int($4/1048576)}')"
-if (( cmux_next_free_gib < cmux_next_min_free_gib )); then
-  echo "error: cmux-next build needs ${cmux_next_min_free_gib} GiB free on the home volume; ${cmux_next_free_gib} GiB free." >&2
-  echo "       Free space (skills/build-release/cleanup-dev-builds in cmuxterm-hq) or build on the fleet with cmux-ci." >&2
-  exit 1
+cmux_next_free_gib="$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2{print int($4/1048576)}')" || cmux_next_free_gib=""
+cmux_next_host="$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)"
+if ! [[ "$cmux_next_free_gib" =~ ^[0-9]+$ ]]; then
+  echo "warning: cmux-next floor: cannot read the home volume's free space on ${cmux_next_host} (floor ${cmux_next_min_free_gib} GiB); building anyway" >&2
+elif (( cmux_next_free_gib < cmux_next_min_free_gib )); then
+  echo "warning: cmux-next floor: ${cmux_next_free_gib} GiB free on the home volume of ${cmux_next_host}, under the ${cmux_next_min_free_gib} GiB floor; building anyway" >&2
+  echo "         If the build runs out of space: skills/build-release/cleanup-dev-builds in cmuxterm-hq, or build on the fleet with cmux-ci." >&2
+else
+  echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB on ${cmux_next_host}"
 fi
 if [[ "${CMUX_ALLOW_LOW_SPACE_BUILD:-}" != "1" ]]; then
-  echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB; lifting the local build guard's 500 GiB floor for this build"
+  echo "==> cmux-next: lifting the local build guard's floor for this build"
   export CMUX_ALLOW_LOW_SPACE_BUILD=1
 fi
 if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
@@ -1528,7 +1555,7 @@ if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mo
 fi
 [[ -n "${CMUX_NEXT_MOBILE_HOST_BIN:-}" ]] && echo "==> cmux-next: bundling cmux-mobile-host from $CMUX_NEXT_MOBILE_HOST_BIN"
 
-# The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
+# The web bundles (agent pane, pages, Agent Activity, webviews
 # app) are build output, not committed: they are built from the sources before
 # the compile, so the app never ships a stale or missing copy (cx-vn5). A warm
 # tree skips the build in about a second. The Xcode "Verify web bundles" phase
@@ -1665,7 +1692,17 @@ reload_finalize() {
     echo "Swift workaround:"
     echo "  batch mode, debug symbols, and AArch64 GlobalISel disabled for this reload"
   fi
-  if [[ "$BUILD_ONLY" -eq 1 ]]; then
+  if [[ "$BUILD_ONLY" -eq 1 && -n "$KEEP_APP" && -n "${TAG_APP_STAGING_PATH:-}" && -e "$TAG_APP_STAGING_PATH" ]]; then
+    # Live mode's build (--keep-app): the staged bundle is the product. It moves to KEEP_APP,
+    # beside nothing the running tagged app uses, and is printed as the App path.
+    rm -rf "$KEEP_APP"
+    mkdir -p "$(dirname "$KEEP_APP")"
+    mv "$TAG_APP_STAGING_PATH" "$KEEP_APP"
+    echo
+    echo "Build-only: kept the tagged app for a later swap. The running tagged app, cmuxd, and tag state were left unchanged."
+    echo "App path:"
+    echo "  $KEEP_APP"
+  elif [[ "$BUILD_ONLY" -eq 1 ]]; then
     echo
     echo "Build-only validation complete. The running tagged app, cmuxd, and tag state were left unchanged."
     if [[ -n "${TAG_APP_STAGING_PATH:-}" && -e "$TAG_APP_STAGING_PATH" ]]; then
@@ -2153,13 +2190,22 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       esac
       /usr/libexec/PlistBuddy -c 'Delete :CMUXCloudDogfoodEnabled' "$INFO_PLIST" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Add :CMUXCloudDogfoodEnabled bool ${CMUX_DEV_CLOUD_ENABLED:-1}" "$INFO_PLIST"
+      # Swift live mode's mark (LiveCode.isLive): only a live code build (scripts/live-code/build.sh) has it.
+      /usr/libexec/PlistBuddy -c 'Delete :CMUXLiveCodeBuild' "$INFO_PLIST" 2>/dev/null || true
+      if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
+        /usr/libexec/PlistBuddy -c "Add :CMUXLiveCodeBuild bool true" "$INFO_PLIST"
+      fi
       set_plist_env "$INFO_PLIST" CMUX_AUTH_CALLBACK_SCHEME "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
       set_plist_env "$INFO_PLIST" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD "1"
       set_plist_env "$INFO_PLIST" CMUXTERM_REPO_ROOT "$PWD"
       BUNDLED_APP_PATH="$TAG_APP_FINAL_PATH"
-      if [[ "$BUILD_ONLY" -eq 1 ]]; then
+      # --keep-app: the kept bundle will be swapped into the installed tagged app's path
+      # (CMUX_RELOAD_INSTALLED_APP, when it is built in other derived data), so it names that one.
+      if [[ "$BUILD_ONLY" -eq 1 && -n "$KEEP_APP" ]]; then
+        BUNDLED_APP_PATH="${CMUX_RELOAD_INSTALLED_APP:-$TAG_APP_FINAL_PATH}"
+      elif [[ "$BUILD_ONLY" -eq 1 ]]; then
         BUNDLED_APP_PATH="$TAG_APP_STAGING_PATH"
       fi
       set_plist_env "$INFO_PLIST" CMUX_BUNDLED_CLI_PATH "$BUNDLED_APP_PATH/Contents/Resources/bin/cmux"

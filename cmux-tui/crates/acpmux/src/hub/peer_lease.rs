@@ -10,10 +10,10 @@
 //! disk (`peer_cache.rs`), and stops with its connection
 //! (`Conn::end_peer_leases` in `server/mod.rs`).
 //!
-//! Lock order: `peer_leases`, then `remote_sessions`, then `peers`; never
-//! the other way round. A peer leaves the `peers` registry before its rows
+//! A peer Arc is looked up briefly before taking `remote_sessions` or a writer gate; never hold
+//! `peers` across another shared lock. A peer leaves the `peers` registry before its rows
 //! are dropped, and a notice changes rows only while its instance is still
-//! registered (`apply_peer_notice` checks under the rows lock), so a late
+//! registered (`apply_peer_notice` checks while holding peers then rows), so a late
 //! notice of a replaced or removed peer never adds rows back.
 
 use super::*;
@@ -59,6 +59,7 @@ impl Hub {
             )));
         }
         let pc = crate::config::PeerConfig {
+            link_host: None,
             wireguard: None,
             url: url.to_owned(),
             token: Some(token),
@@ -100,6 +101,9 @@ impl Hub {
         peer.stop();
         self.note_peer_removed(&peer);
         self.purge_peer_rows(&lease.name);
+        if !peer.cache_write_pending.load(std::sync::atomic::Ordering::Acquire) {
+            self.peer_cache_writers.lock().unwrap_or_else(|e| e.into_inner()).remove(&lease.name);
+        }
         tracing::info!(peer = %lease.name, "peer lease ended");
     }
 
@@ -140,6 +144,7 @@ mod tests {
         cfg.peers.insert(
             "box".into(),
             crate::config::PeerConfig {
+                link_host: None,
                 wireguard: None,
                 url: "ssh://box".into(),
                 token: None,
@@ -320,6 +325,10 @@ mod tests {
             hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         let e = hub.remove_peer("vm").await.unwrap_err();
         assert!(e.message.contains("leased"), "{}", e.message);
+        assert!(
+            !hub.peer_cache_writers.lock().unwrap().contains_key("vm"),
+            "a refused leased removal leaked its cache writer"
+        );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}", "peer_remove saved config");
         assert!(hub.is_leased("vm"));
         assert_eq!(hub.peers().len(), 1, "{:?}", hub.peers());

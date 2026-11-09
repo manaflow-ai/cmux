@@ -3,12 +3,13 @@ import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
 import type { CloudMachine } from "../cloudMachines";
+import { CloudChatHint } from "../CloudChatHint";
 import { isActive, type Dictation, type DictationField } from "../dictation";
-import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
+import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../newTabModel";
 import { acpmuxPerf } from "../perf";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
@@ -18,8 +19,10 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
-import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
-import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
+import { BrowseFailure } from "../BrowseFailure";
+import { browseFailureMessage } from "../browseFailureModel";
+import { type BrowseRequest } from "../AddProjectPanel";
+import { BROWSE_BUSY, type BrowseResult } from "../addProjectPanelModel";
 import { errorMessage, isStartCancelled } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
@@ -35,19 +38,17 @@ import {
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
 import type { UploadResult } from "../cloudUploads";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  useAttachmentIntake,
-  useSendWhenAttached,
-} from "../composer/attachmentIntake";
+import { AttachmentStrip } from "../composer/attachmentIntake";
+import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "../composer/pastedChips";
 import { DropOverlay } from "../composer/DropOverlay";
-import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
+import { AllChatsList } from "./AllChatsList";
+import { type LoadChatsPage } from "./allChatsListModel";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
-import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
+import { NowPlayingPlayer } from "./NowPlayingPlayer";
+import { type NowPlayingCommand } from "./nowPlayingPlayerModel";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { Spinner } from "../conversation/icons";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
@@ -84,12 +85,14 @@ import {
   type PageWidgets,
   type WidgetEdit,
 } from "./pageWidgets";
-import { useWidgetEditing, WidgetEditBar, WidgetFrame } from "./WidgetEditing";
+import { WidgetEditBar, WidgetFrame } from "./WidgetEditing";
+import { useWidgetEditing } from "./widgetEditingModel";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { AmbientWidgets } from "./AmbientWidgets";
 import type { NewTabWeather } from "./ambient";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
+import { FirstRunStarters, showsFirstRunStarters, type FirstRunStarterLook } from "./FirstRunStarters";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { DEFAULT_NEW_TAB_TEMPLATE, screenSections, screenTemplate, type ScreenTemplate } from "./templates";
@@ -103,7 +106,7 @@ import { tabsToComposer } from "../composerFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
-import { useComposerChrome } from "../composerChrome";
+import { useComposerChrome } from "../composerChromeModel";
 import { useComposerSettings } from "../composerSettings";
 import { useComposerLook } from "../composerLook";
 import { MarkdownField, type MarkdownFieldHandle } from "../MarkdownField";
@@ -132,6 +135,9 @@ import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
 import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
+import { newTabIconColumnArm } from "./iconColumn.experiment";
+import { elementBox, reportToastAvoidance } from "../toastAvoidance";
+import { githubIssueLink } from "../../../githubReferences";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -139,7 +145,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onSetup?(continueWith: (harness: string) => void): void;
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
-  /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
+  /// `noProject`: No folder was picked, so the chat starts in no project.
   /// `attachments`: what was pasted or dropped on the page (composer/attachmentIntake.tsx), sent
   /// with the chat's first prompt.
   /// `saved`: a saved environment picked the place. `cwd` is its folder, used even when it is the
@@ -153,6 +159,10 @@ export type NewTabScreenActions = NewTabCommandActions & {
     attachments?: ComposerAttachment[],
     saved?: { peer?: string },
   ): unknown;
+  /// A lone GitHub issue URL starts the core fix-from-link flow in a new worktree. `cwd` is the
+  /// project the person picked on this page, when there is one; it must win over the tab's
+  /// inherited folder so checkout discovery uses the explicit choice.
+  onFixFromLink?(url: string, cwd?: string, harness?: string, model?: string): void | Promise<void>;
   onOpen(url: string): void;
   /// Open in Profile…'s pick (Lawrence 2026-11-05): `url` in the browser profile `id`.
   onOpenInProfile?(url: string, id: string): void;
@@ -229,6 +239,12 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// what was typed there, taken once as the page's own draft when the page comes back.
   takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
   startNotice?: React.ReactNode;
+  /// New Cloud Chat (the palette) is pending: once Run as is offered, the page takes it (this call)
+  /// and picks Cloud.
+  cloudPick?(): void;
+  /// The one-time Cloud hint (cloudChatHintModel.ts) is due: it shows over the strip while Cloud is not
+  /// the mode, and its Use Cloud is this page's own Cloud pick.
+  cloudHint?: { onClose(): void };
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
@@ -298,6 +314,9 @@ type Props = NewTabScreenActions & {
   /// The page's widgets (`tabs.newTabWidgets.*`, pageWidgets.ts): on Minimal, without them the page
   /// is the composer alone. Unset shows the template's own (shownPageWidgets).
   pageWidgets?: PageWidgets;
+  /// How the first-run starters under the composer look (FirstRunStarters.tsx); the gallery's
+  /// variants set it, the app leaves it unset (rows).
+  starterLook?: FirstRunStarterLook;
   /// true: `tabs.newTabWidgets.greeting` is set to false (not the default): with the headline off,
   /// Minimal keeps no room for it, so the composer sits where it sat with the greeting off.
   headlineOff?: boolean;
@@ -328,6 +347,8 @@ type Props = NewTabScreenActions & {
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
   /// Saves files chosen from the New Tab plus menu when the session has no chat upload yet.
   upload?(files: File[]): Promise<UploadResult>;
+  /// A fix-from-link request failed while the New Tab remains mounted.
+  fixError?: string;
 };
 
 /// `/`, `/Users`, a home folder: never a chat's start folder (AgentPaneStartFolders drops them).
@@ -398,8 +419,12 @@ export function NewTabScreen(props: Props) {
   // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
   // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
   const [picked, setPicked] = useState(false);
-  // Do not work in a project (Leo 2026-10-18): no project, no start folder, until a folder pick.
+  // No folder (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  useEffect(() => {
+    if (props.fixError) setFixing(false);
+  }, [props.fixError]);
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
   const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
@@ -481,8 +506,14 @@ export function NewTabScreen(props: Props) {
   });
   // A paste on the field (an image, a copied file, a screenshot) and a file drop anywhere on the
   // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
+  // `kind`: what brought them (a paste, a drop, the chooser), which says whether they replace a
+  // selection (inlineAttachments.tsx `place`): only a paste does.
   const inlinePlace = useRef<
-    ((chips: readonly import("../composer/attachmentIntake").PendingAttachment[]) => void) | undefined
+    | ((
+        chips: readonly import("../composer/attachmentIntakeModel").PendingAttachment[],
+        kind: DroppedKind | undefined,
+      ) => void)
+    | undefined
   >(undefined);
   const {
     attachments,
@@ -499,7 +530,7 @@ export function NewTabScreen(props: Props) {
     dropLanded,
     attach,
   } = useAttachmentIntake({
-    place: (chips) => inlinePlace.current?.(chips),
+    place: (chips, kind) => inlinePlace.current?.(chips, kind),
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     dropZone: () => fieldElement()?.closest(".acpmux-main") ?? null,
     locked: () => props.cloudStarting === true,
@@ -620,6 +651,9 @@ export function NewTabScreen(props: Props) {
     : project && project !== props.cwd
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // Issue fixes must never treat the tab's home or private agent-home as a checkout pick. An
+  // absent folder lets the host search only its approved local checkout roots.
+  const fixFolder = [project, askFolder].find((folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder));
   // The environment card checks the project the chat starts in: the chip's folder, else the tab's
   // own project (never the home ~ or a private agent-home folder it inherited).
   const envFolder = none
@@ -646,6 +680,17 @@ export function NewTabScreen(props: Props) {
       props.runMode?.onMode(mode);
     },
   };
+  // New Cloud Chat: the page's own Cloud pick (above), as soon as Cloud is offered here.
+  const takeCloudPick = props.cloudPick;
+  const cloudOfferedHere = runMode !== undefined;
+  const pickCloudNow = useEffectEvent(() => {
+    if (runMode && runMode.mode !== "cloud") runMode.onMode("cloud");
+  });
+  useEffect(() => {
+    if (!takeCloudPick || !cloudOfferedHere) return;
+    takeCloudPick();
+    pickCloudNow();
+  }, [takeCloudPick, cloudOfferedHere]);
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
@@ -777,7 +822,7 @@ export function NewTabScreen(props: Props) {
     placing: () => attachmentView !== "strip" && !shell,
   });
   pastedChips.opens.current = inline.expand;
-  inlinePlace.current = (chips) => inline.place(chips, "paste");
+  inlinePlace.current = (chips, kind) => inline.place(chips, kind);
   const parentSignIn = useSignIn();
   const offMachine =
     (props.runMode?.mode === "cloud" && props.onCloud) || (props.runMode?.mode === "sandboxed" && props.onSandbox);
@@ -896,6 +941,17 @@ export function NewTabScreen(props: Props) {
   /// prompt) is the text as typed, the way the chat composer sends it (`agentText`).
   /// One parse per change of the value, not per render.
   const typed = useMemo(() => (fieldReady ? (field.current?.agentText(text) ?? text) : text), [text, fieldReady]);
+  const fixFromLink = useMemo(
+    () =>
+      !shell &&
+      !machine &&
+      !environment &&
+      (props.runMode?.mode ?? "persistent") === "persistent" &&
+      attachments.length === 0
+        ? githubIssueLink(typed)
+        : undefined,
+    [typed, shell, machine, environment, props.runMode?.mode, attachments.length],
+  );
   // The create actions the buttons under the field offer, at the end of the rows too.
   const creates = useMemo(
     (): CreateKind[] => [
@@ -969,6 +1025,7 @@ export function NewTabScreen(props: Props) {
   const chatBox = props.chips !== undefined;
   const split = chatBox;
   const trailingGap = newTabComposerTrailingGapArm();
+  const iconColumn = newTabIconColumnArm();
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -1065,6 +1122,9 @@ export function NewTabScreen(props: Props) {
   // under the whole composer instead, so they never cover those controls (a press there would pick
   // a row).
   const [composer, setComposer] = useState<HTMLDivElement | null>(null);
+  // At the page's foot (the stage layout) the app's toasts lift above the composer card and never
+  // cover it (toastAvoidance.ts). Elsewhere it sits at the top or the middle, clear of them.
+  useEffect(() => (stage && composer ? reportToastAvoidance(composer, elementBox) : undefined), [stage, composer]);
   const anchor = split ? (composer ?? box) : box;
   useEscapingPopup(host, shown, () => anchor, {
     // At the foot of the page (the stage layout) the rows open over the composer.
@@ -1608,7 +1668,7 @@ export function NewTabScreen(props: Props) {
     saved.pick(undefined);
     touch();
     // A machine picked with a folder there (the location row picks its first known folder) is a
-    // project pick: the chat starts in that folder, so Do not work in a project ends, and the
+    // project pick: the chat starts in that folder, so No folder ends, and the
     // headline, the location row and the send all name it. A machine alone keeps the choice.
     if (next?.folder) setNone(false);
     setMachine(next);
@@ -1976,6 +2036,7 @@ export function NewTabScreen(props: Props) {
         data-cloud-starting={props.cloudStarting === true ? "true" : undefined}
         data-composer-look={look === "codex" ? "codex" : undefined}
         data-trailing-gap={trailingGap}
+        data-icon-column={iconColumn}
         data-attachment-view={attachmentView}
       >
         {authBlocksSend(targetAuth) ? (
@@ -2023,6 +2084,9 @@ export function NewTabScreen(props: Props) {
         {/* Above the box: the project and machine strip, in every look (Cards draws it under the
             field). Leo 2026-10-29: "project and cloudness at the top ... and stop making them take
             up so much space"; the quiet row under the box keeps the mode and the model. */}
+        {props.cloudHint && runMode && runMode.mode !== "cloud" && (
+          <CloudChatHint onUse={() => runMode.onMode("cloud")} onClose={props.cloudHint.onClose} />
+        )}
         {!pill && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box" inert={props.cloudStarting === true}>
           {/* Drawn out of the card's glass, above it, as the chat composer's (backdropLayer.tsx). */}
@@ -2128,6 +2192,33 @@ export function NewTabScreen(props: Props) {
               composer's (Leo 2026-10-22: "it's also 2 lines tall for some reason"). */}
             {split && pickers}
           </div>
+          {fixFromLink && props.onFixFromLink && (
+            <div className="nt-create-strip">
+              <button
+                type="button"
+                className="nt-create-strip-item nt-fix-chip"
+                disabled={fixing}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={() => {
+                  if (fixing) return;
+                  setFixing(true);
+                  void Promise.resolve()
+                    .then(() => props.onFixFromLink?.(fixFromLink.url, fixFolder, harness, chipModel))
+                    .then(
+                      () => setFixing(false),
+                      () => setFixing(false),
+                    );
+                }}
+              >
+                {t("worktree.fixFromLink")}
+              </button>
+              {props.fixError && (
+                <p className="nt-fix-error" role="alert">
+                  {props.fixError}
+                </p>
+              )}
+            </div>
+          )}
           {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
             the field: the box's top is where the page anchors it, so the strip grows away from the
             text and never moves it (Leo 2026-10-19: the composer kept "going to places"). */}
@@ -2190,6 +2281,24 @@ export function NewTabScreen(props: Props) {
     />
   );
   const extras = <NewTabExtras widgets={widgets} now={at} />;
+  // First run (no chats on this Mac or its peers yet): three things to ask, under the composer. A
+  // pick fills the composer and sends nothing; the first chat takes them away for good.
+  const pickStarter = (prompt: string) => {
+    // A starter is words for the agent: a field left in shell mode (a typed `!`) would run it, and
+    // one left in the profile search (Open in Profile…) would name a profile after it.
+    setShell(false);
+    setProfilePick(undefined);
+    edit(prompt);
+    requestAnimationFrame(() => {
+      field.current?.focus();
+      field.current?.setCaret(field.current.plainText().length);
+    });
+  };
+  const starters = showsFirstRunStarters(snapshot, {
+    allChats,
+    chatsPending: props.chatsPending === true,
+    deviceChats: pushed.length,
+  }) && <FirstRunStarters {...(props.starterLook ? { look: props.starterLook } : {})} onPick={pickStarter} />;
   // The stage's widgets, in the user's order (`tabs.newTabWidgets.order`): Projects and Quick
   // Actions are cards (cards next to each other share a column), Recent Chats is the player and the
   // lists, as before the order; with Recent Chats off the player and the other lists come last.
@@ -2305,6 +2414,7 @@ export function NewTabScreen(props: Props) {
               {!order.includes("chats") && playerAndLists}
             </div>
             {composerCard}
+            {starters}
             {extras}
             {props.notice}
             {environmentPanel}
@@ -2322,6 +2432,7 @@ export function NewTabScreen(props: Props) {
               headline
             )}
             {composerCard}
+            {starters}
             {extras}
             {ambient}
             {props.notice}

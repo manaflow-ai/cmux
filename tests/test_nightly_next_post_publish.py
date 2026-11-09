@@ -59,8 +59,8 @@ if ("    concurrency:\n" in notes_publish
     failures.append("publish-release-notes must hold publish-nightly's R2 lease, in no concurrency group")
 for writer, group in (
     # nightly-next: its own group (the feed write is a compare-and-swap); classic and RC keep the publish lock.
-    ("republish-nightly-deltas", "release-${{ needs.decide.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
-                                 "${{ needs.decide.outputs.release_tag }}"),
+    ("republish-nightly-deltas", "release-${{ needs.published-build.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
+                                 "${{ needs.published-build.outputs.release_tag }}"),
 ):
     writer_text = job(writer)
     if "    concurrency:\n" not in writer_text:
@@ -72,13 +72,15 @@ if "write-feed --feed \"$feed\" --same-build" not in job("republish-nightly-delt
     failures.append("republish-nightly-deltas must write the nightly-next feed only by compare-and-swap (--same-build)")
     if "cancel-in-progress: false" not in writer_text:
         failures.append(f"{writer} must let an in-flight publication finish")
-if "publish-nightly.result == 'success'" not in notes_publish:
+if "needs.published-build.outputs.publish_result == 'success'" not in notes_publish:
     failures.append("publish-release-notes must require a successful NEXT publication")
 
-# The PR comments run in their own dispatched run (nightly_next_post_publish), so they never hold the one
-# nightly-next push group (#36111) or the mini's whole-Mac publish jobs: run 41982716550 published at 08:42Z
-# and its comments (247 PRs, 40 min) kept the next push waiting. In that run decide skips, and the only job
-# that can start is published-in; every other job is skipped because a job it needs was.
+# A loop run's tail after the GitHub release runs in its own dispatched run (nightly_next_post_publish), so it
+# never holds the one nightly-next push group (#36111): run 41982716550 published at 08:42Z and its comments
+# (247 PRs, 40 min) kept the next push waiting, and the deltas and notes held it 17-35 min more
+# (tests/test_nightly_next_tail_off_push_group.py). In that run decide skips, and only published-build and the
+# jobs after the feed can start; every build, sign and publish job is skipped because a job it needs was. The
+# GitHub release and dSYMs may start there too, and skip on the record's cross_run (the loop run wrote them).
 def post_publish_runnable() -> list[str]:
     import yaml
 
@@ -147,19 +149,27 @@ def post_publish_runnable() -> list[str]:
     return runnable
 
 
+POST_PUBLISH_JOBS = ["published-build", "publish-nightly-next-github", "keep-published-dsyms", "build-nightly-deltas", "generate-nightly-deltas",
+                     "republish-nightly-deltas", "published-in", "sign-release-notes", "publish-release-notes",
+                     "publish-nightly-reel", "sentry-dsyms-nightly", "report-nightly-failure", "close-nightly-failure-issue"]
 runnable = post_publish_runnable()
-if runnable != ["published-in"]:
-    failures.append(f"a nightly_next_post_publish run must start only published-in, not {runnable}")
+if sorted(runnable) != sorted(POST_PUBLISH_JOBS):
+    failures.append(f"a nightly_next_post_publish run must start only {POST_PUBLISH_JOBS}, not {runnable}")
 published_in = job("published-in")
-if "inputs.nightly_next_post_publish != ''" not in published_in or "\n    needs:" in published_in:
-    failures.append("published-in must run only in the dispatched post-publish run, needing no push-run job")
-dispatch = job("dispatch-published-in")
+if "needs.published-build.outputs.comment == 'true'" not in published_in:
+    failures.append("published-in must comment only on a new build of the run that published (comment)")
+# The comments must not hold the mini while the whole-Mac publish jobs of the same run wait.
 for trusted in ("publish-nightly-next-github", "generate-nightly-deltas", "republish-nightly-deltas"):
-    if trusted not in needs(dispatch):
-        failures.append(f"dispatch-published-in must wait for {trusted}: the comments must not hold the mini "
-                        "while the push run's own whole-Mac publishing waits")
-if "-f nightly_next_post_publish=" not in dispatch or "actions: write" not in dispatch:
-    failures.append("dispatch-published-in must dispatch nightly.yml with nightly_next_post_publish")
+    if trusted not in needs(published_in):
+        failures.append(f"published-in must wait for {trusted}: the comments must not hold the mini "
+                        "while the whole-Mac publishing waits")
+# The loop run dispatches the tail once its GitHub release is written; the dispatched run never dispatches again.
+dispatch = job("dispatch-published-in") if "\n  dispatch-published-in:\n" in TEXT else ""
+if "-f nightly_next_post_publish=" not in dispatch or "actions: write" not in dispatch \
+        or "publish-nightly-next-github" not in needs(dispatch):
+    failures.append("dispatch-published-in must dispatch nightly.yml with nightly_next_post_publish after the GitHub release")
+if "needs.published-build.outputs.run_tail == 'true'" not in published_in:
+    failures.append("published-in must comment only where the tail runs (run_tail), never in a loop run")
 
 # The release's mutable names (rolling DMG, feed copy, body, tag) are steps of the upload job, not a job of their
 # own: a second whole-Mac claim cost run 42018687632 a second set-up, token and variant download, and let the

@@ -259,6 +259,9 @@
         "cmux_exec"
       ],
       "paths": [
+        "webviews/src/agent-session/acpmux/PermissionCard.tsx",
+        "webviews/src/agent-session/acpmux/permissions/cardHeight.ts",
+        "webviews/src/agent-session/acpmux/question/QuestionCard.tsx",
         "webviews/src/agent-session/acpmux/conversation/McpCallRows.tsx",
         "webviews/src/agent-session/acpmux/conversation/mcpCalls.ts",
         "webviews/src/agent-session/acpmux/conversation/cmuxExec.ts",
@@ -355,7 +358,8 @@
         "home inbox"
       ],
       "paths": [
-        "webviews/src/pages/home-channels/"
+        "webviews/src/pages/home-channels/",
+        "webviews/src/pages/home-messages/"
       ]
     },
     "diff-viewer": {
@@ -418,7 +422,9 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteCard.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteRowView.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentShareInviteSheetModel.swift",
-        "webviews/src/agent-session/guest/"
+        "webviews/src/agent-session/guest/",
+        "webviews/src/agent-session/acpmux/share/ShareNudge.tsx",
+        "webviews/src/agent-session/acpmux/share/shareNudgeModel.ts"
       ]
     },
     "icons": {
@@ -432,6 +438,13 @@
         "design/icons/source/",
         "webviews/src/agent-session/acpmux/icons/",
         "webviews/src/agent-session/acpmux/conversation/icons.tsx"
+      ]
+    },
+    "markdown-viewer": {
+      "spec": "leo-workspace design/markdown-viewer.md",
+      "aliases": ["markdown", "markdown viewer", "reading settings", "markdown page"],
+      "paths": [
+        "webviews/src/pages/markdown/"
       ]
     }
   }

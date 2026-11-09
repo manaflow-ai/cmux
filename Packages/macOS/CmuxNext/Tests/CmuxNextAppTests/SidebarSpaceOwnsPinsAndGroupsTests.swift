@@ -348,7 +348,7 @@ import Testing
 
     /// New Group stores the window's space on the group.
     @Test func aNewGroupStoresTheWindowsSpace() throws {
-        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let store = SidebarDocStore(remote: nil)
         let intent = SidebarIntent.createGroup(GroupID("grp_new"), name: "New", color: .palette(.blue), workspaces: [])
         let ops = try #require(store.groupOps(intent, room: Self.work, items: { _ in [] })?.ops)
         #expect(ops.first?["profile"] as? String == Self.work, "\(ops)")
@@ -356,7 +356,7 @@ import Testing
 
     /// A link pinned to Pinned stores the acting window's space; one added to another band stores none.
     @Test func aPinnedLinkStoresTheActingWindowsSpace() throws {
-        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let store = SidebarDocStore(remote: nil)
         store.newItemRoom = { Self.work }
         let link = LayoutItem(id: LayoutItemID("itm_new"), ref: .url("https://new.example"))
         let layout = SidebarLayoutDocument.defaults
@@ -567,7 +567,7 @@ import Testing
     /// Only a Pinned link, tab or app belongs to a space. A built-in, a room or a saved group stays shared: pinning
     /// or moving one into Pinned in Work stores no space, and one stored in Pinned draws in every space.
     @Test func onlyLinksTabsAndAppsBelongToASpace() throws {
-        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let store = SidebarDocStore(remote: nil)
         store.newItemRoom = { Self.work }
         let layout = SidebarLayoutDocument.defaults
         let shared: [LayoutItemRef] = [.builtIn(.settings), LayoutItemRef(kind: LayoutItemRef.roomKind, value: "room-1"),

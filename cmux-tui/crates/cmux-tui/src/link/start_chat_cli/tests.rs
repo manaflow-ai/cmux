@@ -11,9 +11,9 @@ use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
 use super::trust::trusted_at;
 use super::{
-    Ensure, Flags, Keys, Lease, PushFailure, StartCopy, ensure_answer, github_repo, import,
-    made_no_machine, origin_url, percent_segment, pin, plan, plan_with, remote_name, setup_state,
-    too_broad, valid_environment, valid_key, valid_repo, valid_workspace,
+    Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
+    origin_url, percent_segment, pin, plan, plan_with, remote_name, setup_state, too_broad,
+    valid_environment, valid_key, valid_repo, valid_workspace,
 };
 
 const ME: &str = "user-leo";
@@ -440,7 +440,7 @@ fn a_copy_tries_the_next_work_root_only_when_the_first_is_not_the_machines_home(
             .borrow_mut()
             .remove(0)
             .map(|()| json!({}))
-            .map_err(|code| PushFailure::new(code, "refused"))
+            .map_err(|code| (code.to_string(), "refused".to_string()))
     };
     let answer = copy.run(&path, &push);
     assert_eq!(answer["ok"], json!(true));
@@ -462,7 +462,7 @@ fn a_copy_tries_the_next_work_root_only_when_the_first_is_not_the_machines_home(
             .borrow_mut()
             .remove(0)
             .map(|()| json!({}))
-            .map_err(|code| PushFailure::new(code, "old"))
+            .map_err(|code| (code.to_string(), "old".to_string()))
     };
     let answer = other.run(&path, &push);
     assert_eq!(answer["ok"], json!(false));
@@ -492,6 +492,31 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
     let elsewhere = StartCopy { machine: "vm-b".into(), ..copy }.run(&path, &push);
     assert_eq!(elsewhere["copied"], json!(true));
     assert_eq!(*count.borrow(), 2);
+}
+
+/// A seed that answered at the chat's head is the send's copy: the chat opens in that
+/// folder while the machine fills the rest, so a retry never pushes a second seed over it.
+#[test]
+fn a_seed_answered_at_its_head_is_the_sends_copy_and_says_filling() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "app/web");
+    let count = RefCell::new(0);
+    let push = |_: &Path, _: &Path, _: &str| {
+        *count.borrow_mut() += 1;
+        Ok(super::pushed_fields(&json!({
+            "ok": true, "mode": "seed", "unchanged": false, "bundle_bytes": 10,
+            "head": null, "work": "w", "skipped_files": [], "filling": true,
+        })))
+    };
+    let first = copy.run(&path, &push);
+    assert_eq!(first["copied"], json!(true), "{first}");
+    assert_eq!(first["filling"], json!(true), "{first}");
+    assert_eq!(first["mode"], json!("seed"));
+    let retry = copy.run(&path, &push);
+    assert_eq!(*count.borrow(), 1, "a retry never seeds over a filling folder");
+    assert_eq!(retry["copied"], json!(false));
+    assert_eq!(retry["chat"], first["chat"]);
 }
 
 #[test]
@@ -621,7 +646,7 @@ fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
     let trusted = copy.run(&ledger, &|_: &Path, _: &Path, _: &str| panic!("must reuse copy"));
     assert_eq!(trusted["source_trusted"], json!(true), "{trusted}");
     let failed = StartCopy { key: key(), ..copy }
-        .run(&ledger, &|_: &Path, _: &Path, _: &str| Err(PushFailure::new("sync_failed", "no")));
+        .run(&ledger, &|_: &Path, _: &Path, _: &str| Err(("sync_failed".into(), "no".into())));
     assert!(failed.get("source_trusted").is_none(), "a failed copy answers no trust: {failed}");
 }
 
@@ -631,25 +656,13 @@ fn failed_copy_and_ledger_answers_finish_the_clone_clock() {
     let path = ledger_in(dir.path());
     let copy = copy_of("/Users/me/src/paint", "");
     let failed = copy.run(&path, &|_: &Path, _: &Path, _: &str| {
-        Err(PushFailure::new("sync_failed", "copy refused"))
+        Err(("sync_failed".into(), "copy refused".into()))
     });
     assert_eq!(failed["ok"], json!(false));
     assert_eq!(failed["seed_state"], json!("failed"));
     assert_eq!(failed["seed_phase"], json!("copy"));
     assert_eq!(failed["error"], json!("copy refused"));
     assert_copy_timings(&failed);
-
-    // A machine that did not answer `identify`: the copy's answer carries why, as its category.
-    let silent = copy.run(&path, &|_: &Path, _: &Path, _: &str| {
-        Err(PushFailure {
-            identify_failure: Some("eof"),
-            ..PushFailure::new("machine_not_answering", "the machine did not answer identify (eof)")
-        })
-    });
-    assert_eq!(silent["error_code"], json!("machine_not_answering"), "{silent}");
-    assert_eq!(silent["identify_failure"], json!("eof"), "{silent}");
-    assert_eq!(silent["seed_phase"], json!("copy"));
-    assert!(failed.get("identify_failure").is_none(), "{failed}");
 
     // A regular file cannot contain a ledger directory.
     let file = dir.path().join("not-a-directory");
@@ -863,7 +876,7 @@ fn a_retry_of_a_copy_that_did_not_finish_resumes_its_folder() {
             .borrow_mut()
             .remove(0)
             .map(|()| json!({}))
-            .map_err(|code| PushFailure::new(code, "lost"))
+            .map_err(|code| (code.to_string(), "lost".to_string()))
     };
     assert_eq!(copy.run(&path, &push)["error_code"], json!("timeout"));
     let retry = StartCopy { key: copy.key.to_uppercase(), ..copy.clone() }.run(&path, &push);
@@ -917,7 +930,7 @@ fn a_retry_resumes_its_folder_only_when_no_live_copy_holds_it() {
     let seen = RefCell::new(Vec::<String>::new());
     let fails = |_: &Path, _: &Path, remote: &str| {
         seen.borrow_mut().push(remote.to_string());
-        Err(PushFailure::new("fs.failure", "cut off"))
+        Err(("fs.failure".to_string(), "cut off".to_string()))
     };
     assert_eq!(copy.run(&path, &fails)["error_code"], json!("fs.failure"));
     let place =
@@ -970,7 +983,8 @@ fn a_copy_of_the_root_a_system_folder_or_home_is_refused() {
     }
     let dir = scratch();
     let path = ledger_in(dir.path());
-    let never = |_: &Path, _: &Path, _: &str| -> Result<Value, PushFailure> { panic!("copied") };
+    let never =
+        |_: &Path, _: &Path, _: &str| -> Result<Value, (String, String)> { panic!("copied") };
     let answer = copy_of("/System", "").run(&path, &never);
     assert_eq!(answer["error_code"], json!("folder_too_broad"), "{answer}");
 }
@@ -1015,7 +1029,7 @@ fn the_sends_the_app_kept_before_carry_over_once() {
         ..copy_of("/a", "")
     };
     let never =
-        |_: &Path, _: &Path, _: &str| -> Result<Value, PushFailure> { panic!("copied again") };
+        |_: &Path, _: &Path, _: &str| -> Result<Value, (String, String)> { panic!("copied again") };
     assert_eq!(copy.run(&path, &never)["copied"], json!(false));
     // Taking the same list in again changes nothing; one that is not a list is refused.
     assert_eq!(import(&path, &kept.to_string())["imported"], json!(0));
@@ -1853,7 +1867,7 @@ fn a_reserved_machine_binds_once_before_the_send_is_pinned() {
     let send = key();
     let team = "team_0123456789abcdef0123";
     let request = json!({"key": send, "account": ACCOUNT, "workspace": "new-ws", "loaded": false,
-        "reservation_key": compose, "credential_on_stdin": true, "team": team,
+        "reservation_key": compose, "credential_on_stdin": true,
         "platform": "https://cmux-platform-development.debussy.workers.dev"})
     .to_string();
     let calls = RefCell::new(Vec::new());
@@ -1871,7 +1885,7 @@ fn a_reserved_machine_binds_once_before_the_send_is_pinned() {
     let first = super::plan_with_calls(
         &path,
         &request,
-        &mut "stack-session\n".as_bytes(),
+        &mut format!("stack-session\n{}\n", super::spare_warm::install_token(team)).as_bytes(),
         &never_ensure,
         &bind,
     );

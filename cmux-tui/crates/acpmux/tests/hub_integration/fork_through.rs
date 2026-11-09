@@ -5,6 +5,12 @@
 
 use super::*;
 
+// How long a long chat's fork takes to answer (an ignored bench).
+#[path = "fork_latency.rs"]
+mod fork_latency;
+// Fork Conversation's Cancel and its quiet history copy.
+#[path = "fork_cancel.rs"]
+mod fork_cancel;
 // Side questions fork the chat too, and share its Claude helpers.
 #[path = "aside.rs"]
 mod aside;
@@ -40,6 +46,9 @@ mod claude_allow_input;
 // The background-process registry over Claude's shells, which shares these helpers too.
 #[path = "processes.rs"]
 mod processes;
+// The person's message moves the long foreground call it waits behind.
+#[path = "message_background.rs"]
+mod message_background;
 // The same registry over Codex's background terminals (the fake app-server).
 #[cfg(unix)]
 #[path = "codex_processes.rs"]

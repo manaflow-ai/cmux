@@ -2,7 +2,7 @@ import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } fr
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
-import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
+import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyFailures, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
@@ -493,8 +493,17 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       const drop = results.filter((r) => r.outcome === "drop_target").map((r) => r.token)
       if (drop.length) await withStore(env, ctx, (s) => s.dropPushTokens(drop))
       const failed = results.filter((r) => r.outcome === "failed")
-      if (failed.length) console.log(JSON.stringify({ msg: "apns failed", results: failed.map((r) => ({ status: r.status, reason: r.reason })) }))
-      return json({ configured: true, sent: results.filter((r) => r.outcome === "sent").length, failed: failed.length, dropped: drop.length, wants })
+      if (failed.length) console.log(JSON.stringify({ msg: "apns failed", results: failed.map((r) => ({ environment: r.environment, status: r.status, reason: r.reason })) }))
+      // Why APNs refused, so the Mac (and whoever reads its log) can see it without the Worker's logs.
+      const failures = notifyFailures(results)
+      return json({
+        configured: true,
+        sent: results.filter((r) => r.outcome === "sent").length,
+        failed: failed.length,
+        dropped: drop.length,
+        wants,
+        ...(failures.length ? { failures } : {})
+      })
     }
     return fail(405, "method_not_allowed", "method not allowed")
   }

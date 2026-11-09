@@ -60,7 +60,18 @@ impl Hub {
 
     /// Fences new turns and automatic continuations before transports begin draining.
     pub(crate) fn begin_shutdown(&self) {
-        self.shutdown_plan.lock().unwrap().started = true;
+        self.start_shutdown();
+        self.wake_start_retries();
+    }
+
+    /// Marks the shutdown begun, under the lock an unstarted turn's end is decided and written
+    /// under (`start_retry.rs` `fail_unless_shutdown_settles`): that end is wholly before the
+    /// shutdown began, or sees it. Returns the plan's `end_agents` and `keep`.
+    fn start_shutdown(&self) -> (bool, std::collections::HashSet<String>) {
+        let _ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+        let mut plan = self.shutdown_plan.lock().unwrap();
+        plan.started = true;
+        (plan.end_agents, plan.keep.clone())
     }
 
     /// Stop every agent at once and save. Each agent's process group gets
@@ -94,6 +105,8 @@ impl Hub {
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }
+        // The cost ledger's last lines too: its writer drains its queue and ends (`hub/ledger`).
+        self.ledger.close(LEDGER_DRAIN);
     }
 
     async fn shutdown_sessions(&self, preserve_auto_resume: bool) -> usize {
@@ -105,13 +118,17 @@ impl Hub {
         let ends_by = now.checked_add(SHUTDOWN_GRACE).unwrap_or(now);
         // The idle reaper must not end a hosted agent this shutdown hands off.
         self.stop_idle_reaper();
+        // Fence new sessions and agent starts before draining the notice loop. The drain can take
+        // up to its cache-write deadline; a start admitted in that window would be absent from the
+        // snapshot below and outlive this daemon.
+        let (end_agents, keep) = self.start_shutdown();
+        // The notice loop owns the trailing cache flush; join its bounded exit before the
+        // shutdown budget can tear down the Tokio runtime.
+        self.wait_peer_notice_loop().await;
         // A pass that already started finishes first (bounded by its kills).
         drop(self.idle_pass.lock().await);
-        let (end_agents, keep) = {
-            let mut plan = self.shutdown_plan.lock().unwrap();
-            plan.started = true;
-            (plan.end_agents, plan.keep.clone())
-        };
+        // A start that waits to be tried again ends its wait (`start_retry.rs`).
+        self.wake_start_retries();
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).
         self.retention_wake.notify_one();
         let sessions = self.sessions();
@@ -302,8 +319,16 @@ impl Hub {
         // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`): the shutdown's
         // is its last step, after the teardown, and a shutdown past its budget calls it too.
         self.peer_snapshots.flush_now();
+        // The approvals audit trail's writer: what was answered before now is on disk.
+        self.audit.close(AUDIT_DRAIN);
     }
 }
+
+/// How long the shutdown waits for the audit writer (`audit_log.rs`) to finish.
+const AUDIT_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How long the shutdown waits for the cost ledger's writer to drain.
+const LEDGER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
 pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
@@ -311,6 +336,15 @@ pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
 /// The refusal of a spawn once the shutdown has begun.
 pub(crate) fn shutting_down_error() -> RpcError {
     RpcError::internal(SHUTTING_DOWN)
+}
+
+/// The key a refusal sets to false when nothing was made: a create refused before its session
+/// was inserted, so the caller may send it again to the next daemon without making a second one.
+pub const CREATED: &str = "created";
+
+/// [`shutting_down_error`] for a create refused before anything was made (`created: false`).
+pub(crate) fn shutting_down_before_create() -> RpcError {
+    shutting_down_error().with_data(serde_json::json!({ CREATED: false }))
 }
 
 /// How long an explicit shutdown spends stopping provider retries before it ends agents

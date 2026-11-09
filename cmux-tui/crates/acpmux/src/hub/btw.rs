@@ -197,7 +197,11 @@ pub(super) fn remove_transcript_in(homes: &crate::adopt::HarnessHomes, family: &
     }
 }
 
-fn remove_transcript(family: &str, env: &std::collections::BTreeMap<String, String>, id: &str) {
+pub(super) fn remove_transcript(
+    family: &str,
+    env: &std::collections::BTreeMap<String, String>,
+    id: &str,
+) {
     remove_transcript_in(&crate::adopt::HarnessHomes::from_env().with_env(&[env]), family, id);
 }
 
@@ -363,6 +367,7 @@ impl Hub {
                     route: None,
                     subsession: None,
                     lineage: None,
+                    created_by: None,
                     disallowed_tools: Vec::new(),
                     checked_cwd: None,
                     // It sees what its chat sees.
@@ -596,7 +601,7 @@ impl Hub {
     /// env and its route): the store its transcript is really in. When the
     /// profile no longer resolves, the parent chat's unexpanded env is all
     /// that is left.
-    async fn btw_store_env(
+    pub(super) async fn btw_store_env(
         &self,
         meta: &SessionMeta,
         fallback: &std::collections::BTreeMap<String, String>,
@@ -843,14 +848,14 @@ fn side_policy(chat: PermissionPolicy, inline: bool) -> PermissionPolicy {
         // Inline fallbacks have no pane to answer a permission card. Read-only
         // questions must therefore allow reads automatically, while DenyAll
         // remains a deliberate refusal from the parent chat.
-        return if chat == PermissionPolicy::DenyAll {
+        return if matches!(chat, PermissionPolicy::DenyAll | PermissionPolicy::Review) {
             chat
         } else {
             PermissionPolicy::ApproveReads
         };
     }
     match chat {
-        PermissionPolicy::Ask | PermissionPolicy::DenyAll => chat,
+        PermissionPolicy::Ask | PermissionPolicy::DenyAll | PermissionPolicy::Review => chat,
         _ => PermissionPolicy::ApproveReads,
     }
 }

@@ -6,6 +6,12 @@
 
 pub mod ask;
 pub mod harness_login;
+pub mod machine_bootstrap;
+pub mod machine_config;
+pub mod machine_create;
 pub mod machine_login;
+pub mod machine_repo;
+pub mod moves;
+pub mod sequence;
 pub mod start;
 pub mod vm_kind;

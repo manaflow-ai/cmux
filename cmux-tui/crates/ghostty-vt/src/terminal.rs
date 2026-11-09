@@ -28,6 +28,8 @@ use vt_boundary::*;
 
 mod replay_rows;
 
+mod settled_replay;
+
 mod color_override;
 use color_override::*;
 
@@ -52,6 +54,8 @@ mod callbacks;
 pub use callbacks::{Callbacks, NotifyFn, PtyWriteFn};
 
 mod active_text;
+
+mod logical_text;
 
 mod clear_history;
 
@@ -388,6 +392,9 @@ pub struct Terminal {
     /// Stable primary-screen row markers (`terminal.history`).
     history_markers: history::HistoryMarkers,
     empty_kitty_probe_filter: EmptyKittyProbeFilter,
+    /// A resize may have put off a prompt clear the replay must show run
+    /// (`settled_replay`); false once a snapshot showed none waits.
+    prompt_clear_may_wait: bool,
 }
 
 enum PendingSequenceReplay<'a> {
@@ -491,6 +498,24 @@ impl Terminal {
             unsafe { sys::ghostty_terminal_free(raw) };
             return Err(error);
         }
+        // A resize's prompt clear (OSC 133 redraw=1) waits for the shell's
+        // next byte and runs only if the grid then differs from the grid
+        // the shell drew at. A bounce (34 -> 35 -> 34 columns) whose
+        // SIGWINCHes the shell reads as one keeps its prompt: zsh redraws
+        // nothing for an unchanged size, so an immediate clear left a new
+        // pane empty (close-then-type P0). The host and the daemon's
+        // mirror get the same bytes and resizes, so both stay the same.
+        let prompt_clear_waits = true;
+        if let Err(error) = check(unsafe {
+            sys::ghostty_terminal_set(
+                raw,
+                sys::GHOSTTY_TERMINAL_OPT_PROMPT_REDRAW_WAITS_FOR_SHELL,
+                (&prompt_clear_waits as *const bool).cast(),
+            )
+        }) {
+            unsafe { sys::ghostty_terminal_free(raw) };
+            return Err(error);
+        }
 
         let mut term = Terminal {
             raw,
@@ -514,6 +539,7 @@ impl Terminal {
             c1_normalizer: C1Normalizer::default(),
             history_markers: Default::default(),
             empty_kitty_probe_filter: EmptyKittyProbeFilter,
+            prompt_clear_may_wait: false,
         };
         // SAFETY: `hooks` is heap-pinned for the terminal's lifetime and
         // Drop uninstalls the trampolines before the Box is freed.
@@ -1044,6 +1070,7 @@ impl Terminal {
             cell_height: cell_height_px,
         };
         if reflows {
+            self.prompt_clear_may_wait = true;
             self.bump_history_epoch();
             self.reset_history_anchor();
             self.history_markers_reflowed();
@@ -2162,13 +2189,19 @@ impl Terminal {
             let visible_start = catalog.visible_anchor_start().unwrap_or(viewport_start);
             viewport_start.min(visible_start)
         });
-        let active_text = self.vt_replay_text_layout_bounded(
-            remaining,
-            catalog.placement_rows(),
-            active_start,
-            include_palette,
-            max_history_rows,
-        )?;
+        // While a resize's prompt clear waits for the shell, the text comes
+        // from a copy that has run it, so a byte mirror matches this
+        // terminal after the shell's redraw (`settled_replay`).
+        let settled = self.settled_prompt_copy();
+        let active_text = self.with_replay_grid(settled.as_ref(), |term| {
+            term.vt_replay_text_layout_bounded(
+                remaining,
+                catalog.placement_rows(),
+                active_start,
+                include_palette,
+                max_history_rows,
+            )
+        })?;
         let visible_cost =
             active_text.range.map(|range| catalog.visible_cost(range, remaining)).unwrap_or(0);
 
@@ -2183,13 +2216,15 @@ impl Terminal {
         let text = if reuse {
             active_text
         } else {
-            self.vt_replay_text_layout_bounded(
-                text_budget,
-                catalog.placement_rows(),
-                active_start,
-                include_palette,
-                max_history_rows,
-            )?
+            self.with_replay_grid(settled.as_ref(), |term| {
+                term.vt_replay_text_layout_bounded(
+                    text_budget,
+                    catalog.placement_rows(),
+                    active_start,
+                    include_palette,
+                    max_history_rows,
+                )
+            })?
         };
         let history_rows_omitted = text.range.map_or(0, |range| range.start);
         let graphics_budget = remaining.saturating_sub(text.bytes.len());
@@ -3208,6 +3243,10 @@ thread_local! {
 #[cfg(test)]
 #[path = "replay_layout_tests.rs"]
 mod replay_layout_tests;
+
+#[cfg(test)]
+#[path = "prompt_clear_tests.rs"]
+mod prompt_clear_tests;
 
 #[path = "terminal_history.rs"]
 mod history;

@@ -40,21 +40,33 @@ on:
     branches: [feat-cmux-next]
     paths:
       - "cmux-tui/crates/cmux-app-ffi/**"
+      - "cmux-tui/crates/cmux-action-catalog/**"
       - "cmux-tui/crates/cmux-agent-pane-policy/**"
       - "cmux-tui/crates/cmux-bookmarks-core/**"
       - "cmux-tui/crates/cmux-cloud-config/**"
+      - "cmux-tui/crates/cmux-cloud-handlers/**"
+      - "cmux-tui/crates/cmux-cloud-machine/**"
       - "cmux-tui/crates/cmux-cloud-start-core/**"
+      - "cmux-tui/crates/cmux-cloud-tasks/**"
+      - "cmux-tui/crates/cmux-cookie-sync/**"
+      - "cmux-tui/crates/cmux-daemon-conn-core/**"
+      - "cmux-tui/crates/cmux-daemon-launch-core/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"
+      - "cmux-tui/crates/cmux-local-auth/**"
       - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
       - "cmux-tui/crates/cmux-palette-ranker/**"
       - "cmux-tui/crates/cmux-motion/**"
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
+      - "cmux-tui/crates/cmux-sdk-ffi/**"
+      - "cmux-tui/bindings/rust/**"
       - "cmux-tui/crates/cmux-remote-browser/**"
       - "cmux-tui/crates/cmux-tasks-core/**"
+      - "cmux-tui/crates/cmux-terminal-prediction/**"
+      - "cmux-tui/crates/cmux-window-rules/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/cmux-next/build-app-ffi.sh"
       - ".github/workflows/app-ffi-release.yml"
@@ -62,11 +74,14 @@ on:
 
 # No run-level group: with one (cancel-in-progress: false) a newer FFI push
 # waited for the whole older run, publish and re-pin included, before its own
-# build started, while the older pin could no longer land (#36262). Now the
-# build job's own group cancels an older build. An older run already past its
-# build still publishes (its tag is its own, never overwritten); its re-pin
-# finishes long before the newer build does, and the app-ffi-repin group runs
-# the re-pins one at a time on the same pull request.
+# build started (#36262). Now only the build job has a group, and it never
+# cancels a running build: cancelling it on each newer FFI push (#36346)
+# starved the releases when FFI pushes came faster than one build (2026-11-08:
+# four pushes in 45 minutes, nothing published). The group keeps one build
+# running and only the newest pending; each finished build publishes its own
+# tag (never overwritten), and its re-pin pins the newest published release,
+# which the app compiles against. The app-ffi-repin group runs the re-pins one
+# at a time on the same pull request.
 
 permissions: {}
 
@@ -83,12 +98,11 @@ jobs:
     # variable takes the Blacksmith label as before.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
-    # A newer push or dispatch on the same ref cancels this build: its pin
-    # could never land once newer FFI sources are on the base
-    # (check-app-ffi-pin.sh fails it).
+    # A newer push or dispatch on the same ref waits for this build, never
+    # cancels it; a still newer one replaces it while it waits.
     concurrency:
       group: app-ffi-release-build-${{ github.ref }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     permissions:
       contents: read
     outputs:
@@ -549,16 +563,25 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-pull-requests: write
 
+      # Treeless with full history: the re-pin walks feat-cmux-next's commits
+      # back to the current pin to find the newest published release.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: feat-cmux-next
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: true
+          fetch-depth: 0
+          filter: tree:0
 
-      # The re-pin is checked before it is pushed: the FFI sources here must
-      # match the release's SOURCE_SHA tree and the pinned checksum must be the
-      # published one (--verify-release). A base that gained newer FFI sources
-      # fails here and waits for the newer publish. The commit goes through
+      # Latest wins: the re-pin pins the newest release published from a
+      # feat-cmux-next commit newer than the current pin, whichever run
+      # published it (scripts/cmux-next/newest_app_ffi_release.py). A newer FFI
+      # commit whose release is not published (SOURCE_SHA or SHA256SUMS is a
+      # 404: its build was cancelled or is still running) is skipped, not
+      # waited for, and the base's FFI sources may be ahead of the pin:
+      # merge_hold accepts such a pin once the app compiles against it
+      # (scripts/ci/base_red_excuse.py, the published base pin). The script
+      # checks the release's SOURCE_SHA and SHA256SUMS. The commit goes through
       # GitHub's contents API, so it is written by the release App and signed
       # by GitHub: the review reconciler reviews the app-ffi-repin pull request
       # on first sight only when it changes Package.swift alone in such

@@ -1,9 +1,11 @@
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextWakeups
@@ -87,6 +89,7 @@ final class HomeService {
     @ObservationIgnored var homeWorkspaceStep = "not started"
     /// The chief tab creation's idempotency key (one per creation).
     @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
+    @ObservationIgnored let chiefHomes = HomeChiefHomes() // each Home's turn actions; Start now on a queued agent
     @ObservationIgnored let dock = HomeDock() // the Home dock's page tab and links (cx-ebm.59.5, cx-ebm.59.6)
     /// The signed-in user's cloud Chiefs (the Hosted Chief and the one
     /// placed on a paired server), as last read on a connect or sign-in.
@@ -128,13 +131,11 @@ final class HomeService {
     @ObservationIgnored var feedRowsObservation: Task<Void, Never>?
     /// The latest brain start or death's tab check (HomeService+ChiefRoster); a newer one wins.
     @ObservationIgnored var chiefHostChange: Task<Void, Never>?
-    /// The shared Home core over the local owner (home-mac.md): the native
-    /// transcript of every conversation tab reads this one store.
     /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
     /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
     /// nil when the bundle lacks the script: fences stay text.
     @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
-    @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
+    @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), startedAgents: { AgentLaneStore.chief.chiefSubagentPeers })
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.
     @ObservationIgnored let cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
@@ -163,9 +164,10 @@ final class HomeService {
     /// The docked Home's shown view: the sidebar marks its Home or Channels entry by it (cx-frn2y).
     var dockMode: HomeDockMode = .messages
     var dockShowsChannels: Bool { dockMode == .channels }
-    /// Its durable copy is keyed by the Chief owner (one per Chief home), so
-    /// a relaunch or another build shows the same history before the owner
-    /// answers (home-state-ownership.md section 4).
+    /// The shared Home core over the local owner (home-mac.md): the native transcript of every conversation tab
+    /// reads this one store. Its durable copy is keyed by the Chief owner (one per Chief home), so a relaunch or
+    /// another build shows the same history before the owner answers (home-state-ownership.md section 4).
+    /// The local owner also tells it which of the Chief's agents started (``DaemonHomeSource/startedAgents``).
     @ObservationIgnored private(set) lazy var homeStore = HomeStore(
         source: homeRouter,
         blobCacheDirectory: homeCaches.appending(path: "cmux-home-blobs", directoryHint: .isDirectory),
@@ -198,10 +200,9 @@ final class HomeService {
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?
-    /// Each chat's own bubble colours (Chat Colors…, `home.chatColors`), kept on this Mac.
+    /// Each chat's own bubble colours (`home.chatColors`), kept on this Mac, and the app's one Chat Colors… panel (its React page).
     @ObservationIgnored let chatColors = HomeChatColorStore(defaults: .standard)
-    /// The Chat Colors… panel (one for the app).
-    @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsPanel(store: chatColors, design: .shared)
+    @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsService(store: chatColors, design: .shared)
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]

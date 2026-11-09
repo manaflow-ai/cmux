@@ -382,10 +382,13 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
             .unwrap();
     let bash = &hooks["hooks"]["PreToolUse"][0];
     assert_eq!(bash["matcher"], "Bash", "{hooks}");
-    // With the daemon's home, which the harness's env does not carry.
-    // A hook binary that fails (version skew) lets the call run: `|| true` (`hook_command`).
-    let with_home = format!("'__bg-hook' '{}' || true", acpmux::config::home().display());
-    assert!(bash["hooks"][0]["command"].as_str().unwrap().ends_with(&with_home), "{hooks}");
+    // With the daemon's home, which the harness's env does not carry. The shell starts it only
+    // for a call it may answer, and a hook binary that fails (version skew) lets the call run:
+    // the command ends `true` (`hook_command`).
+    let command = bash["hooks"][0]["command"].as_str().unwrap();
+    let with_home = format!("'__bg-hook' '{}' ;; esac; true", acpmux::config::home().display());
+    assert!(command.starts_with("input=$(cat); case ") && command.ends_with(&with_home), "{hooks}");
+    assert!(command.contains(r#"*'"run_in_background":true'*"#), "{hooks}");
 
     // `agents.memory.enabled` adds the memory server for the next session,
     // with the session as its provenance.

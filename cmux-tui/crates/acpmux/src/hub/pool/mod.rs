@@ -247,6 +247,19 @@ fn pool_dir() -> PathBuf {
     agent_host::pool_dir(&agent_host::hosts_dir())
 }
 
+/// The `agents.promptSuggestions` switch a pooled agent of `spawn` reads once as its host starts
+/// (Claude Code's `initialize`, the Codex app-server translator), as `enabled` reads it now;
+/// `None` for a harness that reads none, so a change there never discards it.
+fn suggestions_at_start(spawn: &HarnessProfile, enabled: impl FnOnce() -> bool) -> Option<bool> {
+    let reads = spawn.kind == crate::config::HarnessKind::ClaudeStdio
+        || crate::codex_app_server::is_profile_launch(&spawn.argv);
+    reads.then(enabled)
+}
+
+#[cfg(test)]
+#[path = "suggestions_tests.rs"]
+mod suggestions_tests;
+
 fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::internal(e.to_string())
 }
@@ -348,6 +361,10 @@ impl Hub {
             auth: format!("{:016x}", h.finish()),
             account,
             machine: crate::login_env::machine_stamp(),
+            prompt_suggestions: suggestions_at_start(
+                &spawn,
+                crate::claude_stdio::prompt_suggestions::enabled_in_settings,
+            ),
         };
         Ok(PoolSpec { key, spawn, draft: draft.clone() })
     }
@@ -866,7 +883,7 @@ impl Hub {
             tokio::spawn(end_pooled(p));
             return Err(e);
         }
-        self.forget_adopted_caller(&session.id);
+        self.forget_adopted_caller(&session.id, &p.record.incarnation);
         self.record_preview_format(session, p.preview);
         let tap = self.session_tap(session);
         let mut started = json!({

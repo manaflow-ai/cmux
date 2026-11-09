@@ -8,16 +8,20 @@ import Testing
 /// order, so the first key typed into a reopened window's focused terminal came before its surface.
 @MainActor @Suite(.serialized)
 struct FocusedPanePresentedFirstTests {
-    /// A pane whose selected content needs a new surface.
+    /// A pane whose selected content needs a new surface; showing it makes that surface (only a surface really made
+    /// spends the frame's budget, #35151).
     @MainActor final class Cold: PresentablePane {
         let name: String
         let isFocusedInWorkspace: Bool
         private let record: (String) -> Void
-        var selectedContentIsAlive: Bool { false }
+        private(set) var selectedContentIsAlive = false
         init(_ name: String, focused: Bool = false, record: @escaping (String) -> Void) {
             (self.name, isFocusedInWorkspace, self.record) = (name, focused, record)
         }
-        func showSelected() { record(name) }
+        func showSelected() {
+            selectedContentIsAlive = true
+            record(name)
+        }
         func showWhileWaiting() {}
     }
 

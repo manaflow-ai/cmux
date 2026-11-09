@@ -55,6 +55,12 @@ pub enum PeerCmd {
     /// whether a turn runs here, and a build or test that is running. Reads
     /// only; never starts a daemon. Fields it cannot read are left out.
     Load,
+    /// The shadow admission verdict (cmuxterm-hq#7342) for host readings on
+    /// stdin: one JSON object, or an array of them, in; the verdict (or an
+    /// array of verdicts) out, as JSON. Pure: reads no host and starts no
+    /// daemon. A reading with no `now_ms` is judged at this machine's clock.
+    /// Nothing is deferred on it; lane-place and placement log it.
+    Verdict,
     /// Add one muted line to every live chat on this machine's daemon, such
     /// as the note cmux Cloud adds after it resizes the machine.
     Notice {
@@ -110,6 +116,13 @@ pub enum PeerCmd {
     Consent {
         #[command(subcommand)]
         cmd: ConsentCmd,
+    },
+    /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach, rekey.
+    /// The daemon takes them only from the cmux app (its person proof), with the person's
+    /// cmux access token on stdin; a shell or agent is refused.
+    Tunnel {
+        #[command(subcommand)]
+        cmd: TunnelCmd,
     },
     /// The person's vault on this joined machine: env vars and API keys kept
     /// once for every machine, stored in the OS secret store and given to
@@ -256,6 +269,25 @@ pub enum PeerCmd {
         #[arg(long)]
         probe: bool,
     },
+    /// This machine's ssh public key: the one line a new machine lists in its
+    /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
+    /// ed25519 key when this machine has none (never over an existing key).
+    Key {
+        #[arg(long)]
+        create: bool,
+    },
+    /// Claude Code and Codex on MACHINE (a machine name or ssh host): installed, signed
+    /// in, and what can be offered. Nothing installs or signs in unless a flag asks.
+    Agents {
+        #[arg(value_name = "MACHINE")]
+        target: String,
+        /// Install it there with its vendor's official installer (`harness install`).
+        #[arg(long, value_name = "ID", conflicts_with = "login")]
+        install: Option<String>,
+        /// Sign it in there, in this terminal (`harness login` over ssh -t).
+        #[arg(long, value_name = "ID")]
+        login: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -321,6 +353,24 @@ pub enum DepsCmd {
         /// The project folder (default: the current folder).
         dir: Option<std::path::PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum TunnelCmd {
+    /// Put this Mac in its team's WireGuard peer map.
+    Attach {
+        /// The team network id; it must be this Mac's own team.
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Take this Mac out of its team's peer map until the next attach.
+    Detach {
+        /// The team network id; it must be this Mac's own team.
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Give this Mac a new WireGuard key (in the process that holds the key).
+    Rekey,
 }
 
 #[derive(Subcommand)]
