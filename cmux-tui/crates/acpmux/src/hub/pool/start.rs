@@ -96,7 +96,9 @@ impl Hub {
         );
         if !draft.remote_origin {
             let family = crate::config::derive_family(&draft.harness, profile);
-            crate::login_env::provider_keys_before_spawn(&family, Some(&profile.env)).await;
+            crate::login_env::provider_keys_before_spawn(&family, Some(&profile.env))
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?;
         }
         let cmd = crate::agent::harness_command(
             &draft.harness,

@@ -1845,7 +1845,9 @@ impl Hub {
         // reach the snapshot from the login shell.
         if !meta.remote_origin {
             let family = crate::config::derive_family(&meta.harness, profile);
-            crate::login_env::provider_keys_before_spawn(&family, Some(&profile.env)).await;
+            crate::login_env::provider_keys_before_spawn(&family, Some(&profile.env))
+                .await
+                .map_err(RpcError::internal)?;
         }
         let cmd = crate::agent::harness_command(
             &meta.harness,

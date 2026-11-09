@@ -839,7 +839,9 @@ impl ChildAgent {
         );
         // Provider keys and base URLs the cache holds by name only: from the login shell.
         let family = crate::config::derive_family(name, profile);
-        crate::login_env::provider_keys_before_spawn(&family, Some(&profile.env)).await;
+        crate::login_env::provider_keys_before_spawn(&family, Some(&profile.env))
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
         #[cfg(feature = "sim")]
         let spawned = match crate::sim_agent::take(name, profile) {
             Some(pipes) => Spawned::in_process(pipes),

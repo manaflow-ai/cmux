@@ -245,35 +245,69 @@ pub async fn import() -> bool {
 }
 
 /// Before any local spawn, after `machine_env_fresh_before_spawn`: when the
-/// daemon started from the cache, which holds provider keys and base URLs by
-/// name only (`save_cache`), and the login shell has not answered since, wait
-/// for that read (at most `TIMEOUT`) if `family` would get one of those
-/// values. A multi-provider harness (`PROVIDER_FAMILIES`) waits for any of its
-/// keys; Claude, Codex and the rest wait only for a base URL they read
-/// (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`), which the cache held by value
-/// before, so a chat never starts on the default endpoint. Their own keys stay
-/// with `Plan::wait`. A name the profile's env sets never waits. Every spawn
-/// path calls it: `agent.rs`, the pool, agent hosts and chat forks.
-pub async fn provider_keys_before_spawn(family: &str, profile: Option<&BTreeMap<String, String>>) {
+/// daemon started from the cache, which holds secret values by name only
+/// (`save_cache`), and the login shell has not answered since, wait for that
+/// read (at most `TIMEOUT`) if the spawn needs one of them
+/// (`reads_from_cache`). A plain base URL is cached by value, so only one that
+/// carries a credential (userinfo, a key or token in its query) waits. After
+/// the wait, a base URL or `${env:X}` reference still missing (the read
+/// failed or is slower than `TIMEOUT`) refuses the spawn, naming it: the
+/// agent never starts on its default endpoint. A missing provider key does
+/// not: the harness says which key it lacks. Every spawn path calls it:
+/// `agent.rs`, the pool, agent hosts and chat forks.
+pub async fn provider_keys_before_spawn(
+    family: &str,
+    profile: Option<&BTreeMap<String, String>>,
+) -> Result<(), String> {
     if !ENABLED.load(Ordering::SeqCst) {
-        return;
+        return Ok(());
     }
     wait_while(|| provider_keys_pending(family, profile), TIMEOUT).await;
+    let missing: Vec<String> = missing_secret_names()
+        .into_iter()
+        .filter(|n| reads_from_cache(family, n, profile) && (endpoint(n) || referenced(n, profile)))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "{} from the login shell is not available yet: the shell did not answer within {} s. \
+         Retry in a moment, or set it in the agent's profile",
+        missing.join(", "),
+        TIMEOUT.as_secs()
+    ))
 }
 
-/// The cache stands in for the shell, and a value `family` gets from it is missing.
+/// The cache stands in for the shell, and a value the spawn gets from it is missing.
 fn provider_keys_pending(family: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
     outcome() == Outcome::Cached
         && missing_secret_names().iter().any(|n| reads_from_cache(family, n, profile))
 }
 
-/// `family` gets `name` from the login shell, and only the shell holds its value.
+/// The spawn gets `name` from the login shell: a `${env:name}` reference in
+/// the profile's env, or a provider key or base URL `family` takes
+/// (`PROVIDER_KEYS`; Claude, Codex and the rest only a base URL they read,
+/// their own keys wait with `Plan::wait`) that the profile does not set.
 fn reads_from_cache(family: &str, name: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
+    if referenced(name, profile) {
+        return true;
+    }
     if !PROVIDER_KEYS.contains(&name) || profile.is_some_and(|env| env.contains_key(name)) {
         return false;
     }
     PROVIDER_FAMILIES.contains(&family)
-        || (!is_secret(name, "") && allowed_with(name, "", Some(family), profile))
+        || (endpoint(name) && allowed_with(name, "", Some(family), profile))
+}
+
+/// A provider base URL (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`): the
+/// `PROVIDER_KEYS` names that are not secret by name.
+fn endpoint(name: &str) -> bool {
+    PROVIDER_KEYS.contains(&name) && !is_secret(name, "")
+}
+
+/// The profile's env names `name` in a `${env:name}` reference.
+fn referenced(name: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
+    profile.is_some_and(|env| crate::config::profiles::env_ref_names(env).iter().any(|n| n == name))
 }
 
 /// Wait while `pending`, each time until a login shell read ends, at most `limit` in all.
@@ -754,9 +788,9 @@ pub(crate) const PROVIDER_FAMILIES: [&str; 7] =
 
 /// The provider keys (and base URLs) those harnesses read from their
 /// environment. Exact names, never a prefix: a prefix would bring in any
-/// secret that shares it (`OPENAI_ORG_TOKEN`, `GROQ_SECRET`). Only their
-/// names reach the cache (`save_cache`): every key is a secret by name
-/// (`is_secret`), and a base URL can carry a token in its path.
+/// secret that shares it (`OPENAI_ORG_TOKEN`, `GROQ_SECRET`). Every key is a
+/// secret by name, so only its name reaches the cache (`save_cache`); a base
+/// URL is cached by value unless it carries a credential (`is_secret`).
 /// Not here: cloud credentials (AWS_*, Vertex ADC), which only Claude's
 /// Bedrock and Vertex switches unlock, and GitHub tokens. The same list keeps
 /// these keys in the daemon's own env from other agents
@@ -1289,9 +1323,10 @@ fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<
     let mut vars = BTreeMap::new();
     let mut secret_names = Vec::new();
     for (k, v) in login {
-        // A delivered value is a secret whatever its name (`DEMO`, `STRIPE`), and so is
-        // a provider base URL (`PROVIDER_KEYS`), whose path can carry a token.
-        if is_secret(k, v) || delivered(k) || PROVIDER_KEYS.contains(&k.as_str()) {
+        // A delivered value is a secret whatever its name (`DEMO`, `STRIPE`). A base URL is
+        // one only when it carries a credential (userinfo, `key=` or `token=` in its query:
+        // `is_secret`); a plain endpoint is cached by value, so a restart has it at once.
+        if is_secret(k, v) || delivered(k) {
             secret_names.push(k.clone());
         } else {
             vars.insert(k.clone(), v.clone());
@@ -1596,6 +1631,34 @@ mod machine_file_tests {
             [("ANTHROPIC_BASE_URL".to_owned(), "https://route.invalid".to_owned())].into();
         assert!(!reads_from_cache("claude", "ANTHROPIC_BASE_URL", Some(&profile)));
         assert!(!reads_from_cache("pi", "ANTHROPIC_BASE_URL", Some(&profile)));
+        // A `${env:X}` reference needs X from the shell, whatever the family or name.
+        let refs: std::collections::BTreeMap<String, String> = [
+            ("ANTHROPIC_BASE_URL".to_owned(), "${env:ANTHROPIC_BASE_URL}".to_owned()),
+            ("TEAM_HEADER".to_owned(), "Bearer ${env:TEAM_GATEWAY_TOKEN}".to_owned()),
+        ]
+        .into();
+        assert!(reads_from_cache("claude", "ANTHROPIC_BASE_URL", Some(&refs)));
+        assert!(reads_from_cache("codex", "TEAM_GATEWAY_TOKEN", Some(&refs)));
+        assert!(!reads_from_cache("codex", "OTHER_TOKEN", Some(&refs)));
+    }
+
+    /// A plain base URL is cached by value; one with a credential in its
+    /// userinfo or query is a secret, kept by name only.
+    #[test]
+    fn only_a_base_url_with_a_credential_is_a_secret() {
+        for url in
+            ["https://gateway.example/v1", "http://127.0.0.1:11434/v1", "https://api.example"]
+        {
+            assert!(!is_secret("ANTHROPIC_BASE_URL", url), "{url}");
+            assert!(!is_secret("OPENAI_BASE_URL", url), "{url}");
+        }
+        for url in [
+            "https://user:pass@gateway.example/v1",
+            "https://gateway.example/v1?api_key=s3cret",
+            "https://gateway.example/v1?token=s3cret",
+        ] {
+            assert!(is_secret("ANTHROPIC_BASE_URL", url), "{url}");
+        }
     }
 
     /// A provider key exported in the login shell reaches the harnesses that
