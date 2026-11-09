@@ -69,12 +69,17 @@ export function useRailPlacement(
       }
       const reserve = railEdgeReserve(side, chatMinimap, inset);
       const next = {
-        ...railPlacement(paneWidth, inset - reserve, {
-          min: gutterArm === "tight" ? token("--cmux-space-1", 4) : token("--cmux-space-2", 8),
-          max: token("--cmux-space-4", 16),
-          compact: token("--cmux-space-3", 12),
-          ...(gutterArm === "tight" ? { narrowest: token("--cmux-space-3", 12) } : {}),
-        }, restTickArm === "inset-first"),
+        ...railPlacement(
+          paneWidth,
+          inset - reserve,
+          {
+            min: gutterArm === "tight" ? token("--cmux-space-1", 4) : token("--cmux-space-2", 8),
+            max: token("--cmux-space-4", 16),
+            compact: token("--cmux-space-3", 12),
+            ...(gutterArm === "tight" ? { narrowest: token("--cmux-space-3", 12) } : {}),
+          },
+          restTickArm === "inset-first",
+        ),
         reserve,
         gutterArm,
         restTickArm,

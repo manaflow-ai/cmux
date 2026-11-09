@@ -51,9 +51,7 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
       { side, push },
     );
   const closeSessionInfo = async (page: Page) => {
-    await page.evaluate(() =>
-      (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
-    );
+    await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }));
     const toggle = page.locator("button.acpmux-session-info-toggle");
     await toggle.waitFor({ timeout: 10_000 });
     if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click({ force: true });
@@ -80,8 +78,10 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
         .filter((row) => row.width > 0 && row.bottom > box.top && row.top < box.bottom);
       const columnLeft = Math.min(...texts.map((row) => row.left));
       const columnRight = Math.max(...texts.map((row) => row.right));
-      const barEdge = side === "right" ? Math.max(...bars.map((bar) => bar.right)) : Math.min(...bars.map((bar) => bar.left));
-      const barInner = side === "right" ? Math.min(...bars.map((bar) => bar.left)) : Math.max(...bars.map((bar) => bar.right));
+      const barEdge =
+        side === "right" ? Math.max(...bars.map((bar) => bar.right)) : Math.min(...bars.map((bar) => bar.left));
+      const barInner =
+        side === "right" ? Math.min(...bars.map((bar) => bar.left)) : Math.max(...bars.map((bar) => bar.right));
       const r = (n: number) => Math.round(n * 10) / 10;
       const tops = bars.map((bar) => bar.top).sort((a, b) => a - b);
       const pitches = [...new Set(tops.slice(1).map((top, i) => r(top - tops[i]!)))];

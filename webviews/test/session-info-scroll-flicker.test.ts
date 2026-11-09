@@ -70,7 +70,10 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
             })),
           });
           for (let chunk = 0; chunk < 15; chunk++) {
-            emit({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: `thinking ${round}.${chunk} ` } });
+            emit({
+              sessionUpdate: "agent_thought_chunk",
+              content: { type: "text", text: `thinking ${round}.${chunk} ` },
+            });
             // fixed-wait: an agent's pacing between streamed updates is the behavior under test.
             await wait(16);
           }
@@ -153,7 +156,10 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/?mock`);
     await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
-    const seeded = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug.loadSeed(120))) as Record<string, unknown>;
+    const seeded = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug.loadSeed(120))) as Record<
+      string,
+      unknown
+    >;
     expect(seeded.error).toBeUndefined();
     await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }));
     const toggle = page.locator("button.acpmux-session-info-toggle").first();
@@ -243,7 +249,8 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
             seen.underWrites += 1;
       });
       const stage = document.querySelector(".acpmux-stage");
-      if (stage) under.observe(stage, { subtree: true, attributes: true, attributeFilter: ["data-glass-under", "style"] });
+      if (stage)
+        under.observe(stage, { subtree: true, attributes: true, attributeFilter: ["data-glass-under", "style"] });
       let removedThisFrame = 0;
       const mutations = new MutationObserver((records) => {
         for (const record of records) {
