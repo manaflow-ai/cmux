@@ -125,7 +125,9 @@ pub(super) fn machine_id_for_this_host(
 /// `<id>:<workspace>` layout refs). Free text that merely contains the id (a
 /// command, a path, a description) is left as it is.
 /// Append-only history (tables whose triggers refuse an update: the session
-/// journal, journal segments) keeps what it recorded. `session_public_id`
+/// journal, journal segments) keeps what it recorded. Mutation receipts and
+/// their events ([`RECEIPT_TABLES`]) keep it too, and are read with the new
+/// id: the rehome's cost is the registry's current state, not its history. `session_public_id`
 /// stays: the journal records it, and it names the session only within this
 /// daemon's resource API. Records other stores hold under the copied id (the
 /// app's, other machines') are no longer written by this machine; their
@@ -142,6 +144,14 @@ pub(super) fn rehome_registry(connection: &Connection) -> anyhow::Result<()> {
     if stored.is_some() {
         let copied = required_meta(&tx, "registry_id")?;
         rewrite_text_everywhere(&tx, &copied, &try_new_uuid_v4()?)?;
+        // After the rewrite, which would move the id in this list too.
+        let mut former = StoredIds::load(&tx)?.former;
+        former.push(copied);
+        tx.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![FORMER_IDS_META_KEY, serde_json::to_string(&former)?],
+        )?;
     }
     stamp(&tx, &current)?;
     tx.commit()?;
@@ -201,10 +211,81 @@ const JOURNAL_TABLES: [&str; 10] = [
     "journal_producers",
 ];
 
-/// Every mutable table and its columns, less the journal's ([`JOURNAL_TABLES`]).
+/// Mutation receipts and the events they recorded: a row per change, never
+/// pruned, so they grow with use (scanning them took 1.9 s of a 4.2 s first
+/// start of a 58.7 GB registry on its new machine). The rehome leaves them
+/// as stored and records the id it replaced ([`FORMER_IDS_META_KEY`]); their
+/// readers serve the stored text through [`StoredIds`], which moves the
+/// references the scan would have moved. Only `fingerprint` and
+/// `result_json` can hold one: their other columns are client origins and
+/// mutation ids, random workspace keys and terminal ids, and event kinds.
+/// No table references them, and they reference none.
+/// (`resource_mutations` and `bookmark_mutations` are pruned to a window,
+/// so the scan still covers them.)
+const RECEIPT_TABLES: [&str; 5] = [
+    "mutations",
+    "workspace_events",
+    "terminal_events",
+    "terminal_mutations",
+    "projection_mutations",
+];
+
+/// In `meta`: the registry ids this registry had before its moves to other
+/// machines, oldest first (a JSON array).
+const FORMER_IDS_META_KEY: &str = "registry_former_ids";
+
+/// The registry's former ids and its current one: text stored before a
+/// move ([`RECEIPT_TABLES`]) is served with its references moved, as the
+/// rehome's scan moves them elsewhere.
+pub(super) struct StoredIds {
+    current: String,
+    former: Vec<String>,
+}
+
+impl StoredIds {
+    /// One `meta` read; no former ids for a registry that never moved.
+    pub(super) fn load(connection: &Connection) -> anyhow::Result<Self> {
+        let former = meta_value(connection, FORMER_IDS_META_KEY)?
+            .map(|raw| serde_json::from_str::<Vec<String>>(&raw))
+            .transpose()
+            .context("read the registry's former ids")?
+            .unwrap_or_default();
+        let current = if former.is_empty() {
+            String::new()
+        } else {
+            required_meta(connection, "registry_id")?
+        };
+        Ok(Self { current, former })
+    }
+
+    /// `text` with its references to a former id moved to the current one.
+    pub(super) fn text(&self, text: String) -> String {
+        self.former.iter().fold(text, |text, old| {
+            if !text.contains(old.as_str()) {
+                return text;
+            }
+            rehomed(&text, old, &self.current)
+                .or_else(|| rehomed_json(&text, old, &self.current))
+                .unwrap_or(text)
+        })
+    }
+
+    /// A stored canonical fingerprint, moved and canonical again.
+    pub(super) fn fingerprint(&self, stored: String) -> anyhow::Result<String> {
+        let moved = self.text(stored.clone());
+        if moved == stored {
+            return Ok(stored);
+        }
+        canonical_json(&serde_json::from_str(&moved)?)
+    }
+}
+
+/// Every mutable table and its columns, less the journal's ([`JOURNAL_TABLES`])
+/// and the receipts ([`RECEIPT_TABLES`]).
 fn mutable_columns(connection: &Connection) -> anyhow::Result<Vec<(String, Vec<String>)>> {
     let mut immutable = immutable_tables(connection)?;
     immutable.extend(JOURNAL_TABLES.map(str::to_string));
+    immutable.extend(RECEIPT_TABLES.map(str::to_string));
     let tables: Vec<String> = connection
         .prepare(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",

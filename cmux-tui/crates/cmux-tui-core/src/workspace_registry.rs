@@ -3337,6 +3337,7 @@ impl WorkspaceRegistry {
         )?;
         let sqlite_revision =
             i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
+        let ids = host_identity::StoredIds::load(&db)?;
         let rows = statement.query_map([sqlite_revision], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
@@ -3350,6 +3351,7 @@ impl WorkspaceRegistry {
         })?;
         rows.map(|row| {
             let (revision, kind, terminal_id, workspace_key, origin, mutation_id, result) = row?;
+            let result = ids.text(result);
             Ok(TerminalRegistryEvent {
                 revision: u64::try_from(revision).context("terminal event revision is negative")?,
                 kind,
@@ -3390,13 +3392,15 @@ impl WorkspaceRegistry {
         let Some((stored_fingerprint, stored_result, revision)) = stored else {
             return Ok(None);
         };
-        if stored_fingerprint != fingerprint {
+        let ids = host_identity::StoredIds::load(&self.connection.get())?;
+        if ids.fingerprint(stored_fingerprint)? != fingerprint {
             anyhow::bail!(
                 "mutation {} from {} was retried with a different payload",
                 mutation.id,
                 mutation.origin
             );
         }
+        let stored_result = ids.text(stored_result);
         Ok(Some(RegistryCommit {
             revision: u64::try_from(revision).context("stored mutation revision is negative")?,
             result: serde_json::from_str(&stored_result)?,
@@ -3524,6 +3528,7 @@ impl WorkspaceRegistry {
             "SELECT revision, kind, workspace_key, origin, mutation_id, result_json
              FROM workspace_events WHERE revision > ?1 ORDER BY revision ASC",
         )?;
+        let ids = host_identity::StoredIds::load(&db)?;
         let sqlite_revision =
             i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
         let rows = statement.query_map([sqlite_revision], |row| {
@@ -3546,7 +3551,7 @@ impl WorkspaceRegistry {
                 workspace_key,
                 origin,
                 mutation_id,
-                result: serde_json::from_str(&result)?,
+                result: serde_json::from_str(&ids.text(result))?,
             })
         })
         .collect()
@@ -3633,6 +3638,9 @@ impl WorkspaceRegistry {
             )
             .optional()?
         {
+            let ids = host_identity::StoredIds::load(&tx)?;
+            let stored_fingerprint = ids.fingerprint(stored_fingerprint)?;
+            let result_json = ids.text(result_json);
             if stored_fingerprint != fingerprint_digest && stored_fingerprint != fingerprint {
                 anyhow::bail!(
                     "mutation {} from {} was retried with a different payload",
@@ -4990,7 +4998,9 @@ fn terminal_replay(
     let Some((stored_fingerprint, stored_result, revision)) = stored else {
         return Ok(None);
     };
-    if stored_fingerprint != fingerprint {
+    let ids = host_identity::StoredIds::load(connection)?;
+    let stored_result = ids.text(stored_result);
+    if ids.fingerprint(stored_fingerprint)? != fingerprint {
         anyhow::bail!(
             "terminal mutation {} from {} was retried with a different payload",
             mutation.id,
