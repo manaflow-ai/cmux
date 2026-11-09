@@ -356,19 +356,35 @@ where
 /// A burst of events looks once: the earliest a woken wait looks again.
 const EVENT_GAP: Duration = Duration::from_millis(200);
 
-/// Returns when the daemon's `session.events` stream reports a change (a
-/// burst counts once, [`EVENT_GAP`]), or `at_most` after the call. With no
-/// stream (an older daemon, no socket) or one that ends early, it waits out
-/// `at_most`.
-pub(in crate::cli) fn wake_on_event<B: Backend + ?Sized>(backend: &B, at_most: Duration) {
+/// Returns when the daemon's `session.events` stream reports a change after
+/// `cursor` (a burst counts once, [`EVENT_GAP`]), or `at_most` after the
+/// call. `cursor` is the daemon's event position: the first call opens with
+/// none and takes the initial snapshot's (no change), each later one resumes
+/// from it, so a change made between two looks still wakes the next. With no
+/// stream (an older daemon, no socket) it waits out `at_most`; a stream that
+/// ends early still waits [`EVENT_GAP`] after a change, so a wait never spins.
+pub(in crate::cli) fn wake_on_event<B: Backend + ?Sized>(
+    backend: &B,
+    cursor: &mut Option<Value>,
+    at_most: Duration,
+) {
     let started = Instant::now();
     let deadline = started + at_most;
-    let mut seen = false;
-    let _ = backend.session_events(None, None, deadline, EVENT_GAP, &mut |item| {
-        seen |= item.is_some();
-        seen && started.elapsed() >= EVENT_GAP
+    let from = cursor.clone();
+    let mut latest = None;
+    let mut changed = false;
+    let _ = backend.session_events(None, from.as_ref(), deadline, EVENT_GAP, &mut |item| {
+        if let Some(item) = item {
+            if let Some(at) = item.get("cursor") {
+                latest = Some(at.clone());
+            }
+            changed |= !(item["kind"] == "snapshot" && item["reset_reason"] == "initial");
+        }
+        changed && started.elapsed() >= EVENT_GAP
     });
-    if !seen {
-        std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+    if latest.is_some() {
+        *cursor = latest;
     }
+    let until = if changed { (started + EVENT_GAP).min(deadline) } else { deadline };
+    std::thread::sleep(until.saturating_duration_since(Instant::now()));
 }

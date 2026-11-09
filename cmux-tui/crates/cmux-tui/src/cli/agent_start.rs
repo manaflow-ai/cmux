@@ -309,7 +309,8 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
 fn run(global: &GlobalArgs, command: &Command) -> i32 {
     let backend = super::mcp::cli_backend(global.clone());
     let env = Env::of_process(global);
-    let mut sleep = |at_most: Duration| readiness::wake_on_event(&backend, at_most);
+    let mut cursor = None;
+    let mut sleep = |at_most: Duration| readiness::wake_on_event(&backend, &mut cursor, at_most);
     let mut clock =
         Clock { now: &Instant::now, sleep: &mut sleep, now_ms: super::terminal_talk::now_ms() };
     let result = match command {
@@ -748,7 +749,8 @@ pub(in crate::cli) fn wait_ready_command(
     timeout: Option<Duration>,
 ) -> i32 {
     let backend = super::mcp::cli_backend(global.clone());
-    let mut sleep = |at_most: Duration| readiness::wake_on_event(&backend, at_most);
+    let mut cursor = None;
+    let mut sleep = |at_most: Duration| readiness::wake_on_event(&backend, &mut cursor, at_most);
     match wait_ready(&backend, selector, timeout, &mut sleep) {
         Ok((report, exit)) => print_report(global.output, &report, exit),
         Err(failure) => wire::print_local_error(&failure.error, global.output, failure.exit),
