@@ -153,13 +153,17 @@ pub(super) fn media_range(
     if read == 0 || read > length {
         return Err(Refusal::BadRequest);
     }
-    let mut answer = json!({"offset": offset, "size": size, "identity": identity, "data": encoded});
+    let mut answer = serde_json::Map::new();
+    answer.insert("offset".into(), json!(offset));
+    answer.insert("size".into(), json!(size));
+    answer.insert("identity".into(), json!(identity));
+    answer.insert("data".into(), json!(encoded));
     if let Some(mime) = mime {
-        answer["mimeType"] = json!(mime);
+        answer.insert("mimeType".into(), json!(mime));
     }
     // acpmux closes the file once a range reaches its end: no handle is left to continue.
     if offset.saturating_add(read) < size {
-        answer["handle"] = json!(handle);
+        answer.insert("handle".into(), json!(handle));
     }
-    Ok(answer)
+    Ok(Value::Object(answer))
 }
