@@ -1484,9 +1484,11 @@ test("Leo's menu: Where shows where it runs, the machine chip which machine, eac
 test("three chips: nothing is required to start, and the machine chip shows only for another machine", async () => {
   const calls = await mount(true, { ...shipped, ...alone });
   const strip = host.querySelector(".acpmux-location-leading")!;
-  // Project, then Where; no machine chip on This Mac.
+  // Project, then Where; no machine chip on This Mac (the Environment chip's slot is closed, inert).
   expect(
-    [...strip.querySelectorAll(".acpmux-location-button")].map((button) => button.getAttribute("aria-label")),
+    [...strip.querySelectorAll(".acpmux-location-button")]
+      .filter((button) => !button.closest("[inert]"))
+      .map((button) => button.getAttribute("aria-label")),
   ).toEqual([t("composer.folder"), `${t("composer.environment")}: ${t("composer.thisMac")}`]);
   expect(machineButton()).toBeUndefined();
   // "Choose project" is dimmed while empty, and a chat starts with it empty on This Mac (Leo: "and
@@ -1530,8 +1532,15 @@ test("three chips: Cloud picked shows no machine chip and no New machine anywher
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.cloud")}`);
   const strip = host.querySelector(".acpmux-location-leading")!;
   expect(
-    [...strip.querySelectorAll(".acpmux-location-button")].map((button) => button.getAttribute("aria-label")),
-  ).toEqual([t("composer.folder"), `${t("composer.environment")}: ${t("composer.cloud")}`]);
+    [...strip.querySelectorAll(".acpmux-location-button")]
+      .filter((button) => !button.closest("[inert]"))
+      .map((button) => button.getAttribute("aria-label")),
+  ).toEqual([
+    t("composer.folder"),
+    `${t("composer.environment")}: ${t("composer.cloud")}`,
+    // The Environment chip (on by default, CLOUD_ENVIRONMENTS_ENABLED), on Auto: never a machine.
+    `${t("composer.envCloudLabel")}: ${t("composer.envAuto")}`,
+  ]);
   expect(machineButton()).toBeUndefined();
   expect(host.textContent ?? "").not.toContain(t("composer.newMachine"));
   // Where, opened again: Cloud checked, one line, and still no New machine or setup row.
