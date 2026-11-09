@@ -430,7 +430,11 @@ async fn another_teams_network_is_refused_before_any_request() {
         .await
         .unwrap_err();
     assert_eq!(reason(&error), "network_mismatch");
-    assert!(error.message.contains("team_1"), "the refusal names the id it takes: {}", error.message);
+    assert!(
+        error.message.contains("team_1"),
+        "the refusal names the id it takes: {}",
+        error.message
+    );
     assert_eq!(error.data.unwrap()["networkId"], "team_1");
     assert!(platform.seen.lock().unwrap().is_empty());
 }

@@ -1627,9 +1627,8 @@ async fn tunnel_platform()
             // One key's answer is lost on the way (a gateway timeout): the test's failed recovery.
             let lost = {
                 use base64::Engine as _;
-                let public = x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(
-                    [6u8; 32],
-                ));
+                let public =
+                    x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from([6u8; 32]));
                 base64::engine::general_purpose::STANDARD.encode(public.to_bytes())
             };
             let reply = if line.contains("/wg-key ") && body["wgPublicKey"] == lost.as_str() {
@@ -1748,6 +1747,25 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
     }
     assert_eq!(requests[0].2["wgPublicKey"], candidate.as_str());
     assert_eq!(requests[2].2["wgPublicKey"], new_key.as_str());
+    // The id `cmux cloud network-list` lists for this Mac's network, the joined team's, is taken
+    // by both: detach, then attach again.
+    let team = json!({"token": "person-token", "networkId": "team_test"});
+    let detached = app.ok("_acpmux/machine.tunnel.detach", team.clone()).await;
+    assert_eq!(detached["tunnel_id"], "machine_test");
+    let attached = app.ok("_acpmux/machine.tunnel.attach", team).await;
+    assert_eq!(attached["tunnel_id"], "machine_test");
+    assert!(attached.get("pendingRekey").is_none(), "no pending key was left");
+    let requests = seen.lock().unwrap().clone();
+    assert!(
+        requests[3].0.starts_with("post /v1/mesh/nodes/machine_test/detach "),
+        "{}",
+        requests[3].0
+    );
+    assert!(
+        requests[4].0.starts_with("post /v1/mesh/nodes/machine_test/attach "),
+        "{}",
+        requests[4].0
+    );
     for (_, headers, _) in &requests {
         assert!(headers.contains("authorization: bearer person-token"), "{headers}");
         assert!(headers.contains("x-cmux-team: team_test"), "{headers}");
