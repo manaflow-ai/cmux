@@ -207,6 +207,7 @@ pub(crate) mod mcp_probe;
 mod meta_save;
 mod offer_results;
 mod offers;
+mod question_replies;
 mod resume;
 mod secrets;
 mod seen;
@@ -284,6 +285,7 @@ pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
+mod review_brief;
 pub(crate) mod review_queue;
 mod touched;
 pub mod vm_boundary;
@@ -577,6 +579,11 @@ pub struct PromptOptions {
     /// hold in an idle chat that it does not wake is refused at once (`inbox.rs`
     /// `not_woken`), never left waiting for a turn that does not come.
     pub wake_or_fail: bool,
+    /// The sender waits for the reply and prints it (`readsReply`, `wakeOrFail`): its
+    /// connection's end, `true` once it left. An inbox message keeps it, so a notice says
+    /// "waiting" only while that caller is still there, and a question nobody waits for gets its
+    /// reply sent back (`hub/question_replies.rs`).
+    pub reply_reader: Option<tokio::sync::watch::Receiver<bool>>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -2637,13 +2644,21 @@ impl Hub {
         // loaded (`load_logs`, after the daemon's ready line) or its first append: its tail is
         // counted first, so the cap below leaves out only a line whose record is not appended
         // yet. A caught-up chat takes no lock here (a replay never waits for an append).
-        if !session.caught_up.load(Ordering::SeqCst) {
-            self.catch_up(&session);
-        }
+        self.catch_up_tail(&session);
         let last = session.meta().last_seq;
         #[cfg(test)]
         log_load::catch_up_note(&log_load::NOTE_BEFORE_REPLAY_SCAN, "scans the log");
         self.store.scan(id, after, &mut |record| record.seq <= last && visit(record))
+    }
+
+    /// Counts `session`'s log tail past its saved `lastSeq` if no one has yet ([`Self::catch_up`]):
+    /// a read that compares a client's cursor with `lastSeq` (`_acpmux/events`) reads it after
+    /// this, or after a hard stop it refuses the records the log holds and the saved session does
+    /// not (`cursor_future`) until the chat's log loads. A caught-up chat takes no lock.
+    pub(crate) fn catch_up_tail(&self, session: &Session) {
+        if !session.caught_up.load(Ordering::SeqCst) {
+            self.catch_up(session);
+        }
     }
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {

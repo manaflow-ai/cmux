@@ -48,6 +48,10 @@ pub(super) struct Request {
     /// A start's question instead of a warm: wait for a warm's copy onto this machine.
     #[serde(default)]
     pub(super) wait_copy: Option<WaitCopy>,
+    /// The machine a reserve's or a claim's answer named for this account and team, instead of a
+    /// warm: the copy onto it, unless one is in flight or was given ([`claim`]). No platform call.
+    #[serde(default)]
+    pub(super) claimed: Option<String>,
 }
 
 /// `{"waitCopy": {"machine": M, "provider": P}}`: what `wait-copy --machine M --provider P` asks.
@@ -82,6 +86,10 @@ struct Record {
     /// The copy was handed to the App and not abandoned since.
     #[serde(default)]
     copy_given: bool,
+    /// A reserve or a claim took this machine for a chat: a warm in the gap no longer answers it,
+    /// so the next compose warms the next spare (the throttle is per machine, not per team).
+    #[serde(default)]
+    claimed: bool,
 }
 
 /// The last warm of one account and team that warmed nothing (no spare, or a refusal), and its answer.
@@ -157,6 +165,11 @@ pub(super) fn run(
     if request.account.is_empty() || !valid_account(&request.account) {
         return Some(refused("bad_request", "invalid spare warm"));
     }
+    if let Some(machine) = request.claimed.as_deref()
+        && reservations::machine(&json!({"machine": machine})).is_none()
+    {
+        return Some(refused("bad_request", "the claimed machine is not a Cloud machine id"));
+    }
     let (mut credential, mut install) = (String::new(), String::new());
     if stdin.read_line(&mut credential).is_err() || credential.trim().is_empty() {
         return Some(refused("unauthorized", "no session credential on stdin"));
@@ -203,8 +216,14 @@ pub(super) fn run(
     }
     let copy =
         |machine: &str| json!({"machine": machine, "account": request.account, "team": team});
+    if let Some(machine) = request.claimed.as_deref() {
+        let answer = claim(&mut file, &request.account, &team, machine, now_ms, copy(machine));
+        write(&path, &file);
+        return Some(answer);
+    }
     let live = file.warms.iter_mut().find(|last| {
         pair(&last.account, last.team.as_deref())
+            && !last.claimed
             && now_ms < last.at.saturating_add(WARM_GAP_MS)
             && last.warm_until > now_ms.saturating_add(WARM_GAP_MS)
     });
@@ -270,8 +289,15 @@ pub(super) fn run(
     if let Some(kind) = vm_kind {
         answer.set("vm_kind", json!(kind));
     }
+    // A reserve or a claim that already copies onto this machine keeps the one copy.
+    let claimed = file.warms.iter().any(|other| {
+        pair(&other.account, other.team.as_deref())
+            && other.machine == machine
+            && other.claimed
+            && other.copy_given
+    });
     // Only the machine's owner gets a copy nobody asked for, never a team guest.
-    if owner {
+    if owner && !claimed {
         answer.set("copy", copy(&machine));
         let machine = Some(machine.clone());
         file.copies.push(Copying {
@@ -281,7 +307,11 @@ pub(super) fn run(
             at: now_ms,
         });
     }
-    file.warms.retain(|other| !pair(&other.account, other.team.as_deref()));
+    // One record per machine: a claimed machine's record stays (its copy is not given twice), the
+    // pair's unclaimed one is replaced.
+    file.warms.retain(|other| {
+        !pair(&other.account, other.team.as_deref()) || (other.claimed && other.machine != machine)
+    });
     file.attempts.retain(|other| !pair(&other.account, Some(other.team.as_str())));
     file.warms.push(Record {
         account: request.account,
@@ -291,9 +321,70 @@ pub(super) fn run(
         at: now_ms,
         owner,
         copy_given: owner,
+        claimed,
     });
     write(&path, &file);
     Some(answer)
+}
+
+/// `claimed: M` (under the lock): a reserve's or a claim's answer named M for this account and
+/// team. A copy onto M in flight (the warm that won the race, or an earlier claim) or already given
+/// answers no copy: the claim's install waits on that one (`wait-copy`) instead of starting
+/// another. Otherwise the copy onto M is registered in flight and answered. Either way M's record
+/// is marked claimed, so a warm in the gap no longer answers it.
+fn claim(
+    file: &mut State,
+    account: &str,
+    team: &str,
+    machine: &str,
+    now_ms: u64,
+    copy: Value,
+) -> Value {
+    let ours = |other_account: &str, other_team: Option<&str>, other: &str| {
+        other_account == account && other_team == Some(team) && other == machine
+    };
+    let in_flight = file.copies.iter().any(|copy| {
+        copy.account == account && copy.team == team && copy.machine.as_deref() == Some(machine)
+    });
+    let given = file.warms.iter().any(|record| {
+        ours(&record.account, record.team.as_deref(), &record.machine) && record.copy_given
+    });
+    let warm_until = now_ms.saturating_add(COPY_BUDGET_MS);
+    if let Some(record) = file
+        .warms
+        .iter_mut()
+        .find(|record| ours(&record.account, record.team.as_deref(), &record.machine))
+    {
+        record.claimed = true;
+        record.copy_given = true;
+        record.warm_until = record.warm_until.max(warm_until);
+    } else {
+        file.warms.push(Record {
+            account: account.to_string(),
+            team: Some(team.to_string()),
+            machine: machine.to_string(),
+            warm_until,
+            at: now_ms,
+            owner: true,
+            copy_given: true,
+            claimed: true,
+        });
+    }
+    let mut answer = json!({"ok": true, "machine": machine, "team": team});
+    if in_flight || given {
+        answer.set("fresh", json!(false));
+        answer.set("in_flight", json!(in_flight));
+        return answer;
+    }
+    file.copies.push(Copying {
+        account: account.to_string(),
+        team: team.to_string(),
+        machine: Some(machine.to_string()),
+        at: now_ms,
+    });
+    answer.set("fresh", json!(true));
+    answer.set("copy", copy);
+    answer
 }
 
 /// Records a warm that warmed nothing, so the gap replays its answer, and returns that answer.

@@ -189,7 +189,7 @@ final class OnboardingService {
     }
 
     /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
-    private(set) lazy var setup = FirstRunSetup()
+    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.skipsOnboarding)
 
     /// A first run starts Home's Set Up cmux card, which offers the agents, the chat history (when found), the
     /// account and the command line in one place: the Agents window and the CLI toast count as shown, and
