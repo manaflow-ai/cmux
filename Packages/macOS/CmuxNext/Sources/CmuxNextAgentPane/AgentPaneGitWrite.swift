@@ -35,9 +35,9 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// toggle); with `all` every tracked change, and `includeUntracked` adds
     /// untracked, nonignored files.
     case commit(sessionId: String, message: String, all: Bool, includeUntracked: Bool, expectedHead: String?, key: String)
-    /// The current branch to where `git push` would send it; never forced. Create PR sets
-    /// `setUpstream` so a branch that tracks the base remote can be pushed to its configured
-    /// fork push remote without a second terminal step.
+    /// The current branch to where `git push` would send it; never forced. Create PR leaves
+    /// `setUpstream` false so Rust establishes tracking only for a fresh branch and preserves
+    /// the published head identity of an existing branch.
     case push(sessionId: String, expectedHead: String?, setUpstream: Bool, key: String)
     /// A new chat's own worktree of `cwd`, the chat's folder (cx-lyqio.2).
     case worktree(cwd: String, name: String?, key: String)

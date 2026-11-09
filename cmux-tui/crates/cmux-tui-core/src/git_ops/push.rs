@@ -147,30 +147,24 @@ fn push(
         return Err(refused(OPERATION, "no_remote", message, json!({"remote": remote})));
     }
     refuse_special_remote(git, &remote, branch)?;
-    let destination = format!("refs/heads/{branch}");
     let upstream_merge = config(format!("branch.{branch}.merge"));
     let tracked = upstream_remote.is_some() && upstream_merge.is_some();
     let set_upstream = fields.get("set_upstream").and_then(Value::as_bool).unwrap_or(!tracked);
-    // As `push.default=simple` does: a branch that tracks another branch name
-    // (or another remote) is not pushed to a same-named branch behind its
-    // back, unless the caller asks to track what it pushes.
-    if tracked
-        && !set_upstream
-        && (upstream_remote.as_deref() != Some(remote.as_str())
-            || upstream_merge.as_deref() != Some(destination.as_str()))
-    {
-        let upstream = format!(
-            "{}/{}",
-            upstream_remote.as_deref().unwrap_or_default(),
-            upstream_merge.as_deref().unwrap_or_default().trim_start_matches("refs/heads/")
-        );
-        return Err(refused(
-            OPERATION,
-            "upstream_mismatch",
-            format!("{branch} tracks {upstream}, not {remote}/{branch}; push it in a terminal"),
-            json!({"branch": branch, "upstream": upstream, "remote": remote}),
-        ));
-    }
+    // A published branch may have a different local name (for example a worktree branch
+    // `local-feature` tracking `origin/published-feature`). When the caller leaves the
+    // upstream intact, push back to that published branch so GitHub keeps the same head
+    // identity. Explicit `set_upstream` retains the opt-in behavior of retargeting to the
+    // local branch name.
+    let destination_branch = if tracked && !set_upstream {
+        upstream_merge
+            .as_deref()
+            .and_then(|merge| merge.strip_prefix("refs/heads/"))
+            .filter(|merge| !merge.is_empty())
+            .unwrap_or(branch)
+    } else {
+        branch
+    };
+    let destination = format!("refs/heads/{destination_branch}");
     let refspec = format!("{tip}:{destination}");
     let command = ["push", "--porcelain", "--", remote.as_str(), refspec.as_str()];
     let run = git.run(&command).map_err(|failure| run_failed(OPERATION, &failure))?;
@@ -190,7 +184,7 @@ fn push(
         "root": repository.root.to_string_lossy(),
         "remote": remote,
         "branch": branch,
-        "upstream": format!("{remote}/{branch}"),
+        "upstream": format!("{remote}/{destination_branch}"),
         "pushed_commit": tip,
         "created_upstream": created_upstream,
         "up_to_date": flag == "=",

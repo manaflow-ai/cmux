@@ -13,7 +13,9 @@ extension DiffAgentGit: DiffGitPullRequestRunning {
         let link = link
         let key = UUID().uuidString
         return await AgentPaneGitPullRequest.open(in: repository) { @MainActor _, expectedHead in
-            _ = try await link.write(.push(sessionId: DiffPageProvider.gitSession, expectedHead: expectedHead, setUpstream: true, key: key),
+            // Rust sets an upstream only when this branch has none; preserving an existing
+            // upstream keeps GitHub's published head selection intact.
+            _ = try await link.write(.push(sessionId: DiffPageProvider.gitSession, expectedHead: expectedHead, setUpstream: false, key: key),
                                      in: repository)
         }
     }

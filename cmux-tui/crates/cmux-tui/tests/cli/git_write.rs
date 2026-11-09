@@ -127,6 +127,23 @@ fn git_commit_and_push_run_in_the_repository_through_a_real_daemon() {
         git(&remote, &["rev-parse", "refs/heads/feature"]),
         git(&repo, &["rev-parse", "HEAD"])
     );
+
+    // Create PR preserves an already-published head when the local branch was renamed.
+    git(&repo, &["push", "publish", "feature:published"]);
+    git(&repo, &["checkout", "-q", "-b", "local-feature", "feature"]);
+    git(&repo, &["branch", "--set-upstream-to=publish/published"]);
+    fs::write(repo.join("a.txt"), "renamed branch\n").unwrap();
+    git(&repo, &["commit", "-q", "-am", "local change"]);
+    let published = git_cli(&server, &repo, &["push"]);
+    assert_success(&published);
+    assert_eq!(
+        git(&remote, &["rev-parse", "refs/heads/published"]),
+        git(&repo, &["rev-parse", "HEAD"])
+    );
+    assert_eq!(
+        git(&repo, &["rev-parse", "--abbrev-ref", "local-feature@{upstream}"]),
+        "publish/published"
+    );
     let _ = fs::remove_dir_all(root);
 }
 

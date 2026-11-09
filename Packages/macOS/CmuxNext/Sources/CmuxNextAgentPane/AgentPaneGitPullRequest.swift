@@ -274,7 +274,10 @@ extension AgentPaneGitPullRequest {
             let pushKey = UUID().uuidString
             let pushFolder = sessionFolder.cwd
             push = { @MainActor _, expectedHead in
-                _ = try await onGitWrite(.push(sessionId: sessionId, expectedHead: expectedHead, setUpstream: true, key: pushKey), pushFolder)
+                // Leave the upstream decision to Rust: a fresh branch gets an upstream for the
+                // selected push remote, while an already-published branch keeps its existing
+                // head identity instead of being retargeted to the local branch name.
+                _ = try await onGitWrite(.push(sessionId: sessionId, expectedHead: expectedHead, setUpstream: false, key: pushKey), pushFolder)
             }
             runRoots = [sessionFolder.cwd]
         }

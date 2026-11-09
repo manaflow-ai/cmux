@@ -216,7 +216,7 @@ struct AgentPaneGitPullRequestTests {
         guard case .push(let sessionId, let actualHead, let setUpstream, _) = write else { Issue.record("Create PR sent \(write.operation), not git.push"); return }
         #expect(sessionId == "session")
         #expect(actualHead == expectedHead)
-        #expect(setUpstream)
+        #expect(!setUpstream)
         #expect(folder == rig.repo)
         #expect(rig.calls == ["pr view --json url,number,state", "repo view --json url,defaultBranchRef", "pr create --web"])
     }

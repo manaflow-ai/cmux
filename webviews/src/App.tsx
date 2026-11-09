@@ -1060,6 +1060,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           git={git}
           formOpen={commitOpen}
           onCloseForm={() => setCommitOpen(false)}
+          disabled={pullRequestAction.busy}
           reloadKey={state.renderGeneration}
         />
         {reviewBrief ? (
