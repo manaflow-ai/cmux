@@ -1505,7 +1505,7 @@ mod machine_file_tests {
             "GOOGLE_GENERATIVE_AI_API_KEY",
             "HF_TOKEN",
         ];
-        for family in ["opencode", "pi", "omp", "cmux-harness", "hermes"] {
+        for family in ["opencode", "opencode-v2", "pi", "omp", "prime", "cmux-harness", "hermes"] {
             for key in KEYS {
                 assert!(allowed(key, "dummy", Some(family)), "{family} gets {key}");
             }
@@ -1533,7 +1533,7 @@ mod machine_file_tests {
             for family in [None, Some("claude"), Some("codex"), Some("gemini"), Some("muse")] {
                 assert!(!allowed(key, "dummy", family), "{family:?} never gets {key}");
             }
-            for family in ["chief", "unii", "cursor", "fake"] {
+            for family in ["chief", "unii", "cursor", "deepseek", "fake"] {
                 assert!(!allowed(key, "dummy", Some(family)), "{family} never gets {key}");
             }
         }

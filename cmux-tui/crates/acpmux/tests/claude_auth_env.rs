@@ -483,7 +483,7 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     let dir = scratch(
         "cache",
         &format!(
-            "{count}export ANTHROPIC_AUTH_TOKEN=s3cret-value\nexport NO_PROXY=plain-value\nexport TEAM_ROUTE_NAME=not-allow-listed\n"
+            "{count}export ANTHROPIC_AUTH_TOKEN=s3cret-value\nexport NO_PROXY=plain-value\nexport TEAM_ROUTE_NAME=not-allow-listed\nexport OPENAI_BASE_URL=https://gateway.invalid/route-s3cret\n"
         ),
     );
     let runs =
@@ -499,7 +499,11 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     let text = std::fs::read_to_string(&cache).unwrap();
     assert!(!text.contains("s3cret-value"), "a secret value in the cache: {text}");
     let v: Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(v["secretNames"], json!(["ANTHROPIC_AUTH_TOKEN"]), "{v}");
+    // A provider base URL can carry a token in its path: only its name is cached.
+    assert!(!text.contains("route-s3cret"), "a base URL in the cache: {text}");
+    let mut names: Vec<String> = serde_json::from_value(v["secretNames"].clone()).unwrap();
+    names.sort();
+    assert_eq!(names, ["ANTHROPIC_AUTH_TOKEN", "OPENAI_BASE_URL"], "{v}");
     assert_eq!(v["vars"]["NO_PROXY"], "plain-value", "{v}");
     assert!(v["vars"].get("TEAM_ROUTE_NAME").is_none(), "only allow-listed names are cached: {v}");
     use std::os::unix::fs::PermissionsExt;
