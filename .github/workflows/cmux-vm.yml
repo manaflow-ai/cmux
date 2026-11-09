@@ -478,13 +478,14 @@ jobs:
       !cancelled() && needs.check.result == 'success' &&
       (needs.migrate-staging.result == 'success' || needs.migrate-staging.result == 'skipped') &&
       ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
-      (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production')))
+      (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))) &&
+      !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
     needs: [check, migrate-staging]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 45
     environment: cmux-vm-staging
     concurrency:
-      group: cmux-vm-deploy-staging
+      group: cmux-vm-deploy-staging${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok' && format('-label-{0}', github.run_id) || '' }}
       cancel-in-progress: false
     defaults:
       run:
