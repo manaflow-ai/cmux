@@ -168,7 +168,10 @@ fn w5s_the_chief_accepts_its_daemon_when_acpmux_bin_is_the_acpmux_wrapper() {
     let server = serve(dir.path(), &socket);
     let wrapper = acpmux_wrapper(dir.path(), &python());
     let (ok, output) = list(dir.path(), &socket, &wrapper);
-    assert!(ok, "the Chief connects to the daemon its ACPMUX_BIN wrapper runs: {output}");
+    assert!(
+        ok,
+        "the Chief connects to the daemon its ACPMUX_BIN wrapper runs: {output}"
+    );
     assert!(
         String::from_utf8_lossy(&received(&server)).contains("\"initialize\""),
         "the server got the Chief's requests"
@@ -184,10 +187,16 @@ fn w5s_a_script_that_is_no_acpmux_wrapper_does_not_name_the_daemon() {
     let socket = dir.path().join("acpmux.sock");
     let squatter = serve(dir.path(), &socket);
     let script = dir.path().join("acpmux");
-    let text = format!("#!/bin/sh\necho hi\nexec '{}' 'acp' \"$@\"\n", python().display());
+    let text = format!(
+        "#!/bin/sh\necho hi\nexec '{}' 'acp' \"$@\"\n",
+        python().display()
+    );
     std::fs::write(&script, text).unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
     let (ok, output) = list(dir.path(), &socket, &script);
     assert!(!ok, "the Chief refuses the socket: {output}");
-    assert!(received(&squatter).is_empty(), "the squatter got nothing from the Chief");
+    assert!(
+        received(&squatter).is_empty(),
+        "the squatter got nothing from the Chief"
+    );
 }

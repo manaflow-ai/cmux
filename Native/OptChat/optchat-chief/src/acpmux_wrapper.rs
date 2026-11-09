@@ -29,7 +29,9 @@ pub fn target(path: &Path) -> Option<PathBuf> {
 
 /// The executable in wrapper text `script` (`#!/bin/sh\nexec '<exe>' '<word>'... "$@"\n`).
 fn parse(script: &str) -> Option<PathBuf> {
-    let line = script.strip_prefix("#!/bin/sh\nexec ")?.strip_suffix(" \"$@\"\n")?;
+    let line = script
+        .strip_prefix("#!/bin/sh\nexec ")?
+        .strip_suffix(" \"$@\"\n")?;
     let words = words(line)?;
     let exe = PathBuf::from(words.first()?);
     exe.is_absolute().then_some(exe)
@@ -74,7 +76,10 @@ mod tests {
             exe("#!/bin/sh\nexec '/A B/it'\\''s/cmux' 'acp' \"$@\"\n").as_deref(),
             Some("/A B/it's/cmux")
         );
-        assert_eq!(exe("#!/bin/sh\nexec '/a/cmux' \"$@\"\n").as_deref(), Some("/a/cmux"));
+        assert_eq!(
+            exe("#!/bin/sh\nexec '/a/cmux' \"$@\"\n").as_deref(),
+            Some("/a/cmux")
+        );
         for other in [
             "#!/bin/sh\nexec 'cmux' 'acp' \"$@\"\n",
             "#!/bin/sh\nexec /a/cmux 'acp' \"$@\"\n",
