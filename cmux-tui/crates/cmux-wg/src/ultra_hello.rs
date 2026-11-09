@@ -29,11 +29,15 @@
 //! then reach the live instance, which answers, and this side starts over
 //! with that one.
 //!
-//! A peer that sends version 1 (no instance numbers) is answered in
-//! version 1, and its `heard` flag counts as an acknowledgement, as it did.
-//! Until this side knows its peer, each hello also goes out in version 1
-//! from another source port: a version-1 peer that went quiet before this
-//! side restarted answers it, and a version-2 peer drops it.
+//! A version-1 peer (no instance numbers or challenges) is read, and its
+//! `heard` flag counts as an acknowledgement, as it did, except on the hello
+//! that moves this side to it. A version-2 side always sends version 2.
+//! While it does not know its peer, or knows it as version 1, each hello also
+//! goes out as a version-1 copy from another source port: a version-1 build
+//! takes the copy (so one that went quiet before this side restarted
+//! answers it), and a version-2 build drops it. A version-1 hello from the
+//! control port therefore always comes from a version-1 build, and two
+//! version-2 sides never fall back to version 1 with each other.
 //!
 //! A hello goes out as soon as a session exists, ahead of that pass's data,
 //! and again at 0.25, 0.5, 1 and 2 s until the peer acknowledges it. Each
@@ -57,7 +61,7 @@ use crate::ultra::UltraMode;
 /// with path probes (different magic and length).
 pub(crate) const HELLO_PORT: u16 = cmux_transport::probe::PROBE_PORT;
 /// The source port of the version-1 copy a hello goes out with while the
-/// peer is unknown. A version-1 build reads only the destination port, so
+/// peer is unknown or version 1. A version-1 build reads only the destination port, so
 /// it takes the copy as a hello; a version-2 build drops a version-1 hello
 /// from any port but [`HELLO_PORT`], since the version-2 one carries the
 /// same mode.
@@ -164,7 +168,7 @@ pub(crate) fn packet(source: IpAddr, destination: IpAddr, hello: Hello) -> Vec<u
 }
 
 /// The version-1 copy of `hello`, sent beside it while the peer is unknown
-/// (see [`Negotiation::discovering`]).
+/// or version 1 (see [`Negotiation::discovering`]).
 pub(crate) fn discovery_packet(source: IpAddr, destination: IpAddr, hello: Hello) -> Vec<u8> {
     let from = SocketAddr::new(source, DISCOVERY_PORT);
     let to = SocketAddr::new(destination, HELLO_PORT);
@@ -215,8 +219,8 @@ pub(crate) struct Negotiation {
     challenge: u64,
     /// The peer, once its hello arrived.
     peer: Option<Peer>,
-    /// The peer speaks version 1: hellos to it go out in version 1, and its
-    /// `heard` flag acknowledges this side.
+    /// The peer speaks version 1: hellos to it also go out as version-1
+    /// copies, and its `heard` flag acknowledges this side.
     peer_legacy: bool,
     /// The peer's hello echoed this side's current challenge.
     acknowledged: bool,
@@ -279,9 +283,9 @@ impl Negotiation {
     /// Whether the hello due now also goes out as a version-1 copy (see
     /// [`discovery_packet`]): while this side has no hello from its peer,
     /// which may be a version-1 build that went quiet before this side
-    /// started.
+    /// started, and while the peer is a version-1 build.
     pub(crate) fn discovering(&self) -> bool {
-        self.peer.is_none()
+        self.peer.is_none() || self.peer_legacy
     }
 
     /// Take the peer's hello. Returns the mode to send in now.
@@ -307,8 +311,16 @@ impl Negotiation {
         self.peer =
             Some(Peer { mode: hello.mode, instance: hello.instance, challenge: hello.challenge });
         self.peer_legacy = hello.legacy;
-        let acknowledges =
-            if hello.legacy { hello.echo.is_some() } else { hello.echo == Some(self.challenge) };
+        // A version-1 `heard` flag cannot say which instance of this side it
+        // heard, so the version-1 hello that moves this side to a version-1
+        // peer (perhaps a late one from before the peer upgraded) does not
+        // acknowledge it: this side keeps sending until a version-1 build
+        // answers its copy, or the live version-2 peer answers its hello.
+        let acknowledges = if hello.legacy {
+            !restarted && hello.echo.is_some()
+        } else {
+            hello.echo == Some(self.challenge)
+        };
         if acknowledges {
             self.acknowledged = true;
             self.next = None;
@@ -330,7 +342,7 @@ impl Negotiation {
             challenge: self.challenge,
             echo: self.peer.map(|peer| peer.challenge),
             acknowledged: self.acknowledged,
-            legacy: self.peer_legacy,
+            legacy: false,
         })
     }
 
@@ -792,9 +804,9 @@ mod tests {
         Hello::decode(&[b'C', b'M', b'X', b'U', 1, u8::from(heard), kind, a, b]).unwrap()
     }
 
-    /// A version-1 peer: this side reads its hellos, answers it in version
-    /// 1, takes its `heard` flag as an acknowledgement, and the two agree.
-    /// Its hellos never count as a restart.
+    /// A version-1 peer: this side reads its hellos, answers in version 2
+    /// with a version-1 copy, takes its `heard` flag as an acknowledgement,
+    /// and the two agree. Its hellos never count as a restart.
     #[test]
     fn a_version_1_peer_still_agrees() {
         let now = Instant::now();
@@ -804,9 +816,13 @@ mod tests {
         side.sent(now);
         assert_eq!(side.receive(version_1(RS, false)), RS, "the peer's RS is taken up");
         let answer = side.due(now).unwrap();
-        let wire = answer.encode();
-        assert_eq!(wire.len(), LEN_1);
-        assert_eq!(wire[4..6], [VERSION_1, HEARD], "version 1, saying it heard the peer");
+        assert_eq!(answer.encode().len(), LEN, "a version-2 side always sends version 2");
+        assert!(side.discovering(), "and a version-1 copy to a version-1 peer");
+        let (a, b) = addresses();
+        let copy = discovery_packet(a, b, answer);
+        let (_, _, payload) = udp::parse(&copy).unwrap();
+        assert_eq!(payload.len(), LEN_1);
+        assert_eq!(payload[4..6], [VERSION_1, HEARD], "version 1, saying it heard the peer");
         side.sent(now);
         side.receive(version_1(RS, true));
         assert!(side.acknowledged, "the version-1 heard flag acknowledges this side");
@@ -834,7 +850,9 @@ mod tests {
         assert!(old.answer, "and answers it");
         let mut known = Negotiation::with_numbers(RS, 1, 100);
         known.receive(hello(FEC, 2, 200, None));
-        assert!(!known.discovering(), "no copy once the peer is known");
+        assert!(!known.discovering(), "no copy once a version-2 peer is known");
+        known.receive(version_1(FEC, false));
+        assert!(known.discovering(), "copies again for a version-1 peer");
     }
 
     /// A version-1 build and a version-2 one agree and go quiet; the
@@ -858,6 +876,42 @@ mod tests {
             assert!(restarted.acknowledged && old.acknowledged, "lost {mask:010b}");
             let quiet_at = after + Duration::from_secs(120);
             assert!(quiet(&restarted, quiet_at) && !old.due(quiet_at), "lost {mask:010b}");
+        }
+    }
+
+    /// A late version-1 hello after the peer upgraded: this side (Off)
+    /// agreed with a version-1 build (RS), which upgraded to version 2
+    /// (FEC), and the two agreed again. A version-1 `heard` hello the old
+    /// build sent arrives late. This side moves to it but is not
+    /// acknowledged by it; its version-2 hellos reach the upgraded peer,
+    /// which answers, and both end on FEC, with this side's first answer
+    /// lost and any three of the next ten packets too. Two version-2 sides
+    /// never talk version 1 to each other, so the late hello cannot move
+    /// the upgraded peer.
+    #[test]
+    fn a_late_version_1_hello_after_an_upgrade_is_overruled() {
+        let start = Instant::now();
+        let (one, two) = addresses();
+        for mask in (0u32..1 << 10).filter(|mask| mask.count_ones() <= 3) {
+            let mut side = Negotiation::with_numbers(UltraMode::Off, 1, 100);
+            let mut old = Version1::new(RS);
+            exchange(&mut side, &mut old, start, 200, &|_| false);
+            assert_eq!(side.mode(), RS);
+            let mut upgraded = Negotiation::with_numbers(FEC, 2, 200);
+            let later = start + Duration::from_secs(60);
+            exchange(&mut side, &mut upgraded, later, 400, &|_| false);
+            assert_eq!((side.mode(), upgraded.mode()), (FEC, FEC));
+            assert!(!side.discovering() && !upgraded.discovering(), "both version 2");
+
+            let now = later + Duration::from_secs(60);
+            assert_eq!(side.receive(version_1(RS, true)), RS, "it moves to the late hello");
+            assert!(!side.acknowledged, "which does not acknowledge it");
+            assert!(!side.send(now, one, two).is_empty(), "its answer, lost");
+            exchange(&mut side, &mut upgraded, now, 400, &lose(mask));
+            assert_eq!((side.mode(), upgraded.mode()), (FEC, FEC), "lost {mask:010b}");
+            assert!(side.acknowledged && upgraded.acknowledged, "lost {mask:010b}");
+            let after = now + Duration::from_secs(120);
+            assert!(quiet(&side, after) && quiet(&upgraded, after), "lost {mask:010b}");
         }
     }
 }
