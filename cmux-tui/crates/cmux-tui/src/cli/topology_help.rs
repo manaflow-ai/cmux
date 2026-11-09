@@ -248,6 +248,7 @@ USAGE
   cmux terminal <selector> move|project --workspace <selector> --screen <selector>
     --pane <selector> --index <n>
   cmux terminal <selector> attach|close [OPTIONS]
+  cmux terminal <selector> close --if-unplaced
   cmux terminal <selector> resume [--cmd <launcher>] [--pane <selector>]
     [--split right|down|left|up] [--cwd <dir>] [--no-focus] [--no-wait]
   cmux terminal <term_id> keep on|off
@@ -261,6 +262,8 @@ scrollback. screen wait prints its result either way and exits 1 when the
 timeout passes without a match; --new matches only output printed below the
 cursor's line after the call, never a typed command's echo or older output. keep on stops the owner from ending the terminal
 when it has no tab; keep off lets it end after the reap grace period.
+close --if-unplaced ends the terminal only when it has no tab, no keep mark
+and no attach stream; otherwise it fails and changes nothing.
 status prints the program status records (OSC 7501) the terminal's
 programs reported: state, progress, kind, app, title and msg per record id.
 STATE is the word list --agents shows (a finished turn somebody viewed is
