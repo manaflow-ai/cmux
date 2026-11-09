@@ -279,8 +279,10 @@ pub struct Inputs {
     /// get `request_secret` (`secret_mcp.rs`). Without the card an ask would
     /// wait with nothing to answer it.
     pub secrets: bool,
-    /// The app shows offered chats as chips ([`OFFER_TOOLS_ENV`] is `1`):
-    /// sessions get `offer_session` (`offer_mcp.rs`).
+    /// Sessions get `offer_session` and `suggest_tasks` (`offer_mcp.rs`),
+    /// whose offers cmux NEXT draws as cards: on unless [`OFFER_TOOLS_ENV`]
+    /// is `0`, so a daemon on another machine or under its own unit offers
+    /// too, not only the one the Mac app starts.
     pub offers: bool,
     /// Sub-session tools are on (settings `agents.subsessions.enabled`, on
     /// by default): sessions get `start_session` and the rest
@@ -296,7 +298,11 @@ const CUA_BRIDGE_ARG: &str = "cua-mcp";
 
 /// Set to `1` by an app that shows the secret card (cx-ncc.42).
 pub const SECRET_TOOLS_ENV: &str = "ACPMUX_SECRET_TOOLS";
-/// Set to `1` by an app that shows offered chats as chips (cx-807da).
+/// `0` turns the offer tools off (cx-807da); the Mac app sets it from the
+/// `sessions.promptSuggestions` setting. Unset or anything else leaves them
+/// on: Leo, 2026-11-05, on Claude desktop's suggested-session card, "I want
+/// to be able to, like, recommend Claude to be able to do that as well. in
+/// our cmux-next app", and a Claude chat on a remote host never had the tool.
 pub const OFFER_TOOLS_ENV: &str = "ACPMUX_OFFER_TOOLS";
 /// A profile or preset env key: the comma-separated MCP server names of
 /// these tools a session keeps (`cmux`: only `cmux mcp serve`). Unset or
@@ -321,7 +327,7 @@ impl Inputs {
             cua_v2: crate::cua_v2::active_dir(crate::cua_v2::dir_from_env()),
             acpmux: crate::self_command::SelfCommand::current().ok(),
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
-            offers: var(OFFER_TOOLS_ENV).is_some_and(|v| v == "1"),
+            offers: var(OFFER_TOOLS_ENV).is_none_or(|v| v != "0"),
             subsessions: crate::hub::subsessions::enabled(),
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
