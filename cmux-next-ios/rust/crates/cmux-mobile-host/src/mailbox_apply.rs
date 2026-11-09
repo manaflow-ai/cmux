@@ -794,8 +794,9 @@ mod tests {
     #[test]
     fn a_prompt_is_run_once_whichever_way_it_came() {
         // The link sends `resend: true` too: acpmux finds the id in its log even after a restart.
+        // It steers a running turn, as the link's reply and Send in the chat do.
         let params = prompt_params(&reply("completed", ActionKind::Text));
-        assert_eq!(params["_meta"]["acpmux"], json!({"promptId": "r1", "steer": false, "resend": true}));
+        assert_eq!(params["_meta"]["acpmux"], json!({"promptId": "r1", "steer": true, "resend": true}));
     }
 
     #[test]
