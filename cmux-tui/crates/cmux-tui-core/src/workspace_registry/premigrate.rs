@@ -439,11 +439,8 @@ fn full_decode_page(
     page: usize,
 ) -> anyhow::Result<(Vec<super::SessionJournalRecord>, u64)> {
     let read = query_session_journal_after(connection, cursor, page)?;
-    let records = read
-        .records
-        .into_iter()
-        .take_while(|record| record.sequence <= head)
-        .collect::<Vec<_>>();
+    let records =
+        read.records.into_iter().take_while(|record| record.sequence <= head).collect::<Vec<_>>();
     let reached = records.last().map_or(cursor, |record| record.sequence);
     let records = records.into_iter().filter(|record| AgentRoster::folds_kind(&record.kind));
     Ok((records.collect(), reached))
