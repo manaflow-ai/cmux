@@ -4459,14 +4459,14 @@ function TranscriptView({
     node.ownerDocument.addEventListener("keydown", endKey);
     // The reader left the latest row while the follow motion was in flight, and their input has gone
     // quiet: what the chase still held is folded into the scroll offset (the thread drawn back by x is
-    // the same picture as the offset x less), and the rows under a change glide no further. Held, it
+    // the same picture as the offset x less). Held, it
     // played the moment the reader scrolled back down to the latest row: the rows moved under a view
     // the reader had just put where they wanted it (Leo, 2026-11-09: "when i scroll down now there's
-    // a little readjustment sometimes that shold never happen"). Nothing on screen moves here but a
-    // row whose glide was cut short, under the view's foot. O(1); runs once per quiet input.
+    // a little readjustment sometimes that shold never happen"). Nothing on screen moves here. The rows'
+    // own glides (tailGlide.ts) stay paused where they are drawn: each is a different move, so no
+    // offset takes it back, and cutting it short snapped the row. O(1); runs once per quiet input.
     const settleHeldFollowMotion = () => {
       if (followingRef.current || jumpTarget.current !== undefined) return;
-      tailGlide.current?.stop();
       const chase = followChase.current;
       const held = chase?.outstanding() ?? 0;
       if (!chase || held === 0) return;

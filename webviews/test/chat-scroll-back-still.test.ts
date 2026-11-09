@@ -84,6 +84,32 @@ await requireBrowserLane("chat-scroll-back-still.test.ts", async () => {
     // The wheel came while the follow motion was in flight: the thread was drawn away from its layout.
     const held = out.filter((sample) => sample.t >= wheeled! && sample.t < wheeled! + 4 * FRAME_MS);
     expect(Math.max(...held.map((sample) => Math.abs(sample.lag)))).toBeGreaterThan(1);
+    // While the reader reads, across their input going quiet (USER_SCROLL_INTENT_MS), every row holds
+    // its place: its screen top less the thread's translate, plus the offset, never changes. A held
+    // chase folded into the offset keeps that; a row's own glide cut short would not.
+    const reading = out.filter((sample) => sample.t > wheeled! + 2 * FRAME_MS && sample.t < back!);
+    expect(reading.some((sample) => sample.t > wheeled! + 1100)).toBe(true);
+    let drift = 0;
+    let drifted: string | undefined;
+    for (let index = 1; index < reading.length; index += 1) {
+      const was = reading[index - 1]!;
+      const now = reading[index]!;
+      const before = new Map((was.rows ?? []).map((row) => [row.id, row.top + was.scrollTop - was.lag]));
+      for (const row of now.rows ?? []) {
+        const at = before.get(row.id);
+        if (at === undefined) continue;
+        const shift = Math.abs(row.top + now.scrollTop - now.lag - at);
+        if (shift > drift) {
+          drift = shift;
+          drifted = row.id;
+        }
+      }
+    }
+    console.log(`chat-scroll-back-still: while reading, rows ${drift.toFixed(1)} px (${drifted ?? "none"})`);
+    expect({ drift: Math.round(drift * 10) / 10, drifted }).toEqual({
+      drift: Math.min(Math.round(drift * 10) / 10, 0.5),
+      drifted,
+    });
     // Every frame after the one the reader's scroll back down drew in, for as long as a held follow
     // motion took to play out (about a dozen frames on base): the thread is drawn at its layout, so
     // nothing slides home under the view.
