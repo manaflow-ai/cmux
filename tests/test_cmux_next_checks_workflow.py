@@ -399,6 +399,28 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         self.planted_hook(self.repo / ".git/hooks")
         self.assert_own_stale_pin(self.run_step())
 
+    def test_the_rollup_sources_no_file_from_the_checkout(self):
+        # The pin step continues on error, so the rollup decides the job. Run it as the runner does (the workflow's
+        # env, then the step's literal env) after an earlier step rewrote scripts/ci/api_call_log/env.sh, which the
+        # workflow's BASH_ENV names, to end every shell green.
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        rollup = steps()[-1]
+        env = {key: value for key, value in os.environ.items() if key != "BASH_ENV"}
+        for scope in (document.get("env") or {}, rollup.get("env") or {}):
+            env.update({key: str(value) for key, value in scope.items() if "${{" not in str(value)})
+        planted = self.repo / "scripts/ci/api_call_log/env.sh"
+        planted.parent.mkdir(parents=True)
+        planted.write_text("echo planted; exit 0\n")
+        summary = self.tmp / "summary"
+        env.update(GITHUB_WORKSPACE=str(self.repo), GITHUB_STEP_SUMMARY=str(summary), EVENT_NAME="pull_request",
+                   OUTCOMES="failure|Check the app FFI pin\n")
+        result = subprocess.run(["bash", "-e", "-c", rollup["run"]], cwd=self.repo, env=env, capture_output=True,
+                                text=True, timeout=60)
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("Check the app FFI pin", output)
+        self.assertNotIn("planted", output)
+
     def test_a_changed_path_does_not_reach_the_check(self):
         # An earlier step's code puts its own python3 (which reads every pin as the merge commit, so the sources
         # match) and curl first on PATH for the steps after it.

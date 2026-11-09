@@ -199,4 +199,43 @@ fi
 [[ "$out" == *"cmux-remote-browser"* ]] || fail "the tree's pin reader changed the --tree report: $out"
 git -C "$repo" checkout -q -f "$rb"
 
+# The JSON pin (cmux#37645): app-ffi-pin.json beside a Package.swift that holds
+# only its loader block, read through app_ffi_pin.py's read_pin_file and
+# check_loader. The base's copy of the check judges a pull request that moves
+# the pin to that form, so the check reads both forms, at HEAD and at --base.
+json_pin() { # json_pin MESSAGE: rewrite the tree's pin into the JSON form for $pinned, and commit
+  python3 -I - "$pin_reader" "$pinned" "$zeros" "$repo/Packages/macOS/CmuxNext" <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("app_ffi_pin", sys.argv[1])
+pin = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(pin)
+folder = Path(sys.argv[4])
+(folder / "app-ffi-pin.json").write_text(pin.render_pin_file(sys.argv[2], sys.argv[3]))
+(folder / "Package.swift").write_text("import Foundation\n\n" + pin.loader(sys.argv[3]) + "\nlet package = 0\n")
+PY
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "$1"
+}
+git -C "$repo" checkout -q -f "$rb~1"
+json_pin "json pin, current"
+out="$(check_tree)" || fail "a current JSON pin failed: $out"
+[[ "$out" == *"sources match $pinned"* ]] || fail "the JSON pin was not read: $out"
+# A stale JSON pin whose base pins the same release in the same form: base
+# drift, which passes only when the base's JSON pin is read too.
+git -C "$repo" checkout -q -f "$rb"
+json_pin "json pin, stale base"
+echo "not an FFI input" > "$repo/NOTES.txt"
+git -C "$repo" add -A
+git -C "$repo" commit -qm "unrelated"
+if ! out="$(check_tree --base HEAD~1)"; then
+  fail "a change that leaves a stale JSON base pin alone failed: $out"
+fi
+[[ "$out" == *"note: base drift"* ]] || fail "the base's JSON pin was not read: $out"
+if out="$(check_tree)"; then
+  fail "a stale JSON pin passed: $out"
+fi
+[[ "$out" == *"changed since the pinned source $pinned"* ]] || fail "no stale report for the JSON pin: $out"
+
 echo "check-app-ffi-pin.test.sh: ok"
