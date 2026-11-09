@@ -1559,6 +1559,13 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     })
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Test seam: how long one kind backfill call may decode on this thread.
+    pub(super) static BACKFILL_SLICE_FOR_TEST: Cell<Option<std::time::Duration>> =
+        const { Cell::new(None) };
+}
+
 fn not_output(kind: &str) -> bool {
     kind != "terminal.output"
 }

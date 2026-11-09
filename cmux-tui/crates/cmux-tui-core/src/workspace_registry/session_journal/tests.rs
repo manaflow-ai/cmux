@@ -679,3 +679,119 @@ fn a_kind_backfill_an_older_build_marked_done_over_a_partly_mapped_segment_is_re
     // A finished backfill is trusted again: nothing is decoded.
     backfill_legacy_journal_segment_kinds(&db).unwrap();
 }
+
+/// #39096 review (start budget): the first kind-scoped read of a registry whose
+/// legacy kind backfill has not finished ran the whole backfill before it
+/// returned, decoding every unmapped segment: on a large registry, minutes
+/// inside the start's 1 s roster budget. One call now decodes for a bounded
+/// slice; the read takes the full-decode path for segments still unmapped,
+/// returns the same records, and the backfill finishes across later reads.
+#[test]
+fn a_kind_read_runs_a_bounded_slice_of_an_unfinished_kind_backfill() {
+    let segments = 8;
+    let (registry, expected) = output_heavy_sealed_registry(segments, 64);
+    let head = registry.session_journal_head().unwrap();
+    let db = registry.connection.get();
+    db.execute_batch(
+        "DELETE FROM journal_segment_kinds;
+         DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';",
+    )
+    .unwrap();
+    drop(db);
+    let mapped = |registry: &WorkspaceRegistry| -> i64 {
+        registry
+            .connection
+            .get()
+            .query_row("SELECT COUNT(DISTINCT segment_id) FROM journal_segment_kinds", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    };
+    let kinds: kind_read::JournalKinds = |kind| kind == "agent.test.noop";
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(Some(std::time::Duration::ZERO)));
+    let started = std::time::Instant::now();
+    let (first, mut cursor) = registry.session_journal_kinds_after(0, head, kinds, 512).unwrap();
+    let first_call = started.elapsed();
+    assert_eq!(mapped(&registry), 1, "one call maps one segment with a zero slice");
+    let mut seen = first.iter().map(|record| record.sequence).collect::<Vec<_>>();
+    let mut calls = 1;
+    while cursor < head {
+        let (records, reached) =
+            registry.session_journal_kinds_after(cursor, head, kinds, 512).unwrap();
+        assert!(reached > cursor, "each page makes progress");
+        seen.extend(records.iter().map(|record| record.sequence));
+        cursor = reached;
+        calls += 1;
+    }
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
+    let total = started.elapsed();
+    eprintln!(
+        "bounded kind backfill: {segments} unmapped segments; first read {} ms, \
+         all {calls} reads {} ms",
+        first_call.as_millis(),
+        total.as_millis()
+    );
+    assert_eq!(seen, expected, "the full-decode path returns the same records");
+    assert_eq!(mapped(&registry), i64::try_from(segments).unwrap(), "the backfill finished");
+}
+
+/// The same on a synthetic registry of a long-lived owner's shape
+/// (`synth_registry`: `personal.session.put` churn, agent events, sealed
+/// segments) whose kind map is gone, as an older build's segments have none:
+/// the first kind read the roster replay makes, and all of them to the head.
+/// Writes both times to `.build/kind-backfill-slice.json` for the PR.
+#[test]
+fn a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished() {
+    use crate::synth_registry::{SynthOptions, generate};
+    let root = std::env::temp_dir()
+        .join(format!("cmux-kind-backfill-slice-{}", crate::workspace_registry::new_uuid_v4()));
+    let options = SynthOptions {
+        session: "slice".into(),
+        session_puts: 60_000,
+        agent_events: 2_500,
+        payload_bytes: 2 * 1024,
+        seal: true,
+        ..SynthOptions::default()
+    };
+    let report = generate(&root, &options).unwrap();
+    let registry = WorkspaceRegistry::open(&root, &options.session).unwrap();
+    let db = registry.connection.get();
+    db.execute_batch(
+        "DELETE FROM journal_segment_kinds;
+         DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';",
+    )
+    .unwrap();
+    drop(db);
+    let head = registry.session_journal_head().unwrap();
+    let kinds = crate::journal_reducers::AgentRoster::folds_kind;
+    let started = std::time::Instant::now();
+    let (_, mut cursor) = registry.session_journal_kinds_after(0, head, kinds, 512).unwrap();
+    let first = started.elapsed();
+    let mut reads = 1;
+    while cursor < head {
+        let (_, reached) = registry.session_journal_kinds_after(cursor, head, kinds, 512).unwrap();
+        assert!(reached > cursor, "each read makes progress");
+        cursor = reached;
+        reads += 1;
+    }
+    let total = started.elapsed();
+    let numbers = serde_json::json!({
+        "segments": report.segments,
+        "journal_head": head,
+        "registry_bytes": report.registry_bytes,
+        "first_read_ms": first.as_millis().to_string(),
+        "all_reads_ms": total.as_millis().to_string(),
+        "reads": reads,
+    });
+    eprintln!("kind backfill slice: {numbers}");
+    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.build");
+    let _ = std::fs::create_dir_all(&out);
+    let _ = std::fs::write(out.join("kind-backfill-slice.json"), numbers.to_string());
+    drop(registry);
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(report.segments > 8, "{numbers}");
+    // The slice and one segment past it, with room for a slow host; the
+    // whole backfill is several times that.
+    assert!(first < std::time::Duration::from_millis(600), "{numbers}");
+    assert!(first * 3 < total, "the first read is a slice of the backfill: {numbers}");
+}
