@@ -27,6 +27,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// The server's name in every app's config: the name the tools show under (`mcp__cmux__ls`).
@@ -234,7 +235,7 @@ impl Row {
             "config": self.config.to_string_lossy(),
         });
         if let Some(note) = &self.note {
-            v["note"] = json!(note);
+            v.set("note", json!(note));
         }
         v
     }
@@ -264,7 +265,7 @@ fn classify(env: &Env, app: App, entry: Option<&Value>) -> State {
     let ours = env.exe.to_string_lossy();
     let same_args = entry["args"] == json!(env.args);
     // The env too: an entry for another acpmux home reaches another daemon.
-    let same_env = entry["env"] == env.entry_json(app)["env"];
+    let same_env = entry.get("env") == env.entry_json(app).get("env");
     if entry["command"].as_str() == Some(ours.as_ref()) && same_args && same_env {
         State::Linked
     } else {

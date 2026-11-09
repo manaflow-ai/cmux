@@ -354,7 +354,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                          restart`, then try again"
                     );
                 }
-                meta[crate::hub::require_asking::FIELD] = json!(true);
+                meta.set(crate::hub::require_asking::FIELD, json!(true));
             }
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);

@@ -33,6 +33,7 @@
 //! they place, name and start a session exactly as the CLI does and can do nothing it cannot.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::process::Stdio;
 
 /// The tools of the full server a guest keeps, by name.
@@ -195,10 +196,10 @@ pub(super) fn new_result(name: &str, record: &Value) -> Value {
     }
     let mut structured = json!({"name": shown, "sessionId": id});
     if let Some(peer) = peer {
-        structured["machine"] = json!(peer);
+        structured.set("machine", json!(peer));
     }
     if let Some(link) = link {
-        structured["link"] = json!(link);
+        structured.set("link", json!(link));
     }
     ok(text, structured)
 }
@@ -257,7 +258,7 @@ pub(super) fn machine_rows(list: &Value) -> Vec<Value> {
                 [("link", "/link"), ("os", "/health/os"), ("liveSessions", "/health/liveSessions")]
             {
                 if let Some(v) = m.pointer(at).filter(|v| !v.is_null()) {
-                    row[key] = v.clone();
+                    row.set(key, v.clone());
                 }
             }
             Some(row)
