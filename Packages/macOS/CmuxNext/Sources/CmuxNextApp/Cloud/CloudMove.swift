@@ -358,20 +358,12 @@ struct CloudMove {
             return try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
                                                                           origin: AgentTabStore.createOrigin, mutationID: mutation + shown.key))
         }
-        let keeping = services.windows.controllers.filter { shows(tab, in: $0.state, services: services) }.map(\.state.id)
+        let pane = services.locateTab(model: tab)?.1
+        let keeping = services.windows.controllers.filter { window in pane.map { window.showsOnScreen(tab.id, in: $0) } == true }.map(\.state.id)
         if keeping.isEmpty { services.windows.reveal(workspaceID: workspace.rawValue) }
         ActionRunScope.carrying(ActionRunScope(origin: ActionRunScope.current?.origin ?? .user, allowsViewChange: true)) { keeping.forEach { services.windows.show(workspaceID: workspace.rawValue, inWindow: $0) } }
-        let opened = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)", pane = await daemon.store.firstPane(mirroring: workspace)
-        for window in services.windows.controllers { if let pane { window.state.selection.select(opened, in: pane.id) } }
-    }
-
-    /// Whether window `state` shows `tab`: its pane's selected tab, in its focused workspace, under no top page (History stays up).
-    static func shows(_ tab: TabModel, in state: WindowState, services: AppServices) -> Bool {
-        let store = services.machines.daemon(forTab: tab).store
-        guard state.page == nil, let pane = store.tab(idOrResource: tab.id).flatMap(store.pane(holding:)),
-              let workspace = store.workspace(containing: pane.handle)?.id, state.workspaceID == workspace else { return false }
-        let fallback = pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : nil
-        return (state.selection.selection(in: pane.id) ?? fallback) == tab.id
+        let opened = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)", first = await daemon.store.firstPane(mirroring: workspace)
+        for window in services.windows.controllers { if let first { window.state.selection.select(opened, in: first.id) } }
     }
 
     /// A moved chat's workspace name: its workspace's here, but never Home's (a machine's "Home" hid the chat): its folder's.

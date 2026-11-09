@@ -8,6 +8,7 @@ import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 @testable import CmuxNextSettings
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
@@ -101,13 +102,7 @@ struct CloudMoveTests {
     @Test func aCLIMoveOfTheChatAWindowShowsKeepsItOnScreenForBringBack() async throws {
         try await Self.withMove("moves") { move in
             let services = move.services
-            let controller = try #require(services.windows.active)
-            let (chat, pane) = try #require(services.locateTab(move.tabID, onMachine: services.machines.local.machineID))
-            let local = try #require(services.daemon.store.workspace(containing: pane.handle))
-            _ = services.windows.reveal(workspaceID: local.id)
-            controller.state.selection.select(chat.id, in: pane.id)
-            try await Self.waitUntil { CloudMove.shows(chat, in: controller.state, services: services) }
-            try #require(CloudMove.shows(chat, in: controller.state, services: services), "the window does not show the chat before the move")
+            let (controller, _, _, local) = try await Self.putOnScreen(move.tabID, machine: services.machines.local, services: services)
 
             if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
             let moved = try await move.read()
@@ -130,51 +125,79 @@ struct CloudMoveTests {
         }
     }
 
-    /// A top page over the chat's workspace hides the chat: a CLI move with no `--focus` leaves the page (History) up and the
-    /// window's workspace as it was, though the chat stays its pane's selected tab under the page (the review of #39834, F1).
-    @Test func aCLIMoveOfAChatUnderATopPageLeavesThePageUp() async throws {
+    /// Ways the window remembers the chat as its pane's selected tab while it draws something else. A CLI move with no
+    /// `--focus` then changes nothing on screen: the window keeps its workspace, its screen and its top page (the review of
+    /// #39834: History dismissed, then an inactive screen replaced).
+    enum Hidden: String, CaseIterable, Sendable { case topPage, inactiveScreen, otherWorkspace }
+
+    @Test(arguments: Hidden.allCases)
+    func aCLIMoveOfAChatTheWindowRemembersButHidesChangesNothingOnScreen(_ hidden: Hidden) async throws {
         try await Self.withMove("moves") { move in
             let services = move.services
-            let controller = try #require(services.windows.active)
-            let (chat, pane) = try #require(services.locateTab(move.tabID, onMachine: services.machines.local.machineID))
-            let local = try #require(services.daemon.store.workspace(containing: pane.handle))
-            _ = services.windows.reveal(workspaceID: local.id)
-            controller.state.selection.select(chat.id, in: pane.id)
-            try await Self.waitUntil { CloudMove.shows(chat, in: controller.state, services: services) }
-            let page = TopPageRoute.page(.history)
-            try #require(TopPages.show(page, services: services, in: controller.state) != nil, "History did not open as a top page")
-            #expect(!CloudMove.shows(chat, in: controller.state, services: services), "a chat under History counts as shown")
+            let (controller, chat, pane, local) = try await Self.putOnScreen(move.tabID, machine: services.machines.local, services: services)
+            let screen = try await Self.hide(chat, in: pane, of: local, hidden, controller: controller, daemon: services.daemon)
+            #expect(controller.state.selection.selection(in: pane.id) == chat.id, "the window no longer remembers the chat")
+            let (workspace, page) = (controller.state.workspaceID, controller.state.page)
 
             if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
             let moved = try await move.read()
             #expect(moved.machineTab != nil, "no chat tab on the machine")
-            #expect(controller.state.page == page, "the move dismissed History: \(String(describing: controller.state.page))")
-            #expect(controller.state.workspaceID == local.id, "the move changed the workspace under History")
+            #expect(controller.state.workspaceID == workspace, "the move changed the window's workspace")
+            #expect(controller.state.page == page, "the move changed the window's top page")
+            if let screen { #expect(controller.content?.layoutModel.activeScreenID == screen, "the move changed the window's screen") }
         }
     }
 
-    /// A CLI move with no `--focus` of a chat no window shows changes no window's view: the window keeps its workspace.
-    @Test func aCLIMoveOfAChatNoWindowShowsLeavesTheWindowAlone() async throws {
-        try await Self.withMove("moves") { move in
-            let services = move.services
-            let controller = try #require(services.windows.active)
-            let connection = try #require(services.daemon.connection)
-            let other = WorkspaceKey.generate()
-            try await connection.createWorkspace(name: "Elsewhere", key: other)
-            try await Self.waitUntil { services.daemon.store.workspaces.contains { $0.key == other } }
-            let elsewhere = try #require(services.daemon.store.workspaces.first { $0.key == other }).id
-            _ = services.windows.reveal(workspaceID: elsewhere)
-            try await Self.waitUntil { controller.state.workspaceID == elsewhere }
-
-            if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
-            let moved = try await move.read()
-            #expect(moved.machineTab != nil, "no chat tab on the machine")
-            #expect(controller.state.workspaceID == elsewhere, "a move with no --focus of a chat no window showed changed the view")
+    /// Shows `tabID` (a chat tab of `machine`) in the active window: its workspace, the tab selected, the pane laid out on
+    /// screen (``WindowController/showsOnScreen(_:in:)``).
+    static func putOnScreen(_ tabID: String, machine daemon: DaemonService, services: AppServices) async throws
+        -> (WindowController, TabModel, PaneModel, WorkspaceModel) {
+        let controller = try #require(services.windows.active)
+        let (chat, pane) = try #require(services.locateTab(tabID, onMachine: daemon.machineID))
+        let workspace = try #require(daemon.store.workspace(containing: pane.handle))
+        _ = services.windows.reveal(workspaceID: workspace.id)
+        controller.state.selection.select(chat.id, in: pane.id)
+        try await waitUntil {
+            controller.content?.contentView.layoutSubtreeIfNeeded()
+            return controller.showsOnScreen(chat.id, in: pane)
         }
+        try #require(controller.showsOnScreen(chat.id, in: pane), "the window does not draw the chat")
+        return (controller, chat, pane, workspace)
+    }
+
+    /// Hides `chat` from `controller` as `hidden` says, leaving it remembered as its pane's selection; the screen the
+    /// window shows after it (inactiveScreen), else nil.
+    static func hide(_ chat: TabModel, in pane: PaneModel, of workspace: WorkspaceModel, _ hidden: Hidden, controller: WindowController,
+                     daemon: DaemonService) async throws -> LayoutScreenID? {
+        let services = controller.services
+        switch hidden {
+        case .topPage:
+            try #require(TopPages.show(.page(.history), services: services, in: controller.state) != nil, "History did not open as a top page")
+        case .inactiveScreen:
+            let content = try #require(controller.content)
+            _ = try await #require(daemon.connection).newScreen(in: workspace.handle)
+            try await waitUntil { content.layoutModel.screens.count >= 2 }
+            let other = try #require(content.layoutModel.screens.first { !$0.layout.contains(LayoutPaneID(pane.id)) }, "no second screen")
+            ScreenCommands.select(other.id, in: content)
+            try await waitUntil {
+                content.contentView.layoutSubtreeIfNeeded()
+                return !content.layoutModel.visiblePanes.contains(LayoutPaneID(pane.id))
+            }
+            #expect(!controller.showsOnScreen(chat.id, in: pane), "a chat on an inactive screen counts as drawn")
+            return other.id
+        case .otherWorkspace:
+            let key = WorkspaceKey.generate()
+            try await #require(daemon.connection).createWorkspace(name: "Elsewhere", key: key)
+            try await waitUntil { daemon.store.workspaces.contains { $0.key == key } }
+            _ = services.windows.reveal(workspaceID: try #require(daemon.store.workspaces.first { $0.key == key }).id)
+        }
+        try await waitUntil { !controller.showsOnScreen(chat.id, in: pane) }
+        #expect(!controller.showsOnScreen(chat.id, in: pane), "a hidden chat (\(hidden)) counts as drawn")
+        return nil
     }
 
     /// Waits up to 30 seconds for `condition`.
-    private static func waitUntil(_ condition: () -> Bool) async throws {
+    static func waitUntil(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(30)
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
     }

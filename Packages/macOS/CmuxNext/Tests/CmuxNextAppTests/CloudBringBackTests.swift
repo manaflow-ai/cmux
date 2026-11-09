@@ -1,10 +1,12 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextSettings
 import CryptoKit
 import Foundation
@@ -66,6 +68,36 @@ struct CloudBringBackTests {
             let revoke = ["link", "access", "revoke", "--machine", "vm-move", "--session", "chat-on-vm", "--socket", trip.vmSocket, "--all"]
             try await trip.waitUntil { trip.accessCalls().contains(revoke) }
             #expect(trip.accessCalls().contains(revoke), "the bring back left the chat's grants: \(trip.accessCalls())")
+        }
+    }
+
+    /// Bring Back Local with no `--focus` keeps the chat on screen in the window that drew it: the window then draws the
+    /// chat's tab on this Mac. A window that only remembers the chat (a top page over it, another screen, another
+    /// workspace) keeps what it draws (the review of #39834).
+    @Test(arguments: [nil] + CloudMoveTests.Hidden.allCases.map(Optional.some))
+    func aCLIBringBackKeepsTheChatOnScreenOnlyWhereItWasDrawn(_ hidden: CloudMoveTests.Hidden?) async throws {
+        try await Self.withRoundTrip("back") { trip in
+            let services = trip.services
+            let (controller, chat, pane, workspace) = try await CloudMoveTests.putOnScreen(trip.machineKey, machine: trip.machine.daemon, services: services)
+            var screen: LayoutScreenID?
+            if let hidden { screen = try await CloudMoveTests.hide(chat, in: pane, of: workspace, hidden, controller: controller, daemon: trip.machine.daemon) }
+            let (shown, page) = (controller.state.workspaceID, controller.state.page)
+
+            if let error = await trip.bringBack() { Issue.record("cmux cloud bring-back: \(error.code) \(error.message)") }
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            let local = try #require(trip.localChat(), "no chat tab on this Mac")
+            let localPane = try #require(services.daemon.store.pane(holding: local))
+            guard hidden != nil else {
+                try await trip.waitUntil {
+                    controller.content?.contentView.layoutSubtreeIfNeeded()
+                    return controller.showsOnScreen(local.id, in: localPane)
+                }
+                #expect(controller.showsOnScreen(local.id, in: localPane), "the window does not draw the chat that came back")
+                return
+            }
+            #expect(controller.state.workspaceID == shown, "the bring back changed the window's workspace")
+            #expect(controller.state.page == page, "the bring back changed the window's top page")
+            if let screen { #expect(controller.content?.layoutModel.activeScreenID == screen, "the bring back changed the window's screen") }
         }
     }
 
