@@ -39,7 +39,7 @@ extension CloudStartChat {
         let cloud = services.cloud
         guard !services.registry.disabledFeatures.contains(.cloud), cloud.mayCallCloud, let binary = cloud.move.cli, let platform = cloud.configuration.artifactsAPIBaseURL() else { return }
         CloudSpareWarm(auth: cloud.auth, cli: CloudMoveCLI(binary: binary), platform: platform, api: cloud.machineAPI, installIdentity: cloud.installIdentity,
-                       gate: loginCopyGate(services), dogfood: DevTools.isEnabled, logger: cloud.logger).start(claimed: claimed)
+                       gate: loginCopyGate(services), dogfood: DevTools.isEnabled, logger: cloud.logger, claims: cloud.claimedCopies).start(claimed: claimed)
     }
 
     /// The Release copy's gate (``CloudLoginCopyGate``) over this app's switch, cmux.json and consent,
