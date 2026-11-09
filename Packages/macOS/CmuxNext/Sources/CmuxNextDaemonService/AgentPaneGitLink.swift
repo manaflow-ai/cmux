@@ -194,6 +194,8 @@ extension AgentPaneGitRequest {
             ["path": .string(cwd), "from": .string(from), "include_patch": .bool(includePatch)]
                 .merging(to.map { ["to": JSONValue.string($0)] } ?? [:]) { first, _ in first }
                 .merging(options.sessionHostParams) { first, _ in first }
+        case .worktreeSetup(let cwd, let since):
+            ["path": .string(cwd)].merging(since.map { ["since": JSONValue.string($0)] } ?? [:]) { first, _ in first }
         }
     }
 }

@@ -14,7 +14,10 @@
 //! - there is no bootstrap on the machine, or it is `starting`, `running` or `done` (a state it can't
 //!   read is not known) and its repository step says `cloned`, `updated` or `kept` or the whole
 //!   bootstrap is `done`, or it failed in a step other than the repository's (an optional setup
-//!   script that failed does not keep a chat out of a folder that is there).
+//!   script that failed does not keep a chat out of a folder that is there). A status from a runner
+//!   older than `step` is read the way `cmux_cloud_start_core::machine_bootstrap` reads it: its
+//!   repository failed when its `repo.status` is `failed`, or `needs_github` with exit code
+//!   [`NEEDS_GITHUB_EXIT`].
 //!
 //! A bootstrap that failed with the folder missing, or whose repository step failed, fails the start
 //! with its status and log (`cloud.folder_missing`). A finished bootstrap with no folder is a typo like
@@ -58,6 +61,9 @@ const RETRY_PAUSE: Duration = Duration::from_secs(2);
 /// thrown as an `ActionFailure`, which the control socket answers with code `unavailable`). Its
 /// English text is matched; a translated one reads as unknown, which never starts the chat.
 const EXEC_UNAVAILABLE: &str = "can't run a command for the CLI";
+/// The runner's exit code for a repository that needs the cmux GitHub App
+/// (`cmux_cloud_start_core::machine_bootstrap::NEEDS_GITHUB_EXIT`).
+const NEEDS_GITHUB_EXIT: i64 = 3;
 
 /// What one check said.
 #[derive(Debug, PartialEq)]
@@ -83,7 +89,11 @@ pub(super) fn script(cwd: &str, slice: u64) -> String {
         "{GUEST_PRELUDE}dir={dir}; b=\"$HOME/{BOOTSTRAP}\"; \
          state() {{ sed -n 's/^{{\"state\":\"\\([a-z_]*\\)\".*/\\1/p' \"$b/status.json\" 2>/dev/null; }}; \
          repo() {{ sed -n 's/^{{\"status\":\"\\([a-z_]*\\)\".*/\\1/p' \"$b/repo-status.json\" 2>/dev/null; }}; \
-         repo_failed() {{ [ \"$(repo)\" = failed ] || grep -q '\"step\":\"repo\"' \"$b/status.json\" 2>/dev/null; }}; \
+         has() {{ grep -q \"$1\" \"$b/status.json\" 2>/dev/null; }}; \
+         repo_failed() {{ [ \"$(repo)\" = failed ] && return 0; \
+         if has '\"step\":'; then has '\"step\":\"repo\"'; return; fi; \
+         has '\"repo\":{{\"status\":\"failed\"' \
+         || {{ has '\"repo\":{{\"status\":\"needs_github\"' && has '\"exit_code\":{NEEDS_GITHUB_EXIT}[,}}]'; }}; }}; \
          ready() {{ [ -d \"$dir\" ] || return 1; s=$(state); \
          case \"$s\" in starting|running|done) ;; failed) ! repo_failed; return;; *) return 1;; esac; \
          case \"$(repo)\" in cloned|updated|kept) return 0;; esac; [ \"$s\" = done ]; }}; \

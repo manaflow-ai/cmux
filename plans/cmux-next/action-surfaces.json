@@ -33833,7 +33833,7 @@
         {
           "kind" : "string",
           "name" : "path",
-          "required" : true
+          "required" : false
         }
       ],
       "cli" : "offered",
@@ -33868,7 +33868,7 @@
         {
           "kind" : "string",
           "name" : "path",
-          "required" : true
+          "required" : false
         }
       ],
       "cli" : "offered",
@@ -33900,11 +33900,7 @@
     },
     {
       "args" : [
-        {
-          "kind" : "string",
-          "name" : "publicKey",
-          "required" : true
-        }
+
       ],
       "cli" : "offered",
       "cli_name" : "cloud tunnel-rotate-key",
