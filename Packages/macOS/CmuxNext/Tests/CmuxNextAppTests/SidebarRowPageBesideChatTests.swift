@@ -4,9 +4,11 @@ import CoreGraphics
 @testable import CmuxNextSidebar
 import Testing
 
-/// A chat that opens a link (an agent's PR in the column on its right) keeps its own face in the
-/// sidebar: the row's icon is the chat's agent, never the page's favicon, which stays on the page's
-/// own tab (Leo, 2026-10-21: "GUI push · coordinator" showed GitHub's mark after #23105).
+/// A chat that opens a link (an agent's PR in the column on its right) keeps its own name and kind in
+/// the sidebar. The row's icon follows the tab focused last (15fa0f98, Lawrence msg 23802: "workspace
+/// favicon needs to reflect the latest focused/interacted entity"): none while the chat has focus
+/// (Leo, 2026-10-21: "GUI push · coordinator" showed GitHub's mark after #23105), the page's favicon
+/// while the page has it.
 @MainActor
 struct SidebarRowPageBesideChatTests {
     private static let github: SidebarFavicon = {
@@ -42,8 +44,9 @@ struct SidebarRowPageBesideChatTests {
         return (workspace, workspace.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.kind == .conversation })
     }
 
-    /// The row's icon and title are one tab's, the chat's, whichever pane has focus: the chat, or
-    /// the page it opened on its right after focus moved there.
+    /// The row's title and kind are the chat's whichever pane has focus: the chat, or the page it
+    /// opened on its right after focus moved there. Its icon is the focused page's favicon, none
+    /// while the chat has focus.
     @Test(arguments: [UInt64(3), 1])
     func theRowShowsTheChatWhereverFocusIs(chatFocusedAt: UInt64) throws {
         let (workspace, chat) = try Self.workspace(chat: true, chatFocusedAt: chatFocusedAt)
@@ -53,7 +56,7 @@ struct SidebarRowPageBesideChatTests {
         #expect(picks.face?.id == chatTab.id)
         let row = SidebarMapping.shared.row(workspace, machine: .local, pageFace: Self.pageFace)
         #expect(row.title == "GUI push · coordinator")
-        #expect(row.icon == nil, "the page's favicon is not the chat's icon")
+        #expect(row.icon == (chatFocusedAt > 2 ? nil : .favicon(Self.github)), "the row's icon is the focused tab's")
         #expect(row.kind == .harness)
         #expect(row.kindBrand != nil && row.kindBrand == chatTab.agentBrand)
         // The page's own tab keeps its favicon.

@@ -1,9 +1,10 @@
-//! Phase B: at owner start, before the registry connection opens, turn a
-//! complete staging file into the new registry and rename it into place.
-//! Nothing writes the registry file itself; until the rename it is the
-//! registry, and after it the old file stays as `.pre-output-cleanup`.
+//! Phase B: at owner start, before the registry connection opens, finish a
+//! new registry the background build made and rename it into place: stage
+//! and pack the short journal tail since the build, copy the other tables,
+//! check, rename. Nothing writes the registry file itself; until the rename
+//! it is the registry, and after it the old file stays as
+//! `.pre-output-cleanup`.
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -11,26 +12,24 @@ use std::time::{Duration, Instant};
 use anyhow::Context as _;
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _, Transaction, params};
 
-use super::super::journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT;
 use super::super::open_guard::sidecar_path;
 use super::super::session_journal::{
-    MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES, decode_record, journal_record_for_archive,
-    query_journal_head, query_session_journal_after, stored_record_row, unix_epoch_ms,
+    query_journal_head, query_session_journal_after, unix_epoch_ms,
 };
 use super::super::{
     open_registry_database_read_only, open_registry_database_with_flags, required_meta,
     sqlite_filesystem_path,
 };
-use super::chunks::{CHUNK_RECORD_LIMIT, ChunkReader, StagedRecord, insert_chunk};
-use super::codec::{SegmentWriter, encode_hex};
-use super::stage::{
-    Staged, open_existing_staging, stage_segments, staged_records, state, state_u64,
+use super::build::{
+    STEP_BUILT, journal_schema_digest, pack_rest, quote, schema_objects, segment_record_limit,
+    stage_range, table_columns,
 };
+use super::stage::{open_existing_staging, state, state_u64};
 use super::{
-    DONE_META_KEY, OUTPUT_KIND, PRUNED_RANGES_SCHEMA, REBUILT_TABLES, STAGED_WORK_CHANGED,
-    copied_bytes, failed_for_this_build, file_len, free_space_refusal, is_temporary, kept_refusal,
-    live_records, mebibytes, previous_path, remove_if_present, remove_staging,
-    rollback_pending_path, staged_bytes_refusal, staging_path, write_failure_marker,
+    DONE_META_KEY, OUTPUT_KIND, REBUILT_TABLES, STAGED_WORK_CHANGED, copied_bytes,
+    failed_for_this_build, file_len, free_space_refusal, is_temporary, mebibytes, previous_path,
+    remove_if_present, remove_staging, rollback_pending_path, staged_bytes_refusal, staging_path,
+    write_failure_marker,
 };
 use crate::platform;
 
@@ -44,9 +43,11 @@ pub(crate) type VerifyOpen<'a> = &'a dyn Fn(&Path) -> anyhow::Result<()>;
 enum Swap {
     NotReady,
     Refused(String),
-    /// The swap would copy too much inside the open (`output_cleanup`
-    /// module docs).
+    /// The staging file passed its size bound (`output_cleanup` module
+    /// docs).
     Abandoned(String),
+    /// The tail since the background build is too long for a start.
+    Deferred(String),
     Done(SwapStats),
 }
 
@@ -54,6 +55,8 @@ struct SwapStats {
     before_bytes: u64,
     after_bytes: u64,
     kept: u64,
+    /// Journal records after the background build that this start staged.
+    tail: u64,
     segments: u64,
     pruned_ranges: u64,
     abandoned_deliveries: usize,
@@ -92,16 +95,22 @@ pub(crate) fn swap_at_open(db_path: &Path, verify_open: VerifyOpen<'_>) -> bool 
             }
             false
         }
+        Ok(Swap::Deferred(reason)) => {
+            eprintln!("cmux-tui: output cleanup: swap deferred to a later start: {reason}");
+            false
+        }
         Ok(Swap::Done(stats)) => {
             eprintln!(
                 "cmux-tui: output cleanup: swapped the registry in {:.2} s: {} -> {}; \
-                 {} records kept in {} segments, {} pruned ranges, {} tables copied ({}), \
-                 {} pending hook deliveries of removed output abandoned ({}); previous file at {}",
+                 {} records kept in {} segments, a tail of {} records staged at this start, {} \
+                 pruned ranges, {} tables copied ({}), {} pending hook deliveries of removed \
+                 output abandoned ({}); previous file at {}",
                 started.elapsed().as_secs_f64(),
                 mebibytes(stats.before_bytes),
                 mebibytes(stats.after_bytes),
                 stats.kept,
                 stats.segments,
+                stats.tail,
                 stats.pruned_ranges,
                 stats.tables,
                 stats.largest_tables,
@@ -270,7 +279,11 @@ fn swapped_registry(db_path: &Path) -> anyhow::Result<bool> {
     if read(&previous_path(db_path), "registry_id")?.as_deref() != Some(current.as_str()) {
         return Ok(false);
     }
-    Ok(read(db_path, DONE_META_KEY)?.is_some_and(|value| value.contains("\"kept\"")))
+    // A swap writes what it kept. The version 1 cleanup wrote only the
+    // version 1 key, and version 2 may later mark that registry `not-needed`
+    // (#39381 review): its swap is still the version 1 one.
+    let swapped = |value: Option<String>| value.is_some_and(|value| value.contains("\"kept\""));
+    Ok(swapped(read(db_path, DONE_META_KEY)?) || swapped(read(db_path, super::V1_DONE_META_KEY)?))
 }
 
 /// A previous registry exists and no owner got through a full start on the
@@ -348,6 +361,10 @@ pub(crate) fn note_full_start(db_path: &Path) -> anyhow::Result<()> {
 pub(crate) fn remove_previous_registry_when_started(db_path: &Path) {
     let previous = previous_path(db_path);
     if !previous.exists() {
+        // Sidecars an older build left without their backup.
+        for suffix in ["-wal", "-shm", "-journal"] {
+            let _ = remove_if_present(&sidecar_path(&previous, suffix));
+        }
         return;
     }
     if !is_swapped_registry(db_path) {
@@ -373,17 +390,30 @@ pub(crate) fn remove_previous_registry_when_started(db_path: &Path) {
     }
     let _ =
         std::thread::Builder::new().name("cmux-output-cleanup-remove".into()).spawn(move || {
-            match fs::remove_file(&previous) {
+            match remove_previous_with_sidecars(&previous) {
                 Ok(()) => eprintln!(
                     "cmux-tui: output cleanup: removed the previous registry {}",
                     previous.display()
                 ),
                 Err(error) => eprintln!(
-                    "cmux-tui: output cleanup: could not remove {}: {error}",
+                    "cmux-tui: output cleanup: could not remove {}: {error:#}",
                     previous.display()
                 ),
             }
         });
+}
+
+/// Removes the previous registry, then the sidecars SQLite left beside it
+/// (`-wal`, `-shm`, `-journal`: a read-only open of a WAL file makes them).
+/// The sidecars go after the main file, so a crash between the two never
+/// leaves a WAL beside a file it could be applied to. From Lawrence Chen's
+/// long-jobs branch (6825f3658ff, d66f49b98f6).
+fn remove_previous_with_sidecars(previous: &Path) -> anyhow::Result<()> {
+    remove_if_present(previous)?;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        remove_if_present(&sidecar_path(previous, suffix))?;
+    }
+    Ok(())
 }
 
 /// Without hard links the swap renames the registry aside first; a crash
@@ -430,6 +460,27 @@ pub(crate) fn restore_interrupted_swap(db_path: &Path) {
     }
 }
 
+/// Journal records after the background build that a start still stages
+/// and packs before the rename. A longer tail defers the swap: the owner's
+/// cleanup thread catches up while it serves.
+const SWAP_TAIL_LIMIT: u64 = 100_000;
+
+/// New registry meta key written once the swap's transaction committed:
+/// what the source registry was and what the start built, so a start killed
+/// before the rename finishes it instead of building again.
+const SWAP_META_KEY: &str = "output_cleanup_swap";
+
+fn swap_tail_limit() -> u64 {
+    #[cfg(debug_assertions)]
+    if let Some(records) = std::env::var("CMUX_TUI_TEST_OUTPUT_CLEANUP_TAIL_LIMIT")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        return records;
+    }
+    SWAP_TAIL_LIMIT
+}
+
 fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result<Swap> {
     let mut steps = Steps { last: Some(Instant::now()), done: Vec::new() };
     let before_bytes = file_len(db_path) + file_len(&sidecar_path(db_path, "-wal"));
@@ -439,28 +490,46 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
         source.busy_timeout(Duration::from_secs(5))?;
         (required_meta(&source, "registry_id")?, copied_bytes(&source)?)
     };
-    // A staging file of another registry, or one a kill left between the
-    // build commit and the rename (its state table is gone): Phase A runs
-    // again at a later start.
     let Some(staged) = open_existing_staging(&staging_path(db_path), &registry_id).ok().flatten()
     else {
+        // The swap's transaction committed and a kill came before the
+        // rename: the file is the new registry, checked again and renamed.
+        if let Some(swap) = committed_swap(db_path, &registry_id) {
+            eprintln!(
+                "cmux-tui: output cleanup: finishing a swap an earlier start committed and did \
+                 not rename"
+            );
+            return finish_committed(
+                db_path,
+                &registry_id,
+                &swap,
+                verify_open,
+                before_bytes,
+                steps,
+            );
+        }
+        // A staging file of another registry or format: Phase A runs again
+        // at a later start.
         eprintln!("cmux-tui: output cleanup: discarding a stale staging file");
         remove_staging(db_path)?;
         return Ok(Swap::NotReady);
     };
-    if state(&staged, "complete")? != "1" {
+    // A staging file of an earlier build has no build state yet: the
+    // background build adds it, never this start.
+    let step = state(&staged, "build_step").unwrap_or_default();
+    if state(&staged, "complete")? != "1" || step != STEP_BUILT {
+        eprintln!(
+            "cmux-tui: output cleanup: the new registry is still being built in the background \
+             ({}); the swap waits for it",
+            if state(&staged, "complete")? != "1" {
+                "phase A".to_string()
+            } else {
+                format!("step {}", if step.is_empty() { "schema" } else { step.as_str() })
+            }
+        );
         return Ok(Swap::NotReady);
     }
-    // Before anything is copied: the kept records are what the open copies.
-    let (staged_kept, staged_total) = staged_records(&staged)?;
-    let (live_kept, live_total) = {
-        let source = open_registry_database_read_only(db_path)?;
-        source.busy_timeout(Duration::from_secs(5))?;
-        live_records(&source)?
-    };
-    if let Some(reason) = staged_bytes_refusal(db_path)
-        .or_else(|| kept_refusal(staged_kept + live_kept, staged_total + live_total))
-    {
+    if let Some(reason) = staged_bytes_refusal(&staged)? {
         return Ok(Swap::Abandoned(reason));
     }
     if let Err(reason) = free_space_refusal(db_path, copied)? {
@@ -480,20 +549,43 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
         anyhow::ensure!(busy == 0, "the registry WAL could not be checkpointed");
     }
     steps.mark("checkpoint");
-    {
-        // Segments sealed after Phase A (by an explicit seal request).
-        let source = open_registry_database_read_only(db_path)?;
-        check_staged_prefix(&source, &staged)?;
-        match stage_segments(&source, &staged, &|| true, None)? {
-            Staged::Finished => {}
-            Staged::Stopped | Staged::Refused(_) | Staged::Abandoned(_) => {
-                anyhow::bail!("staging the last segments stopped")
-            }
-        }
+    // Nothing writes the registry file from here until the rename (the
+    // reads below change neither its length nor its time): the swap's
+    // record names it, so a later start can tell it is unchanged.
+    let stamp = source_stamp(db_path)?;
+    let source = open_registry_database_read_only(db_path)?;
+    source.busy_timeout(Duration::from_secs(5))?;
+    check_staged_prefix(&source, &staged)?;
+    let built_head = state_u64(&staged, "built_head")?;
+    let head = query_journal_head(&source)?;
+    // A catch-up stopped before it packed leaves staged records unpacked;
+    // this start would pack them too, so they count toward the limit.
+    let tail = head.saturating_sub(built_head);
+    let work = tail.saturating_add(unpacked_backlog(&staged)?);
+    if work > swap_tail_limit() {
+        return Ok(Swap::Deferred(format!(
+            "{work} journal records came after the background build or are not packed yet (a \
+             start catches up at most {}); the cleanup thread catches up while this owner serves",
+            swap_tail_limit()
+        )));
     }
-    steps.mark("stage tail");
-    let built = build(&staged, db_path, &mut steps)?;
-    verify(&staged, &registry_id, &built, &mut steps)?;
+    let objects = schema_objects(&source, "main")?;
+    anyhow::ensure!(
+        journal_schema_digest(&objects) == state(&staged, "schema_digest")?,
+        "{STAGED_WORK_CHANGED}: the journal schema changed after the background build"
+    );
+    steps.mark("tail check");
+    let range = TailRange { stamp, built_head, head };
+    let (built, swap) = build(&staged, &source, db_path, &objects, &range, &mut steps)?;
+    drop(source);
+    #[cfg(debug_assertions)]
+    if std::env::var_os("CMUX_TUI_TEST_OUTPUT_CLEANUP_EXIT_BEFORE_RENAME").is_some() {
+        eprintln!("cmux-tui: test: exiting after the swap committed");
+        // The state a kill between the swap's commit and its rename leaves.
+        // crash-allow: a test-only exit (debug builds, explicit env).
+        std::process::exit(9);
+    }
+    verify(&staged, &registry_id, &swap, &mut steps)?;
     drop(staged);
     verify_open(&staging_path(db_path)).context("open the new registry as the owner does")?;
     steps.mark("open and read layout");
@@ -504,6 +596,7 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
         before_bytes,
         after_bytes: file_len(db_path),
         kept: built.kept,
+        tail,
         segments: built.segments,
         pruned_ranges: built.pruned_ranges,
         abandoned_deliveries: built.abandoned_deliveries,
@@ -513,10 +606,104 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
     }))
 }
 
+/// What a committed swap recorded in the new registry ([`SWAP_META_KEY`]).
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CommittedSwap {
+    /// [`source_stamp`] of the registry after the swap read it.
+    source: String,
+    /// The journal before this sequence was packed in the background.
+    from: u64,
+    head: u64,
+    /// Records the start packed (after `from`).
+    tail_kept: u64,
+}
+
+/// The registry file's length and modification time, with no WAL beside it
+/// holding data: any write after the stamp changes it.
+fn source_stamp(db_path: &Path) -> anyhow::Result<String> {
+    let metadata = fs::metadata(db_path)?;
+    let modified = metadata
+        .modified()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |time| time.as_nanos());
+    Ok(format!("{}-{modified}-wal{}", metadata.len(), file_len(&sidecar_path(db_path, "-wal"))))
+}
+
+/// The staging file is a new registry whose swap committed, for this
+/// registry as it is now (nothing wrote it since).
+fn committed_swap(db_path: &Path, registry_id: &str) -> Option<CommittedSwap> {
+    let staged = open_registry_database_with_flags(
+        &staging_path(db_path),
+        OpenFlags::default().difference(OpenFlags::SQLITE_OPEN_CREATE),
+    )
+    .ok()?;
+    let meta = |key: &str| -> Option<String> {
+        staged
+            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| row.get(0))
+            .optional()
+            .ok()
+            .flatten()
+    };
+    if meta("registry_id")?.as_str() != registry_id || !meta(DONE_META_KEY)?.contains("\"kept\"") {
+        return None;
+    }
+    let swap: CommittedSwap = serde_json::from_str(&meta(SWAP_META_KEY)?).ok()?;
+    (swap.source == source_stamp(db_path).ok()?).then_some(swap)
+}
+
+fn finish_committed(
+    db_path: &Path,
+    registry_id: &str,
+    swap: &CommittedSwap,
+    verify_open: VerifyOpen<'_>,
+    before_bytes: u64,
+    mut steps: Steps,
+) -> anyhow::Result<Swap> {
+    let (segments, pruned_ranges, tables) = {
+        let staged = open_registry_database_with_flags(
+            &staging_path(db_path),
+            OpenFlags::default().difference(OpenFlags::SQLITE_OPEN_CREATE),
+        )?;
+        verify(&staged, registry_id, swap, &mut steps)?;
+        let count = |sql: &str| -> anyhow::Result<u64> {
+            Ok(u64::try_from(staged.query_row(sql, [], |row| row.get::<_, i64>(0))?)?)
+        };
+        (
+            count("SELECT COUNT(*) FROM journal_segments")?,
+            count("SELECT COUNT(*) FROM journal_pruned_ranges")?,
+            copied_tables(&staged)?.len(),
+        )
+    };
+    verify_open(&staging_path(db_path)).context("open the new registry as the owner does")?;
+    steps.mark("open and read layout");
+    finish_staged_file(db_path)?;
+    install(db_path)?;
+    steps.mark("sync and rename");
+    Ok(Swap::Done(SwapStats {
+        before_bytes,
+        after_bytes: file_len(db_path),
+        kept: swap.tail_kept,
+        tail: 0,
+        segments,
+        pruned_ranges,
+        abandoned_deliveries: 0,
+        tables,
+        largest_tables: String::new(),
+        steps: steps.line(),
+    }))
+}
+
 /// The staged segments still describe the registry's archive: its last
-/// staged segment exists with the same id and end.
+/// staged segment exists with the same id and end, and the live rows were
+/// counted from that end (an earlier build could count past it).
 fn check_staged_prefix(source: &Connection, staged: &Connection) -> anyhow::Result<()> {
     let through = state_u64(staged, "staged_through")?;
+    let counted_after = state_u64(staged, "live_archive_end")?;
+    anyhow::ensure!(
+        counted_after == through,
+        "{STAGED_WORK_CHANGED}: the live rows were counted after sequence {counted_after}, the \
+         staged segments end at {through}"
+    );
     if through == 0 {
         return Ok(());
     }
@@ -528,6 +715,23 @@ fn check_staged_prefix(source: &Connection, staged: &Connection) -> anyhow::Resu
     )?;
     anyhow::ensure!(present, "{STAGED_WORK_CHANGED}");
     Ok(())
+}
+
+/// Staged records after the packed journal past the one partial segment a
+/// finished pack leaves, counted up to just over the tail limit.
+fn unpacked_backlog(staged: &Connection) -> anyhow::Result<u64> {
+    let partial = u64::try_from(segment_record_limit())?;
+    let bound = swap_tail_limit().saturating_add(partial).saturating_add(1);
+    let unpacked: i64 = staged.query_row(
+        "SELECT COUNT(*) FROM (
+           SELECT 1 FROM output_cleanup_records WHERE sequence > ?1 LIMIT ?2)",
+        params![
+            i64::try_from(state_u64(staged, "packed_through")?)?,
+            i64::try_from(bound).unwrap_or(i64::MAX)
+        ],
+        |row| row.get(0),
+    )?;
+    Ok(u64::try_from(unpacked)?.saturating_sub(partial))
 }
 
 /// Wall time of each Phase B step, for the swap log line.
@@ -560,22 +764,36 @@ struct Built {
     abandoned_deliveries: usize,
     tables: usize,
     largest_tables: String,
+}
+
+/// What the swap at this start finishes: the journal after the background
+/// build's head through the registry's head, and the registry's stamp.
+struct TailRange {
+    stamp: String,
+    built_head: u64,
     head: u64,
 }
 
-/// Writes the new registry into the staging file in one transaction: a
-/// crash before its commit leaves the Phase A state.
-fn build(staged: &Connection, db_path: &Path, steps: &mut Steps) -> anyhow::Result<Built> {
+/// Finishes the new registry in the staging file in one transaction: a
+/// crash before its commit leaves the background build as it was.
+fn build(
+    staged: &Connection,
+    source: &Connection,
+    db_path: &Path,
+    objects: &[(String, String, String, String)],
+    range: &TailRange,
+    steps: &mut Steps,
+) -> anyhow::Result<(Built, CommittedSwap)> {
     // A rollback journal: the new pages need no copy, unlike a WAL.
     let mode: String = staged.query_row("PRAGMA journal_mode=DELETE", [], |row| row.get(0))?;
     anyhow::ensure!(mode.eq_ignore_ascii_case("delete"), "staging file kept journal mode {mode}");
     staged.execute_batch("PRAGMA foreign_keys=OFF; PRAGMA synchronous=NORMAL;")?;
-    let source = sqlite_filesystem_path(db_path)?;
-    let source = source.to_str().context("workspace registry path is not UTF-8")?;
-    staged.execute("ATTACH DATABASE ?1 AS src", [source])?;
-    let built = (|| -> anyhow::Result<Built> {
+    let path = sqlite_filesystem_path(db_path)?;
+    let path = path.to_str().context("workspace registry path is not UTF-8")?;
+    staged.execute("ATTACH DATABASE ?1 AS src", [path])?;
+    let built = (|| -> anyhow::Result<(Built, CommittedSwap)> {
         let tx = staged.unchecked_transaction()?;
-        let built = build_in(&tx, steps)?;
+        let built = build_in(&tx, source, objects, range, steps)?;
         tx.commit()?;
         steps.mark("commit");
         Ok(built)
@@ -587,43 +805,44 @@ fn build(staged: &Connection, db_path: &Path, steps: &mut Steps) -> anyhow::Resu
     Ok(built)
 }
 
-fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
-    let objects = {
-        let mut statement = tx.prepare(
-            "SELECT type, name, sql FROM src.sqlite_master
-             WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
-             ORDER BY rowid",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    for (kind, name, sql) in &objects {
-        anyhow::ensure!(
-            !name.starts_with("output_cleanup_"),
-            "the registry has a table named like the cleanup's own: {name}"
-        );
-        anyhow::ensure!(
-            !(kind == "table"
-                && sql.trim_start().to_ascii_uppercase().starts_with("CREATE VIRTUAL")),
-            "the registry has a virtual table {name}"
-        );
+fn build_in(
+    tx: &Transaction<'_>,
+    source: &Connection,
+    objects: &[(String, String, String, String)],
+    range: &TailRange,
+    steps: &mut Steps,
+) -> anyhow::Result<(Built, CommittedSwap)> {
+    let TailRange { stamp, built_head, head } = range;
+    let (built_head, head) = (*built_head, *head);
+    let from = state_u64(tx, "packed_through")?;
+    let start = state_u64(tx, "pack_next_start")?;
+    if head > built_head {
+        stage_range(source, tx, built_head, head)?;
     }
-    for (_, _, sql) in objects.iter().filter(|(kind, _, _)| kind == "table") {
-        tx.execute_batch(sql)?;
-    }
-    tx.execute_batch(PRUNED_RANGES_SCHEMA)?;
+    let tail_kept = u64::try_from(tx.query_row(
+        "SELECT COUNT(*) FROM main.output_cleanup_records WHERE sequence > ?1",
+        [i64::try_from(from)?],
+        |row| row.get::<_, i64>(0),
+    )?)?;
+    steps.mark("stage tail");
+    pack_rest(tx, source, from, start, head)?;
+    let kept = state_u64(tx, "packed_kept")? + tail_kept;
+    anyhow::ensure!(kept > 0, "the journal holds no record other than terminal output");
+    steps.mark("pack tail");
 
+    // The copied tables, created again here (the background build made
+    // them empty) so they carry the registry's schema of this start.
     let copied = objects
         .iter()
-        .filter(|(kind, name, _)| kind == "table" && !REBUILT_TABLES.contains(&name.as_str()))
-        .map(|(_, name, _)| name.clone())
+        .filter(|(kind, name, _, _)| kind == "table" && !REBUILT_TABLES.contains(&name.as_str()))
         .collect::<Vec<_>>();
+    for (_, table, _, sql) in &copied {
+        tx.execute_batch(&format!("DROP TABLE IF EXISTS main.{}", quote(table)))?;
+        tx.execute_batch(sql)?;
+    }
     // Rowids are kept: code orders by them (ledger retention, archives,
     // intents, effects, workspace positions).
-    for table in &copied {
+    for (_, table, _, _) in &copied {
         let columns = column_list(tx, "src", table, None)?;
         let (insert, select, order) = if has_rowid(tx, table)? {
             (format!("rowid, {columns}"), format!("rowid, {columns}"), " ORDER BY rowid")
@@ -638,9 +857,8 @@ fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
             [],
         )?;
     }
-
     let mut sizes = Vec::with_capacity(copied.len());
-    for table in &copied {
+    for (_, table, _, _) in &copied {
         let (main_count, src_count): (i64, i64) = tx.query_row(
             &format!(
                 "SELECT (SELECT COUNT(*) FROM main.{0}), (SELECT COUNT(*) FROM src.{0})",
@@ -663,18 +881,11 @@ fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
         .collect::<Vec<_>>()
         .join(", ");
     steps.mark("copy tables");
-    stage_live_rows(tx)?;
-    check_counts(tx)?;
-    steps.mark("live rows");
-    let (lo, head) = journal_range(tx)?;
-    let kept: i64 =
-        tx.query_row("SELECT COUNT(*) FROM main.output_cleanup_records", [], |row| row.get(0))?;
-    anyhow::ensure!(kept > 0, "the journal holds no record other than terminal output");
-    let (segments, pruned_ranges) = pack_segments(tx, lo, head)?;
-    steps.mark("pack segments");
-
-    copy_index_rows(tx)?;
-    steps.mark("index rows");
+    // The packed segments have no kept reducer records (their table is
+    // rebuilt empty), and the copied meta holds the backfill cursor of the
+    // old segments: the journal maintenance backfill starts over.
+    super::super::session_journal::reducer_records::forget_backfill(tx)?;
+    // Every kept record has a row in the staged records, packed or not.
     let abandoned_deliveries = if table_exists(tx, "main", "journal_hook_deliveries")? {
         tx.execute(
             "UPDATE main.journal_hook_deliveries
@@ -696,10 +907,13 @@ fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
         )?;
     }
     let done = format!("{{\"at_ms\":\"{}\",\"kept\":\"{kept}\"}}", unix_epoch_ms()?);
+    let swap = CommittedSwap { source: stamp.clone(), from, head, tail_kept };
+    let swap_json = serde_json::to_string(&swap)?;
     for (key, value) in [
         (DONE_META_KEY, done.as_str()),
         ("journal_segment_kinds_backfill", "1"),
         (FULL_STARTS_META_KEY, "0"),
+        (SWAP_META_KEY, swap_json.as_str()),
     ] {
         tx.execute(
             "INSERT INTO main.meta(key, value) VALUES(?1, ?2)
@@ -708,332 +922,78 @@ fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
         )?;
     }
     steps.mark("meta");
-    // Indexes after the rows; triggers last, so none fired on the copy.
-    for wanted in ["index", "view", "trigger"] {
-        for (_, _, sql) in objects.iter().filter(|(kind, _, _)| kind == wanted) {
+    // Indexes of the copied tables after their rows (the rebuilt tables got
+    // theirs in the background); triggers last, so none fired on the copy.
+    for (_, _, _, sql) in objects
+        .iter()
+        .filter(|(kind, _, table, _)| kind == "index" && !REBUILT_TABLES.contains(&table.as_str()))
+    {
+        tx.execute_batch(sql)?;
+    }
+    for wanted in ["view", "trigger"] {
+        for (_, _, _, sql) in objects.iter().filter(|(kind, _, _, _)| kind == wanted) {
             tx.execute_batch(sql)?;
         }
     }
-
-    tx.execute_batch(
-        "DROP TABLE main.output_cleanup_records; DROP TABLE main.output_cleanup_state;
-         DROP TABLE main.output_cleanup_segments; DROP TABLE main.output_cleanup_chunks;",
-    )?;
-    Ok(Built {
-        kept: u64::try_from(kept)?,
-        segments,
-        pruned_ranges,
-        abandoned_deliveries,
-        tables: copied.len(),
-        largest_tables,
-        head,
-    })
-}
-
-/// The subject and event index rows of every kept record. They are derived
-/// from the kept record itself, as the append that wrote them did: copying
-/// them from the registry's 125M-row subject index took one random read per
-/// record (127 s for 86k records on a cold network disk). Only the value an
-/// append looked up (`causal_hook_id`, records with a cause or from the hook
-/// dispatcher) is read from the registry, by sequence.
-fn copy_index_rows(tx: &Transaction<'_>) -> anyhow::Result<()> {
-    tx.execute(
-        "INSERT OR IGNORE INTO main.journal_subject_index(sequence, kind, id)
-         SELECT kept.sequence,
-                json_extract(subject.value, '$.kind'),
-                json_extract(subject.value, '$.id')
-         FROM main.output_cleanup_records AS kept,
-              json_each(kept.index_json, '$.subjects') AS subject
-         WHERE json_type(subject.value, '$.kind') = 'text'
-           AND json_type(subject.value, '$.id') = 'text'",
-        [],
-    )?;
-    let derived = [
-        "event_id",
-        "sequence",
-        "causation_depth",
-        "causation_id",
-        "causal_hook_id",
-        "resource_revision",
-        "previous_resource_revision",
-    ];
-    let columns = table_columns(tx, "main", "journal_event_index")?;
-    if columns.len() != derived.len()
-        || !derived.iter().all(|name| columns.iter().any(|c| c == name))
-    {
-        // A table shape this derivation does not know: copy by sequence.
-        let list = column_list(tx, "src", "journal_event_index", None)?;
-        tx.execute(
-            &format!(
-                "INSERT INTO main.journal_event_index({list})
-                 SELECT {}
-                 FROM main.output_cleanup_records AS kept
-                 CROSS JOIN src.journal_event_index AS event
-                 WHERE event.sequence = kept.sequence",
-                column_list(tx, "src", "journal_event_index", Some("event"))?
-            ),
-            [],
-        )?;
-        return Ok(());
-    }
-    // Resource revisions as `ensure_journal_event_index_schema` backfilled
-    // them: from the record, else from a legacy `event_resource_N` id.
-    tx.execute(
-        "INSERT INTO main.journal_event_index(
-           event_id, sequence, causation_depth, causation_id, causal_hook_id,
-           resource_revision, previous_resource_revision)
-         SELECT record.event_id, record.sequence, record.causation_depth, record.causation_id,
-                CASE WHEN record.causation_id IS NOT NULL OR record.hook_producer
-                     THEN (SELECT event.causal_hook_id FROM src.journal_event_index AS event
-                           WHERE event.sequence = record.sequence)
-                END,
-                CASE WHEN record.resource_revision IS NOT NULL
-                          AND record.previous_resource_revision IS NULL
-                     THEN (SELECT event.resource_revision FROM src.journal_event_index AS event
-                           WHERE event.sequence = record.sequence)
-                     ELSE COALESCE(record.resource_revision, record.legacy_revision)
-                END,
-                CASE WHEN record.resource_revision IS NOT NULL
-                          AND record.previous_resource_revision IS NULL
-                     THEN (SELECT event.previous_resource_revision
-                           FROM src.journal_event_index AS event
-                           WHERE event.sequence = record.sequence)
-                     ELSE COALESCE(record.previous_resource_revision, record.legacy_revision - 1)
-                END
-         FROM (
-           SELECT kept.sequence AS sequence,
-                  json_extract(json, '$.event_id') AS event_id,
-                  json_extract(json, '$.causation_depth') AS causation_depth,
-                  json_extract(json, '$.causation_id') AS causation_id,
-                  json_extract(json, '$.producer.kind') = 'hook_dispatcher' AS hook_producer,
-                  json_extract(json, '$.resource_revision') AS resource_revision,
-                  json_extract(json, '$.previous_resource_revision')
-                    AS previous_resource_revision,
-                  CASE
-                    WHEN length(json_extract(json, '$.event_id')) = length('event_resource_') + 20
-                     AND substr(json_extract(json, '$.event_id'), 1, length('event_resource_'))
-                         = 'event_resource_'
-                     AND substr(json_extract(json, '$.event_id'), length('event_resource_') + 1)
-                         NOT GLOB '*[^0-9]*'
-                     AND json_extract(json, '$.event_id')
-                         BETWEEN 'event_resource_00000000000000000001'
-                             AND 'event_resource_09223372036854775807'
-                    THEN CAST(substr(json_extract(json, '$.event_id'),
-                                     length('event_resource_') + 1) AS INTEGER)
-                  END AS legacy_revision
-           FROM (SELECT sequence, index_json AS json
-                 FROM main.output_cleanup_records) AS kept
-         ) AS record",
-        [],
-    )?;
-    Ok(())
-}
-
-/// The non-output live rows, read through the `(kind, sequence)` index on
-/// both sides of `terminal.output`, in their archived form.
-fn stage_live_rows(tx: &Transaction<'_>) -> anyhow::Result<()> {
-    let actor = if table_columns(tx, "src", "session_journal")?.iter().any(|name| name == "actor") {
-        "actor"
-    } else {
-        "NULL"
+    let count = |sql: &str| -> anyhow::Result<u64> {
+        Ok(u64::try_from(tx.query_row(sql, [], |row| row.get::<_, i64>(0))?)?)
     };
-    let select = |side: &str| {
-        format!(
-            "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
-                    occurred_at_ms, committed_at_ms, producer_json, authority_json,
-                    causation_id, correlation_id, causation_depth, subjects_json,
-                    sensitivity, payload_json, content, resource_revision,
-                    previous_resource_revision, {actor}
-             FROM src.session_journal INDEXED BY session_journal_by_kind_sequence
-             WHERE kind {side} '{OUTPUT_KIND}'"
-        )
-    };
-    let mut statement = tx.prepare(&format!("{} UNION ALL {}", select("<"), select(">")))?;
-    let mut rows = statement.query([])?;
-    let mut chunk: Vec<StagedRecord> = Vec::with_capacity(CHUNK_RECORD_LIMIT);
-    let mut chunk_bytes = 0_usize;
-    while let Some(row) = rows.next()? {
-        let stored = stored_record_row(row)?;
-        let actor = row.get::<_, Option<String>>(19)?;
-        let record = decode_record(stored)?;
-        let json = serde_json::to_vec(&journal_record_for_archive(&record))?;
-        // A chunk holds one kind (the rows come in (kind, sequence) order,
-        // and the pack reads them by sequence: `ChunkReader`) and stays
-        // under a segment's uncompressed limit, as Phase A's do.
-        if chunk.len() == CHUNK_RECORD_LIMIT
-            || chunk.last().is_some_and(|last| last.1 != record.kind)
-            || chunk_bytes.saturating_add(json.len()).saturating_add(chunk.len() + 2)
-                >= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES
-        {
-            insert_chunk(tx, &chunk)?;
-            chunk.clear();
-            chunk_bytes = 0;
-        }
-        chunk_bytes += json.len();
-        chunk.push((record.sequence, record.kind, json, actor));
-    }
-    insert_chunk(tx, &chunk)?;
-    Ok(())
-}
-
-/// The first and last sequence the registry's journal covers.
-fn journal_range(tx: &Transaction<'_>) -> anyhow::Result<(u64, u64)> {
-    let (lo, hi): (Option<i64>, Option<i64>) = tx.query_row(
-        // One aggregate per subquery: SQLite answers a lone MIN or MAX from
-        // the index, but two in one SELECT scan the whole table.
-        "SELECT MIN(COALESCE((SELECT MIN(start_sequence) FROM src.journal_segments),
-                             (SELECT MIN(sequence) FROM src.session_journal)),
-                    COALESCE((SELECT MIN(sequence) FROM src.session_journal),
-                             (SELECT MIN(start_sequence) FROM src.journal_segments))),
-                MAX(COALESCE((SELECT MAX(end_sequence) FROM src.journal_segments), 0),
-                    COALESCE((SELECT MAX(sequence) FROM src.session_journal), 0))",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )?;
-    let (Some(lo), Some(hi)) = (lo, hi) else { anyhow::bail!("the journal is empty") };
-    Ok((u64::try_from(lo)?.max(1), u64::try_from(hi)?))
-}
-
-/// Seals every kept record into new segments that cover `lo..=head` with no
-/// gap between them, and records each removed run as a pruned range.
-fn pack_segments(tx: &Transaction<'_>, lo: u64, head: u64) -> anyhow::Result<(u64, u64)> {
-    let with_actors =
-        table_columns(tx, "main", "journal_segments")?.iter().any(|name| name == "actors_json");
-    let sealed_at_ms = i64::try_from(unix_epoch_ms()?)?;
-    let mut statement = tx.prepare(
-        "SELECT sequence, kind, chunk, actor FROM main.output_cleanup_records
-         ORDER BY sequence ASC",
-    )?;
-    let mut rows = statement.query([])?;
-    let mut chunks = ChunkReader::new();
-    let mut segment = OpenSegment::new(lo);
-    let mut previous = lo - 1;
-    let mut segments = 0_u64;
-    let mut pruned = 0_u64;
-    while let Some(row) = rows.next()? {
-        let sequence = u64::try_from(row.get::<_, i64>(0)?)?;
-        let kind = row.get::<_, String>(1)?;
-        let json = chunks.record(tx, row.get::<_, i64>(2)?, sequence)?;
-        let actor = row.get::<_, Option<String>>(3)?;
-        anyhow::ensure!(
-            sequence > previous && sequence <= head,
-            "kept journal record {sequence} is outside the journal range"
-        );
-        if sequence > previous + 1 {
-            insert_pruned(tx, previous + 1, sequence - 1)?;
-            pruned += 1;
-        }
-        previous = sequence;
-        if segment.writer.records() == JOURNAL_SEGMENT_RECORD_LIMIT
-            || (segment.writer.records() > 0 && !segment.writer.fits(json))
-        {
-            let next_start = segment.last + 1;
-            let full = std::mem::replace(&mut segment, OpenSegment::new(next_start));
-            let end = full.last;
-            full.insert(tx, end, sealed_at_ms, with_actors)?;
-            segments += 1;
-        }
-        segment.writer.push(json);
-        segment.last = sequence;
-        segment.kinds.insert(kind);
-        if let Some(actor) = actor {
-            segment.actors.insert(sequence.to_string(), actor);
-        }
-    }
-    if previous < head {
-        insert_pruned(tx, previous + 1, head)?;
-        pruned += 1;
-    }
-    segment.insert(tx, head, sealed_at_ms, with_actors)?;
-    segments += 1;
-    Ok((segments, pruned))
-}
-
-fn insert_pruned(tx: &Transaction<'_>, start: u64, end: u64) -> anyhow::Result<()> {
-    tx.execute(
-        "INSERT INTO main.journal_pruned_ranges(start_sequence, end_sequence) VALUES(?1, ?2)",
-        params![i64::try_from(start)?, i64::try_from(end)?],
-    )?;
-    Ok(())
-}
-
-struct OpenSegment {
-    start: u64,
-    last: u64,
-    writer: SegmentWriter,
-    kinds: BTreeSet<String>,
-    actors: BTreeMap<String, String>,
-}
-
-impl OpenSegment {
-    fn new(start: u64) -> Self {
-        Self {
-            start,
-            last: 0,
-            writer: SegmentWriter::new(),
-            kinds: BTreeSet::new(),
-            actors: BTreeMap::new(),
-        }
-    }
-
-    fn insert(
-        self,
-        tx: &Transaction<'_>,
-        end: u64,
-        sealed_at_ms: i64,
-        with_actors: bool,
-    ) -> anyhow::Result<()> {
-        let records = self.writer.records();
-        let encoded = self.writer.finish()?;
-        let segment_id = format!("segment_{}_{end}_{}", self.start, encode_hex(&encoded.digest));
-        let actors =
-            if self.actors.is_empty() { None } else { Some(serde_json::to_string(&self.actors)?) };
-        let columns = if with_actors { ", actors_json" } else { "" };
-        let values = if with_actors { ", ?9" } else { "" };
-        tx.execute(
-            &format!(
-                "INSERT INTO main.journal_segments(
-                   segment_id, start_sequence, end_sequence, record_count, codec, content,
-                   uncompressed_bytes, sha256, sealed_at_ms{columns}
-                 ) VALUES(?1, ?2, ?3, ?4, '{codec}', ?5, ?6, ?7, ?8{values})",
-                codec = super::super::segment_codec::SEAL_CODEC
-            ),
-            rusqlite::params_from_iter(
-                [
-                    rusqlite::types::Value::Text(segment_id.clone()),
-                    rusqlite::types::Value::Integer(i64::try_from(self.start)?),
-                    rusqlite::types::Value::Integer(i64::try_from(end)?),
-                    rusqlite::types::Value::Integer(i64::try_from(records)?),
-                    rusqlite::types::Value::Blob(encoded.compressed),
-                    rusqlite::types::Value::Integer(i64::try_from(encoded.uncompressed_bytes)?),
-                    rusqlite::types::Value::Blob(encoded.digest.to_vec()),
-                    rusqlite::types::Value::Integer(sealed_at_ms),
-                    actors.map_or(rusqlite::types::Value::Null, rusqlite::types::Value::Text),
-                ]
-                .into_iter()
-                .take(if with_actors { 9 } else { 8 }),
-            ),
+    let segments = count("SELECT COUNT(*) FROM main.journal_segments")?;
+    let pruned_ranges = count("SELECT COUNT(*) FROM main.journal_pruned_ranges")?;
+    // The cleanup's own tables (`schema_objects` refuses a registry that
+    // has one of that name), whatever they are.
+    let own = {
+        let mut statement = tx.prepare(
+            "SELECT name FROM main.sqlite_master
+             WHERE type = 'table' AND name LIKE 'output\\_cleanup\\_%' ESCAPE '\\'",
         )?;
-        for kind in &self.kinds {
-            tx.execute(
-                "INSERT INTO main.journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
-                params![segment_id, kind],
-            )?;
-        }
-        Ok(())
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    for table in own {
+        tx.execute_batch(&format!("DROP TABLE main.{}", quote(&table)))?;
     }
+    Ok((
+        Built {
+            kept,
+            segments,
+            pruned_ranges,
+            abandoned_deliveries,
+            tables: copied.len(),
+            largest_tables,
+        },
+        swap,
+    ))
 }
 
-/// Checks the committed new registry before it replaces the old one.
+/// The tables the swap copies as they are (outside the rebuilt journal).
+fn copied_tables(staged: &Connection) -> anyhow::Result<Vec<String>> {
+    Ok(schema_objects(staged, "main")?
+        .into_iter()
+        .filter(|(kind, name, _, _)| kind == "table" && !REBUILT_TABLES.contains(&name.as_str()))
+        .map(|(_, name, _, _)| name)
+        .collect())
+}
+
+/// Checks the committed new registry before it replaces the old one: the
+/// tables this start wrote (the background build checked the journal it
+/// packed), and the journal from the first record this start packed.
 fn verify(
     staged: &Connection,
     registry_id: &str,
-    built: &Built,
+    swap: &CommittedSwap,
     steps: &mut Steps,
 ) -> anyhow::Result<()> {
-    let integrity: String = staged.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+    for table in copied_tables(staged)? {
+        let integrity: String =
+            staged.query_row(&format!("PRAGMA integrity_check({})", quote(&table)), [], |row| {
+                row.get(0)
+            })?;
+        anyhow::ensure!(
+            integrity == "ok",
+            "the new registry's {table} failed integrity_check: {integrity}"
+        );
+    }
     steps.mark("integrity check");
-    anyhow::ensure!(integrity == "ok", "the new registry failed integrity_check: {integrity}");
     anyhow::ensure!(
         required_meta(staged, "registry_id")? == registry_id,
         "the new registry has another registry id"
@@ -1041,12 +1001,12 @@ fn verify(
     let live: i64 =
         staged.query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get(0))?;
     anyhow::ensure!(live == 0, "the new registry kept {live} live journal rows");
-    // Read the whole journal back through the readers the owner uses.
-    let mut cursor = 0_u64;
+    // Read the journal this start packed back through the owner's readers.
+    let mut cursor = swap.from;
     let mut read = 0_u64;
     loop {
         let page = query_session_journal_after(staged, cursor, 1024)?;
-        anyhow::ensure!(page.head_sequence == built.head, "the new journal head moved");
+        anyhow::ensure!(page.head_sequence == swap.head, "the new journal head moved");
         let Some(last) = page.records.last() else { break };
         cursor = last.sequence;
         for record in &page.records {
@@ -1059,11 +1019,12 @@ fn verify(
         read += u64::try_from(page.records.len())?;
     }
     anyhow::ensure!(
-        read == built.kept,
-        "the new journal reads {read} records back, {} were kept",
-        built.kept
+        read == swap.tail_kept,
+        "the new journal reads {read} records back after sequence {}, {} were kept",
+        swap.from,
+        swap.tail_kept
     );
-    anyhow::ensure!(query_journal_head(staged)? == built.head, "the new journal head moved");
+    anyhow::ensure!(query_journal_head(staged)? == swap.head, "the new journal head moved");
     steps.mark("read back");
     Ok(())
 }
@@ -1133,21 +1094,8 @@ fn install(db_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn quote(name: &str) -> String {
-    format!("\"{}\"", name.replace('"', "\"\""))
-}
-
-fn table_columns(tx: &Transaction<'_>, schema: &str, table: &str) -> anyhow::Result<Vec<String>> {
-    let mut statement = tx.prepare("SELECT name FROM pragma_table_info(?1, ?2) ORDER BY cid")?;
-    let columns = statement
-        .query_map([table, schema], |row| row.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    anyhow::ensure!(!columns.is_empty(), "table {schema}.{table} has no columns");
-    Ok(columns)
-}
-
 fn column_list(
-    tx: &Transaction<'_>,
+    tx: &Connection,
     schema: &str,
     table: &str,
     alias: Option<&str>,
@@ -1162,7 +1110,7 @@ fn column_list(
         .join(", "))
 }
 
-fn table_exists(tx: &Transaction<'_>, schema: &str, table: &str) -> anyhow::Result<bool> {
+fn table_exists(tx: &Connection, schema: &str, table: &str) -> anyhow::Result<bool> {
     Ok(tx.query_row(
         &format!(
             "SELECT EXISTS(SELECT 1 FROM {schema}.sqlite_master WHERE type = 'table' AND name = ?1)"
@@ -1174,124 +1122,13 @@ fn table_exists(tx: &Transaction<'_>, schema: &str, table: &str) -> anyhow::Resu
 
 /// The table stores a rowid (it is not WITHOUT ROWID). An INTEGER PRIMARY
 /// KEY column aliases it; naming `rowid` too copies the same value.
-fn has_rowid(tx: &Transaction<'_>, table: &str) -> anyhow::Result<bool> {
+fn has_rowid(tx: &Connection, table: &str) -> anyhow::Result<bool> {
     let without: i64 = tx.query_row(
         "SELECT wr FROM pragma_table_list(?1) WHERE schema = 'src' AND type = 'table'",
         [table],
         |row| row.get(0),
     )?;
     Ok(without == 0)
-}
-
-/// Every source record is either kept or removed output: per staged segment
-/// (Phase A counted them), and for the live rows, whose contiguity and output
-/// count Phase A took in one snapshot. Rows that came after that snapshot are
-/// counted here; they are few.
-fn check_counts(tx: &Transaction<'_>) -> anyhow::Result<()> {
-    let value = |key: &str| -> anyhow::Result<i64> {
-        Ok(tx
-            .query_row(
-                "SELECT value FROM main.output_cleanup_state WHERE key = ?1",
-                [key],
-                |row| row.get::<_, String>(0),
-            )?
-            .parse()?)
-    };
-    let kept_in = |after: i64, through: i64| -> anyhow::Result<i64> {
-        Ok(tx.query_row(
-            "SELECT COUNT(*) FROM main.output_cleanup_records WHERE sequence > ?1 AND sequence <= ?2",
-            [after, through],
-            |row| row.get(0),
-        )?)
-    };
-    let archive_end: i64 = tx.query_row(
-        "SELECT COALESCE(MAX(end_sequence), 0) FROM src.journal_segments",
-        [],
-        |row| row.get(0),
-    )?;
-    let (segments, first, last, records, kept): (i64, Option<i64>, Option<i64>, i64, i64) = tx
-        .query_row(
-            "SELECT COUNT(*), MIN(start_sequence), MAX(end_sequence),
-                    COALESCE(SUM(record_count), 0), COALESCE(SUM(kept), 0)
-             FROM main.output_cleanup_segments",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
-        )?;
-    if segments > 0 {
-        let (first, last) = (first.unwrap_or(0), last.unwrap_or(0));
-        anyhow::ensure!(
-            last == archive_end && records == last - first + 1,
-            "the staged segments do not cover the sealed journal"
-        );
-        anyhow::ensure!(
-            kept_in(first - 1, last)? == kept,
-            "the kept sealed records do not match the staged segment counts"
-        );
-        let mismatched: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM main.output_cleanup_segments AS segment
-             WHERE segment.kept + segment.removed != segment.record_count
-                OR segment.kept != (
-                  SELECT COUNT(*) FROM main.output_cleanup_records AS kept
-                  WHERE kept.sequence BETWEEN segment.start_sequence AND segment.end_sequence)",
-            [],
-            |row| row.get(0),
-        )?;
-        anyhow::ensure!(
-            mismatched == 0,
-            "{mismatched} staged segments do not add up (kept plus removed)"
-        );
-        let gaps: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM main.output_cleanup_segments AS segment
-             WHERE segment.start_sequence > ?1 AND NOT EXISTS (
-               SELECT 1 FROM main.output_cleanup_segments AS previous
-               WHERE previous.end_sequence = segment.start_sequence - 1)",
-            [first],
-            |row| row.get(0),
-        )?;
-        anyhow::ensure!(gaps == 0, "the staged segments are not contiguous");
-    }
-    let live_archive_end = value("live_archive_end")?;
-    let live_head = value("live_head")?;
-    anyhow::ensure!(
-        archive_end >= live_archive_end,
-        "the sealed journal is shorter than when it was staged"
-    );
-    let range_end = live_head.max(archive_end);
-    if live_head > archive_end {
-        let output = if archive_end == live_archive_end {
-            value("live_output")?
-        } else {
-            tx.query_row(
-                "SELECT COUNT(*) FROM src.session_journal
-                   INDEXED BY session_journal_by_kind_sequence
-                 WHERE kind = ?3 AND sequence > ?1 AND sequence <= ?2",
-                params![archive_end, live_head, OUTPUT_KIND],
-                |row| row.get::<_, i64>(0),
-            )?
-        };
-        anyhow::ensure!(
-            kept_in(archive_end, live_head)? + output == live_head - archive_end,
-            "kept and removed live rows do not add up to the live journal"
-        );
-    }
-    let (total, output): (i64, i64) = tx.query_row(
-        "SELECT (SELECT COUNT(*) FROM src.session_journal WHERE sequence > ?1),
-                (SELECT COUNT(*) FROM src.session_journal
-                   INDEXED BY session_journal_by_kind_sequence
-                 WHERE kind = ?2 AND sequence > ?1)",
-        params![range_end, OUTPUT_KIND],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )?;
-    let head: i64 = tx.query_row(
-        "SELECT COALESCE(MAX(sequence), ?1) FROM src.session_journal",
-        [range_end],
-        |row| row.get(0),
-    )?;
-    anyhow::ensure!(
-        total == head - range_end && kept_in(range_end, head)? + output == total,
-        "kept and removed rows after the staged snapshot do not add up"
-    );
-    Ok(())
 }
 
 #[cfg(test)]

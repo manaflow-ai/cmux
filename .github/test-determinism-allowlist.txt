@@ -54,7 +54,6 @@ Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BackgroundAccessoryPolicyTests.sw
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserEngineStateRestoreTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClearBrowsingDataTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudBringBackTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
-Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudMachineRequestCardTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudMoveTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CmdNSlowDaemonKeepsWorkspaceTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CmdTSpamKeepsNewTabsTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there

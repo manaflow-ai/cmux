@@ -35,12 +35,14 @@ import { foreignFileIds, textLinks } from "../chips/paths";
 import { deeplinks } from "../composer/deeplinks";
 import { CmuxLinkChip } from "../chips/CmuxLinkChip";
 import { cmuxLinkTarget } from "./cmuxLinks";
-import { SkillWordsContext } from "./skillWords";
+import { leadCommand, SkillWordsContext } from "./skillWords";
 import { withSkillWords } from "./withSkillWords";
 import { Bot } from "./icons";
 import { agentText } from "../agentText";
 import { experimentArm } from "../../../experiments/experiment";
 import { sentPasteJoin } from "./sentPasteJoin.experiment";
+import { SentPromptFoldContext, SentUIPicks } from "./SentUIPick";
+import { sentUIPickSegments } from "./sentUIPickModel";
 
 export function PromptText({
   rowId,
@@ -86,6 +88,8 @@ export function PromptText({
   const huge = hugeTyped ?? hasHugeTypedPart(parts);
   const long = huge || (measured?.parts === parts ? measured.long : guess);
   const collapsed = long && !open;
+  // What a pick's chip in the body opens with it (SentUIPick.tsx SentUIPickChip).
+  const fold = useMemo(() => ({ rowId, collapsed, open: () => setOpen(true) }), [rowId, collapsed, setOpen]);
   // A huge prompt draws literally, and collapsed only its head: the clamp hides the rest anyway,
   // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).
   const head = huge && collapsed;
@@ -97,12 +101,12 @@ export function PromptText({
       // The node's own window: a test DOM may install none as a global.
       const style = node.ownerDocument.defaultView?.getComputedStyle?.(node);
       const lineHeight = parseFloat(style?.lineHeight ?? "");
-      // Clamped, the text is a box that scrolls; drawn whole it is no box of its own (CSS
-      // `display: contents`, so the bubble insets its text as before), and its lines measure it.
-      let height = node.scrollHeight;
-      if (!node.classList.contains("is-clamped")) {
-        height = drawnBox(node)?.height ?? 0;
-      }
+      // One measure open or clamped: the boxes its content is laid out in (`laidOutHeight`). Drawn
+      // whole the text is no box of its own (CSS `display: contents`, so the bubble insets its text
+      // as before), clamped it is a clipping box, and neither changes its content's boxes. Two
+      // measures (its lines' Range open, its scrollHeight clamped) disagreed on text clipped inside
+      // it, a folded pick's report: Show less flipped the fold until React's update limit.
+      const height = laidOutHeight(node);
       // No layout (a test DOM) keeps the guess.
       if (!height || !Number.isFinite(lineHeight)) return;
       const next = height > COLLAPSED_PROMPT_LINES * lineHeight + 1;
@@ -217,15 +221,24 @@ export function PromptText({
   return (
     <>
       <div ref={body} id={id} className={`cv-user__text${collapsed ? " is-clamped is-faded" : ""}`}>
-        {children
-          ? children(() => setOpen(true), head, collapsed)
-          : shownParts.map((part, index) =>
-              part.kind === "text" ? (
-                <PromptTyped key={index} text={part.text} show={show} plain={"huge" in part && part.huge === true} />
-              ) : (
-                <PastedText key={index} text={part.text} collapsed={collapsed} />
-              ),
-            )}
+        <SentPromptFoldContext.Provider value={fold}>
+          {children
+            ? children(() => setOpen(true), head, collapsed)
+            : shownParts.map((part, index) =>
+                part.kind === "text" ? (
+                  <PromptTyped
+                    key={index}
+                    text={part.text}
+                    show={show}
+                    plain={"huge" in part && part.huge === true}
+                    slot={`typed:${index}`}
+                    lead={index === 0}
+                  />
+                ) : (
+                  <PastedText key={index} text={part.text} collapsed={collapsed} />
+                ),
+              )}
+        </SentPromptFoldContext.Provider>
       </div>
       {long && (
         <ExpandRow
@@ -240,14 +253,38 @@ export function PromptText({
   );
 }
 
-/// The box `node`'s content is drawn in, for a prompt drawn whole (no box of its own): its text's.
-function drawnBox(node: Node): { top: number; bottom: number; height: number } | undefined {
+/// How tall `node`'s content is laid out, whether `node` is a box (clamped) or none (`display:
+/// contents`, drawn whole): from the top of its first box to the bottom of its last, each child an
+/// element's border box or a text's lines, going through children that are no box themselves. What
+/// a box clips inside it (a folded chip's report, a scroller's hidden lines) counts as the box, as
+/// it is drawn, never as the text it holds; a Range over all the text would count that text.
+/// 0 with no layout (a test DOM).
+function laidOutHeight(node: Node): number {
+  const view = node.ownerDocument?.defaultView;
   const range = node.ownerDocument?.createRange();
-  if (!range) return undefined;
-  range.selectNodeContents(node);
-  if (typeof range.getBoundingClientRect !== "function") return undefined;
-  const rect = range.getBoundingClientRect();
-  return rect.height ? rect : undefined;
+  if (!view || !range || typeof range.getBoundingClientRect !== "function") return 0;
+  let top = Infinity;
+  let bottom = -Infinity;
+  const add = (rect: { top: number; bottom: number; width: number; height: number }) => {
+    // An undrawn box (display: none) or blank text between blocks has no extent.
+    if (!rect.width && !rect.height) return;
+    top = Math.min(top, rect.top);
+    bottom = Math.max(bottom, rect.bottom);
+  };
+  const visit = (parent: Node) => {
+    for (let child = parent.firstChild; child; child = child.nextSibling) {
+      if (child.nodeType === 3) {
+        range.selectNodeContents(child);
+        add(range.getBoundingClientRect());
+      } else if (child.nodeType === 1) {
+        const element = child as Element;
+        if (view.getComputedStyle?.(element)?.display === "contents") visit(element);
+        else add(element.getBoundingClientRect());
+      }
+    }
+  };
+  visit(node);
+  return bottom > top ? bottom - top : 0;
 }
 
 /// One typed block of a sent prompt: Markdown when it is written in Markdown (promptMarkdown.ts),
@@ -258,26 +295,68 @@ export function PromptTyped({
   text,
   show,
   plain,
+  slot = "typed:0",
+  lead = false,
 }: {
   text: string;
+  /// It starts the prompt: its first word draws as a command when it names any (skillWords.ts
+  /// leadCommand), as the composer draws the prompt's first word.
+  lead?: boolean;
   show: (text: string) => string;
+  /// Which typed part of the prompt it is, keying its picks' disclosures (SentUIPick.tsx).
+  slot?: string;
   /// Draw it as one literal text node (a huge prompt's part; promptCollapse.ts HUGE_PROMPT_CHARS).
   plain?: boolean;
 }) {
   const shown = show(text);
   // A skill's `/name` draws as the composer's command words do, its description on hover.
-  const skills = useContext(SkillWordsContext).words;
+  // The prompt's first word lights for any command, as in the composer (a sent `/compact`).
+  const { words: skills, leading: allCommands } = useContext(SkillWordsContext);
+  const leading = lead ? allCommands : undefined;
+  // The Markdown renderer reads skills by name in its own text runs: the command the prompt starts
+  // with joins them for this prompt (a later mid-prompt `/name` of it lights too, the cost of a
+  // renderer that does not know where the prompt starts).
+  const first = useMemo(
+    () =>
+      lead && !plain && !isHugePrompt(text) && isPromptMarkdown(text) ? leadCommand(shown, allCommands) : undefined,
+    [lead, plain, text, shown, allCommands],
+  );
+  const markdownSkills = useMemo(
+    () => (first && !skills.has(first.word) ? new Map(skills).set(first.word, first.description) : skills),
+    [first, skills],
+  );
+  // An inspector pick the composer sent draws as its chip, opening its report in place (SentUIPick.tsx),
+  // in a huge prompt too: the chip draws a line, never the report, and the text around it stays
+  // literal (`plain` passed on, and a huge part is still huge).
+  const picks = sentUIPickSegments(text);
+  if (picks)
+    return (
+      <SentUIPicks
+        segments={picks}
+        slot={slot}
+        // The prompt's first words are in its first text segment with any: a pick before it is an
+        // attachment placed in the text, which the composer's first word skips too.
+        typed={(part, index) => (
+          <PromptTyped
+            text={part}
+            show={show}
+            plain={plain}
+            lead={lead && index === picks.findIndex((segment) => segment.kind === "text" && segment.text.trim())}
+          />
+        )}
+      />
+    );
   if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{plainWithForeignFiles(shown)}</span>;
   // Drawn as Markdown, the renderer reads its code as send does (`commonmark`) and lights skills
   // only in its own plain text.
   return isPromptMarkdown(text) ? (
-    <Markdown className="cv-user__markdown" thumbnails={false} skills={skills} commonmark>
+    <Markdown className="cv-user__markdown" thumbnails={false} skills={markdownSkills} commonmark>
       {shown}
     </Markdown>
   ) : (
     <span className="cv-user__typed">
-      {skills.size && shown.includes("/") ? (
-        withSkillWords(shown, skills, (piece, key) => <LiteralText key={key} text={piece} />)
+      {(skills.size || leading?.size) && shown.includes("/") ? (
+        withSkillWords(shown, skills, (piece, key) => <LiteralText key={key} text={piece} />, leading)
       ) : (
         <LiteralText text={shown} />
       )}

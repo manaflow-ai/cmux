@@ -283,35 +283,30 @@ public struct DaemonLauncher: Sendable {
         return "cmux-app-\(cleaned)"
     }
 
-    /// `~/Library/Application Support/cmux/tags/<tag>/tui`.
+    /// `~/Library/Application Support/cmux-next/tags/<tag>/tui`.
     public static func tagStateDirectory(tag: String) -> URL {
         tagStateDirectory(tag: tag, applicationSupport: applicationSupportDirectory())
     }
 
-    /// `<applicationSupport>/cmux/tags/<tag>/tui`.
+    /// `<applicationSupport>/cmux-next/tags/<tag>/tui`.
     public static func tagStateDirectory(tag: String, applicationSupport: URL) -> URL {
         let component = (try? sessionName(tag: tag).dropFirst("cmux-app-".count)).map(String.init) ?? "default"
-        return applicationSupport.appendingPathComponent("cmux/tags/\(component)/tui", isDirectory: true)
+        return nextSupport(applicationSupport).appendingPathComponent("tags/\(component)/tui", isDirectory: true)
+    }
+
+    /// NEXT's own folder in `applicationSupport`, `cmux-next`, which holds the
+    /// daemon state of every build (``BuildIdentity/daemonStateDirectory(appSupport:)``).
+    /// Classic cmux owns `cmux` beside it: NEXT keeps nothing there, so removing
+    /// classic never removes NEXT's workspaces (``StateFolderMove`` moved what
+    /// older builds kept there).
+    public static func nextSupport(_ applicationSupport: URL = applicationSupportDirectory()) -> URL {
+        applicationSupport.appendingPathComponent("cmux-next", isDirectory: true)
     }
 
     /// The user's `~/Library/Application Support`.
     public static func applicationSupportDirectory() -> URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-    }
-
-    /// The user's per-user temp directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`),
-    /// independent of the process's `TMPDIR`. Falls back to `/tmp`.
-    public static func userTemporaryDirectory() -> URL {
-        let length = confstr(_CS_DARWIN_USER_TEMP_DIR, nil, 0)
-        if length > 0 {
-            var buffer = [CChar](repeating: 0, count: length)
-            if confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, length) > 0 {
-                let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-                if !path.isEmpty { return URL(fileURLWithPath: path, isDirectory: true) }
-            }
-        }
-        return URL(fileURLWithPath: "/tmp", isDirectory: true)
     }
 
     // MARK: - Ensure
@@ -359,6 +354,8 @@ public struct DaemonLauncher: Sendable {
         // (2026-11-08). An external binary may lack the option; the cap bounds it.
         let progress = configuration.binaryIsBundled
         let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
+        let reports = progress ? ensureOutcome.restoreReporter() : nil
+        defer { reports?.end() }
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
         let result = try await ProcessRunner.run(
@@ -368,6 +365,7 @@ public struct DaemonLauncher: Sendable {
             stdin: configuration.installKey?.payload,
             timeout: progress ? nil : max(ensureTimeout, Self.ensureRestoreCap),
             progressIdle: progress ? ensureTimeout : nil,
+            stdoutLine: reports?.line,
             clock: clock
         )
         return try Self.parseEnsure(result)

@@ -69,6 +69,9 @@ export type ComposerBoxProps = {
   /// Attaches files pasted from the pasteboard at the caret, as the intake's own paste does: a copy of
   /// a composer's text and attachments pasted back in its order (composer/composerCopy.ts).
   onPasteFiles?(files: File[]): void;
+  /// The box is about to change the prompt for the person's own paste (a Pasted text chip, a copy
+  /// pasted back): the host counts the change as their edit, as it does a key's.
+  onPersonEdit?(): void;
   /// The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows.
   fieldMenu: ContextMenuItem[];
   onFieldMenuOpen?(): void;
@@ -127,6 +130,7 @@ export function ComposerBox({
   onReorderAttachment,
   onPasteFile,
   onPasteFiles,
+  onPersonEdit,
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
@@ -347,6 +351,7 @@ export function ComposerBox({
               const plan = pastePlan(event.clipboardData, inline.known);
               if (!plan || (!onPasteFiles && plan.some((part) => "file" in part))) return false;
               pastesPlaced.add(event);
+              onPersonEdit?.();
               for (const part of plan) {
                 if ("text" in part) prompt.current?.insertText(part.text);
                 // An attachment the prompt still has comes back as a copy of it; one cut from it, as itself.
@@ -366,7 +371,10 @@ export function ComposerBox({
             onBeforeInput={(data, state) => {
               // A huge paste is a chip, the prompt as it was (pastedText.ts); a chip's own text going
               // back in is the person's to edit, never the host's (shell mode).
-              if (state.paste && !state.composing && pastedChips.take(data)) return true;
+              if (state.paste && !state.composing && pastedChips.take(data)) {
+                onPersonEdit?.();
+                return true;
+              }
               if (pastedChips.expanding.current) return false;
               return onBeforeInput?.(data, state) ?? false;
             }}

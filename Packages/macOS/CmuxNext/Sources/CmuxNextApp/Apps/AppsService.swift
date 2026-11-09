@@ -38,7 +38,7 @@ final class AppsService {
     private var machineCatalog: MachineCatalogPublisher?
     init(services: AppServices) {
         self.services = services
-        transport = DaemonAppsTransport(daemon: services.daemon, inventoryRoutes: { [weak machines = services.machines] in
+        transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats()], inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []
         })
         client = AppsClient(transport: transport)
