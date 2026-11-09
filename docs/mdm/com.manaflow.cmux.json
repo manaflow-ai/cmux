@@ -4204,6 +4204,12 @@
       "title" : "Detailed Status Icons",
       "type" : "boolean"
     },
+    "sidebar.floatOnHover" : {
+      "default" : true,
+      "description" : "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it.",
+      "title" : "Float Hidden Sidebar on Hover",
+      "type" : "boolean"
+    },
     "sidebar.groupBy" : {
       "default" : "none",
       "description" : "sidebar.groupBy",

@@ -44,7 +44,13 @@ export const NEW_TAB_LABELS = {
   /// `{kind}` is a tab kind's name, `{keys}` its shortcut.
   editShortcut: "newTabPage.editShortcut",
   open: "newTabPage.open",
-  openFailed: "newTabPage.openFailed",
+  /// A refused open, by the kind that did not open.
+  openFailedKind: {
+    terminal: "newTabPage.openFailed.terminal",
+    browser: "newTabPage.openFailed.browser",
+    agent: "newTabPage.openFailed.agent",
+  } satisfies Record<TabKind, StringKey>,
+  openRetry: "retry.action",
   suggestions: "newTabPage.suggestions",
   rows: {
     tab: "newTabPage.row.tab",
