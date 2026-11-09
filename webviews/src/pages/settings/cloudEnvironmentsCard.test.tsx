@@ -106,7 +106,6 @@ test("Edit opens the environment with its script and variables and saves only wh
   expect(page.provider.environmentRuns).toContainEqual({
     action: "save",
     id: "env_00000000000000000001",
-    name: "web",
     setup_script: "cd web\nbun install",
     env: [
       { name: "NODE_ENV", value: "development" },
@@ -142,9 +141,9 @@ test("a rename alone sends only the name, and Cancel sends nothing", async () =>
 });
 
 test("a refresh while Edit is open never sends a teammate's newer fields back", async () => {
+  // Both ways: the teammate edits the script and this person renames, then the reverse below.
   const page = await open();
-  const row = () =>
-    card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
+  const row = () => card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
   await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
   // A teammate changes the script; the list reads it again under the open form.
   page.provider.environments = {
@@ -165,6 +164,32 @@ test("a refresh while Edit is open never sends a teammate's newer fields back", 
     id: "env_00000000000000000001",
     name: "web app",
   });
+  page.unmount();
+});
+
+test("a script edit under a teammate's rename never sends the old name", async () => {
+  const page = await open();
+  const row = () => card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
+  await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
+  page.provider.environments = {
+    ...page.provider.environments,
+    environments: page.provider.environments.environments.map((entry) =>
+      entry.id === "env_00000000000000000001" ? { ...entry, name: "frontend" } : entry,
+    ),
+  };
+  await click(card(page.container).querySelector<HTMLButtonElement>('[data-environments="refresh"]')!);
+  await settle();
+  const runs = page.provider.environmentRuns.length;
+  const form = row().querySelector<HTMLElement>("[data-environments-form]")!;
+  await changeValue(form.querySelector<HTMLTextAreaElement>('[data-environment-field="setup"]')!, "bun ci");
+  await click(form.querySelector<HTMLButtonElement>('[data-environments="save"]')!);
+  await settle();
+  expect(page.provider.environmentRuns.slice(runs)[0]).toEqual({
+    action: "save",
+    id: "env_00000000000000000001",
+    setup_script: "bun ci",
+  });
+  expect(row().querySelector(".row-title")!.textContent).toBe("frontend");
   page.unmount();
 });
 

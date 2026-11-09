@@ -204,13 +204,14 @@ const variableValue = (variable: CloudEnvironmentVariable) => ("secret" in varia
 const sameEnv = (a: CloudEnvironmentVariable[], b: CloudEnvironmentVariable[]) =>
   JSON.stringify(a) === JSON.stringify(b);
 
-/** An edit's Save names only what changed, so a rename alone leaves the built snapshot fresh. */
+/** An edit's Save names only what changed from `row` (the environment as Edit opened it): a rename
+ * alone leaves the built snapshot fresh, and a teammate's newer edit to another field stays. */
 export function editRun(row: CloudEnvironmentRow, draft: EnvironmentDraft): CloudEnvironmentsRun {
   const env = draft.env.filter((variable) => variable.name);
   return {
     action: "save",
     id: row.id,
-    name: draft.name,
+    ...(draft.name !== row.name ? { name: draft.name } : {}),
     ...(draft.repo !== (row.repo ?? "") ? { repo: draft.repo } : {}),
     ...(draft.setup_script !== row.setup_script ? { setup_script: draft.setup_script } : {}),
     ...(sameEnv(env, row.env ?? []) ? {} : { env }),

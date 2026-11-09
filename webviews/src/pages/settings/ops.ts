@@ -811,7 +811,8 @@ export type CloudEnvironmentsRun =
   | {
       action: "save";
       id?: string;
-      name: string;
+      /** Required to create; an edit sends it only when renamed. */
+      name?: string;
       repo?: string;
       setup_script?: string;
       /** The whole list; absent leaves it as it is. */

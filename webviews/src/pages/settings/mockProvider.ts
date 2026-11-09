@@ -783,7 +783,7 @@ export class MockSettingsProvider {
       case "refresh":
         return {};
       case "save":
-        if (!run.name.trim()) return { error: "Name must be 1-80 characters." };
+        if (run.name !== undefined ? !run.name.trim() : !run.id) return { error: "Name must be 1-80 characters." };
         if (run.id) {
           // Like CloudDO: a rename alone keeps the snapshot; a repo, script or variable edit makes it stale.
           const builds = run.repo !== undefined || run.setup_script !== undefined || run.env !== undefined;
@@ -793,7 +793,7 @@ export class MockSettingsProvider {
               row.id === run.id
                 ? {
                     ...row,
-                    name: run.name,
+                    name: run.name ?? row.name,
                     repo: run.repo === undefined ? row.repo : run.repo || null,
                     setup_script: run.setup_script ?? row.setup_script,
                     env: run.env ?? row.env,
@@ -810,7 +810,7 @@ export class MockSettingsProvider {
             ...rows,
             {
               id: `env_${String(rows.length + 1).padStart(20, "0")}`,
-              name: run.name,
+              name: run.name ?? "",
               repo: run.repo || null,
               setup_script: run.setup_script ?? "",
               env: run.env ?? [],
