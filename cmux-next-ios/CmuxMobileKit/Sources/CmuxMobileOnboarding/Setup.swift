@@ -166,7 +166,7 @@ public struct SetupFlow: View {
     /// the final plan dropped (Connect your Mac, when a Mac turned out to be
     /// online) still leads to the steps planned after it, such as
     /// notifications, instead of ending setup.
-    static func step(after step: Step, in steps: [Step]) -> Step? {
+    nonisolated static func step(after step: Step, in steps: [Step]) -> Step? {
         let order: [Step] = [.team, .createTeam, .pairMac, .notifications]
         guard let rank = order.firstIndex(of: step) else { return nil }
         return steps.first { (order.firstIndex(of: $0) ?? -1) > rank }
