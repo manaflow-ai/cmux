@@ -325,21 +325,35 @@ extension FieldChrome {
     /// MessagesLab's dark glass and white symbols otherwise.
     ///
     /// A light theme's glass is as pale as the page, so the field gets a hairline edge of
-    /// `edge` (the palette's `composeStroke`: 3:1 on the page, WCAG 1.4.11); dark glass keeps its own rim.
-    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil) {
+    /// `edge` (the palette's `composeStroke`: 3:1 on the page, WCAG 1.4.11). Dark glass draws its
+    /// own lit rim in a key window only; in a window that is not key the system glass is flat, so
+    /// the field takes `restingEdge` there instead (cmux#39302: only the focus look goes).
+    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil, restingEdge: NSColor? = nil) {
         field.wantsLayer = true
         if let layer = field.layer {
             // NSGlassEffectView rounds its glass internally, independently of its backing
             // layer. Keep the added hairline on the same curve instead of boxing the glass.
             if layer.cornerRadius != field.cornerRadius { layer.cornerRadius = field.cornerRadius }
-            let width: CGFloat = light && edge != nil ? 1 : 0
-            if layer.borderWidth != width { layer.borderWidth = width }
-            if let edge, light { layer.borderColor = edge.cgColor }
+            let color = (light ? edge : restingEdge)?.cgColor
+            if layer.borderColor != color { layer.borderColor = color }
         }
         let appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         if self.appearance?.name != appearance?.name { self.appearance = appearance }
         let tint: NSColor = light ? symbol : .white
         for b in [plus, emoji] where b.contentTintColor != tint { b.contentTintColor = tint }
+        updateRestingEdge(windowIsKey: window?.isKeyWindow ?? false)
+    }
+
+    /// Whether the field draws its hairline: always on a light theme, on a dark one only while
+    /// its window is not key (the key window's glass rim is the edge there, Messages' look).
+    static func drawsHairline(light: Bool, windowIsKey: Bool) -> Bool { light || !windowIsKey }
+
+    /// The hairline for one key state of the field's window (PaneHost+KeyState.swift observes it).
+    func updateRestingEdge(windowIsKey: Bool) {
+        guard let layer = field.layer else { return }
+        let light = appearance?.name == .aqua
+        let width: CGFloat = layer.borderColor != nil && Self.drawsHairline(light: light, windowIsKey: windowIsKey) ? 1 : 0
+        if layer.borderWidth != width { layer.borderWidth = width }
     }
 }
 

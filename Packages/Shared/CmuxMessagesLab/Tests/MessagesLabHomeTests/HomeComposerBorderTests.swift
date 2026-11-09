@@ -48,6 +48,34 @@ import UniformTypeIdentifiers
         #expect(try #require(chrome.field.layer).borderWidth == 0)
     }
 
+    /// cmux#39302: a dark field in a window that is not key keeps a resting hairline (the system
+    /// glass is flat there, with no lit rim); the key window's glass rim stays the edge.
+    @Test func aDarkFieldKeepsItsRestingHairlineOutsideTheKeyWindow() throws {
+        let chrome = FieldChrome(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        chrome.applyTheme(light: false, symbol: .white, edge: .black, restingEdge: .red)
+        let layer = try #require(chrome.field.layer)
+        #expect(layer.borderWidth == 1, "an unfocused dark field lost its outline")
+        #expect(layer.borderColor == NSColor.red.cgColor)
+        chrome.updateRestingEdge(windowIsKey: true)
+        #expect(layer.borderWidth == 0)
+        chrome.updateRestingEdge(windowIsKey: false)
+        #expect(layer.borderWidth == 1)
+    }
+
+    @Test func aLightFieldKeepsItsEdgeInBothKeyStates() throws {
+        let chrome = FieldChrome(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        chrome.applyTheme(light: true, symbol: .black, edge: .black, restingEdge: .red)
+        let layer = try #require(chrome.field.layer)
+        #expect(layer.borderColor == NSColor.black.cgColor)
+        for key in [true, false] {
+            chrome.updateRestingEdge(windowIsKey: key)
+            #expect(layer.borderWidth == 1)
+        }
+        #expect(FieldChrome.drawsHairline(light: true, windowIsKey: true))
+        #expect(FieldChrome.drawsHairline(light: false, windowIsKey: false))
+        #expect(!FieldChrome.drawsHairline(light: false, windowIsKey: true))
+    }
+
     @Test func borderGallery() throws {
         let context = try #require(CGContext(
             data: nil, width: 1520, height: 320, bitsPerComponent: 8, bytesPerRow: 0,
