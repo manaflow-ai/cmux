@@ -78817,19 +78817,19 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Endpoint"
+            "value": "Krajnja tačka"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Endpoint"
+            "value": "Slutpunkt"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Endpoint"
+            "value": "Endpunkt"
           }
         },
         "en": {
@@ -78841,19 +78841,19 @@
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Endpoint"
+            "value": "Punto de conexión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Endpoint"
+            "value": "Point de terminaison"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Endpoint"
+            "value": "Punto di accesso"
           }
         },
         "ja": {
@@ -78865,7 +78865,7 @@
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Endpoint"
+            "value": "ចំណុចបញ្ចប់"
           }
         },
         "ko": {
@@ -78883,13 +78883,13 @@
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Endpoint"
+            "value": "Punkt końcowy"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Endpoint"
+            "value": "Ponto de extremidade"
           }
         },
         "ru": {
@@ -78901,7 +78901,7 @@
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Endpoint"
+            "value": "ปลายทาง"
           }
         },
         "tr": {
@@ -78919,7 +78919,7 @@
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Endpoint"
+            "value": "Điểm cuối"
           }
         },
         "zh-Hans": {

@@ -35,7 +35,7 @@ import { Icon } from "../icons";
 import { t } from "../strings";
 
 const field = "field w-full";
-const label = "mb-0.5 block text-[12px] text-muted";
+const label = "mb-0.5 block text-detail text-muted";
 
 /** A preset's picker label. Product names stay out: only Claude and Codex are named. */
 const presetLabel = (id: EndpointPresetId) =>
@@ -190,7 +190,7 @@ export function EndpointForm({ done }: { done: () => void }) {
           onChange={(event) => change({ name: event.target.value })}
         />
       </label>
-      <p className="col-span-2 m-0 text-[12px] text-muted" data-endpoint-hint>
+      <p className="col-span-2 m-0 text-detail text-muted" data-endpoint-hint>
         {presetHint(presetId)}
       </p>
       <EndpointFields
@@ -240,13 +240,13 @@ export function EndpointForm({ done }: { done: () => void }) {
                 </span>
               </label>
               {spec.name === "baseUrl" && problem === "insecure" && (
-                <span className="mt-0.5 block text-[11px] text-warning">
+                <span className="mt-0.5 block text-caption text-warning">
                   {t("settingsPage.agents.endpoint.insecure")}
                 </span>
               )}
               {spec.name === "models" && <ModelsNote fetched={fetched} />}
               {spec.name === "apiKey" && (
-                <span className="mt-0.5 block text-[11px] text-soft" data-endpoint-key-note>
+                <span className="mt-0.5 block text-caption text-soft" data-endpoint-key-note>
                   {target?.own && target.typedKey && !draft.apiKey
                     ? t("settingsPage.agents.endpoint.keyStored")
                     : t("settingsPage.agents.endpoint.keyNote")}
@@ -272,17 +272,17 @@ export function EndpointForm({ done }: { done: () => void }) {
 function ModelsNote({ fetched }: { fetched: { count: number } | { error: string } | null }) {
   if (fetched && "error" in fetched)
     return (
-      <span className="mt-0.5 block text-[11px] text-danger" role="alert" data-endpoint-fetched="failed">
+      <span className="mt-0.5 block text-caption text-danger" role="alert" data-endpoint-fetched="failed">
         {fetched.error}
       </span>
     );
   if (fetched)
     return (
-      <span className="mt-0.5 block text-[11px] text-soft" data-endpoint-fetched={fetched.count}>
+      <span className="mt-0.5 block text-caption text-soft" data-endpoint-fetched={fetched.count}>
         {t("settingsPage.agents.endpoint.fetched", fetched.count)}
       </span>
     );
-  return <span className="mt-0.5 block text-[11px] text-soft">{t("settingsPage.agents.endpoint.modelsHelp")}</span>;
+  return <span className="mt-0.5 block text-caption text-soft">{t("settingsPage.agents.endpoint.modelsHelp")}</span>;
 }
 
 function EndpointProgress({ status }: { status: EndpointStatus }) {
@@ -295,7 +295,7 @@ function EndpointProgress({ status }: { status: EndpointStatus }) {
           : "settingsPage.agents.endpoint.checking";
     return (
       <output
-        className="col-span-2 block text-[12px] text-muted"
+        className="col-span-2 block text-detail text-muted"
         aria-live="polite"
         data-endpoint-status={status.state}
       >
@@ -306,7 +306,7 @@ function EndpointProgress({ status }: { status: EndpointStatus }) {
   if (status.state !== "failed") return null;
   const step = status.step;
   return (
-    <div className="col-span-2 flex gap-1.5 text-[12px]" role="alert" data-endpoint-status="failed">
+    <div className="col-span-2 flex gap-1.5 text-detail" role="alert" data-endpoint-status="failed">
       <span aria-hidden="true" className="inline-flex w-4 flex-none justify-center text-danger">
         <Icon name="xmark" />
       </span>
