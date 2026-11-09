@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR faf3c7d4ecd148910b054ca70867180e4a8ef5c80378718b12b3162006483f77.
+// cmux-tui mux protocol 12, IR c7918328d1ed2da616ebcfd1e02c57525fb3006147d9a2f9dbbb6c9605b18855.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1841,6 +1841,83 @@ pub struct ServerStatsConnections {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsDisk {
+    pub error: Nullable<String>,
+    pub files: Vec<ServerStatsDiskFile>,
+    pub files_truncated: bool,
+    pub files_unlisted: u64,
+    pub freelist_pages: u64,
+    pub journal: Nullable<ServerStatsDiskJournal>,
+    pub page_count: u64,
+    pub page_size: u64,
+    pub registry_bytes: u64,
+    pub segments: Nullable<ServerStatsDiskSegments>,
+    pub shm_bytes: u64,
+    pub wal_bytes: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsDiskFile {
+    pub bytes: u64,
+    pub files: u64,
+    pub name: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsDiskJournal {
+    pub estimated_live_bytes: u64,
+    pub first_sequence: u64,
+    pub head_sequence: u64,
+    pub kinds: Vec<ServerStatsDiskJournalKind>,
+    pub live_rows: u64,
+    pub sample_bytes: u64,
+    pub sample_rows: u64,
+    pub sample_span_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsDiskJournalKind {
+    pub budget_bytes_per_day: u64,
+    pub bytes_per_day: Nullable<u64>,
+    pub kind: String,
+    pub over_budget: bool,
+    pub sample_bytes: u64,
+    pub sample_rows: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsDiskSegmentCodec {
+    pub codec: String,
+    pub compressed_bytes: u64,
+    pub records: u64,
+    pub segments: u64,
+    pub uncompressed_bytes: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsDiskSegmentKind {
+    pub kind: String,
+    pub segments: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsDiskSegments {
+    pub by_codec: Vec<ServerStatsDiskSegmentCodec>,
+    pub compressed_bytes: u64,
+    pub kinds: Vec<ServerStatsDiskSegmentKind>,
+    pub records: u64,
+    pub segments: u64,
+    pub uncompressed_bytes: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsHistogram {
     pub count: u64,
     pub max: u64,
@@ -1972,6 +2049,8 @@ pub struct ServerStatsResourceProjection {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub disk: Option<ServerStatsDisk>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub hook_queue: Option<ServerStatsHookQueue>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
