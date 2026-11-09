@@ -74,7 +74,7 @@ pub(super) fn retire_sign_in_pending_at(home: &Path, current: Option<&str>) -> R
     if copied || p.joined_by.as_deref() != Some(super::enroll::JOINED_BY_SIGN_IN) {
         return Ok(());
     }
-    if !load_at(home)?.is_some_and(|record| record.credential == p.credential) {
+    if load_at(home)?.is_none_or(|record| record.credential != p.credential) {
         to_revoke::queue(
             home,
             &to_revoke::Row {
