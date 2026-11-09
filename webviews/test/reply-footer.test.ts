@@ -113,7 +113,10 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         found.push({
           first: line.firstElementChild?.className ?? "",
           glyph: glyph ? glyph.getBoundingClientRect().left - left : undefined,
-          detail: time?.getAttribute("title") ?? null,
+          // The tooltip's two lines: the exact time (title), then the turn's time and tokens.
+          detail: time
+            ? [time.getAttribute("title"), time.getAttribute("data-tooltip-detail")].filter(Boolean).join(" · ")
+            : null,
           buttons: buttons.map((button) => button.getBoundingClientRect().left - left),
           lastButtonRight: buttons.length ? buttons.at(-1)!.getBoundingClientRect().right - left : 0,
           actionsOpacity: Number(getComputedStyle(actions).opacity),
@@ -139,11 +142,11 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         const without = measured.filter((footer) => !footer.detail?.includes("Worked for"));
         expect(withStats.length, "a footer with the turn's time and tokens").toBeGreaterThan(0);
         expect(without.length, "a footer without them").toBeGreaterThan(0);
-        for (const footer of without) expect(footer.detail).toMatch(/\b20\d\d\b/);
+        for (const footer of measured) expect(footer.detail).toMatch(/\b20\d\d\b/);
         // The time on its own line, then one token count per row (turnTokensModel.ts `replyTimeDetail`).
         for (const footer of withStats)
           expect(footer.detail).toMatch(
-            /^Worked for 5s\nOutput .+\nInput across calls .+\u00a0uncached · .+\u00a0cached/,
+            /Worked for 5s\nOutput .+\nInput across calls .+\u00a0uncached · .+\u00a0cached/,
           );
         for (const footer of measured) {
           expect(footer.first).toContain("cv-turn-action-group");

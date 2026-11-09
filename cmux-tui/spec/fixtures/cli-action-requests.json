@@ -1116,6 +1116,18 @@
     },
     {
       "params": {
+        "action": "home start-agent",
+        "args": {
+          "agent": "/tmp/contract",
+          "conversation": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home start-agent --agent /tmp/contract --conversation /tmp/contract"
+    },
+    {
+      "params": {
         "action": "chat send",
         "args": {
           "text": "/tmp/contract",

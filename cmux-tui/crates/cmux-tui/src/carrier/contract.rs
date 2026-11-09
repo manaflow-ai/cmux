@@ -85,6 +85,24 @@ pub(super) struct Failure {
 /// restarting cannot keep a dial redialing.
 pub(super) const MAX_FRESH_SESSIONS: u32 = 2;
 
+/// One dial's budget of fresh sessions ([`MAX_FRESH_SESSIONS`]), shared by
+/// every step that may ask for one (the mux-control attempt and the
+/// desktop open), so a dial never opens more than that in total.
+#[derive(Default)]
+pub(super) struct FreshSessions(std::sync::atomic::AtomicU32);
+
+impl FreshSessions {
+    /// Spends one fresh session; false when the dial has none left.
+    pub(super) fn take(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        self.0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |spent| {
+                (spent < MAX_FRESH_SESSIONS).then_some(spent + 1)
+            })
+            .is_ok()
+    }
+}
+
 impl Failure {
     pub(super) fn retry(step: Step, detail: impl Into<String>) -> Self {
         Self { step, detail: detail.into(), retryable: true, fresh_session: false }

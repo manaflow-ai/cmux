@@ -47,6 +47,17 @@ Global options, accepted before the scope:
 `--socket`, `--session`, `--machine` and `--app-socket` also take the
 `--flag=value` form.
 
+A command that streams (every `stream_open` operation: `session events`,
+`session journal subscribe`, `terminal attach`) has no single JSON result:
+`--json` on one fails with `cli.use_jsonl`, exit 2, before anything connects.
+Its message and `details.command` name the same command with `--jsonl`.
+
+`cmux identify` with no cmux app to ask (a headless session, or `--session` or
+`CMUX_TUI_SOCKET` naming a session no app owns) answers from the session
+daemon: `session`, `machine`, `socket_path`, `caller` (found only in a cmux
+terminal), `app_connected: false`, `app: null` and `app_error` (why no app
+answered), exit 0. `--socket` and `--app-socket` still name the app socket.
+
 `--socket` is a daemon session socket. The remote commands (`connect`, `ssh`,
 `forward`, `rpc`) reach a ROUTE and refuse `--socket`. A tagged app's
 `~/.local/state/cmux/cmux-debug-<tag>.sock` is the app control socket: pass it with
@@ -611,6 +622,7 @@ cmux settings set <path> <value> [--confirm]
 cmux settings reset <path> [--confirm]
 cmux settings unset <path> [--confirm]
 cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats]
+            [--timeout <duration>] [--until <name>|<prefix>*] [--match <path>=<value>]...
 ```
 
 `settings set` parses the value as JSON when it parses, else as a string.
@@ -619,7 +631,9 @@ cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats
 Mac on a native sheet and waits for the answer with no client deadline; a
 declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
 `cmux settings set <path> -- --confirm` sets the string "--confirm".
-`events` streams JSON lines until interrupted.
+`events` streams JSON lines until interrupted, or until `--timeout` (exit 124,
+with a last `{"type":"timeout","timed_out":true}` line in JSON modes); with
+`--until`/`--match` it prints the first matching event and exits 0.
 
 `action run -` reads app actions from stdin, a JSON array or one JSON object
 per line of `action.run` params (`{"action": "newColumn", "target": "pane:…",

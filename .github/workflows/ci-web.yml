@@ -750,7 +750,7 @@ jobs:
       # uploaded). A test whose verdict flipped by itself there passed this replay by chance
       # as often as not, so it only warns: agent-pane-suggested-tasks was charged to 9 of 40
       # sampled red pull request runs (2026-10-30). Read-only and optional: no history means no
-      # flakes. Two requests (the list and the download), and only when the head has reds.
+      # flakes. Two requests (the list and the download), unless the head's results show no reds.
       - name: Restore the base's webview test history
         continue-on-error: true
         timeout-minutes: 2
@@ -760,7 +760,8 @@ jobs:
           HEAD_RESULTS: ${{ runner.temp }}/head-results/webviews-head-results.json
         run: |
           runner="$RUNNER_TEMP/head-results/runner"
-          if [ -z "$(python3 "$runner/webviews_test_results.py" --failed-files "$HEAD_RESULTS")" ]; then
+          # Head results it cannot read are unknown, not "no reds": fetch the history then too.
+          if reds="$(python3 "$runner/webviews_test_results.py" --failed-files "$HEAD_RESULTS")" && [ -z "$reds" ]; then
             echo "no head reds: the base's history is not needed"
             exit 0
           fi
@@ -1041,7 +1042,10 @@ jobs:
           pattern: webviews-test-history-shard*
           path: ${{ runner.temp }}/history-results
 
+      # A history it cannot read (a missing one is fine) fails this step, and the push saves none: saving its own run
+      # alone would replace the whole accumulated history with one run.
       - name: Restore the history
+        id: history-restore
         if: ${{ steps.history-download.outcome == 'success' }}
         continue-on-error: true
         timeout-minutes: 2
@@ -1050,11 +1054,11 @@ jobs:
           BRANCH: ${{ github.ref_name }}
         run: |
           python3 scripts/ci/webviews_test_history.py fetch "$RUNNER_TEMP/webviews-test-history/history.json" \
-            --repo "$GITHUB_REPOSITORY" --branch "$BRANCH"
+            --repo "$GITHUB_REPOSITORY" --branch "$BRANCH" --need-read
 
       - name: Add this push to the history
         id: history-record
-        if: ${{ steps.history-download.outcome == 'success' }}
+        if: ${{ steps.history-restore.outcome == 'success' }}
         continue-on-error: true
         run: |
           shards=("$RUNNER_TEMP"/history-results/webviews-test-history-shard*/webviews-head-results.json)
