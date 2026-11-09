@@ -221,3 +221,69 @@ fn a_result_for_a_reload_sent_before_the_click_never_lands_on_the_clicked_one() 
     h.repair_result(ID, ReloadPage, Some(2), false, 10_700);
     assert_eq!(h.next_tick_ms(), Some(10_700));
 }
+
+/// Drives `ID` every 500 ms to `until`: a beat every 2 s, and at each whole
+/// second `s` the input counters `counters(s)`. The actions, and when the
+/// page first read `slow`.
+fn drive_input(
+    h: &mut Health,
+    until: u64,
+    counters: impl Fn(u64) -> (u64, u64),
+) -> (Vec<(u64, RepairAction, u32)>, Option<u64>) {
+    let (mut actions, mut slow_at) = (Vec::new(), None);
+    for t in (0..=until).step_by(500) {
+        if t % 2_000 == 0 {
+            h.beat(ID, t);
+        }
+        if t % 1_000 == 0 && t > 0 {
+            let (sent, handled) = counters(t / 1_000);
+            h.input(ID, sent, handled, t);
+        }
+        actions.extend(run(h, t));
+        if slow_at.is_none() && part(h, ID).is_some_and(|p| p.state == State::Slow) {
+            slow_at = Some(t);
+        }
+    }
+    (actions, slow_at)
+}
+
+#[test]
+fn steady_input_handled_within_a_second_is_never_slow() {
+    let mut h = model();
+    register(&mut h, ID, Kind::Page, "Agent chat", 0);
+    // One input a second, each handled by the next report: something is
+    // always outstanding, but never for more than 1 s.
+    let (actions, slow_at) = drive_input(&mut h, 60_000, |s| (s, s - 1));
+    assert!(actions.is_empty(), "{actions:?}");
+    assert_eq!(slow_at, None);
+    assert_eq!(part(&h, ID), None);
+}
+
+#[test]
+fn input_whose_handling_stalls_is_timed_from_the_oldest_waiting_input() {
+    let mut h = model();
+    register(&mut h, ID, Kind::Page, "Agent chat", 0);
+    // Handled keeps up through input 5, then stops: input 6 (sent at 6 s)
+    // is the oldest waiting, while new input keeps coming.
+    let (actions, slow_at) = drive_input(&mut h, 17_000, |s| (s, (s - 1).min(5)));
+    assert_eq!(slow_at, Some(9_000));
+    assert_eq!(actions, vec![(16_000, ReloadPage, 1)]);
+    let stuck = part(&h, ID).expect("listed");
+    let words = stuck.detail;
+    assert!(words.starts_with("Has not handled your clicks or typing for 11 s."), "{words}");
+}
+
+#[test]
+fn input_marks_stay_bounded_and_keep_the_oldest_time() {
+    let mut h = model();
+    register(&mut h, ID, Kind::Page, "Agent chat", 0);
+    // 1,000 reports of new input in 2 s, none handled: still timed from the first.
+    for n in 1..=1_000u64 {
+        h.input(ID, n, 0, 1_000 + n);
+        h.beat(ID, 1_000 + n);
+    }
+    assert_eq!(h.next_tick_ms(), Some(1_001 + 3_000));
+    // Handled reaches every input: nothing waits.
+    h.input(ID, 1_000, 1_000, 2_500);
+    assert_eq!(h.next_tick_ms(), Some(2_000 + 5_000));
+}

@@ -82,8 +82,12 @@ struct Signals {
     last_beat: Option<u64>,
     sent: u64,
     handled: u64,
-    /// Since when input is sent but not handled.
-    input_since: Option<u64>,
+    /// Outstanding input, oldest first: `(sent, at)` says input up to count
+    /// `sent` was first reported at `at`. A mark leaves once `handled`
+    /// reaches it, so the front is the oldest input still waiting. At most
+    /// [`INPUT_MARKS`]; past that the newest mark takes the new count (its
+    /// time only overstates the age of the newest input).
+    input_marks: VecDeque<(u64, u64)>,
     crashed: bool,
     unresponsive_since: Option<u64>,
     disconnected: bool,
@@ -98,6 +102,16 @@ struct Signals {
     last_progress: u64,
     size: u64,
     roster_since: Option<u64>,
+}
+
+/// Bound of [`Signals::input_marks`].
+const INPUT_MARKS: usize = 32;
+
+impl Signals {
+    /// Since when the oldest input still waiting was sent.
+    fn input_since(&self) -> Option<u64> {
+        self.input_marks.front().map(|&(_, at)| at)
+    }
 }
 
 /// The repair episode of a part.
@@ -189,7 +203,7 @@ fn evaluate(part: &mut Part, now: u64) -> Cond {
                     healthy.until(beat + policy::PAGE_SLOW_SILENT_MS)
                 }
             });
-            let input = s.input_since.map_or(healthy, |since| {
+            let input = s.input_since().map_or(healthy, |since| {
                 let ms = now.saturating_sub(since);
                 if ms >= policy::PAGE_STUCK_MS {
                     stuck(Cause::PageInput { ms }, ladder)
@@ -376,10 +390,26 @@ impl Health {
             let s = &mut part.signals;
             s.sent = sent;
             s.handled = handled;
+            let marks = &mut s.input_marks;
             if handled >= sent {
-                s.input_since = None;
-            } else if s.input_since.is_none() {
-                s.input_since = Some(now);
+                marks.clear();
+                return;
+            }
+            // Handled input leaves; a count that went back drops the marks past it.
+            while marks.front().is_some_and(|&(upto, _)| upto <= handled) {
+                marks.pop_front();
+            }
+            while marks.back().is_some_and(|&(upto, _)| upto > sent) {
+                marks.pop_back();
+            }
+            // New input since the newest mark: a mark of its own, or, at the
+            // bound, folded into the newest one.
+            if marks.back().map(|&(upto, _)| upto) != Some(sent) {
+                if marks.len() < INPUT_MARKS {
+                    marks.push_back((sent, now));
+                } else if let Some(back) = marks.back_mut() {
+                    back.0 = sent;
+                }
             }
         });
     }
@@ -397,7 +427,11 @@ impl Health {
             if visible {
                 let s = &mut part.signals;
                 s.last_beat = Some(now);
-                s.input_since = s.input_since.map(|_| now);
+                // Waiting input is timed from the show, as one mark.
+                if let Some(&(upto, _)) = s.input_marks.back() {
+                    s.input_marks.clear();
+                    s.input_marks.push_back((upto, now));
+                }
                 s.unresponsive_since = s.unresponsive_since.map(|_| now);
             }
         });
@@ -414,7 +448,7 @@ impl Health {
                     s.crashed = false;
                     s.last_beat = Some(now);
                     s.handled = s.sent;
-                    s.input_since = None;
+                    s.input_marks.clear();
                     s.listener_missing = false;
                     s.host_broken = false;
                     s.load_failures.clear();
