@@ -32,6 +32,9 @@ and git ls-remote (no network) and checks what it does to the run:
   commit other than the workflow revision only on feat-cmux-next or main, and only when
   source_branch is a branch of this repository whose head contains the commit (compare API:
   ahead or identical, behind_by 0), so a fork object served by sha is refused.
+- for such a commit, validate-inputs also fails, and names the path, when the commit's tree lacks a
+  script or local action that the (newer) workflow file runs (scripts/ci/cmux-tui-commit-has-workflow-paths.py,
+  run directly and as the workflow step against a local origin).
 """
 
 from __future__ import annotations
@@ -618,6 +621,144 @@ def validate_step_cases(failures: list[str]) -> None:
          commit=head, workflow_sha=head, ref="refs/heads/verify-test", mode="full", test_filter="x")
 
 
+# scripts/ci/cmux-tui-commit-has-workflow-paths.py, run by validate-inputs for a --commit request:
+# the steps come from the workflow revision, the scripts they call from the tested commit.
+GUARD = ROOT / "scripts" / "ci" / "cmux-tui-commit-has-workflow-paths.py"
+GUARD_WORKFLOW = """\
+jobs:
+  test:
+    steps:
+      # A comment that names scripts/ci/only-in-a-comment.sh is not a step.
+      - run: bash scripts/ci/init-submodule.sh ghostty-next
+      - uses: ./.github/actions/setup-rust
+      - uses: ./.github/workflows/reusable.yml
+      - working-directory: cmux-tui
+        run: |
+          ../scripts/ci/cargo-test-selected.sh
+          python3 scripts/smoke-tui.py
+          bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-chrome.sh"
+          bash scripts/ci/${VARIANT}.sh
+          python3 cmux-tui/dist/scripts/package.py
+"""
+GUARD_FILES = {
+    "scripts/ci/init-submodule.sh": "", ".github/actions/setup-rust/action.yml": "",
+    "scripts/ci/cargo-test-selected.sh": "", "cmux-tui/scripts/smoke-tui.py": "",
+    "scripts/ci/ensure-chrome.sh": "", "cmux-tui/dist/scripts/package.py": "",
+}
+
+
+def git_fixture(directory: Path, files: dict[str, str]) -> str:
+    """A repository at `directory` with one commit holding `files`; returns its sha."""
+    env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "HOME": str(directory),
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
+    subprocess.run(["git", "init", "-q", "-b", "main", str(directory)], check=True, env=env)
+    for name, body in files.items():
+        path = directory / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+    subprocess.run(["git", "-C", str(directory), "add", "-A"], check=True, env=env)
+    subprocess.run(["git", "-C", str(directory), "commit", "-q", "--allow-empty", "-m", "fixture"], check=True, env=env)
+    return subprocess.run(["git", "-C", str(directory), "rev-parse", "HEAD"], check=True, env=env,
+                          capture_output=True, text=True).stdout.strip()
+
+
+def run_guard(files: dict[str, str], workflow: str = GUARD_WORKFLOW,
+              commit: str | None = None) -> tuple[int, str]:
+    directory = Path(tempfile.mkdtemp(prefix="workflow-paths-test."))
+    try:
+        sha = git_fixture(directory / "repo", files)
+        (directory / "cmux-tui.yml").write_text(workflow, encoding="utf-8")
+        result = subprocess.run([sys.executable, "-I", str(GUARD), commit or sha, str(directory / "cmux-tui.yml")],
+                                cwd=directory / "repo", capture_output=True, text=True, timeout=60)
+        return result.returncode, result.stdout + result.stderr
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def run_guard_step(*, has_scripts: bool) -> tuple[int, str]:
+    """Run validate-inputs' guard step as GitHub would: origin has the tested commit, the
+    checkout holds the workflow revision's files (here: the real cmux-tui.yml).
+
+    has_scripts: the tested commit has (empty copies of) every file under the checked
+    prefixes of this checkout; else it has only the small fixture set, which lacks most.
+    """
+    import yaml  # tooling-tests installs PyYAML
+
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    [step] = [step for step in workflow["jobs"]["validate-inputs"]["steps"]
+              if str(step.get("name", "")).startswith("Require the scripts this workflow runs")]
+    directory = Path(tempfile.mkdtemp(prefix="guard-step-test."))
+    try:
+        files = {name: "" for name in GUARD_FILES}
+        if has_scripts:
+            listing = subprocess.run(["git", "-C", str(ROOT), "ls-tree", "-r", "-z", "--name-only", "HEAD", "--",
+                                      "scripts", ".github/actions", ".github/scripts", "cmux-tui/scripts",
+                                      "cmux-tui/dist/scripts"], check=True, capture_output=True, text=True).stdout
+            files = {name: "" for name in listing.split("\0") if name}
+        origin = directory / "origin"
+        sha = git_fixture(origin, files)
+        env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "HOME": str(directory)}
+        subprocess.run(["git", "-C", str(origin), "config", "uploadpack.allowAnySHA1InWant", "true"], check=True, env=env)
+        subprocess.run(["git", "-C", str(origin), "config", "uploadpack.allowFilter", "true"], check=True, env=env)
+        checkout = directory / "checkout"
+        git_fixture(checkout, {
+            ".github/workflows/cmux-tui.yml": WORKFLOW.read_text(encoding="utf-8"),
+            ".github/workflows/cmux-tui-build-package.yml":
+                (ROOT / ".github/workflows/cmux-tui-build-package.yml").read_text(encoding="utf-8"),
+            "scripts/ci/cmux-tui-commit-has-workflow-paths.py": GUARD.read_text(encoding="utf-8"),
+        })
+        subprocess.run(["git", "-C", str(checkout), "remote", "add", "origin", f"file://{origin}"], check=True, env=env)
+        script = directory / "step.sh"
+        script.write_text(step["run"], encoding="utf-8")
+        assert step["env"] == {"EXACT_COMMIT": "${{ inputs.commit }}"}, step["env"]
+        result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)], cwd=checkout,
+                                env={**env, "EXACT_COMMIT": sha}, capture_output=True, text=True, timeout=120)
+        return result.returncode, result.stdout + result.stderr
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def guard_cases(failures: list[str]) -> None:
+    def case(name: str, ok: bool, code: int, out: str) -> None:
+        if not ok:
+            failures.append(f"workflow-paths guard: {name} (exit {code})\n--- output ---\n{out}")
+
+    code, out = run_guard(GUARD_FILES)
+    case("a commit with every script and local action passes (comments, variables and reusable "
+         "workflows are not checked; ../scripts, toplevel/scripts and cmux-tui/scripts resolve)", code == 0, code, out)
+    files = {k: v for k, v in GUARD_FILES.items() if k != "scripts/ci/cargo-test-selected.sh"}
+    code, out = run_guard(files)
+    case("a commit without a script the workflow calls fails and names it",
+         code == 1 and "missing: scripts/ci/cargo-test-selected.sh" in out and out.count("missing:") == 1, code, out)
+    files = {k: v for k, v in GUARD_FILES.items() if k != ".github/actions/setup-rust/action.yml"}
+    files[".github/actions/setup-rust/README.md"] = ""
+    code, out = run_guard(files)
+    case("a commit without a local action's action.yml fails and names it",
+         code == 1 and ".github/actions/setup-rust/action.yml" in out, code, out)
+    files = {k: v for k, v in GUARD_FILES.items() if k != "cmux-tui/scripts/smoke-tui.py"}
+    code, out = run_guard(files)
+    case("a bare scripts/ path found neither at the root nor under cmux-tui fails",
+         code == 1 and "scripts/smoke-tui.py or cmux-tui/scripts/smoke-tui.py" in out, code, out)
+    code, out = run_guard(GUARD_FILES, commit="abc123")
+    case("a short sha is a usage error", code == 2, code, out)
+    code, out = run_guard(GUARD_FILES, commit="d" * 40)
+    case("a commit the clone does not have is an error, not a pass", code == 2, code, out)
+    # The real workflows against this checkout's own tree: a fresh commit is never refused.
+    head = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], check=True,
+                          capture_output=True, text=True).stdout.strip()
+    result = subprocess.run([sys.executable, "-I", str(GUARD), head,
+                             str(WORKFLOW), str(ROOT / ".github/workflows/cmux-tui-build-package.yml")],
+                            cwd=ROOT, capture_output=True, text=True, timeout=60)
+    case("cmux-tui.yml and cmux-tui-build-package.yml name only paths this checkout has",
+         result.returncode == 0, result.returncode, result.stdout + result.stderr)
+    code, out = run_guard_step(has_scripts=True)
+    case("the validate-inputs guard step passes for a commit with this checkout's scripts", code == 0, code, out)
+    code, out = run_guard_step(has_scripts=False)
+    case("the validate-inputs guard step fails for a commit without them, and names one",
+         code == 1 and "missing: scripts/ci/macos-cross.sh" in out, code, out)
+
+
 def signal_case(signum: int, whole_group: bool, want_cancels: int, want_code: int):
     def test(failures: list[str], name: str, box: Sandbox) -> None:
         process = box.start(["--full"], FAKE_STATES="queued||1", FAKE_WAITER_SLEEP="60",
@@ -696,6 +837,7 @@ def main() -> int:
     ]:
         scenario(failures, name, test)
     validate_step_cases(failures)
+    guard_cases(failures)
     if failures:
         print("\n\n".join(f"FAIL: {f}" for f in failures), file=sys.stderr)
         return 1

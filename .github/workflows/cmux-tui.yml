@@ -55,6 +55,30 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     steps:
+      # Only for a request whose commit is not the workflow revision: the trusted
+      # revision's own tools, no other file, and no blobs beyond them (the tested
+      # commit's trees are fetched after validation). The default request checks out nothing.
+      - name: Check out the workflow revision's tools (another commit only)
+        if: github.sha != inputs.commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/cmux-tui.yml
+            /.github/workflows/cmux-tui-build-package.yml
+            /scripts/ci/nightly-steps/ensure-gh.sh
+            /scripts/ci/cmux-tui-commit-has-workflow-paths.py
+
+      # The branch check below calls the GitHub API with gh. Blacksmith and hosted
+      # Ubuntu images carry it; LINUX_RUNNER may name another Linux host, which
+      # gets it from apt here, or the job fails here and says so.
+      - name: Make sure gh is on the runner (another commit only)
+        if: github.sha != inputs.commit
+        run: bash scripts/ci/nightly-steps/ensure-gh.sh
+
       # The default request tests the dispatched ref's head. A request for another
       # commit (verify-cmux-tui-hosted.sh --commit: the red commit of a fix, which is
       # not its branch's head) runs only from an integration branch, so that branch's
@@ -131,6 +155,20 @@ jobs:
               exit 1
               ;;
           esac
+
+      # The steps come from this workflow revision, but the scripts they call and the
+      # local actions they use come from the tested commit's tree. A commit on an
+      # older base can lack one: fail here, and name it, not deep in a job.
+      - name: Require the scripts this workflow runs in the tested commit (another commit only)
+        if: github.sha != inputs.commit
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        shell: bash
+        run: |
+          # The checkout is a blob:none partial clone: this fetches the commit and its trees only.
+          git fetch --quiet --no-tags --depth=1 --filter=blob:none origin "$EXACT_COMMIT"
+          python3 scripts/ci/cmux-tui-commit-has-workflow-paths.py "$EXACT_COMMIT" \
+            .github/workflows/cmux-tui.yml .github/workflows/cmux-tui-build-package.yml
 
   msrv-check:
     env:
