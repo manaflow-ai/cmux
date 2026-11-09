@@ -535,6 +535,26 @@ fn a_held_head_takes_what_its_links_point_at() {
 }
 
 #[test]
+fn a_held_head_link_through_other_links_lands_whole() {
+    let w = World::new(Serves::Hold);
+    let plain = plain_project(&w.root);
+    // `..` after a link climbs from where that link leads: CLAUDE.md is other/instructions.md.
+    std::fs::remove_file(plain.join("CLAUDE.md")).unwrap();
+    write(&plain.join("other/instructions.md"), "be kind\n");
+    write(&plain.join("other/deep/more.md"), "more\n");
+    std::fs::create_dir_all(plain.join("paths")).unwrap();
+    std::os::unix::fs::symlink("../other/deep", plain.join("paths/redirect")).unwrap();
+    std::os::unix::fs::symlink("paths/redirect/../instructions.md", plain.join("CLAUDE.md"))
+        .unwrap();
+    let remote = w.remote("plain");
+    let (ok, copied) = w.push_head_first(&plain, &remote, "app");
+    assert!(ok, "{copied}");
+    // Whatever went first, the chat's instructions are there once the folder reads ready.
+    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(60)).unwrap();
+    assert_eq!(std::fs::read_to_string(remote.join("CLAUDE.md")).unwrap(), "be kind\n");
+}
+
+#[test]
 fn a_held_head_that_would_start_mcp_servers_is_copied_whole_before_the_answer() {
     let w = World::new(Serves::Hold);
     let plain = plain_project(&w.root);

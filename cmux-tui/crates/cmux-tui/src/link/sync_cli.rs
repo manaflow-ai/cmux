@@ -131,6 +131,9 @@ pub(super) struct Summary {
     pub(super) skipped_counts: serde_json::Value,
     /// The content-addressed store's part ([`store`]), when one was asked for.
     pub(super) store: Option<serde_json::Value>,
+    /// Head links ([`push_head`]) the machine did not make, for nothing at their target
+    /// yet: a head without them is not the folder's head.
+    pub(super) head_links_short: u64,
 }
 
 impl Summary {
@@ -894,7 +897,7 @@ fn parse(args: &[String]) -> Option<Parsed> {
 /// progress on stderr ([`progress_printer`]).
 pub(super) fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summary> {
     let mut printer = progress_printer();
-    push_inner(socket, local, remote_root, &|_, _| true, false, false, Some(&mut printer))
+    push_inner(socket, local, remote_root, &|_, _| true, false, None, Some(&mut printer))
 }
 
 /// [`push`] of only the files in the head of a chat opened at `subpath`
@@ -908,43 +911,27 @@ pub(super) fn push_head(
     subpath: &str,
 ) -> anyhow::Result<Summary> {
     let mut printer = progress_printer();
-    let head = |relative: &str, _: bool| cmux_git::harness_head::in_head(relative, subpath);
-    push_inner(socket, local, remote_root, &head, false, true, Some(&mut printer))
+    let in_head = |relative: &str| cmux_git::harness_head::in_head(relative, subpath);
+    let head = |relative: &str, _: bool| in_head(relative);
+    push_inner(socket, local, remote_root, &head, false, Some(&in_head), Some(&mut printer))
 }
 
-/// Where the links in `linked` point, relative to the top, and where the links those
-/// reach point, in turn.
-fn link_targets(linked: &BTreeMap<String, Linked>) -> Vec<String> {
-    let mut targets = Vec::new();
-    let mut next: Vec<&str> = linked.keys().map(String::as_str).collect();
-    let mut seen = BTreeSet::new();
-    while let Some(path) = next.pop() {
-        if !seen.insert(path) {
-            continue;
-        }
-        let Some(target) =
-            linked.get(path).and_then(|link| links::resolve(links::parent_of(path), &link.target))
-        else {
-            continue;
-        };
-        // A link on the way to the target, or in the folder it names.
-        next.extend(
-            linked
-                .keys()
-                .map(String::as_str)
-                .filter(|other| within(&target, other) || within(other, &target)),
-        );
-        targets.push(target);
-    }
-    targets
-}
-
-/// Whether `relative` is `folder` or under it (any path is under the top, `""`).
-fn within(relative: &str, folder: &str) -> bool {
-    folder.is_empty()
-        || relative
-            .strip_prefix(folder)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+/// The files the head links (`head`) of the folder `top` end at, read through every link
+/// on the way on this disk: what the machine must have before it makes them.
+fn link_targets(
+    top: &Path,
+    set: &local::LocalSet,
+    head: &dyn Fn(&str) -> bool,
+) -> BTreeSet<String> {
+    set.links
+        .keys()
+        .filter(|path| head(path))
+        .filter_map(|path| {
+            let real = std::fs::canonicalize(top.join(path)).ok()?;
+            let relative = real.strip_prefix(top).ok()?.to_str()?.to_owned();
+            set.files.contains_key(&relative).then_some(relative)
+        })
+        .collect()
 }
 
 /// Whether `folder` is in a git working copy (its top folder or below it).
@@ -987,7 +974,7 @@ pub(super) fn push_kept(
     remote_root: &str,
     keep: &dyn Fn(&str, bool) -> bool,
 ) -> anyhow::Result<Summary> {
-    push_inner(socket, local, remote_root, keep, true, false, None)
+    push_inner(socket, local, remote_root, keep, true, None, None)
 }
 
 fn push_inner(
@@ -996,7 +983,7 @@ fn push_inner(
     remote_root: &str,
     keep: &dyn Fn(&str, bool) -> bool,
     files_only: bool,
-    link_targets_too: bool,
+    head_links: Option<&dyn Fn(&str) -> bool>,
     mut progress: Option<&mut dyn FnMut(Progress)>,
 ) -> anyhow::Result<Summary> {
     let local =
@@ -1005,12 +992,10 @@ fn push_inner(
     let mut set = local::collect(&local, rules)?;
     let before = set.files.len();
     let in_git = set.git;
-    // A link `keep` would leave without what it points at: the machine drops a link to
-    // nothing (`CLAUDE.md` to a `docs/` file not sent yet), so its target goes with it.
-    let targets = if link_targets_too { link_targets(&set.links) } else { Vec::new() };
-    set.files.retain(|relative, _| {
-        keep(relative, in_git) || targets.iter().any(|target| within(relative, target))
-    });
+    // A head link's file goes with it: the machine makes no link to nothing (`CLAUDE.md` to
+    // a `docs/` file not sent yet). One that still lands short is counted ([`Summary`]).
+    let targets = head_links.map(|head| link_targets(&local, &set, head)).unwrap_or_default();
+    set.files.retain(|relative, _| keep(relative, in_git) || targets.contains(relative));
     set.skipped += (before - set.files.len()) as u64;
     // A share of files (`cmux link access`) takes no symlink.
     if files_only {
@@ -1278,6 +1263,9 @@ fn push_inner(
         waiting = again;
     }
     for (relative, why) in skipped {
+        if why == skips::Why::SymlinkBroken && head_links.is_some_and(|head| head(&relative)) {
+            summary.head_links_short += 1;
+        }
         set.skips.note(&relative, why);
     }
     // Links skipped since the summary began are named too.

@@ -36,6 +36,8 @@ const RENEWING: &str = "renewing";
 /// A hold the machine took for this copy.
 pub(super) struct Hold {
     pub(super) job: String,
+    /// When it was asked for: the machine said it runs no earlier.
+    asked: fence::Now,
 }
 
 /// `git.seed.hold` on `remote` for a chat at `subpath`. None (the plain copy goes instead)
@@ -64,14 +66,17 @@ pub(super) fn take(
     {
         map.insert("subpath".into(), json!(subpath));
     }
+    let mut when = fence::now();
     let mut asked = sync_cli::machine_call(machine.socket, "git.seed.hold", params.clone());
     if asked.as_ref().is_err_and(|error| !sync_cli::is_refusal(error)) {
+        when = fence::now();
         asked = sync_cli::machine_call(machine.socket, "git.seed.hold", params);
     }
     match asked {
-        Ok(answer) => {
-            Ok(answer.get("job").and_then(Value::as_str).map(|job| Hold { job: job.to_owned() }))
-        }
+        Ok(answer) => Ok(answer
+            .get("job")
+            .and_then(Value::as_str)
+            .map(|job| Hold { job: job.to_owned(), asked: when })),
         Err(error) if sync_cli::refusal_code(&error).is_some_and(plain_copy_goes) => Ok(None),
         Err(error) => Err(error),
     }
@@ -93,7 +98,7 @@ pub(super) fn copy(
     fallback: Option<SeedError>,
 ) -> anyhow::Result<Pushed> {
     let socket = machine.socket;
-    let renewal = Renewal::start(socket, &hold.job);
+    let renewal = Renewal::start(socket, &hold.job, Some(hold.asked));
     let head = match sync_cli::push_head(socket, local, remote, subpath) {
         Ok(head) => head,
         Err(error) => {
@@ -102,8 +107,13 @@ pub(super) fn copy(
             return Err(error);
         }
     };
-    let marked = sync_cli::machine_call(socket, "git.seed.hold.head", json!({"job": hold.job}))
-        .map(|answer| answer.get("head_ready").and_then(Value::as_bool) == Some(true));
+    // A head link that found nothing at its target is missing from the head: not marked.
+    let marked = if head.head_links_short > 0 {
+        Ok(false)
+    } else {
+        sync_cli::machine_call(socket, "git.seed.hold.head", json!({"job": hold.job}))
+            .map(|answer| answer.get("head_ready").and_then(Value::as_bool) == Some(true))
+    };
     let marked = match marked {
         Ok(marked) => marked,
         Err(error) => {
@@ -164,7 +174,12 @@ fn rest_in_the_background(socket: &Path, local: &Path, remote: &str, job: &str) 
 /// `cmux link seed copy-rest --socket PATH --job JOB LOCAL REMOTE`: the rest of a held
 /// copy past its head, then the hold's end. Exit 0 once the folder reads ready.
 pub(super) fn copy_rest(socket: &Path, job: &str, local: &Path, remote: &str) -> i32 {
-    let renewal = Renewal::start(socket, job);
+    // Started unheard: it may have slept past the lease since the parent last heard. Until
+    // the machine says the hold runs it writes nothing, and the parent copies the rest itself.
+    let renewal = Renewal::start(socket, job, None);
+    if fence::confirm().is_err() {
+        return 1;
+    }
     println!("{RENEWING}");
     let whole = sync_cli::push(socket, local, remote);
     drop(renewal);
@@ -184,17 +199,18 @@ struct Renewal {
 }
 
 impl Renewal {
-    fn start(socket: &Path, job: &str) -> Self {
-        let fence = fence::raise(socket, job, LEASE);
+    fn start(socket: &Path, job: &str, heard: Option<fence::Now>) -> Self {
+        let fence = fence::raise(socket, job, LEASE, heard);
         let (stop, stopped) = mpsc::channel::<()>();
         let (socket, job) = (socket.to_path_buf(), job.to_owned());
         // Detached: it ends once `stop` is dropped.
         let _ =
             std::thread::Builder::new().name("cmux-link-hold-renewal".into()).spawn(move || {
                 while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(RENEW_EVERY) {
+                    let asked = fence::now();
                     let answer =
                         sync_cli::machine_call(&socket, "git.seed.status", json!({"job": job}));
-                    fence::heard(&job, &answer);
+                    fence::heard(&job, asked, &answer);
                 }
             });
         Self { _stop: stop, _fence: fence }

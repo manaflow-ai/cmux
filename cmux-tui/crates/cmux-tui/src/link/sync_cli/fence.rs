@@ -16,23 +16,26 @@ use serde_json::{Value, json};
 
 use super::remote::FsRefusal;
 
-/// The requests that change the machine's folder.
-const WRITES: [&str; 5] = ["fs.write", "fs.mkdir", "fs.rename", "fs.delete", "fs.symlink"];
+/// The requests that change the machine's folder, by hand or through the store (a fetch
+/// the machine writes in).
+const WRITES: [&str; 6] =
+    ["fs.write", "fs.mkdir", "fs.rename", "fs.delete", "fs.symlink", "blob.fetch.start"];
 
 static FENCE: Mutex<Option<Held>> = Mutex::new(None);
 
 /// The fence, up until dropped.
 pub(in crate::link) struct Raised(());
 
-/// Raises the fence of `job`, just taken or just renewed, on `socket`.
-pub(in crate::link) fn raise(socket: &Path, job: &str, lease: Duration) -> Raised {
-    let held = Held {
-        socket: socket.to_path_buf(),
-        job: job.to_owned(),
-        lease,
-        heard: Some((Instant::now(), SystemTime::now())),
-        lost: None,
-    };
+/// Raises the fence of `job` on `socket`; `heard` is when the machine last said it runs
+/// (None: the first write reads it).
+pub(in crate::link) fn raise(
+    socket: &Path,
+    job: &str,
+    lease: Duration,
+    heard: Option<Now>,
+) -> Raised {
+    let held =
+        Held { socket: socket.to_path_buf(), job: job.to_owned(), lease, heard, lost: None };
     *lock() = Some(held);
     Raised(())
 }
@@ -43,12 +46,22 @@ impl Drop for Raised {
     }
 }
 
-/// What a renewal heard of `job` (`git.seed.status`); a late answer of an earlier hold's
-/// renewal goes nowhere.
-pub(in crate::link) fn heard(job: &str, answer: &anyhow::Result<Value>) {
+/// Now, on both clocks.
+pub(in crate::link) fn now() -> Now {
+    (Instant::now(), SystemTime::now())
+}
+
+/// What a renewal asked at `asked` heard of `job` (`git.seed.status`): an answer is as old
+/// as its question. A late answer of an earlier hold's renewal goes nowhere.
+pub(in crate::link) fn heard(job: &str, asked: Now, answer: &anyhow::Result<Value>) {
     if let Some(held) = lock().as_mut().filter(|held| held.job == job) {
-        held.heard_now(answer, (Instant::now(), SystemTime::now()));
+        held.heard_now(answer, asked);
     }
+}
+
+/// Whether a write may go now ([`check`]): the machine says the hold runs.
+pub(in crate::link) fn confirm() -> anyhow::Result<()> {
+    check("fs.write")
 }
 
 /// Before `cmd` goes to the machine: a write under a fence whose hold is not known to run
@@ -60,7 +73,7 @@ pub(super) fn check(cmd: &str) -> anyhow::Result<()> {
     let mut fence = lock();
     let Some(held) = fence.as_mut() else { return Ok(()) };
     let (socket, job) = (held.socket.clone(), held.job.clone());
-    held.allows((Instant::now(), SystemTime::now()), || {
+    held.allows(now(), || {
         super::machine_call(&socket, "git.seed.status", json!({"job": job}))
     })
 }
@@ -80,13 +93,16 @@ struct Held {
     lost: Option<FsRefusal>,
 }
 
-type Now = (Instant, SystemTime);
+pub(in crate::link) type Now = (Instant, SystemTime);
 
 impl Held {
     fn heard_now(&mut self, answer: &anyhow::Result<Value>, now: Now) {
         match answer {
             Ok(job) if job.get("state").and_then(Value::as_str) == Some("running") => {
-                self.heard = Some(now);
+                // Never older than what is heard already.
+                if self.heard.is_none_or(|(heard, _)| heard < now.0) {
+                    self.heard = Some(now);
+                }
             }
             Ok(job) => {
                 let said = |key: &str| job.get(key).and_then(Value::as_str);
@@ -196,6 +212,16 @@ mod tests {
     }
 
     #[test]
+    fn a_fence_raised_unheard_reads_the_job_before_its_first_write() {
+        let now = (Instant::now(), SystemTime::now());
+        let mut fence = Held { heard: None, ..held(now) };
+        let expired = || Ok(json!({"state": "failed", "error_code": "seed.hold_expired"}));
+        assert_eq!(code(fence.allows(now, expired)), "seed.hold_expired");
+        let mut fence = Held { heard: None, ..held(now) };
+        fence.allows(now, running).unwrap();
+    }
+
+    #[test]
     fn a_job_the_machine_forgot_or_cannot_say_stops_the_writes() {
         let then = (Instant::now(), SystemTime::now());
         let later = (then.0 + LEASE, then.1 + LEASE);
@@ -209,7 +235,7 @@ mod tests {
 
     #[test]
     fn only_writes_are_fenced() {
-        assert!(WRITES.iter().all(|cmd| cmd.starts_with("fs.")));
         check("fs.stat").unwrap();
+        check("blob.fetch.status").unwrap();
     }
 }
