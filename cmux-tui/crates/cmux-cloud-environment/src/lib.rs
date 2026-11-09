@@ -417,21 +417,35 @@ impl Resolver {
     /// Brings the state file builds before NEXT's own folder kept in classic's
     /// `cmux/<bundle>` to [`Self::state_path`], once: a hard link, so a file already at
     /// the new place is never replaced and a rolled-back build still reads its choice
-    /// at the old path. Its `client-config` cache moves with it. Best effort: on any
-    /// error the resolver starts from the new place.
+    /// at the old path. Best effort: on any error the resolver starts from the new place.
     fn move_state_from_classic(&self) {
         let old = self.support("cmux").join(&self.bundle_id).join(STATE_FILE);
         let new = self.state_path();
         if !old.is_file() || new.exists() {
             return;
         }
-        let (Some(old_folder), Some(new_folder)) = (old.parent(), new.parent()) else { return };
-        if fs::create_dir_all(new_folder).is_ok() && fs::hard_link(&old, &new).is_ok() {
-            let cache = new_folder.join("client-config");
-            if !cache.exists() {
-                let _ = fs::rename(old_folder.join("client-config"), cache);
-            }
+        if let Some(parent) = new.parent()
+            && fs::create_dir_all(parent).is_ok()
+        {
+            let _ = fs::hard_link(&old, &new);
         }
+    }
+
+    /// The validated client-config cache's folder, beside [`Self::state_path`]. Every bundle
+    /// has one (also an immutable one with no state file), so the cache builds before NEXT's
+    /// own folder kept in classic's `cmux/<bundle>` moves here on its own, once, never over
+    /// a cache already here.
+    pub(crate) fn client_config_dir(&self) -> PathBuf {
+        let dir = self.support("cmux-next").join(&self.bundle_id).join("client-config");
+        let old = self.support("cmux").join(&self.bundle_id).join("client-config");
+        if !dir.exists()
+            && old.is_dir()
+            && let Some(parent) = dir.parent()
+            && fs::create_dir_all(parent).is_ok()
+        {
+            let _ = fs::rename(&old, &dir);
+        }
+        dir
     }
 
     pub fn bundle_id(&self) -> &str {
@@ -666,6 +680,25 @@ mod tests {
     }
 
     #[test]
+    fn the_config_cache_leaves_classics_folder_for_every_bundle() {
+        let home = Home::new();
+        for bundle in ["com.cmuxterm.app.nightly", DEV_BUNDLE] {
+            let resolver = Resolver::new(bundle, &home.0).unwrap();
+            let old = home
+                .0
+                .join("Library/Application Support")
+                .join("cmux")
+                .join(bundle)
+                .join("client-config");
+            fs::create_dir_all(&old).unwrap();
+            fs::write(old.join("origin.json"), b"{}").unwrap();
+            let dir = resolver.client_config_dir();
+            assert!(dir.join("origin.json").is_file() && !old.exists());
+            assert_eq!(dir.parent(), resolver.state_path().parent());
+        }
+    }
+
+    #[test]
     fn a_choice_kept_in_classics_folder_moves_once_and_is_kept() {
         let home = Home::new();
         let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
@@ -679,13 +712,9 @@ mod tests {
             .join(STATE_FILE);
         fs::create_dir_all(old.parent().unwrap()).unwrap();
         fs::rename(&new, &old).unwrap();
-        let cache = old.parent().unwrap().join("client-config/origin.json");
-        fs::create_dir_all(cache.parent().unwrap()).unwrap();
-        fs::write(&cache, b"{}").unwrap();
         assert_eq!(resolver.resolve(None).unwrap().name, "staging");
-        // A rolled-back build still reads the choice where it kept it; the config cache moved with it.
+        // A rolled-back build still reads the choice where it kept it.
         assert!(new.is_file() && old.is_file());
-        assert!(new.parent().unwrap().join("client-config/origin.json").is_file());
         fs::remove_file(&old).unwrap();
         // A choice already in NEXT's folder is never replaced by an older one.
         fs::write(&old, br#"{"name":"prod"}"#).unwrap();

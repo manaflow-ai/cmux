@@ -112,12 +112,7 @@ pub(crate) fn without_fetch(resolver: &Resolver, mut selection: Selection) -> Op
 }
 
 fn cache_path(resolver: &Resolver, origin: &str) -> Result<std::path::PathBuf, String> {
-    Ok(resolver
-        .state_path()
-        .parent()
-        .ok_or("cloud state has no parent")?
-        .join("client-config")
-        .join(format!("{}.json", namespace(origin))))
+    Ok(resolver.client_config_dir().join(format!("{}.json", namespace(origin))))
 }
 
 pub(crate) async fn resolve(
