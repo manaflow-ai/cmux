@@ -259,7 +259,7 @@ export function cmuxCommandRefusal(
   state: {
     summary: boolean;
     forkable: boolean;
-    /// Why `/side` cannot fork the chat now (`forkRefusal`), undefined when it can: unlike `/fork`,
+    /// Why `/side` cannot fork the chat now (`sideChatRefusal`), undefined when it can: unlike `/fork`,
     /// a working chat forks as it is now and its own turn goes on (#38042).
     sideFork?: "unavailable" | "nothingYet";
     sideAvailable: boolean;

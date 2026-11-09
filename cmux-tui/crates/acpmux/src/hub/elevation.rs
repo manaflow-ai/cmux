@@ -42,8 +42,10 @@ pub(super) const ASK_TTL: Duration = Duration::from_secs(10 * 60);
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 pub const MAX_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// How long sudo has after SIGTERM before SIGKILL.
+// timeout: a sudo that ignores SIGTERM gets SIGKILL after this grace.
 const TERM_GRACE: Duration = Duration::from_secs(5);
 /// How long the killed group may take to be reaped before it counts as still running.
+// timeout: bounds a 50 ms killpg check (not our children: no exit event); then still running.
 const KILL_SETTLE: Duration = Duration::from_secs(2);
 /// How long sudo may take to print its prompt before stdin closes with no password: past it,
 /// sudo asked for none (or is stuck), and an empty stdin is what the command gets.
@@ -514,6 +516,7 @@ async fn may_skip_password(sudo: &Path, command: &str) -> bool {
         .kill_on_drop(true);
     let Ok(mut child) = probe.spawn() else { return false };
     let listing = read_capped(child.stdout.take(), LISTING_BYTES);
+    // timeout: a `sudo -l` that never ends counts as no rule; kill_on_drop ends it.
     let Ok((status, (listing, cut))) = tokio::time::timeout(Duration::from_secs(10), async {
         tokio::join!(child.wait(), listing)
     })
@@ -606,6 +609,7 @@ async fn forget_timestamp(sudo: &Path) {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
+    // timeout: best-effort cleanup; a stuck `sudo -k` must not hold the command's answer.
     let _ = tokio::time::timeout(Duration::from_secs(10), forget).await;
 }
 

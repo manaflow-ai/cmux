@@ -126,6 +126,9 @@ export function forgetTail(sessionId: string): void {
   readAheadTails.delete(sessionId);
   reading.delete(sessionId);
   void callHost("chat.tail", { sessionId }).catch(() => undefined);
+  // Its drawn copy (chatSnapshot/) goes with it: the next launch draws no frame of it either. When
+  // it went (`savedAt`): a copy captured before it and arriving after is never kept.
+  void callHost("chat.snapshot.put", { sessionId, savedAt: Date.now() }).catch(() => undefined);
 }
 
 /// Asks the app host for this chat's tail and keeps what it answers, so a cold page can draw the

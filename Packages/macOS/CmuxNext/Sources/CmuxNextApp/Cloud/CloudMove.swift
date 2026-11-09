@@ -315,8 +315,7 @@ struct CloudMove {
     /// The Cloud API's answer on the link, read now and never kept: the machine takes the chat only on
     /// `owner`. The app link's carrier has no link process (`toPID`).
     static func ownerAnswer(_ session: CloudMachineSession) async -> (vmKind: String, toPID: Int32?) {
-        guard let appLink = session.appLink else { return ("none", nil) }
-        return (await appLink.ownerLink == nil ? "none" : "owner", nil)
+        (await session.appLink.ownerLink == nil ? "none" : "owner", nil)
     }
 
     static func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {

@@ -124,6 +124,9 @@ fill_later() {
   elif [ "$mode" = refresh ]; then
     echo "cmux repo: cannot update $dir in the background; updating it now" >&2
     refresh || die "$why"
+    # The start kept its helper and read its commit before this update: both again, after it.
+    keep_helper
+    sha=$(g -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
   else
     echo "cmux repo: cannot fill $dir in the background; filling it now" >&2
     fill_now || die "cannot check out all of $url"

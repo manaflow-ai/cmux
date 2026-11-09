@@ -115,10 +115,16 @@ impl Driver {
             return;
         }
         let packet = ultra_hello::packet(local, remote, hello);
-        if let TunnResult::WriteToNetwork(encrypted) =
-            self.tunn.encapsulate(&packet, &mut self.scratch)
-        {
-            self.underlay.send(encrypted);
+        let copy = self
+            .negotiation
+            .discovering()
+            .then(|| ultra_hello::discovery_packet(local, remote, hello));
+        for packet in std::iter::once(packet).chain(copy) {
+            if let TunnResult::WriteToNetwork(encrypted) =
+                self.tunn.encapsulate(&packet, &mut self.scratch)
+            {
+                self.underlay.send(encrypted);
+            }
         }
         self.negotiation.sent(now);
     }

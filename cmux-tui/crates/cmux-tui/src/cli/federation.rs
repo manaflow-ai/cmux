@@ -303,12 +303,19 @@ pub(super) fn run_all_sessions(global: &GlobalArgs, plan: RequestPlan) -> i32 {
     }
     let code = if let ResponseView::AgentRoster(_) = plan.view {
         let mut terminals = Vec::new();
+        let mut tabs = Vec::new();
         let mut notifications = Vec::new();
         for (session, socket) in session_sockets() {
             if let Ok(Some(Value::Array(list))) =
                 list_on(&socket, &session, ResourceOperation::TerminalList, &json!({}))
             {
                 terminals.extend(list);
+            }
+            // A tab's name is its agent's name (agent_roster.rs).
+            if let Ok(Some(Value::Array(list))) =
+                list_on(&socket, &session, ResourceOperation::TabList, &json!({}))
+            {
+                tabs.extend(list);
             }
             // Unread markers make an idle agent `done` (agent_roster.rs).
             let limit = json!({"limit": super::wire::NOTIFICATION_LIMIT});
@@ -322,6 +329,7 @@ pub(super) fn run_all_sessions(global: &GlobalArgs, plan: RequestPlan) -> i32 {
             plan.view,
             join(results),
             &terminals,
+            &tabs,
             &notifications,
             &plan.params,
         );
