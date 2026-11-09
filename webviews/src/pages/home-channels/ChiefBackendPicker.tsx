@@ -9,11 +9,14 @@ import { useEffect, useId, useState, type InputHTMLAttributes } from "react";
 import type { Strings } from "../shared/i18n";
 import { EndpointFields } from "../shared/EndpointFields";
 import {
+  addedTarget,
   bringEndpoint,
   checkEndpoint,
   endpointBackend,
   endpointBusy,
   modelList,
+  newTarget,
+  type AddTarget,
   type EndpointDraft,
   type EndpointKind,
   type EndpointStatus,
@@ -275,12 +278,16 @@ function BringYourOwn({
   const [status, setStatus] = useState<EndpointStatus>({ state: "editing" });
   // The model a passed check picks: the first of the endpoint's.
   const [picked, setPicked] = useState("");
+  // The endpoint harness this form added: an Add after a failed check writes it again.
+  const [target, setTarget] = useState<AddTarget | null>(null);
   const endpoint = kind !== "command";
   const busy = endpointBusy(status);
   const complete =
     name.trim() !== "" &&
     (endpoint
-      ? draft.baseUrl.trim() !== "" && modelList(draft.models).length > 0 && draft.apiKey !== ""
+      ? draft.baseUrl.trim() !== "" &&
+        modelList(draft.models).length > 0 &&
+        (draft.apiKey !== "" || !!(target?.own && target.typedKey))
       : command.trim() !== "");
   const recheck = async (harness: string) => {
     setStatus({ state: "checking", harness });
@@ -291,13 +298,24 @@ function BringYourOwn({
   const submit = async () => {
     if (!complete || busy) return;
     const model = endpoint ? (modelList(draft.models)[0] ?? "") : "";
+    const full = { ...draft, kind: kind as EndpointKind, name };
+    let at: AddTarget | undefined;
+    if (endpoint) {
+      try {
+        at = target ?? (await newTarget(service, full, kind));
+      } catch {
+        // No list: the host makes the id from the name and refuses one it has.
+      }
+    }
     const backend: HomeChiefByoBackend = endpoint
-      ? endpointBackend({ ...draft, kind: kind as EndpointKind, name })
+      ? endpointBackend(full, at)
       : { kind: "command", name: name.trim(), command: command.trim(), args: words(args) };
     // The key leaves the page's state now: only the host's add call carries it.
     setDraft((before) => ({ ...before, apiKey: "" }));
     setPicked(model);
     const done = await bringEndpoint(service, backend, setStatus);
+    if (at && backend.kind !== "command" && (done.state !== "failed" || done.harness))
+      setTarget(addedTarget(at, backend));
     if (done.state === "passed") onPassed(done.harness, model);
   };
   const kinds: [Kind, string][] = [

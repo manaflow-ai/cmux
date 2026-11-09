@@ -106,10 +106,6 @@ pub struct AddParams {
     pub models: Vec<String>,
     /// Endpoint examples: the Keychain item that holds the key.
     pub keychain_item: Option<String>,
-    /// Endpoint examples: an endpoint profile of the same id is written
-    /// again without `replace` (the daemon's add: the app adds again after a
-    /// failed check, and its key under that id was just stored again).
-    pub replace_endpoint: bool,
 }
 
 impl AddParams {
@@ -188,7 +184,6 @@ impl AddParams {
             base_url: text("baseUrl")?,
             models,
             keychain_item: text("keychainItem")?,
-            replace_endpoint: false,
         })
     }
 }
@@ -503,7 +498,7 @@ fn add_endpoint(kind: byo_endpoint::Kind, p: &AddParams, dir: &Path) -> Result<A
         keychain_item: &item,
     });
     let path = dir.join(format!("{id}.toml"));
-    if path.exists() && !p.replace && !(p.replace_endpoint && is_endpoint_file(&path)) {
+    if path.exists() && !p.replace {
         return Err(AdminError::Exists(format!(
             "{} exists; pass replace to write it again",
             path.display()
@@ -517,12 +512,6 @@ fn add_endpoint(kind: byo_endpoint::Kind, p: &AddParams, dir: &Path) -> Result<A
         id,
         path,
     })
-}
-
-/// Whether the profile file at `path` is an endpoint harness `add` wrote.
-fn is_endpoint_file(path: &Path) -> bool {
-    let marker = format!("{} = ", byo_endpoint::OWN_ENDPOINT_KEY);
-    std::fs::read_to_string(path).is_ok_and(|text| text.lines().any(|l| l.starts_with(&marker)))
 }
 
 /// Fills in `*` of an endpoint add's models with what the endpoint lists

@@ -203,12 +203,18 @@ Settings › Agents › Add Agent… › **Endpoint**:
 2. Type the model ids, separated by commas (the first is the default), or press **Fetch Models**:
    acpmux asks the endpoint for `<base URL>/models` (10 s at most; https, or plain http only to
    this Mac) and fills the list. Remove the ones you don't want. Fetch Models already adds the
-   endpoint with every model it lists; Check and Add writes it again with the models you kept.
+   endpoint with every model it lists; Check and Add writes it again with the models you kept. If
+   you close the form before a check passes, the endpoint Fetch Models added is removed again.
 3. Press **Check and Add**. The key goes to your Keychain in the same call, the profile is
    written, and one real prompt is sent. If it fails, the form stays open and shows the failing
    step with its message and fix (the key, the base URL or the model); change the field and press
-   Check and Add again, which writes the same endpoint again. When it answers, the panel closes and
-   the new harness is in the model picker with each of its models.
+   Check and Add again, which writes the same endpoint again. A key you already typed stays in your
+   Keychain: leave the field empty to keep it, or type a new one. When it answers, the panel closes
+   and the new harness is in the model picker with each of its models.
+4. Each endpoint gets its own id, made from its name (ASCII letters and digits; a name without
+   any, as in Japanese, Chinese or Korean, takes the preset's id, such as `local-models`), with
+   `-2`, `-3` and so on when the id is taken. A form only ever writes over the endpoint it added
+   itself; an id another harness already has is refused before any key is stored.
 
 ### From the CLI
 
@@ -258,8 +264,11 @@ From the app (the unix socket): `_acpmux/harness/secret/set {id, key, value}` st
 profile at it, never echoing the value; for an id not added yet it stores the item and answers
 `profile: "pending"`. Then `_acpmux/harness/add {example: "anthropic-endpoint" |
 "openai-endpoint", id, displayName, baseUrl, model (one id, several comma separated, or `*`),
-models?, keychainItem?}` answers with `secret: {key, keychainItem}`; it writes an endpoint profile
-of the same id again without `replace`. Then `_acpmux/harness/doctor {id, prompt: true}`. The
+models?, keychainItem?, replace?}` answers with `secret: {key, keychainItem}`; an id that already
+has a profile is refused (`harness.exists`) unless `replace` is true. The app's
+`cmux.chief.backend.add {id?, replace?, apiKey?, ...}` refuses an id acpmux has before it stores the
+key, unless `replace` names that same id (the form's own earlier add), and then a missing `apiKey`
+keeps the stored one. Then `_acpmux/harness/doctor {id, prompt: true}`. The
 Settings form and the Chief editor reach these through the app's `cmux.chief.backend.add|doctor`.
 
 ## Terminal harnesses (no ACP)

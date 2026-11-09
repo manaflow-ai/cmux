@@ -5,8 +5,11 @@ import {
   ENDPOINT_PRESETS,
   NO_KEY,
   bringEndpoint,
+  addedTarget,
   canFetchModels,
   endpointBackend,
+  endpointId,
+  endpointProblemAt,
   endpointModelIds,
   endpointProblem,
   endpointUrlProblem,
@@ -81,7 +84,7 @@ test("the host's add gets the models comma separated and a stand-in key for a ke
     model: "big,mid",
     apiKey: NO_KEY,
   });
-  expect(endpointBackend(draft({ apiKey: " key " }), ["*"])).toMatchObject({ model: "*", apiKey: "key" });
+  expect(endpointBackend(draft({ apiKey: " key " }), undefined, ["*"])).toMatchObject({ model: "*", apiKey: "key" });
   expect(endpointModelIds("openai-endpoint", [{ id: "byo/org/m" }, { id: "plain" }])).toEqual(["org/m", "plain"]);
   expect(endpointModelIds("anthropic-endpoint", [{ id: "byo/x" }])).toEqual(["byo/x"]);
 });
@@ -126,8 +129,50 @@ test("bring adds, then checks; it reports each state and the first failing step"
   });
 });
 
-test("fetch adds the endpoint with * and reads its models back", async () => {
+test("fetch adds the endpoint with * at the form's id and reads its models back", async () => {
   const host = service({ ok: true, steps: [] });
-  expect(await fetchEndpointModels(host, draft({ models: "" }))).toEqual(["one", "two"]);
-  expect(host.added[0]).toMatchObject({ model: "*", apiKey: NO_KEY });
+  const fetched = await fetchEndpointModels(host, draft({ models: "" }), { id: "local", own: false, typedKey: false });
+  expect(fetched).toEqual({ models: ["one", "two"], target: { id: "local", own: true, typedKey: false } });
+  expect(host.added[0]).toEqual({
+    kind: "openai-endpoint",
+    name: "Local",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    model: "*",
+    apiKey: NO_KEY,
+    id: "local",
+  });
+});
+
+test("a new id is an ASCII slug numbered past every harness, never a localized name's my-backend", () => {
+  expect(endpointId("Local Models", "local-models", [])).toBe("local-models");
+  expect(endpointId("Local Models", "local-models", ["local-models", "local-models-2"])).toBe("local-models-3");
+  // A name with no ASCII letters (ja, zh, ko): the preset's own id.
+  expect(endpointId("ローカルモデル", "local-models", [])).toBe("local-models");
+  expect(endpointId("ホスト型モデル", "hosted-models", ["hosted-models"])).toBe("hosted-models-2");
+  expect(endpointId("", "", [])).toBe("endpoint");
+  expect(endpointId("x".repeat(60), "f", []).length).toBeLessThanOrEqual(40);
+});
+
+test("only the form's own earlier add is replaced, and a retry keeps the key it stored", () => {
+  const fresh = { id: "team-models", own: false, typedKey: false };
+  // A new add names its id and replaces nothing.
+  const first = endpointBackend(draft({ apiKey: "real-key" }), fresh);
+  expect(first).toMatchObject({ id: "team-models", apiKey: "real-key" });
+  expect(first.replace).toBeUndefined();
+  const mine = addedTarget(fresh, first);
+  expect(mine).toEqual({ id: "team-models", own: true, typedKey: true });
+  // The retry with the field cleared: replace that id and send no key (never no-key over it).
+  const retry = endpointBackend(draft(), mine);
+  expect(retry).toMatchObject({ id: "team-models", replace: "team-models" });
+  expect("apiKey" in retry).toBe(false);
+  expect(addedTarget(mine, retry).typedKey).toBe(true);
+  // A new key typed on the retry replaces the stored one.
+  expect(endpointBackend(draft({ apiKey: "new-key" }), mine)).toMatchObject({ apiKey: "new-key" });
+  // A required key may stay empty only when this form stored one.
+  expect(endpointProblemAt(draft(), "required", null)).toBe("key");
+  expect(endpointProblemAt(draft(), "required", mine)).toBeNull();
+  // Without a typed key stored (a keyless server), a retry still sends the stand-in.
+  const keyless = addedTarget(fresh, endpointBackend(draft(), fresh));
+  expect(keyless.typedKey).toBe(false);
+  expect(endpointBackend(draft(), keyless)).toMatchObject({ apiKey: NO_KEY, replace: "team-models" });
 });

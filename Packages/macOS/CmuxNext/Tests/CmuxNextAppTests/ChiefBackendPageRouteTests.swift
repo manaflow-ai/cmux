@@ -46,9 +46,35 @@ import Testing
         #expect(throws: PageError.self) { try BroughtChiefBackend(params) }
     }
 
+    /// The page picks the id (a localized name may have no ASCII letters at all) and names the
+    /// same id in `replace` only to write its own earlier add again, which may keep the stored key.
+    @Test func thePagesIdAndReplaceAreTakenOnlyForTheSameId() throws {
+        let fresh = try BroughtChiefBackend([
+            "kind": "openai-endpoint", "name": "ローカルモデル", "id": "local-models-2",
+            "baseUrl": "http://127.0.0.1:11434/v1", "model": "a,b", "apiKey": "no-key",
+        ])
+        #expect(fresh.id == "local-models-2")
+        #expect(!fresh.replace)
+        let again = try BroughtChiefBackend([
+            "kind": "openai-endpoint", "name": "ローカルモデル", "id": "local-models-2", "replace": "local-models-2",
+            "baseUrl": "http://127.0.0.1:11434/v1", "model": "a",
+        ])
+        #expect(again.replace)
+        #expect(again.kind == .endpoint(example: "openai-endpoint", baseURL: "http://127.0.0.1:11434/v1", model: "a", apiKey: ""))
+        // `replace` naming another id replaces nothing, and then a key is required.
+        #expect(throws: PageError.self) {
+            try BroughtChiefBackend([
+                "kind": "openai-endpoint", "name": "X", "id": "mine", "replace": "theirs",
+                "baseUrl": "https://x.dev", "model": "m",
+            ])
+        }
+        #expect(try BroughtChiefBackend(["kind": "command", "name": "ローカル", "command": "x"]).id == "my-backend")
+    }
+
     @Test func idsAreLowercaseWordsAndDashes() {
         #expect(BroughtChiefBackend.id(for: "My Backend!") == "my-backend")
         #expect(BroughtChiefBackend.id(for: "--") == "my-backend")
         #expect(BroughtChiefBackend.id(for: "GPT 6 / Astra") == "gpt-6-astra")
+        #expect(BroughtChiefBackend.id(for: String(repeating: "ab ", count: 30)).count <= 40)
     }
 }

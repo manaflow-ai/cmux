@@ -5,7 +5,7 @@
 // once that answered (the new harness is then in the model picker). The fields and the add-then-check
 // sequence are the Chief editor's (shared/byoEndpoint.ts, shared/EndpointFields.tsx), through the
 // same host calls (`cmux.chief.backend.add|doctor|list`, the app's AgentHarnessCenter).
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { StableLabel } from "../../../ui/StableLabel";
@@ -13,14 +13,17 @@ import { ChiefHost } from "../../home-channels/chiefEditing";
 import { EndpointFields } from "../../shared/EndpointFields";
 import {
   ENDPOINT_PRESETS,
+  addedTarget,
   bringEndpoint,
   canFetchModels,
   endpointBackend,
   endpointBusy,
   endpointPreset,
-  endpointProblem,
+  endpointProblemAt,
   failureText,
   fetchEndpointModels,
+  newTarget,
+  type AddTarget,
   type EndpointDraft,
   type EndpointPresetId,
   type EndpointService,
@@ -81,9 +84,24 @@ export function EndpointForm({ done }: { done: () => void }) {
   const [draft, setDraft] = useState<EndpointDraft>(() => presetDraft("local-server"));
   const [status, setStatus] = useState<EndpointStatus>({ state: "editing" });
   const [fetched, setFetched] = useState<{ count: number } | { error: string } | null>(null);
+  // The harness this form added (Fetch Models, or a Check and Add whose check failed): every later
+  // add writes it again, never another one; closed without a passing check, it is removed.
+  const [target, setTarget] = useState<AddTarget | null>(null);
+  const own = useRef<{ id: string | null; saved: boolean }>({ id: null, saved: false });
+  useEffect(() => {
+    const mine = own.current;
+    return () => {
+      if (mine.id && !mine.saved) void store.runAgents({ action: "remove", id: mine.id });
+    };
+  }, [store]);
   const preset = endpointPreset(presetId);
   const busy = endpointBusy(status);
-  const problem = endpointProblem(draft, preset.key);
+  const problem = endpointProblemAt(draft, preset.key, target);
+  const targetFor = async () => target ?? (await newTarget(service, draft, preset.idBase));
+  const owned = (next: AddTarget) => {
+    own.current.id = next.id;
+    setTarget(next);
+  };
   const change = (patch: Partial<EndpointDraft>) => setDraft((before) => ({ ...before, ...patch }));
   const pick = (id: EndpointPresetId) => {
     // The typed name and models stay unless they were the last preset's; the key never carries over.
@@ -97,11 +115,15 @@ export function EndpointForm({ done }: { done: () => void }) {
     setStatus({ state: "editing" });
   };
   const fetchModels = async () => {
-    if (busy || !canFetchModels(draft, preset.key)) return;
+    if (busy || !canFetchModels(draft, preset.key, target)) return;
     setStatus({ state: "fetching" });
     setFetched(null);
     try {
-      const models = await fetchEndpointModels(service, draft);
+      const answer = await fetchEndpointModels(service, draft, await targetFor());
+      owned(answer.target);
+      // The key is stored now: the field empties, and a save keeps what was stored.
+      change({ apiKey: "" });
+      const models = answer.models;
       if (models.length > 0) change({ models: models.join(", ") });
       setFetched({ count: models.length });
     } catch (failure) {
@@ -111,11 +133,22 @@ export function EndpointForm({ done }: { done: () => void }) {
   };
   const submit = async () => {
     if (busy || problem) return;
-    const backend = endpointBackend(draft);
+    setStatus({ state: "adding" });
+    let at: AddTarget;
+    try {
+      at = await targetFor();
+    } catch (failure) {
+      return setStatus({ state: "failed", step: { name: "add", ok: false, detail: failureText(failure) } });
+    }
+    const backend = endpointBackend(draft, at);
     // The key leaves the page's state now: only the host's add call carries it.
     change({ apiKey: "" });
     const result = await bringEndpoint(service, backend, setStatus);
-    if (result.state === "passed") done();
+    if (result.state !== "failed" || result.harness) owned(addedTarget(at, backend));
+    if (result.state === "passed") {
+      own.current.saved = true;
+      done();
+    }
   };
   return (
     <form
@@ -196,7 +229,7 @@ export function EndpointForm({ done }: { done: () => void }) {
                     <Button
                       type="button"
                       className="button"
-                      disabled={busy || !canFetchModels(draft, preset.key)}
+                      disabled={busy || !canFetchModels(draft, preset.key, target)}
                       onClick={() => void fetchModels()}
                     >
                       {t("settingsPage.agents.endpoint.fetch")}
@@ -211,7 +244,11 @@ export function EndpointForm({ done }: { done: () => void }) {
               )}
               {spec.name === "models" && <ModelsNote fetched={fetched} />}
               {spec.name === "apiKey" && (
-                <span className="mt-0.5 block text-[11px] text-soft">{t("settingsPage.agents.endpoint.keyNote")}</span>
+                <span className="mt-0.5 block text-[11px] text-soft" data-endpoint-key-note>
+                  {target?.own && target.typedKey && !draft.apiKey
+                    ? t("settingsPage.agents.endpoint.keyStored")
+                    : t("settingsPage.agents.endpoint.keyNote")}
+                </span>
               )}
             </div>
           );

@@ -76,27 +76,35 @@ export class MockAgents {
   readonly listeners = new Set<(state: AgentsState) => void>();
   private backups = 0;
 
-  /** `cmux.chief.backend.add` for an endpoint, as the host and acpmux run it: the id from the name,
-   * `*` the endpoint's list, an endpoint profile of the same id written again. Never keeps the key. */
+  /** Every key the host stored, by harness id (what `secret/set` wrote), for tests. */
+  readonly keys = new Map<string, string>();
+
+  /** `cmux.chief.backend.add` for an endpoint, as the host and acpmux run it: the page's id (else
+   * one from the name), refused when acpmux has it unless `replace` names it, the key stored only
+   * when sent, `*` the endpoint's list. */
   addEndpoint(params: Record<string, unknown>): { id: string } {
     const name = String(params.name ?? "").trim();
     const kind = String(params.kind ?? "");
     if (!name) throw new ProtocolError("cmux.page.invalid_params", "name is required");
-    if (!String(params.apiKey ?? "")) throw new ProtocolError("cmux.page.invalid_params", "apiKey is required");
-    const id =
-      name
+    const slug = (text: string) =>
+      text
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "")
-        .slice(0, 48) || "my-backend";
+        .slice(0, 40) || "my-backend";
+    const id = slug(String(params.id ?? "") || name);
+    const replace = params.replace === id;
+    const apiKey = String(params.apiKey ?? "");
+    if (!apiKey && !replace) throw new ProtocolError("cmux.page.invalid_params", "apiKey is required");
     const models: string[] = [];
     for (const word of String(params.model ?? "").split(",")) {
       for (const model of word.trim() === "*" ? this.endpoint.served : [word.trim()])
         if (model && !models.includes(model)) models.push(model);
     }
     if (models.length === 0) throw new ProtocolError("cmux.page.invalid_params", "model is required");
-    if (this.state.harnesses.some((row) => row.id === id) && !this.endpoints.has(id))
-      throw new ProtocolError("cmux.agents.exists", `${id} already has a profile.`);
+    if (!replace && (this.state.harnesses.some((row) => row.id === id) || this.endpoints.has(id)))
+      throw new ProtocolError("cmux.agents.exists", `${id} already has a profile`);
+    if (apiKey) this.keys.set(id, apiKey);
     this.endpoints.set(id, { name, kind, models });
     const row: AgentHarnessRow = {
       id,
@@ -160,6 +168,8 @@ export class MockAgents {
         const row = this.state.harnesses.find((entry) => entry.id === gesture.id);
         if (!row?.removable)
           throw new ProtocolError("cmux.agents.not_removable", `${gesture.id} is not a profile you can remove.`);
+        // An endpoint the Endpoint form added leaves the backend list too.
+        this.endpoints.delete(gesture.id);
         const backup = `${gesture.id}.toml.${(this.backups += 1)}`;
         this.removedRows.set(backup, row);
         this.state = {

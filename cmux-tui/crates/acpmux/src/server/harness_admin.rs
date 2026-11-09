@@ -176,8 +176,6 @@ pub(super) async fn handle(
     let reply = match m {
         method::MUX_HARNESS_ADD => {
             let mut p = AddParams::from_json(params).map_err(rpc_error)?;
-            // The app adds an endpoint again after a failed check (byo_endpoint.rs).
-            p.replace_endpoint = true;
             // `*`: the endpoint's own model list, read with the key just stored.
             admin::fetch_endpoint_models(&mut p, profiles::keychain_lookup)
                 .await

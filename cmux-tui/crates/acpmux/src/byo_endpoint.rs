@@ -45,7 +45,7 @@ pub const MAX_MODELS: usize = 100;
 /// How long a model-list fetch may take, connect included.
 pub const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// The most bytes of a model-list answer read.
-const MAX_LIST_BYTES: usize = 4 << 20;
+pub(crate) const MAX_LIST_BYTES: usize = 4 << 20;
 
 /// Claude provider switches outside `ANTHROPIC_*` that an endpoint harness
 /// must not inherit: each would send Claude Code elsewhere or sign it in
@@ -451,15 +451,31 @@ pub async fn fetch_models(
         }
         _ => return Err(format!("the endpoint answered HTTP {status} for its model list")),
     }
-    let bytes = response.bytes().await.map_err(|_| "the model list did not arrive".to_owned())?;
-    if bytes.len() > MAX_LIST_BYTES {
-        return Err("the endpoint's model list is too large".into());
-    }
+    let bytes = read_capped(response, MAX_LIST_BYTES).await?;
     let models = parse_models(&String::from_utf8_lossy(&bytes))?;
     if models.is_empty() {
         return Err("the endpoint lists no models: type the model ids".into());
     }
     Ok(models)
+}
+
+/// The body of `response`, read a chunk at a time and refused as soon as it
+/// passes `cap` bytes (a declared length past it is refused before any read).
+async fn read_capped(mut response: reqwest::Response, cap: usize) -> Result<Vec<u8>, String> {
+    let too_large = || "the endpoint's model list is too large".to_owned();
+    if response.content_length().is_some_and(|n| n > cap as u64) {
+        return Err(too_large());
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) =
+        response.chunk().await.map_err(|_| "the model list did not arrive".to_owned())?
+    {
+        if body.len() + chunk.len() > cap {
+            return Err(too_large());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 /// What a failed hello turn says is wrong.

@@ -404,26 +404,25 @@ fn byo_endpoint_several_models_fill_the_picker_and_claude_codes_slots() {
 }
 
 #[test]
-fn byo_endpoint_the_daemons_add_writes_an_endpoint_profile_again() {
+fn byo_endpoint_add_never_writes_over_a_profile_without_replace() {
     let root = scratch("again");
     let src = sources(&root);
     let mut p = params("openai-endpoint", "again", "https://x.example.com/v1", "m1", None);
     add(&p, &src).unwrap();
-    // The CLI without --force keeps the file.
-    assert!(matches!(add(&p, &src), Err(AdminError::Exists(_))));
-    // The daemon's add (the app adds again after a failed check) writes it again.
-    p.replace_endpoint = true;
+    // Another add of the same id (another preset whose name made the same id) is refused and
+    // the first profile stays; only an add that asks to replace it writes it again.
+    let other = params("openai-endpoint", "again", "https://other.example.com/v1", "m9", None);
+    match add(&other, &src) {
+        Err(e @ AdminError::Exists(_)) => assert_eq!(e.reason(), Some("harness.exists")),
+        r => panic!("{r:?}"),
+    }
+    let path = root.join("harnesses").join("again.toml");
+    assert!(std::fs::read_to_string(&path).unwrap().contains("https://x.example.com/v1"));
+    p.replace = true;
     p.models = vec!["m2".into()];
     let added = add(&p, &src).unwrap();
     let (profile, _) = load(&added.path, "again");
     assert_eq!(profile.model.as_deref(), Some("byo/m2"));
-    // Never over a profile that is not an endpoint's.
-    let other = root.join("harnesses").join("mine.toml");
-    std::fs::write(&other, "schema = 1\nid = \"mine\"\ncommand = \"mine\"\n").unwrap();
-    let mut p = params("openai-endpoint", "mine", "https://x.example.com/v1", "m1", None);
-    p.replace_endpoint = true;
-    assert!(matches!(add(&p, &src), Err(AdminError::Exists(_))));
-    assert!(std::fs::read_to_string(&other).unwrap().contains("command = \"mine\""));
 }
 
 #[test]
@@ -568,6 +567,72 @@ async fn byo_endpoint_fetches_the_model_list_and_fills_in_star() {
     let mut p = params("openai-endpoint", "x", "http://127.0.0.1:9/v1", "m", None);
     admin::fetch_endpoint_models(&mut p, |_, _| panic!("no lookup")).await.unwrap();
     assert_eq!(p.models, ["m"]);
+}
+
+/// A fake `/v1/models` that answers 200 with a body past the cap: chunked (no
+/// length), or with a declared length past it and nothing after; the bytes it
+/// managed to write, for the reader's stop.
+fn fake_huge_models(declared: bool) -> (u16, Arc<AtomicUsize>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let written = Arc::new(AtomicUsize::new(0));
+    let count = written.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() || line.trim_end().is_empty() {
+                    break;
+                }
+            }
+            let mut stream = stream;
+            if declared {
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
+                    MAX_LIST_BYTES * 4
+                );
+                continue;
+            }
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ntransfer-encoding: chunked\r\n\r\n"
+            );
+            let chunk = vec![b' '; 64 * 1024];
+            // Up to eight times the cap; a reader that stops at the cap closes the socket first.
+            for _ in 0..(MAX_LIST_BYTES * 8 / chunk.len()) {
+                if write!(stream, "{:x}\r\n", chunk.len()).is_err()
+                    || stream.write_all(&chunk).is_err()
+                    || stream.write_all(b"\r\n").is_err()
+                {
+                    break;
+                }
+                count.fetch_add(chunk.len(), Ordering::SeqCst);
+            }
+            let _ = stream.write_all(b"0\r\n\r\n");
+        }
+    });
+    (port, written)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn byo_endpoint_a_model_list_past_the_cap_is_refused_while_it_streams() {
+    let t = Duration::from_secs(10);
+    let (port, written) = fake_huge_models(false);
+    let e = fetch_models(Kind::OpenAi, &format!("http://127.0.0.1:{port}/v1"), None, t)
+        .await
+        .unwrap_err();
+    assert!(e.contains("too large"), "{e}");
+    // The reader stopped near the cap, not after the whole body.
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(written.load(Ordering::SeqCst) < MAX_LIST_BYTES * 8, "the whole body was read");
+    // A declared length past the cap is refused before any of the body is read.
+    let (port, _) = fake_huge_models(true);
+    let e = fetch_models(Kind::OpenAi, &format!("http://127.0.0.1:{port}/v1"), None, t)
+        .await
+        .unwrap_err();
+    assert!(e.contains("too large"), "{e}");
 }
 
 // ------------------------------------------------- doctor's hello turn

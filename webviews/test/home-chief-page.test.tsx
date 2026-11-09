@@ -344,6 +344,8 @@ test("Bring your own sends the key to the host once, keeps no copy, and saves on
     baseUrl: "https://api.acme.dev",
     model: "acme-1",
     apiKey: "sk-secret-123",
+    // The form picks an id acpmux does not have (never a localized name's `my-backend`).
+    id: "acme",
   });
   // After submit the key is gone from the page: no field, no text.
   expect(keyAnywhere(container)).toBe(false);

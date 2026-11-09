@@ -6,6 +6,11 @@
 // The host's add takes one `model` string: several models go comma separated, and `*` asks acpmux
 // for every model the endpoint lists at its `/models`. The host's add also requires a key, so an
 // endpoint that takes none (a model server on this Mac) gets NO_KEY, which it ignores.
+//
+// The form picks the harness id (`endpointId`: an ASCII slug, numbered past every id acpmux has;
+// a localized name may have no ASCII letters). The host refuses an id acpmux already has unless
+// `replace` names it: the form sends that only for the id it added itself (a retry, or the save
+// after Fetch Models). Such a retry with an empty key field keeps the key it stored (`AddTarget`).
 
 /** `anthropic-endpoint` runs Claude Code on it; `openai-endpoint` an OpenAI-compatible client. */
 export type EndpointKind = "anthropic-endpoint" | "openai-endpoint";
@@ -17,7 +22,12 @@ export interface EndpointBackend {
   baseUrl: string;
   /** One model id, or several comma separated (the first is the default), or `*`. */
   model: string;
-  apiKey: string;
+  /** Absent only with `replace`: the key stored by the form's earlier add stays. */
+  apiKey?: string;
+  /** The harness id to write (the host makes one from `name` without it). */
+  id?: string;
+  /** The same id as `id`: write the form's own earlier add again. */
+  replace?: string;
 }
 
 /** One step of `_acpmux/harness/doctor {id, prompt: true}`. */
@@ -55,6 +65,8 @@ export interface EndpointPreset {
   /** The URL field's example when it starts empty. */
   example: string;
   key: KeyNeed;
+  /** The harness id when the typed name makes none (a localized name): ASCII, never localized. */
+  idBase: string;
 }
 
 /** The Endpoint tab's presets, in the order the picker lists them. */
@@ -65,6 +77,7 @@ export const ENDPOINT_PRESETS: readonly EndpointPreset[] = [
     baseUrl: "http://127.0.0.1:11434/v1",
     example: "http://127.0.0.1:11434/v1",
     key: "none",
+    idBase: "local-models",
   },
   {
     id: "desktop-app",
@@ -72,6 +85,7 @@ export const ENDPOINT_PRESETS: readonly EndpointPreset[] = [
     baseUrl: "http://127.0.0.1:1234/v1",
     example: "http://127.0.0.1:1234/v1",
     key: "none",
+    idBase: "desktop-models",
   },
   {
     id: "team-server",
@@ -79,9 +93,24 @@ export const ENDPOINT_PRESETS: readonly EndpointPreset[] = [
     baseUrl: "",
     example: "https://inference.example.com/v1",
     key: "optional",
+    idBase: "team-models",
   },
-  { id: "hosted", kind: "openai-endpoint", baseUrl: "", example: "https://api.example.com/v1", key: "required" },
-  { id: "gateway", kind: "anthropic-endpoint", baseUrl: "", example: "https://gateway.example.com", key: "required" },
+  {
+    id: "hosted",
+    kind: "openai-endpoint",
+    baseUrl: "",
+    example: "https://api.example.com/v1",
+    key: "required",
+    idBase: "hosted-models",
+  },
+  {
+    id: "gateway",
+    kind: "anthropic-endpoint",
+    baseUrl: "",
+    example: "https://gateway.example.com",
+    key: "required",
+    idBase: "claude-gateway",
+  },
 ];
 
 export function endpointPreset(id: EndpointPresetId): EndpointPreset {
@@ -141,20 +170,72 @@ export function endpointProblem(
   return null;
 }
 
-/** Whether the endpoint's model list can be asked for: the URL, and the key when it needs one. */
-export function canFetchModels(draft: EndpointDraft, key: KeyNeed): boolean {
-  return !!draft.name.trim() && !endpointUrlProblem(draft.baseUrl) && (key !== "required" || !!draft.apiKey.trim());
+/** `endpointProblem` for a form that may hold its own earlier add: a key it stored counts. */
+export function endpointProblemAt(draft: EndpointDraft, key: KeyNeed, target: AddTarget | null) {
+  const problem = endpointProblem(draft, key);
+  return problem === "key" && keyReady(draft, key, target) ? null : problem;
 }
 
-/** The host's add for the draft; `models` overrides the typed list (`[ALL_MODELS]` to fetch). */
-export function endpointBackend(draft: EndpointDraft, models: string[] = modelList(draft.models)): EndpointBackend {
+/** Whether the endpoint's model list can be asked for: the URL, and the key when it needs one. */
+export function canFetchModels(draft: EndpointDraft, key: KeyNeed, target: AddTarget | null = null): boolean {
+  return !!draft.name.trim() && !endpointUrlProblem(draft.baseUrl) && keyReady(draft, key, target);
+}
+
+/** acpmux's harness id rule: 1-40 lowercase letters, digits and dashes. */
+export function idSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, 36)
+    .replace(/-+$/, "");
+}
+
+/** A new harness id from the typed name, else `fallback` (a preset's or kind's ASCII id), numbered
+ * (`-2`, `-3`…) past every id in `taken`. */
+export function endpointId(name: string, fallback: string, taken: Iterable<string>): string {
+  const used = new Set(taken);
+  const base = idSlug(name) || idSlug(fallback) || "endpoint";
+  if (!used.has(base)) return base;
+  for (let n = 2; ; n += 1) if (!used.has(`${base}-${n}`)) return `${base}-${n}`;
+}
+
+/** Which harness an add writes: a new id, or the one this form added earlier (`own`), and whether
+ * that earlier add stored a key the person typed. */
+export type AddTarget = { id: string; own: boolean; typedKey: boolean };
+
+/** Whether the key field may stay empty: the endpoint takes none or it is optional, or this form
+ * already stored one the person typed (a retry keeps it). */
+export function keyReady(draft: EndpointDraft, key: KeyNeed, target: AddTarget | null): boolean {
+  return key !== "required" || !!draft.apiKey.trim() || !!(target?.own && target.typedKey);
+}
+
+/** The host's add for the draft at `target`; `models` overrides the typed list (`[ALL_MODELS]` to
+ * fetch). An empty key field sends NO_KEY, except on the form's own retry after a typed key: then
+ * no key, and the stored one stays (never NO_KEY over a real key). */
+export function endpointBackend(
+  draft: EndpointDraft,
+  target?: AddTarget,
+  models: string[] = modelList(draft.models),
+): EndpointBackend {
+  const typed = draft.apiKey.trim();
+  const keep = !typed && !!target?.own && target.typedKey;
   return {
     kind: draft.kind,
     name: draft.name.trim(),
     baseUrl: draft.baseUrl.trim(),
     model: models.join(","),
-    apiKey: draft.apiKey.trim() || NO_KEY,
+    ...(keep ? {} : { apiKey: typed || NO_KEY }),
+    ...(target ? { id: target.id } : {}),
+    ...(target?.own ? { replace: target.id } : {}),
   };
+}
+
+/** After an add at `target` with `backend`: the form's own harness from now on, keeping whether a
+ * typed key is stored there. */
+export function addedTarget(target: AddTarget, backend: EndpointBackend): AddTarget {
+  const typed = backend.apiKey !== undefined && backend.apiKey !== NO_KEY;
+  return { id: target.id, own: true, typedKey: typed || (backend.apiKey === undefined && target.typedKey) };
 }
 
 /** A harness's model ids as the form lists them (acpmux names an OpenAI-compatible one `byo/<id>`). */
@@ -202,7 +283,7 @@ export async function checkEndpoint(
  * state; answers the last one: `passed` with the harness, or `failed` with the step. */
 export async function bringEndpoint(
   service: Pick<EndpointService, "addBackend" | "checkBackend">,
-  backend: { kind: string; name: string },
+  backend: { kind: string; name: string; id?: string; replace?: string },
   report: (status: EndpointStatus) => void,
 ): Promise<EndpointStatus> {
   report({ state: "adding" });
@@ -220,14 +301,30 @@ export async function bringEndpoint(
   return checked;
 }
 
-/** Fetch models: adds the endpoint with `*` (acpmux reads its `/models` with the key just stored
- * and lists them all), then reads the harness's models back. Answers the ids, or throws the host's
- * reason. The save that follows writes the profile again with the models the person kept. */
+/** A new id for the draft, past every harness acpmux has (`fallback`: the preset's or kind's). */
+export async function newTarget(
+  service: Pick<EndpointService, "backends">,
+  draft: EndpointDraft,
+  fallback: string,
+): Promise<AddTarget> {
+  const taken = (await service.backends()).map((backend) => backend.id);
+  return { id: endpointId(draft.name, fallback, taken), own: false, typedKey: false };
+}
+
+/** Fetch models: adds the endpoint at `target` with `*` (acpmux reads its `/models` with the key
+ * just stored and lists them all), then reads the harness's models back. Answers the ids and the
+ * target the form owns from now on (the save writes it again with the models kept; a form closed
+ * without saving removes it), or throws the host's reason. */
 export async function fetchEndpointModels(
   service: Pick<EndpointService, "addBackend" | "backends">,
   draft: EndpointDraft,
-): Promise<string[]> {
-  const harness = await service.addBackend(endpointBackend(draft, [ALL_MODELS]));
-  const listed = (await service.backends()).find((backend) => backend.id === harness);
-  return endpointModelIds(draft.kind, listed?.models ?? []);
+  target: AddTarget,
+): Promise<{ models: string[]; target: AddTarget }> {
+  const backend = endpointBackend(draft, target, [ALL_MODELS]);
+  const harness = await service.addBackend(backend);
+  const listed = (await service.backends()).find((entry) => entry.id === harness);
+  return {
+    models: endpointModelIds(draft.kind, listed?.models ?? []),
+    target: addedTarget({ ...target, id: harness }, backend),
+  };
 }

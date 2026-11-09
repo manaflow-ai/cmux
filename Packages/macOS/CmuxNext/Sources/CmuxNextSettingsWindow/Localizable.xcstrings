@@ -82108,6 +82108,138 @@
           }
         }
       }
+    },
+    "settingsPage.agents.endpoint.keyStored": {
+      "comment": "Settings > Agents > Add > Endpoint (your own model endpoint); keep Claude Code, Opus, Sonnet, Haiku, OpenAI, Anthropic, https, http, /v1 and port numbers exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفتاحك محفوظ في سلسلة المفاتيح. اترك هذا الحقل فارغًا للإبقاء عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaš ključ je sačuvan u Keychainu. Ostavite ovo prazno da ga zadržite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Din nøgle er gemt i din nøglering. Lad feltet være tomt for at beholde den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dein Schlüssel ist im Schlüsselbund gespeichert. Lass das Feld leer, um ihn zu behalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your key is stored in your Keychain. Leave this empty to keep it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu clave está guardada en tu llavero. Déjalo vacío para conservarla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre clé est enregistrée dans votre trousseau. Laissez ce champ vide pour la garder."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La tua chiave è salvata nel portachiavi. Lascia vuoto per mantenerla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "キーはキーチェーンに保存されています。そのまま使うには空のままにします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សោរបស់អ្នកត្រូវបានរក្សាទុកក្នុង Keychain។ ទុកវាឱ្យទទេ ដើម្បីរក្សាវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "키가 키체인에 저장되어 있습니다. 그대로 쓰려면 비워 두세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nøkkelen din er lagret i nøkkelringen. La feltet stå tomt for å beholde den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twój klucz jest w pęku kluczy. Zostaw puste, aby go zachować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sua chave está guardada nas suas Chaves. Deixe vazio para mantê-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваш ключ сохранён в связке ключей. Оставьте поле пустым, чтобы сохранить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คีย์ของคุณเก็บไว้ในพวงกุญแจแล้ว เว้นว่างไว้เพื่อใช้คีย์เดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anahtarınız Anahtar Zinciri'nde saklı. Korumak için boş bırakın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваш ключ збережено у в'язці ключів. Залиште поле порожнім, щоб зберегти його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khóa của bạn đã được lưu trong Chuỗi khóa. Để trống để giữ khóa đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的密钥已存储在钥匙串中。留空即可继续使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的金鑰已儲存在鑰匙圈中。留空即可繼續使用。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
