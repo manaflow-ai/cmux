@@ -298,31 +298,36 @@ export class BookmarksBarStore {
   }
 
   /** The chevron's menu: the bar items past the first `shown`, folders with their contents. The
-   * subtree is read on the click, so a bar longer than one read's rows lists them all. */
+   * bar's own row is read on its own beside the subtree, so a folder with more descendants than one
+   * read's rows cannot starve the bar items after it out of the menu; only that folder's contents
+   * are cut. */
   async openOverflow(shown: number, anchor: Anchor, title: string): Promise<void> {
-    const read = await this.subtree("bar");
+    const read = await this.subtree("bar", true);
     if (!read) return;
     const hidden = (read.groups.get("bar") ?? []).slice(shown);
     await this.showMenu(read, title, anchor, menuRows(read.groups, null, this.words, hidden));
   }
 
   /** `parent`'s subtree in the bar's profile, or null when the read failed or the page moved to
-   * another tab meanwhile (a lend, even to a tab of the same profile): its menu would act there. */
+   * another tab meanwhile (a lend, even to a tab of the same profile): its menu would act there.
+   * With `ownRow`, `parent`'s direct children come from a separate one-level read, so a truncated
+   * depth-first subtree never drops a later sibling. */
   private async subtree(
     parent: string,
+    ownRow = false,
   ): Promise<{ profile: string; lend: number | null; groups: Map<string, Bookmark[]> } | null> {
-    if (!this.client) return null;
+    const client = this.client;
+    if (!client) return null;
     const profile = this.snapshot.profile;
     const lend = this.lend;
+    const children = (depth: number) =>
+      client.call<ChildrenResult>(BarOps.children, { browser_profile_id: profile, parent, depth, limit: MENU_LIMIT });
     try {
-      const reply = await this.client.call<ChildrenResult>(BarOps.children, {
-        browser_profile_id: profile,
-        parent,
-        depth: MAX_DEPTH,
-        limit: MENU_LIMIT,
-      });
+      const [reply, row] = await Promise.all([children(MAX_DEPTH), ownRow ? children(1) : null]);
       if (this.snapshot.profile !== profile || this.lend !== lend) return null;
-      return { profile, lend, groups: groupChildren(reply.bookmarks) };
+      const groups = groupChildren(reply.bookmarks);
+      if (row) groups.set(parent, groupChildren(row.bookmarks).get(parent) ?? []);
+      return { profile, lend, groups };
     } catch {
       return null;
     }

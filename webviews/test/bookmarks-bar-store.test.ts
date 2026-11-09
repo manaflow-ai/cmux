@@ -23,7 +23,7 @@ const row = (id: string, parent: string, index: number, kind: Bookmark["kind"] =
   created_ms: 0,
 });
 
-function fakeClient(options: { refuse?: boolean; changesFailFirst?: boolean } = {}) {
+function fakeClient(options: { refuse?: boolean; changesFailFirst?: boolean; tree?: Bookmark[] } = {}) {
   let changesFail = options.changesFailFirst === true;
   const subscribed: string[] = [];
   const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
@@ -33,7 +33,12 @@ function fakeClient(options: { refuse?: boolean; changesFailFirst?: boolean } = 
   /** A parent read at another revision than the rest (the two reads of a row are separate). */
   const readAt = new Map<string, number>();
   const revisionOf = (parent: string) => readAt.get(parent) ?? revision;
-  const tree = [row("work", "bar", 0, "folder"), row("a", "work", 0), row("b", "bar", 1), row("o", "other", 0)];
+  const tree = options.tree ?? [
+    row("work", "bar", 0, "folder"),
+    row("a", "work", 0),
+    row("b", "bar", 1),
+    row("o", "other", 0),
+  ];
   const client: PageClient = {
     call: async <R>(op: string, params: unknown) => {
       const p = (params ?? {}) as Record<string, unknown>;
@@ -333,4 +338,19 @@ test("a row read at an older revision than Other Bookmarks' count is read again 
   await tick();
   expect(reads()).toBe(before + 2);
   expect(store.getSnapshot()).toMatchObject({ revision: 2, otherRevision: 2 });
+});
+
+test("the chevron still lists bar items after a folder whose subtree fills a whole read", async () => {
+  const huge = Array.from({ length: 20_000 }, (_, index) => row(`n${index}`, "big", index));
+  const fake = fakeClient({ tree: [row("big", "bar", 0, "folder"), ...huge, row("hiddenLink", "bar", 1)] });
+  const store = new BookmarksBarStore(fake.client, words);
+  await store.start();
+  // Only the folder fits; the link is behind the chevron.
+  await store.openOverflow(1, { x: 2, y: 2, width: 60, height: 24 }, "More");
+  const subtree = fake.calls.find((call) => call.op === BarOps.children && call.params.depth === 64);
+  expect(subtree).toBeDefined();
+  const menu = fake.calls.find((call) => call.op === BarOps.menu);
+  expect(menu?.params.rows).toEqual([
+    { kind: "bookmark", id: "hiddenLink", title: "hiddenLink", url: "https://hiddenLink.example/", favicon_key: null },
+  ]);
 });
