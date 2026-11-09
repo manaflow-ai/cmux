@@ -500,8 +500,9 @@ impl MeshDriver {
             let _ = reply.send(false);
             return;
         };
+        // Already on the current key (its own handshake moved it there).
         let Some(current) = peer.current.as_mut() else {
-            let _ = reply.send(false);
+            let _ = reply.send(!peer.on_retired);
             return;
         };
         if let TunnResult::WriteToNetwork(packet) =

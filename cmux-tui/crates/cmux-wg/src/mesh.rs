@@ -209,8 +209,9 @@ impl WgMesh {
     /// For a peer on the retired key ([`WgMesh::add_peer_on_retired_key`]):
     /// start a handshake from the current key, next to the retired session,
     /// which keeps carrying the peer. Resolves `true` once the peer answered
-    /// it (its session is then on the current key), `false` at once for a
-    /// peer that is not on the retired key. A peer that does not know the
+    /// it (its session is then on the current key), `true` at once for a
+    /// peer already on the current key and `false` for a key that is not a
+    /// peer. A peer that does not know the
     /// current key never answers: bound the wait with a timeout, and the
     /// retired session is untouched.
     pub async fn probe_current(&self, public_key: [u8; 32]) -> Result<bool, WgError> {
