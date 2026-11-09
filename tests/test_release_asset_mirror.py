@@ -34,6 +34,7 @@ class Server:
 
     def __init__(self):
         self.routes: dict[str, list[tuple[int, bytes]]] = {}
+        self.release = threading.Event()
         self.requests: list[tuple[str, dict]] = []
         server = self
 
@@ -48,6 +49,20 @@ class Server:
                     self.send_header("Location", body.decode())
                     self.end_headers()
                     return
+                if status == "truncated":  # headers promise more than the body that follows
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(body) + 1000))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    self.close_connection = True
+                    return
+                if status == "stall":  # headers, then nothing until the client gives up
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.flush()
+                    server.release.wait(10)
+                    return
                 self.send_response(status)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
@@ -61,6 +76,7 @@ class Server:
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
 
     def close(self):
+        self.release.set()
         self.httpd.shutdown()
         self.httpd.server_close()
 
@@ -107,6 +123,36 @@ class FetchTest(ServerCase):
         self.server.routes["/up/asset.zip"] = [(200, ASSET)]
         self.assertEqual(self.fetch(), "upstream")
         self.assertEqual(self.server.paths(), [self.object_path(), "/up/asset.zip"])
+        self.assertEqual(self.out.read_bytes(), ASSET)
+
+    def test_truncated_mirror_body_is_a_miss_and_upstream_serves(self):
+        self.server.routes[self.object_path()] = [("truncated", ASSET[:10])]
+        self.server.routes["/up/asset.zip"] = [(200, ASSET)]
+        self.assertEqual(self.fetch(), "upstream")
+        self.assertEqual(self.out.read_bytes(), ASSET)
+
+    def test_truncated_upstream_body_is_retried(self):
+        self.server.routes["/up/asset.zip"] = [("truncated", ASSET[:10]), (200, ASSET)]
+        self.assertEqual(self.fetch(), "upstream")
+        self.assertEqual(self.out.read_bytes(), ASSET)
+
+    def test_url_index_that_stalls_after_headers_is_a_retryable_miss(self):
+        # --from-index never takes upstream bytes it cannot check, so a stalled index is retried until the
+        # deadline and then a FetchError, never an exception that escapes fetch.
+        self.server.routes["/m/" + mirror.index_key(self.upstream)] = [("stall", b"x" * 65)]
+        real_open = mirror._open
+        with mock.patch.object(mirror, "_open", lambda request, timeout=0: real_open(request, 0.3)):
+            with self.assertRaises(mirror.FetchError) as raised:
+                self.fetch(sha=None, deadline=0)
+        self.assertIn("timed out", str(raised.exception))
+        self.assert_nothing_landed()
+
+    def test_mirror_object_that_stalls_after_headers_falls_through_to_upstream(self):
+        self.server.routes[self.object_path()] = [("stall", ASSET)]
+        self.server.routes["/up/asset.zip"] = [(200, ASSET)]
+        real_open = mirror._open
+        with mock.patch.object(mirror, "_open", lambda request, timeout=0: real_open(request, 0.3)):
+            self.assertEqual(self.fetch(), "upstream")
         self.assertEqual(self.out.read_bytes(), ASSET)
 
     def test_upstream_504_waits_and_succeeds_within_the_deadline(self):
@@ -481,6 +527,12 @@ class FillTest(unittest.TestCase):
 
         with mock.patch.object(mirror, "fetch", fake_fetch):
             return mirror.fill([self.pair], store, deadline=1, budget=100, workers=1)
+
+    def test_an_unexpected_error_fails_that_pair_not_the_run(self):
+        import http.client
+        results = self.run_fill(FakeStore(), error=http.client.IncompleteRead(b"partial", 100))
+        self.assertEqual(list(results), ["storage"])
+        self.assertIn("IncompleteRead", results["storage"][0][1])
 
     def test_missing_object_is_uploaded_verified_then_indexed(self):
         store = FakeStore()

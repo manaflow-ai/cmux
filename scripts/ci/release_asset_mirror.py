@@ -46,6 +46,7 @@ import argparse
 import concurrent.futures
 import dataclasses
 import hashlib
+import http.client
 import json
 import os
 import random
@@ -159,7 +160,9 @@ def _stream(request: urllib.request.Request, sink, limit: int | None = None) -> 
     except urllib.error.HTTPError as error:
         error.close()
         raise SourceFailed(_describe(error), definitive=error.code == 404) from None
-    except (OSError, ValueError, EOFError) as error:  # URLError, timeouts, resets, IncompleteRead
+    # http.client.HTTPException is not an OSError: IncompleteRead (a body cut short), BadStatusLine and
+    # RemoteDisconnected-like failures must be a retryable miss, never an escape out of fetch or fill.
+    except (OSError, ValueError, EOFError, http.client.HTTPException) as error:  # URLError, timeouts, resets
         raise SourceFailed(_describe(error)) from None
     return digest.hexdigest()
 
@@ -182,7 +185,7 @@ def _read_small(url: str, accept: str | None = None, limit: int = 8 << 20) -> by
     except urllib.error.HTTPError as error:
         error.close()
         raise SourceFailed(_describe(error), definitive=error.code == 404) from None
-    except (OSError, ValueError, EOFError) as error:
+    except (OSError, ValueError, EOFError, http.client.HTTPException) as error:
         raise SourceFailed(_describe(error)) from None
     if len(body) > limit:
         raise SourceFailed(f"answer larger than {limit} bytes")
@@ -708,8 +711,12 @@ def fill(pairs: list[Pair], store, deadline: float, budget: float, workers: int 
     def one(pair: Pair) -> tuple[Pair, str, str]:
         if time.monotonic() - started > budget:
             return pair, "deferred", "run budget spent; next run"
-        with tempfile.TemporaryDirectory(prefix="release-asset-") as work:
-            outcome, detail = mirror_pair(store, pair, deadline, Path(work))
+        # One pair's unexpected error is that pair's failure, never the run's: map() would re-raise it.
+        try:
+            with tempfile.TemporaryDirectory(prefix="release-asset-") as work:
+                outcome, detail = mirror_pair(store, pair, deadline, Path(work))
+        except Exception as error:  # noqa: BLE001
+            return pair, "storage", f"{type(error).__name__}: {error}"
         return pair, outcome, detail
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
