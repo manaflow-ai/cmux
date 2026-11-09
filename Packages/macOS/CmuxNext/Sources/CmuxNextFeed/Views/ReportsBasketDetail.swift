@@ -133,7 +133,7 @@ final class ReportsBasketReplyField: NSTextField {
         cell?.isScrollable = false
         lineBreakMode = .byWordWrapping
         maximumNumberOfLines = Self.maxLines
-        font = .systemFont(ofSize: TypeScale.body)
+        font = Typography.system(size: TypeScale.body)
         focusRingType = .none
         translatesAutoresizingMaskIntoConstraints = false
         setContentHuggingPriority(.defaultLow, for: .horizontal)

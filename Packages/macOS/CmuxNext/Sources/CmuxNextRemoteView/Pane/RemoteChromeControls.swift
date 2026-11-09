@@ -7,7 +7,7 @@ import CmuxNextIcons
 enum RemoteChrome {
     static func label(_ text: String, size: CGFloat, weight: NSFont.Weight = .regular, mono: Bool = false) -> ChromeLabel {
         let field = ChromeLabel(labelWithString: text)
-        field.font = mono ? .monospacedDigitSystemFont(ofSize: size, weight: weight) : .systemFont(ofSize: size, weight: weight)
+        field.font = mono ? .monospacedDigitSystemFont(ofSize: size, weight: weight) : Typography.system(size: size, weight: weight)
         field.lineBreakMode = .byTruncatingTail
         field.translatesAutoresizingMaskIntoConstraints = false
         // The pane's bars are sized by their row's fitting size (cx-k9mc).
@@ -75,7 +75,7 @@ final class RemoteChromeButton: NSButton {
         }
         isBordered = false
         bezelStyle = .regularSquare
-        font = .systemFont(ofSize: 12, weight: .medium)
+        font = Typography.system(size: TypeScale.Base.detail, weight: .medium)
         focusRingType = .none
         wantsLayer = true
         layer?.cornerRadius = height / 2
@@ -98,7 +98,7 @@ final class RemoteChromeButton: NSButton {
     func apply(text: NSColor, hover: NSColor, fill: NSColor = .clear) {
         contentTintColor = text
         attributedTitle = NSAttributedString(string: title, attributes: [
-            .foregroundColor: text, .font: font ?? .systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: text, .font: font ?? Typography.system(size: TypeScale.Base.detail, weight: .medium),
         ])
         hoverFill = hover
         restingFill = fill

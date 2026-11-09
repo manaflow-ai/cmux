@@ -53,3 +53,50 @@ struct AppFontTests {
         #expect(WebTheme.uiFontStack(" \"; ") == nil)
     }
 }
+
+/// Chrome already on screen follows a change of the app font (#39272 review F1): labels took their
+/// font when they were made, so the walk gives each one in the old app face the new one, at its own
+/// size and weight, and leaves monospaced and tabular-digit text alone.
+@MainActor
+struct AppFontRetargetTests {
+    @Test func mountedLabelsMoveToTheNewFaceAndBack() throws {
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        root.wantsLayer = true
+        let label = NSTextField(labelWithString: "Tab")
+        label.font = .systemFont(ofSize: 13, weight: .medium)
+        let mono = NSTextField(labelWithString: "⌘K")
+        mono.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        let digits = NSTextField(labelWithString: "12")
+        digits.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        let layer = ChromeTextLayer()
+        layer.font = .systemFont(ofSize: 12)
+        [label, mono, digits].forEach(root.addSubview)
+        try #require(root.layer).addSublayer(layer)
+        let monoFamily = mono.font?.familyName
+
+        AppFontRetarget.apply(to: root, from: nil, to: "Georgia")
+        #expect(label.font?.familyName == "Georgia")
+        #expect(label.font?.pointSize == 13)
+        #expect(layer.font.familyName == "Georgia")
+        #expect(mono.font?.familyName == monoFamily)
+        #expect(digits.font?.familyName != "Georgia")
+
+        AppFontRetarget.apply(to: root, from: "Georgia", to: "Avenir Next")
+        #expect(label.font?.familyName == "Avenir Next")
+
+        AppFontRetarget.apply(to: root, from: "Avenir Next", to: nil)
+        #expect(label.font?.familyName == NSFont.systemFont(ofSize: 13).familyName)
+        #expect(layer.font.familyName == NSFont.systemFont(ofSize: 12).familyName)
+    }
+
+    @Test func richTextKeepsItsOtherRuns() {
+        let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+        text.textStorage?.setAttributedString(NSAttributedString(string: "ab", attributes: [.font: NSFont.systemFont(ofSize: 13)]))
+        text.textStorage?.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: NSRange(location: 1, length: 1))
+        AppFontRetarget.apply(to: text, from: nil, to: "Georgia")
+        let first = text.textStorage?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        let second = text.textStorage?.attribute(.font, at: 1, effectiveRange: nil) as? NSFont
+        #expect(first?.familyName == "Georgia")
+        #expect(second?.familyName != "Georgia")
+    }
+}

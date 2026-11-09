@@ -245,11 +245,15 @@ public final class DesignSettings {
     /// `appearance.statusIndicator.*`: loading and status indicators on
     /// sidebar rows, tabs, sections and pane headers.
     public var statusIndicator = StatusIndicatorSettings()
-    /// `appearance.font`: the family the whole app draws in, nil for the macOS system font. Chrome
-    /// reads it through `Typography` (each label redraws, as for an Interface Size change); pages get
-    /// it as `--font-ui` (`WebTheme.uiFont`), so a change repaints every page.
+    /// `appearance.font`: the family the whole app draws in, nil for the macOS system font. New chrome
+    /// reads it through `Typography`; chrome already on screen moves to it (`AppFontRetarget`); pages
+    /// get it as `--font-ui` (`WebTheme.uiFont`), so a change repaints every page.
     public var appFontFamily: String? {
-        didSet { if appFontFamily != oldValue { ThemeScope.app.store.repaintAll() } }
+        didSet {
+            guard appFontFamily != oldValue else { return }
+            if self === DesignSettings.shared { AppFontRetarget.apply(from: oldValue, to: appFontFamily) }
+            ThemeScope.app.store.repaintAll()
+        }
     }
     /// cmux's terminal font override (`terminal.fontFamily` in cmux.json),
     /// so chrome that imitates the terminal (the braille status indicator)

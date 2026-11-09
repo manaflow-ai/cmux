@@ -120,7 +120,7 @@ public final class SignInButton: ClickableButton {
             layer?.cornerRadius = metrics.cornerRadius
             CATransaction.commit()
             alphaValue = isEnabled ? 1 : 0.45
-            let font = NSFont.systemFont(ofSize: metrics.textSize, weight: .semibold)
+            let font = Typography.system(size: metrics.textSize, weight: .semibold)
             attributedTitle = NSAttributedString(string: signInTitle, attributes: [.foregroundColor: look.title.nsColor, .font: font])
         }
         if heightConstraint.constant != metrics.height { heightConstraint.constant = metrics.height }

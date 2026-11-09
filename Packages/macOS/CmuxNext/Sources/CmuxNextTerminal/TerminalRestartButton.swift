@@ -20,7 +20,7 @@ final class TerminalRestartButton: ClickableButton {
         image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
         imagePosition = .imageLeading
         bezelStyle = .rounded
-        font = .systemFont(ofSize: 12, weight: .medium)
+        font = Typography.system(size: TypeScale.Base.detail, weight: .medium)
         applyTitle()
         target = self
         action = #selector(clicked)
