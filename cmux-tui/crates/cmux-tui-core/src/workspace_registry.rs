@@ -90,6 +90,8 @@ pub(crate) mod terminal_archive_store;
 mod terminal_exit_store;
 mod terminal_keep_store;
 mod terminal_resource_close_store;
+pub(crate) mod terminal_state_end;
+pub use terminal_state_end::EndedTerminalState;
 pub(crate) mod terminal_respawn_store;
 pub(crate) mod terminal_resume_store;
 mod terminal_unplaced_store;
@@ -3035,8 +3037,9 @@ impl WorkspaceRegistry {
             );
         }
         // A registry copied from another machine gets its own ids first.
-        host_identity::rehome_registry(&connection)?;
-        timings.lap("registry.migrations.rehome");
+        let mut rehome = crate::startup_timings::StartupTimings::start();
+        host_identity::rehome_registry(&connection, &mut rehome)?;
+        timings.absorb(rehome, "registry.migrations.rehome");
         let registry_id = required_meta(&connection, "registry_id")?;
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;

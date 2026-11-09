@@ -188,6 +188,7 @@ pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod live_name;
 mod profile_respawn;
+pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;
 mod stale_host_respawn;
@@ -874,6 +875,9 @@ pub struct Hub {
     /// Tests only: a pause while a prompt's model-sized copies are made (`turns::agent_blocks`).
     #[cfg(test)]
     pub(super) copy_seam: full_access_bound::WriteSeam,
+    /// Tests only: a pause after a fork read its parent's meta, before its cut (`fork.rs`).
+    #[cfg(test)]
+    pub(super) fork_seam: full_access_bound::WriteSeam,
     /// Tests only: pause an admitted prompt before its logical turn is installed.
     #[cfg(test)]
     pub(super) prompt_start_seam: full_access_bound::WriteSeam,
@@ -1207,6 +1211,8 @@ impl Hub {
             family_write_seam: Default::default(),
             #[cfg(test)]
             copy_seam: Default::default(),
+            #[cfg(test)]
+            fork_seam: Default::default(),
             #[cfg(test)]
             cancel_write_seam: Arc::new(Default::default()),
             #[cfg(test)]
