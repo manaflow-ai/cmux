@@ -51,7 +51,8 @@ const RANGE_KEY: Record<TeamAuditRange, StringKey> = {
   "90d": "teamAudit.range.90d",
 };
 const GROUP_KEY: Record<TeamAuditGroup, StringKey> = {
-  person: "ledger.group.person",
+  // Its own word: History > Costs groups by person and machine, one machine's ledger.
+  person: "teamAudit.group.person",
   repo: "ledger.group.repo",
   model: "ledger.group.model",
   harness: "teamAudit.group.harness",
