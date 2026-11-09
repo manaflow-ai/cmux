@@ -105,11 +105,10 @@ fn read_entry(path: &Path) -> Option<Peer> {
     }
     let record: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
     let peer = parse_entry(&record)?;
+    // The entry names a message's sender (hub/desktop_bridge.rs): only while its process is the
+    // one that wrote it, never a later process under a reused pid.
     (peer.pid.to_string() == stem
-        && crate::adopt_live::registered_runs(
-            peer.pid,
-            record.get("startedAt").and_then(Value::as_u64),
-        ))
+        && crate::adopt_live::registered_proven(peer.pid, record.get("startedAt").and_then(Value::as_u64)))
     .then_some(peer)
 }
 
