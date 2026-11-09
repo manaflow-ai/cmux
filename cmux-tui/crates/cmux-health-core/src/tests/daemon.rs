@@ -142,3 +142,22 @@ fn an_oversized_registry_is_slow_and_the_worse_cause_wins() {
     h.size(ID, 7 * GB, 50_000);
     assert_eq!(part(&h, ID), None);
 }
+
+#[test]
+fn a_restore_with_its_data_size_reads_as_a_percent_and_without_counters_as_restoring() {
+    let mut h = daemon();
+    h.size(ID, 59 * GB, 0);
+    h.event(ID, "started", 0, None);
+    h.event(ID, "restoreProgress", 1_000, None);
+    assert_eq!(part(&h, ID).map(|p| p.detail), Some("Restoring workspaces".into()));
+    // Lines with no counters keep it restoring past the stall bound.
+    for second in (5..=300).step_by(5) {
+        h.event(ID, "restoreProgress", second * 1_000, None);
+        assert!(run(&mut h, second * 1_000).is_empty());
+    }
+    assert_eq!(part(&h, ID).map(|p| p.state), Some(State::Slow));
+    h.event(ID, "restoreProgress", 301_000, Some(GB * 59 / 4));
+    assert_eq!(part(&h, ID).map(|p| p.detail), Some("Restoring workspaces, 25%".into()));
+    h.event(ID, "restoreProgress", 302_000, Some(60 * GB));
+    assert_eq!(part(&h, ID).map(|p| p.detail), Some("Restoring workspaces, 99%".into()));
+}

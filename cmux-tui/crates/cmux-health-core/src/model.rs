@@ -256,7 +256,7 @@ fn evaluate(part: &mut Part, now: u64) -> Cond {
                 if ms >= policy::DAEMON_STALL_MS {
                     stuck(Cause::DaemonStalled { bytes, ms }, Mode::Wait)
                 } else {
-                    slow(Cause::DaemonRestoring { bytes })
+                    slow(Cause::DaemonRestoring { bytes, total: s.size })
                         .until(s.last_progress + policy::DAEMON_STALL_MS)
                 }
             } else {
@@ -452,14 +452,21 @@ impl Health {
                     s.restoring = false;
                 }
                 "exited" => s.restoring = false,
-                "restoreProgress" => {
-                    let bytes = value.unwrap_or(0);
-                    if !s.restoring || bytes > s.restore_bytes {
+                // With bytes read, only more bytes is progress. Without (a daemon whose progress
+                // line has no work counters yet), each line says the owner is still restoring;
+                // its own no-work bound ends a stuck one.
+                "restoreProgress" => match value {
+                    Some(bytes) if s.restoring && bytes <= s.restore_bytes => {}
+                    Some(bytes) => {
                         s.restoring = true;
                         s.restore_bytes = bytes;
                         s.last_progress = now;
                     }
-                }
+                    None => {
+                        s.restoring = true;
+                        s.last_progress = now;
+                    }
+                },
                 "restoreStarted" => {
                     s.roster_since.get_or_insert(now);
                 }

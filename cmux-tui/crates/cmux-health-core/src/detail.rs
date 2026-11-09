@@ -35,6 +35,8 @@ pub enum Cause {
     },
     DaemonRestoring {
         bytes: u64,
+        /// The workspace data on disk (`size`), 0 when unknown: the percent's denominator.
+        total: u64,
     },
     DaemonStalled {
         bytes: u64,
@@ -101,7 +103,13 @@ pub fn cause(cause: Cause) -> String {
              Holding restarts so the current one can finish restoring.",
             duration(span_ms)
         ),
-        Cause::DaemonRestoring { bytes } => {
+        // A restore reads the data at least once, so read over size is a floor on how far it got;
+        // capped at 99 so it never says done before ready.
+        Cause::DaemonRestoring { bytes: 0, .. } => "Restoring workspaces".into(),
+        Cause::DaemonRestoring { bytes, total } if total > 0 => {
+            format!("Restoring workspaces, {}%", (bytes.saturating_mul(100) / total).min(99))
+        }
+        Cause::DaemonRestoring { bytes, .. } => {
             format!("Restoring workspaces, {} read", human_bytes(bytes))
         }
         Cause::DaemonStalled { bytes, ms } => format!(
