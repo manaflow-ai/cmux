@@ -1,0 +1,379 @@
+{
+ "title": "Typing and tick flicker check (cmux#39104, cmux#39142): a fake-harness agent chat with eight turns of history and a running turn beside background subagent bg-1 (the composer's hat ticks its time), the transcript scrolled up, twenty characters typed into the composer at a person's pace, then eight more seconds of scrolling while the time ticks. The tab's and the workspace row's unread dots must not blink per key, and the composer and the hat must hold still but for the time digits. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/typing-tick-flicker.json --video",
+ "fakeHarness": true,
+ "frameInterval": 0.25,
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Open an agent chat",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.newAgentChat",
+     "focus": true
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Start the isolated fake harness",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "fake"
+    }
+   },
+   "record": true,
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "History turn 1 (the fake harness echoes it)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Step 1: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "History turn 2 (the fake harness echoes it)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Step 2: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "History turn 3 (the fake harness echoes it)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Step 3: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "History turn 4 (the fake harness echoes it)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Step 4: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "History turn 5 (the fake harness echoes it)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Step 5: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "History turn 6 (the fake harness echoes it)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Step 6: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "History turn 7 (the fake harness echoes it)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Step 7: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "History turn 8 (the fake harness echoes it)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Step 8: read the build log, list each warning with its file and line, then group the warnings by crate. Keep the list short; name the three noisiest crates first and say which warnings came back since yesterday."
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "An unread notification for the session",
+   "daemon": true,
+   "cmux": [
+    "notify",
+    "--title",
+    "Build",
+    "--body",
+    "unread"
+   ],
+   "optional": "notify targets the session's terminal or workspace, not the chat tab",
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "A running turn: background subagent bg-1 in the composer's hat (its time ticks) and a tool call every 100 ms for 60 s",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "works-through-cancel-beside-background"
+    }
+   },
+   "record": true,
+   "wait": 3
+  },
+  {
+   "title": "Scroll the transcript up to its top",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "fling",
+     "seconds": 1.5,
+     "wait": true
+    }
+   },
+   "record": true,
+   "wait": 1
+  },
+  {
+   "title": "Focus the composer, transcript scrolled up",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "focus_composer"
+    }
+   },
+   "record": true,
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "Type 'c' (1/20)",
+   "key": "c",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'h' (2/20)",
+   "key": "h",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'e' (3/20)",
+   "key": "e",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'c' (4/20)",
+   "key": "c",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'k' (5/20)",
+   "key": "k",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type ' ' (6/20)",
+   "key": "space",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 't' (7/20)",
+   "key": "t",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'h' (8/20)",
+   "key": "h",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'e' (9/20)",
+   "key": "e",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type ' ' (10/20)",
+   "key": "space",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'b' (11/20)",
+   "key": "b",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'u' (12/20)",
+   "key": "u",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'i' (13/20)",
+   "key": "i",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'l' (14/20)",
+   "key": "l",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'd' (15/20)",
+   "key": "d",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type ' ' (16/20)",
+   "key": "space",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'l' (17/20)",
+   "key": "l",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'o' (18/20)",
+   "key": "o",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 'g' (19/20)",
+   "key": "g",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Type 's' (20/20)",
+   "key": "s",
+   "modifiers": [],
+   "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Typed: the draft in the composer, transcript still scrolled up",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "readiness"
+    }
+   },
+   "record": true,
+   "wait": 1
+  },
+  {
+   "title": "Keep scrolling for eight seconds while the hat's time ticks",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "fling",
+     "seconds": 8,
+     "wait": true
+    }
+   },
+   "record": true,
+   "wait": 1
+  },
+  {
+   "title": "The turn still running",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "record": "file",
+   "wait": 1
+  }
+ ]
+}
