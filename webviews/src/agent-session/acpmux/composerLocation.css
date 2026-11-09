@@ -1160,14 +1160,13 @@
   outline: none;
 }
 /* The search placeholder's width in flow, drawn nowhere (FolderPopover.tsx): the field's own padding
-   and type, no height. Its end keeps 2 px more: Blink reserves the caret's width after an input's
-   text, and the field's box rounds to whole pixels, so an exact copy clips the placeholder's last glyph. */
+   and type, no height. */
 .acpmux-folder-popover .acpmux-location-search-sizer {
   flex: none;
   height: 0;
   overflow: hidden;
   visibility: hidden;
-  padding: 0 calc(var(--ui-row-padding-inline) + 2px) 0 var(--ui-row-padding-inline);
+  padding: 0 var(--ui-row-padding-inline);
   white-space: nowrap;
   pointer-events: none;
 }

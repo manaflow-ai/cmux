@@ -48,7 +48,10 @@ await requireBrowserLane("folder-popover-scaling.browser.test.ts", async () => {
       const style = getComputedStyle(field);
       const context = document.createElement("canvas").getContext("2d")!;
       context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-      const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+      // The text box: the border box less padding and borders. Not clientWidth, which Chromium reports
+      // for an <input> without its padding and WebKit with it.
+      const inset = ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"] as const;
+      const room = field.getBoundingClientRect().width - inset.reduce((sum, side) => sum + parseFloat(style[side]), 0);
       const rows = [...menu.querySelectorAll<HTMLElement>(".acpmux-location-row:not([data-worktree])")].map((row) => {
         const name = row.querySelector<HTMLElement>(".acpmux-location-name")!;
         return {
@@ -58,8 +61,8 @@ await requireBrowserLane("folder-popover-scaling.browser.test.ts", async () => {
       });
       return {
         width: menu.getBoundingClientRect().width,
-        placeholder: { text: context.measureText(field.placeholder).width, room: field.clientWidth - padding },
-        placeholderFits: context.measureText(field.placeholder).width <= field.clientWidth - padding + 1,
+        placeholder: { text: context.measureText(field.placeholder).width, room },
+        placeholderFits: context.measureText(field.placeholder).width <= room + 1,
         rows,
       };
     });
