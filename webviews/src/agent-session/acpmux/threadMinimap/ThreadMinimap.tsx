@@ -78,16 +78,17 @@ import {
 } from "./model";
 import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinimapModel";
 import { railEdge } from "./railSide";
-import { focusRingShown } from "../../../ui/focusModality";
+import { focusCameFromKey } from "../../../ui/focusModality";
 
 /// How long a step's scroll counts as under way for the next step, so repeats keep stepping.
 const STEP_PENDING_MS = STEP_MS + 150;
 /// A pointer that moves this far after pressing a row scrubs instead of clicking.
 const SCRUB_SLOP = 3;
-/// Whether `node` holds focus a navigation key gave it (focusRingShown), not a click's.
+/// Whether `node` holds focus a navigation key gave it, not a click's; still true once a pointer
+/// move has taken its ring away, so the rail keeps the keyboard (focusCameFromKey).
 function keyboardFocused(node: HTMLElement): boolean {
   try {
-    return focusRingShown(node);
+    return focusCameFromKey(node);
   } catch {
     return false;
   }

@@ -7,7 +7,7 @@
 // it goes after the `:has(...)` (see gateFocusVisible).
 //
 // The text must match FOCUS_RING_GATE in src/ui/focusModality.ts (test/focus-modality.test.ts).
-export const FOCUS_RING_GATE = ':not(:root[data-focus-modality="pointer"] *)';
+export const FOCUS_RING_GATE = ':where(:not(:root[data-focus-modality="pointer"] *))';
 
 /** Returns `selector` with the gate after every `:focus-visible`, or after the `:has(...)` that holds
  * it; already gated selectors stay.

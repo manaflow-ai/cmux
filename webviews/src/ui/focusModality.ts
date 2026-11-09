@@ -31,8 +31,10 @@ export const FOCUS_MODALITY_ATTRIBUTE = "data-focus-modality";
 
 /** What the build appends after every `:focus-visible` (scripts/postcss/focusRingGate.mjs keeps the
  * same text): the element is not under a root whose ring is off. A page that never installed this
- * module has no attribute, so its rings behave as before. */
-export const FOCUS_RING_GATE = `:not(:root[${FOCUS_MODALITY_ATTRIBUTE}="pointer"] *)`;
+ * module has no attribute, so its rings behave as before. Inside `:where()` it adds no specificity,
+ * so a gated rule weighs what it did before (the shell composer's own rim still outranks the focus
+ * rim). */
+export const FOCUS_RING_GATE = `:where(:not(:root[${FOCUS_MODALITY_ATTRIBUTE}="pointer"] *))`;
 
 export type FocusModality = "keyboard" | "pointer";
 
@@ -61,7 +63,10 @@ export const POINTER_SLOP_PX = 6;
 
 /** Each installed document's own state changes, so `earnFocusRing` and `dismissFocusRing` go
  * through them. */
-const installed = new WeakMap<Document, { set: (next: FocusModality) => void; clear: () => void }>();
+const installed = new WeakMap<
+  Document,
+  { set: (next: FocusModality) => void; clear: () => void; keyed: () => Element | null }
+>();
 
 /** Whether `doc`'s rings are on now. */
 export function focusModality(doc: Document = document): FocusModality {
@@ -73,6 +78,16 @@ export function focusModality(doc: Document = document): FocusModality {
 export function focusRingShown(element: Element | null | undefined): boolean {
   if (!element?.matches(":focus-visible")) return false;
   return element.ownerDocument.documentElement.getAttribute(FOCUS_MODALITY_ATTRIBUTE) !== "pointer";
+}
+
+/** Whether `element` holds focus a navigation key gave it, whether or not its ring still shows: a
+ * pointer move takes the ring away but the keyboard still works there. For behavior that follows
+ * where focus came from (a rail that keeps keyboard focus, drops a click's); a ring's look asks
+ * focusRingShown. */
+export function focusCameFromKey(element: Element | null | undefined): boolean {
+  if (!element) return false;
+  const doc = element.ownerDocument;
+  return doc.activeElement === element && installed.get(doc)?.keyed() === element;
 }
 
 /** Takes the ring away now and forgets the last navigation key, so the focus that follows earns
@@ -103,6 +118,8 @@ export function installFocusModality(doc: Document = document): () => void {
   const now = () => view.performance.now();
   let navigationKeyAt = Number.NEGATIVE_INFINITY;
   let anchor: { x: number; y: number } | null = null;
+  // The element the last focus change gave to a navigation key (focusCameFromKey).
+  let keyed: Element | null = null;
 
   const onPointerMove = (event: PointerEvent) => {
     // The first move after the ring is earned measures from where it started (its own movement),
@@ -141,11 +158,17 @@ export function installFocusModality(doc: Document = document): () => void {
   };
   // Every focus change decides afresh: a navigation key just before it earns the ring; anything
   // else (a click, a shortcut, code) clears it, even while the ring was on.
-  const onFocusIn = () => set(now() - navigationKeyAt <= EARN_WINDOW_MS ? "keyboard" : "pointer");
+  const onFocusIn = (event: FocusEvent) => {
+    const earned = now() - navigationKeyAt <= EARN_WINDOW_MS;
+    keyed = earned ? (event.target as Element) : null;
+    set(earned ? "keyboard" : "pointer");
+    // A ring that moved by key measures pointer travel afresh from its new place.
+    if (earned) anchor = null;
+  };
   // A navigation key that keeps focus where it is (an arrow in a list that only moves its
   // highlight) leaves the ring as it was; a later key that does move focus earns it then.
 
-  installed.set(doc, { set, clear });
+  installed.set(doc, { set, clear, keyed: () => keyed });
   set("pointer");
   // Capture on the window: ahead of every page handler, so a handler that reads focusRingShown in
   // its own focus or key handling sees this event's answer.

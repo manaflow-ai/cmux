@@ -127,6 +127,20 @@ await requireBrowserLane("focus-modality-browser.test.ts", async () => {
         });
       }
 
+      test("a shell composer keeps its own rim on a Tab: the gate adds no weight", async () => {
+        const page = await open();
+        const ringVar = () =>
+          page.evaluate(() =>
+            getComputedStyle(document.getElementById("composer")!).getPropertyValue("--acpmux-card-ring").trim(),
+          );
+        await page.evaluate(() => document.querySelector(".acpmux-composer")!.setAttribute("data-shell", ""));
+        const shellRim = await ringVar();
+        await focusByKey(page, "#field");
+        expect(await modality(page)).toBe("keyboard");
+        expect(await ringVar()).toBe(shellRim);
+        await page.close();
+      });
+
       test("the composer's rim stays at rest for a click in the prompt, and lights for a Tab", async () => {
         const page = await open();
         const resting = await rim(page);

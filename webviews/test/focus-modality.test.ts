@@ -24,6 +24,7 @@ import {
   FOCUS_RING_GATE,
   dismissFocusRing,
   earnFocusRing,
+  focusCameFromKey,
   focusModality,
   installFocusModality,
 } from "../src/ui/focusModality";
@@ -197,6 +198,28 @@ describe("the focus-ring owner", () => {
     expect(p.mode()).toBe("pointer");
   });
 
+  test("a ring moved by key measures pointer slop afresh from its new place", () => {
+    const p = page();
+    p.tabTo("a");
+    p.pointer("pointermove", 100, 100);
+    p.pointer("pointermove", 104, 100); // 4 px on the first ring
+    p.tabTo("b");
+    p.pointer("pointermove", 107, 100); // 3 px on the new one
+    expect(p.mode()).toBe("keyboard");
+  });
+
+  test("focus a key gave stays the key's after a pointer move takes the ring away", () => {
+    const p = page();
+    p.tabTo("a");
+    p.pointer("pointermove", 0, 0);
+    p.pointer("pointermove", 40, 0);
+    expect(p.mode()).toBe("pointer");
+    expect(focusCameFromKey(p.el("a"))).toBe(true); // the minimap keeps the keyboard on its tick
+    p.el("b").focus(); // code or a click
+    expect(focusCameFromKey(p.el("b"))).toBe(false);
+    expect(focusCameFromKey(p.el("a"))).toBe(false);
+  });
+
   test("a stop leaves the page with no attribute (rings as before)", () => {
     const p = page();
     p.stop();
@@ -205,8 +228,10 @@ describe("the focus-ring owner", () => {
 });
 
 describe("the build gate", () => {
-  test("the build and the runtime share one gate", () => {
+  test("the build and the runtime share one gate, and it adds no specificity", () => {
     expect(BUILD_GATE).toBe(FOCUS_RING_GATE);
+    // A gated rule weighs what it did (the shell composer's rim still outranks the focus rim).
+    expect(FOCUS_RING_GATE).toMatch(/^:where\(.*\)$/);
   });
 
   test("every :focus-visible is gated, inside :not() and :has() too, once", () => {
