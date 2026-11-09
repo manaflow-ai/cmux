@@ -351,6 +351,11 @@ export function FolderPopover({
         flip={flip}
         finalFocus={false}
       >
+        {/* The field's placeholder, laid out in flow but drawn nowhere: an input never sizes the popup by
+            its placeholder, and the virtual rows never size it at all (cmux#38864). */}
+        <div className="acpmux-location-search-sizer" aria-hidden="true">
+          {t(addingExtra ? "composer.addFolderSearch" : "composer.folderSearch")}
+        </div>
         <Combobox
           // A fresh field for Add another folder…'s pick.
           key={addingExtra ? "extra" : "folder"}

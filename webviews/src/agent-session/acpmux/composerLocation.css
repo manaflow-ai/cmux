@@ -1111,14 +1111,15 @@
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
   display: flex;
   flex-direction: column;
-  /* Sized like the model picker (quickModelColumns.css .acpmux-cols): floor and cap in em of the
-     menu's chrome type (--text-control), so density, Interface Size and the chrome text size widen it
-     in proportion (cmux#38864). The folder rows are virtual (Combobox virtualRows: absolutely placed,
-     100% wide), so they never widen the popup themselves; the floor keeps the search placeholder and
-     a typical repository row (badge, name · branch, worktree count, check) whole. It never outgrows
-     the room on its side (Base UI's --available-width). */
+  /* As wide as its content in the menu's chrome type, like the model picker (quickModelColumns.css
+     .acpmux-cols: max-content between em bounds), so density, Interface Size and the chrome text
+     size widen it in proportion (cmux#38864). The folder rows are virtual (Combobox virtualRows:
+     absolutely placed, 100% wide) and an input never sizes by its placeholder, so the placeholder
+     sizer below gives the field its width; the pinned actions give theirs. The floor is the old
+     184 px in em; the menu stays no wider than its fullest row (design/menus.md, gallery invariants.ts
+     menu-fit) and never outgrows the room on its side (Base UI's --available-width). */
   width: max-content;
-  min-width: min(20em, var(--available-width, calc(100vw - 24px)));
+  min-width: min(14.15em, var(--available-width, calc(100vw - 24px)));
   max-width: min(30em, var(--available-width, calc(100vw - 24px)));
   /* It fits the room on its side (Base UI's --available-height), so it never covers its control. */
   max-height: min(360px, calc(100dvh - 36px), var(--available-height, 360px));
@@ -1154,6 +1155,17 @@
   color: var(--agent-text);
   font: inherit;
   outline: none;
+}
+/* The search placeholder's width in flow, drawn nowhere (FolderPopover.tsx): the field's own padding
+   and type, no height. */
+.acpmux-folder-popover .acpmux-location-search-sizer {
+  flex: none;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  padding: 0 var(--ui-row-padding-inline);
+  white-space: nowrap;
+  pointer-events: none;
 }
 .acpmux-folder-popover .acpmux-location-search::placeholder { color: var(--agent-muted); opacity: 1; }
 .acpmux-folder-popover .acpmux-location-folders { margin: 0; padding: 0; list-style: none; overflow: auto; }

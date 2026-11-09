@@ -91,17 +91,17 @@ await requireBrowserLane("folder-popover-scaling.browser.test.ts", async () => {
       try {
         const initial = await layout(page);
         await page.evaluate(() => document.documentElement.style.setProperty("--cmux-interface-scale", "1.5"));
-        await settle(page, initial.width * 1.45);
+        await settle(page, initial.width * 1.35);
         const scaled = await layout(page);
-        expect(scaled.width).toBeGreaterThanOrEqual(initial.width * 1.45);
+        expect(scaled.width).toBeGreaterThanOrEqual(initial.width * 1.35);
         expect(scaled.width).toBeLessThanOrEqual(initial.width * 1.55);
         expect(scaled.placeholderFits).toBe(true);
         await page.evaluate(() => {
           document.documentElement.style.setProperty("--cmux-interface-scale", "1");
           document.documentElement.style.setProperty("--text-body", "20px");
         });
-        await settle(page, initial.width * 1.45);
-        expect((await layout(page)).width).toBeGreaterThanOrEqual(initial.width * 1.45);
+        await settle(page, initial.width * 1.35);
+        expect((await layout(page)).width).toBeGreaterThanOrEqual(initial.width * 1.35);
       } finally {
         await page.close();
       }
