@@ -396,15 +396,19 @@ export function inlinePlugin(views: InlineViews) {
 /// stays where it is: one place for every attachment, never the strip above the text (Leo,
 /// 2026-11-09: "we have inline stuff, so why is this not inline?"), and never in the middle of what
 /// was typed meanwhile. A prompt that is all code gets a new first line for it.
+///
+/// `at` "restore": the same place, as no undo step of its own: a node the attachment already had and
+/// lost to a value from outside, put back so what replaces it next (Keep as .txt) is undone into it.
+export type InlinePlace = "caret" | "start" | "restore";
 export function insertInline(
   view: EditorView,
   ids: readonly string[],
   replace = false,
-  at: "caret" | "start" = "caret",
+  at: InlinePlace = "caret",
 ): boolean {
   const type = view.state.schema.nodes[INLINE_NODE];
   if (!type || ids.length === 0) return false;
-  if (at === "start") return insertInlineAtStart(view, ids);
+  if (at !== "caret") return insertInlineAtStart(view, ids, at === "start");
   const tr = view.state.tr;
   const { selection } = tr;
   if (!replace) {
@@ -434,7 +438,7 @@ export function insertInline(
   return true;
 }
 
-function insertInlineAtStart(view: EditorView, ids: readonly string[]): boolean {
+function insertInlineAtStart(view: EditorView, ids: readonly string[], recorded: boolean): boolean {
   const { schema, doc } = view.state;
   const type = schema.nodes[INLINE_NODE]!;
   const nodes = Fragment.from(ids.map((id) => type.create({ id })));
@@ -452,6 +456,7 @@ function insertInlineAtStart(view: EditorView, ids: readonly string[]): boolean 
     if (!line || !doc.canReplace(0, 0, Fragment.from(line))) return false;
     tr.insert(0, line);
   }
+  if (!recorded) tr.setMeta("addToHistory", false);
   view.dispatch(tr);
   return true;
 }

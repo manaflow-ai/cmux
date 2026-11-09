@@ -88,10 +88,13 @@ export function usePastedChips(
   const keepAsFile = (id: string) => {
     const chip = attachments.current.find((held) => held.id === id);
     if (!attachFile || chip?.kind !== "pasted" || chip.text === undefined) return;
-    // A chip with no node in the text (a value from outside took it away): its file goes at the
-    // start of the prompt, where every such attachment goes. Placed at the caret, an undo would take
-    // the file out with no node of the chip's to bring it back, and the paste would be gone.
-    const inText = field.current?.inlineIds()?.includes(id) ?? true;
+    // A chip with no node in the text (a value from outside took it away) gets its node back first,
+    // at the start of the prompt where every such attachment goes, as no undo step of its own: the
+    // file then takes that node's place, and an undo brings the paste back into it. Without a node,
+    // an undo would take the file out with nothing to bring back (router review of #39955, F1).
+    const inText =
+      (field.current?.inlineIds()?.includes(id) ?? true) ||
+      (field.current?.insertInline([id], false, "restore") ?? false);
     attachments.current = attachments.current.filter((held) => held.id !== id);
     setAttachments((current) => current.filter((held) => held.id !== id));
     // The caret goes to where the chip was, so the file is placed there, wherever the caret was.
