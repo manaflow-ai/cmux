@@ -301,12 +301,12 @@ impl Health {
         self.ids.get(id).copied()
     }
 
-    /// The live part in `slot`; `None` only for a slot freed by `unregister`.
     /// Whether `slot` still holds the part whose deadline carried `generation`.
     fn is_live(&self, slot: usize, generation: u64) -> bool {
         self.slots.get(slot).and_then(Option::as_ref).is_some_and(|p| p.generation == generation)
     }
 
+    /// The live part in `slot`; `None` only for a slot freed by `unregister`.
     fn part(&mut self, slot: usize) -> Option<&mut Part> {
         self.slots.get_mut(slot)?.as_mut()
     }

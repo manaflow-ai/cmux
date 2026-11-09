@@ -117,7 +117,8 @@ public final class AppHealth: Sendable {
         var nextSubscriber: UInt64 = 0
         var repairs: [Kind: RepairHandler] = [:]
         var injectors: [Kind: Injector] = [:]
-        var holdsReplace = false
+        /// When the model said a restoring daemon loops (`holdReplace`), until an owner is ready.
+        var holdReplaceAt: UInt64?
         /// The last restore progress (model ms), until an owner is ready or exits.
         var restoreProgressAt: UInt64?
     }
@@ -184,7 +185,7 @@ public final class AppHealth: Sendable {
                 switch event {
                 // A daemon that is ready again is no restore to protect.
                 case .ready:
-                    box.holdsReplace = false
+                    box.holdReplaceAt = nil
                     box.restoreProgressAt = nil
                 case .exited: box.restoreProgressAt = nil
                 case .restoreProgress: box.restoreProgressAt = now
@@ -262,14 +263,15 @@ public final class AppHealth: Sendable {
     }
 
     /// True while the session daemon restores and still makes progress (its last progress within
-    /// ``restoreProgressWindowMs``, the model's no-progress bound `DAEMON_STALL_MS`), and after
-    /// the model said a restoring daemon loops (`holdReplace`), until an owner is ready again.
+    /// ``restoreProgressWindowMs``, the model's no-progress bound `DAEMON_STALL_MS`). The model's
+    /// start-loop hold (`holdReplace`) counts as progress at the moment it came, so it ends the same
+    /// way: an owner is ready, or the bound passes with no progress (a stalled loop is not protected).
     /// Read-only: the replace paths consult it before they kill or replace an owner; this type never
     /// does either.
     public var holdsReplace: Bool {
         let now = nowMs()
         return box.withLock { box in
-            box.holdsReplace || box.restoreProgressAt.map { now &- $0 < Self.restoreProgressWindowMs } == true
+            [box.holdReplaceAt, box.restoreProgressAt].compactMap { $0 }.max().map { now &- $0 < Self.restoreProgressWindowMs } == true
         }
     }
 
@@ -349,7 +351,7 @@ public final class AppHealth: Sendable {
         let (reply, publish) = box.withLock { box -> (JSONValue?, (UInt64, JSONValue, [@Sendable (JSONValue) -> Void])?) in
             guard let data = box.model.call(op, body), let reply = try? JSONValue.parse(data) else { return (nil, nil) }
             if reply["actions"]?.arrayValue?.contains(where: { $0["action"]?.stringValue == Repair.holdReplace.rawValue }) == true {
-                box.holdsReplace = true
+                box.holdReplaceAt = now
             }
             if reply["nextTickMs"] != nil { arm(&box, next: reply["nextTickMs"]?.doubleValue.flatMap { $0 > 0 ? UInt64(exactly: $0.rounded(.up)) : 0 }, now: now) }
             // Compared by value: the first op's quiet snapshot equals the initial one and publishes nothing.
