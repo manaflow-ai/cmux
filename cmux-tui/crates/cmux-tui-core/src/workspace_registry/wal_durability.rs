@@ -30,11 +30,13 @@
 //! A PASSIVE checkpoint never shrinks the WAL file, and while a reader holds
 //! an old snapshot it cannot catch up, so the file grows with every commit
 //! and stays at that size (one registry's WAL reached 15.7 GB). So every
-//! connection runs `journal_size_limit` ([`WAL_SIZE_LIMIT_BYTES`]), which
-//! cuts the file back when the WAL restarts from its first frame, and once a
-//! PASSIVE checkpoint caught up with a WAL over that size the syncer runs one
-//! TRUNCATE checkpoint. It waits at most [`TRUNCATE_BUSY_TIMEOUT`] for a
-//! writer or reader; a busy one is tried again at the next checkpoint.
+//! connection runs `journal_size_limit` ([`WAL_SIZE_LIMIT_BYTES`]): once a
+//! PASSIVE checkpoint copied the whole WAL and no reader still needs it, the
+//! next commit restarts the WAL from its first frame and SQLite cuts the file
+//! back to the limit. No TRUNCATE or RESTART checkpoint: either holds the
+//! writer lock while it waits for readers, and a request's transaction that
+//! read first then fails its write with SQLITE_BUSY at once (the busy
+//! timeout does not cover that upgrade).
 //!
 //! Before, each registry commit ran `synchronous=FULL` with `fullfsync`
 //! while it held the registry connection lock: about 4.5 ms per commit on a
@@ -61,13 +63,9 @@ const CHECKPOINT_BYTES: u64 = 4 * 1024 * 1024;
 /// Each WAL frame is a 24-byte frame header and one page.
 const WAL_FRAME_HEADER_BYTES: u64 = 24;
 
-/// The WAL file size the syncer brings the file back under once nothing
-/// pins it (`journal_size_limit`, and a TRUNCATE checkpoint).
+/// The WAL file size SQLite cuts the file back to when the WAL restarts
+/// (`journal_size_limit`).
 pub(crate) const WAL_SIZE_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
-
-/// How long the syncer's TRUNCATE checkpoint waits for a writer or reader
-/// before it leaves the WAL for the next checkpoint.
-const TRUNCATE_BUSY_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// Commit counters shared with the syncer thread.
 #[derive(Default)]
@@ -326,8 +324,6 @@ fn run(shared: &Shared) {
 
 /// A PASSIVE checkpoint on the syncer's own connection once the WAL is
 /// large: it copies what it can without waiting for a writer or reader.
-/// When it copied the whole WAL and the file is over
-/// [`WAL_SIZE_LIMIT_BYTES`], a TRUNCATE checkpoint empties the file.
 /// True when a checkpoint ran (it synced the WAL before copying it).
 fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -> bool {
     let size = wal_file_len(shared);
@@ -342,39 +338,19 @@ fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -
         .and_then(|connection| {
             connection.execute_batch(CHECKPOINTER_PRAGMAS)?;
             connection.execute_batch(&journal_size_limit_pragma())?;
-            // PASSIVE never waits; this bounds the TRUNCATE checkpoint's wait.
-            connection.busy_timeout(TRUNCATE_BUSY_TIMEOUT)?;
             Ok(connection)
         })
         .map_err(|error| eprintln!("cmux-tui: open the WAL checkpointer failed: {error:#}"))
         .ok();
     }
     let Some(connection) = checkpointer.as_ref() else { return false };
-    let caught_up = match checkpoint(connection, "PASSIVE") {
-        Ok(caught_up) => caught_up,
+    match connection.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(())) {
+        Ok(()) => true,
         Err(error) => {
             eprintln!("cmux-tui: WAL checkpoint failed: {error}");
-            return false;
+            false
         }
-    };
-    if caught_up && size > WAL_SIZE_LIMIT_BYTES {
-        // Busy (a reader still on the WAL, or a writer): the next one tries.
-        if let Err(error) = checkpoint(connection, "TRUNCATE") {
-            eprintln!("cmux-tui: WAL truncate checkpoint failed: {error}");
-        }
-        wal_file_len(shared);
     }
-    true
-}
-
-/// `PRAGMA wal_checkpoint(mode)`: true when it was not busy and every frame
-/// of the WAL is in the database.
-fn checkpoint(connection: &Connection, mode: &str) -> rusqlite::Result<bool> {
-    let (busy, log, checkpointed): (i64, i64, i64) =
-        connection.query_row(&format!("PRAGMA wal_checkpoint({mode})"), [], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?;
-    Ok(busy == 0 && log == checkpointed)
 }
 
 /// The checkpoint orders its writes with plain fsyncs, as the WAL flush does
@@ -552,15 +528,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn a_wal_a_reader_pinned_shrinks_under_the_limit_once_the_reader_is_gone() {
-        let (dir, connection) = database("pinned");
-        let path = dir.join("r.sqlite");
-        let durability = WalDurability::attach(&connection, &path, None, false);
-        let wal = dir.join("r.sqlite-wal");
-        // A reader holds its snapshot while the commits land, as a long read
-        // of the registry does: no checkpoint can copy past it.
-        let reader = Connection::open(&path).unwrap();
+    /// Commits about one and a half [`WAL_SIZE_LIMIT_BYTES`] while a reader
+    /// holds its snapshot, as a long read of the registry does: no checkpoint
+    /// can copy past it. Returns the pinned WAL's size after the reader ended.
+    fn grow_a_pinned_wal(path: &Path, connection: &Connection, durability: &WalDurability) -> u64 {
+        let reader = Connection::open(path).unwrap();
         reader.execute_batch("BEGIN").unwrap();
         let _: i64 = reader.query_row("SELECT COUNT(*) FROM t", [], |row| row.get(0)).unwrap();
         let blob = vec![7u8; 64 * 1024];
@@ -572,15 +544,27 @@ mod tests {
             }
         }
         durability.wait_durable();
-        let pinned = std::fs::metadata(&wal).unwrap().len();
-        assert!(pinned > WAL_SIZE_LIMIT_BYTES, "the pinned WAL is only {pinned} bytes");
         reader.execute_batch("COMMIT").unwrap();
-        drop(reader);
-        // The next answered request checkpoints it.
-        connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
-        durability.request_flush();
+        let mut wal = path.as_os_str().to_owned();
+        wal.push("-wal");
+        let pinned = std::fs::metadata(PathBuf::from(wal)).unwrap().len();
+        assert!(pinned > WAL_SIZE_LIMIT_BYTES, "the pinned WAL is only {pinned} bytes");
+        pinned
+    }
+
+    #[test]
+    fn a_wal_a_reader_pinned_shrinks_under_the_limit_once_the_reader_is_gone() {
+        let (dir, connection) = database("pinned");
+        let path = dir.join("r.sqlite");
+        let durability = WalDurability::attach(&connection, &path, None, false);
+        let wal = dir.join("r.sqlite-wal");
+        let pinned = grow_a_pinned_wal(&path, &connection, &durability);
+        // Answered requests go on: the syncer checkpoints the whole WAL, and
+        // the next commit restarts it and cuts the file to the limit.
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         let after = loop {
+            connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
+            durability.request_flush();
             let len = std::fs::metadata(&wal).map_or(0, |meta| meta.len());
             if len <= WAL_SIZE_LIMIT_BYTES || std::time::Instant::now() > deadline {
                 break len;
@@ -594,6 +578,40 @@ mod tests {
         let (now, high_water) = durability.wal_file_bytes();
         assert_eq!(now, after);
         assert!(high_water >= pinned, "a high-water mark of {high_water} bytes, {pinned} pinned");
+        drop(connection);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_transaction_that_reads_then_writes_never_gets_busy_while_the_syncer_checkpoints() {
+        // A request transaction reads, then writes (an idle policy update).
+        // The upgrade to a writer does not wait for a busy timeout: a
+        // checkpoint that held the writer lock while it waited for this
+        // transaction's read would fail the write at once.
+        let (dir, connection) = database("read-then-write");
+        let path = dir.join("r.sqlite");
+        let durability = WalDurability::attach(&connection, &path, None, false);
+        connection.busy_timeout(Duration::from_secs(5)).unwrap();
+        grow_a_pinned_wal(&path, &connection, &durability);
+        let wal = dir.join("r.sqlite-wal");
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut rounds = 0;
+        while std::time::Instant::now() < deadline {
+            durability.request_flush();
+            let tx = connection.unchecked_transaction().unwrap();
+            let _: i64 = tx.query_row("SELECT COUNT(*) FROM t", [], |row| row.get(0)).unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+            if let Err(error) = tx.execute("INSERT INTO t VALUES (2)", []) {
+                panic!("round {rounds}: the write after a read failed: {error}");
+            }
+            tx.commit().unwrap();
+            rounds += 1;
+            if rounds >= 20
+                && std::fs::metadata(&wal).map_or(0, |meta| meta.len()) <= WAL_SIZE_LIMIT_BYTES
+            {
+                break;
+            }
+        }
         drop(connection);
         let _ = std::fs::remove_dir_all(&dir);
     }
