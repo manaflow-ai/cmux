@@ -454,4 +454,8 @@ jobs:
           name: gallery-health-${{ matrix.shard }}
           path: ${{ runner.temp }}/health
           if-no-files-found: ignore
-          retention-days: 7
+          # 2 days: the base-red excuse reads only the newest base runs' shards (base_red_excuse.py
+          # GALLERY_FALLBACK_RUNS), and at about 760 MB a run and hundreds of runs a day, 7 days filled the
+          # organization's artifact storage (2026-11-09: uploads in other repos failed with "Artifact storage quota
+          # has been hit").
+          retention-days: 2
