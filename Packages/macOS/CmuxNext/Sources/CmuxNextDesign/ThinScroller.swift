@@ -97,6 +97,13 @@ public final class ThinScroller: NSScroller {
 
     override public class var isCompatibleWithOverlayScrollers: Bool { true }
 
+    /// AppKit's arrow and page parts, named (``ScrollerPartNames``).
+    override public func accessibilityChildren() -> [Any]? {
+        let children = super.accessibilityChildren()
+        ScrollerPartNames.name(children, vertical: bounds.height >= bounds.width)
+        return children
+    }
+
     override public class func scrollerWidth(for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style) -> CGFloat {
         width
     }

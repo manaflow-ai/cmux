@@ -31,7 +31,7 @@ import Testing
             guard controlRoles.contains(node.role), node.label.isEmpty else { return nil }
             let view = (node.element as? NSView) ?? (node.element as? NSCell)?.controlView
             let frame = view.map { $0.convert($0.bounds, to: nil) } ?? .zero
-            let help = (node.element as? NSAccessibilityProtocol)?.accessibilityHelp() ?? ""
+            let help = (node.element as? any NSAccessibilityProtocol)?.accessibilityHelp() ?? ""
             return "\(node.path) \(String(describing: type(of: node.element))) id=\(node.identifier) help=\(help) frame=\(frame)"
         }
     }
@@ -52,6 +52,7 @@ import Testing
         window.isReleasedWhenClosed = false
         defer { window.close() }
         window.contentView = split
+        window.nameStandardWindowButtons() // as `install(kind:)` does for every cmux window
         split.layoutSubtreeIfNeeded()
         split.setWidth(320)
         split.layoutSubtreeIfNeeded()
@@ -80,6 +81,8 @@ import Testing
     /// The docked Home and a Home tab as the app builds them, with the app's services.
     @Test func homeContainersNameEveryControl() async throws {
         _ = NSApplication.shared
+        let windowsBefore = Set(NSApp.windows.map(ObjectIdentifier.init))
+        defer { for window in NSApp.windows where !windowsBefore.contains(ObjectIdentifier(window)) { window.close() } }
         let services = AppServices(environment: AppEnvironment.current([:]))
         let conversation = ConversationID("conv_names_dock")
         let dock = HomeDockView(services: services, mode: .messages)
@@ -93,6 +96,7 @@ import Testing
             defer { window.close() }
             view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
             window.contentView = view
+            window.nameStandardWindowButtons()
             window.orderFrontRegardless()
             view.layoutSubtreeIfNeeded()
             await Self.wait { (dock.messages?.host?.focusTarget is NSTextView) || scene == "homeTab" && tab.host?.focusTarget is NSTextView }
@@ -113,6 +117,7 @@ import Testing
         window.isReleasedWhenClosed = false
         window.titlebarAppearsTransparent = true
         window.contentView = root
+        window.nameStandardWindowButtons()
         defer { window.close() }
         root.needsLayout = true
         root.layoutSubtreeIfNeeded()

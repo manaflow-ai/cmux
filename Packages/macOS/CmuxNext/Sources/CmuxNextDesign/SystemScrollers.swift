@@ -40,6 +40,14 @@ public struct SystemScrollers {
             if !(scrollView.horizontalScroller is ThinScroller) { scrollView.horizontalScroller = ThinScroller() }
             if !(scrollView.verticalScroller is ThinScroller) { scrollView.verticalScroller = ThinScroller() }
         }
+        // A stock scroller's arrow and page parts have no name (goal a11y-baseline): the scroller
+        // that names them draws the same.
+        if let scroller = scrollView.verticalScroller, type(of: scroller) == NSScroller.self {
+            scrollView.verticalScroller = NamedPartsScroller(replacing: scroller)
+        }
+        if let scroller = scrollView.horizontalScroller, type(of: scroller) == NSScroller.self {
+            scrollView.horizontalScroller = NamedPartsScroller(replacing: scroller)
+        }
         (scrollView.documentView as? NSTableView)?.cornerView = nil
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = nativeStyle
@@ -108,3 +116,54 @@ public struct SystemScrollers {
     }
 }
 
+
+/// AppKit's scroller with names on its arrow and page parts. A stock scroller's parts are buttons
+/// with a subrole and nothing else, which an accessibility client that reads names sees as
+/// unnamed controls (cmuxterm-hq synthetic-probes run 42599053150: the Home list's four).
+final class NamedPartsScroller: NSScroller {
+    /// A scroller like `scroller`: its size, knob style and enabled state.
+    convenience init(replacing scroller: NSScroller) {
+        self.init(frame: scroller.frame)
+        controlSize = scroller.controlSize
+        knobStyle = scroller.knobStyle
+        isEnabled = scroller.isEnabled
+    }
+
+    override class var isCompatibleWithOverlayScrollers: Bool { true }
+
+    override func accessibilityChildren() -> [Any]? {
+        let children = super.accessibilityChildren()
+        ScrollerPartNames.name(children, vertical: bounds.height >= bounds.width)
+        return children
+    }
+}
+
+/// The names of a scroller's arrow and page parts, by subrole (``NamedPartsScroller``, ``ThinScroller``).
+struct ScrollerPartNames {
+    /// Gives each unnamed part of `children` its name; anything else is left as it is.
+    @MainActor static func name(_ children: [Any]?, vertical: Bool) {
+        for case let part as any NSAccessibilityProtocol in children ?? [] where part.accessibilityRole() == .button {
+            guard (part.accessibilityLabel() ?? "").isEmpty, let subrole = part.accessibilitySubrole(),
+                  let name = name(for: subrole, vertical: vertical) else { continue }
+            part.setAccessibilityLabel(name)
+        }
+    }
+
+    static func name(for subrole: NSAccessibility.Subrole, vertical: Bool) -> String? {
+        switch subrole {
+        case .incrementPage:
+            vertical ? String(localized: "scroller.part.pageDown", defaultValue: "Page Down", bundle: .module)
+                : String(localized: "scroller.part.pageRight", defaultValue: "Page Right", bundle: .module)
+        case .decrementPage:
+            vertical ? String(localized: "scroller.part.pageUp", defaultValue: "Page Up", bundle: .module)
+                : String(localized: "scroller.part.pageLeft", defaultValue: "Page Left", bundle: .module)
+        case .incrementArrow:
+            vertical ? String(localized: "scroller.part.scrollDown", defaultValue: "Scroll Down", bundle: .module)
+                : String(localized: "scroller.part.scrollRight", defaultValue: "Scroll Right", bundle: .module)
+        case .decrementArrow:
+            vertical ? String(localized: "scroller.part.scrollUp", defaultValue: "Scroll Up", bundle: .module)
+                : String(localized: "scroller.part.scrollLeft", defaultValue: "Scroll Left", bundle: .module)
+        default: nil
+        }
+    }
+}
