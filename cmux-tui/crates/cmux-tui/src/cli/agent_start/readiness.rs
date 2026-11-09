@@ -9,7 +9,8 @@
 //!   question, the bypass-permissions warning, a login or API-key choice,
 //!   onboarding, Codex's trust or update prompt), or a fresh hook record
 //!   says the agent waits on the person. The dialog's id and a reason come
-//!   with it. cmux never answers the dialog.
+//!   with it, and the last screen, whose numbered options `agent start`
+//!   lists. cmux never answers the dialog on its own: the person decides.
 //! - `ready`: no dialog, and a fresh hook record says the agent is idle (the
 //!   `SessionStart` hook) or the screen shows the agent's input box.
 //! - `starting`: neither yet.
@@ -49,8 +50,8 @@ const DIALOGS: &[(Dialog, &[&str])] = &[
     (
         Dialog {
             id: "folder_trust",
-            reason: "the agent asks whether you trust this folder; answer it in the terminal \
-                     (cmux does not answer it for you)",
+            reason: "the agent asks whether you trust this folder; ask the person, then answer \
+                     it with cmux terminal NAME keys (cmux never answers it on its own)",
         },
         &[
             "do you trust the files in this folder",
@@ -280,6 +281,8 @@ pub(in crate::cli) struct Outcome {
     /// The last readiness seen (`starting` when nothing else was).
     pub last: Readiness,
     pub waited: Duration,
+    /// The last screen read (the dialog's options for a blocked start).
+    pub screen: String,
 }
 
 fn number(value: &Value) -> Option<u64> {
@@ -335,10 +338,12 @@ where
         let last = assess(&look);
         let at = now();
         if let Some(done) = gate.observe(screen, last, at) {
-            return Ok(Outcome { readiness: Some(done), last, waited: at - started });
+            let screen = screen.to_owned();
+            return Ok(Outcome { readiness: Some(done), last, waited: at - started, screen });
         }
         if at >= deadline {
-            return Ok(Outcome { readiness: None, last, waited: at - started });
+            let screen = screen.to_owned();
+            return Ok(Outcome { readiness: None, last, waited: at - started, screen });
         }
         sleep(options.poll.min(deadline.saturating_duration_since(at)));
     }

@@ -31,6 +31,7 @@
 //! `blocked` with `dialog` and `reason` (exit 4), `timeout` (exit 124),
 //! `exited` (exit 1), or `started` under `--no-wait` (exit 0).
 
+mod dialog_options;
 pub(in crate::cli) mod launch;
 pub(in crate::cli) mod placement;
 pub(in crate::cli) mod readiness;
@@ -393,7 +394,35 @@ pub(in crate::cli) fn apply_outcome(report: &mut Value, outcome: &Outcome, who: 
     report.set("dialog", json!(dialog));
     report.set("reason", json!(reason));
     report.set("waited_ms", json!(outcome.waited.as_millis().to_string()));
+    if let Some(Readiness::Blocked(dialog)) = outcome.readiness {
+        add_dialog_options(report, dialog.id, &outcome.screen, who);
+    }
     exit
+}
+
+/// Adds a blocked start's dialog `options` and, for the folder-trust
+/// dialog, the `accept_keys` that trust the folder, with a reason that
+/// names them. The person decides; the keys only say how to answer.
+fn add_dialog_options(report: &mut Value, dialog: &str, screen: &str, who: &str) {
+    let options = dialog_options::options(screen);
+    if options.is_empty() {
+        return;
+    }
+    let listed: Vec<Value> = options.iter().map(dialog_options::DialogOption::to_json).collect();
+    report.set("options", Value::Array(listed));
+    if dialog != "folder_trust" {
+        return;
+    }
+    let Some(keys) = dialog_options::accept_keys(&options) else { return };
+    let typed = keys.join(" ");
+    report.set("accept_keys", json!(keys));
+    report.set(
+        "reason",
+        json!(format!(
+            "the agent asks whether you trust this folder; ask the person, and when they \
+             agree run cmux terminal {who} keys {typed} (cmux never answers it on its own)"
+        )),
+    );
 }
 
 fn humantime(duration: Duration) -> String {

@@ -21,6 +21,9 @@
 //! W3-H): `agent.list` and `session.snapshot` show it folded and cut to 200 characters as the
 //! agent value's `extra.last_reply`, so `cmux terminal list --agents` names each agent's last
 //! answer. Memory only like the rest: a daemon restart or a closed terminal forgets it.
+//! `agent.list` for one terminal also shows it whole as `extra.last_reply_text`, with the
+//! time the daemon kept it as `extra.last_reply_at_ms` (W5-Q), so `cmux terminal NAME send`
+//! answers the reply of its own turn, not the screen's wrapped lines.
 //!
 //! The last harness session id stays with its terminal too (`last_sessions`, W3-H): an ended
 //! session leaves the roster, so `session.snapshot` shows it on the terminal value's
@@ -39,8 +42,9 @@ use super::*;
 pub(crate) struct AgentTexts {
     pub(crate) prompts: HashMap<TerminalPublicId, Arc<str>>,
     replies: HashMap<TerminalPublicId, (std::thread::ThreadId, Arc<str>)>,
-    /// Each terminal's last finished turn's message, kept after its banner took it.
-    last_replies: HashMap<TerminalPublicId, Arc<str>>,
+    /// Each terminal's last finished turn's message, kept after its banner took it, and when
+    /// it was kept (Unix milliseconds).
+    last_replies: HashMap<TerminalPublicId, (Arc<str>, u64)>,
     /// Each terminal's last harness session id and harness, kept after the session ended.
     last_sessions: HashMap<TerminalPublicId, (Arc<str>, Option<Arc<str>>)>,
     /// A question hook's question (`live_question`), kept by the append's thread until its
@@ -122,7 +126,7 @@ impl Mux {
         let mut texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
         let owner = std::thread::current().id();
         let reply: Arc<str> = Arc::from(reply);
-        texts.last_replies.insert(terminal.clone(), Arc::clone(&reply));
+        texts.last_replies.insert(terminal.clone(), (Arc::clone(&reply), super::now_ms()));
         texts.replies.insert(terminal.clone(), (owner, reply));
         true
     }
@@ -135,10 +139,21 @@ impl Mux {
         texts
             .last_replies
             .iter()
-            .filter_map(|(terminal, reply)| {
+            .filter_map(|(terminal, (reply, _))| {
                 Some((terminal.to_string(), crate::agent_hooks::live_prompt_text(reply)?))
             })
             .collect()
+    }
+
+    /// `terminal`'s last reply whole (markdown, up to `LIVE_MESSAGE_CHARS`) and when it was
+    /// kept, for a one-terminal `agent.list` ([`with_last_reply_text`]). Read before a
+    /// registry projection lock is taken, as [`Mux::agent_last_replies`] is.
+    pub(crate) fn agent_last_reply_text(&self, terminal: &TerminalPublicId) -> Option<LastReply> {
+        let texts = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        texts
+            .last_replies
+            .get(terminal)
+            .map(|(reply, at_ms)| LastReply { text: reply.to_string(), at_ms: *at_ms })
     }
 
     /// Keeps `session_id` (and its `harness`) as the last harness session of `terminal`.
@@ -267,6 +282,28 @@ pub(crate) fn with_last_reply(mut agent: Value, replies: &HashMap<String, String
         (reply, agent.get_mut("extra").and_then(Value::as_object_mut))
     {
         extra.insert("last_reply".into(), Value::String(reply.clone()));
+    }
+    agent
+}
+
+/// A terminal's last reply whole and when the daemon kept it ([`Mux::agent_last_reply_text`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LastReply {
+    pub(crate) text: String,
+    /// Unix milliseconds.
+    pub(crate) at_ms: u64,
+}
+
+/// Adds `extra.last_reply_text` (the reply whole) and `extra.last_reply_at_ms` (a decimal
+/// string, like `updated_at_ms`) to a public agent value of `reply`'s terminal. A one-terminal
+/// `agent.list` shows them; session-wide lists keep the folded `extra.last_reply` only.
+pub(crate) fn with_last_reply_text(mut agent: Value, reply: Option<&LastReply>) -> Value {
+    let Some(reply) = reply else { return agent };
+    let Some(object) = agent.as_object_mut() else { return agent };
+    let extra = object.entry("extra").or_insert_with(|| Value::Object(Map::new()));
+    if let Some(extra) = extra.as_object_mut() {
+        extra.insert("last_reply_text".into(), Value::String(reply.text.clone()));
+        extra.insert("last_reply_at_ms".into(), Value::String(reply.at_ms.to_string()));
     }
     agent
 }

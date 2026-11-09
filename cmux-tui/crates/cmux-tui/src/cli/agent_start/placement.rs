@@ -8,6 +8,11 @@
 //! - A session with no pane yet (a daemon no client opened): a new workspace
 //!   named after the agent, whose first shell tab the agent's tab replaces.
 //!
+//! A split then gives every pane of the new pane's row (the chain of splits
+//! in the same direction around it) the same share, so the third agent of
+//! a row is not a quarter of it (W5-Q, bench round 4 orchestration friction
+//! 6). A screen of viewport columns keeps each column's width.
+//!
 //! The agent runs in a tab of its own (`pane run --on-exit keep --name
 //! NAME`), so its name, argv and harness session stay on record after it
 //! exits. A split first opens a shell tab in the new pane, which is closed
@@ -278,6 +283,7 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
                 words.extend(["--cwd", cwd]);
             }
             let split = Created::from_result(&daemon.request(None, plan(&words)?)?)?;
+            balance(daemon, split.screen.as_deref(), &split.pane);
             (split.pane, Some(split.tab))
         }
         Placement::Tab => (pane.to_owned(), None),
@@ -313,4 +319,109 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
         let _ = daemon.request(None, close);
     }
     Ok(created)
+}
+
+/// Gives each pane of `pane`'s row in `screen` the same share. A layout the
+/// session does not export, or a ratio it refuses, leaves the split as it is.
+fn balance<D: Daemon + ?Sized>(daemon: &D, screen: Option<&str>, pane: &str) {
+    let screen = match screen {
+        Some(screen) => Some(screen.to_owned()),
+        None => send::snapshot(daemon, None).ok().and_then(|snapshot| {
+            list(&snapshot, "panes")
+                .iter()
+                .find(|record| record["id"] == pane)
+                .and_then(|record| record["screen_id"].as_str())
+                .map(str::to_owned)
+        }),
+    };
+    let Some(screen) = screen else { return };
+    let Ok(export) = plan(&["screen", screen.as_str(), "layout", "export"]) else { return };
+    let Ok(layout) = daemon.request(None, export) else { return };
+    let root = layout.get("root").unwrap_or(&layout);
+    for (split, ratio) in even_ratios(root, pane) {
+        let ratio = format!("{ratio:.6}");
+        let words = [
+            "pane",
+            pane,
+            "split",
+            "ratio",
+            "set",
+            "--split",
+            split.as_str(),
+            "--ratio",
+            ratio.as_str(),
+        ];
+        if let Ok(set) = plan(&words) {
+            // The agent runs either way; an uneven row is no failure.
+            let _ = daemon.request(None, set);
+        }
+    }
+}
+
+/// The split ratios (`split_id`, share of `first`) that give each pane of
+/// `pane`'s row the same share: the row is the largest chain of splits in
+/// the direction of `pane`'s own split. Ratios that already fit are left
+/// out; a layout that is not a split tree gives none.
+fn even_ratios(root: &Value, pane: &str) -> Vec<(String, f64)> {
+    let mut path = Vec::new();
+    if root["kind"] != "split" || !path_to(root, pane, &mut path) {
+        return Vec::new();
+    }
+    let Some(direction) = path.last().map(|split| &split["direction"]) else {
+        return Vec::new();
+    };
+    let top = path
+        .iter()
+        .rposition(|split| split["direction"] != *direction)
+        .map_or(0, |different| different + 1);
+    let Some(row) = path.get(top) else { return Vec::new() };
+    let mut ratios = Vec::new();
+    even(row, direction, &mut ratios);
+    ratios
+}
+
+/// The splits from `node` down to `pane`'s leaf (or stack), into `path`.
+fn path_to<'a>(node: &'a Value, pane: &str, path: &mut Vec<&'a Value>) -> bool {
+    match node["kind"].as_str() {
+        Some("leaf") => node["pane_id"] == pane,
+        Some("stack") => {
+            node["pane_ids"].as_array().is_some_and(|panes| panes.iter().any(|id| id == pane))
+        }
+        Some("split") => {
+            path.push(node);
+            if path_to(&node["first"], pane, path) || path_to(&node["second"], pane, path) {
+                return true;
+            }
+            path.pop();
+            false
+        }
+        _ => false,
+    }
+}
+
+/// How many panes of the row `node` holds along `direction`.
+fn weight(node: &Value, direction: &Value) -> u32 {
+    if node["kind"] == "split" && node["direction"] == *direction {
+        weight(&node["first"], direction).saturating_add(weight(&node["second"], direction))
+    } else {
+        1
+    }
+}
+
+/// The ratios of `node`'s row splits that give each pane the same share.
+fn even(node: &Value, direction: &Value, ratios: &mut Vec<(String, f64)>) {
+    if node["kind"] != "split" || node["direction"] != *direction {
+        return;
+    }
+    let first = f64::from(weight(&node["first"], direction));
+    let total = f64::from(weight(node, direction));
+    let ratio = first / total;
+    let current = node["ratio"].as_f64().unwrap_or(f64::NAN);
+    if let Some(split) = node["split_id"].as_str()
+        && (current.is_nan() || (current - ratio).abs() > 0.001)
+    {
+        ratios.push((split.to_owned(), ratio));
+    }
+    even(&node["first"], direction, ratios);
+    even(&node["second"], direction, ratios);
 }
