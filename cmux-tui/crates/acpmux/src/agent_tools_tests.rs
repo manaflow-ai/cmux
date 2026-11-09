@@ -285,18 +285,20 @@ fn a_hook_binary_that_does_not_know_the_hook_lets_the_call_run() {
         child.wait_with_output().unwrap()
     };
     let words = |exe: String| vec![exe, crate::bg_hook::HOOK_ARG.to_owned(), "/h".to_owned()];
+    // Whatever the patterns, a started binary never blocks: here every call starts it.
+    let every = ["*".to_owned()];
     let old =
         words(script("cmux", r#"echo 'cmux: unknown resource scope "__bg-hook".' >&2; exit 2"#));
     let bare: Vec<String> = old.iter().map(|w| format!("'{w}'")).collect();
     assert_eq!(run(&bare.join(" ")).status.code(), Some(2), "the skew this guards against");
-    let out = run(&super::hook_command(&old));
+    let out = run(&super::hook_command(&old, &every));
     assert!(out.status.success(), "a refusing hook binary blocked the call: {out:?}");
     // A binary that is gone does not block either.
     let gone = words(root.join("gone").to_string_lossy().into_owned());
-    assert!(run(&super::hook_command(&gone)).status.success());
+    assert!(run(&super::hook_command(&gone, &every)).status.success());
     // The hook's own answer still gets through.
     let deny = words(script("acpmux", r#"echo '{"deny":true}'"#));
-    let out = run(&super::hook_command(&deny));
+    let out = run(&super::hook_command(&deny, &every));
     assert!(out.status.success());
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), r#"{"deny":true}"#);
     let _ = std::fs::remove_dir_all(&root);
@@ -318,7 +320,7 @@ fn the_subagent_hook_starts_the_binary_only_for_a_subagents_call() {
         std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         let words = [path.to_string_lossy().into_owned(), crate::bg_hook::HOOK_ARG.to_owned()];
-        super::subagent_hook_command(&words)
+        super::hook_command(&words, &[crate::bg_hook::SUBAGENT_PATTERN.to_owned()])
     };
     let run = |command: &str, input: &str| {
         let mut child = std::process::Command::new("sh")

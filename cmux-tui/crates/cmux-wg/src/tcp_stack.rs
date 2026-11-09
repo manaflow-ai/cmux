@@ -307,6 +307,9 @@ impl TcpStack {
         socket.set_tail_loss_probe(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(TCP_PROBE_ACK_DELAY.as_micros()).unwrap_or(u64::MAX),
         )));
+        // Under repeated loss, resend only the holes the peer's SACK blocks
+        // show, several per round trip, with one window cut per episode.
+        socket.set_sack_recovery(true);
         socket.set_timeout(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(timeout.as_micros()).unwrap_or(u64::MAX),
         )));
