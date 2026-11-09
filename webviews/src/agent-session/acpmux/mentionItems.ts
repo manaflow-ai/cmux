@@ -309,7 +309,7 @@ export function mentionItems({
 }): MentionItem[] {
   const text = query.trim();
   const chats = sessionItems(sessions, chatId, text);
-  const harnessRows = harnessItems(harnesses, text);
+  const harnessRows = text ? harnessItems(harnesses, text) : [];
   const known = new Set(files.map((file) => file.path));
   const matching = (entry: RecentMention) => !text || fuzzyIndices(text, entry.path) !== undefined;
   const recentFiles = recent
@@ -334,9 +334,10 @@ export function mentionItems({
       ...matchRuns(file.path, file.matches),
     })),
   ];
-  // A bare @ keeps leading with recent chats; a harness named by the query's start leads.
+  // A harness follows the chats: a chat row being typed toward stays put as "@c" grows to
+  // "@coord", and a bare @ (no query, so no harness) keeps its height.
   if (/[./]/.test(text)) return [...paths, ...chats, ...harnessRows];
-  return text ? [...harnessRows, ...chats, ...paths] : [...chats, ...paths, ...harnessRows];
+  return [...chats, ...harnessRows, ...paths];
 }
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
