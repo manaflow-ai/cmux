@@ -42,12 +42,16 @@ public struct BrowserTabSplitCommand: Sendable {
     /// returned work sends `create` with the request's `split` and answers the daemon's surface, or
     /// nil when the person closed the new pane first (its tab closes when it arrives,
     /// CancelledCreation). A refusal takes the split and its sizing away again and rethrows.
+    /// `minted` runs with the new pane's client-minted id (`pane_<32 hex>`, which the stand-in's pane and
+    /// the daemon's pane both carry) before the stand-in is in the store, so before either has a page.
     @MainActor
-    public func intendNow(on daemon: DaemonService, layout: LayoutModel?, shown: CmuxNextLayout.PaneID)
+    public func intendNow(on daemon: DaemonService, layout: LayoutModel?, shown: CmuxNextLayout.PaneID,
+                          minted: (@MainActor (_ paneID: String) -> Void)? = nil)
         -> @MainActor (_ create: (ConversationTabSplit) async throws -> SurfaceID) async throws -> SurfaceID? {
         let changes = insertion?.sizing ?? layout?.splitSizingChanges(splitting: shown, axis: direction == .right ? .horizontal : .vertical) ?? []
         let sizing = layout?.showSplitSizing(changes)
         let provisional = ProvisionalPane(holding: ProvisionalTab().browser(url)).wrapping(insertion?.around)
+        minted?(provisional.paneID)
         let transaction = ClientTransactionID.generate(), store = daemon.store
         store.intend(.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional), transaction: transaction)
         let request = ConversationTabSplit(direction: direction, paneID: provisional.paneID,
@@ -100,14 +104,20 @@ public struct BrowserTabSplitRequest {
     public let finished: @MainActor (SurfaceID?) -> Void
     /// Set for Insert New at a divider (``BrowserTabSplitCommand/insertion``).
     public let insertion: DividerInsertion?
+    /// An agent asked for it (the CLI, MCP or a script): its pages are marked agent-driven before
+    /// they exist, so no saved password fills and the agent's URL rules hold from the first load.
+    public let agentDriven: Bool
 
     /// - Parameters:
     ///   - direction: the side of the pane the split goes.
     ///   - insertion: Insert New at a divider's target, `around` and sizing; nil for a plain split.
+    ///   - agentDriven: the CLI, MCP or a script asked for it (``agentDriven``).
     ///   - finished: runs with the new surface, or nil, once the daemon answered.
-    public init(direction: SplitDirection, insertion: DividerInsertion? = nil, finished: @escaping @MainActor (SurfaceID?) -> Void) {
+    public init(direction: SplitDirection, insertion: DividerInsertion? = nil, agentDriven: Bool = false,
+                finished: @escaping @MainActor (SurfaceID?) -> Void) {
         self.direction = direction
         self.insertion = insertion
+        self.agentDriven = agentDriven
         self.finished = finished
     }
 }

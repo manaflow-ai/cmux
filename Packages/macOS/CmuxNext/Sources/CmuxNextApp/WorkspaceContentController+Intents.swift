@@ -251,7 +251,10 @@ extension WorkspaceContentController: DividerWorkspace {
             PaneHandlers.split(AppActionContext(services: pane.services), aimed, direction: horizontal ? .right : .down, insertion: insertion)
         case .browser:
             guard PaneBrowserTabOpener(controller: pane).opensInSplit else { return RefusalStrings.dividerBrowser }
-            pane.newBrowserTab(split: BrowserTabSplitRequest(direction: horizontal ? .right : .down, insertion: insertion) { _ in })
+            // A tab the CLI, MCP or a script opens is an agent's, as TabLifecycle.newBrowser marks it (plans/cmux-next/browser.md).
+            let agentDriven = [.cli, .mcp, .script].contains(origin)
+            pane.newBrowserTab(split: BrowserTabSplitRequest(direction: horizontal ? .right : .down, insertion: insertion,
+                                                             agentDriven: agentDriven) { _ in })
         case .newTabPage: NewTabPage.split(pane, edge: horizontal ? .right : .bottom, insertion: insertion)
         case .agentChat: // the sizing shows with its pane, goes with a refusal (as a New Tab page split's)
             let sizing = layoutModel.showSplitSizing(insertion.sizing), model = layoutModel

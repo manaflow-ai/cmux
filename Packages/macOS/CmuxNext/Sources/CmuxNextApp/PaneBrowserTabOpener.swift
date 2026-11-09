@@ -216,7 +216,11 @@ extension PaneBrowserTabOpener {
         let controller = controller, browserTabs = controller.services.cache.browserTabs, model = controller.pane
         let intent = controller.workspace?.beginFocusIntent(), command = BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address, insertion: split.insertion)
         let layout = controller.isPinnedDockPane ? nil : controller.workspace?.layoutModel // beside Home's dock it is a column: no even sizing
-        let send = BenchSpans.measure("split.intend") { command.intendNow(on: controller.daemon, layout: layout, shown: controller.layoutPaneID) }
+        let cache = controller.services.cache, machine = controller.daemon.machineID
+        let marking: (@MainActor (String) -> Void)? = split.agentDriven ? { cache.markAgentDriven(pane: $0, machine: machine) } : nil
+        let send = BenchSpans.measure("split.intend") {
+            command.intendNow(on: controller.daemon, layout: layout, shown: controller.layoutPaneID, minted: marking)
+        }
         BenchSpans.measure("split.layout") { controller.workspace?.applyCurrent() } // the split draws in the click's frame
         controller.services.registry.trackOrRefuse(Task { // a key press nobody awaits still shows a refused open
             do {
