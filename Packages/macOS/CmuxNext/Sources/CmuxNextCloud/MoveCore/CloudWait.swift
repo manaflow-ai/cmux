@@ -48,7 +48,8 @@ public struct CloudWait {
             struct Look: Encodable { var ended: Bool, running: Bool, paused: Bool, resumed: Bool, redials: Int }
             struct Answer: Decodable { var redial: String }
             let look = Look(ended: ended, running: status == .running, paused: status == .paused, resumed: resumed, redials: redials)
-            switch CloudMoveCore().call("start_redial", look, as: Answer.self)?.redial {
+            // An FFI pinned from before the op answers nothing: the wait keeps its one resume, as before.
+            switch CloudMoveCore().call("start_redial", look, as: Answer.self)?.redial ?? (look.paused && !resumed ? "resume" : nil) {
             case "resume": resumed = true; resume()
             case "connect": redials += 1; connect()
             default: break
