@@ -571,10 +571,12 @@ fn a_recorded_zero_cache_saving_stays_zero_on_fold() {
             r#"{{"t":"u","sid":"{sid}","at":{D0},"model":"claude-opus-5-5","pv":"v","costUsd":1.0,"cacheReadTokens":1000000,"cacheSavedUsd":{saved},"turns":1}}"#
         )
     };
-    std::fs::write(dir.join(store::FILE), format!("{}\n{}\n", line("x", 0.0), line("y", 1.5))).unwrap();
+    std::fs::write(dir.join(store::FILE), format!("{}\n{}\n", line("x", 0.0), line("y", 1.5)))
+        .unwrap();
     let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
     let reply = l.query(&all(D0, D0));
-    let saved = |id: &str| reply.rows.iter().find(|r| r.session_id == id).unwrap().totals.cache_saved_usd;
+    let saved =
+        |id: &str| reply.rows.iter().find(|r| r.session_id == id).unwrap().totals.cache_saved_usd;
     assert_eq!(saved("x"), 0.0);
     assert!((saved("y") - 1.5).abs() < 1e-9, "{}", saved("y"));
     // The read-only copy is never written: the line carries the field once, from its totals.

@@ -588,8 +588,14 @@ impl Ledger {
             self.emit(&mut s, Line::Session { sid: session.to_owned(), info });
         }
         s.add_bucket(session, &model, &version, record.at, &totals);
-        let line =
-            Line::Spend { sid: session.to_owned(), at: record.at, model, pv: version, totals, saved: None };
+        let line = Line::Spend {
+            sid: session.to_owned(),
+            at: record.at,
+            model,
+            pv: version,
+            totals,
+            saved: None,
+        };
         self.emit(&mut s, line);
         drop(s);
         if needs_repo && let Some(cwd) = cwd {
