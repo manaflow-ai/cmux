@@ -818,7 +818,7 @@ Left sidebar commands:
 
 | Command | Contract |
 | --- | --- |
-| `left-sidebar toggle`, `left-sidebar show`, `left-sidebar hide` | Change left-sidebar visibility without printing on success, without moving focus and without bringing the window forward. `hide` also keeps a sidebar that a narrow window collapsed from coming back when the window widens. |
+| `left-sidebar toggle`, `left-sidebar show`, `left-sidebar hide` | Change left-sidebar visibility without printing on success and without bringing the window forward. If the workspace list had keyboard focus, `hide` returns focus to the selected panel, as ⌘B does. `hide` also keeps a sidebar that a narrow window collapsed from coming back when the window widens. |
 | `left-sidebar focus` | Show the left sidebar if needed, bring its window forward, and focus the workspace list. |
 | `left-sidebar mode` | Print JSON with `visible`. A sidebar collapsed because the window is too narrow reports `false`. |
 | `--workspace <id\|ref\|index>` | Target the window containing a workspace. Refs and indexes resolve before the V1 socket command is sent. |
