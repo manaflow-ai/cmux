@@ -139,4 +139,19 @@ mod tests {
         assert!(warning_due(&dir, "person", &over("gray"), t0 + 10 * 60_000 + 1));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// Review of #39057: the warning never creates a missing acpmux home (`ACPMUX_HOME` named
+    /// but not made yet, or a typo); it makes only its own folder inside an existing one. The
+    /// line is still due.
+    #[test]
+    fn w5s_a_host_warning_does_not_create_a_missing_acpmux_home() {
+        let base = std::env::temp_dir().join(format!("w5s-host-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let home = base.join("not-made");
+        let line = "host-budget: gray over its CPU/RAM budget: load1 190 >= 18";
+        assert!(warning_due(&home.join("host-warnings"), "person", line, 1));
+        assert!(!home.exists(), "the warning made the missing home {}", home.display());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
