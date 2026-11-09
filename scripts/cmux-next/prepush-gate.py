@@ -1296,53 +1296,37 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
     return fresh
 
 
-# The constants of check-ui-font.py that name every file and folder it reads.
-UI_FONT_INPUT_NAMES = ("TYPE_SCALE", "PIN", "CSS", "DESIGN_RESOURCES", "STACK_ROOTS")
-
-
-def ui_font_inputs(script: bytes) -> tuple[str, ...] | None:
-    """The paths and folder prefixes SCRIPT (a check-ui-font.py) reads, from its own module constants
-    (UI_FONT_INPUT_NAMES); None when a copy does not name them all as literals, so the caller runs it."""
+def ui_font_inputs(check: Path) -> tuple[str, ...] | None:
+    """The files and folders CHECK (a check-ui-font.py) reads, from its own `--inputs`; None when it cannot say
+    (a copy older than --inputs, or any failure), so the caller runs it."""
     try:
-        module = ast.parse(script)
-    except SyntaxError:
+        code, out = run(["python3", "-I", str(check), "--inputs"], check.parent, timeout=60)
+    except Exception:  # any failure to ask means "unknown": the check runs
         return None
-    values: dict[str, object] = {}
-    for node in module.body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-            try:
-                values[node.targets[0].id] = ast.literal_eval(node.value)
-            except ValueError:
-                continue
-    inputs: list[str] = []
-    for name in UI_FONT_INPUT_NAMES:
-        value = values.get(name)
-        items = value if isinstance(value, tuple) else (value,)
-        if not items or not all(isinstance(item, str) and item for item in items):
-            return None
-        inputs += items
-    return tuple(inputs)
+    inputs = tuple(line for line in out.splitlines() if line.strip())
+    return inputs if code == 0 and inputs else None
 
 
 def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """What head adds to the UI font check (UI_FONT_CHECK) over base: findings base does not have, and a
     pin change in base..head with no `Font-order:` trailer.
 
-    A push that changes none of the files the check reads (ui_font_inputs) cannot change what it finds, so
-    neither pass runs. Each pass reads every webviews/src and Native/OptChat source (4268 files on
-    feat-cmux-next, 2026-11-09): 9.6 s of an 18.8 s gate on a push of one Python file, plus one on-demand
-    fetch (5-8 s) per source blob a blob:none clone lacks."""
+    A push that changes none of the files the check reads (its `--inputs`) and not the check itself cannot
+    change what it finds, so neither pass runs. Each pass reads every webviews/src and Native/OptChat source
+    (4268 files on feat-cmux-next, 2026-11-09): 9.6 s of an 18.8 s gate on a push of one Python file, plus one
+    on-demand fetch (5-8 s) per source blob a blob:none clone lacks."""
     script = check_script(repo, head, UI_FONT_SCRIPT, trusted_scripts)
     if script is None:
         return []  # a commit older than this check
-    inputs = ui_font_inputs(script)
-    if inputs is not None:
-        names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode()
-        if not any(path.startswith(inputs) for path in names.split("\0") if path):
-            return []
     with tempfile.TemporaryDirectory(prefix="cmux-ui-font-") as tmp:
         check = Path(tmp) / "check.py"
         check.write_bytes(script)
+        inputs = ui_font_inputs(check)
+        if inputs is not None:
+            names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head)
+            names = names.decode("utf-8", "surrogateescape")
+            if not any(path.startswith((*inputs, UI_FONT_SCRIPT)) for path in names.split("\0") if path):
+                return []
 
         def findings(*args: str) -> list[str]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
