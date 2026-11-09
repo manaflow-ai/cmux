@@ -2848,9 +2848,7 @@ pre.cv-math-source {
    link chip in the row (AgentTag.css) lights alone: its focus is not the row's. */
 /* A message row keeps one steady tone (design/chat-transcript.md, as a received message's line):
    a sent row the reader clicked never reads brighter than the ones around it (Leo, 2026-11-02, on
-   rows "in bright and dim text with no clear rule": "i also think this is quite weird looking").
-   An activity row (TranscriptActivityRow) is left out: a click leaves it focused, and its words
-   keep their rest tone (TranscriptActivityRow.css). */
+   rows "in bright and dim text with no clear rule": "i also think this is quite weird looking"). */
 /* Only the "Worked for" button lifts: the live line (`div.cv-worked`, Thinking.tsx) has nothing
    behind it, so it never lights up under the pointer (Leo, 2026-11-03: "this thing appears/lights
    up on hover for no reason!?"). */
@@ -2860,9 +2858,23 @@ button.cv-worked:focus-visible {
 }
 /* A row's words light under the pointer or keyboard focus only, for Codex parity (Lucas,
    2026-11-06): its glyph never lights, and a click or an opened row leaves no white behind. A
-   message row keeps its steady tone (above). */
-button.cv-tool:not(.cv-sent, .cv-agent-activity__control):is(:hover, :focus-visible)
-  > :is(.cv-tool__text, .cv-command__text) {
+   message row keeps its steady tone (above).
+   Every other line that opens something takes the same lift, all the way through its words: an
+   activity row's (TranscriptActivityRow: "Scheduled check", "Background update", "Subagent
+   finished"), a disclosure line's (DisclosureRow: a sub-session, a notice) and a subagent report's
+   head (Leo, 2026-11-09: "this scheduled check thing isn't highlighted all the way through like
+   other tool calls are"; it lit only its chevron). A click leaves no lift: only keyboard focus is
+   `:focus-visible`. Pointing at a session chip in the line lights the chip alone. A line with
+   nothing behind it is no button and never lifts. test/transcript-row-word-lift-browser.test.ts. */
+button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
+  > :is(.cv-tool__text, .cv-command__text, .cv-agent-activity__sentence),
+:is(.cv-disclosure__toggle:not(.is-chevron), .cv-disclosure__open, .cv-subagent-report__head):is(
+    :hover,
+    :focus-visible
+  ):not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
+  > :is(.cv-disclosure__label, .cv-subagent-report__sentence),
+.cv-disclosure__toggle:not(.is-chevron):is(:hover, :focus-visible):not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
+  .cv-notice__title {
   color: var(--cv-text);
 }
 /* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).
