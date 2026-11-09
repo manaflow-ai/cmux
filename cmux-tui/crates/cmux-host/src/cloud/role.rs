@@ -998,7 +998,7 @@ impl Worker {
         );
         drop(carrier_held);
         let Some(result) = result else {
-            log("bind: a restart of this service is pending; the restarted service binds");
+            log("bind: waits for the restart gate (a restart of this service is pending, or the gate failed)");
             self.bind_retry_at = Some(self.now() + 30_000);
             return;
         };
