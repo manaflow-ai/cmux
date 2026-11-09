@@ -366,8 +366,9 @@ fn the_view_is_loaded_only_after_a_cloud_snapshot() {
     assert!(mirror.loaded());
     let shown = view(&mirror, json!({"layout": "list"}));
     assert_eq!(shown["loaded"], true, "{shown}");
+    // The snapshot's request beside the integration owner's notice (newest first).
     let ids: Vec<&str> = mirror.timeline().map(|item| item.id.as_str()).collect();
-    assert_eq!(ids, vec!["fi_r", "fi_l"]);
+    assert_eq!(ids, vec!["fi_l", "fi_r"]);
     // Offline after it loaded: still loaded (the mirror keeps the cloud items).
     mirror.set_connection(Connection::Disconnected("offline".to_owned()));
     assert!(mirror.loaded());
