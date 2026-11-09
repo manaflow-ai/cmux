@@ -176,7 +176,11 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         std::env::set_var("ACPMUX_HOME", root.join("acpmux"));
         std::env::set_var("CMUX_NEXT_CONFIG_FILE", root.join("cmux-next.json"));
         std::env::remove_var("FLEET_REGISTRY");
+        // A chat's saves fail while the test puts `fail-<id>` here (`hub/meta_save.rs`).
+        std::env::set_var("ACPMUX_TEST_SAVE_META_HOLD_DIR", root.join("seams"));
     }
+    let seams = root.join("seams");
+    std::fs::create_dir_all(&seams).unwrap();
     let repo = root.join("shop");
     std::fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q"]);
@@ -481,10 +485,44 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     // Keep that recorded the winner and stopped (here, one that removed nothing) is finished by
     // the next: its retry removes what the first left.
     let keep = runs[1]["sessionId"].as_str().unwrap().to_owned();
+    // A Keep whose winner the chat could not save chose nothing: it removes no run, and the next
+    // Keep, of this run or another, chooses again instead of taking the unsaved one as kept.
+    let failing = seams.join(format!("fail-{chat}"));
+    std::fs::write(&failing, "").unwrap();
+    for (i, run) in [(1, &keep), (0, &runs[0]["sessionId"].as_str().unwrap().to_owned())] {
+        let failed = app
+            .call(
+                "_acpmux/plan/keep",
+                json!({"sessionId": chat, "buildId": run_id, "keep": run, "removeOthers": true}),
+            )
+            .await;
+        assert_eq!(reason(&failed), "store.save_failed", "run {i}: {failed}");
+    }
+    assert!(run_roots.iter().all(|r| Path::new(r).is_dir()), "a failed Keep removes no run");
+    std::fs::remove_file(&failing).unwrap();
+    // One whose winner was saved and whose tags were not is finished by the next, which records
+    // the kept run: the card hears of it then.
+    let kept_records = || {
+        let records = hub.events(&chat, 0, 10_000).unwrap();
+        records
+            .iter()
+            .filter(|e| e.kind == "plan_build" && e.msg["event"] == "kept")
+            .filter(|e| e.msg["buildId"] == run_id)
+            .count()
+    };
+    let failing = seams.join(format!("fail-{keep}"));
+    std::fs::write(&failing, "").unwrap();
+    let failed = app
+        .call("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": run_id, "keep": keep}))
+        .await;
+    assert_eq!(reason(&failed), "store.save_failed", "{failed}");
+    std::fs::remove_file(&failing).unwrap();
+    assert_eq!(kept_records(), 0);
     let first = app
         .ok("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": run_id, "keep": keep}))
         .await;
     assert_eq!(first["keptSessionId"], json!(keep), "{first}");
+    assert_eq!(kept_records(), 1, "the retry that repaired the tags records the kept run");
     assert!(Path::new(&run_roots[0]).is_dir(), "a Keep without removeOthers removes nothing");
     let kept = app
         .ok(

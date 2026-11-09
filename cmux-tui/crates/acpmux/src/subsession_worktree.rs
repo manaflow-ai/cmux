@@ -1841,4 +1841,28 @@ mod tests {
         assert_eq!(excludes_file(cmd, None, by), Some(named));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// A `core.excludesFile` set to nothing turns the global excludes off, as git reads it; one
+    /// not set at all is the default file.
+    #[test]
+    fn an_empty_global_excludes_file_is_off_and_an_unset_one_the_default() {
+        let dir = std::env::temp_dir().join(format!("acpmux-excludes-{}", uuid::Uuid::now_v7()));
+        let home = dir.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let read = |config: &str| {
+            let global = dir.join("gitconfig");
+            std::fs::write(&global, config).unwrap();
+            let mut cmd = Command::new("git");
+            cmd.current_dir(&dir)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", &global);
+            let by = Instant::now() + std::time::Duration::from_secs(10);
+            excludes_file(cmd, Some(home.clone()), by)
+        };
+        assert_eq!(read("[core]\n\texcludesFile =\n"), None);
+        let config = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty());
+        let default = config.map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
+        assert_eq!(read("[core]\n\tbare = false\n"), Some(default.join("git/ignore")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
