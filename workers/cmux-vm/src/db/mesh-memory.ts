@@ -7,6 +7,7 @@ import { Effect, Layer, Option } from "effect";
 import { TenantId } from "../lib/ids.ts";
 import type { OverlayServerRow } from "./overlay-servers.ts";
 import type { OverlayServerCodeRow } from "./overlay-server-codes.ts";
+import { memoryDeviceIntents } from "./mesh-intents.ts";
 import { MeshStore, type MeshAclVersion, type MeshDeviceRow, type MeshEnrollmentCodeRow, type MeshMemberRow, type MeshRuleRow } from "./mesh.ts";
 
 /** A code row as tests may age it (expiresAt is writable here only). */
@@ -25,8 +26,15 @@ export function makeMemoryMeshStore() {
   const signed = new Map<string, Date>();
   const codes: Array<MemoryEnrollmentCode> = [];
   const serverCodes: Array<OverlayServerCodeRow> = [];
+  const intents = memoryDeviceIntents((tenantId, device) => void devices.push({ ...device, tenantId, deletedAt: null }));
 
   const layer = Layer.succeed(MeshStore, {
+    findDeviceIntent: intents.findDeviceIntent,
+    claimDeviceIntent: intents.claimDeviceIntent,
+    commitDeviceIntent: intents.commitDeviceIntent,
+    releaseDeviceIntent: intents.releaseDeviceIntent,
+    revokeDeviceIntent: intents.revokeDeviceIntent,
+    revokeIntentOfDevice: intents.revokeIntentOfDevice,
     insertOverlayServerCode: (row) => Effect.sync(() => { serverCodes.push({ ...row }); }),
     findOverlayServerCode: (hash) => Effect.sync(() => Option.fromNullable(serverCodes.find((row) => row.codeSha256 === hash))),
     recentOverlayServerCodes: (tenant, mesh, since) => Effect.sync(() => serverCodes.filter((row) => row.tenantId === tenant && row.meshId === mesh && row.createdAt > since)),
@@ -245,5 +253,7 @@ export function makeMemoryMeshStore() {
     /** The stored enrollment codes (hashes only); tests may move `expiresAt`. */
     enrollmentCodes: (): ReadonlyArray<MemoryEnrollmentCode> => codes,
     overlayServerCodes: (): ReadonlyArray<OverlayServerCodeRow> => serverCodes,
+    /** Enroll intents and tombstones (migration 0018). */
+    deviceIntents: intents.intents,
   };
 }

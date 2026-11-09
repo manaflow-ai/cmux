@@ -59,6 +59,9 @@ export const REQUIRED_SCHEMA: ReadonlyArray<Requirement> = [
   { table: "cmux_vm.api_keys", column: "agent_cleaned_at", migration: "0016" },
   { table: "cmux_vm.vm_client_sessions", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0016" },
   { table: "cmux_vm.vm_client_sessions_vm_idx", migration: "0017" },
+  // Enroll intents and their revocation tombstones (a late enroll after a revoke leaves nothing live).
+  { table: "cmux_vm.mesh_device_intents", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0018" },
+  { table: "cmux_vm.mesh_device_intents_device_idx", migration: "0018" },
 ];
 
 /** The highest migration this build's requirements name. */

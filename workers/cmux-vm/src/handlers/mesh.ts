@@ -10,12 +10,13 @@
  */
 import { HttpApiBuilder, HttpServerRequest } from "@effect/platform";
 import { name, type Named } from "@gdp-ts/core";
-import { Clock, Duration, Effect, Either, Option } from "effect";
+import { Clock, Duration, Effect, Either, Option, Schema } from "effect";
 import { CmuxVmApi } from "../api.ts";
-import { Acl, AclApplied, Device, DeviceAddress, DeviceEnrollment, DeviceList, DeviceOverlayPolicy, EnrollmentCode, Mesh, MeshList, MeshMember, OverlayPolicy, PeerMap, TunnelConfig } from "../api/mesh.ts";
+import { Acl, AclApplied, Device, DeviceAddress, DeviceEnrollment, DeviceIntentId, DeviceIntentRevocation, DeviceList, DeviceOverlayPolicy, EnrollmentCode, Mesh, MeshList, MeshMember, OverlayPolicy, PeerMap, TunnelConfig } from "../api/mesh.ts";
 import { MembershipCache } from "../auth/membership-cache.ts";
 import { TeamAdmin } from "../auth/team-admin.ts";
 import { MeshStore, type MeshDeviceRow } from "../db/mesh.ts";
+import { intentState } from "../db/mesh-intents.ts";
 import type { OverlayServerRow } from "../db/overlay-servers.ts";
 import { AuditStore, OwnershipStore } from "../db/stores.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
@@ -74,6 +75,10 @@ const experimentOff = () => new NotFound({ message: "Not found" });
 const meshNotFound = () => new NotFound({ message: "Mesh not found" });
 const deviceNotFound = () => new NotFound({ message: "Device not found" });
 const tunnelNotFound = () => new NotFound({ message: "Tunnel not found" });
+const intentNotFound = () => new NotFound({ message: "Device intent not found" });
+const intentRevoked = () =>
+  new Conflict({ message: "This device intent was revoked; enroll with a new intentId", code: "mesh.device.intent_revoked" });
+const intentInProgress = () => new Conflict({ message: "Another enroll with this intentId is in progress; retry shortly" });
 
 /** A structured Worker log line naming only public ids. */
 const logEvent = (event: string, fields: Record<string, string>) => Effect.sync(() => console.error(JSON.stringify({ event, ...fields })));
@@ -597,6 +602,8 @@ const closeDevice = <C, D>(
       ownership.markDeleted(tenantId, "device", device.value, at),
       ownership.markDeleted(tenantId, "tunnel", row.tunnelId, at),
       store.markDeviceDeleted(tenantId, device.value, at),
+      // A late repeat of the enroll that made this device refuses instead of making it again (migration 0018).
+      store.revokeIntentOfDevice(tenantId, device.value, at),
     ]).pipe(Effect.catchAll(dependencyDown("mesh.deleteDevice")));
   });
 
@@ -752,6 +759,7 @@ const createDevice = <C, M>(
   proofs: { readonly owns: TenantOwnsResource<C, M>; readonly scope: KeyHasScope<C, "mesh:join"> },
   payload: EnrollPayload,
   holds: DeviceHoldsKey<C, M>,
+  intentId?: string,
 ) =>
   withMeshWriter(caller.value.tenantId, mesh.value, Effect.gen(function* () {
     const principal = caller.value;
@@ -770,6 +778,13 @@ const createDevice = <C, M>(
         name(newDeviceId(), (device) =>
           Effect.gen(function* () {
             const tunnelId = newTunnelId();
+            // An intent is claimed before the provider tunnel exists; its commit (below) is the device row's insert.
+            if (intentId !== undefined) {
+              const claimed = yield* store
+                .claimDeviceIntent(principal.tenantId, mesh.value, intentId, device.value, actorRef(principal.actor), yield* now)
+                .pipe(Effect.catchAll(dependencyDown("mesh.claimDeviceIntent")));
+              if (!claimed) return yield* Effect.fail(yield* intentRefusal(principal.tenantId, mesh.value, intentId));
+            }
             const created = yield* upstream
               .createTunnel(mesh, { owns: proofs.owns, scope: proofs.scope, mayCreate, holds }, {
                 tenantId: principal.tenantId,
@@ -802,33 +817,115 @@ const createDevice = <C, M>(
             yield* Effect.all([
               ownership.record({ ...base, kind: "tunnel", cmuxId: tunnelId, displayName: null }),
               ownership.record({ ...base, kind: "device", cmuxId: device.value, displayName: payload.name }),
-              store.recordDevice(principal.tenantId, row),
+              ...(intentId === undefined ? [store.recordDevice(principal.tenantId, row)] : []),
             ]).pipe(
               Effect.tapError(() => undo("mesh_device_record_failed")),
               Effect.mapError(unavailable),
             );
+            if (intentId !== undefined) {
+              // One statement inserts the device row only while the intent is unrevoked and still this create's. A
+              // revoke that won the row lock leaves it uninserted: delete the tunnel, so nothing this create made stays live.
+              const committed = yield* store.commitDeviceIntent(principal.tenantId, intentId, row, yield* now).pipe(
+                Effect.tapError(() => undo("mesh_device_record_failed")),
+                Effect.mapError(unavailable),
+              );
+              if (!committed) {
+                yield* undo("mesh_device_intent_refused");
+                return yield* Effect.fail(yield* intentRefusal(principal.tenantId, mesh.value, intentId));
+              }
+            }
             // ACL first, then config: the device's rules exist before it learns its endpoint.
             yield* reconcileCurrent(caller, mesh, proofs.owns).pipe(
               Effect.tapError(() => undo("mesh_device_reconcile_failed")),
             );
             return new DeviceEnrollment({ device: toDevice(row), tunnel: toTunnel(row, created.info) });
-          }),
+          }).pipe(
+            // A failed create gives its claim back, so the caller may retry with the same intentId (a revoked one stays revoked).
+            Effect.tapError(() =>
+              intentId === undefined ? Effect.void : store.releaseDeviceIntent(principal.tenantId, mesh.value, intentId, device.value).pipe(Effect.ignore),
+            ),
+          ),
         ),
       ),
     );
   }));
+
+/** Whether `deviceId` is a live device this caller may act on ("live"), live but out of its reach ("hidden"), or null when gone. */
+const liveDeviceOf = <C>(caller: Named<C, Principal>, deviceId: string) =>
+  Effect.gen(function* () {
+    const parsed = parseDeviceId(deviceId);
+    if (Option.isNone(parsed)) return null;
+    return yield* name(parsed.value, (device) =>
+      Effect.gen(function* () {
+        const row = yield* (yield* MeshStore).getDevice(caller.value.tenantId, device.value).pipe(Effect.catchAll(dependencyDown("mesh.getDevice")));
+        if (Option.isNone(row)) return null;
+        const owns = yield* tenantOwnsDevice(caller, device).pipe(Effect.catchAll(dependencyDown("ownership.find")));
+        if (owns === null) return "hidden" as const;
+        const acts = yield* callerActsOnDevice(caller, device, owns, row.value).pipe(Effect.mapError(unavailable));
+        return acts === null ? ("hidden" as const) : ("live" as const);
+      }),
+    );
+  });
+
+/** Why an intent could not be claimed or committed: its tombstone, or another create holding it. */
+const intentRefusal = (tenantId: Principal["tenantId"], meshId: string, intentId: string) =>
+  Effect.gen(function* () {
+    const store = yield* MeshStore;
+    const row = yield* store.findDeviceIntent(tenantId, meshId, intentId).pipe(Effect.catchAll(dependencyDown("mesh.findDeviceIntent")));
+    return intentState(row, yield* now) === "revoked" ? intentRevoked() : intentInProgress();
+  });
 
 /** Enrolls a device into `mesh` for `caller` (the credential route): the signature, then `createDevice`. */
 const enrollInto = <C, M>(
   caller: Named<C, Principal>,
   mesh: Named<M, MeshId>,
   proofs: { readonly owns: TenantOwnsResource<C, M>; readonly scope: KeyHasScope<C, "mesh:join"> },
-  payload: EnrollPayload,
+  payload: EnrollPayload & { readonly intentId?: string | undefined },
 ) =>
   Effect.gen(function* () {
+    const intentId = payload.intentId;
+    if (intentId !== undefined) {
+      // Checked before the signature: a repeat sends the same signed body, whose nonce the first try already claimed.
+      const store = yield* MeshStore;
+      const found = yield* store.findDeviceIntent(caller.value.tenantId, mesh.value, intentId).pipe(Effect.catchAll(dependencyDown("mesh.findDeviceIntent")));
+      const state = intentState(found, yield* now);
+      if (state === "revoked") return yield* Effect.fail(intentRevoked());
+      if (state === "pending") return yield* Effect.fail(intentInProgress());
+      if (state === "committed" && Option.isSome(found) && found.value.deviceId !== null) {
+        return yield* replayIntent(caller, proofs.scope, found.value.deviceId, payload);
+      }
+    }
     const held = yield* verifyEnroll(caller, mesh, payload);
     if (held._tag !== "held") return yield* Effect.fail(signatureRefused(held._tag));
-    return yield* createDevice(caller, mesh, proofs, payload, held.proof);
+    return yield* createDevice(caller, mesh, proofs, payload, held.proof, intentId);
+  });
+
+/**
+ * A repeat of a committed intent answers the device it made, under the device read rules (labels, and only its
+ * enrolling principal or a tenant admin), and only for the same keys. A device deleted since then refuses.
+ */
+const replayIntent = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "mesh:join">, deviceId: string, payload: EnrollPayload) =>
+  Effect.gen(function* () {
+    const parsedDevice = parseDeviceId(deviceId);
+    if (Option.isNone(parsedDevice)) return yield* Effect.fail(intentRevoked());
+    return yield* name(parsedDevice.value, (device) =>
+      Effect.gen(function* () {
+        const store = yield* MeshStore;
+        const row = yield* store.getDevice(caller.value.tenantId, device.value).pipe(Effect.catchAll(dependencyDown("mesh.getDevice")));
+        if (Option.isNone(row)) return yield* Effect.fail(intentRevoked());
+        const owns = yield* tenantOwnsDevice(caller, device).pipe(Effect.catchAll(dependencyDown("ownership.find")));
+        if (owns === null) return yield* Effect.fail(intentNotFound());
+        const acts = yield* callerActsOnDevice(caller, device, owns, row.value).pipe(Effect.mapError(unavailable));
+        if (acts === null) return yield* Effect.fail(intentNotFound());
+        if (row.value.wgPublicKey !== payload.wgPublicKey || row.value.installPublicKey !== payload.installPublicKey) {
+          return yield* Effect.fail(new Conflict({ message: "This intentId already enrolled a device with other keys" }));
+        }
+        const parsedTunnel = parseTunnelId(row.value.tunnelId);
+        if (Option.isNone(parsedTunnel)) return yield* Effect.fail(unavailable());
+        const tunnel = yield* name(parsedTunnel.value, (named) => tunnelConfigOf(caller, named, scope, row.value, tunnelNotFound));
+        return new DeviceEnrollment({ device: toDevice(row.value), tunnel });
+      }),
+    );
   });
 
 /**
@@ -1128,6 +1225,52 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
       ),
     )
     .handle("getDevice", ({ path }) => withOwnedDevice(path.deviceId, "mesh:read", "read", (_caller, _device, _proofs, row) => Effect.succeed(toDevice(row))))
+    .handle("revokeDeviceIntent", ({ path }) =>
+      withOwnedMesh(path.meshId, "mesh:join", "write", (caller, mesh, proofs) =>
+        audited(
+          "device_intent.revoke",
+          mesh.value,
+          Effect.gen(function* () {
+            const principal = caller.value;
+            const intentId = Schema.decodeUnknownOption(DeviceIntentId)(path.intentId);
+            if (Option.isNone(intentId)) return yield* Effect.fail(intentNotFound());
+            const store = yield* MeshStore;
+            const at = yield* now;
+            // The device delete rules: an intent someone else used is the tenant admin's alone, and its device must be
+            // one this caller reaches (labels and owner). Anyone else gets 404 and writes nothing.
+            const found = yield* store.findDeviceIntent(principal.tenantId, mesh.value, intentId.value).pipe(Effect.catchAll(dependencyDown("mesh.findDeviceIntent")));
+            if (Option.isSome(found) && found.value.createdBy !== actorRef(principal.actor) && !(yield* isTenantAdmin(principal).pipe(Effect.mapError(unavailable)))) {
+              return yield* Effect.fail(intentNotFound());
+            }
+            const committedDevice = Option.isSome(found) && found.value.committedAt !== null ? found.value.deviceId : null;
+            if (committedDevice !== null && (yield* liveDeviceOf(caller, committedDevice)) === "hidden") {
+              return yield* Effect.fail(intentNotFound());
+            }
+            // The tombstone first: from here no create with this intent commits a device.
+            const revoked = yield* store.revokeDeviceIntent(principal.tenantId, mesh.value, intentId.value, actorRef(principal.actor), at).pipe(
+              Effect.catchAll(dependencyDown("mesh.revokeDeviceIntent")),
+            );
+            // A create that committed before the tombstone made a device: delete it. One still in flight deletes its own.
+            if (revoked.committedAt === null || revoked.deviceId === null) return new DeviceIntentRevocation({ deleted: false });
+            const parsed = parseDeviceId(revoked.deviceId);
+            if (Option.isNone(parsed)) return new DeviceIntentRevocation({ deleted: false });
+            return yield* name(parsed.value, (device) =>
+              Effect.gen(function* () {
+                const scope = proofs.scope;
+                const owns = yield* tenantOwnsDevice(caller, device).pipe(Effect.catchAll(dependencyDown("ownership.find")));
+                const row = yield* store.getDevice(principal.tenantId, device.value).pipe(Effect.catchAll(dependencyDown("mesh.getDevice")));
+                if (Option.isNone(row)) return new DeviceIntentRevocation({ deleted: false });
+                if (owns === null) return yield* Effect.fail(intentNotFound());
+                const acts = yield* callerActsOnDevice(caller, device, owns, row.value).pipe(Effect.mapError(unavailable));
+                if (acts === null) return yield* Effect.fail(intentNotFound());
+                yield* closeDevice(caller, device, { owns, scope, acts }, row.value);
+                return new DeviceIntentRevocation({ deleted: true });
+              }),
+            );
+          }),
+        ),
+      ),
+    )
     .handle("deleteDevice", ({ path }) =>
       withOwnedDevice(path.deviceId, "mesh:join", "write", (caller, device, proofs, row) =>
         audited(
