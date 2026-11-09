@@ -18,6 +18,7 @@ import {
 } from "../src/agent-session/acpmux/conversation/inboxNotice";
 import { setMessageOpened } from "../src/agent-session/acpmux/conversation/incomingOpened";
 import { configureInboxThreadLook } from "../src/agent-session/acpmux/conversation/inboxThreadLook";
+import { configureReceivedLook } from "../src/agent-session/acpmux/conversation/receivedLook";
 import {
   newestWholeKey,
   readForIds,
@@ -71,6 +72,7 @@ afterEach(async () => {
   }
   saved.clear();
   configureInboxThreadLook(undefined);
+  configureReceivedLook(undefined);
 });
 
 async function render(node: ReactNode): Promise<HTMLElement> {
@@ -306,7 +308,8 @@ test("the row estimator cuts a shut line's long newest message to eight lines, w
   }
 });
 
-test("a message another agent sent directly shows its words under its line, shut, no first line on it", async () => {
+test("in the card look a direct message shows its words under its line, shut, no first line on it", async () => {
+  configureReceivedLook("card");
   const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
   const text = "**Landed #2231.**\n\n- the band ends on the tick\n- no pop-in after the fold";
   const container = await render(
@@ -323,7 +326,7 @@ test("a message another agent sent directly shows its words under its line, shut
   expect(container.querySelector(".cv-agentmsg[data-open]")).toBeNull();
 });
 
-test("the row estimator gives a shut direct message its words, cut to eight lines", async () => {
+test("in the card look the row estimator gives a shut direct message its words, cut to eight lines", async () => {
   const { layoutConversation } = await import("../src/agent-session/acpmux/model");
   const row = (id: string, text: string): AcpmuxRow => ({
     id,
@@ -335,6 +338,10 @@ test("the row estimator gives a shut direct message its words, cut to eight line
     incoming: { kind: "message", message: { name: "lane-a", text, raw: text } },
   });
   const height = (r: AcpmuxRow) => layoutConversation([r], 720, new Map()).heights[0]!;
+  // The shipped `line` look: shut, its line alone, however long.
+  const lineOnly = height(row("direct-line", Array.from({ length: 10 }, (_, i) => `Line ${i + 1}.`).join("\n")));
+  expect(lineOnly).toBe(height(row("direct-line-one", "Line 1.")));
+  configureReceivedLook("card");
   const one = height(row("direct-one", "Line 1."));
   const ten = height(row("direct-ten", Array.from({ length: 10 }, (_, i) => `Line ${i + 1}.`).join("\n")));
   const forty = row("direct-forty", Array.from({ length: 40 }, (_, i) => `Line ${i + 1}.`).join("\n"));

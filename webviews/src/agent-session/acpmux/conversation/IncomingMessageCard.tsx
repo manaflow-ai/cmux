@@ -41,6 +41,7 @@ import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
 import { ClampedText } from "./ClampedText";
+import { useReceivedLook } from "./receivedLook";
 import { hasAgentMark, MonogramMark } from "../../shared/AgentMark";
 import { useMachineChats, useSenderChat, useSenderIdentity, useSenderPlace } from "../subagents/subsessions";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
@@ -418,6 +419,7 @@ export function IncomingMessageLine({
   const [opened, setOpen] = useState(() => messageOpened(session, id));
   const open = whole || opened;
   const lineLook = useMessageLineLook();
+  const inPlace = useReceivedLook() === "card";
   const show = (next: boolean) => {
     setMessageOpened(session, id, next);
     setOpen(next);
@@ -520,7 +522,7 @@ export function IncomingMessageLine({
     if (!next && editing) setReply("closed");
     show(next);
   };
-  // The words: its card, from the card's corner, its images and files. On the one message row
+  // The words: its card, from the card's corner, its images and files. In the `card` look
   // (`clamped`), cut between whole lines past eight with Show more, which opens the message as its
   // line does (ClampedText.tsx).
   const markdown = text ? (
@@ -628,17 +630,17 @@ export function IncomingMessageLine({
     </span>
   );
   // Another agent's message is the one message row (AgentMessageRow.tsx), as a send and a subagent's
-  // report are: the sender's name after its family's mark in the icon column, and its words in the
-  // card under it, whole up to eight lines, never a first line alone to click open (Leo, 2026-11-07:
-  // "They should look basically the same as the other ones"; 2026-11-09, on reading other agents'
-  // messages: "we should keep going further into the whole messaging system type situation").
-  // Opened (the line, its chevron, Show more, Reply), the card holds every line, with Details and the
-  // reply under it. A tool's notice, a lane's report and a person's held message keep their own line
+  // report are: the sender's name after its family's mark in the icon column, the first
+  // line, and the card that opens to the whole message (Leo, 2026-11-07: "They should look basically
+  // the same as the other ones"). The `card` look (receivedLook.ts, a gallery version) keeps the card
+  // under the line shut too, its words whole up to eight lines with Show more, which opens it as the
+  // line does. A tool's notice, a lane's report and a person's held message keep their own line
   // below.
   if (!agentNotice && !notice && !person)
     return (
       <AgentMessageRow
         direction="received"
+        keepsPreviewOpen
         className="cv-received"
         // Find counts the message's text (chatFind.ts rowText), never the line that sums it up: the
         // sender's chip and machine and the first line add no matches, as DisclosureRow's line added
@@ -656,9 +658,10 @@ export function IncomingMessageLine({
         label={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
         open={open}
         onToggle={() => toggled(!open)}
+        animates={inPlace ? undefined : () => played.current}
         actions={hover}
-        peek={wordsOf(true)}
-        body={wordsOf(true)}
+        peek={inPlace ? wordsOf(true) : undefined}
+        body={wordsOf(inPlace)}
         under={below}
       />
     );

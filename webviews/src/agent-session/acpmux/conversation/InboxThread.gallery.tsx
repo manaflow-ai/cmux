@@ -17,10 +17,18 @@ import type { IncomingMessage } from "./incomingMessage";
 import { inboxThreadKey, type InboxMessage, type InboxNotice } from "./inboxNotice";
 import { setMessageOpened } from "./incomingOpened";
 import { configureInboxThreadLook, type InboxThreadLook } from "./inboxThreadLook";
+import { configureReceivedLook, type ReceivedLook } from "./receivedLook";
 import { newestWholeKey } from "./inboxThreadRead";
 
 type Kind = "short" | "long" | "several";
-type Props = { kind: Kind; look?: InboxThreadLook; open?: boolean; whole?: boolean; direct?: boolean };
+type Props = {
+  kind: Kind;
+  look?: InboxThreadLook;
+  open?: boolean;
+  whole?: boolean;
+  /// A direct message (IncomingMessageLine) in this look (receivedLook.ts), not an inbox thread.
+  direct?: ReceivedLook;
+};
 
 const MINUTE = 60_000;
 const NOW = Date.now();
@@ -30,7 +38,7 @@ const SHORT: InboxMessage[] = [
     promptId: "s1",
     from: "desktop-leo",
     at: NOW - 3 * MINUTE,
-    text: "From desktop-leo. Leo, 2026-11-09: \"tell the claude lane the review passed, it can land #38912\"",
+    text: 'From desktop-leo. Leo, 2026-11-09: "tell the claude lane the review passed, it can land #38912"',
   },
 ];
 
@@ -111,11 +119,12 @@ function directOf(kind: Kind): IncomingMessage {
   return { name: newest.from, sessionId: session, text: newest.text, raw: newest.text, msgId: newest.promptId };
 }
 
-function Stage({ kind, look = "inline", open = false, whole = false, direct = false }: Props) {
-  const session = `gallery-inbox-thread-${kind}-${look}-${open}-${whole}-${direct}`;
+function Stage({ kind, look = "inline", open = false, whole = false, direct }: Props) {
+  const session = `gallery-inbox-thread-${kind}-${look}-${open}-${whole}-${direct ?? "thread"}`;
   const rowId = `row-${kind}`;
   const [notice] = useState(() => {
     configureInboxThreadLook(look);
+    configureReceivedLook(direct);
     const key = inboxThreadKey(rowId, THREADS[kind].threadId);
     setMessageOpened(session, direct ? rowId : key, open);
     setMessageOpened(session, newestWholeKey(key), whole);
@@ -182,17 +191,25 @@ export default componentEntry<Props>({
       note: '"+2 more" (or the line) opened: every message in the same card, oldest first and newest last, each under its sender and age. Picked as the default: one click shows all the words.',
       play: read,
     },
-    "direct-short": {
-      props: { kind: "short", direct: true },
-      note: "A message another agent sent this chat directly (acpmux send), short: the sender's line and the whole message under it, nothing to open.",
+    "direct-short-line": {
+      props: { kind: "short", direct: "line" },
+      note: "Shipped: a message another agent sent this chat directly (acpmux send), short, as one tool-row line, its first line cut, which opens to the message.",
     },
-    "direct-long": {
-      props: { kind: "long", direct: true },
-      note: "A direct message past eight lines: its first eight whole, cut between lines, with Show more under them; Show more opens it as the line does.",
+    "direct-long-line": {
+      props: { kind: "long", direct: "line" },
+      note: "Shipped: a long direct message, one line like every other row, however long.",
     },
-    "direct-long-open": {
-      props: { kind: "long", direct: true, open: true },
-      note: "The long direct message opened (the line, its chevron or Show more): every line, Show less under it, the line above unmoved.",
+    "direct-short-card": {
+      props: { kind: "short", direct: "card" },
+      note: "Gallery version (theme receivedLook card): the short direct message whole under its line, as an inbox thread draws, nothing to open.",
+    },
+    "direct-long-card": {
+      props: { kind: "long", direct: "card" },
+      note: "Gallery version (receivedLook card): a direct message past eight lines, its first eight whole with Show more under them; Show more opens it as the line does.",
+    },
+    "direct-long-card-open": {
+      props: { kind: "long", direct: "card", open: true },
+      note: "Gallery version (receivedLook card), opened: every line, Show less under it, the line above unmoved.",
     },
     "drill-several": {
       props: { kind: "several", look: "drill", open: true },

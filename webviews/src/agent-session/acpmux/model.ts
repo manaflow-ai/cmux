@@ -2641,9 +2641,10 @@ function measuredRowHeight(
       return finish(line + inboxThreadCard(sessionId, openKey, read, row.incoming.message.text, width));
     }
     const message = row.incoming.message;
-    // The one message row (not a tool's notice or a lane's report, which keep their own line): its
-    // card is under the line shut too, the words cut to CLAMPED_LINES lines with Show more.
-    const card = !message.notice && !laneNotice(message);
+    // The `card` look's message row (conversation/receivedLook.ts; not a tool's notice or a lane's
+    // report, which keep their own line): its card is under the line shut too, the words cut to
+    // CLAMPED_LINES lines with Show more.
+    const card = receivedLook() === "card" && !message.notice && !laneNotice(message);
     const opened = messageOpened(sessionId, openKey);
     if (!opened && !card) return finish(line + messagePreviewLine(!message.notice));
     const { lineHeight } = metrics();
@@ -2653,9 +2654,7 @@ function measuredRowHeight(
     const cut = card && whole > CLAMPED_LINES * lineHeight + 1;
     const lines = cut && !opened ? CLAMPED_LINES * lineHeight : whole;
     const details = opened && message.raw.trim() !== text ? 24 : 0;
-    return finish(
-      line + 2 + 4 + 16 + lines + (cut ? CLAMP_MORE_HEIGHT : 0) + (row.images?.length ? 128 : 0) + details,
-    );
+    return finish(line + 2 + 4 + 16 + lines + (cut ? CLAMP_MORE_HEIGHT : 0) + (row.images?.length ? 128 : 0) + details);
   }
   if (row.incoming?.kind === "notice") return finish(lineRow());
   if (row.incoming?.kind === "inbox") {
@@ -3418,6 +3417,7 @@ import { newestWholeKey, readForIds, THREAD_PAGE, threadRead } from "./conversat
 import { inboxThreadLook } from "./conversation/inboxThreadLook";
 import { CLAMP_MORE_HEIGHT, CLAMPED_LINES } from "./conversation/lineCut";
 import { laneNotice } from "./conversation/laneReport";
+import { receivedLook } from "./conversation/receivedLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 import { planOpen } from "./conversation/planOpen";
