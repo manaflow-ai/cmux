@@ -13,6 +13,7 @@ import { setAgentDiffColors } from "./diffColors";
 import { setChatDisplay } from "./chatDisplay";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
+import { setPlanScopeDrift } from "./planScopeDriftStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setReadAloudState } from "./conversation/readAloud";
@@ -167,6 +168,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
+    case "planScopeDrift":
+      // Direct, like toolCards: a push before the composer mounts is kept.
+      return setPlanScopeDrift(event.value);
     case "computerUsePreview":
       // Direct, like toolCards: a push before the chat mounts is kept.
       return setComputerUsePreview(event.value);

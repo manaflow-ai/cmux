@@ -42,9 +42,9 @@ impl RosterFoldLimits {
 
 /// How long the daemon's start folds the roster before it serves. A start
 /// after the last save folds a few records in milliseconds; a replay from
-/// zero (a reducer version bump, a lost snapshot) folds the whole journal,
-/// which took 26-30 min on a 59 GB registry (2026-11-08) while the app
-/// waited. Past this budget the replay goes on in the roster's owner thread
+/// zero (a lost or unreadable snapshot; before #39433, a reducer version
+/// bump) folds the whole journal, which took 26-30 min on a 59 GB registry
+/// (2026-11-08) while the app waited. Past this budget the replay goes on in the roster's owner thread
 /// after the daemon accepts clients (`AgentRosterReplay`), so start time does
 /// not grow with the journal.
 pub(in crate::mux) const STARTUP_BUDGET: Duration = Duration::from_millis(1_000);
@@ -66,6 +66,14 @@ pub(super) struct RestoredAgentRoster {
     /// The replay the start's budget did not finish: the roster's owner
     /// finishes it in the background.
     pub(super) replay: Option<AgentRosterReplay>,
+    /// The roster is stale (migrated from an older reducer version, or empty
+    /// from the head): the roster's owner folds the whole journal again in
+    /// the background and replaces it (`agent_roster_rebuild.rs`).
+    pub(super) rebuild: bool,
+    /// The version a stale roster was migrated from when its stale mark (and
+    /// so its snapshot) could not be saved: live passes save it at that
+    /// version until the rebuild replaces it.
+    pub(super) unmarked_from: Option<u32>,
 }
 
 /// A roster replay from the cursor through `through`, the journal head when
@@ -77,6 +85,12 @@ pub(super) struct AgentRosterReplay {
     saved_at: u64,
     pages: usize,
     needs_repair: bool,
+    /// The fold is from the first record over an earlier start's stale mark:
+    /// its last save is the rebuild's, and clears the mark.
+    finish_rebuild: bool,
+    /// The reducer version the replay saves at: the current one, or the
+    /// version a stale roster was migrated from when its mark is not written.
+    save_as: u32,
     skipped: Vec<SkippedJournalRange>,
     problems: Vec<String>,
     limits: RosterFoldLimits,
@@ -103,7 +117,16 @@ pub(super) trait RosterJournal {
     fn after_salvaging(&self, cursor: u64, limit: usize) -> anyhow::Result<SalvagedJournalPage>;
     fn subject_ids_in_range(&self, kind: &str, start: u64, end: u64)
     -> anyhow::Result<Vec<String>>;
-    fn save(&self, cursor: u64, snapshot: &str) -> anyhow::Result<()>;
+    fn save(&self, how: RosterSave, cursor: u64, snapshot: &str) -> anyhow::Result<()>;
+}
+
+/// How the replay saves the roster.
+#[derive(Clone, Copy)]
+pub(super) enum RosterSave {
+    /// At this reducer version.
+    At(u32),
+    /// At the current version, clearing the stale mark: a full fold.
+    FinishRebuild,
 }
 
 impl RosterJournal for WorkspaceRegistry {
@@ -129,14 +152,19 @@ impl RosterJournal for WorkspaceRegistry {
         self.journal_subject_ids_in_range(kind, start, end)
     }
 
-    fn save(&self, cursor: u64, snapshot: &str) -> anyhow::Result<()> {
+    fn save(&self, how: RosterSave, cursor: u64, snapshot: &str) -> anyhow::Result<()> {
         use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
-        self.put_journal_reducer_state(
-            AGENT_ROSTER_REDUCER_ID,
-            AGENT_ROSTER_REDUCER_VERSION,
-            cursor,
-            snapshot,
-        )
+        match how {
+            RosterSave::At(version) => {
+                self.put_journal_reducer_state(AGENT_ROSTER_REDUCER_ID, version, cursor, snapshot)
+            }
+            RosterSave::FinishRebuild => self.finish_journal_reducer_rebuild(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                cursor,
+                snapshot,
+            ),
+        }
     }
 }
 
@@ -159,13 +187,20 @@ impl RosterTarget for &Mutex<AgentRosterHost> {
 }
 
 /// Restore the roster from its persisted snapshot and fold the journal tail
-/// committed after the cursor, for at most `STARTUP_BUDGET`. A
-/// reducer-version mismatch, a snapshot that does not parse, or unreadable
-/// reducer state discards the snapshot and re-folds from the journal head;
-/// what the budget leaves is returned as `replay`. Deltas produced here are
-/// dropped deliberately: their projection commits and change broadcasts
-/// already happened when the events first committed, and the durable
-/// projection restores itself independently.
+/// committed after the cursor, for at most `STARTUP_BUDGET`; what the
+/// budget leaves is returned as `replay`. A snapshot that does not parse, or
+/// unreadable reducer state, discards the snapshot and re-folds from the
+/// journal head. A reducer-version mismatch does not: the start never folds
+/// the journal from its first record for a bump (26 min on a 59 GB
+/// registry, 2026-11-08). It serves the old snapshot through
+/// [`AgentRoster::migrate`] from its own cursor, or an empty roster from the
+/// head when the old format no longer restores, marked stale, and the
+/// roster's owner rebuilds it from the whole journal in the background. A
+/// migrated roster can be wrong until then: every bump so far fixed the
+/// fold's logic. Deltas produced here are dropped deliberately: their
+/// projection commits and change broadcasts already happened when the events
+/// first committed, and the durable projection restores itself
+/// independently.
 pub(super) fn restore_agent_roster(
     registry: &WorkspaceRegistry,
 ) -> anyhow::Result<RestoredAgentRoster> {
@@ -219,6 +254,10 @@ pub(super) fn restore_agent_roster_within(
         problems.push("its snapshot was unreadable".to_owned());
         Some((0, 0, String::new()))
     });
+    let head = registry.session_journal_head()?;
+    // A stale roster an earlier start served and did not finish rebuilding.
+    let pending = registry.journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID).ok().flatten();
+    let mut rebuild_from = pending;
     let (mut host, mut needs_repair) = match state {
         Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
             match AgentRoster::restore(&snapshot) {
@@ -229,38 +268,98 @@ pub(super) fn restore_agent_roster_within(
                 None => (AgentRosterHost::default(), true),
             }
         }
-        Some(_) => (AgentRosterHost::default(), true),
+        Some((version, cursor, snapshot)) => {
+            rebuild_from = Some(version);
+            match AgentRoster::migrate(version, &snapshot) {
+                Some(roster) if cursor <= head => {
+                    eprintln!(
+                        "cmux-tui: agent roster reducer version {version} -> \
+                         {AGENT_ROSTER_REDUCER_VERSION}: serving the migrated snapshot while it \
+                         rebuilds in the background"
+                    );
+                    (AgentRosterHost { roster, cursor }, true)
+                }
+                _ => {
+                    eprintln!(
+                        "cmux-tui: agent roster reducer version {version} -> \
+                         {AGENT_ROSTER_REDUCER_VERSION}: the old snapshot does not restore; \
+                         serving live events while it rebuilds in the background"
+                    );
+                    (AgentRosterHost { roster: AgentRoster::default(), cursor: head }, true)
+                }
+            }
+        }
         None => (AgentRosterHost::default(), false),
     };
     // A cursor beyond the current journal head cannot describe a retained
     // snapshot boundary. Treat it like any other rejected checkpoint so a
     // metadata write or journal repair cannot make startup fail permanently.
-    let head = registry.session_journal_head()?;
     if host.cursor > head {
         host = AgentRosterHost::default();
         needs_repair = true;
+    }
+    // A fold from the first record is itself the rebuild.
+    if host.cursor == 0 {
+        rebuild_from = None;
+    }
+    // A migrated snapshot is saved together with its stale mark, in one
+    // transaction, before any fold: saved at the current version without
+    // it, the snapshot would pass for the current reducer's fold at every
+    // later start, and the replay below saves along the way. When that save
+    // fails, the old version's state stays, and the next start migrates it
+    // again; the replay and live passes save at the old version until the
+    // rebuild replaces the roster. An earlier start's mark still stands, so
+    // a later save of the stale roster needs none; the mark goes with the
+    // save of a full fold.
+    let first_mark = rebuild_from.filter(|_| pending.is_none());
+    let mut unmarked_from = None;
+    if let Some(from_version) = first_mark {
+        if registry
+            .start_journal_reducer_rebuild(
+                AGENT_ROSTER_REDUCER_ID,
+                from_version,
+                AGENT_ROSTER_REDUCER_VERSION,
+                host.cursor,
+                &host.roster.snapshot().to_string(),
+            )
+            .is_err()
+        {
+            eprintln!("cmux-tui: persisting the restored agent roster failed");
+            problems.push("its snapshot was not saved".to_owned());
+            unmarked_from = Some(from_version);
+        }
+        needs_repair = false;
     }
     let mut replay = AgentRosterReplay {
         through: head,
         saved_at: host.cursor,
         pages: 0,
         needs_repair,
+        finish_rebuild: pending.is_some() && rebuild_from.is_none(),
+        save_as: unmarked_from.unwrap_or(AGENT_ROSTER_REDUCER_VERSION),
         skipped: Vec::new(),
         problems,
         limits,
     };
+    let rebuild = rebuild_from.is_some();
     let deadline = budget.map(|budget| Instant::now() + budget);
     let progress = replay.fold(registry, &mut &mut host, deadline)?;
     Ok(match progress {
         ReplayProgress::Done { diagnostic } => {
-            RestoredAgentRoster { host, diagnostic, replay: None }
+            RestoredAgentRoster { host, diagnostic, replay: None, rebuild, unmarked_from }
         }
         ReplayProgress::Paused => {
             eprintln!(
                 "cmux-tui: agent roster replay continues in the background at sequence {} of {}",
                 host.cursor, replay.through
             );
-            RestoredAgentRoster { host, diagnostic: None, replay: Some(replay) }
+            RestoredAgentRoster {
+                host,
+                diagnostic: None,
+                replay: Some(replay),
+                rebuild,
+                unmarked_from,
+            }
         }
     })
 }
@@ -302,7 +401,7 @@ impl AgentRosterReplay {
                 && cursor != self.saved_at
             {
                 let snapshot = target.with(|host| host.roster.snapshot().to_string());
-                if journal.save(cursor, &snapshot).is_ok() {
+                if journal.save(RosterSave::At(self.save_as), cursor, &snapshot).is_ok() {
                     self.saved_at = cursor;
                 }
             }
@@ -368,10 +467,15 @@ impl AgentRosterReplay {
         }
         let (cursor, snapshot) =
             target.with(|host| (host.cursor, host.roster.snapshot().to_string()));
-        if self.needs_repair || cursor != self.saved_at {
+        if self.needs_repair || self.finish_rebuild || cursor != self.saved_at {
             // The in-memory roster is already correct. A failed write only means
             // the next start folds this tail again.
-            if journal.save(cursor, &snapshot).is_err() {
+            let how = if self.finish_rebuild {
+                RosterSave::FinishRebuild
+            } else {
+                RosterSave::At(self.save_as)
+            };
+            if journal.save(how, cursor, &snapshot).is_err() {
                 eprintln!("cmux-tui: persisting the restored agent roster failed");
                 self.problems.push("its snapshot was not saved".to_owned());
             } else {
@@ -395,7 +499,7 @@ fn apply_records(host: &mut AgentRosterHost, records: &[SessionJournalRecord]) {
 /// range can hold the event that ended their live state. The subject index
 /// names those terminals without decoding the range; if it cannot be read,
 /// every live entry is treated as affected.
-fn neutralize_live_claims(
+pub(super) fn neutralize_live_claims(
     registry: &impl RosterJournal,
     host: &mut AgentRosterHost,
     skipped: &[SkippedJournalRange],
@@ -419,7 +523,7 @@ fn neutralize_live_claims(
     }
 }
 
-fn describe_range(skip: &SkippedJournalRange) -> String {
+pub(super) fn describe_range(skip: &SkippedJournalRange) -> String {
     let range = if skip.start_sequence == skip.end_sequence {
         format!("sequence {}", skip.start_sequence)
     } else {
@@ -431,7 +535,7 @@ fn describe_range(skip: &SkippedJournalRange) -> String {
     }
 }
 
-fn skipped_ranges_problem(skipped: &[SkippedJournalRange]) -> String {
+pub(super) fn skipped_ranges_problem(skipped: &[SkippedJournalRange]) -> String {
     let mut listed = skipped
         .iter()
         .take(LISTED_SKIPPED_RANGES)
@@ -459,6 +563,8 @@ mod test_support {
                 saved_at: 0,
                 pages: 0,
                 needs_repair: false,
+                finish_rebuild: false,
+                save_as: crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
                 skipped: Vec::new(),
                 problems: Vec::new(),
                 limits,

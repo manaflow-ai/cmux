@@ -51,6 +51,9 @@ struct RosterRequests {
     /// a caller waits until the pass that took its request is done.
     asked: u64,
     done: u64,
+    /// The owner takes another pass at this time with no request (a retry
+    /// of background work: a rebuild read that failed).
+    retry_at: Option<Instant>,
     /// The owner finishes what is recorded, then ends.
     stopping: bool,
     /// The owner's thread runs; once it ended, nobody waits for it.
@@ -139,6 +142,17 @@ impl RosterControl {
         }
     }
 
+    /// Asks the owner for another pass after `delay`, unless it is stopping:
+    /// a stop drops the retry, and the work resumes at the next start.
+    fn continue_after(&self, delay: Duration) {
+        let mut requests = self.lock();
+        if !requests.stopping {
+            let at = Instant::now() + delay;
+            requests.retry_at = Some(requests.retry_at.map_or(at, |retry| retry.min(at)));
+            self.wake.notify_one();
+        }
+    }
+
     /// The owner finishes the work recorded so far, then ends.
     fn stop(&self) {
         self.lock().stopping = true;
@@ -187,6 +201,21 @@ pub(in crate::mux) struct AgentRosterWorker {
     /// the roster folded every agent record and before its first write.
     #[cfg(test)]
     pub(in crate::mux) reconcile_seam: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// The rebuild of a stale roster from the whole journal
+    /// (`agent_roster_rebuild.rs`); only the owner takes it, a slice after
+    /// each pass.
+    pub(in crate::mux) rebuild: Mutex<Option<agent_roster_rebuild::AgentRosterRebuild>>,
+    /// A rebuild is under way: the owner takes its slices.
+    pub(in crate::mux) rebuilding: AtomicBool,
+    /// The live roster may hold state the current reducer would not have
+    /// folded, until a rebuild replaces it; a rebuild that gave up leaves it
+    /// set. The projection reconcile waits for it.
+    pub(in crate::mux) stale: AtomicBool,
+    /// The reducer version the stale roster was migrated from when the
+    /// start could not mark it stale (0: marked, or not stale). Live passes
+    /// save the roster at this version, so a stop before the rebuild cannot
+    /// leave it passing for the current reducer's fold.
+    pub(in crate::mux) unmarked_from: std::sync::atomic::AtomicU32,
 }
 
 impl Drop for AgentRosterWorker {
@@ -216,7 +245,21 @@ fn run_owner(control: &RosterControl, mux: &Weak<Mux>) {
         let (pass, ticket) = {
             let mut requests = control.lock();
             while !requests.pending && !requests.stopping {
-                requests = control.wake.wait(requests).unwrap_or_else(PoisonError::into_inner);
+                let Some(retry_at) = requests.retry_at else {
+                    requests = control.wake.wait(requests).unwrap_or_else(PoisonError::into_inner);
+                    continue;
+                };
+                let now = Instant::now();
+                if now >= retry_at {
+                    requests.retry_at = None;
+                    requests.pending = true;
+                    break;
+                }
+                requests = control
+                    .wake
+                    .wait_timeout(requests, retry_at - now)
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0;
             }
             if !requests.pending {
                 return;
@@ -232,8 +275,13 @@ fn run_owner(control: &RosterControl, mux: &Weak<Mux>) {
         let Some(session) = mux.upgrade() else { return };
         // A pass that panics must not end the roster's only owner: every later
         // request would wait for a fold that never comes.
+        // A stale roster's rebuild takes a slice after the pass, before the
+        // pass counts as done: a caller that waits for a pass sees its
+        // progress.
         let left = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            session.run_roster_pass(pass)
+            let left = session.run_roster_pass(pass);
+            session.run_agent_roster_rebuild_slice();
+            left
         }))
         .unwrap_or_else(|_| {
             eprintln!("cmux-tui: an agent roster pass panicked; the next request folds again");
@@ -334,6 +382,17 @@ impl Mux {
         self.agent_roster_worker.replaying.load(Ordering::Acquire)
     }
 
+    /// Asks the owner for another pass of the roster rebuild.
+    pub(in crate::mux) fn continue_agent_roster_rebuild_later(&self) {
+        self.agent_roster_worker.control.continue_later();
+    }
+
+    /// Asks the owner for another pass of the roster rebuild after `delay`,
+    /// with no request to wake it: a retry after a failed read.
+    pub(in crate::mux) fn retry_agent_roster_rebuild_after(&self, delay: Duration) {
+        self.agent_roster_worker.control.continue_after(delay);
+    }
+
     /// Records roster work for the owner and wakes it: a fold through
     /// `through`, or the retirement of a closed terminal. On a request path:
     /// O(1) in memory, no fold, no journal read, no snapshot write.
@@ -382,7 +441,7 @@ mod replay_for_test {
 
     impl Mux {
         /// Starts a roster replay from zero in this running daemon, as a start
-        /// after a reducer version bump does: the roster goes back to empty and
+        /// whose snapshot does not restore does: the roster goes back to empty and
         /// the owner replays the journal in the background, `page` records per
         /// page, through `gate` (`agent_roster_restore::REPLAY_GATE_FOR_TEST`).
         #[cfg(test)]
@@ -398,7 +457,7 @@ mod replay_for_test {
                 registry
                     .put_journal_reducer_state(
                         crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
-                        0,
+                        crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
                         0,
                         "",
                     )

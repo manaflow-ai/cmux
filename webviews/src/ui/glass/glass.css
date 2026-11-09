@@ -301,8 +301,10 @@
     /* HOST GLASS (hostGlass.ts; Leo 2026-11-06: "why the f*** is this not glass? Like the way the
        native menus are"). A surface marked data-host-glass has the App's own glass under the page:
        the native popover material with its tint, edge and shadow (AgentPaneView+HostGlass.swift). It
-       draws nothing until the App has drawn that glass, so it never shows as a clear box first, and
-       then draws only its content: no tint, blur, rim or shadow of its own, as on a native popover.
+       draws its content in the first frame that paints it, as the App puts its glass there (Leo,
+       2026-11-09: "it loads the placeholder, THEN the content... every single time"), and only its
+       content: no tint, blur, rim or shadow of its own, as on a native popover. Only a surface the
+       reporter has not seen yet (no drawn mark) is hidden, and it marks one in the task it mounts in.
        A surface the App does not draw (data-host-glass-drawn="0": past the deadline, an older App)
        keeps the page's glass above, as does one over the composer (data-glass-keeps-underlay,
        seeThroughBlur.ts): no filter may blur the composer, so its underlay hides it there. A cover

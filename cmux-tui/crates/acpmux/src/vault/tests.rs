@@ -65,6 +65,8 @@ fn a_granted_answer_reads_env_only_and_refuses_unsafe_names() {
                 {"name": "PATH", "revision": 1, "state": "active", "valueBase64": b64("/evil")},
                 {"name": "LD_PRELOAD", "revision": 1, "state": "active", "valueBase64": b64("x")},
                 {"name": "CLAUDE_CODE_OAUTH_TOKEN", "revision": 1, "state": "active", "valueBase64": b64("x")},
+                {"name": "ANTHROPIC_BASE_URL", "revision": 1, "state": "active", "valueBase64": b64("https://evil.example")},
+                {"name": "openai_base_url", "revision": 1, "state": "active", "valueBase64": b64("https://evil.example")},
                 {"name": "NO_VALUE", "revision": 1, "state": "active"},
                 {"name": "BAD_B64", "revision": 1, "state": "active", "valueBase64": "!!!"},
                 {"name": "NO_REVISION", "state": "active", "valueBase64": b64("x")},
@@ -73,7 +75,7 @@ fn a_granted_answer_reads_env_only_and_refuses_unsafe_names() {
     );
     assert_no_value(&format!("{answer:?}"));
     let Answer::Granted { env, refused } = answer else { panic!() };
-    assert_eq!(refused, 6);
+    assert_eq!(refused, 8);
     let names: Vec<_> = env.iter().map(|e| (e.name.as_str(), e.revision)).collect();
     assert_eq!(names, [("GONE", 4), ("MULTI", 3), ("OPENAI_API_KEY", 2)]);
     assert!(env[0].value.is_none());
@@ -1329,4 +1331,66 @@ fn a_policy_change_at_the_same_revision_reaches_the_next_spawn() {
     let saved = std::fs::read_to_string(pull::state_path(home.path())).unwrap();
     assert!(saved.contains("api.github.com"));
     assert_no_value(&saved);
+}
+
+#[test]
+fn a_base_url_stored_by_an_older_pull_is_removed_and_never_delivered() {
+    let mut state = plan::State::default();
+    state.env.insert(
+        "ANTHROPIC_BASE_URL".to_owned(),
+        plan::EnvRecord { revision: 1, ..Default::default() },
+    );
+    let answer = wire::parse(
+        200,
+        &body(json!({"env": [
+            {"name": "ANTHROPIC_BASE_URL", "revision": 2, "state": "active", "valueBase64": b64("https://evil.example")},
+        ]})),
+    );
+    let Answer::Granted { env, refused } = answer else { panic!() };
+    assert!(env.is_empty());
+    assert_eq!(refused, 1);
+    let steps = plan::plan(&state, env);
+    assert!(
+        steps
+            .iter()
+            .any(|s| matches!(s, plan::Step::Delete { name } if name == "ANTHROPIC_BASE_URL")),
+        "{steps:?}"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn a_base_url_in_a_state_saved_before_is_never_delivered_and_is_removed_at_load() {
+    let _one = LOADED_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    // As an older pull saved it: the base URL listed, bound to this
+    // machine's credential, its value in the store.
+    let path = pull::state_path(home.path());
+    let mut saved: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let state = pull::read_state(home.path());
+    let mut record = saved["env"]["API_TOKEN"].clone();
+    record["fingerprint"] = json!(state.fingerprint("ANTHROPIC_BASE_URL", "https://evil.example"));
+    saved["env"]["ANTHROPIC_BASE_URL"] = record;
+    std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+    store.put("ANTHROPIC_BASE_URL", "https://evil.example").unwrap();
+
+    // Every reader of the state sees it only as waiting for its delete.
+    let read = pull::read_state(home.path());
+    assert!(!read.env.contains_key("ANTHROPIC_BASE_URL"));
+    assert!(read.pending_delete.contains("ANTHROPIC_BASE_URL"));
+    assert_eq!(read.delivered_names(Some((CRED, false))), ["API_TOKEN"]);
+
+    // The first load (no pull before it) gives the agent the rest only, and
+    // removes the base URL from the store and the saved state at once.
+    super::reset_loaded();
+    let given = super::deliver_at(home.path(), &store, &live, std::time::Instant::now());
+    assert_eq!(given.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(), ["API_TOKEN"]);
+    assert!(store.get("ANTHROPIC_BASE_URL").unwrap().is_none());
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("ANTHROPIC_BASE_URL"), "{text}");
+    assert!(!super::loaded_names().iter().any(|n| n == "ANTHROPIC_BASE_URL"));
 }

@@ -600,6 +600,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let inline = Self.inlineDocuments(attachments)
         for attachment in attachments where attachment.imageMIMEType == nil && !inline.contains(attachment.id) {
             let payload: LinkUpload.Payload
+            if attachment.data == nil, attachment.fileURL == nil, let path = attachment.macPath {
+                // A recorded video (Retry of an earlier prompt) is on the Mac already: its link goes again.
+                uploaded[attachment.id] = path
+                continue
+            }
             if let data = attachment.data {
                 payload = .data(data)
             } else if let url = attachment.fileURL {
