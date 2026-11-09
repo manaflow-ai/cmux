@@ -343,7 +343,14 @@ class WorkflowShape(unittest.TestCase):
         for gates, ratchet, state in (("success", "skipped", "success"), ("success", "success", "success"),
                                       ("success", "failure", "failure"), ("success", "cancelled", "pending"),
                                       ("failure", "skipped", "failure"), ("cancelled", "skipped", "pending"),
-                                      ("failure", "cancelled", "failure")):
+                                      ("failure", "cancelled", "failure"),
+                                      # Every other way a job can end judged nothing either (cmux#39743: abandoned
+                                      # gates, whose placed runner never reported, posted failure).
+                                      ("abandoned", "skipped", "pending"), ("skipped", "skipped", "pending"),
+                                      ("", "", "pending"), ("timed_out", "skipped", "pending"),
+                                      ("success", "abandoned", "pending"), ("success", "", "pending"),
+                                      ("failure", "abandoned", "failure"), ("failure", "", "failure"),
+                                      ("abandoned", "success", "pending"), ("cancelled", "failure", "pending")):
             with self.subTest(gates=gates, ratchet=ratchet):
                 self.assertEqual(self.posted_state(body, gates, ratchet), state)
                 described = self.posted_description
