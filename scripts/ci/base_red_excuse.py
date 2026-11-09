@@ -3212,6 +3212,69 @@ def web_test_verdict(repo: str, base: str, name: str, job: dict, head_log: str, 
     return f"excused '{name}': each failing webview test is red the same way on {base}: " + "; ".join(verdict.shared)[:600]
 
 
+# A head shard GitHub cancelled or timed out mid-run is judged per file (test_reds.classify_web_cut_short): cmux#39676's
+# `web / react-apps-check (1)` was cancelled after 31 min (jobs 129249378930 and 129359593602) while every file it
+# failed fails on feat-cmux-next too, and every merge was refused as "no verdict" (claude-sr2-coord, 2026-11-09: "a
+# timed-out/cancelled shard whose failing files also fail the same way on base is classified as base red, not 'no
+# verdict'"). Only a head shard (a replay's cancel leaves no charged-test verdict), only when the one step cut short is
+# its test step, and only when its log names a red file: a shard cancelled while green, in setup or in another step
+# still has no verdict and gets re-run.
+CUT_SHORT = frozenset({"cancelled", "timed_out"})
+
+
+def cut_short_web_verdict(repo: str, base: str, name: str, job: dict, github, run_reads: dict,
+                          base_runs: dict) -> str | None:
+    """The audit line excusing cancelled or timed-out head shard NAME, every red file of which is red on BASE's
+    webview runs; None when it is not such a shard or its log names no red file (the caller refuses it as no verdict).
+    Raises Refused when a red file is not red on the base, or the run crashed or timed a file out."""
+    if repo != HOME_REPO or job.get("conclusion") not in CUT_SHORT or not WEB_SHARD_JOB.fullmatch(name):
+        return None
+    cut = [step.get("name") or "" for step in job.get("steps") or []
+           if step.get("conclusion") not in (None, "success", "skipped")]
+    if not cut or any(step not in WEB_TEST_STEPS["shard"] for step in cut):
+        return None
+    try:
+        head_log = github.log(repo, job)
+    except Refused:
+        return None
+    if test_reds.classify_web_cut_short(head_log, (), name, base) is None:
+        return None  # no red file: nothing to compare, and no base run is read
+    workflow_info = rest_run(repo, job["run_id"], github, run_reads)
+    workflow = base_caller(repo, base, workflow_info, name) or workflow_info.get("workflow_id")
+    if workflow is None:
+        return None
+    green: list[dict] = []
+    unread: list[str] = []
+
+    def windows():
+        for run, red in web_base_runs(repo, base, workflow, github, base_runs):
+            if not red:
+                green.append(run)
+                return
+            logs = []
+            for found_job in red:
+                try:
+                    logs.append(github.log(repo, found_job))
+                except Refused as why:
+                    unread.append(f"job {found_job.get('id')}: {str(why)[:200]}")
+                    logs.append(None)
+            yield f"{base} run {run['id']}", logs
+
+    verdict = test_reds.classify_web_cut_short(head_log, windows(), name, base)
+    if verdict is None:
+        return None
+    if verdict.own:
+        said = "; ".join(verdict.reasons)
+        if green:
+            said += f" (every webview test passed on {base} run {green[0]['id']}, which ends the window)"
+        if unread:
+            said += f" (unread: {unread[0]})"
+        raise Refused(f"'{name}' is {job['conclusion']}; judged per file against {base}'s webview runs: {said}"[:1000])
+    return (f"excused '{name}': {job['conclusion']} mid-run (job {job.get('id')}), and each file it failed or left "
+            f"running is red on {base}: " + "; ".join(verdict.shared)[:600]
+            + "; the files the cancel kept from running are not judged")
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
           flake_state: dict | None = None) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not, or RateLimitedRead
@@ -3245,6 +3308,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     for job in jobs:
         name = job.get("name", "")
         if job.get("conclusion") != "failure":
+            if (cut := cut_short_web_verdict(repo, base, name, job, github, run_reads, base_runs)) is not None:
+                audit.append(cut)
+                continue
             raise Refused(f"'{name}' is {job.get('conclusion')}: it has no verdict to compare with the base; re-run it")
         if refused_at_setup(job):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")

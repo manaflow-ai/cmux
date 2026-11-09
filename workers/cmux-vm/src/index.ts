@@ -66,6 +66,8 @@ export interface Env {
   readonly CMUX_VM_RECEIVER_POLICY_LEASE_MS?: string;
   /** Stack Auth webhook signing secret (whsec_...); optional, the webhook answers 503 without it (G1, cx-0op.6). */
   readonly STACK_WEBHOOK_SECRET?: string;
+  /** The commit this Worker was deployed from (scripts/deploy.sh `--var COMMIT_SHA:$GITHUB_SHA`); /healthz names it. */
+  readonly COMMIT_SHA?: string;
   /** Service keys (cx-b4h.13): JSON array of { id, sha256, scopes, labels, teams? }; hashes only. See src/auth/service-keys.ts. */
   readonly CMUX_VM_SERVICE_KEYS?: string;
   /** JSON object of service key id to extra scopes, limited to acl:read and acl:write. See src/auth/service-keys.ts. */
@@ -242,9 +244,22 @@ const served = (env: Env): Served => {
   return cached;
 };
 
+/**
+ * /healthz names the commit it serves in `x-cmux-commit`, so NOW's cloud_deploy_gate can pair the live Worker with a
+ * journey verdict on that same commit (cmuxterm-hq goals/cloud-deploy-checked.md). No commit set: no header.
+ */
+export const withCommit = (response: Response, env: Pick<Env, "COMMIT_SHA">): Response => {
+  const commit = env.COMMIT_SHA ?? "";
+  if (!/^[0-9a-f]{40}$/.test(commit)) return response;
+  const named = new Response(response.body, response);
+  named.headers.set("x-cmux-commit", commit);
+  return named;
+};
+
 export default {
-  fetch(request: Request, env: Env): Promise<Response> {
-    return served(env).handler(request);
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const response = await served(env).handler(request);
+    return new URL(request.url).pathname === "/healthz" ? withCommit(response, env) : response;
   },
   /** Cron (wrangler.jsonc triggers): the agent reaper and the orphan sweep. */
   scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): void {
