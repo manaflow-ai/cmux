@@ -63,7 +63,7 @@ final class TerminalGridReporter {
         guard let view, let surface = view.surface else { return }
         TerminalSurfaceView.gridReports &+= 1
         // The refresh the program gets this grid in: a hold for its redraw at it counts its bound from here (RESIZE P0 23).
-        view.frameOwnership.gridSentEpoch = view.window.map(TerminalFramePresenter.forWindow)?.currentEpoch
+        if view.session != nil { view.frameOwnership.gridSentEpoch = view.window.map(TerminalFramePresenter.forWindow)?.currentEpoch }
         let size = ghostty_surface_size(surface)
         let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
                                           paddingWidth: 0, paddingHeight: 0)

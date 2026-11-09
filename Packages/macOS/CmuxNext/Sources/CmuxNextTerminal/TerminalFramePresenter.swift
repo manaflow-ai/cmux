@@ -54,7 +54,9 @@ final class TerminalFramePresenter {
     /// From the refresh the grid went in, not the request's (RESIZE P0 23): a grid the coalescer held to the next refresh
     /// gave the program one refresh less (P0 22, film 034647).
     /// Send -> first presented program frame, cmux21 1x 120 Hz (diag 2b50b18e): px-keys-held p99 11.7 ms, px-keys-single
-    /// p99 17.4 ms, about 2 refreshes; 3 covers p99 with one refresh of slack (m55: at most 3 refreshes).
+    /// p99 17.4 ms, about 2 refreshes; 3 covers p99 with one refresh of slack (m55: at most 3 refreshes from the send). A
+    /// grid the coalescer held waits at most one refresh more (or its 25 ms backstop when no refresh comes), so from the
+    /// request the worst case is 4 refreshes.
     static let resizeHoldTicks: UInt64 = 3
 
     /// What the presenters did, cumulative (diagnostics and tests).
@@ -86,7 +88,8 @@ final class TerminalFramePresenter {
         weak var view: TerminalSurfaceView?
         /// The refresh it was made in: its group.
         var epoch: UInt64
-        /// Refreshes from `sentEpoch` a frame of the size only waits for the program's frame at its grid; 0: none.
+        /// Refreshes a frame of the size only waits for the program's frame at its grid, from the later of `sentEpoch` and
+        /// the view's real send (``TerminalFrameOwnership/gridSentEpoch``), and while that grid waits; 0: none.
         var holdTicks: UInt64 = 0
         /// The refresh the request's grid went to the program in, as the request knew it (its size's grid may go later:
         /// ``holdsForProgram(_:of:at:)``).

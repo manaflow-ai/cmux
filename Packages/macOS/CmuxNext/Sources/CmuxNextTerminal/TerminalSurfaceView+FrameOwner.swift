@@ -239,6 +239,8 @@ extension TerminalSurfaceView {
         applyHeldScale()
         frameOwnership.ahead = nil
         frameOwnership.pendingAhead = nil
+        // Epochs are the old window's presenter's: the next hold counts from a send in the new window.
+        frameOwnership.gridSentEpoch = nil
         guard frameOwnership.inFlight != nil, let wanted = frameOwnership.wanted else { return }
         frameOwnership.inFlight = nil
         if frame != wanted { frame = wanted }
