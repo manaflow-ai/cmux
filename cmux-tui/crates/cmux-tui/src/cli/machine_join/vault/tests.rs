@@ -774,7 +774,8 @@ fn ls_renders_each_delivery_and_json_carries_the_policy() {
 
 #[test]
 fn the_platforms_no_host_warning_is_printed_and_carried_in_json() {
-    let warning = "MY_TOKEN has no allowed hosts, so agents get a placeholder that is never replaced.";
+    let warning =
+        "MY_TOKEN has no allowed hosts, so agents get a placeholder that is never replaced.";
     let answer = move |request: &str| {
         if request.starts_with("PUT /v1/vault/env/MY_TOKEN/policy ") {
             let mut answer = body_of(request);
@@ -784,15 +785,22 @@ fn the_platforms_no_host_warning_is_printed_and_carried_in_json() {
             return (200, answer.to_string());
         }
         if request.starts_with("PUT /v1/vault/env/MY_TOKEN ") {
-            return (200, json!({"name": "MY_TOKEN", "revision": 3, "warning": warning}).to_string());
+            return (
+                200,
+                json!({"name": "MY_TOKEN", "revision": 3, "warning": warning}).to_string(),
+            );
         }
         (404, "{}".to_owned())
     };
     let (origin, _requests) = fake(Arc::new(answer));
-    let ran = run_vault(&["machine", "vault", "set", "MY_TOKEN"], &origin, OutputMode::Human, VALUE);
+    let ran =
+        run_vault(&["machine", "vault", "set", "MY_TOKEN"], &origin, OutputMode::Human, VALUE);
     assert_eq!(ran.code, Ok(0));
     no_value(&ran.out);
-    assert_eq!(ran.out, format!("MY_TOKEN saved to your vault (revision 3).\nWarning: {warning}\n"));
+    assert_eq!(
+        ran.out,
+        format!("MY_TOKEN saved to your vault (revision 3).\nWarning: {warning}\n")
+    );
     let (origin, _requests) = fake(Arc::new(answer));
     let ran = run_vault(&["machine", "vault", "set", "MY_TOKEN"], &origin, OutputMode::Json, VALUE);
     assert_eq!(
