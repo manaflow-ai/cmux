@@ -234,12 +234,7 @@ function appHostServer(): Plugin {
           fs: config.server?.fs?.allow
             ? undefined
             : {
-                allow: [
-                  webviewsRoot,
-                  path.join(webviewsRoot, "..", "schemas/settings"),
-                  // The UI font's WOFF2 (src/gallery/frame/uiFont.ts).
-                  path.join(webviewsRoot, "..", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts"),
-                ],
+                allow: [webviewsRoot, path.join(webviewsRoot, "..", "schemas/settings")],
               },
         },
       };
@@ -290,6 +285,7 @@ const indexPage = `<!doctype html>
 <li><a href="/markdown">/markdown</a>: markdown editor, <code>?file=&lt;path&gt;</code>; <a href="/markdown?pick">/markdown?pick</a>: its empty state; <a href="/markdown/viewer">/markdown/viewer</a>: the classic viewer shell</li>
 <li><a href="/editor">/editor</a>: code editor (Monaco), <code>?file=&lt;absolute path&gt;</code>; <a href="/editor?pick">/editor?pick</a>: its empty state</li>
 <li><a href="/history/?mock">/history/?mock</a>: History page against the in-page mock provider</li>
+<li><a href="/stash/?mock">/stash/?mock</a>: Stashed Tabs page against the in-page mock provider</li>
 <li><a href="/apps/?mock">/apps/?mock</a>: App Store page against the in-page mock provider (<code>#/discover?layout=list|split</code>, <code>#/installed</code>)</li>
 <li><a href="/cloud/?mock">/cloud/?mock</a>: Cloud page against the in-page mock provider (<code>&amp;layout=cards</code> for the cards layout)</li>
 <li><a href="/keybindings/?mock">/keybindings/?mock</a>: Keyboard Shortcuts page against the in-page mock provider</li>

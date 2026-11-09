@@ -129,6 +129,7 @@ impl Hub {
             // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
             cwd_pin: None,
             orphan_exit: None,
+            prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
         };
         // No host starts once `stop_pool` began: it could not end it.
         if self.pool.stopping.load(Ordering::SeqCst) {
@@ -303,7 +304,7 @@ impl Hub {
         let mut last_cpu_ms = None;
         // The last read of a harness macOS can read: what it did since is judged over its whole
         // process tree, page-ins too (`HarnessState::worked_since`).
-        let mut last_state: Option<crate::cpu_class::HarnessState> = None;
+        let mut last_state: Option<(crate::cpu_class::HarnessState, tokio::time::Instant)> = None;
         let mut no_progress_since = None;
         let mut unread_since = None;
         loop {
@@ -318,7 +319,9 @@ impl Hub {
                     match seen {
                         crate::cpu_class::HarnessSeen::Running(state) => {
                             unread_since = None;
-                            let worked = last_state.as_ref().is_some_and(|last| state.worked_since(last));
+                            let worked = last_state
+                                .as_ref()
+                                .is_some_and(|(last, at)| state.worked_since(last, at.elapsed()));
                             if state.cpu_ms > 0 && !worked {
                                 let since = *no_progress_since.get_or_insert(tokio::time::Instant::now());
                                 if since.elapsed() >= START_HAZARD {
@@ -338,7 +341,7 @@ impl Hub {
                                 pageins = state.pageins,
                                 "pooled agent start waiting; machine busy"
                             );
-                            last_state = Some(state);
+                            last_state = Some((state, tokio::time::Instant::now()));
                         }
                         // A hosted child can be alive before it reports a harness
                         // pid. Keep waiting in that state; `is_alive` above is the

@@ -12,16 +12,10 @@ Read the matching skill before changing an area, then only the references needed
   Start with `python3 scripts/verify-local.py`; docs and portable tooling need no app build.
   Run repository commands only in a [trusted checkout](docs/contributor-verification.md#trust-boundary),
   including `verify-local.py --help`, `--list` and `--repo`. Push does not run checks for you.
-- **Web lints before every commit and push.** If the change touches `webviews/` or `web/`, run
-  that area's lints from its folder first (`bun install --frozen-lockfile` once per checkout) and
-  fix every error.
-  Never push with a lint failure; a base lint red skips the CI tests after it. These are the
-  checks CI runs on every `feat-cmux-next` push:
-  - `webviews/`: `bun run check` (Oxlint, Oxfmt, type check, layer and protocol checks).
-    `bun run check:fix` repairs formatting.
-  - `web/`: `bun run typecheck`, `bun run lint:complexity` and
-    `bun tools/generate-managed-iroh-relay-catalog.ts --check`. Also run
-    `bunx eslint <changed files>` and add no new ESLint errors (the full `bun run lint` has old errors).
+- **Web lints before every commit and push.** A change to `webviews/` or `web/` runs
+  `scripts/web-lint.sh` (the pre-push hook enforces it) and fixes every error; never push
+  with a lint failure, because a base lint red skips the CI tests after it. Commands, skip
+  reason and shared-host mode: [hooks and lints](skills/cmux-dev-workflow/references/hooks-and-lints.md).
 - Use [CONTRIBUTING.md](CONTRIBUTING.md#getting-started) for setup. Tagged reloads default to
   `CMUX_DEV_BACKEND_MODE=local`; cmux-next needs no shared backend. Follow [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md)
   for commands and cache reuse; team fleet tasks start at
@@ -54,28 +48,12 @@ Read the matching skill before changing an area, then only the references needed
   OS-dependent bug or a launch on 14/15 in Tart VMs: `scripts/cmux-next/os-matrix.sh --build JOB
   --os 14,15` ([MATRIX.md](scripts/fuzz/macos-matrix/MATRIX.md)). VM timing is not perf evidence.
 
-## Web lint before push
-
-Run `scripts/web-lint.sh` before you push web or webviews changes; the pre-push
-hook enforces it. It runs, on what you changed against `origin/feat-cmux-next`,
-the `bun run check` that CI runs for `webviews/` and `cmux-tui/frontends/web/`
-(Oxfmt, Oxlint with the type check, browser-lane and style checks) and ESLint on
-changed `web/` files. `scripts/web-lint.sh --fix` autofixes what the tools can;
-commit the result. The hook comes with `scripts/install-git-hooks.sh` (run by
-`scripts/setup.sh`; one run covers every worktree of the clone). Skip it only with
-`CMUX_WEB_LINT_SKIP_REASON="<failing check> is red on base <sha>"`; the
-`web lint (fast)` job of cmux-next-web-lint.yml still checks every feat-cmux-next push.
-A host that must not run heavy checks (a shared agent host) sets `CMUX_LOCAL_HEAVY_CHECKS=0`:
-the type-aware lint and type check (`vp lint`, `vp check`) are left to CI there; the rest still run.
-
 ## cmux-next checks before every push
 
-Before every push, run `python3 scripts/cmux-next/prepush-gate.py` (the pre-push hook
-runs it too; install once with `scripts/install-git-hooks.sh`). In a few seconds and
-with no build, it runs the static checks of the `cmux-next checks` CI job, pinned
-ast-grep rules, SwiftFormat `--lint` and syntax-only SwiftLint on the files you
-changed, and refuses only violations your commits add; base debt does not block you.
-Swift/Rust builds and tests stay on the fleet.
+Before every push, run `python3 scripts/cmux-next/prepush-gate.py` (the pre-push hook runs it
+too): a few seconds of static checks, no build, refusing only violations your commits add.
+Swift/Rust builds and tests stay on the fleet. What it runs and how the hooks install:
+[hooks and lints](skills/cmux-dev-workflow/references/hooks-and-lints.md).
 
 - Never `--no-verify` and never `CMUX_NEXT_CHECKS_SKIP_REASON`, unless the failure is
   in files you did not touch. Then say so in your report, naming the check and the base sha.
@@ -85,18 +63,13 @@ Swift/Rust builds and tests stay on the fleet.
   `Thread.sleep`, `.wait()`, `readDataToEndOfFile()`, `waitUntilExit()` or `NSWorkspace.shared.open`.
 - No `try!`: throw or handle a typed error.
 - Fonts come from `TypeScale` or `Typography`, never a literal size.
-- Every animation goes through a motion gate with a category: `Motion.<category>.animate(...)`,
-  `.set(...)`, `.duration(...)`, `.animation(...)` (`sidebar`, `tabs`, `panes`, `overlays`,
-  `hoverCards`, `home`, `cursor`, `indicators`, `feedback`, `web`; for a new area, add a
-  `MotionCategory` case with its setting, action and strings). The gate obeys the master switch
-  `ui.animations.enabled`, the category's `ui.animations.<category>`, `ui.animationSpeed` and
-  Reduce Motion, so a person can turn all animation or one area off. Code must work with no
-  animation at all: the change applies in one frame and completions still run. No raw
-  `NSAnimationContext`, `withAnimation`, `.animation(...)`, `CABasicAnimation`, `animator()` outside
-  a gate group, window `animationBehavior` or SwiftUI transition; a reviewed exception says
-  `// motion: allow <how it still obeys the switches>`. App web pages get this from the shared
-  `WebTheme` bootstrap (`data-cmux-motion`); do not bypass it. `check-motion.sh` enforces this;
-  see [motion-DESIGN.md](plans/cmux-next/motion-DESIGN.md).
+- Every animation goes through a category motion gate (`Motion.<category>.animate(...)` and
+  friends) that obeys the master switch, the category switch, `ui.animationSpeed` and Reduce
+  Motion; code works with no animation at all. No raw `NSAnimationContext`, `withAnimation`,
+  `.animation(...)`, `CABasicAnimation` or `animator()` outside a gate, and no bypass of web
+  `WebTheme`'s `data-cmux-motion`; a reviewed exception says `// motion: allow <how>`.
+  `check-motion.sh` enforces it; categories and a new area's steps:
+  [motion-DESIGN.md](plans/cmux-next/motion-DESIGN.md).
 - Dialogs use the standard key-hint components (`CmuxDialogSpec`, `CmuxDialogActionButton`,
   `ThemedBezelButton.keyHint`, web `ui/DialogButton`), never `NSAlert`, `.alert` or `.confirmationDialog`.
 - An escape comment (`// concurrency-allow:`, `// crash-allow:`, `dialog-keys-exempt:`)
@@ -109,13 +82,11 @@ Swift/Rust builds and tests stay on the fleet.
   it: only a `Ghostty-defaults-OK: <the user's words>` commit trailer does. (2f3e1f95983 made
   Cmd-Opt-Left / Right sidebar keys; Lawrence 2026-10-20: "ensure this never happens again".)
 
-- A new or rewritten action handler is `registry.bindEffect(id, effect:)` and returns an `ActionEffect`:
-  `.done`, `daemon.intentEffect(...)` (a store intent shows in the input's turn; the registry sends,
-  rolls back and reports), `.applied(...)` with a rollback, or `.waiting(reason, work)` only when nothing
-  can show first. Never await in a handler, never start its remote work yourself, no disk I/O, waiting
-  lock or whole-session walk on its turn. The guardrail `action-wait` refuses new untyped binds and
-  waits; the budget is < 10 ms to the commit, watched by `ActionBudgetMonitor` and the Debug menu's
-  latency HUD ([zero-latency.md](plans/cmux-next/zero-latency.md), "Native actions: the budget contract").
+- A new or rewritten action handler is `registry.bindEffect(id, effect:)` returning an
+  `ActionEffect`; never await in a handler, start its remote work yourself, or do disk I/O, a
+  waiting lock or a whole-session walk on its turn (< 10 ms to the commit; guardrail
+  `action-wait`). Effect kinds and monitors: [zero-latency.md](plans/cmux-next/zero-latency.md),
+  "Native actions: the budget contract".
 
 ## Before you touch hot paths
 
@@ -134,32 +105,17 @@ Swift/Rust builds and tests stay on the fleet.
   its bench ([perf-hot-benches.json](scripts/cmux-next/perf-hot-benches.json)). Mark new hot paths the same way.
 - Read [OWNERS.md](plans/cmux-next/OWNERS.md) before you change an owned area, and tell the owner.
 - Threads: [threading-model.md](plans/cmux-next/threading-model.md) says what each thread owns, may block on, its QoS and bound; the main thread never blocks (Debug detector, `allowBlocking` only for a listed reason).
-- Copy Chrome's performance model (Lawrence 2026-10-24). Before you design a fast path, find how Chromium
-  does the same job and do that, or write in the commit why cmux differs:
-  - The main thread never blocks: no sync daemon, disk, network or lock wait on it (Chrome's UI-thread
-    rule, `ScopedBlockingCall`). Input changes the model in the same turn; the backend reconciles later.
-  - One frame per display refresh: input and changes coalesce to the frame (Chrome aligns input to the
-    begin-frame), animation runs off the main thread where it can (compositor-driven), and an animation
-    is interruptible from its current value. A layout or a reflow per animation frame is a bug.
-  - Measure from the input to the frame shown, as distributions (p50, p95, p99, max), in lab benches and
-    in opt-in field data (Chrome's EventLatency histograms and UMA). A mean alone proves nothing.
-  - Memory: hidden pages are discarded by Memory Saver rules (never one with form input, audio, capture,
-    a running download or a `beforeunload` handler; it reloads when shown), and renderer processes are
-    shared per site above a limit set from physical memory, as Chrome does.
-  - Process work by priority: what the person sees and touches first; hidden windows, background tabs
-    and idle work are throttled (Chrome's background-tab timer throttling and task priorities).
-    Throttling is only for work the person cannot see. It is never the fix for a slow visible action:
-    remove that work, do not delay, debounce or throttle it.
-- Go past Chrome where cmux is scripted. Scripts, the CLI, MCP and agents drive cmux far more than
-  extensions drive Chrome, so automation must never compete with the person:
-  - A scripted or agent change goes through the same action pipeline as a key press, and its local model
-    change is O(changed items), never O(session).
-  - Changes to hidden or background workspaces update the model only: no layout, no animation, no view
-    work until the workspace shows, then one layout to its final state.
-  - A burst of scripted changes (reorders, moves, splits) coalesces to one model update and at most one
-    frame per window; batch requests apply as one transaction.
-  - Input from the person always goes before automation (separate queues, the person's first), and the
-    socket server parses, validates and coalesces off the main thread.
+- Copy Chrome's performance model (Lawrence 2026-10-24): before you design a fast path, find how
+  Chromium does the same job and do that, or write in the commit why cmux differs. The main thread
+  never blocks; input and changes coalesce to one frame per display refresh and animations are
+  interruptible; measure input-to-frame as distributions, not means; hidden pages are discarded
+  by Memory Saver rules and renderers shared per site; work runs by priority, and throttling is
+  only for work the person cannot see, never the fix for a slow visible action.
+- Go past Chrome where cmux is scripted: automation never competes with the person. Scripted
+  changes use the same action pipeline at O(changed items); hidden workspaces update the model
+  only; bursts coalesce to one model update and at most one frame per window; the person's input
+  always goes first and the socket server works off the main thread.
+  Full text of both rules: [PATTERNS.md](plans/cmux-next/PATTERNS.md#chrome-performance-model-lawrence-2026-10-24).
 - The hook's guardrails refuse new debt in added lines (`scripts/cmux-next/guardrails.py --list`). When the
   hook warns that its installed copy is not origin/feat-cmux-next's, run `scripts/install-git-hooks.sh` from a
   checkout at origin/feat-cmux-next. The hooks are per clone: every worktree of it, main-based ones too, runs them.
@@ -190,18 +146,8 @@ When installed with `scripts/install-git-hooks.sh --namespace-fix`, the
 pre-push hook runs the fixer and stops so changed files can be reviewed,
 staged, and committed. CI keeps the non-mutating lint as the backstop.
 
-Claude Code and Codex post-edit hooks (`.claude/settings.json`, `.codex/hooks.json`)
-run the same fixer on edited `Packages/**/*.swift` files; they print repairs and never fail an edit.
-They also warn, for the edited files only, about workflow YAML that does not parse or that
-actionlint rejects, a new `tests/test_*.py` missing from `tests/test-execution.d/`, and a
-CmuxNext Swift or cmux-tui Rust file grown past its god-file cap (`scripts/ci/check-post-edit.sh`).
-
-`scripts/ci/format-post-edit.sh` formats each edited file the way CI checks it:
-`webviews/` and `cmux-tui/frontends/web/` with that package's own `vp fmt`
-(reinstalled from its lockfile when stale), Rust with the pinned toolchain's
-rustfmt. The pre-commit hook does the same for staged files and restages them.
-Both touch only those files, so agents sharing a checkout never reformat each
-other's work. `CMUX_SKIP_FORMAT_HOOKS=1` skips both in an emergency.
+Post-edit and pre-commit hooks run the same fixer and format edited files the way CI checks
+them, touching only those files ([hooks and lints](skills/cmux-dev-workflow/references/hooks-and-lints.md)).
 
 ## macOS and iOS parity
 
@@ -317,12 +263,10 @@ nightly-only labels). This applies to humans, Leo and every agent:
   migrations, release/signing/updater, the risk gate and its enforcers (`gh-merge-green`,
   `next_batch.py`), a new delete of user data, a new
   `pull_request_target` or `workflow_run` trigger) lands on an independent review receipt
-  `Review (<reviewer>): SHIP at <full head sha>` on the exact head plus a green compile; agents
-  never need a label. Agents post as the PR author's account, so an agent's PR body has one line
-  `Author-agent: <agent id>`, and a receipt from that account must read `Review (<reviewer agent id>,
-  started by <agent id>): SHIP at <sha>`, with neither id the author agent (`scripts/ci/risk_tier.py`). A collaborator's approval of the head, or `risk:human-ok` from a maintainer,
-  also counts. Any tier is held while it takes back a change
-  merged in the last week, until the description has `Takes back #N: <why>`. Ship
+  `Review (<reviewer>): SHIP at <full head sha>` on the exact head plus a green compile; an agent's
+  PR body carries `Author-agent: <agent id>` and its receipt names a reviewer other than the
+  author agent (format: [risk tiers](docs/ci/risk-tiers.md)). Any tier is held while it takes back a
+  change merged in the last week, until the description has `Takes back #N: <why>`. Ship
   user-visible high-tier behavior behind a default-off setting; revert with
   `gh-merge-green --revert` if it breaks nightly-next and the fix misses the next cut. Agents never
   add `risk:human-ok` or `risk:waived`.
@@ -374,41 +318,13 @@ nightly-only labels). This applies to humans, Leo and every agent:
 
 Every new or changed cmux-next setting also works from the command palette (Cmd-Shift-P), the `cmux` CLI and
 the MCP tools, the way existing settings do ([settings-surfaces.md](plans/cmux-next/settings-surfaces.md)).
-A setting that only the Settings page can change is unfinished. The existing settings get there through
-one schema, so do it like this:
-
-- Declare the setting as a `SettingDescriptor` reached from `SettingsSchema.all`
-  (`Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema.swift`): a row in a section JSON,
-  `schemas/settings/source/<section>.json`, then `python3 scripts/cmux-next/gen-settings-sources.py`, or a
-  `*SettingsSchema` / `SettingsSchema+<Area>.swift` group in that folder. A new section JSON also needs its
-  entry in the generator's `SECTIONS`, and its generated type added to `SettingsSchema.all`.
-  Never keep a setting in `UserDefaults`, a side file or a private key list: the surfaces read only the schema.
-- Palette: `SettingsPaletteSource` (CmuxNextApp) and `SettingsPaletteProvider` (CmuxNextPalette) give every
-  `isPaletteExposed` descriptor a row with an editor for its `SettingKind`. Keep `palette = .exposed`;
-  `.hidden("<why>")` needs a real reason. A new `SettingKind` needs its palette editor
-  (`SettingDescriptor+Palette.swift`) in the same change.
-- CLI: `cmux settings` (`cmux-tui/crates/cmux-tui/src/cli/app/settings.rs`). `list`, `schema` and `validate`
-  read the embedded `schemas/settings/settings-schema.json` through `cmux-config`
-  (`cmux-tui/crates/cmux-config/src/schema/`); `get`, `set`, `reset` and `unset` call the app's `settings.*`
-  socket methods (`CmuxNextControl/Routing/ControlRouter+Settings.swift`), which write through
-  `SettingsController.setSetting`. `settings-schema.json` is generated by `SettingsSchemaExport`
-  (`SettingsSchemaExportTests`; base autofix regenerates it, never hand-edit it). A new kind, validation or
-  value shape also goes into `cmux-config`'s schema module.
-- MCP: `settings_list|get|set|reset|unset` (`cmux-tui/crates/cmux-tui/src/cli/mcp/settings_tools.rs`) read the
-  same schema and write only keys marked `agent_settable`. Put every new key in exactly one group of
-  `schemas/settings/source/agent-policy.json`: `settable` (agents may set it; looks and layout usually) or a
-  refusal reason (privacy, network, destructive, userOnly), then run `scripts/cmux-next/gen-settings-sources.py`.
-  `SettingsSchemaExportTests` fails on a key in neither or both.
-- A setting edited by a dedicated control instead of a schema row (keybindings, custom actions) gets the
-  surfaces through its `ActionCatalog` action's `ActionSurfacePlan`: `palette`, and `cli: .offered` for a
-  `cmux` verb, which MCP follows as an `app_*` tool (`action_tools.rs`) unless `mcpExemption` says why not.
-  Exempt a surface only with a stated reason. `EXCLUDED` in `cli/mcp/v2_tools.rs` is for daemon wire ops only.
-- Renaming or removing a key: list a rename in `RenamedSettingKeys.swift`, so existing cmux.json values keep
-  applying under the new key, or a removal in `schemas/settings/retired-keys.json`, so the CLI and socket
-  refuse a new value for the old key as `removed`. MCP refuses an old key; the CLI only sets it as raw
-  file text. Say so in the PR.
-- Verify all three on a tagged build: the palette row, `cmux settings get|set <key>`, and MCP `settings_get` /
-  `settings_set` (or its refusal for a refused key). Say in the PR which ones you checked.
+A setting that only the Settings page can change is unfinished. Declare it once as a
+`SettingDescriptor` in `SettingsSchema` (never `UserDefaults`, a side file or a private key list),
+keep it palette-exposed unless `.hidden("<why>")` has a real reason, put every new key in exactly
+one group of `schemas/settings/source/agent-policy.json`, list a rename or removal, and verify the
+palette row, `cmux settings get|set` and MCP `settings_get`/`settings_set` on a tagged build, saying
+in the PR which you checked. Files, generators and per-surface steps:
+[settings-surfaces.md](plans/cmux-next/settings-surfaces.md#agent-checklist).
 
 ## Implementation rules by task
 

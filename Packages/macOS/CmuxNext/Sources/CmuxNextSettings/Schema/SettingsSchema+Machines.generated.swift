@@ -68,6 +68,9 @@ extension RemoteSettings {
     /// `remote.endSharingOnQuit`.
     public nonisolated static let endSharingOnQuitPath = ["remote", "endSharingOnQuit"]
     public nonisolated static let endSharingOnQuitDefault = false
+    /// `remote.ultraMode`: Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra_mode): on, cmux-wg tunnels this Mac starts use UltraMode::SETTING (rs:4:4); CMUX_WG_ULTRA still wins.
+    public nonisolated static let ultraModePath = ["remote", "ultraMode"]
+    public nonisolated static let ultraModeDefault = false
 }
 
 extension DeviceHubSettings {
@@ -291,6 +294,17 @@ nonisolated enum MachineSettingsSchema {
                 kind: .toggle,
                 default: .bool(RemoteSettings.endSharingOnQuitDefault),
                 keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
+            ),
+            SettingDescriptor(
+                RemoteSettings.ultraModePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.remote.ultraMode", "Ultra Connection Mode"),
+                help: SettingsText.keyed("settings.remote.ultraMode.help", "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."),
+                summary: SettingsText.keyed("settings.remote.ultraMode.summary", "Uses more data to stay fast on lossy networks"),
+                kind: .toggle,
+                default: .bool(RemoteSettings.ultraModeDefault),
+                keywords: ["ultra", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
             ),
         ]
     }

@@ -12,6 +12,7 @@ mod agent_hook_question;
 mod agent_hooks;
 pub mod agent_launch;
 pub mod agent_message_prompt;
+mod agent_status;
 pub mod agent_view;
 mod apps;
 pub mod route_table;
@@ -101,6 +102,7 @@ mod sidebar_resource;
 pub mod sizing_policy;
 mod state;
 pub mod store_schemas;
+pub mod wait_pattern;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]
 mod holder_runtime;
@@ -146,6 +148,7 @@ pub use agent_hooks::{
     agent_hook_journal_ingress, agent_hook_live_fields, agent_hook_live_prompt,
     agent_hook_live_reply, stamp_agent_hook_observed_now,
 };
+pub use agent_status::AgentStatus;
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 /// The owner raises its open-file soft limit at start; terminal hosts and
 /// PTY children get the original back (`cmux_pty::open_files`).
@@ -216,7 +219,8 @@ pub use workspace_registry::{
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
     RegistryCommit, RegistryCompactError, RegistryCompaction, RegistryEvent, RegistryQuarantined,
     RegistrySnapshot, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
-    UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry, compact_registry,
+    TabAttentionRecord, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    compact_registry,
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};

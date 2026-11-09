@@ -17,14 +17,6 @@ public struct CloudStartSessionStrings {
         }
     }
 
-    // `cmux cloud relay-chat` (``CloudStartSession/bindRelayChat(into:context:reason:)``).
-    public static var relayPromptRequired: String { String(localized: "cloud.relayChat.promptRequired", defaultValue: "Give the chat a prompt with --prompt.", table: "CloudSessions", bundle: .module) }
-    public static var relayAgentRun: String { String(localized: "cloud.relayChat.agentRun", defaultValue: "An agent starts a Cloud chat with `cmux cloud start-session`, which asks the person first.", table: "CloudSessions", bundle: .module) }
-    public static var relayUnavailable: String { String(localized: "cloud.relayChat.unavailable", defaultValue: "This Cloud sign-in has no relay chat. Use `cmux cloud start-session` instead.", table: "CloudSessions", bundle: .module) }
-    public static var relayReplyTitle: String { String(localized: "cloud.relayChat.replyTitle", defaultValue: "Cloud Chat Reply", table: "CloudSessions", bundle: .module) }
-    public static func relayLinkPending(_ asked: Asked) -> String { String(format: String(localized: "cloud.relayChat.linkPending", defaultValue: "%2$@ on %1$@ isn't connected yet, so the prompt wasn't sent over the relay. Run `%3$@`, which waits for the machine.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command) }
-    public static func relayOwnerUnverified(_ asked: Asked) -> String { String(format: String(localized: "cloud.relayChat.ownerUnverified", defaultValue: "cmux couldn't check that %1$@ is yours, so the prompt to %2$@ there wasn't sent. Run `%3$@`, which connects to the machine first.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command) }
-
     public static var start: String { String(localized: "cloud.startSession.start", defaultValue: "Start", table: "CloudSessions", bundle: .module) }
     public static var openChat: String { String(localized: "cloud.startSession.openChat", defaultValue: "Open Chat", table: "CloudSessions", bundle: .module) }
 

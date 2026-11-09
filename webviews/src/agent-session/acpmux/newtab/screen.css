@@ -44,13 +44,14 @@
 .nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action,.nt-row-host:hover .nt-row-action,.nt-row-host:has([data-popup-open]) .nt-row-action{opacity:1}
 .nt-row-action kbd{padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:var(--text-caption)/1 var(--font-ui)}
 /* The create actions the rows don't list (screenModel.ts createStrip): one quiet line under them, never three rows (Leo 2026-10-24: "the new terminal, new browser tab, new tab ... less annoying"). Shows with the rows, no fade. */
-.nt-create-strip{display:flex;gap:var(--ds-space-1);margin-top:var(--ds-space-1);padding-top:var(--ds-space-1);border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent);overflow:hidden}
+ .nt-create-strip{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);margin-top:var(--ds-space-1);padding-top:var(--ds-space-1);border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent);overflow:hidden}
 .nt-create-strip-item{display:flex;flex:1 1 0;align-items:center;gap:var(--ds-space-2);min-width:0;height:24px;padding:0 var(--ds-space-2);border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-create-strip-item .nt-row-title{flex:1;min-width:0;max-width:none;overflow:hidden;text-overflow:ellipsis}
 /* Labels that do not all fit (createStripFit.ts) go away together: three centered icons, each named by its aria-label and tooltip, never three ellipsized "Nouv…". The title stays measurable (visually hidden, not display:none). */
 .nt-create-strip[data-icons-only] .nt-create-strip-item{position:relative;justify-content:center}
 .nt-create-strip[data-icons-only] .nt-create-strip-item .nt-row-title{position:absolute;width:0;height:0;overflow:hidden;clip-path:inset(50%)}
 .nt-create-strip-item.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
+.nt-fix-error{flex-basis:100%;margin:0;color:var(--agent-status-error,var(--agent-muted));font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
 .nt-chats{margin-top:var(--ds-space-5)}
 .nt-chats-head{display:flex;align-items:center;gap:var(--ds-space-3);height:28px;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .nt-chats-tab{color:var(--acpmux-composer-dim)}
@@ -665,8 +666,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-widget-tip-title{color:var(--agent-text)}
 .nt-widget-tip-detail{color:var(--acpmux-composer-dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 @media (prefers-reduced-motion:no-preference){.nt-widget-row,.nt-widget-chat,.nt-widget-dismiss{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-widget-row:hover,.nt-widget-chat:hover,.nt-widget-dismiss:hover{transition-duration:var(--agent-motion-hover,.08s)}}
-/* The page's column is the chat's (conversation.css --cv-column: 720 px, widening to 800 px on a wide
-   pane), so the New Tab composer is as wide as the chat composer in the same pane (Leo 2026-10-21). */
+/* The page's column is the chat's (conversation.css --cv-column: Chat Text Width, 800 px by default,
+   capped by the pane), so the New Tab composer is as wide as the chat composer in the same pane (Leo 2026-10-21). */
 /* The quiet row sits 4 px under the box (the column gap is 6). */
 .nt-foot .acpmux-composer-foot { margin-top: -2px; }
 /* The stage layout (templates.ts stage; Leo 2026-10-19, Claude Code desktop's new-session screen):
@@ -1252,3 +1253,94 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-screen .nt-all-scroll,
 .nt-screen .nt-all-list { flex: none; }
 .nt-screen .nt-all-list { mask-image: none; }
+/* First-run starters (FirstRunStarters.tsx): under the composer while this Mac has no chats. Quiet
+   text rows with an icon, a wash only on hover or keyboard focus (the stage card's rule), never a
+   resting pill. No entry animation: the page draws them in its first frame (Leo, no entry
+   animations on New Tab, #24383). */
+.nt-starters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  width: min(440px, 100%);
+  margin: var(--ds-space-4) auto 0;
+}
+.nt-starters-label {
+  padding: 0 var(--ds-space-2);
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.nt-starters-list {
+  display: flex;
+  flex-direction: column;
+}
+.nt-starter {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 100%;
+  min-width: 0;
+  height: var(--ds-control-row);
+  padding: 0 var(--ds-space-2);
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--ds-radius-popup);
+  background: none;
+  color: var(--agent-soft);
+  font: inherit;
+  font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
+  text-align: left;
+}
+.nt-starter:hover,
+.nt-starter:focus-visible {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  color: var(--agent-text);
+}
+.nt-starter:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
+  outline-offset: -1px;
+}
+.nt-starter-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--acpmux-composer-dim);
+}
+.nt-starter:hover .nt-starter-icon,
+.nt-starter:focus-visible .nt-starter-icon {
+  color: var(--agent-text);
+}
+.nt-starter-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Inline: one centred line of plain text actions, no icons. */
+.nt-starters[data-look="inline"] {
+  align-items: center;
+}
+.nt-starters[data-look="inline"] .nt-starters-list {
+  flex-flow: row wrap;
+  justify-content: center;
+  gap: 0 var(--ds-space-1);
+}
+.nt-starters[data-look="inline"] .nt-starter {
+  width: auto;
+  height: var(--ds-control-compact);
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+}
+/* Card: the stage card's surface around the rows. */
+.nt-starters[data-look="card"] .nt-starters-list {
+  padding: var(--ds-space-1);
+  border-radius: var(--ds-radius-popup);
+  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
+    var(--acpmux-composer-shadow, var(--elevation-1));
+}

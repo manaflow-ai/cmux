@@ -1,8 +1,12 @@
 import {
   environmentDraft,
+  droppedRoutes,
   environmentPatch,
   scriptFits,
+  secretNeedsValue,
+  secretRoutesSupported,
   SETUP_SCRIPT_BYTES,
+  storedEnvironment,
   validateEnvironment,
   type CloudEnvironment,
   type EnvironmentClient,
@@ -21,7 +25,33 @@ export type EnvironmentState = {
   derivedScript?: string;
   deriving?: boolean;
   deriveFailed?: boolean;
-  error?: "load" | "save" | "missing" | "name" | "names" | "script" | "file" | "copy" | "secret";
+  error?:
+    | "load"
+    | "save"
+    | "missing"
+    | "name"
+    | "names"
+    | "script"
+    | "file"
+    | "copy"
+    | "secret"
+    | "retype"
+    | "hosts"
+    | "hostless"
+    | "value"
+    | "header"
+    | "route"
+    | "dropped";
+};
+
+/** The platform's secret refusals (cmux-platform#1008), shown as the same sentence the editor's own check shows.
+ *  `secret_value_required`: a value-less entry for a secret removed elsewhere since the sheet opened.
+ *  `invalid_secret_route`: a header the request itself needs, a header without hosts, or a host given twice.
+ *  `invalid_value`: a value or header format with a line break, control or non-ASCII character. */
+const refusals: Record<string, EnvironmentState["error"]> = {
+  "cloud_environment.secret_value_required": "secret",
+  "cloud_environment.invalid_secret_route": "route",
+  "cloud_environment.invalid_value": "value",
 };
 
 /** One draft for every entry point; stale reads never resurrect a closed or different editor. */
@@ -39,6 +69,8 @@ export class EnvironmentStore {
     return () => this.listeners.delete(listener);
   };
   private set(patch: Partial<EnvironmentState>) {
+    // A secret value a server sends by mistake is dropped here, whichever read brought it.
+    if (patch.original) patch = { ...patch, original: storedEnvironment(patch.original) };
     this.state = { ...this.state, ...patch };
     for (const listener of this.listeners) listener();
   }
@@ -49,9 +81,21 @@ export class EnvironmentStore {
     this.state = { open: true, section: options.section ?? "overview", loading: true, saving: false };
     this.set({});
     try {
-      const environment = options.environmentId
-        ? await this.client.get(options.environmentId)
-        : (await this.client.list()).find((item) => item.scope === "personal" && item.is_default);
+      const created =
+        options.create && this.client.create
+          ? await this.client.create({ name: options.create.name, setup_script: null })
+          : undefined;
+      if (created) {
+        // Made once: a retry or a later open edits it, never makes another.
+        const { create: _made, ...rest } = options;
+        this.options = { ...rest, environmentId: created.id };
+        options.onCreated?.(created);
+      }
+      const environment =
+        created ??
+        (options.environmentId
+          ? await this.client.get(options.environmentId)
+          : (await this.client.list()).find((item) => item.scope === "personal" && item.is_default));
       if (generation !== this.generation) return;
       if (!environment) return this.set({ loading: false, error: "missing" });
       this.set({ original: environment, draft: environmentDraft(environment), loading: false });
@@ -112,19 +156,35 @@ export class EnvironmentStore {
   async save() {
     const { original, draft, saving } = this.state;
     if (!original || !draft || saving) return;
-    const invalid = validateEnvironment(draft);
+    const invalid = validateEnvironment(draft, { routes: secretRoutesSupported(original) });
     if (invalid) return this.error(invalid);
     if (draft.secrets.some((row) => !row.value && !original.secrets.some((secret) => secret.name === row.name)))
       return this.error("secret");
+    if (
+      draft.secrets.some((row) =>
+        secretNeedsValue(
+          row,
+          original.secrets.find((secret) => secret.name === row.name),
+        ),
+      )
+    )
+      return this.error("retype");
     const patch = environmentPatch(original, draft);
     if (!Object.keys(patch).length) return this.close();
     this.set({ saving: true, error: undefined });
     try {
-      await this.client.update(original.id, patch);
+      const reply = await this.client.update(original.id, patch);
+      if (droppedRoutes(patch, reply).length) {
+        // The service saved the value but not where it goes: it is a plain variable on the machine now. Keep
+        // the sheet open on what is stored, so the person sees it and can remove it; never report success.
+        // No automatic removal: a second write to a service that just misread the first is no safer.
+        return this.set({ saving: false, original: reply, draft: environmentDraft(reply), error: "dropped" });
+      }
       this.set({ saving: false });
       this.close();
-    } catch {
-      this.set({ saving: false, error: "save" });
+    } catch (error) {
+      const code = error instanceof Object && "code" in error ? error.code : undefined;
+      this.set({ saving: false, error: (typeof code === "string" && refusals[code]) || "save" });
     }
   }
 }

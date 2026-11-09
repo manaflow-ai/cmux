@@ -55,13 +55,17 @@ public struct AgentShareActions {
             do { ttl = try AgentShareArguments.ttl(invocation["ttl"]?.stringValue) } catch { return .refused(AgentShareStrings.badTTL) }
             if invocation["uses"] != nil, invocation["uses"]?.intValue == nil { return .refused(AgentShareStrings.badUses) }
             let uses = invocation["uses"]?.intValue.map { UInt32(clamping: $0) }
+            // The link's role and what signed-in guests may do go to the daemon as given (the catalog
+            // limits both to view or talk; `cmux share chat --view-only` sends both as view).
+            let role = Self.argument(invocation, "role")
+            let signedInRole = Self.argument(invocation, "signedInRole")
             let person = Self.ownerStarted(invocation)
             let ask = AgentShareConsentAsk(chat: chat.title, ttlSecs: ttl, uses: uses)
             return Self.answer(registry) {
                 // A link exposes the chat's whole transcript: only the owner's yes makes one (#30263).
                 // Asked before the owner's token is minted, so a declined run spends nothing.
                 if !person, !(await host.shareAskOwner(ask)) { throw AgentShareDeclined() }
-                let created = try await Self.create(chat, ttl: ttl, uses: uses, host: host)
+                let created = try await Self.create(chat, ttl: ttl, uses: uses, role: role, signedInRole: signedInRole, host: host)
                 // A person's palette or menu run copies the link at once; a script gets it back.
                 if person { Self.announce(created, host: host) }
                 return AgentShareResults.created(created)
@@ -110,7 +114,7 @@ public struct AgentShareActions {
     }
 
     /// A new share of `chat` with the owner's token (asked for only now, after any consent).
-    static func create(_ chat: AgentShareChat, ttl: UInt64?, uses: UInt32?, role: String? = nil,
+    static func create(_ chat: AgentShareChat, ttl: UInt64?, uses: UInt32?, role: String? = nil, signedInRole: String? = nil,
                        host: any AgentShareHost) async throws -> AgentSessionShareCreated {
         try await chat.requireCloudOwner()
         // The token comes from the API the daemon's room takes (cmux#31372); a daemon too old to
@@ -123,7 +127,7 @@ public struct AgentShareActions {
         // The session pins the chat: the daemon refuses if the surface shows another one by now.
         let createID = UUID().uuidString
         let request = AgentSessionShareCreateRequest(surface: chat.surface, session: chat.session, createId: createID, ttlSecs: ttl,
-                                                     uses: uses, ownerToken: token, role: role)
+                                                     uses: uses, ownerToken: token, role: role, signedInRole: signedInRole)
         // Create waits out the hosted room's provisioning (its request budget is 15 s,
         // agent_session_share_room.rs): its answer is the only copy of the link's secret.
         let connection = try Self.connected(chat.connection)

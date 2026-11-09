@@ -506,6 +506,12 @@ pub(crate) fn public_terminal_snapshot(
     if running && let Some(since) = surface.and_then(crate::Surface::terminal_prompt_since) {
         extra.insert("prompt".into(), crate::terminal_activity::prompt_json(since));
     }
+    // `terminal-exit-status-v1`: the last command the shell finished (OSC
+    // 133 D), with its exit code when the shell sent one. Absent without
+    // shell integration, so a missing field never reads as success.
+    if running && let Some(last) = surface.and_then(crate::Surface::terminal_last_command) {
+        extra.insert("last_command".into(), crate::terminal_activity::last_command_json(last));
+    }
     if running && let Some(at) = surface.and_then(crate::Surface::terminal_last_output) {
         extra.insert("last_output".into(), crate::terminal_activity::last_output_json(at));
     }
@@ -527,7 +533,7 @@ pub(crate) fn public_terminal_snapshot(
 }
 
 pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError> {
-    public_session_snapshot_with_journal_head(mux).map(|(snapshot, _)| snapshot)
+    session_snapshot_with_journal_head(mux, true).map(|(snapshot, _)| snapshot)
 }
 
 /// Returns the public session snapshot together with the session journal head
@@ -536,8 +542,22 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 /// reflected in the snapshot, and every later record is not. Checkpoint
 /// capture keys its consistency fence to this cut so a journal write that
 /// merely precedes the cut cannot spuriously abort the capture.
+///
+/// A checkpoint is written to disk, so this snapshot leaves out what the daemon
+/// keeps in memory only (`mux/agent_prompts.rs`): an agent's last reply
+/// (`extra.last_reply`) and a terminal's last harness session
+/// (`extra.agent_session_id`).
 pub(crate) fn public_session_snapshot_with_journal_head(
     mux: &Mux,
+) -> Result<(Value, u64), ResourceError> {
+    session_snapshot_with_journal_head(mux, false)
+}
+
+/// The snapshot of [`public_session_snapshot_with_journal_head`]; `memory_only`
+/// adds the values the daemon keeps in memory only, for a read that is not stored.
+fn session_snapshot_with_journal_head(
+    mux: &Mux,
+    memory_only: bool,
 ) -> Result<(Value, u64), ResourceError> {
     // No pending terminal directory is published here: a read runs no
     // write. Terminal output, resize, reconnect and every committed graph
@@ -549,6 +569,12 @@ pub(crate) fn public_session_snapshot_with_journal_head(
     let (sidebar_status, sidebar_last_size, sidebar_configured) =
         mux.sidebar_plugin_resource_status();
     let sidebar_surface = sidebar_status.surface.and_then(|surface| mux.surface(surface));
+    // Taken before the projection lock, like the sidebar status (memory only).
+    let (last_replies, last_sessions) = if memory_only {
+        (mux.agent_last_replies(), mux.agent_last_sessions())
+    } else {
+        (HashMap::new(), HashMap::new())
+    };
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     mux.with_resource_projection(|registry, state| {
@@ -685,6 +711,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 })?;
                 let tab_ids = tab_ids_by_terminal.remove(&terminal_id).unwrap_or_default();
                 public_terminal_snapshot(&terminal_id, durable, surface.map(Arc::as_ref), tab_ids)
+                    .map(|terminal| crate::mux::with_agent_session(terminal, &last_sessions))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -755,6 +782,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 agent
             })
             .map(|agent| agent.into_public_snapshot(&topology.session_id))
+            .map(|agent| crate::mux::with_last_reply(agent, &last_replies))
             .collect::<Vec<_>>();
         agents.sort_by(|left, right| {
             left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())

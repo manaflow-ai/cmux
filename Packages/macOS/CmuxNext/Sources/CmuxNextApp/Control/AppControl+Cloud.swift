@@ -33,7 +33,6 @@ extension AppControl {
                 let rows: [JSONValue] = services.machines.cloud.map { .object(Self.cloudMachineRow($0, services.machines)) }
                 return .value(.object(["machines": .array(rows), "loaded": .bool(services.cloud.hasLoadedCurrentMachines),
                                        "creations": .array(services.cloud.creations.controlRows),
-                                       "link_route": .string(services.cloud.linkRoute()),
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
             // `cmux automation --target cloud`: one Cloud automation op as the signed-in user (`cmux cloud automation-relay`).

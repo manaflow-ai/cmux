@@ -7,8 +7,10 @@ runner. Design: plans/cmux-next/ios-testflight-builder-DESIGN.md.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -39,6 +41,22 @@ let package = Package(
     targets: [.binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework")]
 )
 """
+
+
+class CapturedOutput(unittest.TestCase):
+    """Holds the builder's stdout and stderr for the test to assert on.
+
+    The builder prints GitHub workflow commands (::error title=cmux INTERNAL builder held::,
+    ::warning:: rate-limit retries). This suite runs in the cmux-next checks job, so a fixture's
+    line reaching the real stdout showed as a real annotation on a green step.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.out, self.err = io.StringIO(), io.StringIO()
+        for redirect in (contextlib.redirect_stdout(self.out), contextlib.redirect_stderr(self.err)):
+            redirect.__enter__()
+            self.addCleanup(redirect.__exit__, None, None, None)
 
 
 def run(sha, conclusion="success", status="completed", minutes_ago=60, run_id=1):
@@ -400,10 +418,11 @@ class AdmitTests(unittest.TestCase):
         self.assertIn("GiB", reason)
 
 
-class PruneTests(unittest.TestCase):
+class PruneTests(CapturedOutput):
     """cmux23 fell to 39.9 GiB free on 2026-10-22 (run 39731717858) and refused every archive job."""
 
     def setUp(self):
+        super().setUp()
         import tempfile
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(__import__("shutil").rmtree, self.tmp, True)
@@ -472,6 +491,7 @@ class PruneTests(unittest.TestCase):
                 mock.patch.object(ib, "prune_caches", return_value=3) as trim:
             self.assertEqual(ib.main(["admit"]), 0)
         trim.assert_called_once()
+        self.assertIn("ios-internal-builder: admitted", self.out.getvalue())
 
     def test_admit_does_not_trim_for_a_refused_job(self):
         env = AdmitTests.env(None, GITHUB_JOB="upload")
@@ -481,6 +501,7 @@ class PruneTests(unittest.TestCase):
                 mock.patch.object(ib, "prune_caches") as trim:
             self.assertEqual(ib.main(["admit"]), 1)
         trim.assert_not_called()
+        self.assertIn("ios-internal-builder: job upload is not archive", self.err.getvalue())
 
 
     def test_newest_cap_counts_only_testflight_folders(self):
@@ -522,6 +543,7 @@ class PruneTests(unittest.TestCase):
                     mock.patch.object(ib.shutil, "disk_usage", return_value=mock.Mock(free=39 * 1024 ** 3)), \
                     mock.patch.object(ib, "prune_caches", side_effect=effect):
                 self.assertEqual(ib.main(["admit"]), 1)
+        self.assertEqual(self.err.getvalue().count("below 40 GiB"), 2, self.err.getvalue())
 
 
 class FakeGh:
@@ -543,7 +565,7 @@ RUNS_JSON = json.dumps({"workflow_runs": [{"id": 7, "display_title": f"cmux-next
                                            "created_at": "2026-10-20T08:00:00Z"}]})
 
 
-class GitHubApiTests(unittest.TestCase):
+class GitHubApiTests(CapturedOutput):
     """Run 39724971722: a rate-limited `gh api` read turned the whole decide job red."""
 
     def test_retries_a_rate_limited_read(self):
@@ -551,6 +573,9 @@ class GitHubApiTests(unittest.TestCase):
         runs = ib.builder_runs(runner=gh, sleep=lambda _s: None)
         self.assertEqual([r["sha"] for r in runs], [A])
         self.assertEqual(gh.calls, 2)
+        self.assertIn("::warning::gh api repos/manaflow-ai/cmux/actions/workflows/ios-internal-nightly.yml/runs",
+                      self.err.getvalue())
+        self.assertIn("(HTTP 403); retry 1/3 in 10s", self.err.getvalue())
 
     def test_unregistered_workflow_is_no_runs(self):
         gh = FakeGh((1, "", "gh: Not Found (HTTP 404)"))
@@ -565,15 +590,19 @@ class GitHubApiTests(unittest.TestCase):
             code = ib.cmd_plan(A, ".", runner=gh, sleep=lambda _s: None)
         self.assertEqual(code, 0)
         self.assertGreater(gh.calls, 1)
+        self.assertIn("::warning::GitHub API unavailable after retries: gh: API rate limit exceeded",
+                      self.out.getvalue())
+        self.assertIn("skip: GitHub API rate-limited or down", self.out.getvalue())
 
     def test_other_api_errors_still_fail(self):
         gh = FakeGh((1, "", "gh: Resource not accessible by integration (HTTP 403)"))
         with self.assertRaises(subprocess.CalledProcessError):
             ib.builder_runs(runner=gh, sleep=lambda _s: None)
         self.assertEqual(gh.calls, 1)
+        self.assertIn("Resource not accessible by integration", self.err.getvalue())
 
 
-class DriftExitTests(unittest.TestCase):
+class DriftExitTests(CapturedOutput):
     """Nov 2026: a drifted head made every decide run green while cmux INTERNAL shipped nothing for 26 hours."""
 
     def run_plan(self, drift):
@@ -587,9 +616,13 @@ class DriftExitTests(unittest.TestCase):
 
     def test_drift_fails_the_decide_run(self):
         self.assertEqual(self.run_plan("Packages/iOS/CmuxTabsKit differs from origin/feat-cmux-next-tabs-kit"), 1)
+        self.assertIn("::error title=cmux INTERNAL builder held::BLOCKED: Packages/iOS/CmuxTabsKit differs",
+                      self.out.getvalue())
 
     def test_no_drift_still_passes(self):
         self.assertEqual(self.run_plan(None), 0)
+        self.assertIn("BUILD: no upload yet", self.out.getvalue())
+        self.assertNotIn("::error", self.out.getvalue())
 
 
 class TriggerRunnerTests(unittest.TestCase):

@@ -852,6 +852,22 @@ export type CloudEnvironmentsRun =
   | { action: "build"; id: string }
   | { action: "delete"; id: string };
 
+/** Settings > Server > This Mac on Your Tailnet: acpmux's embedded tailnet node as `_acpmux/tailnet/*`
+ * answers it (cmux-tui acpmux tailnet/embedded.rs `Snapshot::to_json`), relayed unchanged by the app on
+ * its person connection. */
+export type TailnetState = {
+  /** `stopped`, `starting`, `needs_login`, `needs_machine_auth`, `running` or `error` (or another
+   * backend state, shown as signed out). */
+  state: string;
+  /** The sign-in page while `needs_login`; only the person's own connection is sent it. */
+  browse_to_url?: string;
+  /** This Mac's MagicDNS name while running. */
+  dns_name?: string;
+  ips?: string[];
+  /** acpmux's own text for the last failure. */
+  error?: string;
+};
+
 /** Settings > Privacy and Security > Shared Links (`cmux.settings.shares.list`): this Mac's daemon's
  * chat shares as `agent-session-share-list` answers them (cmux-tui server/agent_session_shares.rs),
  * and each chat's tab title by surface number. Times are milliseconds since the epoch. */
@@ -1219,6 +1235,14 @@ export type SettingsOps = {
   "cmux.settings.environments.state": [Record<string, never>, CloudEnvironmentsState];
   /** Native: one Cloud Environments gesture; Build and Delete ask natively first; a failure answers `error`. */
   "cmux.settings.environments.run": [CloudEnvironmentsRun, { error?: string | null }];
+  /** Native: this Mac's tailnet node; null when acpmux has no tailnet or did not take the person's proof. */
+  "cmux.settings.tailnet.state": [Record<string, never>, TailnetState | null];
+  /** Native, the person's click: starts the node; a saved login resumes, else it reports `needs_login`. */
+  "cmux.settings.tailnet.start": [Record<string, never>, TailnetState | null];
+  /** Native, the person's click: a fresh sign-in page for a running node that is not signed in. */
+  "cmux.settings.tailnet.login": [Record<string, never>, TailnetState | null];
+  /** Native, the person's click: signs the node out and closes its listeners. */
+  "cmux.settings.tailnet.logout": [Record<string, never>, TailnetState | null];
   /** Native: this Mac's chat shares (Settings > Privacy and Security > Shared Links). */
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */

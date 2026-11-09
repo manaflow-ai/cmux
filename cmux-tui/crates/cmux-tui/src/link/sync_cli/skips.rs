@@ -163,7 +163,7 @@ impl Skips {
 
 /// Why the machine cannot hold a file named `relative` (its name has a
 /// control character, else it is too long).
-fn unholdable(relative: &str) -> Why {
+pub(super) fn unholdable(relative: &str) -> Why {
     if relative.chars().any(char::is_control) { Why::NameControl } else { Why::NameTooLong }
 }
 
@@ -250,6 +250,25 @@ pub(super) fn credential(relative: &str, folder: bool) -> Option<Why> {
     (CREDENTIAL_NAMES.contains(&last)
         || CREDENTIAL_FILES.iter().any(|path| ends_with(&names, names.len(), path)))
     .then_some(Why::CredentialFile)
+}
+
+/// The first of [`CREDENTIAL_FOLDERS`] under `home` that the canonical `folder` is in or holds, in any case:
+/// a selected folder the App refuses too (`AgentPaneCloudFolderRefusal.secretFolder`), which
+/// `cloud start-chat --from-folder` checks before any machine is made.
+pub(crate) fn home_credential_folder(folder: &str, home: &str) -> Option<&'static str> {
+    CREDENTIAL_FOLDERS.iter().copied().find(|relative| {
+        let secret = format!("{}/{relative}", home.trim_end_matches('/'));
+        within(&secret, folder) || within(folder, &secret)
+    })
+}
+
+/// Whether `path` is `root` or inside it, by path components and in any case (this Mac's disk does
+/// not tell `~/.SSH` from `~/.ssh`). The root `/` holds every path.
+pub(crate) fn within(path: &str, root: &str) -> bool {
+    let (root, path) = (root.trim_end_matches('/').to_lowercase(), path.to_lowercase());
+    root.is_empty()
+        || path == root
+        || path.strip_prefix(&root).is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// Whether the folder `name` in `dir` is a dependency or build folder its

@@ -64,12 +64,19 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     }
 
     /// Another app's use of the microphone, for the composer's mark (webviews outsideDictation.ts):
-    /// `{active, bundleId?, name?}`.
+    /// `{active, bundleId?, name?, metered?}`, `metered: true` only while the host meters its level.
     public static func micActivity(_ state: MicrophoneActivity.State) -> AgentPageEvent {
         var value: [String: JSONValue] = ["active": .bool(state.active)]
         if let bundleId = state.bundleId { value["bundleId"] = .string(bundleId) }
         if let name = state.name { value["name"] = .string(name) }
+        if state.metered { value["metered"] = .bool(true) }
         return AgentPageEvent(kind: "micActivity", value: .object(value))
+    }
+
+    /// The outside dictation's input level while metered: `{level}`, in `0...1` to 3 decimals.
+    public static func micLevel(_ level: Float) -> AgentPageEvent {
+        let rounded = (Double(min(1, max(0, level))) * 1000).rounded() / 1000
+        return AgentPageEvent(kind: "micLevel", value: ["level": .number(rounded.isFinite ? rounded : 0)])
     }
 
     /// A hand-off from the Toggle Dictation shortcut that did not happen (`{code}`): the composer

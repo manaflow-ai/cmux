@@ -20,6 +20,7 @@ extension AppServices: AgentShareHost {
         (try? machines.agentDaemon(forTab: tab)).flatMap { $0.isLocal ? nil : machines.session($0.machineID) }.map { AgentShareActions.ownsCloudMachine(CloudMachineLinks(appLink: $0.appLink)) }
     }
     func shareOwnerToken(api: URL?) async -> String? { await cloud.shareOwnerToken(api: api) }
+    func shareLinkOpener() async -> (connection: DaemonConnection?, token: String?) { (await machines.local.connectionOnceStarted(), await cloud.auth.restoredAccessToken()) }
     func shareCopy(_ text: String) { AppActionContext(services: self).copy(text) }
     func shareNotice(_ message: String) { BrowserFileImport.toast(self, id: "agent-share", message) }
     func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { await AgentShareConsentSheet.ask(ask, feed: feed) }

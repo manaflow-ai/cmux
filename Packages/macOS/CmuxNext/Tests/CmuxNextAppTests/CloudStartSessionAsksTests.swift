@@ -3,7 +3,6 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextSettings
 @testable import CmuxNextApp
-import CmuxNextCloudUI
 import Foundation
 import Observation
 import Testing

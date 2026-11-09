@@ -61,6 +61,17 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "denied: the connection names no caller chat",
             ),
         ),
+        // A valid issue link and a picked folder that does not exist (so no Git checkout, whatever
+        // the temp folder is): the arm parses the link, runs `git rev-parse` and stops at the
+        // checkout (not found), before trust, a worktree or a GitHub request.
+        (
+            method::CHAT_FIX_FROM_LINK_PREPARE,
+            Run(json!({"url": "https://github.com/o/r/issues/1", "cwd": "$CWD/no-such-checkout"})),
+        ),
+        (
+            method::CHAT_FIX_FROM_LINK,
+            Run(json!({"url": "https://github.com/o/r/issues/1", "cwd": "$CWD/no-such-checkout"})),
+        ),
         (
             method::MUX_PERSON_PROVE,
             Any(json!({}), "refused: the connection has no proof of the person"),
@@ -460,6 +471,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "needs an upload id from file_put_begin (invalid params)",
             ),
         ),
+        (method::MUX_UPLOADS_KEEP, Run(json!({"sessionId": "$S", "keep": true}))),
         (method::MUX_WORKFLOWS, Run(json!({}))),
         (
             method::MUX_MEDIA_OPEN,

@@ -179,7 +179,7 @@ struct CloudStartSession {
         let tabs = services.agentTabs
         for (workspace, _) in services.machines.allWorkspaces {
             for pane in workspace.screens.flatMap(\.panes) {
-                if let tab = pane.tabs.first(where: { (tabs.sessions[tabs.resolve($0.id)] ?? $0.agentSession?.session) == session }) { return tab }
+                if let tab = pane.tabs.first(where: { (tabs.sessions[tabs.tabKey(of: $0)] ?? $0.agentSession?.session) == session }) { return tab }
             }
         }
         return nil
@@ -221,10 +221,7 @@ struct CloudStartSession {
         defer { services.cloud.startGate.leave(id) }
         try await connected(session, request, account: account, byPerson: byPerson)
         try still(name)
-        // The folder's copy on the machine, before the session starts in it.
-        var copy: (chat: String, trusted: Bool)?
-        if let local = request.fromFolder { try await Self.requireOwned(session); copy = try await copied(local, to: session, request, account: account) } // a teammate's would keep the copy
-        let cwd = copy?.chat ?? request.cwd
+        let copy = try await copiedIfAsked(request, to: session, account: account), cwd = copy?.chat ?? request.cwd // before the session starts in it
         try still(name)
         // No login step: the machine's agents reach models through its edge, and nothing is copied to it.
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
@@ -247,12 +244,13 @@ struct CloudStartSession {
         do {
             let tabs = services.agentTabs
             let pending = try tabs.open(in: anchor.pane.handle, of: session.daemon, seed: cwd.map { AgentPaneSeedSource(AgentPaneSeed(cwd: $0)) })
-            tabKey = try await Self.created(pending, name: name, id: id, agent: agent).key
+            let opened = try await Self.created(pending, name: name, id: id, agent: agent); tabKey = opened.key
+            await Self.trust(copy, surface: opened.surface.rawValue, on: session) // before the start, as the composer's: it refuses an untrusted folder
             // The start reads the tab as the machine's tree lists it (`tabKey` is the store's id).
             let listed = await CloudWait.holds(within: .seconds(10)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
             try Self.check(account, now: services.cloud.account, request.asked(machine: name))
             guard listed else { throw AccountChanged(failure: ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))) }
-            switch tabs.remoteHost(tabKey) {
+            switch tabs.host(for: tabs.tabKey(tabKey, machine: id)) {
             case let remote as AgentTabRemoteHost:
                 // Each restart and start try is for the account that asked, checked right before it.
                 let command = request.command
@@ -271,10 +269,6 @@ struct CloudStartSession {
         } catch {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), Self.startFailure(error, name: name, id: id, agent: agent))
         }
-        // A copy of a folder this Mac trusts is trusted there too, as the composer's start trusts it.
-        await AgentSessionAttachClient.trustCopiedFolder(copy?.chat, sourceTrusted: copy?.trusted == true, surface: started.surface,
-                                                         ownerLink: CloudMachineLinks(appLink: session.appLink).ownerLink,
-                                                         endpoint: AgentTabRemoteHost.endpoint(on: session.daemon))
         // The session runs now; the result reports it. A switch during the start shows nothing. (A trajectory hook, hq#4381, goes here.)
         if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }
         return [
@@ -406,76 +400,15 @@ struct CloudStartSession {
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
         }
         // An update of this machine already running when the start came (one that begins later finds the start in ``CloudStartGate``)
-        // restarts the daemon: the agent starts once it ended and the link is back. The one more dial may resume it: the asking account's only.
-        let up = await CloudWait.linkedAgain({ await CloudWait.linked(within: Self.connectWait, { await session.linkUp(within: Self.connectWait) }) {
+        // restarts the daemon: the agent starts once it ended and the link is back, and holds.
+        let up = await CloudWait.linked(within: Self.connectWait, { await session.linkUp(within: Self.connectWait) }) {
             [policy = services.daemonUpdates.policy, id = CloudMachineUpdateTarget.id(session.machineID)] in await policy.turnRunning(id)
-        } }, held: session.linkHeld, redialable: { account == services.cloud.account && session.resumeFailure == nil && session.linkEnded != nil && session.dropRedial.lastEndRedialable }, again: session.retryNow)
+        } && session.linkHeld()
         // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
         guard up else { throw failure() }
     }
 
-    /// `--from-folder`, checked before anything starts: absolute, no `--cwd`, never home or a credential folder. Any origin, as `cloudFileWrite` (which writes any file there) takes any.
-    static func fromFolder(_ invocation: ActionInvocation, cwd: String?, home: String = NSHomeDirectory()) throws -> String? {
-        guard let text = invocation["fromFolder"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
-        guard cwd == nil else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderWithCwd) }
-        guard text.utf8.count <= 4096, !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }), let folder = CloudMoveFolder.normalized(text) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid) }
-        if let refusal = AgentPaneCloudFolderRefusal.written(folder, home: home) { throw ActionFailure(message: Self.message(refusal, folder: folder)) }
-        return folder
-    }
-
-    static func requireOwned(_ session: CloudMachineSession) async throws { if await CloudMove.ownerAnswer(session).vmKind != "owner" { throw ActionFailure(message: CloudStartSessionStrings.fromFolderNotOwned(session.machine.title)) } }
-
-    static func message(_ refusal: AgentPaneCloudFolderRefusal, folder: String) -> String {
-        switch refusal {
-        case .missing: CloudStartSessionStrings.fromFolderMissing(folder)
-        case .homeOrAbove: CloudStartSessionStrings.fromFolderTooBroad(folder)
-        case .secret(let secret): CloudStartSessionStrings.fromFolderSecret(folder, secret: secret)
-        }
-    }
-
-    /// Copies `local` to `session` exactly as the composer's Cloud start copies its chat's folder (the same check,
-    /// ``AgentPaneCloudStart/checkedFolder(_:home:)``, and copy, ``CloudStartChat/copyFolder(_:key:account:to:cli:progress:)``),
-    /// under a key of the machine and the folder, so the same command again reuses the finished copy and never pushes over
-    /// what a chat changed there. Answers the chat's folder there and whether this Mac trusts the source.
-    func copied(_ local: String, to session: CloudMachineSession, _ request: Request, account: [String?]) async throws -> (chat: String, trusted: Bool) {
-        let name = session.machine.title, home = NSHomeDirectory()
-        let checked: (folder: String, root: String)
-        switch await AgentPaneCloudStart.checkedFolder(local, home: home) {
-        case .success(let found): checked = found
-        case .failure(let refusal): throw ActionFailure(message: Self.message(refusal, folder: local))
-        }
-        guard let folder = await CloudMoveFolder.read(chat: checked.folder) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderMissing(local)) }
-        guard !folder.isTooBroad else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderTooBroad(folder.root)) }
-        // Only the working copy the check covered, as the composer's Send: a `.git` found above it since then is refused.
-        let key = CloudMoveFolder.copyKey(machine: session.machineID, folder: checked.folder)
-        var start = AgentPaneCloudStart(task: "", cwd: checked.folder, key: key)
-        start.uploadRoot = checked.root
-        guard start.uploads(folder) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderMissing(local)) }
-        guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
-        try Self.checked(account, now: services.cloud.account, request.asked(machine: name))
-        // A refused git seed asks "Copy the folder to <machine>?" in the active window as the composer's start does
-        // (CloudSeedRefusal); Cancel, a dismissal or no window refuses the start with cmux-tui's reason.
-        let asked = request.asked(machine: name)
-        let copy = try await CloudStartChat(services: services).copyFolder(
-            folder, key: key, account: account, to: session, cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout),
-            declined: { ActionFailure(message: $0) },
-            failed: { error in
-                do { try Self.checked(account, now: services.cloud.account, asked) } catch { return error }
-                return ActionFailure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)))
-            }) { _ in }
-        guard copy.0.ok else { throw ActionFailure(message: CloudMove.failure(syncing: copy.0, machine: name, retry: .move(machineID: session.machineID)).message) }
-        return (copy.1.chat, copy.1.sourceTrusted)
-    }
-
     /// How long a machine has to come up (Move to Cloud's own wait).
     static let connectWait: Duration = .seconds(180)
-}
-
-extension CloudStartRunKey {
-    /// The run of `request` asked by chat `caller` (nil: a person's or a script's) in `account`.
-    init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) {
-        self.init(machine: request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? ""), agent: request.agent, cwd: request.cwd,
-                  caller: caller, account: account, fromFolder: request.fromFolder)
-    }
 }

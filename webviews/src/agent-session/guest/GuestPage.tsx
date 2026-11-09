@@ -50,12 +50,21 @@ export type GuestEnded = GuestEnd | "used";
 export type TranscriptModule = typeof import("./GuestTranscript");
 let transcriptChunk: Promise<TranscriptModule> | undefined;
 let pageSetup: ((chunk: TranscriptModule) => void) | undefined;
+/** The page's transcript stylesheet (main.tsx startGuestPage), loaded with the chunk. */
+let pageSheet: (() => Promise<unknown>) | undefined;
 /**
  * Loads the transcript's chunk once (a failed load is forgotten, so the next call tries again). The
  * page's own setup (`startGuestPage`) runs on it before any caller sees it.
  */
 export function loadGuestTranscript(): Promise<TranscriptModule> {
-  transcriptChunk ??= import("./GuestTranscript").then(
+  // The import is its own step: the bundler wraps `import()` with its preload of the chunk's CSS and
+  // shared modules, and a callback chained on the import would sit inside that wrapper, so a failed
+  // preload would skip the reset below and keep the rejected promise for good (#38101 F4).
+  const fetchChunk = async (): Promise<TranscriptModule> => {
+    const [chunk] = await Promise.all([import("./GuestTranscript"), pageSheet?.()]);
+    return chunk;
+  };
+  transcriptChunk ??= fetchChunk().then(
     (chunk) => {
       pageSetup?.(chunk);
       return chunk;
@@ -70,9 +79,12 @@ export function loadGuestTranscript(): Promise<TranscriptModule> {
 
 /**
  * The page (main.tsx, never the gallery): the chunk's no-owner host is installed as it arrives,
- * before anything from it draws, and its load starts beside the first frame.
+ * before anything from it draws, and its load starts beside the first frame. `loadSheet` loads the
+ * transcript's stylesheet (the pane's sheet past the first frame's part); the chunk counts as loaded
+ * only once it is in, so no row draws unstyled, and a failed load is tried again with the chunk.
  */
-export function startGuestPage(): void {
+export function startGuestPage(loadSheet?: () => Promise<unknown>): void {
+  pageSheet = loadSheet;
   pageSetup = (chunk) => chunk.installGuestPage();
   void loadGuestTranscript().catch(() => undefined);
 }
@@ -80,6 +92,7 @@ export function startGuestPage(): void {
 /** Tries to load the transcript's chunk again after a failed load: 1 s, 2 s, 4 s ... up to 30 s apart. */
 const CHUNK_RETRY_FIRST_MS = 1_000;
 const CHUNK_RETRY_MAX_MS = 30_000;
+const reloadWindow = () => window.location.reload();
 
 /** The fed client's id for the one chat a guest sees; the room never names the owner's session. */
 const GUEST_SESSION = "guest-chat";
@@ -335,6 +348,7 @@ export function LiveChat({
   socketUrl,
   openSocket,
   loadTranscript = loadGuestTranscript,
+  reloadPage = reloadWindow,
   onEnded,
 }: {
   /** This guest: never in its own face stack, as the pane leaves the reader out. */
@@ -351,6 +365,8 @@ export function LiveChat({
   openSocket?: (url: string) => ShareSocketLike;
   /** Loads the transcript's chunk (loadGuestTranscript; tests and the gallery hand in a failing one). */
   loadTranscript?: () => Promise<TranscriptModule>;
+  /** Reloads the page when Retry's load fails too (tests hand in a spy). */
+  reloadPage?: () => void;
   onEnded: (reason: GuestEnd) => void;
 }) {
   const t = useT();
@@ -388,9 +404,11 @@ export function LiveChat({
     const waiting: ((client: GuestFeed) => void)[] = [];
     const withClient = (run: (client: GuestFeed) => void) => (client ? run(client) : waiting.push(run));
     // A failed chunk load (a dropped connection) tries again until it lands or the chat goes away.
+    // The browser may keep a failed module fetch for the page's life, so a Retry that fails again
+    // reloads the page (this tab's join is in sessionStorage, so it opens the chat again).
     let retry: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
-    const load = (delay: number) => {
+    const load = (delay: number, byRetry = false) => {
       clearTimeout(retry);
       retry = undefined;
       const mine = ++attempt;
@@ -405,12 +423,13 @@ export function LiveChat({
         () => {
           // Only the newest attempt schedules the next one.
           if (stopped || client || mine !== attempt) return;
+          if (byRetry) return reloadPage();
           setLoadFailed(true);
           retry = setTimeout(() => load(Math.min(delay * 2, CHUNK_RETRY_MAX_MS)), delay);
         },
       );
     };
-    retryLoad.current = () => load(CHUNK_RETRY_FIRST_MS);
+    retryLoad.current = () => load(CHUNK_RETRY_FIRST_MS, true);
     load(CHUNK_RETRY_FIRST_MS);
     const stop = () => {
       stopped = true;
@@ -460,7 +479,7 @@ export function LiveChat({
       stop();
       pageArrived.current?.();
     };
-  }, [socketUrl, openSocket, prompts, typing, sendQueue, loadTranscript]);
+  }, [socketUrl, openSocket, prompts, typing, sendQueue, loadTranscript, reloadPage]);
 
   const loadOlder = useCallback(
     () =>
@@ -471,10 +490,15 @@ export function LiveChat({
       }),
     [snapshot?.historyFrom],
   );
-  const toggle = useCallback((id: string) => {
+  // A joined run's line is open under any of its keys (turns.ts `foldCovers`): closing it clears them
+  // all, as turns.ts `toggleTurnFold` does. Inline, so this first chunk does not load the transcript's.
+  const toggle = useCallback((id: string, covers: readonly string[] = []) => {
     setExpanded((open) => {
       const next = new Set(open);
-      if (!next.delete(id)) next.add(id);
+      const keys = [id, ...covers];
+      const wasOpen = keys.some((key) => open.has(key));
+      for (const key of keys) next.delete(key);
+      if (!wasOpen) next.add(id);
       return next;
     });
   }, []);
@@ -487,6 +511,7 @@ export function LiveChat({
     : { id: guestId, name: t("guest.you") };
   const send = (text: string) => {
     typing.stop();
+    prompts.keepDraft("");
     prompts.add(text);
     sendQueue.queued();
   };
@@ -547,7 +572,14 @@ export function LiveChat({
           <GuestMessages prompts={mine} me={me} owner={ownerName} />
           {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
           {role === "talk" ? (
-            <GuestComposer onSend={send} onDraft={(draft) => typing.input(draft)} />
+            <GuestComposer
+              initialText={prompts.draft()}
+              onSend={send}
+              onDraft={(draft) => {
+                prompts.keepDraft(draft);
+                typing.input(draft);
+              }}
+            />
           ) : (
             <p className="guest-live__view-only">{t("guest.live.viewOnly")}</p>
           )}
@@ -582,6 +614,8 @@ export type GuestPageProps = {
   openSocket?: (url: string) => ShareSocketLike;
   /** Loads the transcript's chunk (default loadGuestTranscript). */
   loadTranscript?: () => Promise<TranscriptModule>;
+  /** Reloads the page when Retry's load fails too (default window.location.reload). */
+  reloadPage?: () => void;
   /** Starts on the ended page (the gallery's ended states). */
   ended?: GuestEnded;
   /** The room's `whoami` for a link (redeem.ts whoamiOverFetch); none, or an invite, asks nobody. */
@@ -609,6 +643,7 @@ export function GuestPage({
   socketUrl,
   openSocket,
   loadTranscript,
+  reloadPage,
   ended: endedAtStart,
   whoami,
   editName = false,
@@ -686,6 +721,7 @@ export function GuestPage({
       socketUrl={socketUrl}
       openSocket={openSocket}
       loadTranscript={loadTranscript}
+      reloadPage={reloadPage}
       onEnded={setEnded}
     />
   );

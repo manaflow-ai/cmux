@@ -400,6 +400,42 @@ fn redeem(id: &str, attempt: &str, secret: &Value) -> Value {
 }
 
 #[test]
+fn a_link_names_the_build_that_made_it_unless_it_is_the_default_app() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-app-scheme", &room);
+    // NIGHTLY (the guest page's default) and anything that is not a cmux scheme name nothing.
+    for scheme in [Some("cmux-nightly"), Some("javascript"), Some("cmux-"), None] {
+        set_link_share_app_scheme(&mux, scheme);
+        assert!(shares(&mux).bridge.app_scheme.lock().unwrap().is_none(), "{scheme:?}");
+    }
+    set_link_share_app_scheme(&mux, Some("cmux-next-dev"));
+    let reply = create(&mut owner, surface);
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share = &reply["data"];
+    let (id, secret) = (share["share_id"].as_str().unwrap(), share["secret"].as_str().unwrap());
+    assert_eq!(share["url"], format!("{}/g/{id}?app=cmux-next-dev#{secret}", room.url));
+    // An invite names the build too: the listed share's invite link opens in this build.
+    assert_eq!(state(&mut owner)["invite_url"], format!("{}/i/{id}?app=cmux-next-dev", room.url));
+}
+
+#[test]
+fn every_invite_url_of_an_answer_names_the_build() {
+    let mut answer = json!({"invite_url": "https://share.cmux.dev/i/a", "shares": [
+        {"invite_url": "https://share.cmux.dev/i/b"}, {"invite_url": null}]});
+    name_app_in_invites(&mut answer, "?app=cmux-rc");
+    assert_eq!(
+        answer,
+        json!({"invite_url": "https://share.cmux.dev/i/a?app=cmux-rc", "shares": [
+        {"invite_url": "https://share.cmux.dev/i/b?app=cmux-rc"}, {"invite_url": null}]})
+    );
+    // The default build names nothing.
+    let before = json!({"invite_url": "https://share.cmux.dev/i/a"});
+    let mut after = before.clone();
+    name_app_in_invites(&mut after, "");
+    assert_eq!(after, before);
+}
+
+#[test]
 fn a_provisioned_share_answers_hello_with_its_guests_and_redeems_through_the_daemon() {
     let room = FakeRoom::start(&[]);
     let (_fake, _mux, surface, mut owner) = bridged("room-redeem", &room);

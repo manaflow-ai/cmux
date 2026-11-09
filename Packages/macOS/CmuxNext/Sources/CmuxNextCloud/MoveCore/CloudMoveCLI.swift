@@ -143,15 +143,63 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public func machinePin() async -> Data? { try? await output(["verb": "machine-pin"]).stdout }
 
     /// Rust validates reservation fields; the native app supplies only its trusted origin/team.
-    public func startChatReservation(release: Bool, request: String, access: String) async throws -> Data {
+    /// `install`: the install token, whose team Rust names the reservation in (the spare warm's, `install_team`).
+    public func startChatReservation(release: Bool, request: String, access: String, install: String? = nil) async throws -> Data {
         struct Call: Encodable { var verb = "start-chat-reservation"; var release: Bool, request: String }
-        let read = try await run(Call(release: release, request: request), reading: "reservation", stdin: Data((access + "\n").utf8))
+        let read = try await run(Call(release: release, request: request), reading: "reservation", stdin: Data((access + "\n" + (install ?? "") + "\n").utf8))
         return read.object ?? Data(#"{"ok":false,"error_code":"bad_answer"}"#.utf8)
     }
 
+    /// The login copy a fresh spare warm asks for (``startChatWarmSpare(platform:account:access:install:)``): Rust's
+    /// `copy`, answered only for a machine the person owns, in the backend team it warmed.
+    public struct SpareWarm: Sendable, Equatable {
+        public var machineID: String
+        /// The account and the backend team (`team_…`, the install token's) the warm was asked for.
+        public var account: String
+        public var team: String
+
+        public init(machineID: String, account: String, team: String) {
+            (self.machineID, self.account, self.team) = (machineID, account, team)
+        }
+    }
+
+    /// How the App's login copy of a warm ended: done (or given up for good), or abandoned to an account or team switch.
+    public enum SpareWarmEnd: Sendable, Equatable { case finished(String), abandoned(String) }
+
+    /// `cmux link start-chat warm-spare --request JSON`, the session `access` token then the `install` token on stdin:
+    /// the person's spare, warmed in the install token's team (Rust's `install_team`, the reservation's). Nil when there is nothing to copy: an answer from
+    /// the record, no spare, a machine they do not own, or a refusal. With `end`, it reports the copy's end instead:
+    /// a start waiting on it goes on, and an abandoned copy is answered again by Rust's next warm.
+    public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, end: SpareWarmEnd? = nil) async -> SpareWarm? {
+        struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
+        var request: [String: Any] = ["platform": platform.absoluteString, "account": account]
+        switch end {
+        case .finished(let machine): request["finished"] = machine
+        case .abandoned(let machine): request["abandoned"] = machine
+        case nil: break
+        }
+        guard let payload = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
+              let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
+                                        stdin: Data((access + "\n" + install + "\n").utf8)),
+              let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
+              let copy = reply["copy"] as? [String: Any], let machineID = copy["machine"] as? String,
+              copy["account"] as? String == account, let team = copy["team"] as? String else { return nil }
+        return SpareWarm(machineID: machineID, account: account, team: team)
+    }
+
+    /// A start's wait on a spare warm's login copy onto `machine` (Rust's `wait-copy`, at most 80 s): returns once no
+    /// copy of `provider`'s login onto it is in flight, at once for a provider the warm does not copy.
+    public func startChatWaitCopy(machine: String, provider: String) async {
+        struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
+        let wait: [String: Any] = ["account": "wait", "waitCopy": ["machine": machine, "provider": provider]]
+        guard let payload = try? JSONSerialization.data(withJSONObject: wait, options: [.sortedKeys]) else { return }
+        _ = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil)
+    }
+
     /// `cmux link start-chat plan --request JSON`, the cmux `access` token on stdin.
-    public func startChatPlan(request: String, access: String? = nil) async throws -> (Answer, StartChatPlan) {
-        let read = try await run(["verb": "start-chat-plan", "request": request], reading: "start-chat-plan", stdin: access.map { Data(($0 + "\n").utf8) })
+    /// `install`: a reserved send's install token, whose team Rust binds the reservation in (`install_team`).
+    public func startChatPlan(request: String, access: String? = nil, install: String? = nil) async throws -> (Answer, StartChatPlan) {
+        let read = try await run(["verb": "start-chat-plan", "request": request], reading: "start-chat-plan", stdin: access.map { Data(($0 + "\n" + (install.map { $0 + "\n" } ?? "")).utf8) })
         return (read.answer, read.plan ?? StartChatPlan(createKey: "", tabKey: ""))
     }
 
@@ -210,7 +258,29 @@ public nonisolated struct CloudMoveCLI: Sendable {
                                               workRoots: [String], acpmuxHome: String?, store: Bool, onSeedRefusal: SeedRefusal) -> [String] {
         let call = StartChatCopyCall(key: key, account: account, machine: machine, socket: socket, local: local, subpath: subpath,
                                      workRoots: workRoots, acpmuxHome: acpmuxHome, store: store, onSeedRefusal: onSeedRefusal)
-        return CloudMoveCore().call("cli_invocation", call, as: Invocation.self)?.args ?? []
+        return Self.withSeedRefusal(CloudMoveCore().call("cli_invocation", call, as: Invocation.self)?.args ?? [], call)
+    }
+
+    /// TRANSITIONAL until CCmuxAppFFI is repinned past cmux-cloud-start-core's `on_seed_refusal`: the pinned release
+    /// names no `--on-seed-refusal`, so the copy's own rule is added here. A library that names it is left as it said.
+    private static func withSeedRefusal<Call: Encodable>(_ args: [String], _ call: Call) -> [String] {
+        guard let copy = call as? StartChatCopyCall, !args.isEmpty, !args.contains("--on-seed-refusal") else { return args }
+        return args + ["--on-seed-refusal", copy.onSeedRefusal.rawValue]
+    }
+
+    /// TRANSITIONAL with ``withSeedRefusal(_:_:)``: the pinned release does not read a refused seed's `fallback_code` and
+    /// `install_url`, so they come from the answer's own JSON line when Rust left them out.
+    private static func withSeedFields(_ answer: Answer, stdout: String) -> Answer {
+        guard answer.fallbackCode == nil, answer.installURL == nil else { return answer }
+        struct Fields: Decodable {
+            var fallbackCode: String?, installURL: String?
+            enum CodingKeys: String, CodingKey { case fallbackCode = "fallback_code", installURL = "install_url" }
+        }
+        let line = stdout.split(whereSeparator: \.isNewline).last { $0.hasPrefix("{") }
+        guard let line, let fields = try? JSONDecoder().decode(Fields.self, from: Data(line.utf8)) else { return answer }
+        var answer = answer
+        (answer.fallbackCode, answer.installURL) = (fields.fallbackCode, fields.installURL)
+        return answer
     }
 
     private struct StartChatCopyCall: Encodable {
@@ -249,7 +319,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
     private func output<Call: Encodable>(_ call: Call, stdin: Data? = nil, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> ProcessResult {
         guard let invocation = CloudMoveCore().call("cli_invocation", call, as: Invocation.self) else { throw CloudMoveCLIUnanswered() }
         let limit = invocation.timeoutSeconds.map { Duration.seconds($0) } ?? max(timeout, .seconds(invocation.minTimeoutSeconds ?? 0))
-        return try await ProcessRunner.run(executable: binary, arguments: invocation.args, environment: nil, stdin: stdin,
+        return try await ProcessRunner.run(executable: binary, arguments: Self.withSeedRefusal(invocation.args, call), environment: nil, stdin: stdin,
                                            timeout: limit, stderrLine: stderrLine, clock: ContinuousClock())
     }
 
@@ -258,8 +328,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
         let result = try await output(call, stdin: stdin, stderrLine: stderrLine)
         let request = ReadRequest(reading: reading, stdout: String(decoding: result.stdout, as: UTF8.self),
                               stderr: String(decoding: result.stderr, as: UTF8.self), status: result.status)
-        return CloudMoveCore().call("cli_read", request, as: Read.self)
+        var read = CloudMoveCore().call("cli_read", request, as: Read.self)
             ?? Read(answer: Answer(ok: false, errorCode: Self.badAnswer, error: "exit \(result.status)"))
+        read.answer = Self.withSeedFields(read.answer, stdout: request.stdout)
+        return read
     }
 }
 

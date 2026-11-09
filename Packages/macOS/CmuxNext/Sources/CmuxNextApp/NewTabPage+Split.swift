@@ -27,8 +27,11 @@ extension NewTabPage {
     /// keys nor focus; the dropped tab keeps them. `swapsBack`: once the page's pane is placed on `edge`,
     /// the two panes swap, so the page ends across from `edge` (as Split Left splits right, then swaps).
     /// Returns whether the page was started.
+    /// `placed` (New ▸ New Tab Page at a column, row, workspace or window): the page opens hidden in
+    /// `source` and `placed` gets its key to move it there, instead of a split on `edge`.
     @discardableResult
-    static func split(_ source: PaneController, edge: PaneEdge, focusesPage: Bool = true, swapsBack: Bool = false) -> Bool {
+    static func split(_ source: PaneController, edge: PaneEdge, focusesPage: Bool = true, swapsBack: Bool = false,
+                      placed: (@MainActor (String) -> Void)? = nil) -> Bool {
         let services = source.services
         let machineID = source.daemon.machineID
         var page = Self.page(services, selected: source.selectedTab, pane: source, paletteActions: false)
@@ -53,7 +56,7 @@ extension NewTabPage {
             guard target == .here else { return jump(target, id) }
             if let services, let key = opened.value { Self.moveHere(id, page: key, onMachine: machineID, services: services) }
         }
-        let split: SplitDirection? = !source.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) ? nil
+        let split: SplitDirection? = placed != nil || !source.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) ? nil
             : edge == .right ? .right : edge == .bottom ? .down : nil
         // Even split sizing, as a terminal split (PaneHandlers.split), once the store's pane is placed.
         let sizing = split.flatMap { source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []
@@ -69,6 +72,11 @@ extension NewTabPage {
                                                  focuses: focusesPage) { [weak source] key in
             opened.value = key
             guard let source else { return }
+            if let placed {
+                placed(key)
+                input.flushAll()
+                return
+            }
             guard let split else { return Self.moveToSplit(key, from: source, edge: swapsBack ? edge.opposite : edge, keys: keys, focuses: focusesPage) }
             if let shownSizing { layoutModel?.commitSplitSizing(shownSizing) }
             if swapsBack { source.daemon.send("swap-pane") { [handle = source.pane.handle] in try await $0.swapPane(handle, with: .direction(split == .right ? .right : .down)) } }

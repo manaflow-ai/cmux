@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 604,
+  "count": 617,
   "sections": [
     {
       "id": "general",
@@ -228,6 +228,27 @@
           }
         },
         {
+          "key": "agents.cacheCompact.enabled",
+          "title": "Compact Before the Cache Expires",
+          "help": "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Prompt Cache"
+        },
+        {
+          "key": "agents.cacheCompact.minContextPercent",
+          "title": "Only Above Context Used (%)",
+          "help": "Chats using less of their context window than this are left as they are.",
+          "kind": "number",
+          "default": 50,
+          "group": "Prompt Cache",
+          "range": {
+            "min": 10,
+            "max": 95,
+            "unit": "count"
+          }
+        },
+        {
           "key": "agents.chats.discovery",
           "title": "Discover Chat Folders",
           "help": "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -350,6 +371,14 @@
             "1h",
             "5m"
           ]
+        },
+        {
+          "key": "agents.promptSuggestions",
+          "title": "Suggest Next Prompt",
+          "help": "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Sessions"
         },
         {
           "key": "agents.subsessions.answerQuestions",
@@ -1156,6 +1185,14 @@
           "group": "cmux Remote"
         },
         {
+          "key": "remote.ultraMode",
+          "title": "Ultra Connection Mode",
+          "help": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.",
+          "kind": "toggle",
+          "default": false,
+          "group": "cmux Remote"
+        },
+        {
           "key": "screenshots.findTools",
           "title": "Find Screenshot Apps",
           "help": "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap.",
@@ -1247,14 +1284,6 @@
             "top",
             "bottom"
           ]
-        },
-        {
-          "key": "tabs.cmdWClosesPinnedTabs",
-          "title": "Cmd-W Closes Pinned Tabs",
-          "help": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Tabs"
         },
         {
           "key": "tabs.hideLoneChatTab",
@@ -1893,9 +1922,11 @@
           "title": "Chat Interface Font",
           "help": "The font of the whole chat: replies, the composer, cards and menus.",
           "kind": "choice",
-          "default": "inter-tuned",
+          "default": "system-ui",
           "group": "Agent Chat",
           "values": [
+            "system-ui",
+            "system-ui-tight",
             "inter-tuned",
             "inter",
             "verdana",
@@ -1905,9 +1936,7 @@
             "geist",
             "cmux-sans",
             "hanken",
-            "atkinson",
-            "system-ui",
-            "system-ui-tight"
+            "atkinson"
           ]
         },
         {
@@ -1975,6 +2004,45 @@
           "values": [
             "left",
             "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.badge",
+          "title": "Sender Badge",
+          "help": "The small colored glyph on a sender's icon that tells sessions of one model family apart.",
+          "kind": "choice",
+          "default": "diamond",
+          "group": "Agent Chat",
+          "values": [
+            "diamond",
+            "robot",
+            "none"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.corner",
+          "title": "Sender Badge Corner",
+          "help": "Where the small glyph sits on a sender's icon.",
+          "kind": "choice",
+          "default": "bottom-right",
+          "group": "Agent Chat",
+          "values": [
+            "bottom-right",
+            "bottom-left",
+            "top-right",
+            "top-left"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.lead",
+          "title": "Sender Icon Emphasis",
+          "help": "Which is big in a sender's icon: the model family's mark, or the session's own colored badge.",
+          "kind": "choice",
+          "default": "family",
+          "group": "Agent Chat",
+          "values": [
+            "family",
+            "session"
           ]
         },
         {
@@ -3625,6 +3693,20 @@
           ]
         },
         {
+          "key": "sidebar.groupGradient",
+          "title": "Group Gradient",
+          "help": "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors.",
+          "kind": "choice",
+          "default": "sunset",
+          "group": "Sidebar",
+          "values": [
+            "sunset",
+            "aurora",
+            "lagoon",
+            "twoTone"
+          ]
+        },
+        {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
           "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
@@ -3656,7 +3738,7 @@
         {
           "key": "sidebar.groupPalette",
           "title": "Group Colors",
-          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list.",
           "kind": "choice",
           "default": "glass",
           "group": "Sidebar",
@@ -3665,7 +3747,9 @@
             "theme",
             "wallpaper",
             "grayscale",
-            "vibrant"
+            "vibrant",
+            "gradient",
+            "pictorial"
           ]
         },
         {
@@ -5140,6 +5224,14 @@
           "group": "Import"
         },
         {
+          "key": "browser.import.cookieSync",
+          "title": "Keep Imported Cookies in Sync",
+          "help": "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
+        },
+        {
           "key": "browser.import.enabled",
           "title": "Import from Other Browsers",
           "help": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
@@ -5829,6 +5921,31 @@
           ]
         },
         {
+          "key": "home.chiefPanel.seesScreen",
+          "title": "Chief Sees Your Screen When It Opens",
+          "help": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chief Dock"
+        },
+        {
+          "key": "home.chiefPanel.style",
+          "title": "Floating Chief Style",
+          "help": "How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip.",
+          "kind": "choice",
+          "default": "composeBar",
+          "group": "Chief Dock",
+          "values": [
+            "composeBar",
+            "pill",
+            "card",
+            "panel",
+            "bubble",
+            "seeThrough",
+            "seeThroughBar"
+          ]
+        },
+        {
           "key": "home.chiefPetEnabled",
           "title": "Show Chief Pet",
           "help": "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app.",
@@ -6446,6 +6563,22 @@
           "group": "Cloud Workspaces"
         },
         {
+          "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
+          "title": "Use My Claude Login on My Own Cloud Machines",
+          "help": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
+          "key": "cloud.useMyCodexLoginOnMyCloudMachines",
+          "title": "Use My Codex Login on My Own Cloud Machines",
+          "help": "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
           "key": "phone.allowConnections",
           "title": "Let Your Phone Use This Mac",
           "help": "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
@@ -6504,6 +6637,14 @@
       "id": "advanced",
       "title": "Advanced",
       "rows": [
+        {
+          "key": "developerTools.appPages",
+          "title": "Developer Tools for cmux Pages",
+          "help": "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Developer Tools"
+        },
         {
           "key": "labs.liveCode",
           "title": "Live Code",

@@ -94,6 +94,7 @@ mod terminal_unplaced_store;
 mod topology_close_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
+pub use crate::state::tab_state_store::TabAttentionRecord;
 pub(crate) use effect_store::{
     EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt, ResourceWorkspaceClose,
 };

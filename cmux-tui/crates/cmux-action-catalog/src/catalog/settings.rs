@@ -224,6 +224,7 @@ pub static ACTIONS: &[Action] = &[
         id: "liveWeb.start",
         group: GROUP,
         title: t("ActionCatalog", "action.liveWeb.start", "Edit cmux Live…"),
+        hint: Some(t("ActionCatalog", "action.liveWeb.start.hint", "Change cmux's own UI and see it here at once, or let your agent do it. No build.")),
         keywords: &["live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
         category: "settings",
         symbol: "bolt.horizontal.circle",
@@ -1038,6 +1039,18 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "settings customize-appearance",
         main_menu: Some("view"),
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "appearance.personalize",
+        group: GROUP,
+        title: t("ActionCatalog", "action.appearance.personalize", "Personalization…"),
+        keywords: &["personalization", "personalize", "appearance", "theme", "accent", "background", "wallpaper", "glass", "chief", "pet", "font", "density", "sounds", "make it yours"],
+        category: "settings",
+        symbol: "wand.and.stars",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "settings personalize",
         ..Action::DEFAULT
     },
     Action {

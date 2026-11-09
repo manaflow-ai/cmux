@@ -1,4 +1,5 @@
 import type { AgentSessionTheme } from "./types";
+import { codeFontFamily } from "../../appearance";
 
 const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   isDark: null,
@@ -25,7 +26,6 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   palette: null,
   borders: null,
   focusRingEnabled: null,
-  chatWidth: null,
   toolRunLook: null,
   turnActionsPlacement: null,
   motion: null,
@@ -90,6 +90,10 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   const motionValues = theme.motion ? Object.values(theme.motion) : [];
   if (motionValues.length > 0 && motionValues.every((value) => value === 0)) root.dataset.agentMotion = "off";
   else delete root.dataset.agentMotion;
+  // Reduce Motion zeroes only the move duration; CSS can't compare a custom property to 0, so the
+  // root says so, and transitions on the move token (the fold's chevron) snap under it.
+  if (theme.motion?.move === 0) root.dataset.agentMove = "instant";
+  else delete root.dataset.agentMove;
   if (root.dataset.agentMotion === "off") {
     for (const animation of document.getAnimations?.() ?? []) animation.cancel();
   }
@@ -102,8 +106,6 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   applyTerminalCodeFont(root);
 }
 
-/** The mono stack behind the terminal's face, the pane's own default (conversation.css `--cv-mono`). */
-const MONO_STACK = `ui-monospace, "SF Mono", Menlo, monospace`;
 /** The pane's code font variables: diffs (diffTheme.ts) and code blocks, file names and paths. */
 const CODE_FONT_VARIABLES = ["--cmux-diff-code-font-family", "--cv-code-font"] as const;
 
@@ -114,11 +116,15 @@ const CODE_FONT_VARIABLES = ["--cmux-diff-code-font-family", "--cv-code-font"] a
  * mono stack applies.
  */
 function applyTerminalCodeFont(root: HTMLElement): void {
-  const host = (window as { cmuxTheme?: { current?: { terminal?: { fontFamily?: unknown } } | null } }).cmuxTheme;
+  const host = (
+    window as { cmuxTheme?: { current?: { terminal?: { fontFamily?: unknown; fallbackFamilies?: unknown } } | null } }
+  ).cmuxTheme;
   const family = host?.current?.terminal?.fontFamily;
+  const fallbackFamilies = host?.current?.terminal?.fallbackFamilies;
   const face = typeof family === "string" ? family.trim() : "";
   for (const variable of CODE_FONT_VARIABLES) {
-    if (face) root.style.setProperty(variable, `${JSON.stringify(face)}, ${MONO_STACK}`);
+    if (face)
+      root.style.setProperty(variable, codeFontFamily(face, Array.isArray(fallbackFamilies) ? fallbackFamilies : []));
     else root.style.removeProperty(variable);
   }
 }

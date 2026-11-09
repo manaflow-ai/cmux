@@ -25,7 +25,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptAttachments, promptTicket, harness, model, peer, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, wake,
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, pickCloud, wake,
              workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudHandoffs, cloudRepositoryAvailable
     }
 
@@ -108,6 +108,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// True for a page opened by Integrate a Harness… (cx-uj5g8): it shows its Harnesses page.
     /// Handed out once. Pages that predate it ignore it.
     public var harnesses: Bool?
+    /// True for a page New Cloud Chat opened (`AgentPaneSeed.picksCloud`): it picks Cloud for its
+    /// new chat once Cloud is offered. Handed out once. Pages that predate it ignore it.
+    public var pickCloud: Bool?
     /// The past turns of the device-wide chat a new chat opened for (cx-khns1): the page shows
     /// them read-only until the chat has a session. Pages that predate it ignore it.
     public var pastTurns: [AgentPanePastTurn]?

@@ -3,7 +3,6 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
-import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -79,14 +78,12 @@ struct CloudStartSessionTests {
     }
 
     /// A Cloud start moves no login and asks about none: the machine's agents use the Cloud service's model route.
-    /// `cloud start-session` and `cloud relay-chat` declare no login argument, a stray one changes nothing, and the
+    /// `cloud start-session` declares no login argument, a stray one changes nothing, and the
     /// command asked again carries none (red on a base that read `--login pass|machine|none`).
     @Test func aStartTakesNoLoginArgument() throws {
         let registry = Self.fixture().services.registry
-        for id in [CloudStartSession.action, ActionID("cloudRelayChat")] {
-            let descriptor = try #require(registry.descriptor(for: id))
-            #expect(!descriptor.arguments.contains { $0.name == "login" }, "\(id) still takes a login")
-        }
+        let descriptor = try #require(registry.descriptor(for: CloudStartSession.action))
+        #expect(!descriptor.arguments.contains { $0.name == "login" }, "cloud start-session still takes a login")
         let plain = try CloudStartSession.request(Self.invocation(target: "m-1", ["agent": .string("claude")]))
         for stray in ["pass", "machine", "none", "yes"] {
             let asked = try CloudStartSession.request(Self.invocation(target: "m-1", ["agent": .string("claude"), "login": .string(stray)]))

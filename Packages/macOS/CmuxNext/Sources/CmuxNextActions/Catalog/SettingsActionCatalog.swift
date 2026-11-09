@@ -135,6 +135,9 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "liveWeb.start",
                 title: String(localized: "action.liveWeb.start", defaultValue: "Edit cmux Live…", bundle: .module),
+                hint: String(localized: "action.liveWeb.start.hint",
+                             defaultValue: "Change cmux's own UI and see it here at once, or let your agent do it. No build.",
+                             bundle: .module),
                 keywords: ["live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
                 category: .settings, symbol: "bolt.horizontal.circle", surfaces: [.palette],
                 arguments: [CatalogArgument.optionalPathString]
@@ -631,6 +634,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["appearance", "customize", "personalize", "theme", "colors", "background", "wallpaper", "font", "make it yours"],
                 category: .settings, symbol: "paintbrush", surfaces: [.palette, .keyboard, .menu],
                 cliName: "settings customize-appearance", mainMenu: .view
+            ),
+            ActionDescriptor(
+                id: "appearance.personalize",
+                title: String(localized: "action.appearance.personalize", defaultValue: "Personalization…", bundle: .module),
+                keywords: ["personalization", "personalize", "appearance", "theme", "accent", "background", "wallpaper", "glass", "chief", "pet", "font", "density", "sounds", "make it yours"],
+                category: .settings, symbol: "wand.and.stars", surfaces: [.palette, .keyboard],
+                cliName: "settings personalize"
             ),
             ActionDescriptor(
                 id: "appearance.interfaceSize.increase",

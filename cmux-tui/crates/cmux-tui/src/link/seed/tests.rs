@@ -108,6 +108,7 @@ fn previous_of(planned: &Planned) -> PreviousSeed {
         head: planned.params.head.clone(),
         index: planned.params.index.clone(),
         work: planned.params.work.clone(),
+        stash: planned.params.stash.clone(),
     }
 }
 
@@ -612,10 +613,12 @@ fn a_delta_seed_needs_the_previous_commits() {
     let f = Fixture::new();
     let head = git(&f.work, &["rev-parse", "HEAD"]);
     let missing = "0123456789abcdef0123456789abcdef01234567".to_string();
-    let previous = PreviousSeed { head: head.clone(), index: missing.clone(), work: missing };
+    let previous =
+        PreviousSeed { head: head.clone(), index: missing.clone(), work: missing, stash: None };
     let fallback = plan_since(&f.work, &f.path("seed.bundle"), &previous).unwrap_err();
     assert_eq!(fallback.code, FallbackCode::NoPrevious, "{}", fallback.why);
-    let short = PreviousSeed { head: head[..7].to_string(), index: head.clone(), work: head };
+    let short =
+        PreviousSeed { head: head[..7].to_string(), index: head.clone(), work: head, stash: None };
     let fallback = plan_since(&f.work, &f.path("seed.bundle"), &short).unwrap_err();
     assert_eq!(fallback.code, FallbackCode::NoPrevious);
 }

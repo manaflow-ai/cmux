@@ -636,7 +636,7 @@ struct CloudBringBackTests {
         let opened = try #require(trip.machineChat())
         trip.machineKey = opened.id
         trip.machineSurface = opened.surface.rawValue
-        _ = try await services.agentTabs.startRemoteChat(opened.id, machine: machine.machine.title, cwd: copied.1.chat,
+        _ = try await services.agentTabs.startRemoteChat(opened.id, machine: machine.machineID, machineName: machine.machine.title, cwd: copied.1.chat,
                                                          endpoint: { Issue.record("a retry tried to create another chat"); throw CancellationError() })
     }
 

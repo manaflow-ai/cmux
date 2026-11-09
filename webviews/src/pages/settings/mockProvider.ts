@@ -31,6 +31,7 @@ import {
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type SharesState,
+  type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -504,6 +505,17 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.settings.devices.state": () => this.devices,
       "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
+      "cmux.settings.tailnet.state": () => {
+        this.onTailnetRead?.();
+        if (this.tailnetDropReads > 0) {
+          this.tailnetDropReads -= 1;
+          return null;
+        }
+        return this.tailnet;
+      },
+      "cmux.settings.tailnet.start": () => this.stepTailnet("start"),
+      "cmux.settings.tailnet.login": () => this.stepTailnet("login"),
+      "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
       "cmux.settings.shares.list": () => this.shares,
       "cmux.settings.shares.revoke": (params) =>
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
@@ -605,6 +617,10 @@ export class MockSettingsProvider {
       "cmux.settings.environments.run",
       "cmux.settings.shares.list",
       "cmux.settings.shares.revoke",
+      "cmux.settings.tailnet.state",
+      "cmux.settings.tailnet.start",
+      "cmux.settings.tailnet.login",
+      "cmux.settings.tailnet.logout",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
       "cmux.settings.theme.set",
@@ -696,6 +712,35 @@ export class MockSettingsProvider {
       ),
     };
     return { share_id: id, state: "revoked" };
+  }
+
+  /** Settings > Server > This Mac on Your Tailnet as acpmux answers the app's relay: signed out; null is
+   * an acpmux with no tailnet. */
+  tailnet: TailnetState | null = { state: "stopped" };
+  /** Every tailnet step the page asked for, in order (tests). */
+  tailnetSteps: string[] = [];
+
+  /** Start, Login and Logout answer null while true (the relay got no answer); state still reads. */
+  tailnetRefuses = false;
+  /** Called on every tailnet state read, so a test can wait for the card's next read. */
+  onTailnetRead: (() => void) | null = null;
+  /** The next this many state reads answer null (the relay dropped them), then reads answer again. */
+  tailnetDropReads = 0;
+  /** Start and Login fail with this text (acpmux keeps it in its state; the step itself answers null). */
+  tailnetFails: string | null = null;
+
+  /** As acpmux does: Start and Login answer `starting` at once and the node publishes its sign-in page
+   * on the next read; Logout signs out. */
+  private stepTailnet(verb: "start" | "login" | "logout"): TailnetState | null {
+    this.tailnetSteps.push(verb);
+    if (this.tailnet === null || this.tailnetRefuses) return null;
+    if (this.tailnetFails) {
+      this.tailnet = { state: "error", error: this.tailnetFails };
+      return null;
+    }
+    if (verb === "logout") return (this.tailnet = { state: "stopped" });
+    this.tailnet = { state: "needs_login", browse_to_url: "https://login.tailscale.com/a/1a2b3c4d5e" };
+    return { state: "starting" };
   }
 
   /** Settings > Accounts > Cloud Environments as the app's model serves it. */

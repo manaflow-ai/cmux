@@ -36,6 +36,7 @@ export const ATTACHMENT_LABELS = {
   pastedText: "composer.pastedText",
   pastedLines: "transcript.pastedLines",
   editPasted: "composer.pastedText.edit",
+  keepPasted: "composer.pastedText.keepFile",
   cancelAttachment: "composer.cancelAttachment",
   retryAttachment: "composer.retryAttachment",
   originalFailed: "composer.originalFailed",

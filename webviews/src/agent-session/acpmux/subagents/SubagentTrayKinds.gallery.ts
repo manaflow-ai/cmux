@@ -114,6 +114,15 @@ async function open(ctx: PlayContext, lines?: number): Promise<void> {
     const count = ctx.document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length;
     return lines === undefined ? count > 0 : count === lines;
   });
+  // The lines are drawn at once, but the list's box opens on the shared fold (settle curve), whose
+  // tail is still a pixel short of the list at about 250 ms: the columns are measured once it is open.
+  await ctx.waitFor(
+    () =>
+      !ctx.document
+        .querySelector(".acpmux-running-tray__fold")
+        ?.getAnimations()
+        .some((animation) => animation.playState === "running"),
+  );
 }
 
 const box = (node: Element | null | undefined) => node?.getBoundingClientRect();

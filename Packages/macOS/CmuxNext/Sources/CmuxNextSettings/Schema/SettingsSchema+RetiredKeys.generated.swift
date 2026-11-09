@@ -36,5 +36,7 @@ extension SettingsSchema {
         "cloud.useMyClaudeLoginOnMyCloudMachines": "Cloud machines reach Claude through the Cloud service; no login is copied",
         // Cloud machines reach models through the Cloud service's model route, so cmux no longer copies a login from the Mac (cloud multiplayer lane A, 2026-11-07).
         "cloud.useMyCodexLoginOnMyCloudMachines": "Cloud machines reach Codex through the Cloud service; no login is copied",
+        // One close path for pinned and unpinned tabs (Lawrence 2026-11-08, cmux-ad i8: "make it consistent, match chrome's behavior"): no kept pinned tab.
+        "tabs.cmdWClosesPinnedTabs": "Cmd-W closes a pinned tab like any other tab, as in Chrome",
     ]
 }

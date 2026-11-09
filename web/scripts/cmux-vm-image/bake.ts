@@ -4,7 +4,7 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--native-receiver] [--layered]
+ *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered]
  *
  * - --layered: the image as cached layers, system -> agents -> app (layers.ts); only a layer whose inputs
  *   changed rebuilds. Dev snapshots only; the full bake stays the weekly and manual source of truth.
@@ -56,7 +56,12 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
-import { renderVmGuestModelPlaneEnvFile, VM_GUEST_MODEL_PLANE_ENV_PATH, vmEdgeAliasDomain, vmGuestModelPlaneEnv } from "../../services/coderouter/vmGuestEnv";
+import {
+  renderVmGuestModelPlaneEnvFile,
+  VM_GUEST_MODEL_PLANE_ENV_PATH,
+  vmEdgeAliasDomain,
+  vmGuestModelPlaneEnv,
+} from "../../services/coderouter/vmGuestEnv";
 import {
   cmuxTuiAcpmuxLinkCommand,
   cmuxTuiInstallCommand,
@@ -79,16 +84,58 @@ import {
   devboxTerminfoInstallCommand,
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
-import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPaths, setUpDevTree, uploadDevTreeScript, DEV_TREE_SCRIPT, FIRST_BUILD } from "./dev-tree";
+import {
+  devTreeCredentialCheckCommand,
+  devTreeLock,
+  devTreeSizes,
+  devTreeUserPaths,
+  setUpDevTree,
+  uploadDevTreeScript,
+  DEV_TREE_SCRIPT,
+  FIRST_BUILD,
+} from "./dev-tree";
 import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
-import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines, RD_SOCKET, RD_SOCKET_UNIT, rdHostPath, rdSetupCommand } from "./agent-tools";
+import {
+  AGENT_TOOLS_PROFILE,
+  agentToolsDaemonEnv,
+  agentToolsFiles,
+  agentToolsLinkCommand,
+  browserRoleBakePhases,
+  daemonEnvLines,
+  RD_SOCKET,
+  RD_SOCKET_UNIT,
+  rdHostPath,
+  rdSetupCommand,
+} from "./agent-tools";
 import { BROWSER_ROLE } from "./browser-probe";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
-import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
+import {
+  argValue,
+  createVm,
+  deleteVm,
+  firstExec,
+  freestyleClient,
+  hasFlag,
+  Ledger,
+  run,
+  StepLog,
+  type Vm,
+} from "./guest";
 import { aptUpdateCommand } from "./apt-update";
-import { baseInputTree, cachedInstallCommand, imagePackagesCommand, layerLabel, isAppProgram, layerKeys, layerName, overlayPrepareCommand, overlayPruneCommand, type LayerName } from "./layers";
+import {
+  baseInputTree,
+  cachedInstallCommand,
+  imagePackagesCommand,
+  layerLabel,
+  isAppProgram,
+  layerKeys,
+  layerName,
+  overlayPrepareCommand,
+  overlayPruneCommand,
+  type LayerName,
+} from "./layers";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, SELF_UPDATE_OFF, hostConfig, hostUnit } from "./host-agent";
 import {
   METADATA_GUARD_FILE,
@@ -98,7 +145,20 @@ import {
   metadataGuardRules,
   metadataGuardUnit,
 } from "../../services/vms/images/metadataGuard";
-import { cronAtAllowCommand, cronAtAllowProblems, SSH_LOGIN_GROUP, SSH_SYNC_UNIT, SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPamProblems, sshdPolicyProblems, splitSshdBakeOutput, sshSyncUnit } from "./sshd";
+import {
+  cronAtAllowCommand,
+  cronAtAllowProblems,
+  SSH_LOGIN_GROUP,
+  SSH_SYNC_UNIT,
+  SSHD_DROP_IN,
+  sshdBakeCommand,
+  sshdDropIn,
+  sshdListenProblems,
+  sshdPamProblems,
+  sshdPolicyProblems,
+  splitSshdBakeOutput,
+  sshSyncUnit,
+} from "./sshd";
 import {
   aptClosureProblems,
   bakedPrograms,
@@ -149,8 +209,6 @@ export type BakeOptions = {
   promotion: boolean;
   /** Bake the agent tools (agent-tools.ts); off by default. */
   agentTools?: boolean;
-  /** Dedicated development VM API image; direct images keep their existing startup. */
-  nativeReceiver?: boolean;
   /** Team VM image (TEAM_VM_SNAPSHOT): adds the team files root /srv/team (teamVmDirsCommand). */
   teamVm?: boolean;
   /** Bake the cmux dev tree (dev-tree.ts); off by default. */
@@ -378,8 +436,8 @@ function coderouterProfileScript(): string {
 }
 
 /** The boot unit (`cmux host run`); `extraEnv` (agent tools) reaches every terminal it creates. */
-export function daemonUnit(extraEnv: Readonly<Record<string, string>> = {}, nativeReceiver = false): string {
-  return hostUnit(daemonEnvLines(extraEnv), STORE_PATH, nativeReceiver);
+export function daemonUnit(extraEnv: Readonly<Record<string, string>> = {}): string {
+  return hostUnit(daemonEnvLines(extraEnv), STORE_PATH);
 }
 
 /** Park the daemon for the snapshot. No template terminal in this image: every per-machine file goes. */
@@ -839,12 +897,7 @@ async function installDevTree(ctx: Ctx): Promise<void> {
 
 async function startDaemon(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
-  if (ctx.options.nativeReceiver) {
-    // A new image with the old pin must fail before it becomes a candidate.
-    await L.step(vm, "native-receiver-supported", `${HOST_CLI} --help | grep -F -- '--native-receiver'`);
-    ctx.result.nativeReceiver = true;
-  }
-  await writeGuestFile(vm, `/etc/systemd/system/${DAEMON_UNIT}`, daemonUnit(ctx.options.agentTools ? agentToolsDaemonEnv(ctx.lock) : {}, ctx.options.nativeReceiver), 0o644);
+  await writeGuestFile(vm, `/etc/systemd/system/${DAEMON_UNIT}`, daemonUnit(ctx.options.agentTools ? agentToolsDaemonEnv(ctx.lock) : {}), 0o644);
   // The builder never updates itself (cmux host update): the snapshot carries the lock's
   // cmux-tui, and parkCommand removes the marker so every clone does update.
   await L.step(vm, "daemon-unit", `systemd-analyze verify /etc/systemd/system/${DAEMON_UNIT} && mkdir -p /etc/cmux && touch ${SELF_UPDATE_OFF} && rm -f /etc/cmux/bake-instance-id && systemctl daemon-reload && systemctl enable ${DAEMON_UNIT} >/dev/null 2>&1 && systemctl restart ${DAEMON_UNIT} && systemctl is-active ${DAEMON_UNIT}`);
@@ -1032,7 +1085,7 @@ const REPO_ROOT = path.resolve(HERE, "../../..");
 
 /** The flags that change what the base layer holds. */
 export function layerFlags(options: BakeOptions): string[] {
-  return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree", options.nativeReceiver && "native-receiver"].filter((f): f is string => Boolean(f));
+  return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree"].filter((f): f is string => Boolean(f));
 }
 
 /** Every snapshot on the account, page by page (one default page can miss a cached layer's slug). */
@@ -1152,13 +1205,12 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--native-receiver] [--layered [--defer-inventory]]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered [--defer-inventory]]");
   if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
   if (hasFlag("--layered", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv) || hasFlag("--update-lock", argv))) throw new Error("--layered is for dev snapshots from a fixed lock; the full bake makes production copies and promotions");
   if (hasFlag("--defer-inventory", argv) && !hasFlag("--layered", argv)) throw new Error("--defer-inventory needs --layered; the full bake records its SBOM and manifest before the snapshot");
   // The dev tree is a checkout of this commit, so a cached system layer would carry a stale one.
   if (hasFlag("--layered", argv) && hasFlag("--dev-tree", argv)) throw new Error("--layered cannot cache --dev-tree (a per-commit checkout); use the full bake");
-  if (hasFlag("--native-receiver", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv))) throw new Error("--native-receiver is for dedicated development VM API images only");
   if (hasFlag("--prod-copy", argv) && hasFlag("--dev-tree", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --prod-copy");
   if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
@@ -1171,7 +1223,6 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     keepBuilder: hasFlag("--keep-builder", argv),
     promotion: hasFlag("--promotion", argv),
     agentTools: hasFlag("--agent-tools", argv),
-    nativeReceiver: hasFlag("--native-receiver", argv),
     teamVm: hasFlag("--team-vm", argv),
     devTree: hasFlag("--dev-tree", argv),
     prodCopy: hasFlag("--prod-copy", argv),

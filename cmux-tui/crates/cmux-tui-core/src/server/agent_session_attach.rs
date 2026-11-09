@@ -1181,7 +1181,7 @@ mod proxy;
 #[path = "agent_session_member.rs"]
 pub(super) mod member;
 use media::media;
-pub use proxy::shares::room::start_link_share_bridge;
+pub use proxy::shares::room::{set_link_share_app_scheme, start_link_share_bridge};
 pub(crate) use proxy::shares::{
     close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
 };
