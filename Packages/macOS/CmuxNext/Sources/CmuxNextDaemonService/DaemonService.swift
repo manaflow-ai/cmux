@@ -326,12 +326,10 @@ public final class DaemonService {
     /// cmuxterm-hq#7766), so this side makes no timed attempts: one attempt
     /// per drop (``RetryPolicy/linkReconnect``), then it waits for the link's
     /// state (its owner fires ``retryWake`` when the link reports connected or
-    /// its process exits), app activation or a person's Reconnect. While the
-    /// link has no process (`linkRunning` false: it probes, installs or spawns,
-    /// on the first connect or the restart after an exit) nothing in the link
-    /// redials, so this side keeps the bounded bootstrap retry
-    /// (``RetryPolicy/bootstrap``) and the path monitor wakes it; once the
-    /// process runs it watches the network itself. Otherwise the
+    /// its process exits), app activation or a person's Reconnect. The link
+    /// process starts at the first attempt and owns everything up to ready (the
+    /// SSH probe, each dial, the network watch), so this side has no timer and
+    /// no network monitor of its own. Otherwise the
     /// first connect and each reconnect are retried with capped backoff
     /// (`DaemonStartup`), and past their budget wait for a network path
     /// change, app activation or the link socket changing.
@@ -346,8 +344,7 @@ public final class DaemonService {
     public func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
                requiredCapabilities: [String] = DaemonCapability.required,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil,
-               stream: (@Sendable () async throws -> String)? = nil, handshake: Duration? = nil, followsLink: Bool = false,
-               linkRunning: (@Sendable () -> Bool)? = nil) {
+               stream: (@Sendable () async throws -> String)? = nil, handshake: Duration? = nil, followsLink: Bool = false) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
         if let handshake { startupDeadline = max(startupDeadline, handshake) }
         let streamEndpoint = stream ?? endpoint
@@ -358,27 +355,27 @@ public final class DaemonService {
         armStartupDeadline()
         observeRetryEvents()
         let wake = retryWake
-        // A link that redials by itself watches the network while its process runs; without one
-        // (unreachable at launch, or a restart after an exit that failed) the network coming
-        // back wakes the attempt here.
-        let monitor = NWPathMonitor()
-        // The first update reports the path as it is at start: no change, so no wake.
-        let reported = Mutex(false)
-        monitor.pathUpdateHandler = { path in
-            let first = reported.withLock { seen in
-                defer { seen = true }
-                return !seen
+        // A link that redials by itself watches the network itself, from its first dial on. Any other
+        // route (a server's socket or bridge, a Cloud ticket) is woken here when the network comes back.
+        if !followsLink {
+            let monitor = NWPathMonitor()
+            // The first update reports the path as it is at start: no change, so no wake.
+            let reported = Mutex(false)
+            monitor.pathUpdateHandler = { path in
+                let first = reported.withLock { seen in
+                    defer { seen = true }
+                    return !seen
+                }
+                if !first, path.status == .satisfied { wake.fire() }
             }
-            if !first, path.status == .satisfied, linkRunning?() != true { wake.fire() }
+            monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
+            pathMonitor = monitor
         }
-        monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
-        pathMonitor = monitor
         let clock = startupClock
         let firstConnect: RetryPolicy = followsLink ? .linkFirstConnect : .firstConnect
         var configuration = DaemonConnection.Configuration(requiredCapabilities: requiredCapabilities,
                                                            retry: followsLink ? .linkReconnect : .reconnect,
                                                            retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
-        configuration.linkRunning = followsLink ? linkRunning : nil
         configuration.echoesPlacementShift = echoesPlacementShift
         configuration.handshakeTimeout = handshake
         let requests = reconnectRequests
@@ -387,8 +384,7 @@ public final class DaemonService {
             // wakeup-allow: each iteration runs a connection to its end, then waits for an event only
             while !Task.isCancelled {
                 let startupFailure = Mutex<DaemonError?>(nil)
-                let connected = await DaemonStartup.shared.connect(policy: firstConnect, wake: wake, clock: clock,
-                                                                linkRunning: configuration.linkRunning) {
+                let connected = await DaemonStartup.shared.connect(policy: firstConnect, wake: wake, clock: clock) {
                     DaemonConnection(configuration: configuration) {
                         // Each attempt, first or reconnect, consumes the explicit reconnects made before it.
                         requests.consume()
@@ -474,18 +470,21 @@ public final class DaemonService {
     }
 
     /// The link reported connected again or its process exited: wakes the waiting attempt, at most
-    /// ``BootstrapRetry/link`` `timedRetries` times until a connection comes up or a person reconnects.
+    /// ``linkWakeLimit`` times until a connection comes up or a person reconnects.
     /// A link process that keeps coming up and exiting before the daemon's handshake would otherwise
     /// wake an attempt each time with no bound. App activation, the network and Reconnect still wake it.
     public func linkWake() {
         if linkWakes.connects != store.connects { linkWakes = (0, store.connects) }
-        guard linkWakes.count < BootstrapRetry.link.timedRetries else {
-            logger.info("\(self.machineID, privacy: .public): link wakes spent; waiting for activation, the network or a reconnect")
+        guard linkWakes.count < Self.linkWakeLimit else {
+            logger.info("\(self.machineID, privacy: .public): link wakes spent; waiting for activation or a reconnect")
             return
         }
         linkWakes.count += 1
         retryWake.fire()
     }
+
+    /// The most link wakes (``linkWake()``) until a connection comes up or a person reconnects.
+    public static let linkWakeLimit = 10
 
     /// Waits for the next retry of an ended or incompatible connection: any event, or when `explicit`
     /// only an explicit reconnect that no attempt consumed yet (``ReconnectRequests``). False when cancelled.

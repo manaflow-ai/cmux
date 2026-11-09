@@ -39085,7 +39085,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Increase Interface Size",
+      "title" : "Increase Text Size",
       "title_key" : "action.appearance.interfaceSize.increase",
       "title_table" : "ActionCatalog"
     },
@@ -39116,7 +39116,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Decrease Interface Size",
+      "title" : "Decrease Text Size",
       "title_key" : "action.appearance.interfaceSize.decrease",
       "title_table" : "ActionCatalog"
     },
@@ -39147,7 +39147,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Reset Interface Size",
+      "title" : "Reset Text Size",
       "title_key" : "action.appearance.interfaceSize.reset",
       "title_table" : "ActionCatalog"
     },
@@ -39185,7 +39185,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Increase Interface Scale",
+      "title" : "Increase App Zoom",
       "title_key" : "action.appearance.uiScale.increase",
       "title_table" : "ActionCatalog"
     },
@@ -39223,7 +39223,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Decrease Interface Scale",
+      "title" : "Decrease App Zoom",
       "title_key" : "action.appearance.uiScale.decrease",
       "title_table" : "ActionCatalog"
     },
@@ -39261,7 +39261,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Reset Interface Scale",
+      "title" : "Reset App Zoom",
       "title_key" : "action.appearance.uiScale.reset",
       "title_table" : "ActionCatalog"
     },
@@ -39540,7 +39540,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Density: Cozy",
+      "title" : "Density: Default",
       "title_key" : "action.appearance.density.cozy",
       "title_table" : "SettingsActions"
     },

@@ -223,6 +223,9 @@ impl SessionJournalReader {
     /// from one snapshot, so a seal that commits between the two reads
     /// cannot hide the records it moved (the registry's own read is atomic
     /// under the connection lock the seal also takes).
+    // The roster and the history feed read through `*_kinds_after`; the open
+    // roster replay PR (#39096) still calls this until it moves there too.
+    #[allow(dead_code, reason = "#39096 reads through it until it moves to the kind-scoped read")]
     pub(crate) fn without_output_after(
         &self,
         sequence: u64,
@@ -1077,6 +1080,33 @@ fn append_resource_journal_record_at(
     Ok(())
 }
 
+/// The registry journal's write budget per kind (`cmux_tui_platform::write_budget`): a kind past
+/// 2 MiB or 1,200 rows an hour, or one whose rows mostly repeat (a ping-pong), is a writer to fix.
+static JOURNAL_BUDGET: std::sync::LazyLock<cmux_tui_platform::write_budget::WriteBudget> =
+    std::sync::LazyLock::new(|| {
+        cmux_tui_platform::write_budget::WriteBudget::new(
+            "registry journal",
+            cmux_tui_platform::write_budget::WriteLimits {
+                bytes: 2 << 20,
+                records: 1_200,
+                repeat_percent: 50,
+                repeat_floor: 50,
+            },
+        )
+    });
+
+/// Counts a journal row against [`JOURNAL_BUDGET`] where budgets count (debug builds, tests,
+/// `CMUX_WRITE_BUDGET=1`), and warns once its kind is over.
+fn note_write_budget(append: &JournalAppend<'_>, payload_json: &str, now_ms: u64) {
+    if !cmux_tui_platform::write_budget::WriteBudget::enabled() {
+        return;
+    }
+    let bytes = payload_json.len() + append.content.map_or(0, <[u8]>::len);
+    if let Some(warning) = JOURNAL_BUDGET.note(append.kind, bytes, append.payload, now_ms) {
+        eprintln!("cmux-tui: {warning}");
+    }
+}
+
 pub(crate) fn append_journal_record(
     transaction: &Transaction<'_>,
     append: &JournalAppend<'_>,
@@ -1098,6 +1128,8 @@ pub(crate) fn append_journal_record(
     );
     let committed_at_ms = unix_epoch_ms()?;
     let subjects_json = canonical_json(&serde_json::to_value(append.subjects)?)?;
+    let payload_json = canonical_json(append.payload)?;
+    note_write_budget(append, &payload_json, committed_at_ms);
     transaction.execute(
         "INSERT INTO session_journal(
            event_id, schema_version, kind, class, replay_policy,
@@ -1127,7 +1159,7 @@ pub(crate) fn append_journal_record(
             i64::from(append.causation_depth),
             &subjects_json,
             append.sensitivity.as_str(),
-            canonical_json(append.payload)?,
+            &payload_json,
             append.content,
             append
                 .resource_revision
@@ -1202,6 +1234,9 @@ impl WorkspaceRegistry {
     /// fixed, so it can be neither an agent-hook nor an agent-plugin event.
     /// Replaying such a reducer through this read costs the other records,
     /// not the output history.
+    // The roster and the history feed read through `*_kinds_after`; the open
+    // roster replay PR (#39096) still calls this until it moves there too.
+    #[allow(dead_code, reason = "#39096 reads through it until it moves to the kind-scoped read")]
     pub(crate) fn session_journal_without_output_after(
         &self,
         sequence: u64,
@@ -1863,6 +1898,52 @@ pub(super) struct DecodedJournalSegment {
     pub(super) records: Vec<SessionJournalRecord>,
 }
 
+/// The records of a `gzip-json-v1` segment, streamed from the gzip reader
+/// into the JSON decoder without a second buffer the size of the segment.
+fn decode_gzip_segment(
+    segment_id: &str,
+    compressed: &[u8],
+    expected_bytes: usize,
+    expected_digest: &[u8],
+) -> anyhow::Result<Vec<SessionJournalRecord>> {
+    // Feed the in-memory slice directly to the buffered decoder so its
+    // returned reader is the exact unread compressed suffix.
+    let decoder = GzDecoder::new(compressed);
+    // Decode directly from the bounded gzip stream. This avoids allocating a
+    // second buffer the size of the complete segment before JSON parsing.
+    let mut reader = BufReader::new(DigestReader::new(
+        decoder.take(u64::try_from(expected_bytes)?.saturating_add(1)),
+    ));
+    let records: Vec<SessionJournalRecord> = serde_json::from_reader(&mut reader)
+        .with_context(|| format!("decode journal segment {segment_id}"))?;
+    // Force the bounded gzip reader to reach EOF. This validates the gzip
+    // trailer even when the JSON decoder stops after the top-level value.
+    let mut trailing = [0u8; 8192];
+    loop {
+        let count = reader.read(&mut trailing)?;
+        if count == 0 {
+            break;
+        }
+        anyhow::ensure!(
+            trailing[..count].iter().all(|byte| matches!(byte, b' ' | b'\n' | b'\r' | b'\t')),
+            "journal segment {segment_id} contains trailing data"
+        );
+    }
+    let (limited_decoder, bytes_read, digest) = reader.into_inner().finish();
+    let decoder = limited_decoder.into_inner();
+    let mut compressed_reader = decoder.into_inner();
+    anyhow::ensure!(
+        compressed_reader.fill_buf()?.is_empty(),
+        "journal segment {segment_id} contains trailing compressed data"
+    );
+    anyhow::ensure!(bytes_read == expected_bytes, "journal segment {segment_id} length is invalid");
+    anyhow::ensure!(
+        digest.as_slice() == expected_digest,
+        "journal segment {segment_id} digest is invalid"
+    );
+    Ok(records)
+}
+
 /// A segment that output cleanup re-encoded keeps its sequence range but
 /// holds fewer records: every missing run must be a pruned range of
 /// `connection` (see `output_cleanup::pruned`). Any other gap is an error.
@@ -1887,7 +1968,10 @@ pub(super) fn decode_journal_segment(
     let start_sequence = u64::try_from(start_sequence)?;
     let end_sequence = u64::try_from(end_sequence)?;
     let record_count = usize::try_from(record_count)?;
-    anyhow::ensure!(codec == "gzip-json-v1", "journal segment {segment_id} codec is invalid");
+    anyhow::ensure!(
+        segment_codec::is_known(&codec),
+        "journal segment {segment_id} codec is invalid"
+    );
     anyhow::ensure!(record_count > 0, "journal segment {segment_id} record count is invalid");
     anyhow::ensure!(
         start_sequence <= end_sequence,
@@ -1898,41 +1982,24 @@ pub(super) fn decode_journal_segment(
         expected_bytes <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
         "journal segment {segment_id} exceeds the uncompressed size limit"
     );
-    // Feed the in-memory slice directly to the buffered decoder so its
-    // returned reader is the exact unread compressed suffix.
-    let decoder = GzDecoder::new(compressed.as_slice());
-    // Decode directly from the bounded gzip stream. This avoids allocating a
-    // second buffer the size of the complete segment before JSON parsing.
-    let mut reader = BufReader::new(DigestReader::new(
-        decoder.take(u64::try_from(expected_bytes)?.saturating_add(1)),
-    ));
-    let mut records: Vec<SessionJournalRecord> = serde_json::from_reader(&mut reader)
-        .with_context(|| format!("decode journal segment {segment_id}"))?;
-    // Force the bounded gzip reader to reach EOF. This validates the gzip
-    // trailer even when the JSON decoder stops after the top-level value.
-    let mut trailing = [0u8; 8192];
-    loop {
-        let count = reader.read(&mut trailing)?;
-        if count == 0 {
-            break;
-        }
+    let mut records = if codec == segment_codec::GZIP_JSON_V1 {
+        decode_gzip_segment(&segment_id, &compressed, expected_bytes, &expected_digest)?
+    } else {
+        // A zstd segment is decoded whole: its JSON is at most 16 MiB, and
+        // the frame's own checks run before a single record is parsed.
+        let json = segment_codec::decode(&codec, &compressed, expected_bytes)
+            .with_context(|| format!("decode journal segment {segment_id}"))?;
         anyhow::ensure!(
-            trailing[..count].iter().all(|byte| matches!(byte, b' ' | b'\n' | b'\r' | b'\t')),
-            "journal segment {segment_id} contains trailing data"
+            json.len() == expected_bytes,
+            "journal segment {segment_id} length is invalid"
         );
-    }
-    let (limited_decoder, bytes_read, digest) = reader.into_inner().finish();
-    let decoder = limited_decoder.into_inner();
-    let mut compressed_reader = decoder.into_inner();
-    anyhow::ensure!(
-        compressed_reader.fill_buf()?.is_empty(),
-        "journal segment {segment_id} contains trailing compressed data"
-    );
-    anyhow::ensure!(bytes_read == expected_bytes, "journal segment {segment_id} length is invalid");
-    anyhow::ensure!(
-        digest.as_slice() == expected_digest.as_slice(),
-        "journal segment {segment_id} digest is invalid"
-    );
+        anyhow::ensure!(
+            Sha256::digest(&json).as_slice() == expected_digest.as_slice(),
+            "journal segment {segment_id} digest is invalid"
+        );
+        serde_json::from_slice::<Vec<SessionJournalRecord>>(&json)
+            .with_context(|| format!("decode journal segment {segment_id}"))?
+    };
     for record in &mut records {
         normalize_terminal_output(record, None)
             .with_context(|| format!("validate journal segment {segment_id}"))?;
@@ -2530,6 +2597,9 @@ mod tests;
 
 mod actors;
 mod digest_reader;
+pub(crate) mod kind_read;
+#[cfg(test)]
+pub(crate) mod kind_read_tests;
 use digest_reader::DigestReader;
 #[cfg(test)]
 mod actor_tests;
@@ -2557,16 +2627,28 @@ impl RegistryConnection {
         cursor: u64,
         snapshot: &str,
     ) -> anyhow::Result<()> {
-        let value = serde_json::json!({
-            "version": version,
-            "cursor": cursor.to_string(),
-            "snapshot": snapshot,
-        });
-        self.get().execute(
-            "INSERT INTO meta(key, value) VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![format!("journal_reducer.{reducer_id}"), value.to_string()],
-        )?;
-        Ok(())
+        write_journal_reducer_state(&self.get(), reducer_id, version, cursor, snapshot)
     }
+}
+
+/// The `meta` row of a reducer's fold position and snapshot, written on
+/// `connection` (the registry's own, or the synthetic registry writer's).
+pub(crate) fn write_journal_reducer_state(
+    connection: &Connection,
+    reducer_id: &str,
+    version: u32,
+    cursor: u64,
+    snapshot: &str,
+) -> anyhow::Result<()> {
+    let value = serde_json::json!({
+        "version": version,
+        "cursor": cursor.to_string(),
+        "snapshot": snapshot,
+    });
+    connection.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![format!("journal_reducer.{reducer_id}"), value.to_string()],
+    )?;
+    Ok(())
 }
