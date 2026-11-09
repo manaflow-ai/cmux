@@ -557,6 +557,51 @@ fn the_connect_log_is_only_appended_and_stops_at_its_cap() {
 }
 
 #[test]
+fn the_desktop_link_takes_the_answer_s_turn_relays_over_udp() {
+    let mut value = answer_value();
+    value["rd_link"] = json!({
+        "stun": ["stun.example.net:3478"],
+        "turn": [
+            {"addr": "turn.example.net:3478", "username": "u1", "password": "p1"},
+            {"addr": "turn.example.net:53", "username": "u1"},
+            {"addr": "not a server", "username": "u", "password": "p"},
+            {"addr": "turn.example.net:0", "username": "u", "password": "p"},
+            {"addr": "turn.example.net:3479", "username": "", "password": "p"},
+            "turn:turn.example.net:3478",
+        ],
+    });
+    let link = parse_answer(&value).unwrap().rd_link.unwrap();
+    assert_eq!(link.stun, ["stun.example.net:3478"]);
+    let addrs: Vec<&str> = link.turn.iter().map(|t| t.addr.as_str()).collect();
+    assert_eq!(addrs, ["turn.example.net:3478"], "only whole, well-formed relays");
+    assert_eq!((link.turn[0].username.as_str(), link.turn[0].password.as_str()), ("u1", "p1"));
+    let answer = parse_answer(&value).unwrap();
+    assert!(!format!("{answer:?}").contains("p1"), "Debug never shows a relay password");
+
+    // At most four, and an answer without `turn` (the platform before relays) keeps STUN alone.
+    let many: Vec<Value> = (0..6)
+        .map(
+            |i| json!({"addr": format!("t{i}.example.net:3478"), "username": "u", "password": "p"}),
+        )
+        .collect();
+    value["rd_link"] = json!({"stun": [], "turn": many});
+    assert_eq!(parse_answer(&value).unwrap().rd_link.unwrap().turn.len(), 4);
+    value["rd_link"] = json!({"stun": ["stun.example.net:3478"]});
+    assert!(parse_answer(&value).unwrap().rd_link.unwrap().turn.is_empty());
+
+    // A credential of up to 512 bytes is kept; one byte longer drops the relay.
+    let relay = |user: &str, pass: &str| json!({"stun": [], "turn": [{"addr": "turn.example.net:3478", "username": user, "password": pass}]});
+    let long = "x".repeat(512);
+    value["rd_link"] = relay(&long, &long);
+    assert_eq!(parse_answer(&value).unwrap().rd_link.unwrap().turn.len(), 1);
+    let longer = "x".repeat(513);
+    for (user, pass) in [(longer.as_str(), "p"), ("u", longer.as_str())] {
+        value["rd_link"] = relay(user, pass);
+        assert!(parse_answer(&value).unwrap().rd_link.unwrap().turn.is_empty(), "513 bytes");
+    }
+}
+
+#[test]
 fn a_handed_over_answer_is_a_checked_answer_with_a_grant() {
     let line = json!({ "carrier_answer": answer_value() }).to_string();
     match stdin_line(line.as_bytes()) {

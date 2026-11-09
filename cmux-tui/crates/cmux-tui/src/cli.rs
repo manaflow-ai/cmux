@@ -47,6 +47,8 @@ mod billing;
 mod caller_browser;
 mod capability_cache;
 #[cfg(unix)]
+mod chat_cd;
+#[cfg(unix)]
 mod chat_send;
 #[cfg(unix)]
 mod chat_start;
@@ -137,8 +139,9 @@ mod machine_join;
 mod machine_link;
 #[cfg(unix)]
 pub(crate) use machine_join::{
-    CallError as PlatformCallError, Platform, device_credential as joined_machine_credential,
-    platform_origin, rows_for_devices as joined_machine_rows,
+    Auth as PlatformAuth, CallError as PlatformCallError, Platform,
+    device_credential as joined_machine_credential, platform_origin,
+    read_credential as read_platform_credential, rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
 #[cfg(test)]
@@ -614,6 +617,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     // wherever it runs (chat_send.rs); `chat send --to` stays the message below.
     #[cfg(unix)]
     if let Some(code) = chat_send::run_if_requested(args) {
+        return code;
+    }
+    // `chat cd SESSION DIR|--repo R`: a Cloud chat goes on in another folder (chat_cd.rs).
+    #[cfg(unix)]
+    if let Some(code) = chat_cd::run_if_requested(args) {
         return code;
     }
     // `chat send` from a coding agent is the agent's message, not the owner's

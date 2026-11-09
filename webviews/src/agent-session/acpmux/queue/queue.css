@@ -9,11 +9,11 @@
 .wq-link:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .wq-list{flex:1;min-height:0;overflow-y:auto;margin-top:var(--ds-space-2);display:flex;flex-direction:column;outline:none}
 .wq-rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
-.wq-row{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows var(--cmux-motion-settle,265ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1)),opacity var(--cmux-motion-settle,265ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1));cursor:default;content-visibility:auto;contain-intrinsic-size:auto 56px}
+.wq-row{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows var(--cmux-motion-settle,180ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1)),opacity var(--cmux-motion-settle,180ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1));cursor:default;content-visibility:auto;contain-intrinsic-size:auto 56px}
 .wq-row[data-leaving]{grid-template-rows:0fr;opacity:0;pointer-events:none}
 /* Fill backwards only: once it has run the row's own styles rule again, so an answered row that
    entered late still collapses ([data-leaving]); a row answered while entering drops it. */
-.wq-row[data-enters]:not([data-leaving]){animation:wq-enter var(--cmux-motion-settle,265ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1)) backwards}
+.wq-row[data-enters]:not([data-leaving]){animation:wq-enter var(--cmux-motion-settle,180ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1)) backwards}
 @keyframes wq-enter{from{grid-template-rows:0fr;opacity:0}to{grid-template-rows:1fr;opacity:1}}
 .wq-row-inner{min-height:0;overflow:hidden;display:flex;gap:var(--ds-space-3);padding:var(--ds-space-2) var(--ds-space-3);margin-bottom:var(--ds-space-1);border-radius:var(--radius-control)}
 .wq-row[data-selected] .wq-row-inner{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 10%,transparent)}
@@ -34,7 +34,7 @@
 .wq-reason[data-reason="blocksTurn"]{background:color-mix(in srgb,var(--warning,var(--agent-text)) 14%,transparent);color:var(--agent-text)}
 .wq-detail{font-size:var(--text-detail);color:var(--agent-muted);white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
 .wq-detail[data-plan]{-webkit-line-clamp:4;padding:var(--ds-space-2);border-radius:var(--radius-control);background:color-mix(in srgb,var(--agent-text) 4%,transparent);color:var(--agent-text)}
-.wq-answers{display:flex;flex-wrap:wrap;gap:var(--ds-space-2);opacity:0;visibility:hidden;transition:opacity var(--cmux-motion-settle,265ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1))}
+.wq-answers{display:flex;flex-wrap:wrap;gap:var(--ds-space-2);opacity:0;visibility:hidden;transition:opacity var(--cmux-motion-settle,180ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1))}
 .wq-answers[data-shown]{opacity:1;visibility:visible}
 .wq-button{display:inline-flex;align-items:center;gap:var(--ds-space-1);height:24px;padding:0 var(--ds-space-2);border-radius:var(--radius-control);border:0;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-detail)}
 .wq-button:hover{background:color-mix(in srgb,var(--agent-text) 11%,transparent)}
@@ -42,9 +42,16 @@
 .wq-button[data-tone="deny"]{color:var(--danger)}
 .wq-button:disabled{opacity:.5}
 .wq-failure{font-size:var(--text-detail);color:var(--danger)}
+.wq-comment{display:flex;flex-direction:column;gap:var(--ds-space-2)}
+.wq-comment-field{resize:vertical;padding:var(--ds-space-2);border:0;border-radius:var(--radius-control);background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-body);line-height:var(--text-body--line-height)}
+.wq-comment-field:focus{outline:none;background:color-mix(in srgb,var(--agent-text) 9%,transparent)}
+.wq-comment-actions{display:flex;justify-content:flex-end;gap:var(--ds-space-2)}
 .wq-status{flex:none;display:flex;align-items:center;gap:var(--ds-space-2);min-height:var(--text-body--line-height);padding:var(--ds-space-2) var(--ds-space-3);font-size:var(--text-detail);color:var(--agent-muted)}
 .wq-foot{flex:none;display:flex;align-items:center;gap:var(--ds-space-3);padding:var(--ds-space-2) var(--ds-space-3) 0}
 .wq-keys{flex:1;display:flex;flex-wrap:wrap;gap:var(--ds-space-4);font-size:var(--text-detail);color:var(--agent-muted)}
 .wq-keys span{display:inline-flex;align-items:center;gap:var(--ds-space-1)}
 .wq-notice{flex:none;min-height:var(--text-body--line-height);font-size:var(--text-detail);color:var(--agent-muted)}
 .wq-notice[data-tone="error"]{color:var(--danger)}
+/* A comment that reached neither the chat nor the clipboard: whole, selectable, never taller than a few lines. */
+.wq-notice-detail{display:block;max-height:calc(var(--text-body--line-height) * 4);overflow:auto;white-space:pre-wrap;color:var(--agent-text);user-select:text}
+.wq-unsent{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:var(--ds-space-1);font-size:var(--text-detail);color:var(--danger)}

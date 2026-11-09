@@ -171,6 +171,10 @@ impl Hub {
             peer.set_link_host(host);
         }
         peer.set_last_good(self.peer_paths.clone());
+        // A plain ssh machine found to be a paired install on an earlier run keeps the cmux
+        // link as its backup path (`peer_overlay.rs`), before its first dial.
+        peer.set_explicit_route(pc.names_route());
+        peer.recall_overlay();
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
@@ -1050,6 +1054,28 @@ impl Hub {
                 {
                     self.peer_accepts.accepted(&peer, &params);
                 }
+                // The link attached one of its chats again without history (a reconnect that had
+                // no replay cursor for it): its clients here read on from their own last record.
+                // Only that chat's: the link dropped nothing else, and the copy (`peer_snapshot.rs`)
+                // takes none of the new link's records until a page joins it anyway.
+                PeerNotice::Notification { method: m, params, .. }
+                    if m == crate::peer::REATTACHED_NOTICE =>
+                {
+                    let Some(id) = params.get("sessionId").and_then(Value::as_str) else { return };
+                    let _ = self.events.send(HubEvent {
+                        session_id: id.to_owned(),
+                        record: Arc::new(EventRecord {
+                            seq: 0,
+                            at: now_ms(),
+                            dir: "peer".into(),
+                            kind: PEER_LAGGED.into(),
+                            msg: json!({"sessionIds": [id], "reason": "peer_reattached"}),
+                            host_seq: None,
+                        }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                        update_line: Default::default(),
+                    });
+                }
                 PeerNotice::Notification { method: m, params, link } if m == "_acpmux/lagged" => {
                     // This link's live records have a hole now: none of it is kept until a page
                     // (`peer_snapshot.rs`). A copy a later link's page joined is not this link's.
@@ -1092,7 +1118,7 @@ impl Hub {
                         .find_mux(&peer, &id)
                         .map(|(_, r)| r.summary.clone())
                         .unwrap_or(Value::Null);
-                    let record = match m.as_str() {
+                    let mut record = match m.as_str() {
                         method::SESSION_UPDATE => EventRecord {
                             seq: params
                                 .pointer("/_meta/acpmux/seq")
@@ -1190,6 +1216,22 @@ impl Hub {
                         },
                         _ => return,
                     };
+                    // A suggestion of the peer's chat reaches the person through their own
+                    // tally and switch, not the peer's (`suggestion_gate::regate_relayed`).
+                    if record.dir == "in"
+                        && record.kind == "prompt_suggestion"
+                        && let Some(update) = record.msg.pointer_mut("/params/update")
+                    {
+                        let harness = summary.get("harness").and_then(Value::as_str).unwrap_or("");
+                        crate::suggestion_gate::regate_relayed(
+                            &self.suggestion_gate,
+                            &peer,
+                            &id,
+                            harness,
+                            update,
+                            crate::claude_stdio::prompt_suggestions::enabled_in_settings(),
+                        );
+                    }
                     self.capture_peer_record((&peer, generation, link), &id, &summary, &record);
                     let _ = self.events.send(HubEvent {
                         session_id: id,

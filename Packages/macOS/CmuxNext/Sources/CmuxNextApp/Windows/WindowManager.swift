@@ -382,6 +382,8 @@ final class WindowManager {
         restored.recency.first { id in restored.window(id).map { $0.isOpen && hasMirroredWorkspace($0) } == true }
     }
 
+    func restoresSession(_ id: String) -> Bool { registry.restoresSession(id, launchWindow: launchWindowID, saved: previousLaunch?.windowIDs) }
+
     // MARK: Controllers
 
     /// Creates the controller of registered window `id`.
@@ -395,7 +397,7 @@ final class WindowManager {
             placedWindows += 1
         }
         let controller = WindowController(state: state, services: services, frame: frame)
-        controller.window?.animationBehavior = Motion.panes.windowOpenBehavior(restoring: registry.isLaunching || !restored) // REOPEN-F2: a restore shows in place, never AppKit's zoom
+        controller.window?.animationBehavior = Motion.panes.windowOpenBehavior(restoring: restoresSession(window.id)) // REOPEN-F2: a restore shows in place; a new window opens like one (#38128)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         services.dragSession.installWorkspaceHandoff(on: controller)

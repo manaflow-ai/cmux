@@ -379,7 +379,10 @@ async fn a_hub_that_ends_by_itself_restarts_after_a_fresh_read() {
         assert!(tokio::time::Instant::now() < deadline, "a second hub in time");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    assert_eq!(rig.vm.requests("/signed/tunnel").len(), 1);
+    // The crash counts as a failure, so the restarted hub may read once more
+    // on the retry backoff (milliseconds here); a read loop would pass 2.
+    let reads = rig.vm.requests("/signed/tunnel").len();
+    assert!((1..=2).contains(&reads), "a fresh read before the restart, no loop: {reads}");
     assert_eq!(rig.platform.requests("/attach").len(), 2, "no re-attach for a crash");
     handle.stop().await;
 }
@@ -601,4 +604,166 @@ async fn the_supervisor_lock_is_its_own_private_file_not_the_hubs_socket_lock() 
     let file = File::create(&hub_lock).unwrap();
     assert!(file.try_lock().is_ok(), "the supervisor must not hold the hub's lock");
     handle.stop().await;
+}
+
+#[tokio::test]
+async fn a_changed_read_ends_the_failure_streak() {
+    let mut timing = quick();
+    timing.refresh_every = Duration::from_millis(20);
+    timing.max_failures = 8;
+    let mut rig = rig("streak", timing).await;
+    rig.platform.answer("/attach", vec![mesh_only(), enrolled(&rig.wg_public, "gw.example:51820")]);
+    let down = (503, json!({"code": "unavailable"}));
+    let mut reads = vec![down.clone(); 7];
+    reads.push(tunnel_read("gw2.example"));
+    reads.push(down);
+    reads.push(tunnel_read("gw2.example"));
+    rig.vm.answer("/signed/tunnel", reads);
+    let handle = start(rig.plan.take().unwrap()).unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while rig.vm.requests("/signed/tunnel").len() < 11 {
+        assert!(tokio::time::Instant::now() < deadline, "eleven reads in time");
+        assert!(!handle.status().borrow().is_final(), "{:?}", *handle.status().borrow());
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    wait_status(&handle, |s| matches!(s, TunnelStatus::Ready { .. })).await;
+    assert_eq!(rig.hubs.configs.lock().unwrap().len(), 2, "one restart, for the changed read");
+    assert_eq!(rig.platform.requests("/attach").len(), 2);
+    assert_eq!(handle.stop().await, TunnelStatus::Stopped);
+}
+
+/// A VM API that takes every read and never answers; each read is counted.
+async fn stalling() -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = Arc::clone(&hits);
+    let app = axum::Router::new().fallback(move || {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        std::future::pending::<StatusCode>()
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (origin, hits)
+}
+
+#[tokio::test]
+async fn stop_during_a_stalled_read_stops_the_hub_and_ends_stopped() {
+    let mut timing = quick();
+    timing.refresh_every = Duration::from_millis(20);
+    let mut rig = rig("stalled", timing).await;
+    rig.platform.answer("/attach", vec![mesh_only(), enrolled(&rig.wg_public, "gw.example:51820")]);
+    let (origin, hits) = stalling().await;
+    let mut plan = rig.plan.take().unwrap();
+    plan.vm_api = origin;
+    let handle = start(plan).unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while hits.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+        assert!(tokio::time::Instant::now() < deadline, "a read in flight");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let stopped = tokio::time::timeout(Duration::from_secs(2), handle.stop()).await;
+    assert_eq!(stopped.expect("stop cancels the read"), TunnelStatus::Stopped);
+    assert_eq!(*rig.hubs.stopped.lock().unwrap(), 1);
+}
+
+/// A stop while the hub has not answered yet drops its launch: the owner
+/// still ends a child that ignores SIGTERM, with SIGKILL after the grace.
+#[tokio::test]
+async fn a_stop_before_hub_ready_kills_a_hub_that_ignores_sigterm() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = socket_path("prehub").parent().unwrap().to_path_buf();
+    let pid_file = dir.join("hub.pid");
+    let script = dir.join("stubborn-hub");
+    std::fs::write(
+        &script,
+        format!("#!/bin/sh\ntrap '' TERM\necho $$ > {}\nexec sleep 60\n", pid_file.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut launcher = ProcessHubLauncher::new(script).unwrap();
+    launcher.kill_after = Duration::from_millis(200);
+    let config = Zeroizing::new(String::from("unused\n"));
+    // The stop: the launch is dropped before the hub says it is ready.
+    let socket = dir.join("hub.sock");
+    let launch = launcher.launch(config, &socket);
+    assert!(tokio::time::timeout(Duration::from_millis(500), launch).await.is_err());
+    let pid: libc::pid_t = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    // SAFETY: signal 0 only asks whether `pid` exists; it is reaped by the
+    // owner thread, after which it no longer does.
+    while unsafe { libc::kill(pid, 0) } == 0 {
+        assert!(tokio::time::Instant::now() < deadline, "the abandoned hub was not killed");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// A child whose exit-event wait fails: it records what the owner did.
+struct NoEventChild {
+    log: Arc<Mutex<Vec<&'static str>>>,
+    /// The errno of the failed waits.
+    errno: i32,
+    /// Whether `try_wait` fails too (it runs when the owner is asked to stop).
+    try_wait_fails: bool,
+}
+
+impl HubChild for NoEventChild {
+    fn id(&self) -> u32 {
+        0
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        if !self.try_wait_fails {
+            return Ok(None);
+        }
+        self.log.lock().unwrap().push("try_wait");
+        Err(std::io::Error::from_raw_os_error(self.errno))
+    }
+    fn wait_timeout(&mut self, _: Duration) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.log.lock().unwrap().push("wait_timeout");
+        Err(std::io::Error::from_raw_os_error(self.errno))
+    }
+    fn kill(&mut self) -> std::io::Result<()> {
+        self.log.lock().unwrap().push("kill");
+        Ok(())
+    }
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        self.log.lock().unwrap().push("wait");
+        use std::os::unix::process::ExitStatusExt as _;
+        Ok(std::process::ExitStatus::from_raw(libc::SIGKILL))
+    }
+}
+
+#[test]
+fn a_failed_exit_wait_kills_and_reaps_the_hub_before_it_is_ended() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let (requests, asked) = std::sync::mpsc::channel();
+    let (done, mut ended) = watch::channel(None);
+    let child = NoEventChild { log: Arc::clone(&log), errno: libc::EMFILE, try_wait_fails: false };
+    std::thread::spawn(move || own_hub(child, asked, done, Duration::from_secs(5))).join().unwrap();
+    drop(requests);
+    assert_eq!(*log.lock().unwrap(), ["wait_timeout", "kill", "wait"]);
+    let why = ended.borrow_and_update().clone().expect("ended after the reap");
+    assert!(why.contains("after"), "{why}");
+}
+
+/// `ECHILD`: the hub was reaped elsewhere, so its pid may be another
+/// process's by now. The owner reports it ended and never signals it, from
+/// the exit-event wait or from a stop's `try_wait`.
+#[test]
+fn a_hub_reaped_elsewhere_is_ended_without_a_signal() {
+    for try_wait_fails in [false, true] {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let (requests, asked) = std::sync::mpsc::channel();
+        // A dropped sender is a stop: the owner's `try_wait` runs first.
+        let kept = (!try_wait_fails).then_some(requests);
+        let (done, mut ended) = watch::channel(None);
+        let child = NoEventChild { log: Arc::clone(&log), errno: libc::ECHILD, try_wait_fails };
+        std::thread::spawn(move || own_hub(child, asked, done, Duration::from_secs(5)))
+            .join()
+            .unwrap();
+        drop(kept);
+        let first = if try_wait_fails { "try_wait" } else { "wait_timeout" };
+        assert_eq!(*log.lock().unwrap(), [first], "no kill, no wait");
+        let why = ended.borrow_and_update().clone().expect("ended");
+        assert!(why.contains("reaped elsewhere"), "{why}");
+    }
 }

@@ -206,6 +206,7 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     }
     let removed = remove_local(&home, copy).map_err(|_| store_error())?;
     let daemon = tokio::time::timeout(
+        // timeout: a daemon that never answers is reported not running; the leave is done.
         std::time::Duration::from_secs(2),
         crate::client::Client::connect(&crate::config::socket_path()),
     )

@@ -542,7 +542,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         let websocket = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok());
         // The carrier runs only on the lock the WireGuard transport holds; it never takes its own.
         let held = wireguard.as_ref().and_then(|transport| transport.key_holder());
-        crate::hub_carrier::start_configured(&hub, &home(), websocket, held).await
+        let serving = crate::hub_carrier::start_configured(&hub, &home(), websocket, held).await;
+        // A rekey (`machine_tunnel.rs`) rotates the node key under the carrier: it takes the new
+        // key with the key file and registers again, rather than reading it as replaced.
+        if let (Some(transport), Some(carrier)) = (wireguard.as_ref(), hub.hub_carrier.get()) {
+            let carrier = carrier.clone();
+            transport.add_key_user(Arc::new(move |private, write| carrier.rekey(*private, write)));
+        }
+        serving
     };
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));

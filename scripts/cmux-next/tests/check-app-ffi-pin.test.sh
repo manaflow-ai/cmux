@@ -4,7 +4,13 @@
 #    FFI input (cmux-rd-ffi pulls cmux-remote-browser; a change there left the
 #    pin "current" on 2026-10-07, cf25b525a03b), and an unrelated crate is not;
 #  - a checkout without an `origin` remote (a fleet ci-step worktree, step
-#    6e04059b590e) still fetches the pinned source sha.
+#    6e04059b590e) still fetches the pinned source sha;
+#  - a module a change adds beside the pin reader (scripts/ci/json.py) or at
+#    the repository root (json.py) does not change the verdict: every python3
+#    the check runs is isolated (-I), so neither the script's directory nor the
+#    working directory is on its import path. base_red_excuse.py trusts the
+#    verdict of a PR that leaves the check's files alone, and a new file is not
+#    one of them.
 set -euo pipefail
 
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/check-app-ffi-pin.sh"
@@ -56,6 +62,52 @@ echo "// changed" >> "$repo/cmux-tui/crates/cmux-unrelated/src/lib.rs"
 git -C "$repo" commit -qam unrelated
 out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" || fail "an unrelated crate made the pin stale: $out"
 
+# --verify-release reads the release-assets API's answer with python3 -c from
+# the repository root. A json.py there does not change that verdict. curl is a
+# fake: the release download fails, so the API is asked, and it names a release
+# whose SOURCE_SHA is not the pinned sha.
+zeros="$(printf '0%.0s' {1..64})"
+mkdir -p "$tmp/bin"
+cat > "$tmp/bin/curl" <<CURL
+#!/usr/bin/env bash
+out="" url=""
+while [[ \$# -gt 0 ]]; do
+  case "\$1" in
+    -o) out="\$2"; shift ;;
+    -H|--connect-timeout|--max-time|--retry|--retry-delay) shift ;;
+    http*) url="\$1" ;;
+  esac
+  shift
+done
+case "\$url" in
+  https://github.com/*/releases/download/*) exit 22 ;;
+  https://api.github.com/repos/*/releases/tags/*)
+    body='{"assets": [{"name": "SOURCE_SHA", "url": "https://assets.invalid/served/SOURCE_SHA"}, {"name": "SHA256SUMS", "url": "https://assets.invalid/served/SHA256SUMS"}]}' ;;
+  https://assets.invalid/served/SOURCE_SHA) body="$(printf 'f%.0s' {1..40})" ;;
+  https://assets.invalid/planted/SOURCE_SHA) body="$pinned" ;;
+  https://assets.invalid/*/SHA256SUMS) body="$zeros  CCmuxAppFFI.xcframework.zip" ;;
+  *) exit 6 ;;
+esac
+if [[ -n "\$out" ]]; then echo "\$body" > "\$out"; else echo "\$body"; fi
+CURL
+chmod +x "$tmp/bin/curl"
+verify() { (cd "$repo" && PATH="$tmp/bin:$PATH" bash scripts/cmux-next/check-app-ffi-pin.sh --verify-release "$@" 2>&1); }
+if out="$(verify)"; then
+  fail "a release whose SOURCE_SHA is not the pin passed --verify-release: $out"
+fi
+[[ "$out" == *"is not the pinned sha $pinned"* ]] || fail "the release-assets API path did not report the SOURCE_SHA: $out"
+cat > "$repo/json.py" <<'PY'
+import sys
+def load(stream):
+    stream.read()
+    return {"assets": [{"name": sys.argv[1], "url": "https://assets.invalid/planted/" + sys.argv[1]}]}
+PY
+if out="$(verify)"; then
+  fail "a json.py at the repository root changed the --verify-release verdict: $out"
+fi
+[[ "$out" == *"is not the pinned sha $pinned"* ]] || fail "a root json.py changed the --verify-release report: $out"
+rm -f "$repo/json.py"
+
 # A no-origin checkout (shallow, as a fleet step) fetches the pinned sha from
 # CMUX_APP_FFI_PIN_REMOTE.
 fleet="$tmp/fleet"
@@ -69,6 +121,7 @@ out="$(cd "$fleet" && CMUX_APP_FFI_PIN_REMOTE="file://$repo" bash scripts/cmux-n
 # A crate reached only through cmux-rd-ffi's path dependencies is an input.
 echo "// rb client" >> "$repo/cmux-tui/crates/cmux-remote-browser/src/lib.rs"
 git -C "$repo" commit -qam rb
+rb="$(git -C "$repo" rev-parse HEAD)"
 if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
   fail "a cmux-remote-browser change kept the pin current: $out"
 fi
@@ -81,5 +134,42 @@ if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
   fail "a non-canonical pin passed: $out"
 fi
 [[ "$out" == *"no canonical cmux-app-ffi pin"* ]] || fail "the non-canonical report does not say so: $out"
+
+# A json.py beside the pin reader does not change the verdict. Without -I it
+# is imported first: this one prints a pin naming HEAD, so the stale sources
+# would read as current.
+git -C "$repo" checkout -q -f "$rb"
+rm -f "$repo/Packages/macOS/CmuxNext/Package.swift.bak"
+shadow() { # shadow SHA: scripts/ci/json.py makes the pin reader print SHA as the pin
+  printf 'import sys\nsys.stdout.write("%s %s\\n")\nsys.exit(0)\n' "$1" "$zeros" > "$repo/scripts/ci/json.py"
+}
+shadow "$rb"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+  fail "a scripts/ci/json.py made a stale pin read as current: $out"
+fi
+[[ "$out" == *"cmux-remote-browser"* ]] || fail "a scripts/ci/json.py changed the stale report: $out"
+rm -f "$repo/scripts/ci/json.py"
+
+# The --base read (the base's Package.swift through the pin reader) is isolated
+# too. The base pins the current sources ($rb) and the change moves the pin
+# back to the stale $pinned: its own red. A json.py that reads every pin as
+# $pinned would make it base drift, which passes.
+pin_to() { # pin_to SHA MESSAGE
+  sed -i.bak -E "s/cmux-app-ffi-[0-9a-f]{40}/cmux-app-ffi-$1/" "$repo/Packages/macOS/CmuxNext/Package.swift"
+  rm -f "$repo/Packages/macOS/CmuxNext/Package.swift.bak"
+  git -C "$repo" commit -qam "$2"
+}
+pin_to "$rb" base
+pin_to "$pinned" "pin back"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh --base HEAD~1 2>&1)"; then
+  fail "moving the pin back to a stale release passed against its base: $out"
+fi
+[[ "$out" == *"changed since the pinned source $pinned"* ]] || fail "no stale report for the moved pin: $out"
+shadow "$pinned"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh --base HEAD~1 2>&1)"; then
+  fail "a scripts/ci/json.py made the change's own stale pin base drift: $out"
+fi
+[[ "$out" == *"changed since the pinned source $pinned"* ]] || fail "a scripts/ci/json.py changed the --base report: $out"
+rm -f "$repo/scripts/ci/json.py"
 
 echo "check-app-ffi-pin.test.sh: ok"
