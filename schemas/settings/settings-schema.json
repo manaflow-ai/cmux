@@ -600,11 +600,14 @@
               "sidebar.topBandMaxShare",
               "sidebar.bottomBandMaxShare",
               "sidebar.pinnedBandsScroll",
+              "sidebar.noFade",
+              "sidebar.controlsOnHover",
               "sidebar.minimal",
               "sidebar.style",
               "sidebar.density",
               "sidebar.textSize",
               "workspaceColors.indicatorStyle",
+              "sidebar.minimalMode",
               "sidebar.side"
             ],
             "title" : {
@@ -614,19 +617,6 @@
           },
           {
             "key" : "appearance.9",
-            "rows" : [
-              "sidebar.noFade",
-              "sidebar.controlsOnHover",
-              "sidebar.floatOnHover",
-              "sidebar.minimalMode"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.sidebarVisibility",
-              "text" : "Sidebar Visibility"
-            }
-          },
-          {
-            "key" : "appearance.10",
             "rows" : [
               "workspaces.newPlacement",
               "workspaces.autoName",
@@ -650,13 +640,14 @@
             }
           },
           {
-            "key" : "appearance.11",
+            "key" : "appearance.10",
             "rows" : [
               "sidebar.workspacesAsTabs",
               "sidebar.chromeGroups",
               "sidebar.sideBySide",
               "sidebar.groupPalette",
-              "sidebar.groupGradient"
+              "sidebar.groupGradient",
+              "sidebar.floatOnHover"
             ],
             "title" : {
               "key" : "settings.pageGroup.sidebarLayout",
@@ -664,7 +655,7 @@
             }
           },
           {
-            "key" : "appearance.12",
+            "key" : "appearance.11",
             "rows" : [
               "sidebar.showSpaces",
               "sidebar.spacesPosition",
@@ -683,7 +674,7 @@
             }
           },
           {
-            "key" : "appearance.13",
+            "key" : "appearance.12",
             "rows" : [
               "sidebar.hoverCards.enabled",
               "sidebar.hoverCards.delay",
@@ -701,7 +692,7 @@
             }
           },
           {
-            "key" : "appearance.14",
+            "key" : "appearance.13",
             "rows" : [
               "sidebar.hoverCards.groups.workspaceGroups",
               "sidebar.hoverCards.groups.tabGroups",
@@ -783,7 +774,7 @@
             }
           },
           {
-            "key" : "appearance.18",
+            "key" : "appearance.17",
             "rows" : [
               "appearance.surfaces.sidebar.color",
               "appearance.surfaces.sidebar.opacity",
@@ -802,7 +793,7 @@
             }
           },
           {
-            "key" : "appearance.19",
+            "key" : "appearance.18",
             "rows" : [
               "appearance.surfaces.diff.color",
               "appearance.surfaces.diff.opacity",
