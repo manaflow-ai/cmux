@@ -7,7 +7,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { phaseAgents, tally } from "./foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "./workflow";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import { WorkflowAgentRow } from "../session-info/WorkflowTasks";
 import { StopButton } from "../session-info/TasksSection";
 import "./WorkflowSideTab.css";

@@ -11,7 +11,9 @@ import Testing
 /// FUCKING SMALL THIS IS SHIT ASS SPACING WHY NOT JUST LEFT ALIGN THE TEXT PUT A BIGGER SYMBOL ON
 /// THE RIGHT" / "ALSO CENTER THE FUCKING BUTTON ON THE RIGHT VERTICALLY". The downloading card's
 /// text starts at the card's padding, a bigger cancel sits on the right, vertically centred, and
-/// the cancel stops the download and puts the found update back on the card.
+/// the cancel stops the download and puts the found update back on the card. Lawrence 2026-11-07
+/// moved the cancel to a quiet "Cancel" on the title's row, so the bar spans the card
+/// (``UpdateCardProgressWidthTests``).
 @MainActor @Suite(.serialized) struct UpdateDownloadCancelTests {
     static let mb: UInt64 = 1_000_000
     static let downloading = UpdateIndicatorPhase.downloading(.downloading(received: 62 * mb, expected: 250 * mb))
@@ -28,21 +30,19 @@ import Testing
         #expect(UpdateCard.downloading(.preparing(0.5)).presentation(version: "1.0.0", build: "100").trailing == nil)
     }
 
-    @Test func theTextIsLeftAlignedAndTheCancelIsBigAndVerticallyCentred() throws {
+    @Test func theTextIsLeftAlignedAndTheCancelSitsAtTheTopRight() throws {
         let shown = UpdateCard.downloading(.downloading(received: 62 * Self.mb, expected: 250 * Self.mb))
             .presentation(version: "1.0.0", build: "100")
         let notice = SidebarCardFeed.notice(shown, asked: true)
         let card = SidebarNoticeCardView(motionPolicy: { MotionPolicy(speed: .fast, reduceMotion: true) })
-        card.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: notice))
+        card.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: notice, width: 240))
         card.configure(notice)
         card.layoutSubtreeIfNeeded()
         let pad = Metrics.space3
         #expect(card.titleLabel.frame.minX == pad, "the title is indented: \(card.titleLabel.frame)")
         let button = card.trailingButton
         #expect(!button.isHidden)
-        #expect(abs(button.frame.midY - card.bounds.midY) <= 0.5, "the cancel is not vertically centred: \(button.frame) in \(card.bounds)")
-        #expect(abs(button.frame.maxX - (card.bounds.width - pad)) <= 0.5, "the cancel is off the right padding: \(button.frame)")
-        #expect(button.frame.width >= 24, "the cancel is still tiny: \(button.frame)")
+        #expect(button.frame.maxX >= card.bounds.width - pad, "the cancel is not at the right: \(button.frame)")
         #expect(card.titleLabel.frame.maxX <= button.frame.minX, "the title runs under the cancel")
         var sent: [(String, String)] = []
         card.onAction = { sent.append(($0, $1)) }
@@ -61,16 +61,14 @@ import Testing
         }
         var downloads = 0
         updater.acceptAvailable = { downloads += 1 }
-        updater.send(.checkRequested)
+        updater.send(.attemptRequested)
         for phase: UpdateIndicatorPhase in [.checking, .downloading(.starting), Self.downloading] {
             updater.debugIndicatorPhase = phase
             updater.syncFlowPhase()
         }
-        #expect(updater.card == nil, "the download shows a sidebar card")
-        #expect(updater.settingsStatus == .card(.downloading(.downloading(received: 62 * Self.mb, expected: 250 * Self.mb))))
+        #expect(updater.card == .downloading(.downloading(received: 62 * Self.mb, expected: 250 * Self.mb)))
 
-        // The cancel is Settings > Updates' now (the sidebar shows no download).
-        updater.performSettingsAction(.cancelDownload)
+        updater.performCardAction(.cancelDownload)
         #expect(cancels == 1, "the cancel did not stop the download")
         #expect(updater.card == .available(version: nil), "the card did not go back to the found update: \(String(describing: updater.card))")
         let notice = SidebarCardFeed.noticeCard(updater, registry: nil)
@@ -99,7 +97,7 @@ import Testing
         }
         var downloads = 0
         updater.acceptAvailable = { downloads += 1 }
-        updater.send(.checkRequested)
+        updater.send(.attemptRequested)
         updater.debugIndicatorPhase = Self.downloading
         updater.syncFlowPhase()
         updater.cancelDownloadClicked()

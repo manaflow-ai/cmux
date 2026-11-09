@@ -24,8 +24,7 @@ extension ChatsFeed {
                                                                    peerSessionChanged: { [updates = services.daemonUpdates] in updates.peerSessionChanged($0, stale: $1) })
         AgentTurnStateFeed.shared = turns
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
-        // A deleted chat's uploads go with it; any past their age at launch (``AgentChatUploads``).
-        AgentTurnStateFeed.purged = { AgentChatUploads.removeInBackground(session: $0) }
+        // Chat uploads the app wrote go once past their age, at launch (``AgentChatUploads``).
         AgentChatUploads.sweepInBackground()
         let localHost = (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))
         turns.start(localHost: localHost)

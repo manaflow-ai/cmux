@@ -166,6 +166,17 @@ class Extractors(unittest.TestCase):
         self.assertEqual((r["jobs_a"], r["jobs_b"], r["n_b"]), (2, 1, 2))
         self.assertEqual(r["verdict"]["p50"], "too-few")  # one B job, however many rounds
 
+    def test_the_arms_of_an_ab_report_stay_apart(self):
+        # bench-terminal-resize.py --ab KEY runs each round with KEY off and on in one launch (review of #35407,
+        # finding 7: the extractor pooled both arms into one series).
+        doc = {"layouts": [{"layout": "keys", "ab": "motion.frameOwner.terminals", "rounds": [
+            {"arm": False, "frames": {"missed": 1}}, {"arm": True, "frames": {"missed": 7}},
+            {"arm": True, "frames": {"missed": 8}}, {"arm": False, "frames": {"missed": 2}}]}]}
+        out = bench_ab.samples_resize(doc)
+        self.assertEqual(out["keys/off"]["frames.missed"], [1.0, 2.0])
+        self.assertEqual(out["keys/on"]["frames.missed"], [7.0, 8.0])
+        self.assertNotIn("keys", out)
+
     def test_replicate_rows_with_rounds_rarely_give_a_false_regression(self):
         bench_ab.BOOT, saved = 300, bench_ab.BOOT
         try:
@@ -208,11 +219,15 @@ class DriverRules(unittest.TestCase):
     def test_idle_mini_is_ready(self):
         self.assertEqual(driver.worker_ready(self.status(), "cmux22-perf", "perf-lead"), (True, "idle"))
 
-    def test_capture_lease_disk_running_and_pins_are_not_ready(self):
-        for st in (self.status(pool="capture-abc"), self.status(free=39), self.status(running={"id": "j"}),
-                   self.status(pinned=1)):
+    def test_capture_lease_running_and_pins_are_not_ready(self):
+        for st in (self.status(pool="capture-abc"), self.status(running={"id": "j"}), self.status(pinned=1)):
             self.assertFalse(driver.worker_ready(st, "cmux22-perf", "perf-lead")[0])
         self.assertFalse(driver.worker_ready(self.status(), "cmux21-perf", "perf-lead")[0])
+
+    def test_low_disk_warns_and_is_still_ready(self):
+        ok, why = driver.worker_ready(self.status(free=33), "cmux22-perf", "perf-lead")
+        self.assertTrue(ok)
+        self.assertIn("warning: cmux22-perf has 33.0 GiB free, under the 40 GiB floor", why)
 
     def test_step_actions(self):
         self.assertEqual(driver.step_action({"state": "running", "worker": "cmux17-perf"}, "cmux22-perf", 5),

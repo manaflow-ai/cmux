@@ -1,13 +1,9 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
-import { type ComposerAttachment, inlineCopyId, inlineTokenIds } from "./attachments";
+import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  type MadeFile,
-  type PendingAttachment,
-} from "./composer/attachmentIntake";
+import { AttachmentStrip } from "./composer/attachmentIntake";
+import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
@@ -17,6 +13,7 @@ import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
+import { remember } from "./composer/pasteMarks";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -27,9 +24,14 @@ const CARD_OWN_PRESS =
 export type ComposerBoxHandle = {
   /// Paste as Plain Text is starting (the prompt's menu): its paste goes in as text, never a chip.
   plainPaste(): void;
-  place(chips: readonly PendingAttachment[]): void;
+  place(chips: readonly PendingAttachment[], kind?: DroppedKind): void;
   /// Attachments `ids` went with a prompt: gone from the text for good (composer/inlineAttachments.tsx).
+  /// The draft's remembered pastes went with it too.
   sent(ids: Iterable<string>): void;
+  /// The pastes that went into the draft as text, newest last (composer/pasteMarks.ts).
+  pastes(): readonly string[];
+  /// Remembers `texts` as pastes in the draft (a prompt put back with its pastes as text).
+  rememberPastes(texts: readonly string[]): void;
 };
 
 export type ComposerBoxProps = {
@@ -141,7 +143,8 @@ export function ComposerBox({
   inert = false,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css). Both
-  // looks lay +, the prompt, the mic and Send out as Claude's in the box's grid (composerLook.ts).
+  // looks use the same controls and prompt. Codex's gives the prompt its own full-width line,
+  // with + and the trailing actions on the lower row (composerLook.css).
   // The mode, model, effort and ring are the quiet row: under the box in Claude's look, inside it
   // under the prompt in Codex's (Leo 2026-10-30: "the bypass/context/model picker stuff should
   // literally be inside the composer box"; 2026-11-02: "switching to the codex view in the middle of
@@ -163,8 +166,24 @@ export function ComposerBox({
   );
   const ownAttachments = useRef(attachments);
   if (!attachmentsRef) ownAttachments.current = attachments;
+  /// Set while a file that stays in the strip is attached: its intake places it synchronously
+  /// (attachmentIntake.tsx), so `place` reads this in the same call.
+  const toStrip = useRef(false);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
-  const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt, onPasteFile);
+  const pastedChips = usePastedChips(
+    attachmentsRef ?? ownAttachments,
+    setAttachments,
+    prompt,
+    onPasteFile &&
+      ((file, inText = true) => {
+        toStrip.current = !inText;
+        try {
+          onPasteFile(file);
+        } finally {
+          toStrip.current = false;
+        }
+      }),
+  );
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   const inline = useInlineAttachments({
@@ -182,6 +201,7 @@ export function ComposerBox({
       pastedChips.expand(id);
       prompt.current?.removeInline(id);
     },
+    ...(pastedChips.keepAsFile ? { keepFile: pastedChips.keepAsFile } : {}),
     placing: () => !fieldOverlay,
     codex,
     ...(originalFailures ? { originalFailures } : {}),
@@ -191,13 +211,23 @@ export function ComposerBox({
   useImperativeHandle(
     handle,
     () => ({
-      plainPaste: () => plainPaste.current(),
-      place: (chips) => inline.place(chips, "paste"),
-      sent: (ids) => inline.sent(ids),
+      plainPaste: () => {
+        plainPaste.current();
+        prompt.current?.plainPaste();
+      },
+      place: (chips, kind) => inline.place(chips, kind, toStrip.current),
+      sent: (ids) => {
+        inline.sent(ids);
+        pastedChips.pastes.current = [];
+      },
+      pastes: () => pastedChips.pastes.current,
+      rememberPastes: (texts) => {
+        for (const text of texts) pastedChips.pastes.current = remember(pastedChips.pastes.current, text);
+      },
     }),
-    [inline],
+    [inline, pastedChips.pastes],
   );
-  const placed = new Set(inlineTokenIds(field.value, inline.known));
+  const placed = inline.inText(field.value);
   const { onBeforeInput, onKeyDown } = field;
   // Select All selects the attachments with the text (Leo, 2026-11-01: "i wanna be able to select
   // all in composer which also selects all the attachments as the copy as well"): those placed in
@@ -258,7 +288,7 @@ export function ComposerBox({
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
       <div
         ref={attachBox}
-        className="ui-glass ui-glass-floats acpmux-composer-box"
+        className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
@@ -287,6 +317,7 @@ export function ComposerBox({
           {...(originalFailures ? { originalFailures } : {})}
           onReorder={onReorderAttachment ?? inline.reorder}
           onExpand={inline.expand}
+          {...(pastedChips.keepAsFile ? { onKeepFile: inline.keepFile } : {})}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
         <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen}>
@@ -320,9 +351,10 @@ export function ComposerBox({
                 if ("text" in part) prompt.current?.insertText(part.text);
                 // An attachment the prompt still has comes back as a copy of it; one cut from it, as itself.
                 else if ("id" in part)
-                  prompt.current?.insertInline([
-                    staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id,
-                  ]);
+                  prompt.current?.insertInline(
+                    [staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id],
+                    true,
+                  );
                 else onPasteFiles?.([part.file]);
               }
               return true;
@@ -376,8 +408,8 @@ export function ComposerBox({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
-          {/* The compact box grid for +, the prompt, the mic and Send, with the model group in
-              ComposerFoot, in both looks. The granted-permission status gets no slot of its own
+          {/* The box grid for +, the prompt, the mic and Send, with the model group in
+              ComposerFoot. The granted-permission status gets no slot of its own
               (hq#1957 item 15 compact row): grants are revoked from the chat menu (header/grantsMenu.ts). */}
           <div
             className="acpmux-composer-bar acpmux-composer-inner"

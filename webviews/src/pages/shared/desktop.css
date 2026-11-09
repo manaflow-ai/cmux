@@ -16,7 +16,7 @@
   text-size-adjust: none;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
-  /* The UI font, Inter with its tracking (schemas/type-scale/type-scale.json; leo-bans.json pins it). */
+  /* The UI font, the macOS system font (schemas/type-scale/type-scale.json; ui-font-pin.json pins it). */
   font-family: var(--font-ui);
   /* The theme accent: the text color by default (no system blue), the theme's hue with
      appearance.accent. */
@@ -57,10 +57,15 @@ body {
    schemas/design-scale/design-scale.json; webviews/scripts/pages/gen-design-scale.mjs writes this block,
    the Tailwind theme every Tailwind entry imports (ui/theme.generated.css: p-3, rounded-md, bg-hover)
    and the token sheet's list (ui/designTokens.generated.ts).
-   - Glass: plain is the pane's; popover (70%, 24px) is the level over dense text: popovers, cards and
-     the composer. menu is a select's menu over a dense settings row (Leo 2026-10-30: the Check Every
-     slider and its "3600" read through the Update Channel menu; design/settings.md, "Glass"), still
-     below the surface roles' near-opaque 0.9. fisheye is the Jump to latest lens (glass.css FISHEYE;
+   - Glass: four levels, and every web backdrop-filter names one (check-glass-levels.ts; Leo 2026-11-06:
+     "we have, like, a ton of varying glassiness on stuff"). Each fixes the tint, the blur radius and
+     saturation, and the one hairline edge (--ds-glass-edge). chrome (60%, 20px) is glass docked on the
+     window: panes, bars, rails, side tabs. popover (70%, 24px; 50% over art) floats over dense text:
+     popovers, hover cards, the composer, Session Info, the running tray, viewers. menu (78%, 32px) is
+     menus and pickers (Leo 2026-10-30: the Check Every slider and its "3600" read through the Update
+     Channel menu; design/settings.md, "Glass"), still below the surface roles' near-opaque 0.9. chip
+     (the host's tooltip tint, 24px) is small one-line glass: tooltips, the find pill, chips. lens and
+     fisheye are modes, not levels: the lens's tint and frost while it draws. fisheye is the Jump to latest lens (glass.css FISHEYE;
      Leo 2026-11-03: "this is a little too transparent"): the bend stays, a light frost runs after it,
      and the popover's 24px blur would flatten a 32px disc, so it keeps its own (design/glass.md).
    - Elevation: one scale for every drop shadow (Leo 2026-10-14, no dramatic shadows): a tight,
@@ -101,19 +106,27 @@ body {
   --ds-radius-card: 14px; /* today's card radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-composer: 18px; /* today's composer radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-menu: var(--cmux-menu-highlight-radius); /* AppKit's menu highlight (menu-metrics) */
-  /* glass plain: panes and plain glass, the default */
-  --ds-glass-plain-tint: 60%;
-  --ds-glass-plain-blur: blur(20px) saturate(1.4);
-  /* glass popover: popovers, cards and the composer: the level over dense text */
+  /* glass chrome (level): chrome docked on the window: panes, the sidebar, bars, rails, side tabs, sticky headers and the minimap */
+  --ds-glass-chrome-tint: 60%;
+  --ds-glass-chrome-blur: blur(20px) saturate(1.4);
+  --ds-glass-chrome-radius: 20px;
+  /* glass popover (level): floating surfaces over dense text: popovers, hover cards and link cards, the composer, Session Info, the running tray, viewers and sheets (artTint over art or a see-through window) */
   --ds-glass-popover-tint: 70%;
+  --ds-glass-popover-art-tint: 50%;
   --ds-glass-popover-blur: blur(24px) saturate(1.25);
-  /* glass menu: a select's menu over a dense settings row (design/settings.md, Glass) */
+  --ds-glass-popover-radius: 24px;
+  /* glass menu (level): menus, context menus, pickers and a select's menu over a dense settings row (design/settings.md, Glass) */
   --ds-glass-menu-tint: 78%;
   --ds-glass-menu-blur: blur(32px) saturate(1.6);
-  /* glass lens: while the lens draws the wallpaper behind the glass */
+  --ds-glass-menu-radius: 32px;
+  /* glass chip (level): small glass on one line: tooltips, the find pill and chips; the tint is the host's --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks */
+  --ds-glass-chip-tint: 60%;
+  --ds-glass-chip-blur: blur(24px) saturate(1.6);
+  --ds-glass-chip-radius: 24px;
+  /* glass lens (mode): a mode, not a level: while the lens draws the wallpaper behind the glass, every level takes this tint and frost */
   --ds-glass-lens-tint: 40%;
   --ds-glass-lens-blur: blur(6px) saturate(1.3);
-  /* glass fisheye: the Jump to latest fisheye (design/glass.md): the bend stays, the frost runs after it */
+  /* glass fisheye (mode): a mode, not a level: the Jump to latest fisheye (design/glass.md): the bend stays, the frost runs after it */
   --ds-glass-fisheye-tint: 50%;
   --ds-glass-fisheye-frost: blur(2.5px) saturate(1.15);
   --ds-glass-edge: var(--cmux-hairline);
@@ -145,6 +158,20 @@ body {
   --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
   --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
 }
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --ds-glass-chrome-blur: none;
+    --ds-glass-popover-blur: none;
+    --ds-glass-menu-blur: none;
+    --ds-glass-chip-blur: none;
+  }
+}
+:root[data-reduce-transparency] {
+  --ds-glass-chrome-blur: none;
+  --ds-glass-popover-blur: none;
+  --ds-glass-menu-blur: none;
+  --ds-glass-chip-blur: none;
+}
 /* design-scale:end */
 
 @media (min-resolution: 2dppx) {
@@ -157,15 +184,15 @@ body {
    (ui/Tooltip.tsx), a toolbar hint (ui/Toolbar.tsx) and the title tooltip that replaces WebKit's
    bubble on every first-party page (ui/titleTooltips.ts) all sit on the one tooltip surface
    (--tooltip-*, below; Leo, 2026-10-14): frosted glass under a tint the primary ink reads on, a
-   one-device-pixel separator rim and a small tight shadow, in the caption font. The first of a warm
+   one-device-pixel separator rim and a small tight shadow, in the caption font. The title is an
+   emphasized first line and an optional detail sits below in dimmer ink. The first of a warm
    group fades in and rises 2px; a warm neighbor's is there at once (data-instant); each fades out
-   quicker than it came. A truncated row's title tooltip is as wide as the row (tooltipWidth sets
-   its min and max width). */
+   quicker than it came. Truncated text wraps inside the same compact bubble. */
 .ui-tooltip,
 .ui-title-tooltip {
   box-sizing: border-box;
-  max-width: min(320px, calc(100vw - 12px));
-  padding: 4px 8px;
+  max-width: min(var(--tooltip-max-width), calc(100vw - var(--tooltip-edge) - var(--tooltip-edge)));
+  padding: var(--tooltip-pad-block) var(--tooltip-pad-inline);
   border: var(--tooltip-rim-width) solid
     var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
   border-radius: 5px;
@@ -206,6 +233,7 @@ body {
 /* A hover card (ui/Tooltip.tsx AnchoredCard, .ui-tooltip.ui-card) with no glass (a link card) keeps
    the solid popup surface and its own look; a toolbar hint (.ui-hint) is a tooltip. */
 .ui-card {
+  padding: var(--grid-base) calc(var(--grid-base) * 2);
   border-width: 1px;
   background: var(--surface-popup);
   -webkit-backdrop-filter: none;
@@ -240,7 +268,13 @@ body {
 /* A shortcut hint after the text, in the secondary ink, at the tooltip's top right. */
 .ui-tooltip-detail {
   display: block;
+  margin-block-start: var(--tooltip-detail-gap);
+  font-weight: var(--weight-regular);
   color: var(--cmux-text-secondary, color-mix(in srgb, var(--cmux-text, CanvasText) 64%, transparent));
+}
+
+.ui-tooltip-text {
+  font-weight: var(--weight-emphasis);
 }
 
 .ui-tooltip-hint {
@@ -417,9 +451,15 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
 /* Text selection takes the Ghostty config's `selection-background`, else the theme accent's tint
    (the text color under the default neutral accent), never the system highlight blue
    (`--cmux-text-selection`, WebTheme.swift). A page with its own selection color sets it later.
+   That color is where the selection starts: on a surface it would barely differ from (a chat
+   bubble, a card, a code block, glass), its lightness moves until the selection stands out and its
+   text still reads (`--cmux-selection-fill`, ui/adaptiveSelection.ts, HIGHLIGHT-CONTRAST).
    Carets take the config's `cursor-color`, else the text color (`--cmux-caret`). */
 ::selection {
-  background-color: var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent));
+  background-color: var(
+    --cmux-selection-fill,
+    var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent))
+  );
 }
 :root {
   caret-color: var(--cmux-caret, auto);
@@ -456,6 +496,32 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Blank to text fades, never pops (agent-session/shared/loadFade.ts; Leo, 2026-11-07: "going from
+   blank to text is more jarring than blank to fast fade in to text"). Only content that arrives after
+   a blank first paint gets the class; what is ready at the first paint draws whole. Opacity only,
+   so no box moves or changes height. The host's fade-in token sets the length (0 when motion is
+   off); Reduce Motion draws the final state at once. The two custom properties let a gallery arm
+   try another length or curve. */
+@keyframes cmux-load-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cmux-load-fade {
+    animation: cmux-load-fade var(--cmux-load-fade-duration, var(--agent-motion-in, var(--cmux-motion-micro, 120ms)))
+      var(--cmux-load-fade-easing, var(--cmux-ease-out, ease-out)) both;
+  }
+}
+/* The host's motion off or reduced (on any page, whatever its own token) draws the content at once. */
+:root:is([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  .cmux-load-fade {
+  animation: none;
 }
 
 /* Increase Contrast applies to every page through the shared theme layer. Host theme
@@ -525,7 +591,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
      (color-mix(in srgb, <fill> var(--surface-text-min), transparent)); menus and popovers are the
      liquid glass (ui/popupSurface.css). Reduce Transparency makes every translucent surface opaque. */
   --surface-text-min: 92%;
-  --surface-blur: var(--ds-glass-plain-blur);
+  --surface-blur: var(--ds-glass-chrome-blur);
   /* The solid popup surface: a menu's, popover's and picker's fill under Reduce Transparency
      (they are the liquid glass otherwise, ui/popupSurface.css), and what the tooltip tint mixes from: the host's popup fill (WebTheme.swift, the same color as native overlays'
      Palette.popupSurface), else the page color lifted toward the text. */
@@ -539,13 +605,19 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
      averages), else the popup surface at 60%; a 24px blur; the separator rim one device pixel
      (--cmux-hairline); elevation 1. It fades in with the popup open and out with the popup close (the native
      fadeIn and fadeOut tokens), rising 2px. Reduce Transparency: the opaque popup surface. */
-  --tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) 60%, transparent));
-  --tooltip-blur: blur(24px) saturate(1.6);
+  --tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) var(--ds-glass-chip-tint), transparent));
+  --tooltip-blur: var(--ds-glass-chip-blur);
   --tooltip-rim-width: var(--cmux-hairline);
   --tooltip-shadow: var(--elevation-1);
   --tooltip-fade-in: var(--ui-popup-open, 120ms);
   --tooltip-fade-out: var(--ui-popup-close, 80ms);
   --tooltip-rise: 2px;
+  --tooltip-max-width: calc(var(--grid-base) * 80);
+  /* Compact overlay scale: all tooltip dimensions stay on the 4px grid and follow interface zoom. */
+  --tooltip-edge: var(--grid-base);
+  --tooltip-pad-block: calc(var(--grid-base) / 2);
+  --tooltip-pad-inline: calc(var(--grid-base) * 2);
+  --tooltip-detail-gap: calc(var(--grid-base) / 2);
 }
 
 /* Reduce Motion: the tooltip still fades, with no rise. */
@@ -576,26 +648,26 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
 /* type-scale:begin. GENERATED by scripts/cmux-next/gen-type-scale.py from schemas/type-scale/type-scale.json; do not edit. */
 :root {
   --cmux-interface-scale: 1;
-  /* The UI font: Inter, bundled (WebTheme's page bootstrap declares the face), then the system's. */
-  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  /* The UI font: the macOS system font (SF Pro), with its own tracking, so no letter-spacing. */
+  --font-ui: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --text-caption: calc(11px * var(--cmux-interface-scale, 1)); /* shortcuts, badges, counters, tooltips, group labels */
   --text-caption--line-height: calc(14px * var(--cmux-interface-scale, 1));
-  --text-caption--letter-spacing: 0.0048em;
+  --text-caption--letter-spacing: 0em;
   --text-detail: calc(12px * var(--cmux-interface-scale, 1)); /* secondary lines, metadata, section headers, footer rows */
   --text-detail--line-height: calc(16px * var(--cmux-interface-scale, 1));
-  --text-detail--letter-spacing: 0.0005em;
+  --text-detail--letter-spacing: 0em;
   --text-body: calc(13px * var(--cmux-interface-scale, 1)); /* chrome text: labels, rows, menus, controls, settings */
   --text-body--line-height: calc(18px * var(--cmux-interface-scale, 1));
-  --text-body--letter-spacing: -0.0032em;
+  --text-body--letter-spacing: 0em;
   --text-field: calc(14px * var(--cmux-interface-scale, 1)); /* the browser address bar's text */
   --text-field--line-height: calc(18px * var(--cmux-interface-scale, 1));
-  --text-field--letter-spacing: -0.0062em;
+  --text-field--letter-spacing: 0em;
   --text-title: calc(15px * var(--cmux-interface-scale, 1)); /* card and panel titles, search fields */
   --text-title--line-height: calc(20px * var(--cmux-interface-scale, 1));
-  --text-title--letter-spacing: -0.0088em;
+  --text-title--letter-spacing: 0em;
   --text-heading: calc(20px * var(--cmux-interface-scale, 1)); /* page headings */
   --text-heading--line-height: calc(26px * var(--cmux-interface-scale, 1));
-  --text-heading--letter-spacing: -0.0167em;
+  --text-heading--letter-spacing: 0em;
   /* Menu and picker rows: the body step (NSFont.menuFont is the system size). */
   --text-control: var(--text-body);
   --text-control--line-height: var(--text-body--line-height);
@@ -618,8 +690,46 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --cmux-ease-out: cubic-bezier(0, 0, 0.58, 1);
   /* A selection that travels settles on the one spring, run over --cmux-motion-large. */
   --cmux-ease-spring: linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1.006 58%, 1.004 72%, 1);
+  /* A sent prompt's one motion: its room, its bubble and the thread's rise. */
+  --cmux-motion-send: 265ms;
+  --cmux-ease-send: cubic-bezier(0.16, 1, 0.3, 1);
+  /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */
+  --cmux-motion-settle: 265ms;
+  --cmux-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  /* One turn of every spinner (`cmux-spin`); not a transition. */
+  --cmux-spinner-period: 2000ms;
 }
 /* motion-scale:end */
+/* Hover reveal: a control shown while the pointer is over its row (a message's time and Copy, a
+   tool row's check, a code card's corner buttons, a list row's ⋯) follows how long the pointer stays,
+   instead of playing a fixed fade (Leo, 2026-11-07: "it should be, like, having its limit based off
+   of how long you've had your cursor actually on it"). Each is an opacity transition, never a
+   keyframe animation, so leaving reverses it from wherever it got to: a pass while scrolling reaches
+   a faint level and fades back, and only a pointer that stays brings the control to full. In: a
+   gentle start with no delay and an ease-out finish, full at 400 ms (about 0.13 at 80 ms, 0.8 at
+   200 ms, 0.96 at 300 ms). Out: an ease-in over the standard step, faster than in. Gallery ui.motion-hover-dwell
+   compares curves; test/hover-reveal-dwell.test.ts holds the ramp. Use the pair through
+   --cmux-hover-reveal-in-transition and --cmux-hover-reveal-out-transition, or the .ui-reveal class
+   (ui/motion/motion.css). */
+:root {
+  --cmux-hover-reveal-in: 400ms; /* motion-allow: a dwell ramp, the pointer's stay drives it; it is interrupted, not played */
+  --cmux-hover-reveal-in-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --cmux-hover-reveal-out: var(--cmux-motion-standard, 180ms);
+  --cmux-hover-reveal-out-ease: cubic-bezier(0.42, 0, 1, 1);
+  --cmux-hover-reveal-in-transition: opacity var(--cmux-hover-reveal-in) var(--cmux-hover-reveal-in-ease);
+  --cmux-hover-reveal-out-transition: opacity var(--cmux-hover-reveal-out) var(--cmux-hover-reveal-out-ease);
+}
+/* Reduce Motion or motion off: shown and hidden at once. */
+:root:is([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) {
+  --cmux-hover-reveal-in: 0s;
+  --cmux-hover-reveal-out: 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --cmux-hover-reveal-in: 0s;
+    --cmux-hover-reveal-out: 0s;
+  }
+}
 /* menu-metrics:begin. GENERATED by scripts/cmux-next/gen-menu-metrics.py from schemas/menu-metrics/menu-metrics.json; do not edit. */
 :root {
   --cmux-menu-highlight-inset: 5px; /* the hover highlight's distance from the menu's edges */
@@ -747,11 +857,12 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
 }
 
 /* SYNCED-SPINNERS (user 2026-10-20): the one spinner animation of every page. Clockwise, one
-   period (the native spinner's turn, Motion `spinner`), its phase pinned to the shared clock by
+   `--cmux-spinner-period` per turn (the motion-scale block above: the native spinner's turn too,
+   Motion `spinner`, one calm 2 s turn), its phase pinned to the shared clock by
    ui/spinnerClock.ts. Spinners write `animation: cmux-spin var(--cmux-spinner-period) linear
-   infinite` inside `prefers-reduced-motion: no-preference`, never their own keyframes. */
+   infinite` inside `prefers-reduced-motion: no-preference`, never their own keyframes or period
+   (test/spinner-period.test.ts). */
 :root {
-  --cmux-spinner-period: 900ms;
   --cmux-breath-period: 2.4s;
   --cmux-shimmer-period: 2.8s;
 }

@@ -120,15 +120,17 @@ final class ClassicUpgradeSimulator {
     ///   - ssh: the daemon for an SSH destination (default: none connects).
     ///   - documentRemote: wraps the home daemon's sidebar document remote (a test holds its replies).
     ///   - tap: relays the app's daemon connection and counts its commands (``Launch/treeReads``).
+    ///   - shell: the daemon's `SHELL`, the program each terminal runs.
     init(mac: Mac, ssh: (@MainActor (String) throws -> DaemonService)? = nil,
-         documentRemote: (@MainActor (any SidebarDocRemote) -> any SidebarDocRemote)? = nil, tap: DaemonCommandTap? = nil) throws {
+         documentRemote: (@MainActor (any SidebarDocRemote) -> any SidebarDocRemote)? = nil, tap: DaemonCommandTap? = nil,
+         shell: String = "/bin/sh") throws {
         self.mac = mac
         self.tap = tap
         let binary = try #require(SameTreeDaemonBinary.url)
         launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-upgrade-\(UUID().uuidString.prefix(8).lowercased())",
                                  stateDirectory: mac.root.appendingPathComponent("state")),
-            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": shell, "TERM": "xterm-256color"] })
         _ = NSApplication.shared
         services = AppServices(environment: AppEnvironment.current([:]))
         if let documentRemote {
@@ -146,7 +148,9 @@ final class ClassicUpgradeSimulator {
         services.onboarding.classicMigrationDirectory = mac.migration
         services.onboarding.classicMigrationAtLaunch = true
         services.onboarding.classicStateRoot = mac.state
-        services.onboarding.classicMigrationConfirmation = { _ in true }
+        // Classic's sentinel in `mac.state` is the only sign it runs: never this Mac's own open classic app.
+        services.onboarding.classicLockHeld = { _ in false }
+        services.onboarding.classicMigrationConfirmation = { _ in .accepted }
         if let ssh { services.onboarding.classicSSH = ssh }
         else { services.onboarding.classicSSH = { destination in DaemonService(machineID: "ssh:\(destination)") } }
         services.onboarding.classicChatPlan = { _, _ in nil }
@@ -165,7 +169,7 @@ final class ClassicUpgradeSimulator {
         // changes (the echo of each adopt and move) and the personal rows, and the document path echoes
         // `placement-shift-v1`. Without them the document never confirms a placement (#28425).
         var configuration = DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true)
-        configuration.echoesPlacementShift = SidebarMirror.isLinked
+        configuration.echoesPlacementShift = true
         services.daemon.start { [configuration] in
             DaemonConnection(configuration: configuration, endpointProvider: endpoints)
         }
@@ -256,7 +260,7 @@ final class ClassicUpgradeSimulator {
     /// A later launch's run on the same tree (what a relaunch restores).
     func relaunch() async throws -> ClassicMigrationOutcome {
         let outcome = try await AppOnboardingServices(owner: services.onboarding)
-            .migrateClassic(.automatic) { _ in true }
+            .migrateClassic(.automatic) { _ in .accepted }
         lastOutcome = outcome
         return outcome
     }
@@ -264,7 +268,7 @@ final class ClassicUpgradeSimulator {
     /// Import Workspaces from Classic cmux.
     func manualImport() async throws -> ClassicMigrationOutcome {
         let outcome = try await AppOnboardingServices(owner: services.onboarding)
-            .migrateClassic(.manual) { _ in true }
+            .migrateClassic(.manual) { _ in .accepted }
         lastOutcome = outcome
         return outcome
     }

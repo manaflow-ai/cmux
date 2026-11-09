@@ -1,6 +1,7 @@
 // The registry buttons at the end of a section (Welcome Checklist, Make Default Terminal, Import
 // from Browser, Reload Configuration, ...), as the Swift window showed them. The app gives their
 // titles and availability; a press runs the action (cmux.app.action.run).
+import { Button } from "../../../ui/Button";
 import { useQuery } from "@tanstack/react-query";
 import { useStore } from "../context";
 import { sectionActionsQuery } from "../sectionQueries";
@@ -17,16 +18,17 @@ export function SectionActions({ section }: { section: string }) {
         <section className="group">
           <div className="section-actions">
             {actions.map((action) => (
-              <button
+              <Button
                 type="button"
                 key={action.id}
                 className="button"
                 data-action={action.id}
                 disabled={!action.enabled}
+                title={action.hint ?? undefined}
                 onClick={() => store.runSectionAction(action.id)}
               >
                 {action.title}
-              </button>
+              </Button>
             ))}
           </div>
         </section>

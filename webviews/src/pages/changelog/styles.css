@@ -91,22 +91,154 @@ html[data-cmux-page="changelog"] body {
   border-radius: 10px;
   box-shadow: 0 0 0 1px var(--page-separator);
 }
-.cl-actions { display: flex; align-items: center; gap: 14px; margin: 4px 0 8px; }
+/* A before/after pair (MediaCompare.tsx): both pictures in one box that keeps its ratio, the
+   after under the before, so no mode or position moves anything around the box. `cover` fills
+   the page's 7:4 frame from its top left like a lone picture; `contain` (the lightbox) lets the
+   after picture size the box, shown whole, and the before lies over it at the same size. */
+.cl-media-pair { position: relative; }
+.cl-compare { position: relative; display: grid; width: 100%; height: 100%; overflow: hidden; user-select: none; }
+.cl-compare-pane { position: relative; grid-area: 1 / 1; min-width: 0; min-height: 0; }
+.cl-compare-pane img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
+.cl-compare-pane[data-side="before"] { position: absolute; inset: 0; }
+.cl-compare[data-fit="contain"] { width: auto; height: auto; max-width: 100%; max-height: 100%; border-radius: var(--ds-radius-xl); box-shadow: 0 0 0 1px var(--page-separator); }
+.cl-compare[data-fit="contain"] .cl-compare-pane[data-side="after"] img { width: auto; height: auto; max-width: 100cqw; max-height: 100cqh; object-fit: contain; }
+.cl-lightbox-stage:has(.cl-compare) { container-type: size; }
+.cl-compare-tag {
+  position: absolute;
+  top: var(--ds-space-2);
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
+  background: var(--page-elevated);
+  box-shadow: 0 0 0 1px var(--page-separator);
+  color: var(--page-text);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
+  pointer-events: none;
+}
+.cl-compare-pane[data-side="before"] .cl-compare-tag { left: var(--ds-space-2); }
+.cl-compare-pane[data-side="after"] .cl-compare-tag { right: var(--ds-space-2); }
+/* Slider (default): the before shows left of the split, the after right of it; the split follows
+   the pointer or the arrow keys directly, so it has no transition to gate. */
+.cl-compare[data-mode="slider"] .cl-compare-pane[data-side="before"] { clip-path: inset(0 calc(100% - var(--cl-split)) 0 0); }
+.cl-compare-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--cl-split);
+  width: 2px;
+  translate: -50% 0;
+  background: var(--page-text);
+  box-shadow: var(--shadow-elevation-1);
+  pointer-events: none;
+}
+.cl-compare-handle svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  box-sizing: content-box;
+  padding: var(--ds-space-1);
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: var(--page-elevated);
+  box-shadow: 0 0 0 1px var(--page-separator), var(--shadow-elevation-1);
+  color: var(--page-text);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.cl-compare-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: ew-resize;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.cl-compare-range::-webkit-slider-thumb { -webkit-appearance: none; width: 32px; height: 100vh; }
+.cl-compare:has(.cl-compare-range:focus-visible) .cl-compare-handle svg { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+/* Side by side: each half its own picture, from its top left, under its label. */
+.cl-compare[data-mode="side"] { grid-template-columns: 1fr 1fr; gap: var(--ds-space-1); }
+.cl-compare[data-mode="side"] .cl-compare-pane[data-side="before"] { position: relative; inset: auto; grid-area: 1 / 1; }
+.cl-compare[data-mode="side"] .cl-compare-pane[data-side="after"] { grid-area: 1 / 2; }
+.cl-compare[data-mode="side"] .cl-compare-pane[data-side="after"] .cl-compare-tag { right: auto; left: var(--ds-space-2); }
+.cl-compare[data-mode="side"][data-fit="contain"] .cl-compare-pane img { width: 100%; max-width: 50cqw; max-height: 100cqh; object-fit: contain; }
+/* Toggle: Before / After at the bottom; the before fades over the after through the motion gate. */
+.cl-compare[data-mode="toggle"] .cl-compare-pane[data-side="before"] { opacity: 0; }
+.cl-compare[data-showing="before"] .cl-compare-pane[data-side="before"] { opacity: 1; }
+/* The fade exists only while motion is on: off or reduced (the gate, Reduce Motion) switch at once. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+    .cl-compare[data-mode="toggle"]
+    .cl-compare-pane[data-side="before"] {
+    transition: opacity var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+  }
+}
+.cl-compare-switch {
+  position: absolute;
+  bottom: var(--ds-space-2);
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  gap: 0;
+  margin: 0;
+  padding: var(--ds-space-1);
+  border: 0;
+  min-inline-size: 0;
+  border-radius: var(--ds-radius-md);
+}
+.cl-compare-switch button {
+  min-width: 64px;
+  height: var(--ds-control-compact);
+  padding-inline: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background: none;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+}
+.cl-compare-switch button[aria-pressed="true"] { background: var(--page-hover); color: var(--page-text); font-weight: 600; }
+.cl-compare-switch button:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }
+/* Enlarge, in the pair's corner: the frame itself is the compare control. */
+.cl-compare-enlarge {
+  position: absolute;
+  right: var(--ds-space-2);
+  bottom: var(--ds-space-2);
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  color: var(--page-text);
+  cursor: zoom-in;
+}
+.cl-compare-enlarge svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.cl-compare-enlarge:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+.cl-lightbox-stage .cl-compare-enlarge { display: none; }
+.cl-actions { display: flex; align-items: center; gap: var(--ds-space-3); margin: var(--ds-space-1) 0 var(--ds-space-2); }
 .cl-button {
-  height: 26px;
-  padding: 0 12px;
-  border-radius: 7px;
+  height: var(--ds-control-compact);
+  padding-inline: var(--ds-space-3);
+  border-radius: var(--ds-radius-md);
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
   font-size: var(--text-control);
-  font-weight: 500;
-  cursor: default;
+  font-weight: var(--weight-regular);
   letter-spacing: var(--text-control--letter-spacing);
 }
 .cl-button:hover { background: var(--page-selection); }
+.cl-action-button { flex: none; }
 .cl-link { color: var(--page-text-2); text-decoration: none; font-size: var(--text-body); letter-spacing: var(--text-body--letter-spacing); }
 .cl-link:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
-:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-change-link, .cl-more):focus-visible {
+:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-change-link, .cl-more, .cls-row-link):focus-visible {
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
 }
@@ -137,16 +269,18 @@ html[data-cmux-page="changelog"] body {
 .cl-row-summary { color: var(--page-text-2); }
 /* In a one-line row, Try it and Learn more show on hover or keyboard focus, beside the paragraph.
    Layouts that stack a change in a column (Digest, Reader) show them under the summary. */
-.cl-row-actions { display: flex; align-items: baseline; gap: 10px; flex: none; margin-left: auto; opacity: 0; }
+.cl-row-actions { display: flex; align-items: baseline; gap: 10px; flex: none; margin-left: auto; opacity: 0; transition: var(--cmux-hover-reveal-out-transition); }
 .cl-group li:hover .cl-row-actions,
-.cl-row-actions:focus-within { opacity: 1; }
+.cl-row-actions:focus-within { opacity: 1; transition: var(--cmux-hover-reveal-in-transition); }
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.cl-group li .cl-row-actions:has(:focus-visible),
+.cl-row-actions:has(:focus-visible) { transition: none; }
 .cl-row-action {
   border: 0;
   background: transparent;
   padding: 0 2px;
   color: var(--page-text-3);
   font-size: var(--text-detail);
-  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .cl-row-action:hover { color: var(--page-text); }
@@ -219,14 +353,8 @@ html[data-cmux-page="changelog"] {
   --agent-diff-del: var(--agent-status-failure);
 }
 .cl-more {
-  margin-top: 6px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--page-text-2);
+  margin-top: var(--ds-space-1);
   font-size: var(--text-detail);
-  cursor: default;
-  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cl-more:hover { color: var(--page-text); }
 .cl-builds {
@@ -481,8 +609,12 @@ html[data-cmux-page="changelog"] {
 }
 
 /* ---------- B: Rail + reader ---------- */
-.clr { display: grid; grid-template-columns: minmax(150px, 184px) 1fr; height: 100vh; }
-.clr-rail { overflow-y: auto; padding: 40px 8px; border-right: 1px solid var(--page-separator); }
+/* The rail's track is the default until its edge is dragged (SplitEdge sets --changelog-rail-width
+   here); it reads invalid while that is unset, and the reader keeps 360px. */
+.clr { --clr-rail-track: clamp(130px, var(--changelog-rail-width), 100% - 360px); display: grid; grid-template-columns: var(--clr-rail-track, minmax(150px, 184px)) 1fr; height: 100vh; }
+/* Still, so its edge stays put while the rail scrolls inside it. */
+.clr-side { position: relative; display: flex; min-width: 0; min-height: 0; }
+.clr-rail { flex: 1; min-width: 0; overflow-y: auto; padding: 40px 8px; border-right: 1px solid var(--page-separator); }
 .clr-rail-head { padding: 0 10px 8px; color: var(--page-text-3); font-size: var(--text-caption); font-weight: 600; letter-spacing: var(--text-caption--letter-spacing); }
 .clr-version {
   display: grid;
@@ -587,12 +719,14 @@ html[data-cmux-page="changelog"] {
    An Apple app's What's New sheet: a centered bold title, then each release day, newest first,
    under a small date heading. A day's changes sit under their app area (Leo 2026-11-02: "why is
    the what's new the 0 information density one"): the area's accent glyph, its name and count,
-   then one tight line per change, its title and what its description adds, cut at the pane's edge.
+   then one line per change, its title and what its description adds, wrapped rather than cut with
+   "…" (Leo 2026-11-07: "i just still think it might be a bit too narrow in the full screen").
    Wide (Leo 2026-11-01: "this is way too narrow and not info dense enough"): the column takes the
-   pane up to 920px with the page margins. The layout (`.cls-inline` default, `.cls-stack`,
+   whole pane up to 920px, then 84% of it up to 1560px, so it grows with the window and a
+   full-screen window's rows fit on their line; it follows a resize continuously. The layout (`.cls-inline` default, `.cls-stack`,
    `.cls-grid`; the route's `sheet=`) sets a row's title and line. No rules between days, no motion. */
 .cls {
-  --cls-column: 920px;
+  --cls-column: clamp(920px, 84%, 1560px);
   --cls-line: 20px;
   padding-block: var(--ds-space-6) calc(var(--ds-space-6) * 2);
   padding-inline: max(var(--ds-space-6), calc((100% - var(--cls-column)) / 2));
@@ -618,6 +752,42 @@ html[data-cmux-page="changelog"] {
   font-weight: 600;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* "Versions" (SheetPage SheetBuilds) sits at the header's end at the header's own line height, so
+   a day's header is as tall with it as without it and nothing under it moves. */
+.cls-date .cls-versions-toggle {
+  display: inline-flex;
+  gap: var(--ds-space-1);
+  height: auto;
+  margin-inline-start: auto;
+  padding-block: 0;
+  color: var(--page-text-3);
+  font-weight: 400;
+  line-height: inherit;
+}
+.cls-versions-toggle[aria-expanded="true"] { color: var(--page-text-2); }
+.cls-builds {
+  display: grid;
+  gap: 0;
+  margin: 0 0 var(--ds-space-2);
+  padding: 0;
+  padding-inline-start: calc(var(--cls-line) + var(--ds-space-2));
+  list-style: none;
+}
+/* One line per build: version, commit, changes, then its action in a fixed end column, so a row
+   whose button changes (Install, Restart into it, Checking…) moves nothing beside it. */
+.cls-build {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) auto auto 1fr;
+  align-items: center;
+  column-gap: var(--ds-space-3);
+  min-height: var(--cls-line);
+  font-variant-numeric: tabular-nums;
+}
+.cls-build-version { overflow: hidden; color: var(--page-text); text-overflow: ellipsis; white-space: nowrap; }
+.cls-build-link { color: var(--page-text-2); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--text-caption); }
+.cls-build-link:hover { color: var(--cmux-accent, var(--page-text)); }
+.cls-build-action { display: flex; justify-content: flex-end; grid-column: 4; }
+.cls-build-failed { grid-column: 1 / -1; color: var(--page-text-2); font-size: var(--text-caption); }
 .cls-area { margin-top: var(--ds-space-2); }
 .cls-area-head {
   display: grid;
@@ -641,15 +811,14 @@ html[data-cmux-page="changelog"] {
 }
 .cls-row {
   min-width: 0;
-  overflow: hidden;
   line-height: var(--cls-line);
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 .cls-icon { display: grid; place-items: center; width: var(--cls-line); height: var(--cls-line); color: var(--cmux-accent, var(--page-text)); }
 .cls-icon svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 /* A row's kind (SheetPage KIND_GLYPHS) sits in the gutter under its area's glyph, out of the row's
-   flow so it moves nothing: positioned on the list, which the row's overflow clip does not cover. */
+   flow so it moves nothing: positioned on the list, at its row's first line. */
 .cls-rows { position: relative; }
 .cls-kind {
   position: absolute;
@@ -659,9 +828,48 @@ html[data-cmux-page="changelog"] {
 .cls-kind svg { stroke-width: 1.8; }
 /* Grid rows sit in two columns; only the first has a gutter. */
 .cls-grid .cls-kind { display: none; }
+/* A curated change's before/after pair, under its line, at a reading width. */
+.cls-row-media { max-width: 640px; margin: var(--ds-space-2) 0 var(--ds-space-3); }
+/* The change a click on the sidebar Updated card's list opened the page at (SheetPage
+   useFocusScroll): marked for a moment in the accent at low alpha, then faded back. The fade is
+   the only motion, so the page's motion gate turns it off only when motion is off. */
+.cls-row[data-focus],
+.cls-area[data-focus] {
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 14%, transparent);
+  border-radius: var(--ds-radius-sm, 6px);
+}
+.cls-row[data-focus] { margin-inline: calc(-1 * var(--ds-space-1, 4px)); padding-inline: var(--ds-space-1, 4px); }
+:root:not([data-cmux-motion="off"]) :is(.cls-row, .cls-area) {
+  transition: background-color var(--cmux-motion-large) var(--cmux-ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.cls-row, .cls-area) { transition: none; }
+}
 .cls-row-title { color: var(--page-text); }
 .cls-row-line { color: var(--page-text-2); }
 .cls-row-line { margin-inline-start: 0.6em; }
+/* A public pull request's row (SheetPage, `prs=`): the title links it in the text's own colour,
+   the accent and an underline on hover; its number, muted and small, sits at the row's end. Hover
+   (default) keeps the number's place and shows it on the row's hover or focus, so nothing moves;
+   End always shows it; Row makes the whole row the link, with the page's hover fill. */
+.cls-row-link { color: inherit; text-decoration: none; cursor: default; }
+.cls-row-link:hover { color: var(--cmux-accent, var(--page-text)); text-decoration: underline; text-underline-offset: 3px; }
+.cls-row-pr {
+  margin-inline-start: 0.6em;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cls-prs-hover .cls-row-pr { visibility: hidden; }
+.cls-prs-hover .cls-row:hover .cls-row-pr,
+.cls-prs-hover .cls-row:has([data-popup-open]) .cls-row-pr,
+.cls-prs-hover .cls-row:focus-within .cls-row-pr { visibility: visible; }
+.cls-prs-row .cls-row { position: relative; border-radius: var(--ds-radius-sm); }
+.cls-prs-row .cls-row:has(.cls-row-link):hover { background: var(--page-hover); }
+.cls-prs-row .cls-row-link::after { content: ""; position: absolute; inset: 0; }
+.cls-prs-row .cls-row-link:hover { color: inherit; text-decoration: none; }
+.cls-prs-row .cls-row:hover .cls-row-link { color: var(--cmux-accent, var(--page-text)); }
 .cls-more {
   display: inline-flex;
   gap: var(--ds-space-1);
@@ -669,7 +877,9 @@ html[data-cmux-page="changelog"] {
   margin-inline-start: calc(var(--cls-line) + var(--ds-space-2));
 }
 /* Stack: the line under the title, one step smaller; a row may wrap. */
-.cls-stack .cls-row { white-space: normal; }
+/* The number has no line of its own there: the title still links it. */
+.cls-stack .cls-row-pr,
+.cls-grid .cls-row-pr { display: none; }
 .cls-stack .cls-row-title,
 .cls-stack .cls-row-line,
 .cls-grid .cls-row-title,

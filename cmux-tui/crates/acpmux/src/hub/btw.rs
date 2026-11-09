@@ -197,7 +197,11 @@ pub(super) fn remove_transcript_in(homes: &crate::adopt::HarnessHomes, family: &
     }
 }
 
-fn remove_transcript(family: &str, env: &std::collections::BTreeMap<String, String>, id: &str) {
+pub(super) fn remove_transcript(
+    family: &str,
+    env: &std::collections::BTreeMap<String, String>,
+    id: &str,
+) {
     remove_transcript_in(&crate::adopt::HarnessHomes::from_env().with_env(&[env]), family, id);
 }
 
@@ -363,12 +367,14 @@ impl Hub {
                     route: None,
                     subsession: None,
                     lineage: None,
+                    created_by: None,
                     disallowed_tools: Vec::new(),
                     checked_cwd: None,
                     // It sees what its chat sees.
                     additional_directories: meta.additional_directories.clone(),
                     // The person's side chat, as its chat is.
                     person: session.person.load(Ordering::SeqCst),
+                    wait_start: false,
                 };
                 let side = match with_inline_creation(
                     self.clone(),
@@ -595,7 +601,7 @@ impl Hub {
     /// env and its route): the store its transcript is really in. When the
     /// profile no longer resolves, the parent chat's unexpanded env is all
     /// that is left.
-    async fn btw_store_env(
+    pub(super) async fn btw_store_env(
         &self,
         meta: &SessionMeta,
         fallback: &std::collections::BTreeMap<String, String>,
@@ -842,14 +848,14 @@ fn side_policy(chat: PermissionPolicy, inline: bool) -> PermissionPolicy {
         // Inline fallbacks have no pane to answer a permission card. Read-only
         // questions must therefore allow reads automatically, while DenyAll
         // remains a deliberate refusal from the parent chat.
-        return if chat == PermissionPolicy::DenyAll {
+        return if matches!(chat, PermissionPolicy::DenyAll | PermissionPolicy::Review) {
             chat
         } else {
             PermissionPolicy::ApproveReads
         };
     }
     match chat {
-        PermissionPolicy::Ask | PermissionPolicy::DenyAll => chat,
+        PermissionPolicy::Ask | PermissionPolicy::DenyAll | PermissionPolicy::Review => chat,
         _ => PermissionPolicy::ApproveReads,
     }
 }
@@ -865,7 +871,7 @@ fn offers_mode(meta: &SessionMeta, mode: &str) -> bool {
 
 /// Whether the session's `mode` config option offers `mode`.
 fn offers_mode_option(meta: &SessionMeta, mode: &str) -> bool {
-    meta.config_options.as_ref().and_then(Value::as_array).is_some_and(|a| {
+    meta.config_options.as_deref().and_then(Value::as_array).is_some_and(|a| {
         a.iter().filter(|o| o.get("id").and_then(Value::as_str) == Some("mode")).any(|o| {
             o.get("options").and_then(Value::as_array).is_some_and(|opts| {
                 opts.iter().any(|v| v.get("value").and_then(Value::as_str) == Some(mode))
@@ -888,7 +894,7 @@ fn smallest_model(meta: &SessionMeta) -> Option<String> {
             }
         }
     }
-    if let Some(opts) = meta.config_options.as_ref().and_then(Value::as_array) {
+    if let Some(opts) = meta.config_options.as_deref().and_then(Value::as_array) {
         for o in opts.iter().filter(|o| o.get("id").and_then(Value::as_str) == Some("model")) {
             for v in o.get("options").and_then(Value::as_array).into_iter().flatten() {
                 if let Some(id) = v.get("value").and_then(Value::as_str) {

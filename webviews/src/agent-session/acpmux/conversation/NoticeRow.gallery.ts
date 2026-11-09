@@ -166,6 +166,115 @@ function legacy() {
   );
 }
 
+/// acpmux's end of a background command (hub/bg_notify.rs): sender `acpmux`, severity from the exit
+/// alone, title `Background command finished: COMMAND (exit N)` (the command one line, cut to 120
+/// characters), body the task and its output's last lines. Leo, 2026-11-08: "why was there a yellow
+/// warning symbol? ... why is there only ACPMux as a bare thing".
+type BgEnd = { task: string; command: string; exit: number; output: string };
+const OK_REMOTE: BgEnd = {
+  task: "bg-b08e9de42d3e",
+  command:
+    "cmux-ci test --committed --timeout 1500 -- 'cd tools/fleet-reconcilers && python3 -m unittest test_now 2>&1 | tail -25'",
+  exit: 0,
+  output:
+    "cmux-ci test: admitted eefe60e4 on linux-pool-4; no-start reroute remains 180s\nremote:\nremote: Create a pull request for 'fast-checks/50232cb1' on GitHub by visiting:\nremote:\nwarning: 1 test skipped\nOK",
+};
+const FAILED: BgEnd = {
+  task: "bg-7c1d",
+  command: "cargo test -p acpmux bg_notify",
+  exit: 101,
+  output: "test result: FAILED. 3 passed; 1 failed",
+};
+const LONG_WT: BgEnd = {
+  task: "bg-2d90135420b2",
+  command:
+    "wt new manaflow-ai/cmux lane/summary-sources-screenshot-labels --topic 'summary card Sources screenshot labels' --files…",
+  exit: 0,
+  output:
+    "note: webviews/src/agent-session/acpmux/summary changed more often on feat-cmux-next in the window than one page holds",
+};
+const MULTI_LINE: BgEnd = {
+  task: "bg-9a01",
+  command: "make \\\n  lint \\\n  test",
+  exit: 0,
+  output: "lint: ok\ntest: 412 passed",
+};
+
+function bgText(end: BgEnd): string {
+  const title = bgTitle(end);
+  const tag = end.exit === 0 ? "" : " · WARN";
+  return `[notice from acpmux${tag}] ${title}\nTask ${end.task}: ${end.command.replace(/\s+/g, " ")}\nLast ${end.output.split("\n").length} lines of its output:\n${end.output}\n(bg_output reads all of it.)`;
+}
+const bgTitle = (end: BgEnd) => `Background command finished: ${end.command.replace(/\s+/g, " ")} (exit ${end.exit})`;
+const bgProvenance = (end: BgEnd) => ({
+  kind: "notice",
+  from: "fromAgent",
+  fromName: "acpmux",
+  to: SESSION_ID,
+  notice: { sender: "acpmux", severity: end.exit === 0 ? "info" : "warn", title: bgTitle(end) },
+  bgTaskId: end.task,
+});
+
+/// A row as direct.ts keeps it: a notice's row text, else the prompt's.
+function received(raw: string, meta: Record<string, unknown>, minutes: number) {
+  const incoming = incomingPrompt(raw, { client: "acpmux#bg", _meta: { provenance: meta } });
+  if (incoming?.kind !== "message") return user(raw, minutes);
+  const { message } = incoming;
+  return user(message.notice ? noticeRowText(message.notice, message.text) : message.text, minutes, {
+    incoming,
+    untyped: true,
+    resend: raw,
+  });
+}
+
+/// Ends that waited behind a busy turn go in as one (hub/digest.rs `digest_blocks`).
+function bgDigest(ends: readonly BgEnd[], minutes: number) {
+  const parts = ends.map(
+    (end, i) => `${i ? "\n\n" : ""}[agent message ${i + 1} of ${ends.length}] from acpmux\n${bgText(end)}`,
+  );
+  const raw = `${ends.length} messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.\n\n${parts.join("")}`;
+  const messages = ends.map((end) => ({
+    promptId: `bg-done-${end.task}`,
+    from: "acpmux",
+    provenance: bgProvenance(end),
+  }));
+  return received(raw, { kind: "agent_digest", messages }, minutes);
+}
+
+/// One of each: a success whose output has `remote:` and `warning:` lines, a failure, a long `wt new`,
+/// a command written over several lines, then two that went in together.
+function background() {
+  const turn = (text: string, at: number) => [
+    assistant(text, at),
+    summary(at - 0.1, { status: "completed", durationMs: 2_000, toolCount: 0 }),
+  ];
+  return chat(
+    [
+      ...opening,
+      received(bgText(OK_REMOTE), bgProvenance(OK_REMOTE), 25),
+      ...turn("The reconciler tests pass.", 24.8),
+      received(bgText(FAILED), bgProvenance(FAILED), 20),
+      ...turn("One bg_notify test fails; reading it.", 19.8),
+      received(bgText(LONG_WT), bgProvenance(LONG_WT), 15),
+      ...turn("The worktree is ready.", 14.8),
+      received(bgText(MULTI_LINE), bgProvenance(MULTI_LINE), 10),
+      ...turn("Lint and tests pass.", 9.8),
+      bgDigest([LONG_WT, OK_REMOTE], 5),
+      ...turn("Both finished.", 4.8),
+    ],
+    { title: "coordinator", sessions },
+  );
+}
+
+/// Opens the two ends that went in together.
+const openDigest: Play = async (ctx) => {
+  const lines = () => [...ctx.document.querySelectorAll(".cv-received .cv-disclosure__toggle")];
+  await ctx.waitFor(() => lines().length >= 5 || null, { capMs: 10_000 });
+  const last = lines().at(-1)!;
+  if (last.getAttribute("aria-expanded") !== "true") (last as HTMLElement).click();
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"), { capMs: 10_000 });
+};
+
 const LINE = ".cv-received.cv-notice.is-fire .cv-disclosure__toggle";
 const HEAD = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
 
@@ -228,6 +337,15 @@ const variants: Record<string, AgentPaneVariant> = {
   before: {
     note: "Before: the same page as the pane drew it, the person's own bubble.",
     snapshot: before(),
+  },
+  background: {
+    note: "Background command ends (acpmux hub/bg_notify.rs): exit 0 with remote:/warning: output reads info; exit 101 warns; a long wt new and a multi-line command keep (exit N) on the line; two that went in together read as one notice +1, never acpmux · acpmux.",
+    snapshot: background(),
+  },
+  "background-digest-open": {
+    note: "The two ends that went in together, opened: each under its own title, no [notice from …] head.",
+    snapshot: background(),
+    play: openDigest,
   },
 };
 

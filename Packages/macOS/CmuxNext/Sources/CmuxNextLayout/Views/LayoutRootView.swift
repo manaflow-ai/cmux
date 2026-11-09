@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextCompat
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import CmuxNextDesign
 import Observation
 
@@ -12,11 +12,25 @@ import Observation
 /// default a plain scroll goes to the pane under the pointer and Command +
 /// scroll moves the columns strip and rows; the first event of a gesture
 /// decides its owner.
-public final class LayoutRootView: NSView {
+public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     public let model: LayoutModel
+    /// Views in the panes whose frame notices are read, which a resize drag never holds (`FrameNoticeHold`).
+    public let frameNoticeReaders = FrameNoticeReaders()
     let context: LayoutViewContext
     var screenViews: [ScreenID: ScreenContentView] = [:]
     var screenFrames: [ScreenID: AnimatedFrame] = [:]
+    /// With a queue, a hidden screen's view, and the panes it mounts, is made the first time the screen shows or as
+    /// background work on this queue once the layout is live and still (`LayoutRootView+DeferredScreens`), not with
+    /// the shown one: the frame that shows a workspace pays for the screen it shows only (Leo 2026-11-04: the visible
+    /// window comes first, off-screen work is deferred). Without one (nil) every screen is made at once.
+    let hiddenScreenQueue: FrameBatchQueue?
+    var defersHiddenScreens: Bool { hiddenScreenQueue != nil }
+    /// The hidden screens whose views are not made yet, in screen order (``hiddenScreenQueue``).
+    public private(set) var deferredScreens: [ScreenID] = []
+    /// The waiting screen ``mountDeferredScreen()`` makes in its sync.
+    private var mountingScreen: ScreenID?
+    /// A deferred mount is waiting to run (`mountDeferredScreensWhenIdle`).
+    var deferredMountQueued = false
     let highlight = DropHighlightView()
     /// Non-interactive overlays (rings, dims, drop highlight). See
     /// `OverlayPlane`: the window may lift it above content child windows.
@@ -112,6 +126,10 @@ public final class LayoutRootView: NSView {
     public private(set) var isLayoutInMotion = false
     /// Layout motion observers by id (`observeLayoutMotion`).
     var layoutMotionObservers: [Int: (Bool) -> Void] = [:]
+    /// Work waiting for the layout to be still (``whenStill(_:on:_:)``), by key, with the queue it runs on.
+    var stillWork: [String: (queue: FrameBatchQueue, work: @MainActor () -> Void)] = [:]
+    /// Work waiting for its changes to settle (``whenSettled(_:after:on:_:)``), by key, with its timer.
+    var settlingWork: [String: (timer: DemandTimer, queue: FrameBatchQueue, work: @MainActor () -> Void)] = [:]
 
     /// A split or a pane close is springing on some screen: the panes it resizes change size every
     /// frame, and their terminals keep their grids (the PTY resizes once, at rest) until it lands
@@ -135,6 +153,7 @@ public final class LayoutRootView: NSView {
         var screens: [LayoutScreen]
         var activeScreen: ScreenID?
         var focused: PaneID?
+        var focusRingEarned: Bool
         var dimsInactive: Bool
         var style: LayoutStyle
         var gestureActive: Bool
@@ -157,8 +176,9 @@ public final class LayoutRootView: NSView {
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
                 scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
-                pageCommandScroll: (any PageCommandScrollArbiter)? = nil) {
+                pageCommandScroll: (any PageCommandScrollArbiter)? = nil, hiddenScreens: FrameBatchQueue? = nil) {
         self.model = model
+        hiddenScreenQueue = hiddenScreens
         self.scrollFocusSignals = scrollFocusSignals
         self.pageCommandScroll = pageCommandScroll
         self.pageProbeTimer = DemandTimer(owner: "layout.page-command-scroll", clock: scrollbarClock)
@@ -257,20 +277,6 @@ public final class LayoutRootView: NSView {
         return view.navigationFrames
     }
 
-    /// The split ratios and column widths `pane`'s screen can show (``ShownResizeRange``), from the geometry its springs
-    /// head for; nil for a screen not sized yet. A keyboard resize steps inside them (RESIZE KEYS K1).
-    public func shownResizeRange(ofScreenContaining pane: PaneID) -> ShownResizeRange? {
-        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], view.bounds.width > 0 else { return nil }
-        return ShownResizeRange(geometry: view.baseGeometry, style: context.style, scale: view.reconciledScale ?? view.scale)
-    }
-
-    /// A keyboard resize press (`resizePane*`) is about to move `pane`'s screen: until that spring lands, every pane of
-    /// the screen keeps its content at its size and lays it out once at the landing (RESIZE KEYS K3).
-    public func keyboardResizeWillChange(screenContaining pane: PaneID) {
-        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], !view.isHidden else { return }
-        view.holdsContentForKeyResize = true
-    }
-
     /// The width `pane`'s content rests at in the layout this view shows: its frame in the geometry its
     /// screen's springs head for (the same geometry ``navigationFrames(ofScreenContaining:)`` reads),
     /// less the pane padding. A split's or a close's panes read their final widths from the turn the
@@ -314,6 +320,40 @@ public final class LayoutRootView: NSView {
         if current != lastSnapshot { sync(current) }
     }
 
+    /// Makes the first hidden screen still waiting (``deferredScreens``): its view, hidden at its place with its
+    /// panes laid out at rest, as one made with the shown screen was. Its first show then slides it in as before.
+    /// False when none waits.
+    @discardableResult
+    public func mountDeferredScreen() -> Bool {
+        guard let id = deferredScreens.first else { return false }
+        mountingScreen = id
+        defer { mountingScreen = nil }
+        sync(snapshot())
+        return true
+    }
+
+    /// Mirrors the model now for the window's next frame tick (a keyboard resize press, FRAME OWNER S1B): the springs
+    /// get their targets in this turn, so the next display frame moves, but nothing is presented, laid out, announced to
+    /// the content or synced to the overlay here. The next tick presents once (`advanceFrame`), and it is asked for.
+    /// The key's own turn stays a model change. A root that runs
+    /// no frames (parked, out of its window) syncs as ``syncWithModel()`` does. A screen the change did not put on a
+    /// spring (Reduce Motion, pane animations off: its frames snapped) is asked to present in this turn. When the snap
+    /// resizes a pane's host, that screen gives the host its size ahead in this turn and presents at the next frame
+    /// tick (``ScreenContentView/holdsSnapForContent(keyPress:)``, #37330), so `applyPresentation` here returns at once. Only a
+    /// snap that resizes no host presents in this turn.
+    public func syncWithModelForNextFrame() {
+        guard isLive, driver.isAttached else { return syncWithModel() }
+        let held = context.holdsPresentations
+        context.holdsPresentations = true
+        syncWithModel()
+        context.holdsPresentations = held
+        let waiting = screenViews.values.filter(\.frameInput.presentationWaiting)
+        let snapped = waiting.filter { !$0.hasMotion }
+        for view in snapped { view.applyPresentation() }
+        if !snapped.isEmpty { flushOverlaySync() }
+        if waiting.count > snapped.count { driver.start() }
+    }
+
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
 
     /// ``sync(_:)``'s body (`LayoutRootView+AvoiderBatch`).
@@ -335,7 +375,8 @@ public final class LayoutRootView: NSView {
             $0.style != snapshot.style || $0.scrollbar != snapshot.scrollbar || $0.rowOps != snapshot.rowOps
         } ?? true
         let chromeChanged = sharedChanged || previous.map {
-            $0.focused != snapshot.focused || $0.dimsInactive != snapshot.dimsInactive || $0.attention != snapshot.attention
+            $0.focused != snapshot.focused || $0.focusRingEarned != snapshot.focusRingEarned
+                || $0.dimsInactive != snapshot.dimsInactive || $0.attention != snapshot.attention
         } ?? true
         let scrollChanged = previous.map {
             $0.focused != snapshot.focused || $0.centerMode != snapshot.centerMode || $0.gestureActive != snapshot.gestureActive
@@ -349,27 +390,38 @@ public final class LayoutRootView: NSView {
         // ~100 ms on a busy host).
         let ids = Set(snapshot.screens.map(\.id))
         let leaving = screenViews.filter { !ids.contains($0.key) }
+        let waited = Set(deferredScreens)
         for screen in snapshot.screens {
             let isActive = screen.id == snapshot.activeScreen
             let view: ScreenContentView
             var isNew = false
             if let existing = screenViews[screen.id] {
                 view = existing
+            } else if defersHiddenScreens, !isActive, screen.id != mountingScreen,
+                      before[screen.id]?.layout == screen.layout || !screen.layout.panes.contains(where: { context.hosts[$0] != nil }) {
+                // Made when it first shows, or at idle (`deferredScreens`). One that takes a pane another screen
+                // mounts is made now, so that pane moves to it inside the window, as it did.
+                continue
             } else {
                 isNew = true
                 view = ScreenContentView(screenID: screen.id, layout: screen.layout, context: context)
-                view.isHidden = !isActive
-                // In the window before its first frame: the frame reconciles the screen, which takes
-                // its panes' hosts, so a pane the old screen shows moves inside the window, never out.
+                // A waiting screen made for its first show starts hidden, as it would have been made with the
+                // shown one: the switch below slides it in from its side, no pop-in.
+                view.isHidden = !isActive || waited.contains(screen.id)
+                // At its size and in the window before its one first pass (`update(layout:)` below): that pass takes
+                // its panes' hosts, so a pane the old screen shows moves inside the window, never out. Neither the size
+                // nor the join lays it out (`ScreenContentView.setFrameSize`, `viewDidChangeBackingProperties`).
+                view.frame = bounds
                 if overlayPlane.isHome {
                     addSubview(view, positioned: .below, relativeTo: overlayPlane)
                 } else {
                     addSubview(view)
                 }
-                view.frame = bounds
                 screenViews[screen.id] = view
-                screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
+                screenFrames[screen.id] = AnimatedFrame(bounds, alpha: view.isHidden ? 0 : 1)
             }
+            // A waiting screen's first pass lands at once, as a screen made with the shown one did (no previous sync).
+            let landsAtOnce = isNew && waited.contains(screen.id)
             let old = before[screen.id]
             // A zoomed pane shows full size over its canvas (canvas-layout.md).
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
@@ -384,13 +436,13 @@ public final class LayoutRootView: NSView {
                 // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
                 // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
                 if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
-                               animated: (animated || reflows) && !view.isHidden) {
+                               animated: (animated || reflows) && !view.isHidden, snapWaitsForFrame: isLive && driver.isAttached) {
                     needsFrames = true
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
                 // runs, so the pane after a close or a link's new pane shows where focus went.
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
-                                  animated: chromeAnimated && !structureChanged, flashAnimated: chromeAnimated)
+                                  animated: chromeAnimated && !structureChanged, flashAnimated: chromeAnimated && !landsAtOnce)
             } else if chromeChanged {
                 // A focus move alone changes the chrome of two panes, the one left and the one focused: every
                 // other pane keeps its ring, dim and tab emphasis (O(2), not O(panes); speed-of-sound 3.2).
@@ -410,18 +462,18 @@ public final class LayoutRootView: NSView {
                 // Only a snap that stands in for Reduce Motion's spring shows the
                 // scrollbar, not one at launch or while out of the window.
                 if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
-                                   animated: previous != nil && canAnimate && context.animatesPaneLayout, reveals: !snapshot.gestureActive,
-                                   showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
+                                   animated: previous != nil && !landsAtOnce && canAnimate && context.animatesPaneLayout, reveals: !snapshot.gestureActive,
+                                   showsScrollbarOnSnap: previous != nil && !landsAtOnce && window != nil && driver.isAttached) {
                     needsFrames = true
                 }
             }
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),
-               view.center(request.pane, animated: animated) {
+               view.center(request.pane, animated: animated && !landsAtOnce) {
                 needsFrames = true
             }
             if let request = snapshot.revealRequest, request != appliedReveal, screen.layout.contains(request.pane) {
                 appliedReveal = request
-                if view.center(request.pane, animated: animated, reveal: true) { needsFrames = true }
+                if view.center(request.pane, animated: animated && !landsAtOnce, reveal: true) { needsFrames = true }
             }
         }
 
@@ -435,6 +487,9 @@ public final class LayoutRootView: NSView {
             screenViews[id] = nil
             screenFrames[id] = nil
         }
+
+        deferredScreens = defersHiddenScreens ? snapshot.screens.compactMap { screenViews[$0.id] == nil ? $0.id : nil } : []
+        if !deferredScreens.isEmpty { mountDeferredScreensWhenIdle() }
 
         // Screen switch.
         if previous?.activeScreen != snapshot.activeScreen {
@@ -540,6 +595,8 @@ public final class LayoutRootView: NSView {
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.
     func setLayoutInMotion(_ moving: Bool) {
+        // After the flag: the landing's still work sees a still layout (a drag's release with no spring ends here too).
+        defer { if !moving { runStillWork() } }
         guard moving != isLayoutInMotion else { return }
         isLayoutInMotion = moving
         for block in layoutMotionObservers.values { block(moving) }
@@ -550,7 +607,8 @@ public final class LayoutRootView: NSView {
     func updateVisibility() {
         var visible: Set<PaneID> = []
         var keepAlive: Set<PaneID> = []
-        if isLive, let active = model.activeScreenID, let view = screenViews[active] {
+        let reads = model.layoutPassReads
+        if isLive, let active = reads.activeScreenID, let view = screenViews[active] {
             visible = view.visiblePanes()
             keepAlive = view.keepAlivePanes().union(visible)
         }
@@ -569,8 +627,8 @@ public final class LayoutRootView: NSView {
         // layout order: the app makes one new surface per frame in this order, and the pane the
         // person types into must not wait behind the others (REOPEN-F4: in a Set's hash order, the
         // first key after a reopen was lost in 10 of 15 cycles).
-        let focused = model.focusedPane
-        let order = Dictionary((model.activeScreen?.layout.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let focused = reads.focusedPane
+        let order = Dictionary((reads.activeScreen?.layout.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         func place(_ pane: PaneID) -> (Int, Int, String) { (pane == focused ? 0 : 1, order[pane] ?? .max, pane.rawValue) }
         for (pane, presence) in changes.sorted(by: { $0.1.rank != $1.1.rank ? $0.1.rank < $1.1.rank : place($0.0) < place($1.0) }) {
             context.provider?.panePresenceDidChange(pane, presence: presence)
@@ -660,6 +718,15 @@ public final class LayoutRootView: NSView {
                 // No frames run while parked or away: a resize drag's pages lay out now (`ScreenContentView+ResizeGesture`).
                 view.finishResizeGesture()
             }
+            // A screen switch in flight lands too, as `landMotion` lands it: the flag below must not drop while a screen
+            // still slides, and the show must not restart a slide nobody saw.
+            for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
+            applyScreenFrames()
+            // Settled: the motion ended for its observers (the window's divider catchers and page geometry, the still
+            // work), as a landing frame ends it. Without this the flag stayed set through the park, nothing landed
+            // after it, and the catchers never moved off the old dividers (Leo 2026-11-06: a closed split's pane
+            // stayed unclickable).
+            setLayoutInMotion(false)
         }
         if !live, let planeHost {
             planeHost.releasePlane(overlayPlane)
@@ -673,9 +740,10 @@ public final class LayoutRootView: NSView {
                 host.adoptPlane(overlayPlane)
             }
             driver.attach(to: self)
+            if !deferredScreens.isEmpty { mountDeferredScreensWhenIdle() }
             if screenViews.values.contains(where: { $0.hasMotion || $0.activeDrag?.waiting == true })
                 || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]) { [weak self] event in
                 self?.handleMonitored(event) ?? event
             }
         }
@@ -691,7 +759,8 @@ extension LayoutRootView: ParkingObserver {}
 extension LayoutRootView.Snapshot {
     /// Everything the view reads from `model` now; in `observe`, the observation tracks every property it reads.
     init(_ model: LayoutModel) {
-        self.init(screens: model.screens, activeScreen: model.activeScreenID, focused: model.focusedPane, dimsInactive: model.dimsInactivePanes,
+        self.init(screens: model.screens, activeScreen: model.activeScreenID, focused: model.focusedPane,
+                  focusRingEarned: model.focusRingEarned, dimsInactive: model.dimsInactivePanes,
                   style: model.style, gestureActive: model.isGestureActive, centerRequest: model.centerRequest,
                   revealRequest: model.revealRequest, centerMode: model.centerFocusedColumn, attention: model.attention,
                   scrollbar: model.stripScrollbar, rowOps: model.acceptsRowOps, canvases: model.canvases)

@@ -1,0 +1,312 @@
+{
+  "title": "Show in Mini: the Chief pet stands for a coordinator chat, leans when dragged, and its reply box sends to that chat and shows its latest reply (debug.chief_pet renders and drives the pet: its panels stay out of screen captures; chief-mini-working.json has its turn)",
+  "fakeHarness": {
+    "id": "fake",
+    "name": "Coordinator"
+  },
+  "settings": {
+    "home": {
+      "chiefPetEnabled": true,
+      "chiefPetMascot": "mochi"
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3
+    },
+    {
+      "title": "A new agent chat",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.newAgentChat",
+          "focus": true
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "On the fake harness, this Mac's own acpmux",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "new_chat",
+          "harness": "fake"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "A coordinator's first message (the fake agent echoes it)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "send_prompt",
+          "text": "Coordinator: three lanes are landing the mini captures today."
+        }
+      },
+      "wait": 4
+    },
+    {
+      "title": "The chat's ••• menu",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": "button[aria-label=\"Chat actions\"]"
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "Still: the menu with Set Chat Avatar… and Show in Mini",
+      "rpc": {
+        "method": "debug.window_snapshot",
+        "params": {
+          "kind": "main",
+          "path": "{collect}"
+        }
+      },
+      "collect": "chat-menu.png",
+      "wait": 0.5
+    },
+    {
+      "title": "Show in Mini, clicked as the person",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "text": "Show in Mini"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "The mini's state: the chat it stands for",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "state"
+        }
+      },
+      "record": "file",
+      "wait": 0.3
+    },
+    {
+      "title": "Still: the mini standing for the chat",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "pet",
+          "path": "{collect}"
+        }
+      },
+      "collect": "mini-chat.png",
+      "wait": 0.3
+    },
+    {
+      "title": "Drag the mini left, held",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "drag",
+          "dx": -160,
+          "dy": 0,
+          "steps": 16,
+          "release": false
+        }
+      },
+      "record": "file",
+      "wait": 0.4
+    },
+    {
+      "title": "Still: leaning left mid-drag",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "pet",
+          "path": "{collect}"
+        }
+      },
+      "collect": "drag-left.png",
+      "wait": 0.2
+    },
+    {
+      "title": "Then up, still held",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "drag",
+          "dx": 0,
+          "dy": 120,
+          "steps": 12,
+          "release": false
+        }
+      },
+      "wait": 0.4
+    },
+    {
+      "title": "Still: leaning up mid-drag",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "pet",
+          "path": "{collect}"
+        }
+      },
+      "collect": "drag-up.png",
+      "wait": 0.2
+    },
+    {
+      "title": "Drop",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "drop"
+        }
+      },
+      "wait": 1
+    },
+    {
+      "title": "Open the reply box (a click on the mini), held open: the capture app is never active, so another window takes the keys between calls",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "open_reply",
+          "hold": true
+        }
+      },
+      "record": "file",
+      "wait": 1
+    },
+    {
+      "title": "Still: the box, to the chat, with its latest reply",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "reply",
+          "path": "{collect}"
+        }
+      },
+      "collect": "reply-open.png",
+      "wait": 0.2
+    },
+    {
+      "title": "Type in the box",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "type",
+          "text": "Coordinator: what is left before the captures land?"
+        }
+      },
+      "wait": 0.5
+    },
+    {
+      "title": "Still: the typed message",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "reply",
+          "path": "{collect}"
+        }
+      },
+      "collect": "reply-typed.png",
+      "wait": 0.2
+    },
+    {
+      "title": "Send (Return): acpmux send to the chat",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "send"
+        }
+      },
+      "wait": 6
+    },
+    {
+      "title": "The mini's state after the send",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "state"
+        }
+      },
+      "record": "file",
+      "wait": 0.3
+    },
+    {
+      "title": "Still: the box stays open with the chat's new latest reply",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "reply",
+          "path": "{collect}"
+        }
+      },
+      "collect": "reply-after-send.png",
+      "wait": 0.2
+    },
+    {
+      "title": "Still: the mini under it",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "snapshot",
+          "window": "pet",
+          "path": "{collect}"
+        }
+      },
+      "collect": "mini-after-send.png",
+      "wait": 0.2
+    },
+    {
+      "title": "The chat (its transcript has the mini's message)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "chat_state"
+        }
+      },
+      "record": "file",
+      "wait": 0.5
+    },
+    {
+      "title": "Focus the chat's pane (it opened beside Home)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "focus_composer"
+        }
+      },
+      "wait": 0.5
+    },
+    {
+      "title": "Close the chat's pane before the closing light and dark stills: its transcript stamps the mini's message \"via CLI on\" this host's name, which the privacy check refuses (the session stays in acpmux and in the mini)",
+      "cmux": [
+        "action",
+        "run",
+        "closePane"
+      ],
+      "wait": 1.5
+    },
+    {
+      "title": "The mini's state after the chat's pane closed",
+      "rpc": {
+        "method": "debug.chief_pet",
+        "params": {
+          "action": "state"
+        }
+      },
+      "record": "file",
+      "wait": 0.3
+    }
+  ]
+}

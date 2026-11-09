@@ -1,100 +1,230 @@
-/* One quiet list, using the app's own type and color tokens. Alternate layouts remain gallery choices. */
+/* Bring your history. The page fills the sheet: one scroll region above a footer that stays put.
+   The footer paints no background of its own (an opaque strip read as a dark band over the glass),
+   only a hairline. Type comes from the scale: the page heading, body rows, detail lines, caption
+   paths. Spacing comes from the 4/8/12/16/24/32 steps. */
 .import-history {
-  max-width: 680px;
-  margin: 0 auto;
-  padding: 32px 24px;
+  /* Three source marks, each overlapping the one before by 8. */
+  --history-marks: var(--ds-space-56);
+  /* The leading edge of a source's title: checkbox, gap, mark, gap. */
+  --history-title-inset: calc(var(--ds-icon-14) + var(--ds-space-2) + var(--ds-control-compact) + var(--ds-space-2));
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
   user-select: text;
 }
+.history-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.history-content,
+.history-footer {
+  width: 100%;
+  max-width: 640px;
+  margin-inline: auto;
+  padding-inline: var(--ds-space-6);
+}
+.history-content {
+  padding-block: var(--ds-space-6) var(--ds-space-5);
+}
+
+/* Header */
 .import-history h1 {
   margin: 0;
-  font-size: var(--text-title);
-  line-height: var(--text-title--line-height);
-  letter-spacing: var(--text-title--letter-spacing);
-  font-weight: 600;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  letter-spacing: var(--text-heading--letter-spacing);
+  font-weight: var(--weight-emphasis);
 }
 .history-lead {
-  margin: 8px 0 16px;
+  margin: var(--ds-space-2) 0 var(--ds-space-5);
   color: var(--page-text-2);
-  line-height: 1.5;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
 }
-.history-notice {
-  display: block;
-  min-height: 24px;
-  color: var(--page-text-2);
-  margin-bottom: 8px;
+
+/* Groups: one inset list, each group a row with its marks, title, summary, Sources and a switch. */
+.history-groups {
+  border: 1px solid var(--page-separator);
+  border-radius: var(--ds-radius-lg);
+  background: var(--page-elevated);
 }
-.history-source {
-  border-bottom: 1px solid var(--page-separator);
-  padding: 12px 0;
-  min-width: 0;
+.history-group + .history-group {
+  border-top: 1px solid var(--page-separator);
 }
-.history-source-line,
-.history-source-label,
-.history-footer,
-.history-primary-actions {
+.history-group-line {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-3);
+  min-height: var(--ds-space-56);
+  padding: var(--ds-space-3) var(--ds-space-4);
+}
+.history-group-marks {
+  display: flex;
+  flex: 0 0 auto;
+  width: var(--history-marks);
+}
+.history-group-marks .history-source-icon + .history-source-icon {
+  margin-inline-start: calc(-1 * var(--ds-space-2));
+}
+.history-group-marks .history-source-icon {
+  box-shadow: 0 0 0 2px var(--page-elevated);
+}
+.history-group-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+}
+.history-group-title {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis);
+}
+.history-group-summary {
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  overflow-wrap: anywhere;
+}
+.history-disclosure {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border: 0;
+  border-radius: 6px;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  background: transparent;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.history-disclosure:hover {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+.history-chevron {
+  flex: none;
+  transition: rotate var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+:root[dir="rtl"] .history-chevron {
+  rotate: 180deg;
+}
+.history-disclosure[aria-expanded="true"] .history-chevron {
+  rotate: 90deg;
+}
+
+/* Sources, one level deeper: indented to the group title's leading edge. */
+.history-sources {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--ds-space-4) var(--ds-space-3) calc(var(--ds-space-4) + var(--history-marks) + var(--ds-space-3));
+}
+.history-source {
+  min-width: 0;
+  padding-block: var(--ds-space-2);
+}
+.history-source + .history-source {
+  border-top: 1px solid var(--page-separator);
 }
 .history-source-line {
-  justify-content: space-between;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
 }
-.history-source-label {
-  min-width: 0;
-}
-.history-source-label input {
+.history-source-line input {
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-14);
   margin: 0;
   flex-shrink: 0;
   accent-color: var(--cmux-accent, currentColor);
 }
-.history-source-action {
-  flex-shrink: 0;
-}
-.history-muted,
-.history-safety,
-.history-file,
-.history-report {
-  color: var(--page-text-2);
-}
-.history-link {
-  border: 0;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-}
-.history-link:hover:not(:disabled) {
+.history-source-icon {
+  display: inline-grid;
+  place-items: center;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
+  flex: 0 0 var(--ds-control-compact);
+  border-radius: 6px;
   background: var(--page-hover);
+  color: var(--page-text);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
 }
-.history-link:disabled,
-.history-button:disabled {
-  opacity: 0.5;
-  cursor: default;
+.history-source-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
 }
-.history-dot {
-  margin: 12px 0 0;
-  color: var(--page-text-2);
+.history-source-text label {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
 }
-.history-file,
+.history-file {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  overflow-wrap: anywhere;
+}
 .history-report,
 .history-row-status,
 .history-error-detail {
   display: block;
-  margin: 8px 0 0 24px;
+  margin-block: var(--ds-space-1) 0;
+  margin-inline-start: var(--history-title-inset);
+  color: var(--page-text-2);
   overflow-wrap: anywhere;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
 }
+.history-find {
+  align-self: flex-start;
+  margin-top: var(--ds-space-1);
+  margin-inline-start: calc(-1 * var(--ds-space-2));
+}
+.history-link {
+  flex: none;
+  border: 0;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.history-link:hover:not(:disabled) {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+.history-link:disabled,
+.history-button:disabled,
+.history-source-line input:disabled + .history-source-icon,
+.history-source-line input:disabled ~ .history-source-text label {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* A pasted summary opens under its row. */
 .history-paste {
-  margin: 12px 0 0 24px;
+  margin-block: var(--ds-space-2) var(--ds-space-1);
+  margin-inline-start: calc(var(--ds-icon-14) + var(--ds-space-2));
 }
 .history-paste p {
-  margin: 0 0 8px;
+  margin: 0 0 var(--ds-space-2);
   color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
 }
 .history-paste-label {
   display: block;
-  margin: 12px 0 8px;
+  margin: var(--ds-space-3) 0 var(--ds-space-2);
+  font-size: var(--text-detail);
 }
 .history-paste textarea {
   display: block;
@@ -104,36 +234,63 @@
   border-radius: 6px;
   background: var(--page-hover);
   color: inherit;
-  padding: 8px;
+  padding: var(--ds-space-2);
   font: inherit;
   user-select: text;
 }
+
+/* Notes under the list */
 .history-safety {
-  margin: 24px 0;
-  font-size: var(--text-caption);
-  line-height: 1.5;
+  margin: var(--ds-space-3) 0 0;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
 }
 .history-error {
-  margin: 12px 0;
-}
-.history-error-detail {
-  display: block;
-  color: var(--page-text-2);
-}
-.history-footer {
+  display: flex;
+  align-items: baseline;
   justify-content: space-between;
-  position: sticky;
-  bottom: 0;
-  padding: 12px 0;
-  background: var(--cmux-surface-solid, Canvas);
+  gap: var(--ds-space-3);
+  margin: var(--ds-space-3) 0 0;
+}
+.history-error p {
+  margin: 0;
+}
+.history-error .history-error-detail {
+  margin-inline-start: 0;
+}
+
+/* Footer: Skip, the live status, then Undo and Import. */
+.history-footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--ds-space-3);
+  padding-block: var(--ds-space-3) var(--ds-space-4);
+  border-top: 1px solid var(--page-separator);
+}
+.history-notice {
+  flex: 1;
+  min-width: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  text-align: center;
+}
+.history-primary-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
 }
 .history-button {
+  min-height: var(--ds-control-row);
   border: 1px solid var(--page-separator);
   border-radius: 6px;
   background: var(--page-hover);
-  padding: 8px 12px;
+  padding: var(--ds-space-1) var(--ds-space-3);
   color: inherit;
-  font: inherit;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
 }
 .history-button.is-primary {
   background: var(--page-text);
@@ -143,49 +300,69 @@
 .history-button:hover:not(:disabled) {
   filter: brightness(0.94);
 }
-.layout-cards {
-  max-width: 860px;
+/* The keycap (ui/DialogButton) reads one step quieter than its button's label, on both fills. */
+.history-button .ui-keyhint {
+  color: inherit;
+  opacity: 0.7;
 }
-.layout-cards .history-sources {
+
+/* Gallery alternative: each group its own card with its sources always listed. */
+.layout-sections .history-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  border: 0;
+  background: transparent;
+}
+.layout-sections .history-group {
+  border: 1px solid var(--page-separator);
+  border-radius: var(--ds-radius-lg);
+  background: var(--page-elevated);
+}
+/* Gallery alternative: the two groups side by side. */
+.layout-tiles .history-groups {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  align-items: start;
+  gap: var(--ds-space-3);
+  border: 0;
+  background: transparent;
 }
-.layout-cards .history-source {
-  padding: 16px;
+.layout-tiles .history-group,
+.layout-tiles .history-group + .history-group {
   border: 1px solid var(--page-separator);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
+  background: var(--page-elevated);
 }
-.layout-compact .history-source {
-  padding: 8px 0;
+.layout-tiles .history-group-line {
+  flex-wrap: wrap;
 }
-.layout-compact .history-notice {
-  display: block;
-  margin-bottom: 0;
+.layout-tiles .history-group-text {
+  flex-basis: 100%;
+  order: 1;
 }
+.layout-tiles .history-group-marks {
+  flex: 1;
+}
+.layout-tiles .history-sources {
+  padding-inline-start: var(--ds-space-4);
+}
+
 @media (max-width: 560px) {
-  .import-history {
-    padding: 24px 16px;
+  .history-content,
+  .history-footer {
+    padding-inline: var(--ds-space-4);
   }
-  .layout-cards .history-sources {
+  .history-content {
+    padding-top: var(--ds-space-5);
+  }
+  .history-group-marks {
+    display: none;
+  }
+  .history-sources {
+    padding-inline-start: var(--ds-space-4);
+  }
+  .layout-tiles .history-groups {
     grid-template-columns: minmax(0, 1fr);
   }
-  .history-source-line {
-    gap: 8px;
-  }
-}
-.history-source-title {
-  border: 0;
-  padding: 0;
-  text-align: start;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-}
-.history-source-title:focus-visible {
-  outline: 2px solid var(--cmux-accent, currentColor);
-  outline-offset: 3px;
-}
-.history-source-title:disabled {
-  cursor: default;
 }

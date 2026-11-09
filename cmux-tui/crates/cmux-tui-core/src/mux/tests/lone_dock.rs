@@ -119,7 +119,13 @@ fn a_lone_pinned_column_survives_a_restart_outside_the_viewport_record() {
     let created = mux.new_pane_right(pane, 0.5, Some((38, 22))).unwrap();
     let after = columns(&mux);
     assert_eq!(after.len(), 2);
-    assert_eq!(after[0], (restore_split_id(3), 0.4, Some(home_dock())), "the dock keeps its id");
+    // Its id and pin; its width evens with the new column
+    // (https://github.com/manaflow-ai/cmux/issues/37391).
+    assert_eq!(
+        after[0],
+        (restore_split_id(3), crate::model::LONE_DOCK_WIDTH, Some(home_dock())),
+        "the dock keeps its id"
+    );
     drop(created);
     mux.shutdown();
     drop(mux);

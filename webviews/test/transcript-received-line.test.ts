@@ -63,9 +63,6 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
     received: Line | null;
     run: Line | null;
     sender: { text: string; height: number; top: number; bottom: number } | null;
-    /** The message's first line, on its own line under the received line (messageLineLook.ts
-     * `stacked`, its 18px pinned by rowEstimates.test.ts); null when the line carries it. */
-    first: { text: string; height: number } | null;
   };
 
   const measure = (page: Page): Promise<Measured> =>
@@ -115,14 +112,13 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
       };
       const actions = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions")].filter(shown)[0];
       const glyph = actions && [...actions.querySelectorAll("button svg")].find(shown)?.getBoundingClientRect();
-      const receivedRow = [...document.querySelectorAll(".cv-received > .cv-disclosure__line")].find(shown) ?? null;
+      const receivedRow = [...document.querySelectorAll(".cv-received > .cv-agentmsg__line")].find(shown) ?? null;
       const runRow = [...document.querySelectorAll("button[data-message-run]")].find(shown) ?? null;
       const tag = receivedRow?.querySelector(".cv-received__sender");
       const tagBox = tag?.querySelector(".cv-agent-tag")?.getBoundingClientRect();
       return {
         glyph: glyph ? (glyph.top + glyph.bottom) / 2 : null,
-        // Stacked, the line's words are the sender's; the first line is under it (`first`).
-        received: line(receivedRow, ".cv-received__preview, .cv-received__from", ".cv-received__mark > *"),
+        received: line(receivedRow, ".cv-received__preview", ".cv-received__mark > *"),
         run: line(runRow, ".cv-tool__summary", ".cv-tool__icon > *"),
         sender:
           tag && tagBox
@@ -136,13 +132,6 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
                 bottom: tagBox.bottom,
               }
             : null,
-        first: (() => {
-          const below = receivedRow?.parentElement?.querySelector<HTMLElement>(":scope > .cv-msgline__preview");
-          const box = below?.getBoundingClientRect();
-          return below && box && box.height > 0
-            ? { text: (below.textContent ?? "").replace(/\s+/g, " ").trim(), height: box.height }
-            : null;
-        })(),
       };
     });
 
@@ -153,6 +142,11 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
     const page = await browser.newPage({
       viewport: { width: 1200, height: 1100 },
       deviceScaleFactor: 2,
+    });
+    // Leo's capture of a Claude chat, as Claude's in-place runs draw it (claudeTurnFold.experiment.ts
+    // arm "runs"); by default a finished Claude turn folds under Worked for (Codex parity).
+    await page.addInitScript(() => {
+      globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "claude-turn-fold": "runs" };
     });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     try {
@@ -188,9 +182,7 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
     });
     test(`the received line and the run's line are one line apart (${theme.file})`, async () => {
       const got = await of(theme);
-      // Line to line, plus the message's first line under the received one.
-      const first = got.first?.height ?? 0;
-      expect(Math.abs(got.run!.centre - got.received!.centre - first - value("step-pitch"))).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(got.run!.centre - got.received!.centre - value("step-pitch"))).toBeLessThanOrEqual(0.5);
     });
     test(`the received line's words are the tool rows' size (${theme.file})`, async () => {
       const got = await of(theme);
@@ -204,12 +196,8 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
     test(`the sender is named once, its machine after it (${theme.file})`, async () => {
       const got = await of(theme);
       expect(got.sender!.text).toBe("merge-timeout · lane-vm-01");
-      // Its message's "merge-timeout:" signature is out: the line names the sender once, and the
-      // message's first line (under it, stacked) starts at its words.
-      if (got.first) {
-        expect(got.received!.text).toContain("lane-vm-01");
-        expect(got.first.text.startsWith("please deploy")).toBe(true);
-      } else expect(got.received!.text).toContain("lane-vm-01please deploy");
+      // Its message's "merge-timeout:" signature is out: the line names the sender once.
+      expect(got.received!.text).toContain("lane-vm-01 please deploy");
     });
     test(`the sender's tag stays inside its line, clear of the run's line (${theme.file})`, async () => {
       const got = await of(theme);

@@ -7,7 +7,7 @@ import CmuxNextDesign
 /// as its content, up to the pane's foot (then its list scrolls), so no empty panel hangs under its
 /// last section (Leo, 2026-11-02: "IT IS TAKING THIS STUPID FUCKING SPACE FOR NO REASON"). It floats:
 /// it never takes a column and never moves the chat's layout; the page supplies the current push or
-/// overlay geometry. Over the chat's column (the page sends a `foot`) the transcript runs under it,
+/// overlay geometry. Over the chat's column (the page sends `overChat`, or a `foot`) the transcript runs under it,
 /// so there, and only there, it lies on the composer's glass (``backing``, the shared overlay glass,
 /// solid under Reduce Transparency) so its text never reads through the chat's, as the web panel's
 /// `.ui-glass` does over the chat. No close button and no band at its top: its header toggle and Esc
@@ -54,9 +54,17 @@ final class AgentPaneSessionInfoPanel: NSView {
     /// The content's height at `width` points: the panel ends after its last section.
     func fittingHeight(forWidth width: CGFloat) -> CGFloat { content.fittingHeight(forWidth: width) }
 
-    /// Over the chat (`foot` set) the content lies on the overlay glass; over the gutter, on nothing.
+    /// Whether `info` lies over the chat's column: it says so (`overChat`), or it stops above the
+    /// composer (`foot`, all a page that predates `overChat` sends). A short pane's popover lies over
+    /// the transcript with no `foot`; with only `foot` read it had no glass, and the transcript and
+    /// its sections showed through each other.
+    static func liesOverChat(_ info: AgentPaneSessionInfoModel?) -> Bool {
+        info?.overChat == true || info?.foot != nil
+    }
+
+    /// Over the chat the content lies on the overlay glass; over the gutter, on nothing.
     private func updateBacking() {
-        let overChat = store.info?.foot != nil
+        let overChat = Self.liesOverChat(store.info)
         if overChat, backing == nil {
             let glass = Glass.makeOverlayPanel()
             glass.translatesAutoresizingMaskIntoConstraints = true
@@ -70,17 +78,17 @@ final class AgentPaneSessionInfoPanel: NSView {
         }
     }
 
-    /// The panel's edge: a hairline in the theme's separator color on the panel's rounded corners, over
-    /// the gutter and over the chat alike, with no fill of its own (Leo, 2026-11-03: "maybe it's ok...?
-    /// to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better").
-    /// A layer's border draws over its sublayers, so it shows over the glass under the content too.
+    /// The panel's edge: a hairline in ``AgentPaneSessionInfoColors/edge`` on the panel's rounded corners,
+    /// over the gutter and over the chat alike, with no fill of its own (Leo, 2026-11-03: "maybe it's
+    /// ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be
+    /// better"). A layer's border draws over its sublayers, so it shows over the glass under the content too.
     private func applyEdge() {
         wantsLayer = true
         guard let layer else { return }
         layer.backgroundColor = nil
         layer.cornerRadius = Metrics.panelCornerRadius
         layer.borderWidth = 1 / max(window?.backingScaleFactor ?? 2, 1)
-        layer.borderColor = store.colors.separator.cgColor
+        layer.borderColor = store.colors.edge.cgColor
     }
 
     override func viewDidChangeBackingProperties() {
@@ -257,10 +265,15 @@ struct AgentPaneSessionInfoColors: Equatable {
     var tertiary = ThemeTokens.unresolved.textTertiary.nsColor
     var hover = ThemeTokens.unresolved.hoverFill.nsColor
     var separator = ThemeTokens.unresolved.separator.nsColor
+    /// The panel's own edge: the text at 22%, as the web panel's (sessionInfo.css), not the separator,
+    /// whose 7 to 8% read as no edge at all (Leo, 2026-11-07: "but the border on session info is way too
+    /// faint"); the full text under Increase Contrast. Clear when appearance.borders is none.
+    var edge = Self.edge(text: ThemeTokens.unresolved.textPrimary.nsColor, increaseContrast: false)
     var danger = ThemeTokens.unresolved.danger.nsColor
     var success = ThemeTokens.unresolved.success.nsColor
     var attention = ThemeTokens.unresolved.attention.nsColor
     var accent = ThemeTokens.unresolved.litGlyph.nsColor
+    var identities: [NSColor] = []
 
     init() {}
 
@@ -270,10 +283,24 @@ struct AgentPaneSessionInfoColors: Equatable {
         tertiary = tokens.textTertiary.nsColor
         hover = tokens.hoverFill.nsColor
         separator = Borders.color(tokens.separator.nsColor)
+        edge = Borders.color(Self.edge(text: primary, increaseContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast))
         danger = tokens.danger.nsColor
         success = tokens.success.nsColor
         attention = tokens.attention.nsColor
         accent = tokens.litGlyph.nsColor
+        identities = (0..<5).compactMap { AgentIdentityTone.rgb($0, tokens: tokens)?.nsColor }
+    }
+
+    /// The edge's share of the text color.
+    static let edgeShare: CGFloat = 0.22
+
+    static func edge(text: NSColor, increaseContrast: Bool) -> NSColor {
+        increaseContrast ? text : text.withAlphaComponent(text.alphaComponent * edgeShare)
+    }
+
+    func identity(_ tone: Int?) -> NSColor? {
+        guard let tone, identities.indices.contains(tone) else { return nil }
+        return identities[tone]
     }
 
     func symbol(_ token: String?, fallback: NSColor) -> NSColor {

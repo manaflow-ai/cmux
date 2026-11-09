@@ -12,6 +12,34 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ChatUnavailableState } from "../src/agent-session/acpmux/ChatUnavailableState";
 
 describe("chatUnavailable", () => {
+  // A sender chip opened a tab by `HOST/NAME` for a machine this Mac's acpmux has no connection to
+  // (Leo, 2026-11-07: such a chip "just fundamentally doesn't load"): once acpmux's resolver named no
+  // chat, the tab says the machine can't be reached from here, never "Reconnecting…".
+  test("a machine named only by the tab's id, that acpmux does not connect to, is unreached", () => {
+    const named = { peer: "gcp-codex-swarm-01", peerNamed: true, peers: {} };
+    expect(chatUnavailable({ ...named, waitedMs: 0 })).toEqual({ reason: "offline", machine: "gcp-codex-swarm-01" });
+    expect(chatUnavailable({ ...named, waitedMs: 0, resolvedNone: true })).toEqual({
+      reason: "unreached",
+      machine: "gcp-codex-swarm-01",
+    });
+    expect(chatUnavailable({ ...named, waitedMs: CONNECTING_GRACE_MS })).toEqual({
+      reason: "unreached",
+      machine: "gcp-codex-swarm-01",
+    });
+    // A machine acpmux does connect to is never called unreached.
+    const peers = { "gcp-codex-swarm-01": { connected: true, state: "connected" } };
+    expect(chatUnavailable({ ...named, peers, waitedMs: 0, resolvedNone: true }).reason).toBe("deleted");
+    const html = renderToStaticMarkup(
+      createElement(ChatUnavailableState, {
+        unavailable: { reason: "unreached", machine: "gcp-codex-swarm-01" },
+        onRemove: () => undefined,
+        onReconnect: () => undefined,
+      } as never),
+    );
+    expect(html).toContain("Can&#x27;t reach gcp-codex-swarm-01 from here");
+    expect(html).not.toContain('data-action="reconnect"');
+  });
+
   test("no machine down: a chat the pane saw leave the list was deleted; one never seen is not found", () => {
     expect(chatUnavailable({ peers: {}, waitedMs: 0, seenListed: true })).toEqual({ reason: "deleted" });
     expect(
@@ -31,6 +59,14 @@ describe("chatUnavailable", () => {
         waitedMs: 0,
       }),
     ).toEqual({ reason: "deleted", machine: "box" });
+  });
+
+  test("an id that names more than one listed chat is gone, whatever machine is down", () => {
+    const down = { box: { connected: false, state: "reconnecting", attempts: 5 } };
+    expect(chatUnavailable({ peers: down, waitedMs: 60_000, ambiguousName: true })).toEqual({ reason: "gone" });
+    expect(chatUnavailable({ peers: {}, waitedMs: 0, ambiguousName: true })).toEqual({ reason: "gone" });
+    // Without it, a machine down still reads as offline (its chat may be there).
+    expect(chatUnavailable({ peers: down, waitedMs: 60_000 }).reason).toBe("offline");
   });
 
   test("a machine still on its first attempts is loading until the grace ends", () => {
@@ -147,10 +183,19 @@ describe("ChatUnavailableState", () => {
     expect(html).toContain("Close Tab");
   });
 
+  test("a session no longer here says so plainly, with no Reconnect", () => {
+    const html = render({ reason: "gone" }, "Studio");
+    expect(html).toContain("This session no longer exists");
+    expect(html).toContain("More than one chat here goes by this name.");
+    expect(html).not.toMatch(/Reconnecting|>Reconnect</);
+    expect(html).toContain("Close Tab");
+  });
+
   test("every case keeps the session id and Resume; Close Tab on all but deleted (Remove from Sidebar)", () => {
     const cases = [
       { reason: "deleted" as const },
       { reason: "notFound" as const },
+      { reason: "gone" as const },
       { reason: "offline" as const, machine: "box" },
     ];
     for (const unavailable of cases) {

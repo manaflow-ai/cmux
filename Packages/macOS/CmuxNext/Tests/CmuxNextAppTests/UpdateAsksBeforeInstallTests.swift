@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextUpdater
 import Testing
@@ -31,7 +32,7 @@ import Testing
     /// `updates.downloadAutomatically`; downloads, installs and cancels are counted.
     static func make(_ identity: UpdateBuildIdentity, optIn: Bool? = nil) -> (UpdaterService, Effects) {
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
-                                     defaults: UserDefaults(suiteName: "UpdateAsksBeforeInstallTests.\(UUID().uuidString)")!,
+                                     defaults: UserDefaults(testSuiteName: "UpdateAsksBeforeInstallTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false)
         updater.announcementsFetch = false
         updater.notesLoader = { _ in nil }
@@ -71,7 +72,7 @@ import Testing
     }
 
     /// Check for Updates: the found update's card shows its version, Update and Release Notes, and
-    /// Hide; Update downloads it quietly, and the staged update asks before the
+    /// Hide; Update downloads it with its progress, and the staged update asks before the
     /// relaunch. Only Restart to Update installs and relaunches.
     @Test(arguments: UpdateAsksBeforeInstallTests.channels)
     func checkForUpdatesAsksBeforeTheDownloadAndBeforeTheRelaunch(identity: UpdateBuildIdentity) async throws {
@@ -85,13 +86,12 @@ import Testing
         #expect(found.actions == [.update, .releaseNotes] && found.dismissible, "\(identity.track): the found step offers \(found.actions)")
         #expect(effects.downloads == 0)
 
-        // Update: the download starts quietly (Settings > Updates shows it); nothing installs.
+        // Update: the download starts and shows; nothing installs.
         updater.performCardAction(.update)
         #expect(effects.downloads == 1, "\(identity.track): Update did not download")
         #expect(!updater.flow.installRequested, "\(identity.track): Update on the found step also asked to relaunch")
         updater.debugIndicatorPhase = .downloading(UpdateTransfer(stage: .downloading, fraction: 0.5))
-        #expect(updater.card == nil, "the download shows a sidebar card")
-        #expect(updater.settingsStatus == .card(.downloading(UpdateTransfer(stage: .downloading, fraction: 0.5))), "Settings shows no progress")
+        #expect(updater.card == .downloading(UpdateTransfer(stage: .downloading, fraction: 0.5)), "the download shows no progress")
 
         // Staged: the Update Ready card asks; nothing relaunches by itself.
         updater.debugIndicatorPhase = .ready(version: "2.0.0")

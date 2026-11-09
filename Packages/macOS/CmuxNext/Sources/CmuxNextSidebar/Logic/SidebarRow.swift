@@ -25,6 +25,8 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case doneFold(SidebarDoneFoldID)
     /// The "Show N more" row past a long list's first rows (`sidebar.groupRowLimit`), "Show fewer" once opened.
     case showMore(SidebarDoneFoldID)
+    /// Projects and Recents' "Projects" or "Recents" header (`SidebarLayout+Recents`).
+    case listHeader(SidebarListHeader)
 }
 
 /// One laid-out row in document (flipped) coordinates.

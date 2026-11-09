@@ -27,6 +27,15 @@ fn key(surface: SurfaceId, byte: u8) -> Command {
     })
 }
 
+/// The kept-terminal tests below cover the old path (F4, TYPING FIX 2), the fallback that `CMUX_TUI_RDS_INPUT=0` keeps
+/// for one nightly after the input lane became the default (R-DAEMON-STATE S1.7); server/tests/rds_input_lane.rs
+/// covers the lane. S1.8 deletes them with the old path.
+fn old_path_mux() -> Arc<Mux> {
+    let mux = test_mux();
+    mux.set_input_lane_for_test(false);
+    mux
+}
+
 /// A typing terminal attached by a frontend client, as the app's terminal view attaches it.
 fn attached_terminal(mux: &Arc<Mux>) -> (Arc<crate::Surface>, u64, MessageWriter) {
     let surface = mux.new_workspace(Some("typing".into()), Some((80, 24))).unwrap();
@@ -42,7 +51,7 @@ fn attached_terminal(mux: &Arc<Mux>) -> (Arc<crate::Surface>, u64, MessageWriter
 #[cfg(unix)]
 #[test]
 fn a_key_reaches_its_terminal_while_automation_holds_the_session_lock() {
-    let mux = test_mux();
+    let mux = old_path_mux();
     let (typing, client, writer) = attached_terminal(&mux);
     // The first key of a terminal may find it the long way; every key after it must not wait.
     handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
@@ -93,7 +102,7 @@ impl Write for InputRecorder {
 #[cfg(unix)]
 #[test]
 fn after_a_respawn_the_next_key_reaches_the_new_terminal() {
-    let mux = test_mux();
+    let mux = old_path_mux();
     let (old, client, writer) = attached_terminal(&mux);
     let (old_sent, old_input) = mpsc::channel();
     old.replace_input_writer_for_test(Box::new(InputRecorder(old_sent)));
@@ -136,7 +145,7 @@ fn after_a_respawn_the_next_key_reaches_the_new_terminal() {
 #[cfg(unix)]
 #[test]
 fn a_mutation_that_routes_nothing_keeps_the_key_off_the_session_lock() {
-    let mux = test_mux();
+    let mux = old_path_mux();
     let (typing, client, writer) = attached_terminal(&mux);
     handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
     // A pane rename (a durable mutation through the mutation plan) and a state clone dropped, as plans do.
@@ -185,7 +194,7 @@ fn session_locks_of<R>(f: impl FnOnce() -> R) -> (R, u64) {
 #[cfg(unix)]
 #[test]
 fn a_tab_created_or_closed_elsewhere_keeps_the_key_off_the_session_lock() {
-    let mux = test_mux();
+    let mux = old_path_mux();
     let (typing, client, writer) = attached_terminal(&mux);
     handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
 
@@ -212,7 +221,7 @@ fn a_tab_created_or_closed_elsewhere_keeps_the_key_off_the_session_lock() {
 #[cfg(unix)]
 #[test]
 fn a_workspace_size_default_keeps_the_key_off_the_session_lock() {
-    let mux = test_mux();
+    let mux = old_path_mux();
     let (typing, client, writer) = attached_terminal(&mux);
     // The settings owner's host policy, and a size default on the typing terminal's workspace.
     let host = crate::mux::host_policy::HostSizePolicy {
@@ -236,7 +245,7 @@ fn a_workspace_size_default_keeps_the_key_off_the_session_lock() {
 #[cfg(unix)]
 #[test]
 fn a_named_key_reaches_its_terminal_without_the_session_lock() {
-    let mux = test_mux();
+    let mux = old_path_mux();
     let (typing, client, writer) = attached_terminal(&mux);
     let named = |keys: &[&str]| Command::SendKey {
         surface: typing.id,

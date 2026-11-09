@@ -16,6 +16,10 @@
 /* BUTTON. The base rules carry `.ui-button` too, so they outrank ui.css's later `.ui-button` reset
    (`font: inherit`, `color: inherit`). */
 .ui-button.ui-btn {
+  /* The agent pane imports this sheet without ui.css; reset the native bezel here too. */
+  appearance: none;
+  border: 0;
+  background: transparent;
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -23,6 +27,7 @@
   gap: var(--ds-space-2);
   height: var(--ds-control-row);
   padding-inline: var(--ds-space-3);
+  border: 0;
   border-radius: var(--ds-radius-md);
   color: var(--ds-color-fg);
   font-size: var(--text-control);
@@ -96,8 +101,59 @@
   background: var(--ds-color-danger);
   color: var(--ds-color-on-accent);
 }
+/* Keep destructive solids in the danger colour family while hovering or holding a popup open. */
+.ui-btn[data-danger][data-variant="solid"]:hover:not([data-disabled]),
+.ui-btn[data-danger][data-variant="solid"][data-popup-open] {
+  background: color-mix(in srgb, var(--ds-color-danger) 88%, var(--ds-color-on-accent));
+}
 .ui-btn[data-disabled] {
   opacity: 0.4;
+}
+
+/* A dialog button's keycap (ui/DialogButton) in a shared button: caption size in the button's own ink,
+   quieter, in every host (the agent pane loads no ui.css). */
+.ui-btn .ui-keyhint {
+  font: inherit;
+  color: inherit;
+  font-size: var(--text-caption);
+  line-height: 1;
+  opacity: 0.6;
+}
+
+/* SELECT TRIGGER: a Select given `buttonClassName="ui-btn"` is a subtle button with its value and a
+   chevron, the height, radius, fill and type of every other button beside it. Here, not in ui.css, so
+   the agent pane (which loads no ui.css) draws it the same: without this its trigger was the
+   browser's grey bezel with no chevron (Leo, 2026-11-07, the Share dialog: "all the buttons are weird"). */
+.ui-button.ui-btn.ui-select-button {
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding-inline: var(--ds-space-3) var(--ds-space-2);
+  background: var(--ds-color-hover);
+}
+.ui-button.ui-btn.ui-select-button:hover:not([data-disabled]),
+.ui-button.ui-btn.ui-select-button[data-popup-open] {
+  background: var(--ds-color-pressed);
+}
+.ui-btn.ui-select-button:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: 1px;
+}
+.ui-btn.ui-select-button :where(.ui-select-value) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-btn.ui-select-button :where(.ui-select-chevron) {
+  flex: none;
+  /* ui.css's chevron: a 6 px corner turned down. */
+  width: calc(var(--ds-space-1) * 1.5);
+  height: calc(var(--ds-space-1) * 1.5);
+  border-block-end: 1.5px solid currentColor;
+  border-inline-end: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  opacity: 0.65;
 }
 
 /* SWITCH: track and thumb from the control scale; the thumb is inset 2 (grid.md's half-step). */

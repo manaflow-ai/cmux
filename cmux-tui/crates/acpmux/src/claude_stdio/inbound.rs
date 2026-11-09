@@ -9,6 +9,10 @@ impl Translator {
         // A Ctrl-B the hub stopped waiting for leaves no mark (`end_background_asks`).
         let now = std::time::Instant::now();
         self.end_background_asks(false, |_, deadline| deadline.is_some_and(|d| d <= now)).await;
+        // A `/rename` acpmux wrote is never the chat's (`live_name.rs`).
+        if let Some(answer) = self.rename_line(line).await {
+            return answer;
+        }
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
         let main_line = line.get("parent_tool_use_id").and_then(Value::as_str).is_none();
@@ -248,6 +252,10 @@ impl Translator {
                         {
                             out.push(upd(self.spawn_subagent(id, name, &input).await));
                         }
+                        // A call of the chat's own that blocks its turn (`foreground_work.rs`).
+                        if main_line && let Some(id) = c.get("id").and_then(Value::as_str) {
+                            self.foreground_call(name, id, &input).await;
+                        }
                         // The todo list is the turn's ACP plan (cx-ncc.80): clients
                         // draw it as a checklist.
                         if name == "TodoWrite"
@@ -255,9 +263,23 @@ impl Translator {
                         {
                             out.push(upd(plan));
                         }
+                        // Claude Code 2.1 keeps it with TaskCreate and TaskUpdate
+                        // instead: each call lands on its result (`task_plan.rs`). The
+                        // list is the main session's; a subagent's tasks stay its own.
+                        if main_line
+                            && super::task_plan::TaskPlan::follows(name)
+                            && let Some(id) = c.get("id").and_then(Value::as_str)
+                        {
+                            self.task_plan.lock().await.call(name, id, &input);
+                        }
                         // Every shell, so one moved to the background later
-                        // keeps its command (cx-ncc.84).
-                        if name == "Bash"
+                        // keeps its command (cx-ncc.84). A Monitor runs its
+                        // command in the background too, and Claude's task
+                        // events for it carry only its description: without
+                        // its call the tray read the description ("hold") as
+                        // the command.
+                        let monitor = name == "Monitor";
+                        if (name == "Bash" || monitor)
                             && let Some(id) = c.get("id").and_then(Value::as_str)
                         {
                             let command =
@@ -265,16 +287,28 @@ impl Translator {
                             let shell = BackgroundShell {
                                 sid: sid.clone(),
                                 command: command.to_owned(),
+                                description: input
+                                    .get("description")
+                                    .and_then(Value::as_str)
+                                    .map(str::trim)
+                                    .filter(|d| !d.is_empty())
+                                    .map(str::to_owned),
                                 task: None,
-                                background: input.get("run_in_background")
-                                    == Some(&Value::Bool(true)),
-                                launched: input.get("run_in_background")
-                                    == Some(&Value::Bool(true)),
+                                background: monitor
+                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
+                                launched: monitor
+                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
                                 asked: false,
                                 announced: false,
                                 output: None,
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
+                        }
+                        // Claude's /loop tools, the chat's goal from their results (`loops.rs`).
+                        if parent.is_none()
+                            && let Some(id) = c.get("id").and_then(Value::as_str)
+                        {
+                            self.note_loop_call(id, name, &input).await;
                         }
                         let mut call = tool_call_fields(name, &input);
                         call.set("sessionUpdate", json!("tool_call"));
@@ -369,6 +403,7 @@ impl Translator {
                         };
                         let is_err = c.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                         let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                        self.foreground_done(tool).await;
                         // A failed launch never ran; a foreground shell no task
                         // named is done.
                         {
@@ -416,7 +451,20 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": content,
                         })));
+                        // A task call's result redraws the task list (`task_plan.rs`).
+                        if let Some(plan) = self.task_plan.lock().await.result(
+                            tool,
+                            is_err,
+                            line.get("tool_use_result"),
+                        ) {
+                            out.push(upd(plan));
+                        }
                         if let Some(update) = self.workflow_launched(tool, is_err, line).await {
+                            out.push(upd(update));
+                        }
+                        if let Some(update) =
+                            self.loop_result(tool, is_err, line.get("tool_use_result")).await
+                        {
                             out.push(upd(update));
                         }
                         // A background subagent's result is only its launch, unless the launch
@@ -498,6 +546,13 @@ impl Translator {
                     }
                     // An MCP server's form, asked as a question (elicitation.rs).
                     Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
+                    // The policy gate's hook asks the hub, or answers at once (policy_gate.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(policy_gate::GATE_CALLBACK) =>
+                    {
+                        out.extend(self.gate_hook(&sid, &rid, &req).await);
+                    }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
                     Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
                     // Anything else (mcp_message) is declined with an error
@@ -508,6 +563,8 @@ impl Translator {
             // Claude Code no longer needs the answer to one of its requests.
             "control_cancel_request" => {
                 let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("");
+                // A gate hook Claude Code stopped waiting on: its late answer is dropped.
+                self.forget_gate(rid).await;
                 if let Some(id) = self.cancel_control_request(rid).await {
                     out.push(Message::notification(
                         method::CANCEL_REQUEST,
@@ -539,7 +596,7 @@ impl Translator {
                     }
                     out.push(Message::ok(id, json!({
                         "protocolVersion": 1,
-                        "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null)},
+                        "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null), "_meta": {"acpmux": {"toolGate": cfg!(unix)}}},
                         "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "embeddedContext": true}, "sessionCapabilities": {"fork": {}, "list": {}, "close": {}}},
                         "authMethods": [],
                         "_meta": {"steering": {"supported": true}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
@@ -687,6 +744,12 @@ impl Translator {
                 }
                 // A call named early whose whole call never came ends with its turn.
                 out.extend(self.end_announced().await);
+                // This result's main-loop calls; the next turn counts its own from here.
+                let calls = self.turn_calls.swap(0, Ordering::SeqCst);
+                // Every result ends the step its calls ran in, also one that returns below
+                // (an abandoned prompt's, or a stopped turn that still runs an unread steer):
+                // a call whose result never came runs in the foreground no more.
+                self.foreground_ended().await;
                 // The window Claude Code reports for the chat's model: the pane's
                 // context ring fills by used over it (cx-ncc.79).
                 if let Some(window) = self.result_context_window(line).await {
@@ -828,6 +891,17 @@ impl Translator {
                     ))
                 } else {
                     let mut claude = json!({"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")});
+                    // `usage` adds every call's reads up, and each call reads the whole context
+                    // again, so a long turn's sum is many times what the context holds: the
+                    // context at the turn's end and how many calls made the sum go beside it
+                    // (hub/turn_usage.rs).
+                    let context = self.context_end.load(Ordering::SeqCst);
+                    if context > 0 {
+                        claude.set("contextTokens", json!(context));
+                    }
+                    if calls > 0 {
+                        claude.set("modelCalls", json!(calls));
+                    }
                     if let Some(next) = &carried {
                         claude.set("carried", next.clone());
                     }
@@ -860,6 +934,7 @@ impl Translator {
                 }
                 let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
+                self.context_end.store(after.unwrap_or(0), Ordering::SeqCst);
                 self.context_from_compaction.store(true, Ordering::SeqCst);
                 self.cache.compacted();
                 self.awaiting_summary.store(true, Ordering::SeqCst);
@@ -951,6 +1026,7 @@ impl Translator {
                 let shell = shells.entry(tool.clone()).or_insert_with(|| BackgroundShell {
                     sid: sid.to_owned(),
                     command: text("description").unwrap_or("").to_owned(),
+                    description: None,
                     task: None,
                     background: false,
                     launched: backgrounded(line.get("is_backgrounded")),
@@ -1006,7 +1082,8 @@ impl Translator {
     /// ended with its process, so each is reported `stopped`, marked
     /// `_meta.acpmux.endedBy: "harness_exit"` for the hub (`hub/processes.rs`
     /// lists it `lost`); the update itself is what clients show. A call named
-    /// early whose input was still streaming ends `failed` with them.
+    /// early whose input was still streaming ends `failed` with them, and its
+    /// loops end with it too (`loops.rs`).
     pub async fn end_background_shells(&self) -> Vec<Message> {
         let mut shells: Vec<_> =
             self.background_shells.lock().await.drain().filter(|(_, s)| s.background).collect();
@@ -1020,6 +1097,7 @@ impl Translator {
                            "_meta": {"acpmux": {"endedBy": "harness_exit"}}}),
             )
         }));
+        out.extend(self.end_loops().await);
         out
     }
 
@@ -1305,13 +1383,19 @@ pub(super) fn summary_exit_code(summary: &str) -> Option<i64> {
 
 /// A `background_task_update` for one shell.
 fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> Value {
-    json!({
+    let mut update = json!({
         "sessionUpdate": "background_task_update",
         "taskId": shell.task.as_deref().unwrap_or(""),
         "toolCallId": tool,
         "command": shell.command,
         "state": state,
-    })
+    });
+    // The call's own words for it, so a client that never loaded the call
+    // (an older page, a peer) still names it by them.
+    if let Some(description) = &shell.description {
+        update.set("description", json!(description));
+    }
+    update
 }
 
 /// The `running` update of a shell Claude runs in the background now, once

@@ -24,7 +24,7 @@ public struct AppSceneView: View {
         Group {
             switch model.status {
             case .failed(let reason):
-                AppSceneFailureRow(reason: reason)
+                AppSceneFailureRow(reason: reason, onReload: { [model] in model.reload() })
             case .disconnected(let reason):
                 AppSceneFailureRow(reason: reason, symbol: "bolt.horizontal", tone: \.tertiary)
             case .loading, .ready:
@@ -36,25 +36,45 @@ public struct AppSceneView: View {
     }
 }
 
-/// The error row of a failed mount.
+/// The error card of a failed mount, in plain words (``AppFailureCopy``): what happened, where and
+/// why for a script error, and Reload, which runs the saved script again. The AppKit row
+/// (``AppFailureNSView``) also keeps the raw reason under Details.
 struct AppSceneFailureRow: View {
     @Environment(\.appSceneColors) private var colors
     let reason: String
     var symbol = "exclamationmark.triangle"
     var tone: KeyPath<AppSceneColors, Color> = \.attention
+    /// Nil: no Reload, and the reason is already plain words (a disconnected mount comes back by itself).
+    var onReload: (() -> Void)?
 
     var body: some View {
+        let copy = onReload == nil ? nil : AppFailureCopy(reason: reason)
         HStack(alignment: .firstTextBaseline, spacing: Metrics.space2) {
             Icon(symbol: symbol, size: 13)
                 .foregroundStyle(colors[keyPath: tone])
-            Text(reason)
-                .font(Font(Typography.caption))
-                .foregroundStyle(colors.secondary)
-                .lineLimit(3)
+            VStack(alignment: .leading, spacing: Metrics.space1) {
+                Text(copy?.title ?? reason)
+                    .font(Font(Typography.caption))
+                    .foregroundStyle(colors.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                if let location = copy?.location {
+                    Text(location)
+                        .font(Font(Typography.caption))
+                        .foregroundStyle(colors.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                if let onReload {
+                    Button(AppsStrings.reload, action: onReload)
+                        .buttonStyle(.link)
+                        .font(Font(Typography.caption))
+                        .help(AppsStrings.reloadHelp)
+                }
+            }
         }
         .padding(.horizontal, Metrics.space4)
         .padding(.vertical, Metrics.space2)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
-

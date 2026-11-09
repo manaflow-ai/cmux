@@ -10,7 +10,7 @@ import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
-import type { RetryAffordance } from "./SubagentDoneLine";
+import type { RetryAffordance } from "./subagentDoneLineModel";
 import type { Subagent } from "./subagentFold";
 import { failedLineLook } from "./failedLine.experiment";
 
@@ -89,7 +89,8 @@ export default componentEntry<Props>({
   ],
   experiment: { definition: failedLineLook, script: [{ name: "Leo's three failed lines", run: async () => {} }] },
   load: async () => {
-    const { SubagentDoneLine, RetryAffordanceContext } = await import("./SubagentDoneLine");
+    const { SubagentDoneLine } = await import("./SubagentDoneLine");
+    const { RetryAffordanceContext } = await import("./subagentDoneLineModel");
     const { TurnActionsContext } = await import("../conversation/turnActions");
     const { SUBAGENT_DONE } = await import("./subagentRows");
     const restartSubagent = () => {};
@@ -127,6 +128,24 @@ export default componentEntry<Props>({
     "mixed-states": {
       note: "A failed line, a retrying one, a finished one and one acpmux gave up on: only the failed lines take the grid; Retry and the time line up between them.",
       props: { lines: MIXED },
+    },
+    "grid-long-cells": {
+      note: "The grid's growing cells: Ask parent to retry on a subagent acpmux cannot retry, and a run past an hour. Retry and the time grow instead of spilling into the next column.",
+      props: {
+        lines: [
+          THREE[0]!,
+          agent("Task worker", "Rebuild the nightly signing picker", {
+            error: API_ERROR,
+            endedAt: minutesAgo(40 - 20.5),
+          }),
+          agent("Long soak", "Soak the pause and resume path for an hour", {
+            retryable: true,
+            error: API_ERROR,
+            startedAt: minutesAgo(130),
+            endedAt: minutesAgo(40),
+          }),
+        ],
+      },
     },
     before: {
       note: "Before: Leo's two rows as the base draws them, the failure in the danger color and no way to run them again but Restart on hover.",

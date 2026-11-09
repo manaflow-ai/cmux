@@ -15,7 +15,8 @@ final class CloudPairingSource: ServerSource {
     typealias Call = @MainActor (_ path: String, _ body: [String: Any]) async throws -> [String: Any]
 
     private let inner: any ServerSource
-    private let call: Call
+    /// One POST to the API Worker as the signed-in user (Pair Another Machine mints its invite with it).
+    let call: Call
     /// The approver's name for the team chip, or nil when signed out.
     private let account: @MainActor () -> String?
     /// The user's Chief moved to a server (Home re-checks its Chief tab).
@@ -64,6 +65,8 @@ final class CloudPairingSource: ServerSource {
             run(intent.key) { [weak self] in
                 await self?.approve(code: PairingCode.normalize(code), team: team, name: name, placeChief: placeChief, key: intent.key)
             }
+        case let .revokeDevice(host):
+            run(intent.key) { [weak self] in await self?.revoke(host: host, key: intent.key) }
         default:
             inner.send(intent)
         }
@@ -86,22 +89,29 @@ final class CloudPairingSource: ServerSource {
 
     private func lookup(_ code: String, key: String) async {
         guard let account = account() else {
-            return settle(key, candidate: nil, reject: Self.signedOut)
+            return emit(.candidate(nil), .settled(key: key, reject: Self.signedOut))
         }
         do {
             let team = try await workerTeam(account: account)
             let reply = try await call("v1/read", ["op": "server.pair.preview", "params": ["code": code]])
-            guard let candidate = Self.candidate(from: try Self.okValue(reply), team: team) else {
-                return settle(key, candidate: nil, reject: Self.text("refusal.server.pairKeyUnchecked", "The server's key could not be checked. Ask the server for a new code."))
+            guard let candidate = PairingCandidate(preview: try Self.okValue(reply), team: team) else {
+                return emit(.candidate(nil), .settled(key: key, reject: Self.text("refusal.server.pairKeyUnchecked", "The server's key could not be checked. Ask the server for a new code.")))
             }
-            settle(key, candidate: candidate, reject: nil)
+            emit(.candidate(candidate), .settled(key: key, reject: nil))
         } catch let FeedServiceError.owner(code: errorCode, message: message) where errorCode != "selector.not_found" {
-            settle(key, candidate: nil, reject: Self.format("refusal.server.pairFailed", "Could not add the server: %@", message))
+            emit(.candidate(nil), .settled(key: key, reject: Self.format("refusal.server.pairFailed", "Could not add the server: %@", message)))
         } catch FeedServiceError.owner {
-            settle(key, candidate: nil, reject: Self.text("refusal.server.pairNotFound", "No server is waiting with that code."))
+            emit(.candidate(nil), .settled(key: key, reject: Self.text("refusal.server.pairNotFound", "No server is waiting with that code.")))
         } catch {
-            settle(key, candidate: nil, reject: Self.reject(for: error))
+            emit(.candidate(nil), .settled(key: key, reject: Self.reject(for: error)))
         }
+    }
+
+    /// The Worker's team for this session, or nil when signed out ("Pair Another Machine…" mints its
+    /// invite into it, as Add Server approves into it).
+    func workerTeam() async throws -> ServerTeam? {
+        guard let account = account() else { return nil }
+        return try await workerTeam(account: account)
     }
 
     /// The Worker's team for this session, from `team.policy.get`. A user
@@ -132,7 +142,7 @@ final class CloudPairingSource: ServerSource {
     }
 
     private func approve(code: String, team: String, name: String, placeChief: Bool, key: String) async {
-        guard account() != nil else { return sink?(.settled(key: key, reject: Self.signedOut)) ?? () }
+        guard account() != nil else { return emit(.settled(key: key, reject: Self.signedOut)) }
         let body: [String: Any] = [
             "op": "server.pair.approve",
             "params": ["code": code, "team": team, "name": name],
@@ -148,14 +158,27 @@ final class CloudPairingSource: ServerSource {
             if placeChief {
                 // The server is added either way; a Chief that could not move says so.
                 if let reject = await self.placeChief(host: host, install: value?["install"] as? String, key: key) {
-                    return sink?(.settled(key: key, reject: reject)) ?? ()
+                    return emit(.settled(key: key, reject: reject))
                 }
             }
-            sink?(.settled(key: key, reject: nil))
+            emit(.settled(key: key, reject: nil))
         } catch let FeedServiceError.owner(_, message) {
-            sink?(.settled(key: key, reject: Self.format("refusal.server.pairFailed", "Could not add the server: %@", message)))
+            emit(.settled(key: key, reject: Self.format("refusal.server.pairFailed", "Could not add the server: %@", message)))
         } catch {
-            sink?(.settled(key: key, reject: Self.reject(for: error)))
+            emit(.settled(key: key, reject: Self.reject(for: error)))
+        }
+    }
+
+    /// `server.revoke {host}` as the signed-in user (origin user, the intent's key as idempotency key).
+    private func revoke(host: String, key: String) async {
+        let body: [String: Any] = ["op": "server.revoke", "params": ["host": host], "idempotency_key": key, "origin": "user"]
+        do {
+            _ = try Self.okValue(try await call("v1/ops", body))
+            emit(.settled(key: key, reject: nil))
+        } catch let FeedServiceError.owner(_, message) {
+            emit(.settled(key: key, reject: Self.format("refusal.server.revokeFailed", "Could not revoke access: %@", message)))
+        } catch {
+            emit(.settled(key: key, reject: Self.reject(for: error)))
         }
     }
 
@@ -181,13 +204,9 @@ final class CloudPairingSource: ServerSource {
         run("chief-status") { [weak self] in
             guard let self else { return }
             let status = try? await CloudChiefStatus.read(call: call)
-            guard !Task.isCancelled else { return }
-            sink?(.chief(status ?? nil))
+            emit(.chief(status ?? nil))
         }
     }
-
-    /// The pairing capability of a server that runs a user's Chief (`optchat-chief cloud pair`).
-    nonisolated static let chiefBrainCapability = "optchat-chief-brain"
 
     private static func chiefNotMoved(_ reason: String) -> String {
         format("refusal.server.chiefNotMoved", "The server was added, but your Chief could not move to it: %@", reason)
@@ -210,32 +229,10 @@ final class CloudPairingSource: ServerSource {
         return text("refusal.server.pairUnreachable", "Could not reach cmux. Check the connection and try again.")
     }
 
-    private func settle(_ key: String, candidate: PairingCandidate?, reject: String?) {
-        sink?(.candidate(candidate))
-        sink?(.settled(key: key, reject: reject))
-    }
-
-    /// The approver's facts from a `PairingPreview`; nil when the thumbprint
-    /// gives no fingerprint words (the words are the user's swap check).
-    nonisolated static func candidate(from value: Any?, team: ServerTeam) -> PairingCandidate? {
-        guard let value = value as? [String: Any],
-              let code = value["code"] as? String,
-              let info = value["info"] as? [String: Any],
-              let thumbprint = value["thumbprint"] as? String,
-              let words = PairingWords.words(thumbprint: thumbprint) else { return nil }
-        let platform = info["platform"] as? String ?? ""
-        let osVersion = info["os_version"] as? String ?? ""
-        return PairingCandidate(
-            code: code,
-            name: info["name"] as? String ?? code,
-            os: [platform, osVersion].filter { !$0.isEmpty }.joined(separator: " "),
-            version: info["cmux_version"] as? String ?? "",
-            region: value["country"] as? String,
-            words: words,
-            teams: [team],
-            // `optchat-chief cloud pair` declares the capability; the paired install keeps it.
-            isChiefBrain: (info["capabilities"] as? [String])?.contains(Self.chiefBrainCapability) == true
-        )
+    /// A request stop() cancelled is the stopped session's: it never reaches a later start()'s sink.
+    private func emit(_ events: ServerSourceEvent...) {
+        guard !Task.isCancelled else { return }
+        for event in events { sink?(event) }
     }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {

@@ -26,11 +26,17 @@ public final class AgentUnsentDrafts {
     private let unreadable: UnreadableFile
     /// The window tab `key` shows in (its workspace's window), for its new chat's leftover
     /// (``leave(_:inWindow:)``): the window's next New Tab page takes it (cmux#32276).
-    public var windowOfTab: (String) -> String? = { _ in nil }
+    /// (By the tab's id and machine.)
+    public var windowOfTab: (_ key: String, _ machine: String?) -> String? = { _, _ in nil }
+    /// This Mac's machine id. Its tabs' drafts keep the bare tab id (the file's keys before tabs had
+    /// a machine); another machine's tab keeps its own slot (``slot(_:machine:)``), so closing a remote
+    /// tab whose id a local tab also has never clears the local tab's draft.
+    let localMachine: () -> String?
 
     /// - Parameter files: The app's state files (`AppServices`), so the file has one writer.
-    public init(file: URL?, files: AgentPaneStateFiles) {
+    public init(file: URL?, files: AgentPaneStateFiles, localMachine: @escaping () -> String? = { nil }) {
         self.file = file
+        self.localMachine = localMachine
         store = file.map(files.at)
         drafts = [:]
         undelivered = [:]
@@ -49,8 +55,26 @@ public final class AgentUnsentDrafts {
     }
 
     /// The file in the tag's state directory (beside the launch snapshot).
-    public convenience init(directory: URL?, files: AgentPaneStateFiles) {
-        self.init(file: directory?.appending(path: Self.fileName), files: files)
+    public convenience init(directory: URL?, files: AgentPaneStateFiles, localMachine: @escaping () -> String? = { nil }) {
+        self.init(file: directory?.appending(path: Self.fileName), files: files, localMachine: localMachine)
+    }
+
+    /// Where tab `key` of `machine` keeps its draft: the bare id on this Mac (or no machine), else
+    /// the machine and the id.
+    public func slot(_ key: String, machine: String?) -> String {
+        guard let machine, !machine.isEmpty, machine != localMachine() else { return key }
+        return machine + "\u{0}" + key
+    }
+
+    /// The tab and machine a slot names (``slot(_:machine:)``).
+    private func tab(ofSlot slot: String) -> (key: String, machine: String?) {
+        let parts = slot.split(separator: "\u{0}", maxSplits: 1, omittingEmptySubsequences: false)
+        return parts.count == 2 ? (String(parts[1]), String(parts[0])) : (slot, localMachine())
+    }
+
+    private func window(ofSlot slot: String) -> String? {
+        let tab = tab(ofSlot: slot)
+        return windowOfTab(tab.key, tab.machine)
     }
 
     /// Tab `key`'s kept text as a new chat's seed; nil for a tab whose chat has a session, or
@@ -66,26 +90,30 @@ public final class AgentUnsentDrafts {
     }
 
     /// Keeps the typed text of `model`'s chat for the tab `key` names when it runs, until the chat
-    /// has a session. Call it after the tab's own `onSessionChange` is set.
-    public func wire(_ model: AgentPaneModel, key: @escaping () -> String) {
-        model.onUnsentDraft = { [weak self] text in self?.typed(text, for: key()) }
+    /// has a session. Call it after the tab's own `onSessionChange` is set. It also hands the model
+    /// its tab (``AgentPaneModel/tabKey``), which what a pane keeps per view is kept by: every tab's
+    /// model is wired here, a spare's when a tab adopts it. `machine` is the tab's machine (``slot(_:machine:)``).
+    public func wire(_ model: AgentPaneModel, machine: @escaping () -> String? = { nil }, key: @escaping () -> String) {
+        model.tabKey = { key() }
+        let slotted = { [weak self] in self?.slot(key(), machine: machine()) ?? key() }
+        model.onUnsentDraft = { [weak self] text in self?.typed(text, for: slotted()) }
         model.onNewChatLeftover = { [weak self] text in
-            guard let self, let window = windowOfTab(key()) else { return }
+            guard let self, let window = window(ofSlot: slotted()) else { return }
             leave(text, inWindow: window)
         }
         model.onNewChatLeftoverTaken = { [weak self] text in
-            guard let self, let window = windowOfTab(key()) else { return }
+            guard let self, let window = window(ofSlot: slotted()) else { return }
             tookLeftover(text, inWindow: window)
         }
         // A New Tab page the host gave no leftover (the first page of a workspace, a restored one)
         // reads its window's as its context reaches it.
         model.newChatLeftoverDraft = { [weak self] in
-            guard let self, let window = windowOfTab(key()) else { return nil }
+            guard let self, let window = window(ofSlot: slotted()) else { return nil }
             return leftover(inWindow: window)
         }
         let started = model.onSessionChange
         model.onSessionChange = { [weak self] session in
-            self?.set("", for: key())
+            self?.set("", for: slotted())
             started?(session)
         }
     }
@@ -123,8 +151,8 @@ public final class AgentUnsentDrafts {
     /// A window's slot among the tabs' drafts: no tab id has this prefix.
     static func leftoverKey(_ window: String) -> String { "left-in-new-chat:" + window }
 
-    /// Whether tab `key` holds a new chat's typed text (its close earns an undo toast).
-    public func hasDraft(_ key: String) -> Bool { drafts[key] != nil }
+    /// Whether tab `key` (of `machine`) holds a new chat's typed text (its close earns an undo toast).
+    public func hasDraft(_ key: String, machine: String? = nil) -> Bool { drafts[slot(key, machine: machine)] != nil }
 
     /// Tab `key`'s kept text, if any.
     public func draft(for key: String) -> String? { drafts[key] }
@@ -142,11 +170,12 @@ public final class AgentUnsentDrafts {
         set(Self.isBlank(text) ? kept : Self.merged(typed: text, kept: kept), for: key)
     }
 
-    /// Keeps `text` as tab `key`'s draft; blank text forgets it (the tab's chat started or closed,
+    /// Keeps `text` as tab `key`'s (of `machine`) draft; blank text forgets it (the tab's chat started or closed,
     /// or its page cleared a draft it had). Draft text is written whole, with no user-facing size
     /// ceiling. The return value remains true for compatibility with callers.
     @discardableResult
-    public func set(_ text: String, for key: String) -> Bool {
+    public func set(_ text: String, for key: String, machine: String? = nil) -> Bool {
+        let key = slot(key, machine: machine)
         let value = Self.isBlank(text) ? nil : text
         guard drafts[key] != value else { return true }
         drafts[key] = value
@@ -155,8 +184,9 @@ public final class AgentUnsentDrafts {
         return true
     }
 
-    /// The store gave provisional tab `key` its id `real`.
-    public func move(_ key: String, to real: String) {
+    /// The store gave provisional tab `key` of `machine` its id `real`.
+    public func move(_ key: String, to real: String, machine: String? = nil) {
+        let (key, real) = (slot(key, machine: machine), slot(real, machine: machine))
         guard key != real, let text = drafts.removeValue(forKey: key) else { return }
         drafts[real] = text
         if let kept = undelivered.removeValue(forKey: key) { undelivered[real] = kept }

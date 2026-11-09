@@ -127,12 +127,6 @@ public nonisolated enum SidebarTunables {
         help: "Lists every computer's rows under the Priority view's states (Needs you, Done, Failed, CI failing, Working, Idle) with counts, in your order inside each. Rows move as their state changes; the active row stays put until another row is active.",
         default: false, code: "SidebarTunables.groupByStatus")
 
-    /// Workspaces marked Done fold into one "Done (N)" row at the end of their group or list (`SidebarLayout+DoneFold`).
-    public static let doneFold = Tunable<Bool>.toggle(
-        "sidebar.doneFold", .sidebar, "Fold Done workspaces",
-        help: "Workspaces marked Done move into one Done row at the end of their group or list, in their order; click the row to show them.",
-        default: true, code: "SidebarTunables.doneFold")
-
     /// A group or list longer than this shows its first rows, the ones that need you and the active one, then a
     /// "Show N more" row (`SidebarLayout+DoneFold`). 0, the default for now, shows every row.
     public static let groupRowLimit = Tunable<Double>.number(
@@ -141,13 +135,6 @@ public nonisolated enum SidebarTunables {
         default: 0, range: 0...100, step: 1, unit: .count, code: "SidebarTunables.groupRowLimit")
     /// `groupRowLimit` as a row count.
     public static var rowLimit: Int { max(0, Int(groupRowLimit.value)) }
-
-    /// The workspace hover card says what its agents did since the person last looked at it
-    /// (`SidebarLookedStore`): turns done, questions, failures. On by default.
-    public static let sinceLooked = Tunable<Bool>.toggle(
-        "sidebar.sinceLooked", .sidebar, "Since you looked",
-        help: "A workspace's hover card counts the turns its agents finished, the questions they asked and the turns that failed since you last had it open.",
-        default: true, code: "SidebarTunables.sinceLooked")
 
     /// A working row's second line says what its agent does right now (`SidebarLaneStatus`). Off
     /// by default (Lawrence 2026-10-21); a row without a second line keeps its one line (the hover card says it).
@@ -168,22 +155,6 @@ public nonisolated enum SidebarTunables {
         help: "How a machine's group shows its free RAM, cores busy and free disk, from the reading acpmux takes every minute.",
         default: .row, code: "SidebarTunables.remoteMachineResources")
 
-    /// Every row carries its pull requests' badge, with or without the session tree
-    /// (`SidebarSessionTreeFeed`), while the row's Pull Request element is on
-    /// (`sidebar.workspaceRow.pullRequest`, off by default). On by default; the tree's nesting and keycaps stay opt-in.
-    public static let pullRequestBadges = Tunable<Bool>.toggle(
-        "sidebar.pullRequestBadges", .sidebar,
-        String(localized: "sidebar.pullRequestBadges.label", defaultValue: "Rows show their pull requests", bundle: .module),
-        help: String(localized: "sidebar.pullRequestBadges.help", defaultValue: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, quiet unless their checks fail, even with the session tree off.", bundle: .module),
-        default: true, code: "SidebarTunables.pullRequestBadges")
-
-    /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
-    /// `sidebar.sessionTree`); on by default.
-    public static let pullRequestCard = Tunable<Bool>.toggle(
-        "sidebar.pullRequestCard", .sidebar, "Pull request hover card",
-        help: "Hovering a row's pull request badge lists each pull request with its state, repository and size; a click opens it.",
-        default: true, code: "SidebarTunables.pullRequestCard")
-
     /// Leo 2026-10-21 (item D, multi-view): a press on a workspace row selects nothing; the click
     /// (mouse-up on the same row) navigates, and a hold-then-drag moves the row without leaving the
     /// workspace on screen. Rows of every workspace on screen draw a soft fill (`SidebarModel.onScreen`). A row dropped
@@ -192,14 +163,6 @@ public nonisolated enum SidebarTunables {
         "sidebar.multiView", .sidebar, "Navigate on release (multi-view prototype)",
         help: "A press on a workspace row changes nothing until the button comes up on that row; holding and dragging moves the row without switching to it. A row dropped on a pane edge shows its workspace beside the shown one. Rows of every workspace on screen get a soft highlight.",
         default: false, code: "SidebarTunables.multiView")
-
-    /// A workspace nobody named whose name says nothing ("workspace-11", "~") reads in the
-    /// secondary ink while idle, read and not selected (Leo 2026-10-20: such rows clutter the
-    /// sidebar). On by default; off draws every name in the full ink.
-    public static let quietUnnamedRows = Tunable<Bool>.toggle(
-        "sidebar.quietUnnamedRows", .sidebar, "Quiet unnamed workspaces",
-        help: "An idle workspace nobody named (workspace-11, ~) shows its name dimmed until it has activity, something unread or the selection.",
-        default: true, code: "SidebarTunables.quietUnnamedRows")
 
     /// What a workspace row's name says: the workspace (the default), a breadcrumb to its focused
     /// tab, the focused tab alone, or every tab (Leo 2026-10-26, `SidebarRowTitleMode`).
@@ -227,13 +190,6 @@ public nonisolated enum SidebarTunables {
         help: "Adds sample rows with 1 to 7 pending items to the sidebar, to compare the row badges without real sessions.",
         default: false, code: "SidebarTunables.rowBadgePreview")
 
-    /// A detail line adds exactly its own height to a row, so one-line and two-line rows keep the
-    /// same room above and below their text (Leo 2026-10-20). Off: the app's fixed 12 pt step.
-    public static let evenRowText = Tunable<Bool>.toggle(
-        "sidebar.evenRowText", .sidebar, "Even row text spacing",
-        help: "A row's detail line adds its own height, so rows with one line and rows with two keep the same space above and below their text.",
-        default: true, code: "SidebarTunables.evenRowText")
-
     /// The width transition used when the sidebar is collapsed or expanded.
     /// `.slide` is the shipped behavior; `.slideFade` is a DEV/NIGHTLY
     /// prototype for comparing a fast opacity fade against the same geometry.
@@ -241,15 +197,6 @@ public nonisolated enum SidebarTunables {
         "sidebar.collapseMotion", .sidebar, "Sidebar collapse motion",
         help: "Prototype for hiding and showing the sidebar: slide keeps the panel opaque; slide and fade fades its content with the same width motion.",
         default: .slide, code: "SidebarTunables.collapseMotion")
-
-    // @intent Leo 2026-10-31: the sidebar toggle must not snap after it settles.
-    // Holding a wider content frame needs a second resize at landing; keep that optimization
-    // available for comparison, but normally let content follow the sidebar edge.
-    /// Whether the content beside the sidebar keeps one width through a show or hide slide.
-    public static let slideHoldsContent = Tunable<Bool>.toggle(
-        "sidebar.slideHoldsContent", .sidebar, "Hold content size in sidebar slide",
-        help: "While the sidebar slides open or closed, the panes beside it take their final width when the slide starts and stay still, pinned to the far edge, while the sidebar slides over the near one. Off: every pane resizes on every frame.",
-        default: false, code: "SidebarTunables.slideHoldsContent")
 
     /// The transition used when a workspace row receives its generated or
     /// agent-derived title after creation. Crossfade is the shipped default (#21242).
@@ -286,9 +233,7 @@ public nonisolated enum SidebarTunables {
         [
             agentMark.descriptor,
             collapseMotion.descriptor,
-            doneFold.descriptor,
             dragThreshold.descriptor,
-            evenRowText.descriptor,
             groupByStatus.descriptor,
             groupChromeShape.descriptor,
             groupEdgeFraction.descriptor,
@@ -296,18 +241,13 @@ public nonisolated enum SidebarTunables {
             groupRowLimit.descriptor,
             laneStatus.descriptor,
             rowStatus.descriptor,
-            pullRequestBadges.descriptor,
             laneFixture.descriptor,
             remoteMachineResources.descriptor,
-            sinceLooked.descriptor,
-            slideHoldsContent.descriptor,
             nowLine.descriptor,
             multiView.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,
-            quietUnnamedRows.descriptor,
-            pullRequestCard.descriptor,
             rowBadgePreview.descriptor,
             rowCloseSpot.descriptor,
             rowTitle.descriptor,
@@ -317,8 +257,10 @@ public nonisolated enum SidebarTunables {
             SidebarChatsDesign.tunable.descriptor,
             SidebarFaviconStyle.tunable.descriptor,
             SidebarGroupHeaderStyle.tunable.descriptor,
-            SidebarGroupPalette.tunable.descriptor,
+            SpaceSwitcherStyle.tunable.descriptor,
             SidebarGroupLineLayout.tunable.descriptor,
+            SidebarNoColorGroupLook.tunable.descriptor,
+            SidebarGroupGlass.tunable.descriptor,
             SidebarLeadingColumnLook.tunable.descriptor,
             SidebarInsertMotion.nudgeDistance.descriptor,
             SidebarInsertMotion.tunable.descriptor,

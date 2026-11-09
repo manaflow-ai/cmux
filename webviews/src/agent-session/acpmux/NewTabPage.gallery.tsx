@@ -195,7 +195,7 @@ const escapeClear: Play = async (ctx) => {
 const folderChooser: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-project-button" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="combobox"]') !== null);
-  await ctx.type("relay", { role: "combobox", name: "Search projects" });
+  await ctx.type("relay", { role: "combobox", name: "Search folders or type a path" });
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-project-button")?.textContent?.includes("relay"));
 };

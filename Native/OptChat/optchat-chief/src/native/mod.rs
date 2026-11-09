@@ -437,6 +437,7 @@ impl Native {
             error,
             orphan: None,
             cancelled: false,
+            unstarted: false,
             stats: crate::turn::TurnStats {
                 first: first_usage,
                 totals: Some((totals, "turn total")),

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87.
+// cmux-tui mux protocol 12, IR 62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -76,6 +76,8 @@ pub struct AttachSurfaceRequest {
     pub expected_terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<AttachSurfaceRequestMode>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub replay_history_rows: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2796,6 +2798,8 @@ pub type ParkTabsResult = T::JsonValue;
 pub struct PasteImageRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub data: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub filename: Optional<String>,
     pub lease: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mime: Optional<String>,
@@ -2961,6 +2965,44 @@ pub struct ReloadConfigResult {
     pub path: Nullable<String>,
     pub reloaded: bool,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RemoteHostAppRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteHostCallRequest {
+    pub method: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub params: Optional<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type RemoteHostCallResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RemoteHostConfigRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub computer_use: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub headless: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen_sharing: Optional<bool>,
+}
+
+#[rustfmt::skip]
+pub type RemoteHostConfigResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RemoteHostStatusRequest {
+}
+
+#[rustfmt::skip]
+pub type RemoteHostStatusResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3431,6 +3473,16 @@ pub struct SetHostSizePolicyRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetLayoutSizesRequest {
+    pub transaction: u64,
+    pub values: Vec<T::LayoutSizeValue>,
+}
+
+#[rustfmt::skip]
+pub type SetLayoutSizesResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetPersonalTerminalRequest {
     pub session_id: String,
     pub terminal_key: String,
@@ -3673,6 +3725,8 @@ pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep_layout: Option<bool>,
     pub pid: u32,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub restart: Optional<bool>,
 }
 
 #[rustfmt::skip]
@@ -3699,6 +3753,8 @@ pub struct SnapshotRequestRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SplitRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub before: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3806,6 +3862,15 @@ pub struct TerminalHistoryRequest {
 
 #[rustfmt::skip]
 pub type TerminalHistoryResult = T::TerminalHistoryPagesResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TerminalLastCommandRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4203,6 +4268,9 @@ impl CmuxClient {
         }
         if !request.mode.is_missing() {
             self.require_protocol_field("attach-surface", 7)?;
+        }
+        if !request.replay_history_rows.is_missing() {
+            self.require_capability_field("attach-surface", "attach-replay-history-rows-v1")?;
         }
         if !request.rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;
@@ -5206,6 +5274,9 @@ impl CmuxClient {
     }
 
     pub fn paste_image(&mut self, request: PasteImageRequest) -> Result<PasteImageResult> {
+        if !request.filename.is_missing() {
+            self.require_capability_field("paste-image", "terminal-file-paste-v1")?;
+        }
         self.execute(&PASTE_IMAGE_METADATA, &request)
     }
 
@@ -5266,6 +5337,22 @@ impl CmuxClient {
 
     pub fn reload_config(&mut self, request: ReloadConfigRequest) -> Result<ReloadConfigResult> {
         self.execute(&RELOAD_CONFIG_METADATA, &request)
+    }
+
+    pub fn remote_host_app(&mut self, request: RemoteHostAppRequest) -> Result<T::RemoteHostAppResult> {
+        self.execute(&REMOTE_HOST_APP_METADATA, &request)
+    }
+
+    pub fn remote_host_call(&mut self, request: RemoteHostCallRequest) -> Result<RemoteHostCallResult> {
+        self.execute(&REMOTE_HOST_CALL_METADATA, &request)
+    }
+
+    pub fn remote_host_config(&mut self, request: RemoteHostConfigRequest) -> Result<RemoteHostConfigResult> {
+        self.execute(&REMOTE_HOST_CONFIG_METADATA, &request)
+    }
+
+    pub fn remote_host_status(&mut self, request: RemoteHostStatusRequest) -> Result<RemoteHostStatusResult> {
+        self.execute(&REMOTE_HOST_STATUS_METADATA, &request)
     }
 
     pub fn remote_terminal_snapshot(&mut self, request: RemoteTerminalSnapshotRequest) -> Result<RemoteTerminalSnapshotResult> {
@@ -5520,6 +5607,10 @@ impl CmuxClient {
         self.execute(&SET_HOST_SIZE_POLICY_METADATA, &request)
     }
 
+    pub fn set_layout_sizes(&mut self, request: SetLayoutSizesRequest) -> Result<SetLayoutSizesResult> {
+        self.execute(&SET_LAYOUT_SIZES_METADATA, &request)
+    }
+
     pub fn set_personal_terminal(&mut self, request: SetPersonalTerminalRequest) -> Result<SetPersonalTerminalResult> {
         self.execute(&SET_PERSONAL_TERMINAL_METADATA, &request)
     }
@@ -5625,6 +5716,9 @@ impl CmuxClient {
             self.require_protocol_field("shutdown-daemon", 12)?;
             self.require_capability_field("shutdown-daemon", "end-terminals-keep-layout-v1")?;
         }
+        if !request.restart.is_missing() {
+            self.require_protocol_field("shutdown-daemon", 12)?;
+        }
         self.execute(&SHUTDOWN_DAEMON_METADATA, &request)
     }
 
@@ -5637,6 +5731,10 @@ impl CmuxClient {
     }
 
     pub fn split(&mut self, request: SplitRequest) -> Result<SplitResult> {
+        if request.before.is_some() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "split-before-v1")?;
+        }
         if !request.cwd.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-env-v1")?;
@@ -5713,6 +5811,10 @@ impl CmuxClient {
 
     pub fn terminal_history(&mut self, request: TerminalHistoryRequest) -> Result<TerminalHistoryResult> {
         self.execute(&TERMINAL_HISTORY_METADATA, &request)
+    }
+
+    pub fn terminal_last_command(&mut self, request: TerminalLastCommandRequest) -> Result<T::TerminalLastCommandResult> {
+        self.execute(&TERMINAL_LAST_COMMAND_METADATA, &request)
     }
 
     pub fn terminal_ports(&mut self, request: TerminalPortsRequest) -> Result<T::TerminalPortsResult> {

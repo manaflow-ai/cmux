@@ -1033,6 +1033,43 @@ fn add_idle_peer(hub: &Hub, name: &str) -> Arc<crate::peer::Peer> {
     peer
 }
 
+#[tokio::test]
+async fn a_capture_after_peer_remove_cannot_recreate_a_snapshot() {
+    use crate::peer::PeerNotice;
+
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let hub = hub_at(dir.path());
+    let peer = add_idle_peer(&hub, PEER);
+    hub.apply_peer_notice(
+        PEER,
+        peer.generation,
+        PeerNotice::Sessions(vec![json!({
+            "sessionId": "m1", "name": "lane", "status": "running", "createdAt": 42,
+            "updatedAt": 5
+        })]),
+    );
+    let hook = crate::hub::peers::PeerNoticeProjectionHook::new();
+    *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
+    let capturing = {
+        let hub = hub.clone();
+        let generation = peer.generation;
+        std::thread::spawn(move || {
+            hub.capture_peer_page(
+                (PEER, generation, 0, Some(42)),
+                ("m1", true),
+                &json!({"limit": 400, "kinds": ["transcript"]}),
+                &json!({"events": recs(1..=1), "hasMore": false, "lastSeq": 1}),
+            );
+        })
+    };
+    hook.wait_reached();
+    hub.remove_peer(PEER).await.unwrap();
+    hook.release();
+    capturing.join().unwrap();
+    hub.peer_snapshots.flush_now();
+    assert!(!disk::path(&disk::root(&snapshot_home(&hub)), &key("m1")).unwrap().exists());
+}
+
 #[test]
 fn the_hub_keeps_a_down_peers_records_and_pages_and_purges_drop_them() {
     use crate::peer::PeerNotice;

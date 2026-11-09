@@ -499,7 +499,37 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     // MARK: Geometry
 
-    var anchorY: CGFloat { compose.anchorBase - (compose.fieldHeight - ComposeView.height(lines: 1, chips: false)) }
+    var anchorY: CGFloat { compose.anchorBase - (compose.fieldHeight - ComposeView.height(lines: 1, chips: false)) - rowsBottomInset }
+    /// cmux: room kept clear under the newest row (Home's toasts over the chat, PaneHost.extraRowsBottom): the
+    /// rows' anchor rises by it. 0: none (Messages).
+    private(set) var rowsBottomInset: CGFloat = 0
+    /// cmux: sets ``rowsBottomInset``. Pinned to the newest row, the rows rise (or fall) by the change and slide
+    /// there over `duration` seconds as one page motion (0: at once); scrolled up, the first visible row keeps its
+    /// place and only the scroll range changes.
+    func setRowsBottomInset(_ value: CGFloat, duration: TimeInterval) {
+        guard value != rowsBottomInset else { return }
+        let last = model.count - 1
+        let before = last >= 0 ? layout.contentTop(last) - collection.contentOffset.y : nil
+        let anchor = visibleAnchor()
+        rowsBottomInset = value
+        CATransaction.begin()
+        layout.bottomPad = bounds.height - anchorY
+        // Not forced (as a commit): the content height stays unless its slack ran out, so taking the inset
+        // back puts every row exactly where it was (a forced rebase moved the pixel-rounded offset by a point).
+        _ = layout.rebaseIfNeeded()
+        layout.invalidateLayout()
+        restore(anchor)
+        // Window space, y down: rows that rose show `delta` lower first and slide to their place.
+        if let before, duration > 0, !captureMode, last < model.count {
+            let delta = before - (layout.contentTop(last) - collection.contentOffset.y)
+            if abs(delta) > 0.01 {
+                addPageMotion(delta, Springs.simple("rows.bottomInset", duration: duration), begin: Animate.now(layer))
+                collection.setNeedsLayout(); collection.layoutIfNeeded()
+            }
+        }
+        updateThumb()
+        CATransaction.commit()
+    }
     var fieldTop: CGFloat { compose.fieldBottom - compose.fieldHeight }
     func windowY(contentY: CGFloat) -> CGFloat { contentY - collection.contentOffset.y + MessagesWindowView.cvTop }
     /// This view's origin in its window's layer tree and the directions of its axes there (RowCell.windowPlace): a host
@@ -2646,7 +2676,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             return .handled
         }
         // A hosted row that takes clicks (TranscriptCustomRowProvider.tapped: cmux's run card).
-        if let h = hit(p), case let .custom(c) = h.row.part, let prov = CustomRows.provider(c.kind), prov.tapped(c, ref: h.row.ref) {
+        if let h = hit(p), case let .custom(c) = h.row.part, let prov = CustomRows.provider(c.kind),
+           prov.tapped(c, ref: h.row.ref, at: CGPoint(x: p.x - h.body.minX, y: p.y - h.body.minY), width: h.body.width) {
             return .handled
         }
         let s = store.state

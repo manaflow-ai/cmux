@@ -81,6 +81,14 @@ nonisolated enum ChromeStyleActionCatalog: ActionCatalogGroup {
                 cliName: "settings window-style-floating",
                 surfacePlan: plan
             ),
+            ActionDescriptor(
+                id: "appearance.chromeStyle.blocks",
+                title: String(localized: "action.appearance.chromeStyle.blocks", defaultValue: "Window Style: Blocks", table: "SettingsActions", bundle: .module),
+                keywords: ["window", "style", "chrome", "appearance", "look", "blocks", "blocky", "solid", "flat", "tonal", "no borders", "no lines", "borderless"],
+                category: .settings, symbol: "square.split.2x2.fill", surfaces: [.palette],
+                cliName: "settings window-style-blocks",
+                surfacePlan: plan
+            ),
         ]
     }
 }

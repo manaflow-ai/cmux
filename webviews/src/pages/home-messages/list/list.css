@@ -1,0 +1,511 @@
+/* The Messages list (ConversationList.tsx): the native list's geometry (list/layout.ts) on the page's
+   own fill, so the window's sidebar, this list and the chat read as one colour. No system blue: the
+   selection is the theme's selection tint (the `accent` look is a gallery variant only). */
+.hm-list {
+  --hm-unread: var(--hm-unread-color, var(--cmux-accent, var(--page-text)));
+  --hm-selection: var(--page-selection);
+  /* The native list's geometry (MessagesLab's SidebarMetrics; list/layout.ts has the same numbers). */
+  --hm-row-text-x: 80px;
+  --hm-row-text-right: 20px;
+  --hm-row-radius: 10px;
+  --hm-row-avatar-x: 28px;
+  --hm-row-avatar-y: 16px;
+  --hm-row-name-y: 10px;
+  --hm-row-preview-y: 28px;
+  --hm-hairline: 1px;
+  --hm-dot: 10px;
+  --hm-dot-x: 14px;
+  --hm-dot-inline: 7px;
+  --hm-close: 18px;
+  --hm-close-x: 18px;
+  --hm-draft-text-right: 36px;
+  --hm-tile-inset: 2px 4px;
+  --hm-tile-name-gap: 6px;
+  --hm-tile-name-height: 16px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--page-text);
+}
+
+.hm-header {
+  position: relative;
+  flex: none;
+}
+.hm-header > * {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.hm-search {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding-inline: var(--ds-space-2);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--page-text) 7%, transparent);
+  box-shadow: inset 0 0 0 1px transparent;
+  color: var(--page-text-2);
+  cursor: text;
+  transition: box-shadow var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.hm-search.focused {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--page-text) 36%, transparent);
+}
+.hm-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--page-text);
+  font: inherit;
+  font-size: var(--text-body);
+  caret-color: var(--cmux-caret, currentColor);
+}
+.hm-search input::placeholder {
+  color: var(--page-text-2);
+}
+.hm-search input::-webkit-search-cancel-button {
+  cursor: default;
+}
+.hm-search-hidden {
+  width: 0;
+  height: 0;
+  opacity: 0;
+  border: 0;
+  padding: 0;
+}
+
+.hm-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--page-text) 7%, transparent);
+  color: var(--page-text-2);
+  cursor: default;
+}
+.hm-circle:hover {
+  background: color-mix(in srgb, var(--page-text) 11%, transparent);
+}
+.hm-circle.on {
+  background: var(--page-text);
+  color: var(--page-surface, Canvas);
+}
+.hm-circle:focus-visible,
+.hm-chip:focus-visible,
+.hm-show-all:focus-visible,
+.hm-requests:focus-visible {
+  outline: 2px solid var(--page-text-3);
+  outline-offset: 1px;
+}
+
+.hm-chip-row {
+  display: flex;
+}
+.hm-chip-row.centered {
+  justify-content: center;
+}
+.hm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  max-width: 100%;
+  height: 100%;
+  padding-inline: var(--ds-space-3);
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--page-text) 10%, transparent);
+  color: var(--page-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+  cursor: default;
+}
+.hm-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hm-menu-host {
+  display: contents;
+}
+
+.hm-scroller {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  outline: none;
+  overscroll-behavior: contain;
+}
+.hm-content {
+  position: relative;
+}
+
+/* Rows and tiles sit at their offsets by transform: a change of place (a pin, a drag) moves every
+   affected one together. */
+.hm-row,
+.hm-tile {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transition: transform var(--cmux-motion-standard) var(--cmux-ease-out);
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.hm-scroller:not(.dragging) .hm-row {
+  transition: none;
+}
+.hm-row.dragging,
+.hm-tile.lifted {
+  z-index: var(--layer-raised);
+  transition: none;
+  opacity: 0.92;
+}
+
+.hm-row {
+  right: 0;
+  display: block;
+}
+.hm-row::before {
+  content: "";
+  position: absolute;
+  inset: 0 var(--ds-space-2);
+  border-radius: var(--hm-row-radius);
+}
+.hm-row.selected::before,
+.hm-tile.selected::before {
+  background: var(--hm-selection);
+}
+.hm-row.separated::after {
+  content: "";
+  position: absolute;
+  left: var(--hm-row-text-x);
+  right: var(--ds-space-2);
+  bottom: 0;
+  height: var(--hm-hairline);
+  background: var(--page-separator);
+}
+
+.hm-dot {
+  position: absolute;
+  left: var(--hm-dot-x);
+  top: 50%;
+  width: var(--hm-dot);
+  height: var(--hm-dot);
+  translate: 0 -50%;
+  border-radius: 50%;
+  background: var(--hm-unread);
+}
+.muted .hm-dot {
+  background: var(--page-text-3);
+}
+.hm-dot.inline {
+  position: static;
+  display: inline-block;
+  flex: none;
+  width: var(--hm-dot-inline);
+  height: var(--hm-dot-inline);
+  margin-inline-end: var(--ds-space-1);
+  translate: none;
+}
+
+.hm-row-avatar {
+  position: absolute;
+  left: var(--hm-row-avatar-x);
+  top: var(--hm-row-avatar-y);
+}
+.hm-row-head {
+  position: absolute;
+  left: var(--hm-row-text-x);
+  right: var(--hm-row-text-right);
+  top: var(--hm-row-name-y);
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+.hm-row-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.hm-tag {
+  flex: none;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.hm-row-time {
+  flex: none;
+  margin-inline-start: auto;
+  padding-inline-start: 6px;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.hm-row-preview {
+  position: absolute;
+  left: var(--hm-row-text-x);
+  right: var(--hm-row-text-right);
+  top: var(--hm-row-preview-y);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--page-text-2);
+  font-size: var(--text-body);
+  line-height: 16px;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.hm-row.muted .hm-row-name,
+.hm-row.muted .hm-row-preview {
+  opacity: 0.6;
+}
+.hm-row.draft .hm-row-head {
+  top: 50%;
+  right: var(--hm-draft-text-right);
+  translate: 0 -50%;
+}
+.hm-draft-close {
+  position: absolute;
+  right: var(--hm-close-x);
+  top: 50%;
+  width: var(--hm-close);
+  height: var(--hm-close);
+  translate: 0 -50%;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--page-text) 14%, transparent);
+  color: var(--page-text);
+}
+.hm-row.draft:hover .hm-draft-close,
+.hm-row.draft:has([data-popup-open]) .hm-draft-close,
+.hm-draft-close:focus-visible {
+  display: inline-flex;
+}
+
+/* The avatar-only list: every row a tile (the avatar centred, the name under it). */
+.hm-row.compact .hm-row-avatar {
+  left: 50%;
+  top: var(--ds-space-3);
+  transform: translateX(-50%);
+}
+.hm-row.compact .hm-dot {
+  left: var(--ds-space-1);
+}
+
+.hm-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: var(--ds-space-3);
+}
+.hm-tile::before {
+  content: "";
+  position: absolute;
+  inset: var(--hm-tile-inset);
+  border-radius: var(--ds-space-3);
+}
+.hm-tile-avatar {
+  position: relative;
+  display: flex;
+}
+.hm-tile-name {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: calc(100% - 8px);
+  margin-top: var(--hm-tile-name-gap);
+  height: var(--hm-tile-name-height);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.hm-row.compact .hm-tile-name {
+  position: absolute;
+  left: var(--ds-space-1);
+  right: var(--ds-space-1);
+  max-width: none;
+  bottom: var(--ds-space-2);
+  margin: 0;
+}
+.hm-tile.unread .hm-tile-name,
+.hm-row.compact.unread .hm-tile-name {
+  color: var(--page-text);
+}
+
+.hm-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--page-text) 14%, transparent);
+  color: var(--page-text);
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
+}
+.hm-avatar.small {
+  font-size: var(--text-caption);
+}
+.hm-avatar.big {
+  font-size: var(--text-title);
+}
+.hm-avatar.agent {
+  border-radius: 28%;
+}
+.hm-avatar.picture {
+  background: none;
+}
+.hm-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+.hm-state-mark {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 28%;
+  height: 28%;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--page-surface, Canvas);
+  background: var(--page-text-2);
+}
+.hm-state-mark.waiting {
+  background: var(--hc-warn, var(--page-text));
+}
+.hm-avatar-group {
+  position: relative;
+  display: inline-block;
+}
+.hm-avatar-slot {
+  position: absolute;
+  display: flex;
+}
+.hm-avatar-slot.slot-2-0 {
+  left: 0;
+  top: 0;
+}
+.hm-avatar-slot.slot-2-1 {
+  right: 0;
+  bottom: 0;
+}
+.hm-avatar-slot.slot-3-0 {
+  left: 19%;
+  top: 0;
+}
+.hm-avatar-slot.slot-3-1 {
+  left: 0;
+  bottom: 0;
+}
+.hm-avatar-slot.slot-3-2 {
+  right: 0;
+  bottom: 0;
+}
+
+.hm-empty {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-5) var(--ds-space-3);
+  text-align: center;
+}
+.hm-empty p {
+  margin: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-heading);
+  font-weight: var(--weight-emphasis);
+}
+.hm-show-all,
+.hm-requests {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: default;
+}
+.hm-show-all:hover,
+.hm-requests:hover {
+  color: var(--page-text);
+}
+
+.hm-footer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-2) var(--ds-space-3);
+}
+.hm-requests {
+  text-align: start;
+  font-weight: var(--weight-emphasis);
+}
+.hm-note {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+}
+
+/* The looks (gallery variants). `accent`: the selected row a filled accent block, as Messages draws
+   it. `quiet`: no hairlines between rows, and the selection a ring. */
+.hm-list.look-accent {
+  --hm-selection: var(--cmux-accent, var(--page-selection));
+}
+.hm-list.look-accent .hm-row.selected,
+.hm-list.look-accent .hm-row.selected .hm-row-time,
+.hm-list.look-accent .hm-row.selected .hm-row-preview,
+.hm-list.look-accent .hm-row.selected .hm-tag {
+  color: var(--cmux-on-accent, var(--page-text));
+}
+.hm-list.look-quiet .hm-row.separated::after {
+  display: none;
+}
+.hm-list.look-quiet .hm-row.selected::before,
+.hm-list.look-quiet .hm-tile.selected::before {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--page-text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-row,
+  .hm-tile {
+    transition: none;
+  }
+}

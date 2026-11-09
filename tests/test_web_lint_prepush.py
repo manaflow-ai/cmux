@@ -91,6 +91,7 @@ class WebLintPrePushTests(unittest.TestCase):
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
                         HOME=str(self.root), ESLINT_LOG=str(self.eslint_log))
         git_fixture_env.without_auto_maintenance(self.env)
+        self.stub_lint_tools()
 
         subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(self.origin)],
                        env=self.env, check=True, capture_output=True)
@@ -110,6 +111,7 @@ class WebLintPrePushTests(unittest.TestCase):
         self.write("web/app/page.tsx", "export const page = 1;\n")
         self.write("web/app/other.tsx", "export const other = BAD_ESLINT;\n")  # web/ is red on base
         self.write(".gitignore", "node_modules/\n")
+        self.write("scripts/cmux-next/lint-tools.lock", self.lint_tools_lock)
         self.commit("base")
         eslint = self.repo / "web/node_modules/.bin/eslint"
         eslint.parent.mkdir(parents=True)
@@ -119,6 +121,23 @@ class WebLintPrePushTests(unittest.TestCase):
         self.git("fetch", "--quiet", "origin")
         installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
         self.assertEqual(installed.returncode, 0, installed.stderr)
+
+    def stub_lint_tools(self):
+        """The cmux-next gate the hook runs after the web lint refuses an install with no lint-tools.lock (#34237),
+        and with one it runs the pinned ast-grep, SwiftFormat and SwiftLint on a Swift push. These tests are about the
+        web lint, so the fixture pins stand-ins that find nothing and puts them where the gate looks first
+        (CMUX_LINT_TOOLS_DIR), so nothing is downloaded."""
+        tools = self.root / "lint-tools"
+        rows = ["# tool\tversion\tplatform\turl\tsha256\tbinary-in-zip"]
+        for platform_key in ("darwin-arm64", "darwin-x86_64", "linux-x86_64", "linux-arm64"):
+            for tool in ("ast-grep", "swiftformat", "swiftlint"):
+                rows.append(f"{tool}\tfixture\t{platform_key}\tfile:///nonexistent\t{'0' * 64}\t{tool}")
+                binary = tools / f"{tool}-fixture-{platform_key}" / tool
+                binary.parent.mkdir(parents=True, exist_ok=True)
+                binary.write_text("#!/bin/sh\nexit 0\n")
+                binary.chmod(0o755)
+        self.lint_tools_lock = "\n".join(rows) + "\n"
+        self.env["CMUX_LINT_TOOLS_DIR"] = str(tools)
 
     def copy_sources(self):
         for relative in (
@@ -130,11 +149,13 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/cmux-next/push_range.py",
             "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/ci/github_release_download.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
+            "scripts/merge-insertions.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -770,7 +791,8 @@ class WebLintPrePushTests(unittest.TestCase):
         result = self.push()
 
         self.assertIn("webviews: not linted here", result.stderr)
-        self.assertIn("Scripts/cmux-next/json.py", result.stderr)
+        # There git records the file under the existing scripts/, so the hook names it in lower case.
+        self.assertIn("scripts/cmux-next/json.py", result.stderr.lower())
 
     def test_an_eslint_or_babel_config_the_tools_find_first_is_check_code(self):
         for name in ("web/eslint.config.js", "web/eslint.config.ts", "web/babel.config.js", "web/.babelrc",
@@ -1345,6 +1367,34 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual((env["GOMAXPROCS"], env["NODE_OPTIONS"]), ("3", "--max-old-space-size=1024"))
         self.assertEqual(env["GOMEMLIMIT"], lint.HEAVY_GOMEMLIMIT)
 
+    def test_a_bun_preload_in_bun_options_never_breaks_bun_install(self):
+        # A shell profile exported BUN_OPTIONS="--preload PATH" (a Claude Code preload). Bun reads the space form
+        # as a script path, so `bun install` failed with 'Script not found "install"' and the hook refused every
+        # push touching web code. Each tool the hook starts gets the `--preload=PATH` form, which means the same.
+        lint = load_lint(self.repo)
+        preload = self.root / "preload.js"
+        preload.write_text("globalThis.__preloaded = true;\n")
+        given = f"--smol --preload {preload} -r {preload} --require {preload} --import {preload} --preload=/kept.js"
+        for ci in ("", "true"):
+            with mock.patch.object(lint.subprocess, "run") as run, \
+                    mock.patch.dict(os.environ, {"GITHUB_ACTIONS": ci, "CI": "", "BUN_OPTIONS": given}):
+                lint.spawn(["bun", "install"], self.repo, None)
+            self.assertEqual(run.call_args.kwargs["env"]["BUN_OPTIONS"],
+                             f"--smol --preload={preload} --preload={preload} --require={preload} "
+                             f"--import={preload} --preload=/kept.js", ci)
+        bun = shutil.which("bun")
+        if not bun:
+            return
+        package = self.root / "bun-options-package"
+        package.mkdir()
+        (package / "package.json").write_text('{"name": "bun-options-fixture"}\n')
+        env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", str(self.root)),
+               "BUN_OPTIONS": f"--preload {preload}"}
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "CI": ""}):
+            installed = lint.spawn([bun, "install", "--no-save"], package, env)
+        self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+        self.assertNotIn("Script not found", installed.stderr)
+
 
 # cmux-tui/frontends/web imports `cmux` from file:../../bindings/typescript, whose exports point at a
 # tsc-built dist/. Without that build its check printed 85 TS2307 "cannot find module 'cmux/raw'" errors.
@@ -1402,6 +1452,7 @@ class TuiBindingsTests(unittest.TestCase):
 
     setUp = WebLintPrePushTests.setUp
     copy_sources = WebLintPrePushTests.copy_sources
+    stub_lint_tools = WebLintPrePushTests.stub_lint_tools
     git = WebLintPrePushTests.git
     write = WebLintPrePushTests.write
     commit = WebLintPrePushTests.commit

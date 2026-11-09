@@ -99,12 +99,18 @@ pub fn fill(frame: u64, width: usize, height: usize, top: usize) -> String {
     out
 }
 
+/// What names one beacon for its whole run: its workspace and pane ids and the cells per bit.
+#[derive(Clone, Copy, Debug)]
+pub struct Beacon {
+    pub ws: u64,
+    pub pane: u64,
+    pub cell_cols: usize,
+}
+
 /// One beacon frame, as ext_switch.py `beacon_main` writes it.
 pub fn frame(
-    ws: u64,
-    pane: u64,
+    beacon: Beacon,
     clock: u64,
-    cell_cols: usize,
     label: &str,
     k: u64,
     clear: bool,
@@ -114,7 +120,7 @@ pub fn frame(
     if clear {
         out.push_str("\x1b[2J");
     }
-    out.push_str(&ansi(ws, pane, clock, cell_cols));
+    out.push_str(&ansi(beacon.ws, beacon.pane, clock, beacon.cell_cols));
     let _ = write!(out, "\x1b[5;1H\x1b[1m{label}\x1b[0m  frame {k:9}");
     if let Some((w, h)) = fill_size {
         out.push_str(&fill(k, w, h, 7));

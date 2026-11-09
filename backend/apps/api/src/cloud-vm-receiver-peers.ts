@@ -9,7 +9,11 @@ import { can, roleOf } from "./domains/team-members.ts"
 import { teamAuthorityVersion } from "./domains/team-authority.ts"
 import { currentPolicy } from "./domains/team-policy.ts"
 
-export interface VmReceiverPeerTarget { creator: string; origin: string; deadline: number; policy: NativeVmReceiverPolicy }
+/**
+ * `desktop`: CloudDO sets it only for a machine whose daemon advertises CLOUD_DESKTOP_CAPABILITY (an image whose
+ * receiver knows the service). Then the creator's own peers also get `desktop`; no other member's peer ever does.
+ */
+export interface VmReceiverPeerTarget { creator: string; origin: string; deadline: number; policy: NativeVmReceiverPolicy; desktop?: boolean }
 interface Deps extends PeerDeps { project: string; origin(): string | undefined; tenant(): Promise<VmApiTenant | null>; allowed(): ReadonlyArray<string> }
 export interface VmReceiverPeers { peers: Array<typeof CloudVmReceiverPeer.Type>; expires_at: number; authority_version: string }
 
@@ -55,8 +59,10 @@ export const vmReceiverPeers = async (d: Deps, target: VmReceiverPeerTarget): Pr
     const identity = final.get(host.id) ?? null
     if (!cloudClientIdentity(host, identity, now) || identity.authority_version !== first.get(host.id)?.authority_version || pointOf(identity) !== native.installPublicKey) continue
     const rules = vmRuleServices(native.allow)
-    const services = rules?.filter((s) => allowed.includes(s) && (s !== "daemon" || allowed.includes("ssh"))) as Array<"daemon" | "ssh"> | undefined
-    if (!services?.length) continue
+    if (!rules) continue
+    const services: Array<"daemon" | "ssh" | "desktop"> = (rules as Array<"daemon" | "ssh">).filter((s) => allowed.includes(s) && (s !== "daemon" || allowed.includes("ssh")))
+    if (target.desktop === true && host.owner_user === target.creator && host.kind !== "server") services.push("desktop")
+    if (!services.length) continue
     expires = Math.min(expires, identity.expires_at ?? Infinity)
     peers.push({ host: host.id, user: host.owner_user!, install: host.enrolled_by, device: native.deviceId,
       wg_public_key: native.wgPublicKey, install_public_key: native.installPublicKey, authority_version: peerAuthorityVersion(d, host, identity), services })

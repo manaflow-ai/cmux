@@ -5,6 +5,11 @@
 
 <!-- The concrete problem, and what a user or API caller can do after this change. Explain as much of the mechanism as a reviewer needs to assess it; link deeper design or implementation detail. If this closes an issue, say `Fixes #1234` here. -->
 
+## Leaned on
+
+<!-- Optional. Delete this section when nothing applies; it is never a gate. When a sourced perspective decided a choice in this change (a design lens, a doc, a talk, a post), write one line per choice: the lens or source, its URL, and the decision it shaped.
+Example: - Kenton Varda: https://blog.cloudflare.com/introducing-workers-durable-objects/ — one Durable Object per machine, not per team -->
+
 ## Testing
 
 <!--

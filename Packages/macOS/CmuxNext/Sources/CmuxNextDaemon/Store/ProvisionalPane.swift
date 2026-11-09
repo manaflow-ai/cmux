@@ -9,6 +9,9 @@ public struct ProvisionalPane: Sendable, Hashable {
     private static let handleBase: UInt64 = 1 << 62
     /// The lowest stand-in handle: a pane handle at or above it is a stand-in.
     static let firstHandle: UInt64 = handleBase
+
+    /// Whether `handle` is a stand-in's: a pane the daemon has not made, whose commands it refuses (`PaneNotReady`).
+    public static func isStandIn(_ handle: PaneID) -> Bool { handle.rawValue >= firstHandle }
     @MainActor private static var next: UInt64 = 0
 
     /// The provisional pane's handle in the store.
@@ -38,11 +41,21 @@ public struct ProvisionalPane: Sendable, Hashable {
     /// as its title from the key's frame, as the daemon's tab will, so nothing renames the tab when that one arrives
     /// (RESIZE VIDEOS T1). Nil: the daemon picks the folder; the stand-in shows the placeholder.
     public private(set) var cwd: String?
+    /// Set when the pane opens before the target on the split axis (Split Left, Split Up; `split {before: true}`,
+    /// `split-before-v1`): the split shows it as its first side, where the daemon's split puts it.
+    public private(set) var before = false
 
     /// This pane, its terminal opening in `cwd` (the create's own folder, ``cwd``).
     public func opening(in cwd: String?) -> ProvisionalPane {
         var pane = self
         pane.cwd = cwd
+        return pane
+    }
+
+    /// This pane, opening before the target on the split axis when `before` (``before``).
+    public func placed(before: Bool) -> ProvisionalPane {
+        var pane = self
+        pane.before = before
         return pane
     }
 

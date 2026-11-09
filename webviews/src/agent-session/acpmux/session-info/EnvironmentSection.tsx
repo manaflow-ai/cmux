@@ -1,33 +1,31 @@
 // Session Info's Environment (Claude Code desktop's): where a running chat runs, the one place
 // that says so. The machine by its own name, with its kind in words at the row's end (Local, SSH or
 // Cloud), never "This computer", with Save; then the chat's project (chatFolders.ts), named by its
-// repository, whose full path only a hover shows; the GitHub repository; the branch. Then Remote
-// Control, when the App offers it. Last, what the chat was granted (the folder's trust, a chat-wide
-// allowance), each with Revoke on its own row's hover or focus. The chat menu's Revoke Granted
-// Access (header/grantsMenu.ts) lists the same grants in every chat; the composer's mode menu lists
-// the modes alone (Leo, 2026-10-29). A chat in a temporary or internal folder (a harness's scratchpad)
-// has no project row and no Save: only its machine. Every row does something: the project opens in
-// the Files tree beside the chat, the repository and the branch are links to GitHub, which the pane
-// opens in the browser as it opens a reply's link.
+// repository, whose full path only a hover shows, under a folder icon whether or not it is a
+// repository (the repository is the folder, so it has no row of its own); the branch; the chat's
+// changes, which open the folder's diff beside the chat. Then Remote Control, when the App offers it.
+// No grant rows: the chat menu's Revoke Granted Access (header/grantsMenu.ts) lists what the chat was
+// granted (Lucas, 2026-11-05: ChatGPT's panel has none). A chat in a temporary or internal folder (a
+// harness's scratchpad) has no project row and no Save: only its machine. Every row does something:
+// the project opens in the Files tree beside the chat, the branch is a link to GitHub when the folder's
+// repository is there, which the pane opens in the browser as it opens a reply's link, and Changes
+// opens the diff.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useT, type StringKey } from "../i18n";
+import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { machineColor } from "../machineColor";
-import type { SavedEnvironmentDraft } from "../environments";
-import type { AcpmuxSnapshot } from "../model";
+
+import { chatMachine, type ChatPlace } from "../chatMachine";
 import { homePath } from "../sessionList";
 import { chatProject } from "./chatFolders";
+import { Counts } from "../changes/Counts";
 import { openCloudEnvironment } from "../cloudEnvironment";
-import {
-  CloudRepositoryPicker,
-  loadAttachedCloudRepos,
-  type AttachedCloudRepo,
-  type PendingCloudRepo,
-} from "./CloudRepositoryPicker";
-
-type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
-
+import { Switch } from "../../../ui/Switch";
+import "../../../ui/controls.css";
+import { CloudRepositoryPicker } from "./CloudRepositoryPicker";
+import { loadAttachedCloudRepos, type AttachedCloudRepo, type PendingCloudRepo } from "./cloudRepositoryPickerModel";
+import { type Summary, REMOTE_CONTROL_ICON, MACHINE_KIND_LABELS } from "./environmentSectionModel";
 /// Something the chat was granted (App.tsx `accessGrants`): its label, and how Revoke takes it back.
 export type AccessGrant = {
   id: string;
@@ -41,54 +39,6 @@ const ROW_ICON = rowIconSize(12);
 /// Gallery alternatives: `branch`, the branch as a chip in the project's row, with no branch row;
 /// `parent`, the name with its parent folder after it (the path text Leo asked not to see).
 export type ProjectRowLook = "name" | "branch" | "parent";
-
-/// Remote Control's row icon. Shipped: `computeruse.click`, a pointer, as Claude Code desktop marks its
-/// Remote Control row; Leo, 2026-11-01: "i think we should rethink what symbol we have for remote
-/// control at least" (it was `device.phone`, a bare phone outline). The gallery shows the others.
-export const REMOTE_CONTROL_ICON = "computeruse.click";
-
-/// Where the chat runs, in words beside the machine's name: Local, SSH or Cloud, the words the
-/// environment picker gives each kind (EnvironmentPicker.tsx KIND_LABELS). A name alone never said
-/// whether the chat was on this Mac (Leo, 2026-10-31: "WHY IS THERE NOTHING THAT
-/// TELLS ME IF IT'S LOCAL OR IF").
-export const MACHINE_KIND_LABELS: Readonly<Record<"local" | "ssh" | "cloud", StringKey>> = {
-  local: "composer.envLocal",
-  ssh: "composer.envSSH",
-  cloud: "composer.cloud",
-};
-
-/// Where the session runs, as the composer's computer chip names it (ComposerContext computerId):
-/// a peer or a Cloud host is another machine, else it is this Mac by its name. With no name known
-/// (an older App), the row says nothing rather than a generic "This computer".
-export function machineOf(
-  summary: Summary | undefined,
-  machineName: string | undefined,
-  peerKinds?: Readonly<Record<string, "ssh" | "cloud">>,
-): { icon: string; name?: string; kind: "local" | "ssh" | "cloud" } {
-  const peer = summary?.peer;
-  if (summary?.hostKind === "cloud" || (peer && peerKinds?.[peer] === "cloud"))
-    return { icon: "cloud", name: summary?.host || peer || machineName, kind: "cloud" };
-  if (peer) return { icon: "machine.remote", name: summary?.host || peer, kind: "ssh" };
-  return { icon: "machine.mac", name: machineName || summary?.host || undefined, kind: "local" };
-}
-
-/// What Save keeps of the chat's environment (environments.ts, the New Tab page's saved
-/// environments): this Mac or the SSH machine, and the chat's folder, named after its project. Only
-/// a chat in a project has one: a chat in a temporary or internal folder (chatFolders.ts) saves
-/// nothing useful, and a Cloud machine's chat has none (a saved environment is this Mac or an SSH
-/// machine).
-export function environmentToSave(
-  summary: Summary | undefined,
-  peerKinds?: Readonly<Record<string, "ssh" | "cloud">>,
-  repository?: string,
-): SavedEnvironmentDraft | undefined {
-  const machine = machineOf(summary, undefined, peerKinds);
-  const project = chatProject(summary, repository);
-  const folder = summary?.cwd;
-  if (!summary || !folder || !project || machine.kind === "cloud") return undefined;
-  if (machine.kind === "ssh") return { name: project.name, kind: "ssh", host: summary.peer, folder };
-  return { name: project.name, kind: "local", folder };
-}
 
 /// A row that does something when it is clicked (`onClick`, or `href`: a web address the pane opens
 /// in the browser as it opens a reply's link), else plain text.
@@ -114,7 +64,8 @@ function Row({
   if (href)
     return (
       <li>
-        <a className="acpmux-session-info-row acpmux-session-info-row--button" href={href}>
+        {/* tooltip-allow: a long branch name ends in an ellipsis; the whole name appears nowhere else. */}
+        <a className="acpmux-session-info-row acpmux-session-info-row--button" href={href} title={title}>
           {content}
         </a>
       </li>
@@ -145,30 +96,36 @@ export function EnvironmentSection({
   summary,
   machineName,
   peerKinds,
+  place,
   repository,
   cloudRepositoryAvailable = false,
   remoteControl,
-  grants = [],
   onSave,
   onOpenFolder,
+  edits,
+  onOpenChanges,
   projectLook = "name",
   remoteControlIcon = REMOTE_CONTROL_ICON,
 }: {
   summary?: Summary;
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
+  /// The page's route to the chat (chatMachine.ts `chatPlace`).
+  place?: ChatPlace;
   /// The chat folder's GitHub repository, `owner/name`.
   repository?: string;
   /// Native says whether this pane has an authenticated Cloud repository route.
   cloudRepositoryAvailable?: boolean;
   /// Remote Control's state and switch, when the App offers it for this chat.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
-  /// What the chat was granted, each with Revoke.
-  grants?: readonly AccessGrant[];
   /// Saves this machine and folder as a reusable environment, when the App offers it.
   onSave?: () => Promise<unknown> | void;
   /// Opens a folder in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
+  /// The chat's last edits (SessionInfo `edits`): a Changes row under the branch, which opens the
+  /// chat folder's diff beside the chat (`onOpenChanges`, the header's Changes). Never a fold.
+  edits?: { additions: number; deletions: number };
+  onOpenChanges?: () => void;
   projectLook?: ProjectRowLook;
   remoteControlIcon?: string;
 }) {
@@ -181,7 +138,7 @@ export function EnvironmentSection({
   const [pendingRepos, setPendingRepos] = useState<PendingCloudRepo[]>([]);
   const addRepositoryButton = useRef<HTMLButtonElement>(null);
   const pending = useRef(false);
-  const machine = machineOf(summary, machineName, peerKinds);
+  const machine = chatMachine(summary, machineName, peerKinds, place);
   const cloudSession = machine.kind === "cloud" ? summary?.sessionId : undefined;
   const canUseCloudRepositories = Boolean(cloudSession && cloudRepositoryAvailable);
   const branch = summary?.branch;
@@ -260,14 +217,6 @@ export function EnvironmentSection({
           </button>
         )}
       </li>
-      {machine.kind === "cloud" && (
-        // What a Cloud machine is and how long its files last, said plainly beside the chat
-        // (Leo, 2026-11-02, on Claude Code's cloud session that says so: "i want us to be able to
-        // do this too"). The agent says the same when asked (acpmux cloud_repo_mcp.rs INSTRUCTIONS).
-        <li className="acpmux-session-info-note" data-note="cloud-lifetime">
-          {t("cloudRepository.lifetime")}
-        </li>
-      )}
       {canUseCloudRepositories && cloudSession && (
         <>
           <li className="acpmux-session-info-row acpmux-cloud-environment-row">
@@ -332,11 +281,7 @@ export function EnvironmentSection({
         </li>
       )}
       {project && (
-        <Row
-          icon={project.worktree ? "git.worktree" : "folder"}
-          title={project.path}
-          onClick={onOpenFolder && (() => onOpenFolder(project.path))}
-        >
+        <Row icon="folder" title={project.path} onClick={onOpenFolder && (() => onOpenFolder(project.path))}>
           <span className="acpmux-session-info-row__name">{project.name}</span>
           {projectLook === "parent" && parent && <span className="acpmux-session-info-row__detail">{parent}</span>}
           {projectLook === "branch" && branch && (
@@ -344,14 +289,17 @@ export function EnvironmentSection({
           )}
         </Row>
       )}
-      {repository && (
-        <Row icon="brand.github" href={repositoryUrl}>
-          <span className="acpmux-session-info-row__name">{repository}</span>
+      {branch && !(projectLook === "branch" && project) && (
+        <Row icon="git.branch" href={branchUrl} title={branch}>
+          <span className="acpmux-session-info-row__name">{branch}</span>
         </Row>
       )}
-      {branch && !(projectLook === "branch" && project) && (
-        <Row icon="git.branch" href={branchUrl}>
-          <span className="acpmux-session-info-row__name">{branch}</span>
+      {branch && edits && edits.additions + edits.deletions > 0 && (
+        <Row icon="diff.file" onClick={onOpenChanges} title={t("header.changes")}>
+          <span className="acpmux-session-info-row__name">{t("header.changes")}</span>
+          <span className="acpmux-session-info-row__end">
+            <Counts additions={edits.additions} deletions={edits.deletions} />
+          </span>
         </Row>
       )}
       {remoteControl && (
@@ -359,30 +307,16 @@ export function EnvironmentSection({
           <Icon name={remoteControlIcon} size={ROW_ICON} row fit />
           <label className="acpmux-session-info-switch" title={t("sessionInfo.environment.remoteControl.help")}>
             <span className="acpmux-session-info-row__name">{t("sessionInfo.environment.remoteControl")}</span>
-            <input
-              type="checkbox"
+            <Switch
               className="acpmux-session-info-switch__input"
+              size="md"
               aria-label={t("sessionInfo.environment.remoteControl")}
               checked={remoteControl.on}
-              onChange={(event) => remoteControl.set(event.currentTarget.checked)}
+              onCheckedChange={remoteControl.set}
             />
           </label>
         </li>
       )}
-      {grants.map((grant) => (
-        <li className="acpmux-session-info-row acpmux-session-info-row--grant" key={grant.id} data-grant={grant.id}>
-          <Icon name="security.lock" size={ROW_ICON} row />
-          <span className="acpmux-session-info-row__name">{grant.label}</span>
-          <button
-            type="button"
-            className="acpmux-session-info-link acpmux-session-info-row__end"
-            aria-label={`${t("permission.revoke")}: ${grant.label}`}
-            onClick={grant.onRemove}
-          >
-            {t("permission.revoke")}
-          </button>
-        </li>
-      ))}
     </ul>
   );
 }

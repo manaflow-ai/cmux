@@ -18,6 +18,28 @@ def reply(session, request, text, reason="end_turn"):
     send({"id": request, "result": {"stopReason": reason}})
 
 
+def command_text(blocks):
+    """Match workflow commands while leaving the hidden context on the wire."""
+    out = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        mux = (block.get("_meta") or {}).get("acpmux", {})
+        source = mux.get("contextSource")
+        text = block.get("text", "")
+        if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
+            continue
+        # Who wrote it (hub/prompt_attribution.rs): a workflow's prompt is another agent's.
+        if mux.get("attribution") is True:
+            continue
+        if isinstance(text, str) and text.startswith(("<cmux-default-context>",
+                                                       "<cmux-user-context>",
+                                                       "<cmux-project-context>", "<cmux-guidance-context>")):
+            continue
+        out.append(text)
+    return "".join(out)
+
+
 for line in sys.stdin:
     request = json.loads(line)
     method = request.get("method")
@@ -34,7 +56,7 @@ for line in sys.stdin:
         send({"id": rid, "result": {}})
     elif method == "session/prompt":
         count += 1
-        text = "".join(block.get("text", "") for block in params.get("prompt", []))
+        text = command_text(params.get("prompt", []))
         first = first or text
         if first in ("route-failure", "route-failure-schema") and "alternate" not in sys.argv:
             send({"id": rid, "error": {"code": -32000, "message": "workflow route unavailable",

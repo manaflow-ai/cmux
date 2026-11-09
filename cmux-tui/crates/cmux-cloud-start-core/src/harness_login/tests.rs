@@ -552,13 +552,45 @@ fn a_codex_start_runs_the_broker_before_the_first_prompt() {
         (Inputs { guest_kind: Some(String::new()), ..codex.clone() }, Reason::GuestNotOwner),
         (Inputs { requested: Some(Choice::None), ..codex.clone() }, Reason::ChoseNone),
         (Inputs { requested: Some(Choice::Machine), ..codex.clone() }, Reason::MachineLoginKept),
-        // A run that may show no prompt passes nothing instead of refusing the start.
-        (Inputs { headless: true, ..codex.clone() }, Reason::NeedsLoginChoice),
+        // A run that may show no prompt keeps `none` and `machine` as chosen, from the flag or kept.
+        (
+            Inputs { headless: true, requested: Some(Choice::None), ..codex.clone() },
+            Reason::ChoseNone,
+        ),
+        (Inputs { headless: true, stored: Some(Choice::None), ..codex.clone() }, Reason::ChoseNone),
+        (
+            Inputs { headless: true, requested: Some(Choice::Machine), ..codex.clone() },
+            Reason::MachineLoginKept,
+        ),
     ];
     for (d, reason) in skips {
         let decision = decide(&d);
         assert_eq!((decision.step, decision.reason), (Step::Skip, reason), "{d:?}");
     }
+    // Production start matrix `codex-signed-out` (2026-11-08): a headless Codex start with no
+    // choice passed nothing, so Codex sat signed out and the run's first turn hung for 419 s. It
+    // now refuses at once, as Claude's does, and an agent's `--login pass` alone is no choice.
+    let refused = [
+        Inputs { headless: true, ..codex.clone() },
+        Inputs { headless: true, requested: Some(Choice::Pass), ..codex.clone() },
+        Inputs { headless: true, cached: true, ..codex.clone() },
+    ];
+    for d in refused {
+        let decision = decide(&d);
+        assert_eq!(
+            (decision.step, decision.reason),
+            (Step::Refuse, Reason::NeedsLoginChoice),
+            "{d:?}"
+        );
+        assert!(
+            decision.summary.starts_with("refuse (needs-login-choice):"),
+            "{}",
+            decision.summary
+        );
+    }
+    // The pass the person chose before, kept per user, still runs the broker headless.
+    let kept = Inputs { headless: true, stored: Some(Choice::Pass), ..codex.clone() };
+    assert_eq!((decide(&kept).step, decide(&kept).reason), (Step::Install, Reason::CodexBroker));
     let chosen = Inputs {
         headless: true,
         requested: Some(Choice::Pass),
@@ -577,4 +609,144 @@ fn a_codex_start_runs_the_broker_before_the_first_prompt() {
     let d = decide(&release);
     assert_eq!((d.step, d.reason), (Step::Skip, Reason::NoTransfer));
     assert!(!d.reads_machine);
+}
+
+/// The Mac's cached Claude login present and absent, against each answer of the machine's login probe,
+/// for the composer and for a run that may show no prompt (fixtures only: the probe's words, no token).
+#[test]
+fn the_cache_present_and_absent_against_each_machine_login() {
+    use crate::machine_login::Probe;
+    let probe = |exit_code: i64, stdout: &str| Some(Probe { exit_code, stdout: stdout.into() });
+    // (probe, cached, headless) -> step. A missing or rejected login is replaced from the cache with no
+    // prompt; with no cache the composer asks once and a headless run refuses at once.
+    let rows = [
+        (probe(0, "none\n"), true, false, Step::Install),
+        (probe(0, "none\n"), true, true, Step::Install),
+        (probe(0, "none\n"), false, false, Step::ConfirmThenInstall),
+        (probe(0, "none\n"), false, true, Step::Refuse),
+        (probe(0, "rejected\n"), true, false, Step::Install),
+        (probe(0, "rejected\n"), true, true, Step::Install),
+        (probe(0, "rejected\n"), false, false, Step::ConfirmThenInstall),
+        (probe(0, "rejected\n"), false, true, Step::Refuse),
+        // An exec that failed reads as no login.
+        (probe(1, ""), true, true, Step::Install),
+        (probe(1, ""), false, true, Step::Refuse),
+        (None, true, false, Step::Install),
+        (None, false, true, Step::Refuse),
+        // A login the provider takes stays, cache or not: a start never loops on a login it just installed.
+        (probe(0, "session\n"), true, false, Step::Skip),
+        (probe(0, "cached\n"), true, true, Step::Skip),
+        (probe(0, "working\n"), false, false, Step::Skip),
+        // An unknown word with exit 0 counts as a working login (the older probe's reading).
+        (probe(0, "motd\n"), true, false, Step::Skip),
+    ];
+    for (machine_probe, cached, headless, step) in rows {
+        let d = decide(&Inputs {
+            machine_probe: machine_probe.clone(),
+            machine_login: None,
+            cached,
+            headless,
+            ..owner()
+        });
+        assert_eq!(d.step, step, "{machine_probe:?} cached {cached} headless {headless}");
+        let reason = match (step, cached) {
+            (Step::Install, true) => Reason::InstallCached,
+            (Step::ConfirmThenInstall, false) => Reason::ConfirmFirst,
+            (Step::Refuse, false) => Reason::NeedsLoginChoice,
+            (Step::Skip, _) => Reason::MachineLoginKept,
+            other => panic!("no row expects {other:?}"),
+        };
+        assert_eq!(d.reason, reason, "{machine_probe:?} cached {cached} headless {headless}");
+        // The record says whether the cache was there.
+        assert!(
+            d.summary.contains(if cached { "cached yes" } else { "cached no" }),
+            "{}",
+            d.summary
+        );
+    }
+}
+
+/// A cached login never moves a start past an earlier check: the build, the account, the owner, the
+/// person's `none`, and the guest all decide first, and before the owner check nothing reads the machine.
+#[test]
+fn a_cached_login_is_read_only_after_every_earlier_check() {
+    let rows = [
+        (Inputs { gate: false, ..cached(owner()) }, Reason::BuildGateOff, false),
+        (Inputs { signed_in: false, ..cached(owner()) }, Reason::SignedOut, false),
+        (Inputs { caller_owns: Some(false), ..cached(owner()) }, Reason::CallerNotOwner, false),
+        (Inputs { caller_owns: None, ..cached(owner()) }, Reason::CallerNotOwner, false),
+        (Inputs { requested: Some(Choice::None), ..cached(owner()) }, Reason::ChoseNone, false),
+        (Inputs { guest_kind: None, ..cached(owner()) }, Reason::GuestUnread, true),
+        (
+            Inputs { guest_kind: Some("shared".into()), ..cached(owner()) },
+            Reason::GuestNotOwner,
+            true,
+        ),
+        (
+            Inputs { requested: Some(Choice::Machine), ..cached(owner()) },
+            Reason::MachineLoginMissing,
+            true,
+        ),
+    ];
+    for (inputs, reason, reads_machine) in rows {
+        let d = decide(&inputs);
+        assert_eq!((d.reason, d.reads_machine), (reason, reads_machine), "{inputs:?}");
+        assert_ne!(d.step, Step::Install, "{inputs:?}");
+    }
+}
+
+/// What crosses the app FFI names the login's state, never a credential: no field of the request or the
+/// decision can hold a token.
+#[test]
+fn the_login_decision_wire_holds_no_credential() {
+    let inputs = Inputs {
+        machine_probe: Some(crate::machine_login::Probe {
+            exit_code: 0,
+            stdout: "rejected\n".into(),
+        }),
+        ..cached(owner())
+    };
+    let wire = serde_json::to_value(&inputs).unwrap().to_string()
+        + &serde_json::to_value(decide(&inputs)).unwrap().to_string();
+    for word in ["token", "secret", "password", "credential", "oauth"] {
+        assert!(!wire.to_lowercase().contains(word), "{word} in {wire}");
+    }
+}
+
+#[test]
+fn only_a_claude_start_that_copies_conflicts_with_a_warm_copy() {
+    // A Claude start that reads and copies onto its machine would race the warm's Claude copy.
+    let claude = decide(&cached(owner()));
+    assert!(claude.reads_machine && claude.warm_copy_conflict);
+    // Codex reads the machine too (its broker), but the warm copies only Claude: no conflict.
+    let codex = decide(&Inputs { provider: Some(Provider::Codex), ..cached(owner()) });
+    assert!(codex.reads_machine && !codex.warm_copy_conflict);
+    // A start that copies nothing (`--login none`, a machine it does not own) never waits.
+    let none =
+        Inputs { requested: Some(Choice::None), requested_by_person: true, ..cached(owner()) };
+    assert!(!decide(&none).warm_copy_conflict);
+    assert!(!decide(&Inputs { caller_owns: Some(false), ..cached(owner()) }).warm_copy_conflict);
+}
+
+#[test]
+fn a_refused_start_never_waits_on_a_warm_copy() {
+    // A headless Claude start with no login choice refuses at once (`cloud start-session`): it copies nothing,
+    // so it never waits for the warm's copy onto its machine.
+    let refused = decide(&Inputs { headless: true, ..owner() });
+    assert_eq!(refused.step, Step::Refuse);
+    assert!(!refused.warm_copy_conflict);
+}
+
+#[test]
+fn a_start_that_keeps_the_machines_login_never_waits_on_a_warm_copy() {
+    // `--login machine` writes nothing: with a login there it keeps it, without one it refuses.
+    for login in [MachineLogin::Working, MachineLogin::Session, MachineLogin::None] {
+        let d = decide(&Inputs {
+            requested: Some(Choice::Machine),
+            requested_by_person: true,
+            machine_login: Some(login),
+            ..owner()
+        });
+        assert!(d.reads_machine && !d.warm_copy_conflict, "{login:?}");
+    }
 }

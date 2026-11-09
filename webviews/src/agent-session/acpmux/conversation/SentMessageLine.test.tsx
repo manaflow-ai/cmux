@@ -7,10 +7,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { acpmuxSendCall } from "./acpmuxSends";
-import { toolGroups } from "./toolGroups";
-import { AcpmuxSendLine, configureSentLook } from "./SentMessageLine";
+import { sendEntries, toolGroups } from "./toolGroups";
+import { AcpmuxSendLine } from "./SentMessageLine";
+import { configureSentLook } from "./sentMessageLineModel";
 import { configureMessageLineLook } from "./messageLineLook";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import type { AcpmuxSessionEntry } from "../sessionList";
 
@@ -94,61 +95,77 @@ const listed = (...entries: Partial<AcpmuxSessionEntry>[]) => {
   return store;
 };
 
+/// A sent row's parts: its root (`data-send-state`), the line's words as read (the sender's
+/// sentence, the first line, the status), its toggle, and a click on the line. The row is the one
+/// message row (AgentMessageRow.tsx): its toggle, in the sentence, says whether it is open.
+const rowOf = (container: ParentNode, at = 0) => [...container.querySelectorAll<HTMLElement>(".cv-sent-msg")][at]!;
+const lineText = (row: HTMLElement) =>
+  [...row.querySelector(":scope > .cv-agentmsg__line")!.children]
+    .map((part) => part.textContent!.trim())
+    .filter(Boolean)
+    .join(" ");
+const toggleOf = (row: HTMLElement) =>
+  row.querySelector<HTMLButtonElement>(":scope > .cv-agentmsg__line .cv-agentmsg__toggle")!;
+const expanded = (row: HTMLElement) => toggleOf(row).getAttribute("aria-expanded");
+const rawButton = (container: ParentNode) =>
+  container.querySelector<HTMLButtonElement>(".cv-sent__raw > .cv-received__more");
+
 test("a sent message reads its target, how it was taken and its first line, and opens to all of it", async () => {
   const container = await line(
     bash("acpmux send --no-wait coord-deputy - <<'EOF'\n## Merged #4182\n\nThe review passed.\nEOF", {
       output: "queued",
     }),
   );
-  const row = container.querySelector<HTMLButtonElement>(".cv-sent")!;
-  // Stacked (the default): the line holds who and how; the first line is on its own line under it.
-  expect(row.textContent).toBe("Sent to coord-deputy queued");
-  expect(container.querySelector(".cv-sent__below")?.textContent).toBe("Merged #4182");
+  const row = rowOf(container);
+  expect(lineText(row)).toBe("Sent to coord-deputy Merged #4182 queued");
   expect(row.dataset.sendState).toBe("sent");
   expect(row.classList.contains("is-live")).toBe(false);
-  expect(row.getAttribute("aria-expanded")).toBe("false");
-  await act(async () => row.click());
-  expect(row.getAttribute("aria-expanded")).toBe("true");
-  expect(container.querySelector(".cv-subsession__under h2")?.textContent).toBe("Merged #4182");
+  expect(expanded(row)).toBe("false");
+  await act(async () => toggleOf(row).click());
+  expect(expanded(row)).toBe("true");
+  expect(container.querySelector(".cv-received__text h2")?.textContent).toBe("Merged #4182");
   // Open, the message shows once: under the row, not again as the row's first line.
-  expect(row.textContent).toBe("Sent to coord-deputy queued");
-  expect(container.querySelector(".cv-sent__below")).toBeNull();
-  // The command stays one more click away, behind Raw.
+  expect(lineText(row)).toBe("Sent to coord-deputy queued");
+  expect(row.querySelector(".cv-sent__preview")).toBeNull();
+  // The command stays one more click away, behind Raw, as its plain command row.
+  expect(container.querySelector("[data-tool-id]")).toBeNull();
+  await act(async () => rawButton(container)!.click());
+  expect(container.querySelector(".cv-sent__raw [data-tool-id]")?.textContent).toContain(
+    "acpmux send --no-wait coord-deputy",
+  );
   expect(container.querySelector(".cv-shell")).toBeNull();
-  await act(async () => container.querySelector<HTMLButtonElement>(".cv-subsession__toggle")!.click());
-  expect(container.querySelector(".cv-shell")?.textContent).toContain("acpmux send --no-wait coord-deputy");
 });
 
 test("a direct recorded heredoc send stays compact and opens to rendered Markdown", async () => {
   const container = await line(
     bash("acpmux send --no-wait coord-deputy - <<'EOF'\n## Ready\n\n- checks pass\nEOF", { output: "queued" }),
   );
-  const row = container.querySelector<HTMLElement>(".cv-sent")!;
-  expect(row.textContent).toContain("Sent to coord-deputy");
-  expect(row.textContent).not.toContain("cat > /tmp/review.md");
-  await act(async () => row.click());
-  expect(container.querySelector(".cv-subsession__under h2")?.textContent).toBe("Ready");
-  expect(container.querySelectorAll(".cv-subsession__under li").length).toBe(1);
-  expect(container.querySelector(".cv-subsession__under")?.textContent).toContain("checks pass");
+  const row = rowOf(container);
+  expect(lineText(row)).toContain("Sent to coord-deputy");
+  expect(lineText(row)).not.toContain("cat > /tmp/review.md");
+  await act(async () => toggleOf(row).click());
+  expect(container.querySelector(".cv-received__text h2")?.textContent).toBe("Ready");
+  expect(container.querySelectorAll(".cv-received__text li").length).toBe(1);
+  expect(container.querySelector(".cv-received__text")?.textContent).toContain("checks pass");
 });
 
 test("closing the row brings its first line back", async () => {
   const container = await line(bash("acpmux send --no-wait coord-deputy 'Restore base.'", { output: "queued" }));
-  const row = container.querySelector<HTMLElement>(".cv-sent")!;
-  await act(async () => row.click());
-  expect(container.querySelector(".cv-sent__below")).toBeNull();
-  await act(async () => row.click());
-  expect(container.querySelector(".cv-sent__below")?.textContent).toBe("Restore base.");
+  const row = rowOf(container);
+  await act(async () => toggleOf(row).click());
+  expect(lineText(row)).toBe("Sent to coord-deputy queued");
+  await act(async () => toggleOf(row).click());
+  expect(lineText(row)).toBe("Sent to coord-deputy Restore base. queued");
 });
 
 test("the quote look drops its quoted line while the row is open", async () => {
   configureSentLook("quote");
   try {
     const container = await line(bash("acpmux send --no-wait coord-deputy 'Restore base.'", { output: "queued" }));
-    const row = container.querySelector<HTMLElement>(".cv-sent")!;
-    expect(row.textContent).toContain("“Restore base.”");
-    await act(async () => row.click());
-    expect(row.textContent).not.toContain("Restore base.");
+    const row = rowOf(container);
+    expect(lineText(row)).toContain("“Restore base.”");
+    await act(async () => toggleOf(row).click());
+    expect(lineText(row)).not.toContain("Restore base.");
   } finally {
     await act(async () => configureSentLook("sentence"));
   }
@@ -156,16 +173,15 @@ test("the quote look drops its quoted line while the row is open", async () => {
 
 test("in flight it is live, with the spinner", async () => {
   const running = await line(bash("acpmux send lane 'status?'", { status: "in_progress" }));
-  const row = running.querySelector<HTMLButtonElement>(".cv-sent")!;
-  expect(row.textContent).toBe("Sending to lane");
-  expect(running.querySelector(".cv-sent__below")?.textContent).toBe("status?");
+  const row = rowOf(running);
+  expect(lineText(row)).toBe("Sending to lane status?");
   expect(row.classList.contains("is-live")).toBe(true);
-  expect(row.querySelector(".cv-tool__icon svg")).not.toBeNull();
+  expect(row.querySelector(".cv-received__mark svg")).not.toBeNull();
 });
 
 test("a send whose text comes from a file names its target and the file", async () => {
   const unknown = await line(bash(`acpmux send reports:leo "$(cat /tmp/summary.md)"`, { output: "" }));
-  expect(unknown.querySelector(".cv-sent")!.textContent).toBe("Sent to reports:leo");
+  expect(lineText(rowOf(unknown))).toBe("Sent to reports:leo /tmp/summary.md");
   expect(unknown.querySelector(".cv-sent__file")?.textContent).toBe("/tmp/summary.md");
 });
 
@@ -176,11 +192,13 @@ test("a failed send says it could not send and opens to its output", async () =>
       output: 'Exit code 4\nacpmux: no_session: no session matches "perf-lane"',
     }),
   );
-  const row = container.querySelector<HTMLButtonElement>(".cv-sent")!;
-  expect(row.textContent).toBe("Couldn't send to perf-lane");
+  const row = rowOf(container);
+  expect(lineText(row)).toBe("Couldn't send to perf-lane");
   expect(row.dataset.sendState).toBe("failed");
-  await act(async () => row.click());
-  expect(container.querySelector(".cv-shell")?.textContent).toContain("no_session");
+  await act(async () => toggleOf(row).click());
+  // Raw starts open on a failed send, its plain command row naming why.
+  expect(rawButton(container)!.getAttribute("aria-expanded")).toBe("true");
+  expect(container.querySelector(".cv-sent__raw")?.textContent).toContain("no_session");
 });
 
 test("toolGroups draws a send as its own entry, between the commands around it", () => {
@@ -199,12 +217,13 @@ test("a compound command's send says the other work, which stays behind Raw", as
       output: "queued",
     }),
   );
-  const row = container.querySelector<HTMLElement>(".cv-sent")!;
-  expect(row.textContent).toBe("Sent to coord-deputy · and 2 more commands queued");
-  expect(container.querySelector(".cv-sent__below")?.textContent).toBe("Restore base.");
-  await act(async () => row.click());
-  await act(async () => container.querySelector<HTMLButtonElement>(".cv-subsession__toggle")!.click());
-  expect(container.querySelector(".cv-shell")?.textContent).toContain("git fetch -q");
+  const row = rowOf(container);
+  expect(lineText(row)).toBe("Sent to coord-deputy · and 2 more commands Restore base. queued");
+  await act(async () => toggleOf(row).click());
+  await act(async () => rawButton(container)!.click());
+  // The plain command row opens to the whole command.
+  await act(async () => container.querySelector<HTMLElement>(".cv-sent__raw [data-tool-id]")!.click());
+  expect(container.querySelector(".cv-sent__raw")?.textContent).toContain("git fetch -q");
 });
 
 const chats = () => listed({ name: "coord-deputy" }, { name: "studio-mac/scroll-jitter", peer: "studio-mac" });
@@ -216,7 +235,7 @@ test("the target opens its chat when the session list has it, without opening th
   expect(link.textContent).toBe("coord-deputy");
   await act(async () => link.click());
   expect(opened).toEqual(["s0"]);
-  expect(container.querySelector(".cv-sent")!.getAttribute("aria-expanded")).toBe("false");
+  expect(expanded(rowOf(container))).toBe("false");
 });
 
 test("a host:name target finds the peer's chat listed as host/name", async () => {
@@ -229,7 +248,7 @@ test("a host:name target finds the peer's chat listed as host/name", async () =>
 test("a target the session list does not have is plain text", async () => {
   const container = await line(bash("acpmux send reports:leo 'hi'"), chats());
   expect(container.querySelector(".cv-sent__target")).toBeNull();
-  expect(container.querySelector(".cv-sent")!.textContent).toContain("Sent to reports:leo");
+  expect(lineText(rowOf(container))).toContain("Sent to reports:leo");
 });
 
 test("a target that is a listed chat's id opens that chat", async () => {
@@ -242,21 +261,22 @@ test("a target that is a listed chat's id opens that chat", async () => {
 test("a send that fails while open shows its Raw", async () => {
   const command = "acpmux send perf-lane 'Profile it.'";
   const container = await line(bash(command, { status: "in_progress" }));
-  await act(async () => container.querySelector<HTMLElement>(".cv-sent")!.click());
-  expect(container.querySelector(".cv-shell")).toBeNull();
+  await act(async () => toggleOf(rowOf(container)).click());
+  expect(container.querySelector("[data-tool-id]")).toBeNull();
   const failed = bash(command, { status: "failed", output: "Exit code 4\nacpmux: no_session" });
   await act(async () => root!.render(<AcpmuxSendLine tool={failed} send={acpmuxSendCall(failed)!} />));
-  expect(container.querySelector(".cv-shell")?.textContent).toContain("no_session");
+  expect(lineText(rowOf(container))).toBe("Couldn't send to perf-lane");
+  expect(rawButton(container)!.getAttribute("aria-expanded")).toBe("true");
+  expect(container.querySelector(".cv-sent__raw")?.textContent).toContain("no_session");
 });
 
 test("a send the call does not say went reads only who it was for", async () => {
   const container = await line(
     bash("git push -q && acpmux send --no-wait lane 'Pushed.'; git status --short", { exitCode: 0, output: "" }),
   );
-  const row = container.querySelector<HTMLElement>(".cv-sent")!;
+  const row = rowOf(container);
   expect(row.dataset.sendState).toBe("ended");
-  expect(row.textContent).toBe("Message to lane · and 2 more commands");
-  expect(container.querySelector(".cv-sent__below")?.textContent).toBe("Pushed.");
+  expect(lineText(row)).toBe("Message to lane · and 2 more commands Pushed.");
 });
 
 test("a batch's message names its recipient and the file its words came from; opening one shows the whole shell body at once", async () => {
@@ -264,7 +284,7 @@ test("a batch's message names its recipient and the file its words came from; op
     'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s nightly escalate.md; s owner relay.md';
   const tool = bash(command, { output: "queued\nqueued" });
   const groups = toolGroups([{ kind: "tool", text: tool.title, tool }]);
-  const sends = groups.map((group) => (group.type === "send" ? group.send : undefined)!);
+  const sends = sendEntries(groups).map((group) => group.send);
   const container = await render(
     <>
       {sends.map((send) => (
@@ -272,20 +292,17 @@ test("a batch's message names its recipient and the file its words came from; op
       ))}
     </>,
   );
-  const rows = [...container.querySelectorAll<HTMLElement>(".cv-sent")];
-  expect(rows.map((row) => row.textContent)).toEqual(["Sent to nightly queued", "Sent to owner queued"]);
-  expect([...container.querySelectorAll(".cv-sent__below .cv-sent__file")].map((file) => file.textContent)).toEqual([
-    "escalate.md",
-    "relay.md",
-  ]);
+  const rows = [...container.querySelectorAll<HTMLElement>(".cv-sent-msg")];
+  expect(rows.map(lineText)).toEqual(["Sent to nightly escalate.md queued", "Sent to owner relay.md queued"]);
+  expect(rows[0]!.querySelector(".cv-sent__file")?.textContent).toBe("escalate.md");
   // Each message opens on its own.
-  await act(async () => rows[1]!.click());
-  expect(rows[0]!.getAttribute("aria-expanded")).toBe("false");
-  expect(rows[1]!.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => toggleOf(rows[1]!).click());
+  expect(expanded(rows[0]!)).toBe("false");
+  expect(expanded(rows[1]!)).toBe("true");
   // Its words are not in the transcript: it opens straight to the call, with no Raw to click
   // (Leo 2026-10-26: "I EXPAND THEN ALL I SEE IS ... RAW").
-  expect(container.querySelector(".cv-subsession__toggle")).toBeNull();
-  expect(container.querySelector(".cv-shell")?.textContent).toContain("s(){ acpmux send --no-wait");
+  expect(rawButton(container)).toBeNull();
+  expect(container.querySelector(".cv-sent__call [data-tool-id]")?.textContent).toContain("s(){ acpmux send --no-wait");
 });
 
 test("a send of a file the agent wrote with Write opens to that message rendered, its command behind Raw", async () => {
@@ -306,46 +323,30 @@ test("a send of a file the agent wrote with Write opens to that message rendered
   const groups = toolGroups([write, tool].map((call) => ({ kind: "tool" as const, text: call.title, tool: call })));
   const send = groups.flatMap((group) => (group.type === "send" ? [group.send] : []))[0]!;
   const container = await render(<AcpmuxSendLine tool={tool} send={send} />);
-  const row = container.querySelector<HTMLElement>(".cv-sent")!;
-  // Shut, the message's first line is its own line under the row (messageLineLook.ts, stacked).
-  expect(container.querySelector(".cv-sent__below")?.textContent).toContain("Composer");
-  await act(async () => row.click());
-  expect(container.querySelector(".cv-subsession__markdown h2")?.textContent).toBe("Composer");
-  expect(container.querySelector(".cv-subsession__markdown strong")?.textContent).toBe("ship");
+  const row = rowOf(container);
+  expect(lineText(row)).toContain("Composer");
+  await act(async () => toggleOf(row).click());
+  expect(container.querySelector(".cv-received__text h2")?.textContent).toBe("Composer");
+  expect(container.querySelector(".cv-received__text strong")?.textContent).toBe("ship");
   // The command waits behind Raw.
-  expect(container.querySelector(".cv-shell")).toBeNull();
-  expect(container.querySelector(".cv-subsession__toggle")).not.toBeNull();
+  expect(container.querySelector("[data-tool-id], .cv-shell")).toBeNull();
+  expect(rawButton(container)).not.toBeNull();
 });
 
-test("the chip and count stay on the line and the first line goes under it; opened, Copy and Raw sit under the message", async () => {
-  // Leo said yes (2026-11-02) to splitting "Sent to gcp-codex-swarm-10/spinner-chatgpt · and 5 more
-  // commands claude-sr2-coord: Leo's answer (v…" into the target and count, then the preview below.
-  const container = await line(
-    bash("cd ~/wt && git fetch -q && acpmux send --no-wait coord-deputy 'Restore base, then report.'; date", {
-      output: "queued",
-    }),
-  );
-  const row = container.querySelector<HTMLElement>(".cv-sent")!;
-  expect(row.querySelector(".cv-sent__preview")).toBeNull();
-  // No Copy beside the chevron.
-  expect(row.querySelector(".cv-sent-actions")).toBeNull();
-  const below = container.querySelector<HTMLElement>(".cv-sent__below")!;
-  expect(below.previousElementSibling).toBe(row);
-  // The first line toggles the row as the line does.
-  await act(async () => below.click());
-  expect(row.getAttribute("aria-expanded")).toBe("true");
-  const actions = container.querySelector(".cv-subsession__under .cv-subsession__actions")!;
-  expect(actions.querySelector(".cv-sent-actions")).not.toBeNull();
-  expect(actions.querySelector(".cv-subsession__toggle")?.textContent).toContain("Raw");
-});
-
-test("the single look keeps the one line from before", async () => {
-  configureMessageLineLook("single");
+test("the default keeps the chip, the count and the first line on one line; stacked is a gallery look", async () => {
+  // Leo, 2026-11-03, on the stacked rows (#33249): "i don't think these subtitles are as good as just
+  // doing it directly in the same line".
+  const tell = bash("acpmux send --no-wait coord-deputy 'Restore base, then report.'", { output: "queued" });
+  const inline = await line(tell);
+  const row = rowOf(inline);
+  expect(lineText(row)).toBe("Sent to coord-deputy Restore base, then report. queued");
+  expect(inline.querySelector(".cv-agentmsg__below")).toBeNull();
+  configureMessageLineLook("stacked");
   try {
-    const container = await line(bash("acpmux send --no-wait coord-deputy 'Restore base.'", { output: "queued" }));
-    expect(container.querySelector(".cv-sent")!.textContent).toBe("Sent to coord-deputy Restore base. queued");
-    expect(container.querySelector(".cv-sent__below")).toBeNull();
+    const stacked = await line(tell);
+    expect(lineText(rowOf(stacked))).toBe("Sent to coord-deputy queued");
+    expect(stacked.querySelector(".cv-agentmsg__below")?.textContent).toBe("Restore base, then report.");
   } finally {
-    await act(async () => configureMessageLineLook("stacked"));
+    await act(async () => configureMessageLineLook("single"));
   }
 });

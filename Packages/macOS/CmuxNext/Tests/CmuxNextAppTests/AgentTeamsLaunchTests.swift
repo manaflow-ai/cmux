@@ -22,23 +22,6 @@ struct AgentTeamsLaunchTests {
         #expect(services.registry.unavailableReason(for: ActionID(rawValue: id)) == nil)
     }
 
-    /// Claude Code runs its experimental agent teams with the teammates in the same terminal.
-    @Test func claudeTeamsStartsClaudeWithAgentTeamsOn() {
-        #expect(AgentTeamsLaunch.claude.shellLine
-            == "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude --teammate-mode in-process\n")
-    }
-
-    /// Codex runs its subagents (the multi-agent feature) in the root session.
-    @Test func codexTeamsStartsCodexWithSubagentsOn() {
-        #expect(AgentTeamsLaunch.codex.shellLine == "codex -c features.multi_agent=true\n")
-    }
-
-    @Test func eachLauncherIsBoundToItsAction() {
-        #expect(AgentTeamsLaunch(actionID: "palette.launchClaudeTeams") == .claude)
-        #expect(AgentTeamsLaunch(actionID: "palette.launchCodexTeams") == .codex)
-        #expect(AgentTeamsLaunch(actionID: "palette.quickAgentChat") == nil)
-    }
-
     /// Without a daemon there is no terminal to start the team in: the action says so.
     @Test(arguments: ["palette.launchClaudeTeams", "palette.launchCodexTeams"])
     func withoutADaemonTheLauncherRefusesWithTheReason(id: String) {

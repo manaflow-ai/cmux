@@ -1,6 +1,6 @@
 [package]
 name = "cmux-rd-host"
-version = "0.1.0"
+version = "0.2.3"
 edition = "2021"
 license = "GPL-3.0-or-later"
 readme = "README.md"
@@ -10,6 +10,10 @@ description = "cmux remote desktop host engine: Linux (virtual X display: damage
 # Own workspace: links C libraries (x264, openh264 for the bench), so it stays out of
 # the cmux-tui workspace build until those dependencies are feature-gated for every OS.
 [workspace]
+
+[lib]
+name = "cmux_rd_host"
+path = "src/lib.rs"
 
 [[bin]]
 name = "cmux-rd"
@@ -29,12 +33,8 @@ cmux-rd-link = { path = "../cmux-rd-link", features = ["net"], optional = true }
 openh264 = { version = "0.9", default-features = false, features = ["source"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-x11rb = { version = "0.14", features = ["shm", "damage", "xtest"] }
+x11rb = { version = "0.14", features = ["shm", "damage", "xtest", "xinput"] }
 
-# Display capture and input on a macOS host (both MIT OR Apache-2.0).
-[target.'cfg(target_os = "macos")'.dependencies]
-screencapturekit = "11"
-core-graphics = { version = "0.25", features = ["highsierra"] }
 
 [build-dependencies]
 cc = "1"

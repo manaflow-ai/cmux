@@ -39,7 +39,7 @@ struct AgentPaneActAsMeTests {
 
     @Test func whileOnPostedInputGrantsSendRetryAndApproveOnly() {
         let grant = AgentPaneActAsMe()
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         let gestures = Self.gestures(grant)
         for method in AgentPaneActAsMe.covers.sorted() {
             gestures.recordPosted(driver: Self.driver)
@@ -59,7 +59,7 @@ struct AgentPaneActAsMeTests {
 
     @Test func turningItOffRevokesAtOnce() {
         let grant = AgentPaneActAsMe()
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         let gestures = Self.gestures(grant)
         gestures.recordPosted(driver: Self.driver)
         grant.turnOff()
@@ -71,14 +71,14 @@ struct AgentPaneActAsMeTests {
         let grant = AgentPaneActAsMe()
         let gestures = Self.gestures(grant)
         gestures.recordPosted(driver: Self.driver)
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         #expect(!gestures.consumePosted(for: "session/prompt"))
     }
 
     @Test func aPostedGestureExpires() {
         let clock = Slow.Clock()
         let grant = AgentPaneActAsMe()
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         let gestures = Self.gestures(grant, clock: clock)
         gestures.recordPosted(driver: Self.driver)
         clock.now += AgentPaneUserGestures.lifetime + 1
@@ -93,7 +93,7 @@ struct AgentPaneActAsMeTests {
         #expect(!grant.isOn)
         grant.setManaged(true)
         #expect(!grant.isOn, "a settings reload undid the person's Turn Off")
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         #expect(grant.holder == .person)
     }
 
@@ -112,7 +112,7 @@ struct AgentPaneActAsMeTests {
     @Test func thePersonsGrantIsStoredAndReadBack() async {
         let store = AgentPaneActAsMe.Store.memory()
         let first = AgentPaneActAsMe(store: store)
-        first.turnOn(.taken())
+        first.turnOn(.init())
         await Task.yield()
         let later = AgentPaneActAsMe(store: store)
         for _ in 0..<50 where !later.isOn {
@@ -156,7 +156,7 @@ struct AgentPaneActAsMeTests {
         pane.transport.gestures.recordPosted(driver: Self.driver)
         #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 2, promptId: "p-1")]) == .gestureRequired)
 
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         pane.transport.gestures.recordPosted(driver: Self.driver)
         #expect(await pane.transport.send(connection: pane.id, frames: [Slow.prompt(id: 3, promptId: "p-2")]) == nil)
         _ = await pane.inbox.frame(containing: #""id":3"#)
@@ -173,7 +173,7 @@ struct AgentPaneActAsMeTests {
         let send = try #require(AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": ["promptId": "p-1"]]]))
         gestures.recordPosted(driver: Self.driver)
         #expect(gestures.reserve(connection: 1, intent: send) == nil)
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         gestures.recordPosted(driver: Self.driver)
         #expect(gestures.reserve(connection: 1, intent: send) != nil)
         let mode = try #require(AgentPaneGestureIntent(gestureParams: [
@@ -187,7 +187,7 @@ struct AgentPaneActAsMeTests {
     /// is refused, even when the grant was turned on again in between. The person's own ticket still sends.
     @Test func turningItOffVoidsThePostedSendTickets() throws {
         let grant = AgentPaneActAsMe()
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         let gestures = Self.gestures(grant)
         let send = try #require(AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": ["promptId": "p-1"]]]))
         let pick = AgentPaneGesturePick(method: "session/prompt", params: ["_meta": ["acpmux": ["promptId": "p-1"]]])
@@ -197,11 +197,11 @@ struct AgentPaneActAsMeTests {
         #expect(!gestures.redeem(posted, connection: 1, pick: pick), "a posted Send ticket outlived Turn Off")
 
         // Reserved while on, then off and on again: still void.
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         gestures.recordPosted(driver: Self.driver)
         let beforeOff = try #require(gestures.reserve(connection: 1, intent: send))
         grant.turnOff()
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         #expect(!gestures.redeem(beforeOff, connection: 1, pick: pick), "turning it on again revived a revoked ticket")
         // A ticket reserved under the standing grant sends.
         gestures.recordPosted(driver: Self.driver)
@@ -214,11 +214,45 @@ struct AgentPaneActAsMeTests {
         #expect(gestures.redeem(own, connection: 1, pick: pick), "Turn Off voided the person's own Send")
     }
 
+    /// A posted Send's uploads stand only under the grant it was reserved under: Turn Off ends a hold
+    /// in progress (its chunks and finish are refused), and a revoked ticket holds no new upload.
+    @Test func turningItOffEndsThePostedSendsUploads() throws {
+        let grant = AgentPaneActAsMe()
+        grant.turnOn(.init())
+        let gestures = Self.gestures(grant)
+        var ended = Set<String>()
+        gestures.onUploadHoldsEnded = { ended.formUnion($0) }
+        let send = try #require(AgentPaneGestureIntent(gestureParams: [
+            "intent": ["method": "session/prompt", "params": ["promptId": "p-1", "sessionId": "s-1"]],
+        ]))
+        gestures.recordPosted(driver: Self.driver)
+        let posted = try #require(gestures.reserve(connection: 1, intent: send))
+        #expect(gestures.holdForUpload(posted, upload: "u", connection: 1, sessionId: "s-1", promptId: "p-1"))
+        grant.turnOff()
+        #expect(!gestures.holdsTicket(upload: "u"), "a posted Send's upload outlived Turn Off")
+        #expect(!gestures.uploadProgressed("u"), "a chunk went on under a revoked ticket")
+        #expect(ended == ["u"])
+
+        // Reserved while on, then off and on again: it holds no new upload.
+        grant.turnOn(.init())
+        gestures.recordPosted(driver: Self.driver)
+        let beforeOff = try #require(gestures.reserve(connection: 1, intent: send))
+        grant.turnOff()
+        grant.turnOn(.init())
+        #expect(!gestures.holdForUpload(beforeOff, upload: "v", connection: 1, sessionId: "s-1", promptId: "p-1"))
+        // The person's own Send ticket holds its upload whatever the grant does.
+        gestures.record()
+        let own = try #require(gestures.reserve(connection: 1, intent: send))
+        #expect(gestures.holdForUpload(own, upload: "w", connection: 1, sessionId: "s-1", promptId: "p-1"))
+        grant.turnOff()
+        #expect(gestures.holdsTicket(upload: "w") && gestures.uploadProgressed("w"))
+    }
+
     /// A credential transfer rides on a Send ticket, but the grant never covers it: a posted gesture
     /// cannot reserve one while the grant is on.
     @Test func aPersonOnlyReservationRefusesPostedInput() throws {
         let grant = AgentPaneActAsMe()
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         let gestures = Self.gestures(grant)
         let send = try #require(AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": ["promptId": "p-1"]]]))
         gestures.recordPosted(driver: Self.driver)
@@ -231,7 +265,7 @@ struct AgentPaneActAsMeTests {
     /// Turn Off pressed before the launch's managed read lands holds the forced grant off.
     @Test func turnOffBeforeTheManagedReadHoldsItOff() {
         let grant = AgentPaneActAsMe()
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         grant.turnOff()
         grant.setManaged(true)
         #expect(!grant.isOn, "a managed read that landed after Turn Off turned it back on")
@@ -259,7 +293,7 @@ struct AgentPaneActAsMeTests {
     /// A posted Send ticket is logged as let through when its frame redeems it, not when it is reserved.
     @Test func aPostedTicketIsLoggedOnlyWhenRedeemed() throws {
         let grant = AgentPaneActAsMe()
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         let gestures = Self.gestures(grant)
         let send = try #require(AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": ["promptId": "p-1"]]]))
         let pick = AgentPaneGesturePick(method: "session/prompt", params: ["_meta": ["acpmux": ["promptId": "p-1"]]])
@@ -276,11 +310,11 @@ struct AgentPaneActAsMeTests {
 
     @Test func aGesturePostedBeforeTurnOffDoesNotGrantOnceTurnedOnAgain() {
         let grant = AgentPaneActAsMe()
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         let gestures = Self.gestures(grant)
         gestures.recordPosted(driver: Self.driver)
         grant.turnOff()
-        grant.turnOn(.taken())
+        grant.turnOn(.init())
         #expect(!gestures.consumePosted(for: "session/prompt"))
     }
 

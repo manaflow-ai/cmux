@@ -1,3 +1,4 @@
+import CmuxNextCloudCredentials
 import Foundation
 
 /// What `cmux cloud start-session` says (``CloudStartSession``, ``CloudStartSessionAsks``): the
@@ -56,7 +57,7 @@ enum CloudStartSessionStrings {
     }
 
     static var cwdInvalid: String {
-        String(localized: "cloud.startSession.cwdInvalid", defaultValue: "Pass --cwd as an absolute folder on the machine, for example `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`.", table: "CloudSessions", bundle: .module)
+        String(localized: "cloud.startSession.cwdInvalid", defaultValue: "Pass --cwd as an absolute folder on the machine, for example `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/FOLDER`.", table: "CloudSessions", bundle: .module)
     }
 
     /// The machine to create (`--name`) could not be created; `reason` says why. `quoted` is the
@@ -81,7 +82,7 @@ enum CloudStartSessionStrings {
 
     /// The start found no folder it may use (none in the workspace, or the home folder).
     static func needsFolder(_ name: String, id: String, agent: String) -> String {
-        String(format: String(localized: "cloud.startSession.needsFolder", defaultValue: "Machine `%1$@` started but its agent didn't: it needs a folder on that machine to start in. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` again with a folder there.", table: "CloudSessions", bundle: .module), name, id, agent)
+        String(format: String(localized: "cloud.startSession.needsFolder", defaultValue: "Machine `%1$@` started but its agent didn't: it needs a folder on that machine to start in. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd FOLDER` again with a folder that exists there.", table: "CloudSessions", bundle: .module), name, id, agent)
     }
 
     // MARK: The card's text and what an agent's run says
@@ -122,7 +123,7 @@ enum CloudStartSessionStrings {
 
     /// An agent's Start on an ask the person did not delegate.
     static func personRequired(_ dialog: String) -> String {
-        String(format: String(localized: "cloud.startSession.personRequired", defaultValue: "Only the person can choose Start: on the card in the chat, or with `cmux agents dialog answer %1$@ --selection start` in their own terminal. To let agents start Cloud sessions without asking, they can turn on Let Agents Start Cloud Sessions Without Asking in Settings > Machines. `--selection notNow` declines.", table: "CloudSessions", bundle: .module), dialog)
+        String(format: String(localized: "cloud.startSession.personRequired", defaultValue: "Only the person can choose Start: on the card in the chat, or with `cmux agents dialog answer %1$@ --selection start` in their own terminal. To let agents start Cloud sessions without asking, they can turn on Let Agents Use Cloud Without Asking in Settings > Machines. `--selection notNow` declines.", table: "CloudSessions", bundle: .module), dialog)
     }
 
     static func unknownChoice(_ dialog: String) -> String {
@@ -131,6 +132,20 @@ enum CloudStartSessionStrings {
 
     static func dialogGone(_ dialog: String) -> String {
         String(format: String(localized: "cloud.startSession.dialogGone", defaultValue: "No Cloud start %1$@ waits for an answer: it was answered, timed out or ended. `cmux agents dialog list` shows what still waits.", table: "CloudSessions", bundle: .module), dialog)
+    }
+
+    static var loginInvalid: String {
+        String(localized: "cloud.startSession.loginInvalid", defaultValue: "Pass --login as pass (your own login), machine (the machine's own) or none.", table: "CloudSessions", bundle: .module)
+    }
+
+    /// Why a headless start (`cmux cloud start-session`, `start-chat`) fails at once instead of asking about the login.
+    static func loginRefused(_ reason: CloudHarnessLoginDecision.Reason, _ asked: Asked) -> String {
+        let text = switch reason {
+        case .machineLoginMissing: String(localized: "cloud.startSession.machineLoginMissing", defaultValue: "%2$@ on %1$@ has no login of its own, and the login choice is machine. Sign in on the machine, or run it again with --login none.", table: "CloudSessions", bundle: .module)
+        case .consentFirst: String(localized: "cloud.startSession.consentNeeded", defaultValue: "%2$@ on %1$@ waits for your one-time OK to copy your Claude login to your own Cloud machines, which only you can give. Turn on Use My Claude Login on My Own Cloud Machines in Settings > Machines, then run `%3$@` again.", table: "CloudSessions", bundle: .module)
+        default: String(localized: "cloud.startSession.loginNeeded", defaultValue: "%2$@ on %1$@ isn't signed in: it has no login from you, and you haven't chosen whether your Cloud machines get yours. Run it again with --login none, then sign in to %2$@ in its chat in cmux, or with --login machine to use only a login the machine already has. To give your own login to every later machine, start a session on a Cloud machine in the cmux app once and choose Yes; a --login pass from a terminal or an agent doesn't count as that choice.", table: "CloudSessions", bundle: .module)
+        }
+        return String(format: text, asked.machine, asked.agent, asked.command)
     }
 
     static func notInChat(_ asked: Asked) -> String {

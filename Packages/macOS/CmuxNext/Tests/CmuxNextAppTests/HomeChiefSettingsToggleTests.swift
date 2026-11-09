@@ -20,6 +20,25 @@ import Testing
         #expect(HomeChiefSettingsPopover.toggleTarget(key: key, ordered: [other, key]) === key)
     }
 
+    /// With a key window, the window order is never read: `NSApp.orderedWindows` is a synchronous
+    /// WindowServer query that waits for the pending CA transaction. `home.stopAllAgents`'s
+    /// unavailable reason reads the target on every catalog refresh, so a Cmd-N that had just
+    /// ordered in a Chromium page window held the main thread 40-60 ms before its first frame
+    /// (cmux22 `sample`, 2026-11-06).
+    @Test func aKeyWindowNeverReadsTheWindowOrder() {
+        let key = Self.window()
+        defer { key.closeAfterTest() }
+        var reads = 0
+        func ordered() -> [NSWindow] {
+            reads += 1
+            return [key]
+        }
+        #expect(HomeChiefSettingsPopover.toggleTarget(key: key, ordered: ordered()) === key)
+        #expect(reads == 0)
+        #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: ordered()) == nil)
+        #expect(reads == 1)
+    }
+
     /// With no key window (a CLI run while another app is in front) the frontmost visible window
     /// takes it, and with none on screen no Home does.
     @Test func withoutAKeyWindowTheFrontVisibleOneTakesIt() {

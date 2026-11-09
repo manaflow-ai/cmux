@@ -537,6 +537,53 @@ export default agentPaneEntry({
         if (dots !== 3) throw new Error(`the minimal page shows ${dots} dots, not the three`);
       },
     },
+    "fix-from-link": {
+      note: "A lone GitHub issue URL leaves the normal composer intact and offers the explicit Fix in a new worktree action beneath it.",
+      ready: newTab({
+        template: "minimal",
+        location: "https://github.com/manaflow-ai/cmux/issues/38426",
+        projects: [CWD],
+      }),
+      snapshot: noChat(manySessions(3), { listedSessions: true }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-chip") !== null);
+        if (ctx.document.querySelector(".nt-fix-error")) throw new Error("the idle fix action shows an error");
+      },
+    },
+    "fix-from-link-stage": {
+      note: "The same explicit issue action in the optional stage layout; the default minimal layout keeps the focus on the pasted report.",
+      ready: newTab({
+        template: "default",
+        location: "https://github.com/manaflow-ai/cmux/issues/38426",
+        projects: [CWD],
+      }),
+      snapshot: noChat(manySessions(3), { listedSessions: true }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-chip") !== null);
+      },
+    },
+    "fix-from-link-error": {
+      note: "When checkout discovery fails, the Fix in a new worktree action stays in place and reports the host error inline beside the composer.",
+      ready: newTab({
+        template: "minimal",
+        location: "https://github.com/manaflow-ai/cmux/issues/38426",
+        projects: [CWD],
+      }),
+      snapshot: noChat(manySessions(3), { listedSessions: true }),
+      native: {
+        "chat.fix_from_link": {
+          nativeError: {
+            code: "fix.checkout_missing",
+            userMessage: "No local checkout found; choose its folder or clone it first.",
+          },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector<HTMLButtonElement>(".nt-fix-chip") !== null);
+        await ctx.click({ selector: ".nt-fix-chip" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-error[role=alert]") !== null);
+      },
+    },
     "widgets-all-off": {
       note: "All optional New Tab widgets off: the composer is the whole page.",
       ready: newTab({ template: "minimal", pageWidgets: [] }),
@@ -629,6 +676,29 @@ export default agentPaneEntry({
         if (!field || !row || row.top < field.bottom) throw new Error("the ambient row is not under the field");
         if (ctx.document.querySelectorAll(".nt-ambient-machine[data-online]").length !== 2)
           throw new Error("this Mac and the SSH peer should be online, the Cloud host offline");
+      },
+    },
+    "minimal-ambient-paused": {
+      note: "Machines on, the old Cloud host is a Cloud machine the account says is paused (`cloudMachine.list`): it keeps the quiet ring and its tooltip says Paused, never offline (Cloud machines pause on their own when idle; its first use resumes it).",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting", "machines"] }),
+      // cloud-dev is listed by acpmux too, its link lost while it sleeps.
+      snapshot: {
+        ...ambientSnapshot(),
+        peers: ["build-box", "cloud-dev"],
+        peerKinds: { "build-box": "ssh" as const, "cloud-dev": "cloud" as const },
+        peerStates: { "build-box": "connected", "cloud-dev": "reconnecting" },
+      },
+      native: {
+        "cloudMachine.list": {
+          signedIn: true,
+          loaded: true,
+          machines: [{ id: "vm-dev", name: "cloud-dev", stage: "paused" }],
+        },
+      },
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-ambient-machine[data-paused]") !== null);
+        if (ctx.document.querySelectorAll(".nt-ambient-machine[data-online]").length !== 2)
+          throw new Error("this Mac and the SSH peer should stay online");
       },
     },
     "minimal-ambient-offline": {

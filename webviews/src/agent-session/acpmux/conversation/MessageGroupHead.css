@@ -10,7 +10,7 @@
   user-select: none;
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
-  letter-spacing: var(--cv-tracking, 0.045px);
+  letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }
 .cv-message-group__head > .cv-tool__icon {
@@ -48,10 +48,11 @@
 }
 .cv-message-group__head > .cv-tool__chevron {
   opacity: 0;
-  transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
 }
-/* Its words and mark keep one tone under the pointer (Leo, 2026-11-03: "i dont think this should
-   light up/dim based off if ur hovered onit or otherwise"); hover only reveals the chevron. */
+/* Its words rest in the activity tone and light on hover or focus (AgentMessageRow.css; Leo,
+   2026-11-03: "they should only be this bright when u hover over it"); hover also reveals the
+   chevron. Open, or with its menu open, its words, mark and chevron stay lit. */
 .cv-message-group__head:has([data-popup-open]),
 .cv-message-group__head:is(:focus-visible, [aria-expanded="true"]),
 .cv-message-group__head:hover > .cv-tool__chevron,
@@ -63,7 +64,7 @@
 .cv-message-group__head:has([data-popup-open]) > .cv-tool__chevron,
 .cv-message-group__head:is(:focus-visible, [aria-expanded="true"]) > .cv-tool__chevron {
   opacity: 1;
-  transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
 }
 /* A delivered batch's head keeps LaneNoticeBatch.css's toggle class (its tests and plays find it
    by it), but not that toggle's inset or hover plate: a tool row's glyph starts at the row's edge,

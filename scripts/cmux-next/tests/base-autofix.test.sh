@@ -82,6 +82,19 @@ PATH="$tmp/fakebin:$PATH" bash "$FIX" --no-fmt --docs-shortcuts --app-host --app
 grep -q '^fixed: regenerated cmux-tui/crates/cmux-app-host/generated/scopes.json' "$tmp/out" || fail "the regenerated app-host file must be reported"
 ! grep -q '^left: cmux-tui/crates/cmux-app-host/generated' "$tmp/out" || fail "the base app-host files must not be reported as waiting"
 git -C "$repo" checkout -q -- .
+# The copies the app bundles follow the regenerated files (sync-app-runtime.sh): f2a158b55281
+# regenerated scopes.json alone and left app platform red on base.
+bundled=Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform
+cp "$ROOT_DIR/scripts/cmux-next/sync-app-runtime.sh" "$repo/scripts/cmux-next/"
+mkdir -p "$repo/cmux-tui/crates/cmux-app-host/schema/v2"
+echo '{}' > "$repo/cmux-tui/crates/cmux-app-host/schema/v2/scope-classes.json"
+(cd "$repo" && scripts/cmux-next/sync-app-runtime.sh >/dev/null)
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm bundled
+PATH="$tmp/fakebin:$PATH" bash "$FIX" --no-fmt --app-host --app-host-committed-exports "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed syncing the bundled copies"
+[[ "$(cat "$repo/$bundled/scopes.json")" == from-stale-export ]] || fail "the bundled scopes.json must follow the regenerated one"
+grep -q "^fixed: synced $bundled/scopes.json" "$tmp/out" || fail "the synced bundled copy must be reported"
+(cd "$repo" && scripts/cmux-next/sync-app-runtime.sh --check >/dev/null 2>&1) || fail "the bundled copies must be current after the fixer"
+git -C "$repo" checkout -q -- .
 # The read-only webviews job's patch may carry the rebuilt Chief memory
 # inspector page (a stale one fails every webviews bundle build), but no other
 # path outside webviews/.
@@ -126,4 +139,22 @@ printf '// edited\npublic enum S {}\n' > "$repo/$settings"
 bash "$FIX" --no-fmt --ratchets "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed beside an edited frozen file"
 [[ "$(cat "$repo/$settings")" == $'// edited\npublic enum S {}' ]] || fail "an edited frozen file must keep its edit and get no rewrite"
 grep -q "^skipped (frozen): $settings" "$tmp/out" || fail "a frozen namespace rewrite beside an edit must be reported"
+# --sdk resyncs the SDKs' resource API descriptors after a catalog-only change
+# (#34498 changed resource-operations-v2.json and left every catalog_sha256
+# stale, a base red the PR could not fix: the descriptors are generated). The
+# real sync script runs on a one-operation catalog.
+git -C "$repo" checkout -q -- .
+mkdir -p "$repo/cmux-tui/spec" "$repo/cmux-tui/bindings/rust/scripts"
+cp "$ROOT_DIR/cmux-tui/bindings/rust/scripts/sync-resource-api.py" "$repo/cmux-tui/bindings/rust/scripts/"
+for package in cpp go java python rust typescript zig; do mkdir -p "$repo/cmux-tui/bindings/$package"; done
+printf '{"protocol":"p","operations":{"a.get":{"class":"read"}}}\n' > "$repo/cmux-tui/spec/resource-operations-v2.json"
+python3 -I "$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py"
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm descriptors
+bash "$FIX" --no-fmt --sdk "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on current descriptors"
+[[ -z "$(git -C "$repo" status --porcelain)" ]] || fail "current descriptors must stay unchanged"
+printf '{"protocol":"p","operations":{"a.get":{"class":"read","params":["id"]}}}\n' > "$repo/cmux-tui/spec/resource-operations-v2.json"
+git -C "$repo" -c user.name=t -c user.email=t@t commit -qam catalog
+bash "$FIX" --no-fmt --sdk "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on stale descriptors"
+python3 -I "$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py" --check || fail "the descriptors must match the catalog after --sdk"
+grep -q '^fixed: regenerated cmux-tui/bindings/zig/.cmux-resource-api.json' "$tmp/out" || fail "a resynced descriptor must be reported"
 echo "base autofix: ok"

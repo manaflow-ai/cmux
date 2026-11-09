@@ -34,8 +34,8 @@ enum SidebarLaneStatus {
                          turns: AgentTurnStateStore, marks: AgentPriorityMarks = .shared,
                          chiefLanes: AgentLaneStore = .chief, chiefAvatar: ((String) -> SidebarChiefAvatar?)? = nil) -> SidebarMapping.RowSource {
         { workspace, machine, make in
-            let merged: SidebarRowFeed.Make = {
-                var row = make()
+            let merged = make.then { row in
+                var row = row
                 let mergesState = SidebarTunables.laneStatus.value, namesState = SidebarTunables.rowStatus.value
                 let saysStep = SidebarTunables.nowLine.value
                 let local = SidebarTunables.laneFixture.value ? SidebarLaneFixture.lanes(workspace)
@@ -62,7 +62,8 @@ enum SidebarLaneStatus {
                 if saysStep { row.agentStep = step(local) }
                 return row
             }
-            return rows?(workspace, machine, merged) ?? merged()
+            // With no feed the row maps now, in a batch of its own.
+            return rows?(workspace, machine, merged) ?? merged() ?? SidebarMapping.unmapped(workspace, machine: machine)
         }
     }
 

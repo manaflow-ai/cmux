@@ -121,7 +121,8 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
         ["tool", ".acpmux-activity .cv-tool", ":scope > .cv-tool__icon"],
         ["subagent finished", ".cv-subagent-done", ":scope > .cv-tool__icon"],
         ["background command", ".acpmux-backgroundTask .cv-tool", ":scope > .cv-tool__icon"],
-        ["agent message", ".cv-received > .cv-disclosure__line", ".cv-received__mark"],
+        // A received message's line (AgentMessageRow.tsx): its icon slot holds the sender's mark.
+        ["agent message", ".cv-received > .cv-agentmsg__line", ":scope > .cv-agentmsg__icon"],
       ];
       for (const [kind, selector, icon] of ROWS)
         for (const element of document.querySelectorAll(selector)) {
@@ -149,7 +150,7 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
         ["tool", ".acpmux-activity > .cv-tools"],
         ["subagent finished", ".cv-subagent-done"],
         ["background command", ".acpmux-backgroundTask .cv-tool"],
-        ["agent message", ".cv-received > .cv-disclosure__line"],
+        ["agent message", ".cv-received > .cv-agentmsg__line"],
       ];
       for (let index = 1; index < rows.length - 1; index += 1) {
         const before = rows[index - 1]!.querySelector(".cv-md");
@@ -159,15 +160,11 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
           const line = rows[index]!.querySelector(selector);
           if (!line) continue;
           const box = line.getBoundingClientRect();
-          // A message row's first line is on its own line right under the row's line
-          // (messageLineLook.ts `stacked`): the row ends under it, so the room below starts there.
-          const first = line.parentElement?.querySelector(":scope > .cv-msgline__preview")?.getBoundingClientRect();
-          const bottom = first && first.height > 0 && first.top >= box.bottom - 0.5 ? first.bottom : box.bottom;
           gaps.push({
             kind,
             label: line.textContent?.trim().slice(0, 40) ?? "",
             above: box.top - before.getBoundingClientRect().bottom,
-            below: after.getBoundingClientRect().top - bottom,
+            below: after.getBoundingClientRect().top - box.bottom,
           });
         }
       }

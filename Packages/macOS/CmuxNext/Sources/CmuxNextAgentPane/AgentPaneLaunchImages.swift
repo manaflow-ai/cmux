@@ -34,6 +34,8 @@ public final class AgentPaneLaunchImages {
     /// Released pages' last frames (AgentPageHibernation), in memory as encoded images: a page built
     /// again draws its old frame until it paints, as at launch.
     private var held: [String: (data: Data, size: NSSize, appearance: NSAppearance.Name?)] = [:]
+    /// This Mac's machine id: its tabs keep the bare tab id as their key here (``slot(_:machine:)``).
+    public var localMachine: () -> String? = { nil }
     /// The launch read of the saved pages, decoded, by tab key (``prefetch(on:keep:mark:)``); nil before it
     /// starts and once its pages are dropped.
     private var read: LaunchRead<[String: Page]>?
@@ -121,10 +123,12 @@ public final class AgentPaneLaunchImages {
     }
 
     /// Holds `image` as tab `key`'s frame until ``take(_:size:appearance:)`` or ``drop(_:)``.
-    public func hold(_ key: String, _ frame: CGImage, size: NSSize, appearance: NSAppearance.Name?) async {
-        guard size.width > 0 else { return }
+    @discardableResult
+    public func hold(_ key: String, _ frame: CGImage, size: NSSize, appearance: NSAppearance.Name?) async -> Bool {
+        guard size.width > 0, size.height > 0 else { return false }
         let data = await Task.detached(priority: .utility) { frame.pageImageData() }.value
         held[key] = data.map { ($0, size, appearance) }
+        return data != nil
     }
 
     /// The tab closed or showed its live page: its held frame goes.
@@ -176,6 +180,15 @@ public final class AgentPaneLaunchImages {
     }
 
     private nonisolated static func fileName(_ key: String, scale: Int, ext: String) -> String { "\(key)@\(scale)x.\(ext)" }
+
+    /// Where tab `key` of `machine` keeps its frame and saved page: the bare id on this Mac (the files a
+    /// save before tabs had a machine wrote), else the id and a digest of the machine, so two machines'
+    /// tabs of one id never show each other's page. Still a file-safe key (``isFileSafe(_:)``).
+    public func slot(_ key: String, machine: String?) -> String {
+        guard let machine, !machine.isEmpty, machine != localMachine() else { return key }
+        let digest = machine.utf8.reduce(UInt64(0xcbf29ce484222325)) { ($0 ^ UInt64($1)) &* 0x100000001b3 }
+        return key + "-m" + String(digest, radix: 16)
+    }
 
     /// Tab keys are `tab_<hex>`; anything else never becomes a path.
     private nonisolated static func isFileSafe(_ key: String) -> Bool {

@@ -14,6 +14,8 @@
 //! - [`reduce`]: the reducer, in place, with the inverse ops for undo.
 //! - [`check`]: the invariants (the touched rows per op; all at open).
 //! - [`view`]: the flat rows one window draws.
+//! - [`project`]: those rows as the sections the app's list draws.
+//! - [`plan`]: the ops of New Subgroup and of a remote group, planned on the document.
 //! - [`accept`]: the drop acceptance table of one drag.
 //! - [`reset`]: the default sections again, and removal by old layout ref.
 //! - [`migrate`]: the one-time move from the old sidebar stores.
@@ -33,6 +35,10 @@ mod nested_pin_tests;
 pub mod order_key;
 #[cfg(test)]
 mod pin_tests;
+pub mod plan;
+pub mod project;
+#[cfg(test)]
+mod project_tests;
 pub mod reduce;
 pub mod reset;
 pub mod view;

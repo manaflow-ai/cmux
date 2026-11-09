@@ -85,7 +85,8 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
             itemDescription: fields["description"],
             date: fields["pubDate"].flatMap(Self.rfc822),
             sparkleChannel: fields["sparkle:channel"],
-            listsDeltas: listsDeltas
+            listsDeltas: listsDeltas,
+            signature: enclosure["sparkle:edSignature"].map { ArchiveSignature(edSignature: $0, length: enclosure["length"].flatMap(Int.init)) }
         ))
     }
 }

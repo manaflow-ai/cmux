@@ -251,6 +251,13 @@ impl Brain {
             "mcp__optchat__cloud_workspace" => return false,
             // Nor run a command on the owner's machine: only list and cancel.
             "mcp__optchat__watch" => return field("command").is_none_or(|c| c.trim().is_empty()),
+            // Nor add servers or call tools with the owner's accounts: only look.
+            "mcp__optchat__mcp" => {
+                return matches!(
+                    field("action").unwrap_or("list"),
+                    "list" | "servers" | "search" | "describe" | "tasks" | "events" | "prompts"
+                );
+            }
             _ => return true,
         }
         let Some(id) = field("id") else {
@@ -463,14 +470,14 @@ impl Brain {
         self.unanswered = keep;
         for u in due {
             let p = &u.pending;
-            // A subagent whose workspace opened after it asked: the person
-            // sees the prompt with a working Allow button now.
+            // A subagent whose workspace opened, or whose Home card arrived,
+            // after it asked: the person has a working Allow button now.
             if u.why != NOT_DELIVERED
                 && let Some(id) = self.state.sub_by_session(&p.session_id)
                 && self
                     .state
                     .sub(&id)
-                    .is_some_and(|(_, s)| Self::approval_workspace_shown(s))
+                    .is_some_and(|(_, s)| self.approval_shown(s))
             {
                 continue;
             }

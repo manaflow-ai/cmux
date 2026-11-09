@@ -142,6 +142,11 @@ test("five ended reports collapse to one count and preserve all five independent
   expect(toggle.textContent).toBe("5 reviews ended · 4 SHIP, 1 BLOCK");
   expect(toggle.textContent).not.toContain("\n");
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  // One chevron, the trailing one: the icon column holds the reviews' glyph, never a second
+  // disclosure chevron (cmux#28749 drew two).
+  expect(toggle.querySelectorAll(".cv-tool__chevron")).toHaveLength(1);
+  expect(toggle.querySelector(".cv-tool__icon .cv-rotor, .cv-tool__icon [data-icon^='disclosure.']")).toBeNull();
+  expect(toggle.querySelector(".cv-tool__icon")?.innerHTML).not.toBe("");
   expect(host.querySelector(".cv-received")).toBeNull();
   await click(".cv-lane-batch__toggle");
   expect(host.querySelectorAll(".cv-received")).toHaveLength(5);
@@ -154,9 +159,9 @@ test("five ended reports collapse to one count and preserve all five independent
 test("a single report shows its verdict; its full P2 remains readable and metadata is under Details", async () => {
   const { opened } = await mount([report("single-block", "BLOCK")]);
   expect(host.querySelector(".cv-lane-batch")).toBeNull();
-  expect(host.querySelector(".cv-disclosure__below")?.textContent).toContain("BLOCK");
-  expect(host.querySelector(".cv-disclosure__below")?.textContent).not.toContain("lane report: turn");
-  expect(host.querySelector(".cv-disclosure__below")?.textContent).not.toContain("\n");
+  expect(host.querySelector(".cv-received__preview")?.textContent).toContain("BLOCK");
+  expect(host.querySelector(".cv-received__preview")?.textContent).not.toContain("lane report: turn");
+  expect(host.querySelector(".cv-received__preview")?.textContent).not.toContain("\n");
   expect(host.querySelector(".cv-received__text")).toBeNull();
   await click(".cv-received__from--open");
   expect(opened).toEqual(["session-single-block"]);
@@ -240,7 +245,9 @@ test("three inbox notices share one line and expose each notice when opened", as
   const toggle = host.querySelector(".cv-lane-batch__toggle")!;
   // "Received N messages", no session names at rest: they are its hover (Leo, 2026-11-02).
   expect(toggle.textContent).toBe("Received 3 messages");
-  for (const sender of senders) expect(toggle.getAttribute("title")).toContain(sender);
+  // Its hover lists each message (MessageGroupHover.tsx, test/agent-message-rows-unified.test.tsx),
+  // never a title of names (Leo, 2026-11-07, on that list: "this is not useful").
+  expect(toggle.getAttribute("title")).toBeNull();
   expect(toggle.textContent).not.toContain("\n");
   expect(host.querySelector(".cv-received")).toBeNull();
   await click(".cv-lane-batch__toggle");

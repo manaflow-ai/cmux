@@ -12,7 +12,7 @@ The steps alternate the two commits (A B A B, or B A B A on a second mini). Each
 Fleet rules this follows (2026-10-31):
 - A pin waits for the worker: the controller moves a pinned step that waits 10 min to another worker of the pool.
   So the driver submits a step only when the worker is idle (no running step, no queued pin, its pool is POOL and not
-  a capture lease, at least MIN_FREE_GIB free), reads the step's worker every 15 s for its first 10 min, cancels a
+  a capture lease; under MIN_FREE_GIB free is a warning, never a wait), reads the step's worker every 15 s for its first 10 min, cancels a
   step that is still queued QUEUE_LIMIT after the controller created it, and cancels at once a step that starts on
   another worker. A cancel counts only when the job's own status shows it ended; until then the driver keeps
   watching it. While a step is queued its status is read every 15 s. A submit whose job id did not come back is
@@ -42,9 +42,10 @@ def worker_ready(status, worker, pool, min_free_gib=MIN_FREE_GIB):
         return False, f"pool is {w.get('pool')} (a capture lease or another reservation)"
     if w.get("claim_paused") or w.get("excluded") or w.get("healthy") is False or w.get("online") is False:
         return False, "paused, excluded, unhealthy or offline"
+    # A low disk makes the step slower, never keeps it from running: under the floor is a warning in the
+    # reason, and the worker is still ready (2026-11-06, "disk floors and probes warn, never refuse").
     free = (w.get("free_bytes") or 0) / 2**30
-    if free < min_free_gib:
-        return False, f"{free:.1f} GiB free, under {min_free_gib}"
+    low = f"; warning: {worker} has {free:.1f} GiB free, under the {min_free_gib} GiB floor" if free < min_free_gib else ""
     m = next((m for m in status.get("measure_hosts") or [] if m.get("name") == worker), None)
     if m is None or not m.get("online", True):
         return False, "offline"
@@ -52,7 +53,9 @@ def worker_ready(status, worker, pool, min_free_gib=MIN_FREE_GIB):
         return False, f"runs {m['running'].get('step_key') or m['running'].get('id')}"
     if m.get("queued_pinned"):
         return False, f"{m['queued_pinned']} pinned step(s) queued"
-    return True, "idle"
+    if low:
+        print(f"bench-ab: {low[2:]}; submitting anyway", file=sys.stderr, flush=True)
+    return True, "idle" + low
 
 
 def queued_seconds(job, now=None):

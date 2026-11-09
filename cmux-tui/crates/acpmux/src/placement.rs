@@ -32,7 +32,8 @@
 //! has room. Hosts, sizes and roles come from fleet-registry.json's
 //! `lanes` entries (no name here); a host with none is not a lane host. A
 //! peer too old to report health is never refused for it: it ranks after
-//! every host with a reading.
+//! every host with a reading. A host the registry holds (`hold`, a reservation, `retired`, or a
+//! `status` that says it is idle-stopped, stopped or paused) takes no new work at all.
 //!
 //! Without a registry (acpmux outside the fleet) every connected peer is a
 //! candidate and the defaults below size it.
@@ -75,13 +76,29 @@ pub fn placed(verdict: &Value) -> Option<String> {
     Some(format!("placed on {}", verdict.get("why").and_then(Value::as_str).unwrap_or_default()))
 }
 
-/// One host to weigh: its name, whether it is this machine, and its last
-/// health reading (`_acpmux/host_health` fields, or null).
+/// One host to weigh: its name, whether it is this machine, its last
+/// health reading (`_acpmux/host_health` fields, or null), and when that
+/// reading arrived (ms on this machine's clock; `None` when unknown). The
+/// weighing ignores `health_at`; the shadow verdict reads it (`shadow_admission.rs`).
 #[derive(Clone, Debug)]
 pub struct Candidate {
     pub name: String,
     pub local: bool,
     pub health: Value,
+    pub health_at: Option<u64>,
+}
+
+impl Candidate {
+    /// A connected peer from its `Hub::peers` row (`peer.rs` `summary`): its
+    /// name, its last reading and `healthAt`. `None` for a row with no name.
+    pub fn peer(row: &Value) -> Option<Self> {
+        Some(Self {
+            name: row.get("name")?.as_str()?.to_owned(),
+            local: false,
+            health: row.get("health").cloned().unwrap_or(Value::Null),
+            health_at: row.get("healthAt").and_then(Value::as_u64),
+        })
+    }
 }
 
 /// A lane host's sizes (`lanes` in fleet-registry.json).
@@ -276,7 +293,7 @@ pub fn lane_hosts_at(registry: Option<&Value>, now_ms: u64) -> Option<Vec<(Vec<S
 }
 
 /// Why `names` (a machine's registry name and aliases, `canonical`) takes no new work at
-/// `now_ms`: its `retired` flag, its own `hold` (`hold`), else a top-level `reservations` entry naming it
+/// `now_ms`: its `retired` flag, its `status` (`stopped`), its own `hold` (`hold`), else a top-level `reservations` entry naming it
 /// (`{id, owner, hosts, from, until}`, active from `from` to `until`, so it lapses by itself; an
 /// entry whose times cannot be read still holds, as leo-workspace's `fleet_reservations.py`
 /// reads them).
@@ -287,6 +304,9 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
         None | Some(Value::Null) | Some(Value::Bool(false)) => {}
         Some(Value::String(s)) if !s.trim().is_empty() => return Some(format!("retired: {s}")),
         Some(_) => return Some("retired".into()),
+    }
+    if let Some(why) = stopped(machine) {
+        return Some(why);
     }
     if let Some(why) = hold(machine, now_ms) {
         return Some(why);
@@ -325,6 +345,44 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
         }
     }
     None
+}
+
+/// The `status` words that say a machine is off for now: leo-workspace's host_state.py reads an
+/// `idle-stopped` one (and a `retired` one) as stopped, and reach and the stall reconciler skip it.
+/// `retiring` is still up.
+const STOPPED: [&str; 4] = ["idle-stopped", "stopped", "paused", "retired"];
+
+/// Why a machine's registry `status` keeps new work off it: it starts with one of `STOPPED`
+/// (any case). It holds even while its peer link reads connected: a link that comes back for a
+/// moment says nothing about whether the VM stays up, and a start forwarded to it was refused
+/// with only an ssh hint. Deleting the status line, as the registry asks once it is started for
+/// good, lets it take work again.
+fn stopped(machine: &Value) -> Option<String> {
+    let status = machine.get("status")?.as_str()?.trim().to_ascii_lowercase();
+    let word = STOPPED.iter().find(|w| status.starts_with(**w))?;
+    Some(format!("{word} (its fleet-registry.json status)"))
+}
+
+/// Why a peer row (`Hub::peers`, `peer.rs` `summary`) is no candidate now: its link is not up.
+/// Both its `connected` flag and its live `state` must say up (`degraded` is slow, not gone), so
+/// a flag left set while the link reconnects never makes it one. `None`: it is a candidate.
+pub fn peer_down(row: &Value) -> Option<String> {
+    let state = row.get("state").and_then(Value::as_str);
+    let flag = row.get("connected").and_then(Value::as_bool) == Some(true);
+    let up = flag && state.is_none_or(|s| matches!(s, "connected" | "degraded"));
+    (!up).then(|| format!("not connected ({})", state.unwrap_or("down")))
+}
+
+/// `verdict` with each peer `down` names (its name and `peer_down`'s why) listed in `hosts` as
+/// passed over, so `machine pick` says why a known machine took nothing. They never take work.
+pub fn with_down(mut verdict: Value, down: &[(String, String)]) -> Value {
+    if let Some(hosts) = verdict.get_mut("hosts").and_then(Value::as_array_mut) {
+        hosts.extend(down.iter().map(|(name, why)| {
+            json!({"name": name, "local": false, "ok": false, "room": null, "rank": null,
+                "tier": null, "live": null, "why": "", "refused": why, "load": false})
+        }));
+    }
+    verdict
 }
 
 /// Why the registry holds `name` (by name or alias) now: its `hold` or an active reservation
@@ -633,7 +691,7 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             w.refused.as_deref().unwrap_or_default()
         ),
         Some(w) => format!("{}: {}", w.name, w.why),
-        None => "no host has room for this; `acpmux host place --json` says why each was refused"
+        None => "no host has room for this; `acpmux machine pick --json` says why each was refused"
             .to_owned(),
     };
     json!({
