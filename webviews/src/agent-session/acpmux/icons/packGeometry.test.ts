@@ -25,7 +25,9 @@ const OFF_CENTER: Record<string, string> = {
 };
 
 const vendored = new Set(
-  (catalog as { name: string; source?: string }[]).filter((icon) => icon.source === "chromium").map((icon) => icon.name),
+  (catalog as { icons: { name: string; source?: string }[] }).icons
+    .filter((icon) => icon.source === "chromium")
+    .map((icon) => icon.name),
 );
 
 function box(name: string) {
