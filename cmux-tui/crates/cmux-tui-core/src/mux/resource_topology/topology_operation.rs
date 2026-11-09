@@ -474,6 +474,13 @@ impl Mux {
                 mutation,
                 &fingerprint,
             )?,
+            ResourceOperation::PaneMove => self.resource_move_pane(
+                selectors,
+                &fields,
+                expected_revision,
+                mutation,
+                &fingerprint,
+            )?,
             ResourceOperation::PaneZoom => self.resource_zoom_pane(
                 selectors,
                 fields.get("enabled").and_then(Value::as_bool),
@@ -567,6 +574,7 @@ impl Mux {
         if matches!(
             operation,
             ResourceOperation::PaneSwap
+                | ResourceOperation::PaneMove
                 | ResourceOperation::PaneZoom
                 | ResourceOperation::PaneSplitRatioSet
                 | ResourceOperation::PaneViewportWidthSet
