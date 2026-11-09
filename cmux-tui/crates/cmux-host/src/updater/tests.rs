@@ -550,7 +550,8 @@ fn a_pause_during_a_check_holds_its_flip() {
     let quick = T0_MS + 20_000;
     assert!(!role::hold_if_stopped(&paths, T0_MS, quick, role::CHECK_BOUND));
     assert_eq!(gate.held_left(quick), None);
-    let late = T0_MS + role::CHECK_BOUND.as_millis() as u64 + role::STOP_SLACK.as_millis() as u64 + 1;
+    let late =
+        T0_MS + role::CHECK_BOUND.as_millis() as u64 + role::STOP_SLACK.as_millis() as u64 + 1;
     assert!(role::hold_if_stopped(&paths, T0_MS, late, role::CHECK_BOUND));
     assert!(gate.held_left(late).is_some(), "the flip after a stopped check is held");
 }
