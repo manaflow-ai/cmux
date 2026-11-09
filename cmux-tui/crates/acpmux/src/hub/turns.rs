@@ -1641,6 +1641,8 @@ impl Hub {
                 Ok(v) => {
                     self.note_reply_refusal(session);
                     let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
+                    // Its last reply's claims, checked against its own runs (`claim_check.rs`).
+                    self.append_claim_checks(session, &turn_id);
                     self.append(
                         session,
                         "mux",
