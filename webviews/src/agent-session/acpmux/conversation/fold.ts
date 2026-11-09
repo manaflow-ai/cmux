@@ -9,7 +9,7 @@
 // adds or removes whole rows there ("Worked for") marks its row `data-bottom-fold` and slides the
 // thread instead.
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
+import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
 
 /// The fold's duration token. conversation.css sets it from the settle (`--cmux-motion-settle`, the
@@ -34,17 +34,6 @@ function styleOf(node: Element): CSSStyleDeclaration | undefined {
   return node.ownerDocument.defaultView?.getComputedStyle(node);
 }
 
-/// The gallery's and the harness's looks for a reader's toggle (`data-fold-look` on an ancestor,
-/// gallery `agent-pane.tool-toggle-motion`): `settle`, shipped, the fold on the settle and a turn back
-/// retargeted to the travel left (`turnMs`); `stack`, before, a turn back plays a whole fold again;
-/// `quick`, the fold on the quick step (80 ms); `jump`, at once.
-export type FoldLook = "settle" | "stack" | "quick" | "jump";
-export const FOLD_LOOKS: readonly FoldLook[] = ["settle", "stack", "quick", "jump"];
-export function foldLook(node: Element): FoldLook {
-  const look = node.closest("[data-fold-look]")?.getAttribute("data-fold-look");
-  return FOLD_LOOKS.includes(look as FoldLook) ? (look as FoldLook) : "settle";
-}
-
 /// What the fold reads from the page; tests swap these.
 export const foldMotion = {
   /// The fold's duration on `node`, in ms.
@@ -52,9 +41,7 @@ export const foldMotion = {
     const style = styleOf(node);
     // The host's move duration at 0 (Reduce Motion, animation off) still folds at once.
     if (cssTimeMs(style?.getPropertyValue("--agent-motion-move") ?? "") === 0) return 0;
-    const ms = cssTimeMs(style?.getPropertyValue(FOLD_DURATION_VAR) ?? "") ?? FOLD_FALLBACK_MS;
-    const look = foldLook(node);
-    return look === "jump" ? 0 : look === "quick" ? Math.min(ms, MOTION_MS.quick) : ms;
+    return cssTimeMs(style?.getPropertyValue(FOLD_DURATION_VAR) ?? "") ?? FOLD_FALLBACK_MS;
   },
   /// The settle curve (`--cv-fold-ease`, the page's `--cmux-ease-settle`), or its generated copy.
   easing: (node: Element): string => styleOf(node)?.getPropertyValue(FOLD_EASE_VAR).trim() || MOTION_SETTLE,
@@ -251,31 +238,6 @@ function pin(node: HTMLElement, value: 0 | undefined): void {
   clipFold(node, value !== undefined);
 }
 
-/// How long a fold that turns back midway plays (ms): the share of its full travel it still has to go,
-/// of the fold's length `ms`, at least the quick step (80 ms, or `ms` when that is shorter). A close
-/// clicked 60 ms into an open goes back over the 40 px it drew, not a whole fold from there, so a
-/// quick open-close-open retargets the motion in flight and never stacks folds or slows down (Leo,
-/// 2026-11-06: "way too jittery/sensitive. and it's just slow").
-export function turnMs(ms: number, from: number, to: number, extent: number): number {
-  const travel = Math.max(extent, from, to);
-  if (!(travel > 0.5)) return ms;
-  const share = Math.min(1, Math.abs(to - from) / travel);
-  return Math.max(Math.min(ms, MOTION_MS.quick), ms * share);
-}
-
-/// Whether `node` lies wholly under the transcript's view (`.acpmux-scroll`): a fold there (a row the
-/// reader opened and scrolled away from, then Find or a regroup set) lands at once, so nobody pays for
-/// a motion no one sees and the follow motion never stops for it. A fold above the view still plays:
-/// it moves every row under it, the ones in view too, and the transcript rides that move on the fold's
-/// own frames (its hold, or the bottom pinned while it follows), so landing it at once there moved the
-/// rows in view by its whole height in one frame (turn-transition-jumps.test.ts tool-group, 32 px as
-/// the turn's run folded above the reply). Two box reads, whatever the transcript's length.
-export function foldOffScreen(node: HTMLElement): boolean {
-  const scroller = node.closest(".acpmux-scroll");
-  if (!scroller) return false;
-  return node.getBoundingClientRect().top > scroller.getBoundingClientRect().bottom;
-}
-
 export type Fold = {
   /// Draw the body: while open, and while it closes.
   present: boolean;
@@ -347,8 +309,6 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
   };
   // The `open` the box was last drawn for: the first render, and a StrictMode re-run, play nothing.
   const played = useRef(open);
-  /// The height the last open grew to (px): a close that turns that open back travels its share of it.
-  const extent = useRef(0);
   useLayoutEffect(() => {
     if (played.current === open) return;
     played.current = open;
@@ -361,8 +321,8 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     // once. Any other body plays its height, at the bottom too: the transcript keeps the bottom pinned
     // on each frame of it (`heightFoldInFlight`), so the text above moves with it.
     const stack = node?.closest("[data-bottom-fold]");
-    const full = !stack && node && animates() && !foldOffScreen(node) ? foldMs(node) : 0;
-    if (!node || full <= 0) {
+    const ms = !stack && animates() ? foldMs(node) : 0;
+    if (!node || ms <= 0) {
       cancelRunning();
       if (node && !open) pin(node, 0);
       setClosing(false);
@@ -371,16 +331,12 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     // From where the box is drawn now: midway through the other fold, else closed or open. An open
     // ends at the height measured here and then lets go of it (no fill), so the body takes its own
     // height again, content that loaded meanwhile included.
+    markHeightFold(node, ms);
     const turning = running.current !== undefined;
     const fromHeight = turning || !open ? node.getBoundingClientRect().height : 0;
     const fromOpacity = open && !fadeIn ? 1 : turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;
     cancelRunning();
     const toHeight = open ? node.scrollHeight : 0;
-    if (open) extent.current = toHeight;
-    else if (!turning) extent.current = fromHeight;
-    // A fold that turns back midway retargets: it plays only the share of the travel left.
-    const ms = turning && foldLook(node) !== "stack" ? turnMs(full, fromHeight, toHeight, extent.current) : full;
-    markHeightFold(node, ms);
     clipFold(node, true);
     // The box holds its start height under the motion: a new animation is pending until a frame
     // starts it, and a frame that painted before it applied drew the body at its full height for one
