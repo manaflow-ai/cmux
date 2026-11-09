@@ -21,8 +21,9 @@ public nonisolated struct SidebarItemOrder: Hashable, Sendable {
     public let rows: [SidebarItem]
     /// The stop that stands for a workspace without its own row (a member of a collapsed group).
     public let stops: [WorkspaceID: SidebarItem]
-    /// Where a workspace with no stop (folded into "Done (N)", behind "Show N more") draws when selected: the index in
-    /// `rows` it sits before. A step from it goes on from there.
+    /// Where a workspace draws when selected, when that is not its stop's place: one with no stop (folded into
+    /// "Done (N)", behind "Show N more"), or one an opened fold lists at the end of its list. The index in `rows` it
+    /// sits before. A step from it goes on from there; its number stays its stop's.
     public let places: [WorkspaceID: Int]
 
     public init(topItems: [SidebarItem], rows: [SidebarItem], stops: [WorkspaceID: SidebarItem] = [:], places: [WorkspaceID: Int] = [:]) {
@@ -85,17 +86,23 @@ public nonisolated struct SidebarItemOrder: Hashable, Sendable {
     /// item outside the walked list (or none), +1 starts at the first and -1
     /// at the last. Past an end: wraps, or nil when wrapping is off.
     public func step(from selected: SidebarItem?, by offset: Int, _ settings: SidebarNavigationSettings) -> SidebarItem? {
-        let list = items(settings.stepping)
+        var list = items(settings.stepping)
         guard !list.isEmpty, offset != 0 else { return nil }
         let next: Int
-        if let current = stop(for: selected), let index = list.firstIndex(of: current) {
-            next = index + offset
-        } else if case .workspace(let id)? = selected, let place = places[id] {
-            // Between two stops: +1 is the stop after its place, -1 the one before.
-            let before = settings.stepping == .allItems
-                ? topItems.count + place
-                : rows[..<place].filter { if case .topItem = $0 { false } else { true } }.count
+        if case .workspace(let id)? = selected, let place = places[id] {
+            // Drawn between two stops: +1 is the stop after its place, -1 the one before. Its own stop (an opened
+            // fold's row at the end of its list) is not one of them.
+            list.removeAll { $0 == .workspace(id) }
+            guard !list.isEmpty else { return nil }
+            let walked = { (item: SidebarItem) -> Bool in
+                guard item != .workspace(id), settings.stepping != .allItems else { return item != .workspace(id) }
+                if case .topItem = item { return false }
+                return true
+            }
+            let before = (settings.stepping == .allItems ? topItems.count : 0) + rows[..<place].filter(walked).count
             next = offset > 0 ? before + offset - 1 : before + offset
+        } else if let current = stop(for: selected), let index = list.firstIndex(of: current) {
+            next = index + offset
         } else {
             return offset > 0 ? list.first : list.last
         }

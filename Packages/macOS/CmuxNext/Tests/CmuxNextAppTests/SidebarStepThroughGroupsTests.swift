@@ -133,4 +133,63 @@ import Testing
             #expect(order.rows == Self.ids(["top", "work-1", "work-2", "below"]))
         }
     }
+
+    // Review follow-ups on #39747: a selected row draws in its place, so a step goes on from there.
+
+    /// An opened Done fold lists its member at the end of the group, but selected it draws in its place: Next and
+    /// Previous are the rows drawn around it, and its number stays the fold's.
+    @Test func aSelectedRowOfAnOpenedDoneFoldStepsFromWhereItDraws() throws {
+        try Self.withFolds {
+            let model = SidebarModel(sections: Self.doneSections(Self.withDone))
+            let section = try #require(model.sections.first?.id)
+            model.openDoneFolds = [SidebarDoneFoldID(section: section, group: Self.work)]
+            let order = model.itemOrder
+            #expect(order.rows == Self.ids(["top", "work-1", "work-3", "work-2", "below"]))
+            let selected = SidebarItem.workspace(WorkspaceID("work-2"))
+            #expect(order.number(for: selected, Self.numbers) == 4)
+            #expect(order.step(from: selected, by: 1, Self.numbers) == .workspace(WorkspaceID("work-3")))
+            #expect(order.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))
+            #expect(order.step(from: .workspace(WorkspaceID("work-3")), by: 1, Self.numbers) == selected)
+        }
+    }
+
+    /// A link between a workspace and a folded Done member is a stop of its own: from the selected Done member,
+    /// Previous is the link and Next the workspace after it.
+    @Test func aFoldedRowAfterALinkStepsPastTheLink() {
+        Self.withFolds {
+            let link = SidebarListItem(id: "link", ref: .url("https://example.com"), title: "Example")
+            var group = SidebarGroup(id: Self.work, name: "Work", color: .red, isCollapsed: false, workspaces: Self.withDone)
+            group.items = [SidebarGroupItem(item: link, after: WorkspaceID("work-1"))]
+            let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+            let order = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
+                .workspace(Self.row("top")), .group(group), .workspace(Self.row("below")),
+            ])]).itemOrder
+            let all = SidebarNavigationSettings(numbering: .allItems, stepping: .allItems)
+            let linkItem = SidebarItem.topItem(LayoutItemID("link"))
+            #expect(order.rows == [.workspace(WorkspaceID("top")), .workspace(WorkspaceID("work-1")), linkItem,
+                                   .workspace(WorkspaceID("work-3")), .workspace(WorkspaceID("below"))])
+            let selected = SidebarItem.workspace(WorkspaceID("work-2"))
+            #expect(order.step(from: selected, by: -1, all) == linkItem)
+            #expect(order.step(from: selected, by: 1, all) == .workspace(WorkspaceID("work-3")))
+            #expect(order.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))
+            #expect(order.step(from: selected, by: 1, Self.numbers) == .workspace(WorkspaceID("work-3")))
+        }
+    }
+
+    /// An archived workspace sits in the closed Archive section at the bottom, but selected it draws in its place:
+    /// Next and Previous are the rows around that place, not the ends of the list.
+    @Test func aSelectedArchivedRowStepsFromItsPlace() {
+        Self.withFolds {
+            var archived = Self.row("old")
+            archived.isArchived = true
+            let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+            let order = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
+                .workspace(Self.row("first")), .workspace(archived), .workspace(Self.row("second")), .workspace(Self.row("third")),
+            ])]).itemOrder
+            #expect(order.rows == Self.ids(["first", "second", "third"]))
+            let selected = SidebarItem.workspace(WorkspaceID("old"))
+            #expect(order.step(from: selected, by: 1, Self.numbers) == .workspace(WorkspaceID("second")))
+            #expect(order.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("first")))
+        }
+    }
 }
