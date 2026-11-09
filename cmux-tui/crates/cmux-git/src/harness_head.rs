@@ -43,7 +43,7 @@ pub fn in_head(relative: &str, subpath: &str) -> bool {
     let subpath = subpath.trim_matches('/');
     let mut folders = vec![""];
     if !subpath.is_empty() {
-        folders.extend(subpath.match_indices('/').map(|(at, _)| &subpath[..at]));
+        folders.extend(subpath.match_indices('/').filter_map(|(at, _)| subpath.get(..at)));
         folders.push(subpath);
     }
     folders.iter().any(|folder| {

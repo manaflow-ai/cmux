@@ -58,8 +58,10 @@ pub(super) fn take(
     }
     let mut params = json!({"folder": remote, "key": super::unique(),
                             "lease_ms": LEASE.as_millis() as u64});
-    if !subpath.is_empty() {
-        params["subpath"] = json!(subpath);
+    if !subpath.is_empty()
+        && let Some(map) = params.as_object_mut()
+    {
+        map.insert("subpath".into(), json!(subpath));
     }
     let mut asked = sync_cli::machine_call(machine.socket, "git.seed.hold", params.clone());
     if asked.as_ref().is_err_and(|error| !sync_cli::is_refusal(error)) {
