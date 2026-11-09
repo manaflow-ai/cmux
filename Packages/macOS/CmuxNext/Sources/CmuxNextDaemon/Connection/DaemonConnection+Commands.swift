@@ -394,6 +394,14 @@ extension DaemonConnection {
         try await requestNew(AckTabNotificationsRequest(surface: surface))
     }
 
+    /// ``acknowledgeNotifications(of:)`` on the transport `stamp` names only (``DaemonStore/liveTreeStamp()``):
+    /// `surface` is that connection's number, so on any other transport it fails as not connected and goes again.
+    public func acknowledgeNotifications(of surface: SurfaceID, on stamp: DaemonControlStamp) async throws
+        -> AckTabNotificationsRequest.Response {
+        guard stamp.sourceID == eventSourceID else { throw DaemonError.notConnected }
+        return try await request(AckTabNotificationsRequest(surface: surface), timeout: configuration.requestTimeout, on: stamp.serial)
+    }
+
     public func notificationLedger(limit: Int? = nil) async throws -> [ListNotificationsRequest.Entry] {
         try await requestNew(ListNotificationsRequest(limit: limit)).notifications
     }
