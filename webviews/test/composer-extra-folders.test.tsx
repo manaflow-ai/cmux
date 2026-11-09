@@ -50,7 +50,11 @@ const FOLDER = "/Users/me/app";
 type Draft = { machine: string; folders: readonly string[] } | undefined;
 
 /// The composer's folder control with the draft kept as App keeps it; `changes` records each change.
-async function renderTray(props: Record<string, unknown>, initial?: Draft) {
+async function renderTray(
+  props: Record<string, unknown>,
+  initial?: Draft,
+  browse: () => Promise<string | undefined> = async () => "/Users/me/picked",
+) {
   const changes: Draft[] = [];
   function Tray() {
     const [draft, setDraft] = useState<Draft>(initial);
@@ -70,7 +74,7 @@ async function renderTray(props: Record<string, unknown>, initial?: Draft) {
             changes.push(next);
             setDraft(next);
           },
-          onBrowse: async () => "/Users/me/picked",
+          onBrowse: browse,
         }}
         {...props}
       />
@@ -239,6 +243,92 @@ test("picking a starting Cloud machine drops this machine's extra folders at onc
     await press(row!);
     expect(cloud).toEqual(["vm-ready"]);
     expect(changes.at(-1)).toBeUndefined();
+    expect(changes.length).toBe(1);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+/// A folder panel that stays open until the test answers it; `calls` counts the panels opened.
+function heldPanel() {
+  const answers: ((path: string | undefined) => void)[] = [];
+  return {
+    answers,
+    open: () =>
+      new Promise<string | undefined>((resolve) => {
+        answers.push(resolve);
+      }),
+  };
+}
+
+// Review of #36964 (F3): a second Add folder… while the host's folder panel is still open opens no
+// second panel, in the folder menu and in Add another folder…; the open one's answer still counts.
+test("a second Add folder… while the folder panel is open opens no second panel", async () => {
+  const panel = heldPanel();
+  const picked: string[] = [];
+  const { root, changes } = await renderTray({
+    onBrowseProject: () => panel.open(),
+    onProject: (cwd: string) => picked.push(cwd),
+  });
+  try {
+    await openFolderMenu();
+    await press(menuItem("Add folder…")!);
+    await openFolderMenu();
+    await press(menuItem("Add folder…")!);
+    await openFolderMenu();
+    await press(menuItem("Add another folder…")!);
+    await press(menuItem("Add folder…")!);
+    expect(panel.answers.length).toBe(1);
+    // Add another folder…'s Add folder… is the same host panel: it waits for the open one too.
+    expect(changes).toEqual([]);
+    await act(async () => panel.answers[0]!("/Users/me/picked"));
+    await settle();
+    expect(picked).toEqual(["/Users/me/picked"]);
+    // Answered, the next Add folder… opens a panel again.
+    await openFolderMenu();
+    await press(menuItem("Add folder…")!);
+    expect(panel.answers.length).toBe(2);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a second Add another folder… Add folder… while its panel is open opens no second panel", async () => {
+  const panel = heldPanel();
+  const { root, changes } = await renderTray({}, undefined, panel.open);
+  try {
+    for (let round = 0; round < 2; round += 1) {
+      await openFolderMenu();
+      await press(menuItem("Add another folder…")!);
+      await press(menuItem("Add folder…")!);
+    }
+    expect(panel.answers.length).toBe(1);
+    await act(async () => panel.answers[0]!("/Users/me/picked"));
+    await settle();
+    expect(changes.at(-1)).toEqual({ machine: "local", folders: ["/Users/me/picked"] });
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// Review of #36964 (F1 at 0fe991b): an extra folder added or removed while Add folder…'s panel was
+// open makes the panel's late answer add nothing, so it neither adds a folder to a list the person
+// changed nor writes back the list as it was before the change.
+test("an extra folder's late panel answer is dropped once the extra folders changed", async () => {
+  const panel = heldPanel();
+  const { root, changes } = await renderTray({}, undefined, panel.open);
+  try {
+    await openFolderMenu();
+    await press(menuItem("Add another folder…")!);
+    await press(menuItem("Add folder…")!);
+    expect(panel.answers.length).toBe(1);
+    await openFolderMenu();
+    await press(menuItem("Add another folder…")!);
+    await press(menuItem("notes")!);
+    expect(changes.at(-1)).toEqual({ machine: "local", folders: ["/Users/me/notes"] });
+    await act(async () => panel.answers[0]!("/Users/me/picked"));
+    await settle();
+    expect(changes.at(-1)).toEqual({ machine: "local", folders: ["/Users/me/notes"] });
     expect(changes.length).toBe(1);
   } finally {
     await act(async () => root.unmount());
