@@ -52,6 +52,9 @@ it("checks the whole document's grammar, so a malformed listing hands over nothi
     '{"tunnels":[{"id":"\\u12g4"}]}', // a malformed \u escape
     '{"tunnels":[{"id":"a\nb"}]}', // a raw control character in a string
     '{"tunnels":[],"tunnels":[]}', // the field twice
+    '{"tunnels":[{"id":"old"}],"tunnels":null}', // the field again, as another type
+    '{"tunnels":[{"id":"old"}],"\\u0074unnels":[]}', // the field again, escaped
+    '{"\\u0074unnels":null,"tunnels":[{"id":"x"}]}', // an escaped duplicate first
     '{"tunnels":{"id":"x"}}', // the field not an array
     '{"tunnels":[{"id":"t1"}}}', // a mismatched closer after the items
     '{"tunnels":[{"id":"t1"}],"totalCount":}', // a missing value in a skipped field
@@ -69,4 +72,10 @@ it("accepts closers, commas, colons and escapes inside strings", () => {
   for (const chunk of [1, 3, text.length]) {
     expect(read(text, chunk)).toEqual([{ id: "x]}", s: '{[,"]' }, { id: "y", n: -1500, t: true, f: false, z: null }]);
   }
+});
+
+it("compares top-level keys after unescaping them", () => {
+  expect(read('{"\\u0074unnels":[{"id":"x"}]}', 3)).toEqual([{ id: "x" }]);
+  expect(read('{"tunnel\\u0073x":[{"id":"no"}],"tunnels":[{"id":"x"}]}', 4)).toEqual([{ id: "x" }]);
+  expect(read(`{"${"\\u0041".repeat(100)}":1,"tunnels":[]}`, 7)).toEqual([]);
 });

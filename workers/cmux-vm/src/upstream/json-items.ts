@@ -8,15 +8,17 @@
  * close its own opener, object members and array elements must be separated by exactly one comma, a key must be
  * followed by a colon, literals and numbers must be well formed, strings may hold no raw control character and only
  * valid escapes, and the document is exactly one object with nothing but whitespace after it. The document must have
- * `field` once, as an array of objects; each item is also parsed with JSON.parse. Any violation, an item over
+ * `field` exactly once among its top-level keys, compared after JSON string unescaping (so `"\u0074unnels"` is
+ * `tunnels`), and its value must be an array of objects; a second `field` key fails whatever its value. Each item is
+ * also parsed with JSON.parse. Any violation, an item over
  * `maxItemChars`, or a document that ends early throws, and the caller must then act on none of the items it was
  * handed (the sweep deletes only after `end` returned).
  */
 
 export class JsonItemsError extends Error {}
 
-/** Longest key the scanner compares; a longer one never matches `field`. */
-const MAX_KEY_CHARS = 256;
+/** Raw characters of a top-level key the scanner keeps to decode and compare; see `keyCap`. */
+const MIN_KEY_CHARS = 256;
 /** Longest number or literal outside the items (`true`, a count): anything longer is not a listing. */
 const MAX_TOKEN_CHARS = 64;
 const TOKEN_CHAR = /[0-9a-zA-Z+\-.]/u;
@@ -50,8 +52,15 @@ export const jsonItemsScanner = (field: string, maxItemChars: number, onItem: (i
   let escape = false;
   /** Hex digits still owed by a `\u` escape. */
   let hexLeft = 0;
-  /** A top-level key being read, or null. */
+  /** The raw text (escapes kept) of a top-level key being read, or null. */
   let key: string | null = null;
+  /**
+   * A raw key longer than this cannot decode to `field`: an escape is at most 6 raw characters per decoded one, so it
+   * is kept no further and compared as "not the field".
+   */
+  const keyCap = Math.max(MIN_KEY_CHARS, field.length * 6 + 6);
+  let keyTooLong = false;
+  let fieldKeys = 0;
   /** The last top-level key read: the one whose value comes next. */
   let lastKey: string | null = null;
   let token = "";
@@ -126,7 +135,14 @@ export const jsonItemsScanner = (field: string, maxItemChars: number, onItem: (i
           if (stringIsKey) {
             const frame = current();
             if (frame?.kind === "object") frame.state = "colon";
-            if (key !== null) lastKey = key;
+            if (key !== null) {
+              const decoded = keyTooLong ? null : JSON.parse(`"${key}"`);
+              lastKey = typeof decoded === "string" ? decoded : null;
+              if (lastKey === field) {
+                fieldKeys += 1;
+                if (fieldKeys > 1) fail("the field twice");
+              }
+            }
             key = null;
           } else {
             valueDone();
@@ -135,7 +151,10 @@ export const jsonItemsScanner = (field: string, maxItemChars: number, onItem: (i
         } else if (c < " ") {
           fail("a raw control character in a string");
         }
-        if (key !== null && key.length <= MAX_KEY_CHARS) key += c;
+        if (key !== null && !keyTooLong) {
+          key += c;
+          if (key.length > keyCap) keyTooLong = true;
+        }
         continue;
       }
       if (TOKEN_CHAR.test(c)) {
@@ -152,6 +171,7 @@ export const jsonItemsScanner = (field: string, maxItemChars: number, onItem: (i
           if (frame?.kind === "object" && (frame.state === "keyOrEnd" || frame.state === "key")) {
             stringIsKey = true;
             key = stack.length === 1 && item === null ? "" : null;
+            keyTooLong = false;
           } else {
             if (valueStarts()) fail("item not an object");
             stringIsKey = false;
@@ -186,10 +206,7 @@ export const jsonItemsScanner = (field: string, maxItemChars: number, onItem: (i
           if (frame === undefined) fail(top === "value" ? "not an object" : "text after the document");
           if (valueStarts()) fail("item not an object");
           const isField = stack.length === 1 && item === null && lastKey === field;
-          if (isField) {
-            if (seen) fail("the field twice");
-            seen = true;
-          }
+          if (isField) seen = true;
           stack.push({ kind: "array", state: "valueOrEnd", items: isField });
           break;
         }
