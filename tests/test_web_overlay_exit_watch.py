@@ -30,7 +30,10 @@ SCRIPT = ROOT / "scripts/cmux-next/web-overlay.sh"
 FAKE_BUN = """#!/usr/bin/env python3
 import ctypes, os, subprocess, sys
 ctypes.CDLL(None).prctl(15, b"bun", 0, 0, 0)
+if sys.argv[1:2] == ["install"] and os.path.exists(os.environ["FAKE_BUN_FAIL"]):
+    sys.exit(1)  # an install that fails
 if sys.argv[1:3] == ["run", "dev"] and os.path.exists(os.environ["FAKE_BUN_FAIL"]):
+    import time; time.sleep(float(open(os.environ["FAKE_BUN_FAIL"]).read() or 0))
     sys.exit(1)  # a server that dies before it serves
 if sys.argv[1:3] == ["run", "dev"]:
     os.makedirs("agent-pane", exist_ok=True)
@@ -168,6 +171,45 @@ class WebOverlayExitWatchTests(unittest.TestCase):
         self.group = old_group
         self.assertNotIn("server", json.loads(self.web_dev.read_text()))
         self.assertIn(f"did not start on port {other}", (self.state / "dev-server.exit").read_text())
+
+    def test_a_failed_start_keeps_a_pick_made_while_it_waited(self):
+        # Start A stops the old server and waits; meanwhile start B picks its own server (a new
+        # token). A's failure clears only the pick it stopped, never B's.
+        self.start()
+        old_group = self.group
+        (self.tmp / "fail").write_text("3")
+        other = free_port()
+        a = subprocess.Popen(["bash", str(SCRIPT), "server", "--local", "--worktree", str(self.tree), "--port", str(other)],
+                             env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        self.assertTrue(self.wait_for(lambda: not self.group_alive_of(old_group)))
+        data = json.loads(self.web_dev.read_text())
+        data.update(server="http://127.0.0.1:2/", token="c" * 48)  # B's point_at
+        self.web_dev.write_text(json.dumps(data))
+        (self.state / "dev-server.token").write_text("c" * 48 + "\n")
+        self.assertNotEqual(a.wait(timeout=120), 0)
+        self.group = old_group
+        self.assertEqual(json.loads(self.web_dev.read_text())["server"], "http://127.0.0.1:2/")
+
+    def test_a_failed_install_leaves_no_dead_pick(self):
+        self.start()
+        old_group = self.group
+        (self.tmp / "fail").write_text("")
+        other_tree = self.tmp / "tree2"
+        (other_tree / "webviews").mkdir(parents=True)  # no node_modules: the start installs
+        (other_tree / "webviews/package.json").write_text("{}\n")
+        result = subprocess.run(["bash", str(SCRIPT), "server", "--local", "--worktree", str(other_tree), "--port", str(free_port())],
+                                env=self.env, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
+        self.assertNotEqual(result.returncode, 0)
+        self.group = old_group
+        self.assertNotIn("server", json.loads(self.web_dev.read_text()))
+        self.assertIn("did not start", (self.state / "dev-server.exit").read_text())
+
+    def group_alive_of(self, group: int) -> bool:
+        try:
+            os.killpg(group, 0)
+            return True
+        except ProcessLookupError:
+            return False
 
 
 if __name__ == "__main__":
