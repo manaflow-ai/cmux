@@ -1,0 +1,155 @@
+ci-step sections-69e3-1: scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext GroupHeaderSectionsTests,GroupHeaderAlwaysVisibleTests,GroupBackgroundEveryThemeTests,GroupHeaderGlassTests,GroupHeaderThemeLookTests at 30ab4b670c8df9c32fa31615bf1e031e0b374781: exit 0
+==> same-tree cmux-tui: source=local-set fallback_seconds=305 total_seconds=307
+434 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+444 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+434 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+444 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+53 |     static func interrupted(_ error: Error) -> Bool {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+313 |     nonisolated static func message(for error: Error) -> String {
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 3 tests in 1 suite passed after 0.237 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 4 tests in 1 suite passed after 1.563 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.003) seconds
+✔ Test run with 2 tests in 1 suite passed after 7.462 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 7 tests in 1 suite passed after 2.918 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 4 tests in 1 suite passed after 0.791 seconds.
+GroupHeaderSectionsTests                         passed                       19s
+GroupHeaderAlwaysVisibleTests                    passed                        9s
+GroupBackgroundEveryThemeTests                   passed                       14s
+GroupHeaderGlassTests                            passed                        9s
+GroupHeaderThemeLookTests                        passed                        4s
+All 5 suites passed.
+ci-step sections-69e3-1 exited 0

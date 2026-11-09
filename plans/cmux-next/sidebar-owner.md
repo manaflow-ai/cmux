@@ -5,8 +5,8 @@
   know, maybe we can also have an option to have that, right?" `sidebar.groupHeader.background` gains Sections
   (`SidebarGroupBackgroundStyle.sections`, the one style with `drawsBackground` false): the header's name and glyphs
   in the theme's quiet ink (`textSecondary`), no fill, rim or dot (`GroupHeaderRowView.paintSection`), and its
-  members' line or no-color block draws nothing (`GroupLineView.paintNothing`). Hover and a drop take the row's own
-  fill. An opt-out of Lawrence's visible-background invariant (2026-11-05 below) that only the person picks; Automatic
+  members' line or no-color block draws nothing (`GroupLineView.paintNothing`). Hover and a drop take a workspace
+  row's fills: the hover fill only where `showsHoverFills` is on, the selection fill under a drop (review F1, F2). An opt-out of Lawrence's visible-background invariant (2026-11-05 below) that only the person picks; Automatic
   stays the default. Gallery: Sidebar States Playground > Group backgrounds (Sections, Sections hovered). Regression:
   `GroupHeaderSectionsTests`.
 - 2026-11-08: a renamed workspace's name rolls as the agent chat's live line rolls a new tool call. Leo, verbatim: "i

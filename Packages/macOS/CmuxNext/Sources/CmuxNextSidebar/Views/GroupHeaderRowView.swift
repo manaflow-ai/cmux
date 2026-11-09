@@ -437,7 +437,9 @@ final class GroupHeaderRowView: SidebarRowView {
         layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
         CATransaction.commit()
-        paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered ? tokens.hoverFill.nsColor : nil)
+        // A workspace row's fills (`WorkspaceRowView+Rendering`): the selection fill under a drop, the hover fill only
+        // where hover fills are on.
+        paintFill(isDropTarget ? Palette.selectionFill : isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
     }
 
     /// The quieter headers (cx-7yywz): the name in primary ink (`tinted`: in the group's color) with

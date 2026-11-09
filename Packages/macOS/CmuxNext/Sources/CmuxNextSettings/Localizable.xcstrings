@@ -2140,7 +2140,7 @@
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Façon dont l’arrière-plan d’un groupe s’affiche dans la barre latérale. Verre laisse transparaître l’arrière-plan de la fenêtre ; Opaque est plein. Automatique utilise l’apparence de groupe de cmux, c’est-à-dire le verre. Un groupe a toujours un arrière-plan visible, même sans couleur. Sections affiche plutôt chaque groupe comme un simple titre de section, sans arrière-plan ni ligne à côté de ses espaces de travail."
+            "value": "Façon dont l’arrière-plan d’un groupe s’affiche dans la barre latérale. Verre laisse transparaître l’arrière-plan de la fenêtre ; Opaque est plein. Automatique utilise l’apparence de groupe de cmux, c’est-à-dire le verre. Un groupe a toujours un arrière-plan visible, même sans couleur. Rubriques affiche plutôt chaque groupe comme un simple titre de section, sans arrière-plan ni ligne à côté de ses espaces de travail."
           }
         },
         "it": {
@@ -2668,7 +2668,7 @@
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sections"
+            "value": "Rubriques"
           }
         },
         "it": {
