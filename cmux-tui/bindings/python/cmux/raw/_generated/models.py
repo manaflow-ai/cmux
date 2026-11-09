@@ -1200,6 +1200,11 @@ class MoveTerminalResult:
     terminal_incarnation: Union[str, None]
     terminal_revision: int
     workspace_key: str
+    pane_id: Union[str, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
+    tab_id: Union[str, MissingType] = field(default=MISSING)
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1209,9 +1214,12 @@ class NewRowResult:
     pane: Id
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     pane_id: Union[str, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
     tab_id: Union[str, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
     transaction: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1249,8 +1257,11 @@ class PaneSurfaceResult:
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
     replayed: Union[bool, None, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
     tab_id: Union[str, None, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1424,6 +1435,11 @@ class ResolveTerminalResult:
     terminal_incarnation: Union[str, None]
     terminal_revision: int
     workspace_key: str
+    pane_id: Union[str, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
+    tab_id: Union[str, MissingType] = field(default=MISSING)
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1474,6 +1490,11 @@ class RunResult:
     lifecycle: TerminalLifecycle
     terminal_incarnation: Union[str, None]
     terminal_revision: int
+    pane_id: Union[str, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
+    tab_id: Union[str, MissingType] = field(default=MISSING)
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1875,7 +1896,12 @@ class SurfaceResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SurfaceResult'
     surface: Id
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2138,7 +2164,11 @@ class TerminalPlacement:
     replayed: bool
     terminal_incarnation: Union[str, None]
     terminal_revision: int
+    pane_id: Union[str, MissingType] = field(default=MISSING)
+    screen_id: Union[str, MissingType] = field(default=MISSING)
+    tab_id: Union[str, MissingType] = field(default=MISSING)
     terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
