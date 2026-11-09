@@ -32,11 +32,13 @@ extension CloudService {
     /// keyed restart is safe, or when an older daemon's status shows it is idle. The shared
     /// preparation actor serializes starts per machine; a busy or failed machine quietly falls
     /// back to the unkeyed chat start so the user's Allow flow can show its normal restart notice.
-    func restartWithApprovalsIfIdle(_ session: CloudMachineSession, _ preparation: AgentPaneRemoteApprovals.Preparation) async -> Bool {
+    /// `proceed`: a start's check, right before the restart, that its account is still signed in; a cancelled ask never restarts.
+    func restartWithApprovalsIfIdle(_ session: CloudMachineSession, _ preparation: AgentPaneRemoteApprovals.Preparation,
+                                    proceed: @escaping @MainActor @Sendable () -> Bool = { true }) async -> Bool {
         await RemoteApprovalPreparations.shared.prepare(machine: session.machineID, daemonSaidSafe: preparation == .daemonSaidSafe,
                                                         held: AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID) != nil,
                                                         idle: { [machineAPI] in await RemoteAgentDaemonStatus.read(cloudMachine: session.machineID, api: machineAPI)?.idleForKeyedRestart == true },
-                                                        restart: { [self] in await restartWithApprovals(session) == nil })
+                                                        restart: { [self] in guard !Task.isCancelled, await proceed() else { return false }; return await restartWithApprovals(session) == nil })
     }
 
     /// The shared verifier: new key, keyed start, a fresh nonce, the proof checked against the key, bind.

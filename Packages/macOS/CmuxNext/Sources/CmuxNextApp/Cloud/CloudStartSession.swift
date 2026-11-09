@@ -230,11 +230,12 @@ struct CloudStartSession {
         try await connected(session, request, account: account, byPerson: byPerson)
         steps.done("connect")
         try still(name)
-        // Remote approvals turn on beside the login (an idle daemon only), so the chat's first start carries its key.
-        let approvals = Task { await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus) } // task-owner: awaited before the chat starts
-        try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
-        steps.done("login")
-        _ = await approvals.value
+        // Remote approvals turn on beside the login (an idle daemon only), so the chat's first start carries its key; the
+        // prep is awaited on every exit, so the start gate above is never released under it.
+        try await CloudStartChat(services: services).withApprovals(session, account: account) {
+            try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
+            steps.done("login")
+        }
         steps.done("approvals")
         if let refusal = session.harnessLogin?.refusal { throw ActionFailure(message: CloudStartSessionStrings.loginRefused(refusal, request.asked(machine: name))) }
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
