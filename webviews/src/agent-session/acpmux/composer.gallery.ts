@@ -1453,6 +1453,28 @@ export default agentPaneEntry({
         await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
       },
     },
+    "video-unplayable": {
+      note: 'Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop up anymore :(". A dropped recording the host will not stream and Quick Look refuses too: a click says so on its tile, in the play glyph\'s place, instead of doing nothing.',
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
+        "media.load": { nativeError: { code: "media_refused" } },
+        "video.quickLook": { nativeError: { code: "media_refused" } },
+      },
+      play: async (ctx) => {
+        dropScreenshotAndVideo(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+        await ctx.click({ selector: ".acpmux-attachment-video-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video-unplayable"));
+      },
+    },
     "video-reading": {
       note: "A dropped screen recording while the host still reads its poster: its tile spins in the shape it will have, its × removes it, and a send waits for it a few seconds at most (composer/videoAttachments.ts).",
       snapshot: chat(finished),

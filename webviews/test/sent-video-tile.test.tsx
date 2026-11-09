@@ -413,7 +413,6 @@ try {
     await settle();
     expect(calls.map((call) => call.method)).toEqual(["media.load", "video.quickLook"]);
   });
-
 } finally {
   afterAll(() => {
     setChipHost(undefined);

@@ -4,7 +4,6 @@
 // and the click did nothing. When nothing can play it, the chip says so.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",

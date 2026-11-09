@@ -453,7 +453,8 @@ struct AgentPaneRemoteChatPathTests {
     /// from a same-named file here. A chat whose wire alone is remote still gets nothing.
     @Test func aRemoteChatsVideoStreamsFromItsOwnMachine() async throws {
         var movie = Data([0, 0, 0, 0x18]) + Data("ftypmp42".utf8)
-        movie += Data((0 ..< 200).map { UInt8($0) })
+        // Longer than the first read, so later ranges are read on that machine.
+        movie += Data((0 ..< 300_000).map { UInt8(truncatingIfNeeded: $0 &* 7) })
         for wireOnly in [false, true] {
             let rig = try Self.rig()
             defer { try? FileManager.default.removeItem(at: rig.folder) }
@@ -484,15 +485,20 @@ struct AgentPaneRemoteChatPathTests {
                 #expect(slice.headers["Content-Type"] == "video/mp4")
                 #expect(slice.headers["Content-Range"] == "bytes 100-149/\(movie.count)")
                 #expect(slice.data == movie.subdata(in: 100 ..< 150))
-                let tail = try #require(await AgentPageMediaResource.shared.rangedResource(for: request, range: "bytes=200-"))
-                #expect(tail.data == movie.subdata(in: 200 ..< movie.count))
-                let past = try #require(await AgentPageMediaResource.shared.rangedResource(for: request, range: "bytes=9999-"))
+                let tail = try #require(await AgentPageMediaResource.shared.rangedResource(for: request, range: "bytes=280000-"))
+                #expect(tail.data == movie.subdata(in: 280_000 ..< movie.count))
+                #expect(tail.headers["Content-Range"] == "bytes 280000-\(movie.count - 1)/\(movie.count)")
+                // That range reached the end, which closes the file there: the next one opens it again.
+                let middle = try #require(await AgentPageMediaResource.shared.rangedResource(for: request, range: "bytes=270000-270099"))
+                #expect(middle.data == movie.subdata(in: 270_000 ..< 270_100))
+                let past = try #require(await AgentPageMediaResource.shared.rangedResource(for: request, range: "bytes=999999-"))
                 #expect(past.status == 416)
                 let asked = await ranges.asked
                 #expect(asked.allSatisfy { $0.hasPrefix(clip.path + ":") }, "\(asked)")
-                // Only the first read opens the file; the next ranges read the same open file.
-                #expect(asked.first?.hasSuffix(":-") == true, "\(asked)")
-                #expect(asked.dropFirst().contains { $0.hasSuffix(":h_1") }, "\(asked)")
+                // The first read opens the file; the next range reads the same open file; one after
+                // the end was read opens it again.
+                #expect(asked.map { $0.split(separator: ":").dropFirst().joined(separator: ":") }
+                    == ["0:262144:-", "280000:20012:h_1", "270000:100:-"], "\(asked)")
             }
             #expect(rig.lookups.count == 0, "\(wireOnly): the host looked up a remote chat's path here")
             if let connection = opened.connection { rig.model.transport.close(connection: connection) }
