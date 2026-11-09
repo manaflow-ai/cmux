@@ -22,11 +22,15 @@ pub fn replay(scrollback: &str) -> Option<String> {
         return None;
     }
     let start = lines.len().saturating_sub(MAX_LINES);
-    let mut kept = &lines[start..];
+    let mut kept: &[&str] = lines.get(start..).unwrap_or_default();
     let mut count: usize = kept.iter().map(|line| line.chars().count() + 1).sum();
-    while count > MAX_CHARACTERS && kept.len() > 1 {
-        count -= kept[0].chars().count() + 1;
-        kept = &kept[1..];
+    while count > MAX_CHARACTERS {
+        let Some((first, rest)) = kept.split_first() else { break };
+        if rest.is_empty() {
+            break;
+        }
+        count -= first.chars().count() + 1;
+        kept = rest;
     }
     let body = kept.join("\n");
     let length = body.chars().count();
@@ -45,8 +49,7 @@ fn printable(scrollback: &str) -> String {
     let chars: Vec<char> = scrollback.chars().collect();
     let mut out = String::with_capacity(scrollback.len());
     let mut index = 0;
-    while index < chars.len() {
-        let scalar = chars[index];
+    while let Some(&scalar) = chars.get(index) {
         index += 1;
         match scalar as u32 {
             0x0A | 0x09 => out.push(scalar),
@@ -75,23 +78,24 @@ fn escape(chars: &[char], start: usize, out: &mut String) -> usize {
             if !within(end, 0x40..=0x7E) {
                 return end;
             }
-            let parameters = &chars[start + 1..end];
-            if chars[end] == 'm' && parameters.iter().all(|c| (0x30..=0x3B).contains(&(*c as u32)))
+            let parameters = chars.get(start + 1..end).unwrap_or_default();
+            if chars.get(end) == Some(&'m')
+                && parameters.iter().all(|c| (0x30..=0x3B).contains(&(*c as u32)))
             {
                 out.push('\u{1b}');
-                out.extend(&chars[start..=end]);
+                out.extend(chars.get(start..=end).unwrap_or_default());
             }
             end + 1
         }
         ']' | 'P' | 'X' | '^' | '_' => {
             // OSC, DCS, SOS, PM, APC: a string up to BEL or ST (`ESC \`).
             let mut end = start + 1;
-            while end < chars.len() {
-                if chars[end] == '\u{07}' {
+            while let Some(&c) = chars.get(end) {
+                if c == '\u{07}' {
                     return end + 1;
                 }
                 // ST ends it; another ESC ends it and starts its own sequence.
-                if chars[end] == '\u{1b}' {
+                if c == '\u{1b}' {
                     return if chars.get(end + 1) == Some(&'\\') { end + 2 } else { end };
                 }
                 end += 1;
