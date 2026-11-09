@@ -598,6 +598,16 @@ impl Mux {
             Some(true) => {
                 // The reconcile the start skipped while the roster was behind.
                 self.agent_roster_worker.reconcile_pending.store(false, Ordering::Release);
+                #[cfg(test)]
+                if let Some(seam) = self
+                    .agent_roster_worker
+                    .reconcile_seam
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take()
+                {
+                    seam();
+                }
                 self.reconcile_agent_roster_projections();
             }
             Some(false) => self.continue_agent_roster_replay_later(),

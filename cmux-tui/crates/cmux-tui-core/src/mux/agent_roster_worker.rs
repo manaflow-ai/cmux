@@ -183,6 +183,10 @@ pub(in crate::mux) struct AgentRosterWorker {
     /// Test seam (`agent_roster_restore::REPLAY_GATE_FOR_TEST`).
     #[cfg(test)]
     pub(in crate::mux) replay_gate: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
+    /// Test seam: runs once at the replay's reconcile, after its check that
+    /// the roster folded every agent record and before its first write.
+    #[cfg(test)]
+    pub(in crate::mux) reconcile_seam: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl Drop for AgentRosterWorker {

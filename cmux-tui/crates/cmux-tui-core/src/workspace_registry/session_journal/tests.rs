@@ -632,3 +632,50 @@ fn a_kind_backfill_after_a_downgrade_maps_the_segment_an_older_build_left_partly
         .unwrap();
     assert_eq!(left, 0);
 }
+
+/// #39096 router review F2: this build's backfill (marker `2`) stopped, an
+/// older build ran next and stopped partway through a segment, and an older
+/// build's next start mapped only the unmapped segments and set the marker
+/// to `1`. The progress rows this build left show its run never finished, so
+/// back on this build the `1` is not trusted: the segment left partly mapped
+/// is decoded again, the finished ones and one sealed later are not.
+#[test]
+fn a_kind_backfill_an_older_build_marked_done_over_a_partly_mapped_segment_is_redone() {
+    let (registry, _) = output_heavy_sealed_registry(5, 64);
+    let db = registry.connection.get();
+    db.execute_batch(
+        "DELETE FROM journal_segment_kinds WHERE segment_id = 'segment_2049_3072';
+         INSERT INTO journal_segment_kinds VALUES('segment_2049_3072', 'agent.test.noop');
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '1')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill_through', '1025')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill_end', '3073')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         DROP TRIGGER IF EXISTS journal_segments_reject_update;
+         UPDATE journal_segments SET content = x'00112233'
+         WHERE segment_id IN ('segment_1_1024', 'segment_1025_2048', 'segment_4097_5120');",
+    )
+    .unwrap();
+    backfill_legacy_journal_segment_kinds(&db).unwrap();
+    let kinds = db
+        .prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1 ORDER BY kind")
+        .unwrap()
+        .query_map(["segment_2049_3072"], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(kinds, ["agent.test.noop", "terminal.output"]);
+    let left: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM meta WHERE key IN (
+               'journal_segment_kinds_backfill_through', 'journal_segment_kinds_backfill_end'
+             )",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 0);
+    // A finished backfill is trusted again: nothing is decoded.
+    backfill_legacy_journal_segment_kinds(&db).unwrap();
+}

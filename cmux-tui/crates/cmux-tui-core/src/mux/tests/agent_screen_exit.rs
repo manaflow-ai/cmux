@@ -185,3 +185,55 @@ fn a_hook_during_the_last_replay_slice_keeps_its_public_row() {
     assert_eq!(agents[0]["source"], "hook", "the hook's row survives the replay's end: {agents:?}");
     assert_eq!(agents[0]["state"], "working", "{agents:?}");
 }
+
+/// #39096 router review F1: a hook that commits and projects after the
+/// replay's reconcile checked that the roster folded every agent record, and
+/// before the reconcile writes. The reconcile's check and its writes hold the
+/// hook projector's lock, so that hook projects after them and its row is the
+/// one that stays; without that, the reconcile put the replay's plugin state
+/// over the newer hook row, and the hook's later fold applied no delta.
+#[test]
+fn a_hook_after_the_replay_reconciles_check_keeps_its_public_row() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    let t0 = crate::workspace_registry::unix_epoch_ms().unwrap();
+    screen(&mux, &terminal_id, "working", t0);
+    assert_eq!(public_agents(&mux)[0]["source"], "plugin");
+
+    // At the reconcile, a hook from another thread. It gets 2 s to project
+    // before the reconcile goes on: all of it where nothing holds it back.
+    let (projected_tx, projected) = std::sync::mpsc::channel();
+    let thread = Arc::new(std::sync::Mutex::new(None));
+    let (hook_mux, hook_terminal, hook_thread) =
+        (Arc::clone(&mux), terminal_id.clone(), Arc::clone(&thread));
+    *mux.agent_roster_worker.reconcile_seam.lock().unwrap() = Some(Box::new(move || {
+        tick();
+        let handle = std::thread::spawn(move || {
+            hook(&hook_mux, &hook_terminal, "live", "SessionStart", t0 + 1_000);
+            hook(&hook_mux, &hook_terminal, "live", "UserPromptSubmit", t0 + 1_001);
+            let _ = projected_tx.send(());
+        });
+        *hook_thread.lock().unwrap() = Some(handle);
+        let _ = projected.recv_timeout(Duration::from_secs(2));
+    }));
+    // A replay from zero whose gate is open: one pass runs it to its end.
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    drop((entered, release));
+    mux.restart_agent_roster_replay_for_test(1, (entered_tx, release_rx));
+    for _ in 0..100 {
+        if thread.lock().unwrap().is_some() {
+            break;
+        }
+        assert!(mux.settle_agent_roster_for_test());
+    }
+    let handle = thread.lock().unwrap().take().expect("the reconcile ran its seam");
+    handle.join().unwrap();
+    let agents = public_agents(&mux);
+    assert!(!mux.agent_roster_replaying(), "the replay finished");
+    assert_eq!(agents.len(), 1, "{agents:?}");
+    assert_eq!(agents[0]["source"], "hook", "the hook's row survives the reconcile: {agents:?}");
+    assert_eq!(agents[0]["state"], "working", "{agents:?}");
+}
