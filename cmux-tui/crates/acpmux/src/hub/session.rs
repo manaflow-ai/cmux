@@ -330,6 +330,13 @@ pub struct Session {
     pub(super) status_changes: AtomicU64,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
+    /// Bumps on every change of this session's own summary row (`list_guard::Events::send_row`):
+    /// its cached closed row is rebuilt after it, and no other session's
+    /// (`Hub::cached_closed_summary`).
+    pub(super) summary_gen: AtomicU64,
+    /// What another session's row reads of this one's metadata, hashed (`parent_print`): a
+    /// metadata commit that changes it marks every cached closed row stale (`meta_save.rs`).
+    pub(super) parent_print: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
     pub(super) attached: std::sync::atomic::AtomicUsize,
     /// Of those, the ones that do not show the chat (`hub/seen.rs`).
@@ -999,6 +1006,7 @@ impl SessionStderr {
 /// ended since it was built. A row's `starting` reads the lease; an update waits on it.
 pub(super) struct SpawnLease<'a> {
     guard: Option<tokio::sync::MutexGuard<'a, ()>>,
+    session: &'a Session,
     events: &'a super::list_guard::Events,
 }
 
@@ -1006,7 +1014,7 @@ impl Drop for SpawnLease<'_> {
     fn drop(&mut self) {
         // Released first, then counted: a list built after the count reads it free.
         drop(self.guard.take());
-        self.events.changed();
+        self.events.row_changed(self.session);
     }
 }
 
@@ -1014,7 +1022,7 @@ impl Hub {
     /// `session.spawn_lock`, held as a [`SpawnLease`].
     pub(super) async fn spawn_lease<'a>(&'a self, session: &'a Session) -> SpawnLease<'a> {
         let guard = session.spawn_lock.lock().await;
-        self.events.changed();
-        SpawnLease { guard: Some(guard), events: &self.events }
+        self.events.row_changed(session);
+        SpawnLease { guard: Some(guard), session, events: &self.events }
     }
 }

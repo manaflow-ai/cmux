@@ -557,8 +557,13 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
     if rec.dir != "mux" || !changes_activity(&rec.kind) {
         return;
     }
-    // A window shows the chat's activity too: its rows are recomputed.
-    super::chat_windows::activity_changed(conn);
+    // A window shows the chat's activity too: its rows are recomputed when it may show this one.
+    super::chat_windows::activity_changed(conn, &rec.kind, || {
+        hub.resolve(&ev.session_id)
+            .ok()
+            .and_then(|session| crate::chats::session_chat_key(&session))
+            .map(|key| crate::chats::key_text(&key))
+    });
     if !hub.chat_index().is_some_and(|service| service.watches(&conn.id)) {
         return;
     }

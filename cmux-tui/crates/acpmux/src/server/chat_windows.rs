@@ -5,9 +5,10 @@
 //!   exclude?, keys?}` opens the window or replaces its spec, and answers `{window, ready}`. The
 //!   rows travel as `_acpmux/chats_window_changed {window, revision, full: true, keys, rows,
 //!   hasMore}`, queued before the answer, on the same ordered path as every later diff.
-//! - Each index change or chat activity change then recomputes the connection's windows, and each
-//!   window that shows something new gets `_acpmux/chats_window_changed {window, revision,
-//!   full: false, keys, rows, hasMore}`: its keys in order and only the rows whose value changed.
+//! - Each index change, and each chat activity change a window may show, then recomputes the
+//!   connection's windows, and each window that shows something new gets
+//!   `_acpmux/chats_window_changed {window, revision, full: false, keys, rows, hasMore}`: its
+//!   keys in order and only the rows whose value changed.
 //!   The revision goes up by one per message of that window. A client that sees a revision gap,
 //!   or an `_acpmux/lagged` (the connection dropped a notification), opens the window again.
 //! - `_acpmux/chats_window_close {window, gen?}` stops it.
@@ -151,10 +152,33 @@ pub(super) fn close(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     Ok(json!({"window": window, "closed": closed}))
 }
 
-/// A chat's activity changed (`chats::push_activity`): the connection's windows recompute.
-pub(super) fn activity_changed(conn: &Conn) {
-    // No lock: with no task the stored permit only wakes the next task once more.
-    conn.chat_windows.wake.notify_one();
+/// A session record of `kind` changed a chat's activity (`chats::push_activity`): the
+/// connection's windows recompute when one of them may show the change
+/// (`WindowState::shows_activity_of`). `chat` reads the session's chat key, only when a window
+/// is open. A recompute under way may have read the activity before this record, so it is
+/// always followed by another; else the windows' last rows decide.
+pub(super) fn activity_changed(conn: &Conn, kind: &str, chat: impl FnOnce() -> Option<String>) {
+    let Ok(_none_running) = conn.chat_windows.refreshing.try_lock() else {
+        conn.chat_windows.wake.notify_one();
+        return;
+    };
+    if lock(&conn.chat_windows.windows).by_name.is_empty() {
+        return;
+    }
+    // Any window may show these: no lookup (a purged session is not found by its id).
+    if matches!(kind, "tags" | "purged") {
+        conn.chat_windows.wake.notify_one();
+        return;
+    }
+    // Read with no windows lock held: it takes the hub's session and metadata locks.
+    let chat = chat();
+    let shown = lock(&conn.chat_windows.windows)
+        .by_name
+        .values()
+        .any(|state| state.shows_activity_of(chat.as_deref(), kind));
+    if shown {
+        conn.chat_windows.wake.notify_one();
+    }
 }
 
 /// Starts the connection's task unless it runs: it recomputes the windows after each index change

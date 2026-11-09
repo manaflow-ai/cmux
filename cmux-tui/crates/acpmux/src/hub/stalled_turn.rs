@@ -187,7 +187,8 @@ impl Hub {
             return None;
         }
         let period = stalled.as_nanos() as u64;
-        self.sessions()
+        // The live sessions, unsorted (`Hub::next_idle_deadline`): a closed one runs no turn.
+        self.live_session_handles()
             .iter()
             .filter(|s| Self::counted_turn(s).is_some())
             .map(|s| Self::stalled_due(s, period))
@@ -216,7 +217,7 @@ impl Hub {
         self.check_resume();
         let now = self.clock_now();
         let period = stalled.as_nanos() as u64;
-        for session in self.sessions() {
+        for session in self.live_session_handles() {
             // Read first: anything that moves the count after it bumps it (`stalled_gen`).
             let generation = session.stalled_gen.load(Ordering::SeqCst);
             let Some(turn) = Self::counted_turn(&session) else { continue };

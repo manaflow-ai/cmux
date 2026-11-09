@@ -18,7 +18,7 @@ use crate::protocol::session::UsageStats;
 use crate::store::{SessionMeta, SessionStatus};
 use crate::usage_stats::{DAY_MS, Models, Source, Tracker};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
@@ -44,16 +44,18 @@ pub(crate) struct UsageCache {
 
 /// Drops the trackers and stats of chats not in `sources` (a whole pass's chats): closed a day
 /// ago or purged. A chat still listed keeps what the last pass found until a pass finds more.
-/// Returns the chats whose stats went.
+/// Returns the chats whose stats went. A set of the listed ids: one lookup per chat, where a
+/// walk of every source per chat cost N x N (~9 million compares with 3,000 chats).
 pub(super) fn prune_unlisted<T, S>(
     trackers: &mut HashMap<String, T>,
     stats: &mut HashMap<String, S>,
     sources: &[(String, Source)],
 ) -> Vec<String> {
-    trackers.retain(|id, _| sources.iter().any(|(s, _)| s == id));
+    let listed: HashSet<&str> = sources.iter().map(|(s, _)| s.as_str()).collect();
+    trackers.retain(|id, _| listed.contains(id.as_str()));
     let mut gone = Vec::new();
     stats.retain(|id, _| {
-        let keep = sources.iter().any(|(s, _)| s == id);
+        let keep = listed.contains(id.as_str());
         if !keep {
             gone.push(id.clone());
         }
@@ -149,19 +151,24 @@ impl Hub {
                 .filter(|(id, new)| stats.get(id).is_none_or(|old| !same(old, new)))
                 .cloned()
                 .collect();
-            let mut gone = false;
+            let mut gone = Vec::new();
             if whole {
-                gone = !prune_unlisted(&mut *trackers, &mut *stats, &sources).is_empty();
+                gone = prune_unlisted(&mut *trackers, &mut *stats, &sources);
             }
             // A turn's own read announces its chat's whether or not a list's pass read the
             // turn first, so every turn's end is followed by its usage.
             let announce = if whole { Vec::new() } else { fresh.clone() };
             stats.extend(fresh);
-            (changed.is_empty() && !gone, announce)
+            let changed: Vec<String> = changed.into_iter().map(|(id, _)| id).chain(gone).collect();
+            (changed, announce)
         });
-        let Ok((same, announce)) = pass.await else { return };
-        if !same {
-            self.events.changed();
+        let Ok((changed, announce)) = pass.await else { return };
+        // Only the chats whose stats changed or went: their rows, not every closed row.
+        for id in &changed {
+            match by_id.get(id) {
+                Some(session) => self.events.row_changed(session),
+                None => self.events.changed(),
+            }
         }
         for (id, stats) in announce {
             if let Some(session) = by_id.get(&id) {

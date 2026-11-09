@@ -34,7 +34,9 @@ use cmux_chat_index::{
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
-pub use activity::{ActivityCache, ChatActivity, activity_change, changes_activity};
+pub use activity::{
+    ActivityCache, ChatActivity, activity_change, changes_activity, session_chat_key,
+};
 pub use brand::brand_for;
 pub(crate) use open::store_dirs;
 pub use open::{StoreProfile, plan_open, store_profiles};
@@ -187,7 +189,7 @@ impl ChatService {
             return (Vec::new(), None, seq);
         }
         let matching: Vec<&IndexedChat> =
-            state.index.chats().into_iter().filter(|chat| query.matches(chat)).collect();
+            state.index.newest_first().filter(|chat| query.matches(chat)).collect();
         let start = query.cursor.start(&matching);
         let held = matching.get(start..).unwrap_or_default();
         let held = &held[..held.len().min(query.limit)];
@@ -206,7 +208,7 @@ impl ChatService {
             return None;
         }
         let matching: Vec<&IndexedChat> =
-            state.index.chats().into_iter().filter(|chat| query.matches(chat)).collect();
+            state.index.newest_first().filter(|chat| query.matches(chat)).collect();
         let start = query.cursor.start(&matching);
         Some(matching.get(start..).unwrap_or_default().iter().map(|c| (*c).clone()).collect())
     }
@@ -232,7 +234,7 @@ impl ChatService {
         }
         let mut newest: std::collections::BTreeMap<(&str, &str), i64> =
             std::collections::BTreeMap::new();
-        for chat in state.index.chats() {
+        for chat in state.index.newest_first() {
             let entry = &chat.entry;
             let Some(cwd) = entry.cwd.as_deref().filter(|cwd| cwd.starts_with('/')) else {
                 continue;

@@ -49,9 +49,11 @@ pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
 pub(crate) struct Events {
     tx: broadcast::Sender<HubEvent>,
     changes: AtomicU64,
-    /// Any event may change a field in a closed row (for example attached/shown or usage), save
-    /// a live chat's streamed chunk ([`Events::send_live_stream`]). Closed summary bytes carry
-    /// this generation so they are rebuilt only after a change.
+    /// Changes that may reach any closed row: a send with no session of its own
+    /// ([`Events::send`], [`Events::changed`]), a parent's tags, a session coming or going.
+    /// Closed summary bytes carry this generation and their own session's
+    /// (`Session::summary_gen`, [`Events::send_row`], [`Events::row_changed`]), so a change of one
+    /// chat rebuilds its own row only (`Hub::cached_closed_summary`).
     pub(super) summary_generation: Arc<AtomicU64>,
 }
 
@@ -90,7 +92,35 @@ impl Events {
         self.tx.send(event)
     }
 
-    /// A change no event carries (an attach): the next list is built anew.
+    /// Sends a peer's change ([`HubEvent::remote`], `peers.rs`): the next list is built anew, and
+    /// every local closed row keeps its bytes, since none reads a peer's rows.
+    pub(super) fn send_remote(
+        &self,
+        event: HubEvent,
+    ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        self.changes.fetch_add(1, Ordering::SeqCst);
+        self.tx.send(event)
+    }
+
+    /// Sends a change of `session`'s own row, which no other row reads (`Hub::append`): the
+    /// next list is built anew, and of the closed rows' cached bytes only `session`'s go stale.
+    pub(super) fn send_row(
+        &self,
+        session: &Session,
+        event: HubEvent,
+    ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        self.row_changed(session);
+        self.tx.send(event)
+    }
+
+    /// A change of `session`'s own row no event carries (an attach, a start under way): the next
+    /// list is built anew, with only `session`'s cached closed row stale.
+    pub(super) fn row_changed(&self, session: &Session) {
+        self.changes.fetch_add(1, Ordering::SeqCst);
+        session.summary_gen.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// A change no event carries that may reach any row: the next list is built anew.
     pub(super) fn changed(&self) {
         self.changes.fetch_add(1, Ordering::SeqCst);
         self.summary_generation.fetch_add(1, Ordering::SeqCst);
@@ -101,6 +131,15 @@ impl Events {
 pub(super) fn streamed_chunk(dir: &str, kind: &str) -> bool {
     dir == "in"
         && matches!(kind, "agent_message_chunk" | "agent_thought_chunk" | "user_message_chunk")
+}
+
+/// Whether a record may change another session's row: `tags` (a parent's `archived` and
+/// `spawnedBy` tags decide whether its children fold under it, `Hub::spawned_by`), and a session
+/// that comes or goes (a child names it as its parent). Every other record of a session changes
+/// its own row only; a child's count in its parent follows its status
+/// (`subsession_index::Index::generation`).
+pub(super) fn reaches_other_rows(dir: &str, kind: &str) -> bool {
+    dir == "mux" && matches!(kind, "tags" | "created" | "purged" | "reopened")
 }
 
 /// One build of the list, kept serialized: a JSON tree of every summary is several
@@ -1044,16 +1083,25 @@ mod tests {
         assert!(hub.events.changes.load(Ordering::SeqCst) >= changes + CHUNKS);
         cached_rows_equal_uncached(&hub);
 
-        // Any other record still marks the closed rows stale.
+        // Another record of the live chat changes its own row only: no closed row is rebuilt.
         let before = builds();
         hub.append(&live, "mux", "status", json!({"status": "running"}));
         hub.visit_session_summaries(false, |_| {});
-        assert_eq!(builds() - before, CLOSED);
+        assert_eq!(builds() - before, 0);
 
-        // A chunk that reaches a closed chat rebuilds the closed rows, its own included.
+        // A chunk that reaches a closed chat rebuilds that chat's row, and only it.
         let closed = hub.sessions().into_iter().find(|s| s.id == "closed-0").unwrap();
+        let before = builds();
         hub.append(&closed, "in", "agent_message_chunk", chunk("late"));
+        hub.visit_session_summaries(false, |_| {});
+        assert_eq!(builds() - before, 1);
         cached_rows_equal_uncached(&hub);
+
+        // A record that may reach other rows (a parent's tags) still marks them all stale.
+        let before = builds();
+        hub.append(&closed, "mux", "tags", json!({}));
+        hub.visit_session_summaries(false, |_| {});
+        assert_eq!(builds() - before, CLOSED);
     }
 
     /// A one-chat change rebuilds that chat's closed row, never every closed row: each status,

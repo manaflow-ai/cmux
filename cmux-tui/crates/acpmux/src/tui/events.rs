@@ -57,14 +57,22 @@ impl App {
                         self.selected = self.selected.min(self.row_count().saturating_sub(1));
                         return;
                     }
-                    if let Some(slot) =
-                        self.sessions.iter_mut().find(|x| session_route_id(x).as_ref() == Some(&id))
-                    {
-                        *slot = s.clone();
-                    } else {
-                        self.sessions.push(s.clone());
+                    // One row changed: it moves to its place, and the list is not sorted again
+                    // (a sort per change read every row's `updatedAt`, ~3,000 of them).
+                    let same = |x: &Value| session_route_id(x).as_ref() == Some(&id);
+                    match self.sessions.iter().position(same) {
+                        Some(at) => {
+                            let moved = updated_at(&self.sessions[at]) != updated_at(s);
+                            self.sessions[at] = s.clone();
+                            if moved {
+                                self.move_into_place(at);
+                            }
+                        }
+                        None => {
+                            self.sessions.push(s.clone());
+                            self.move_into_place(self.sessions.len() - 1);
+                        }
                     }
-                    self.sort_sessions();
                     // The bar said a permission was needed: clear it once nobody waits.
                     if self.status.starts_with("permission needed in")
                         && !self.sessions.iter().any(|x| {
@@ -129,12 +137,33 @@ impl App {
         self.sort_sessions_preserving(self.selected_id());
     }
 
+    /// Puts the row at `at`, the only one out of order, where the stable sort of
+    /// [`Self::sort_sessions`] puts it (among rows as new, by where it was), and keeps the
+    /// selection on the row it was on.
+    fn move_into_place(&mut self, at: usize) {
+        let key = updated_at(&self.sessions[at]);
+        let row = self.sessions.remove(at);
+        let newer = self.sessions.partition_point(|s| updated_at(s) > key);
+        let as_new = self.sessions.partition_point(|s| updated_at(s) >= key);
+        let to = at.clamp(newer, as_new);
+        self.sessions.insert(to, row);
+        let Some(selected) = self.session_index().filter(|i| *i < self.sessions.len()) else {
+            return;
+        };
+        let now = if selected == at {
+            to
+        } else if at < selected && selected <= to {
+            selected - 1
+        } else if to <= selected && selected < at {
+            selected + 1
+        } else {
+            selected
+        };
+        self.selected = now + self.drafts.len();
+    }
+
     fn sort_sessions_preserving(&mut self, selected_id: Option<String>) {
-        self.sessions.sort_by(|a, b| {
-            let ua = a.get("updatedAt").and_then(Value::as_u64).unwrap_or(0);
-            let ub = b.get("updatedAt").and_then(Value::as_u64).unwrap_or(0);
-            ub.cmp(&ua)
-        });
+        self.sessions.sort_by_key(|s| std::cmp::Reverse(updated_at(s)));
         if let Some(id) = selected_id
             && let Some(i) =
                 self.sessions.iter().position(|s| session_route_id(s).as_ref() == Some(&id))
@@ -333,6 +362,11 @@ impl App {
             }
         }
     }
+}
+
+/// A session row's sort key: its `updatedAt`, 0 without one.
+fn updated_at(session: &Value) -> u64 {
+    session.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)
 }
 
 #[cfg(all(test, unix))]
