@@ -214,3 +214,25 @@ mod followups {
         fs::remove_dir_all(&dir).unwrap();
     }
 }
+
+/// The staged size counts the pages a staging transaction left in the WAL.
+mod staged_size {
+    use super::*;
+
+    #[test]
+    fn the_staged_size_counts_pages_still_in_the_staging_wal() {
+        let dir = temp_dir("staged-wal");
+        let db_path = registry(&dir, 1, 0);
+        let staging = open_staging(&db_path, "registry-guard").unwrap();
+        // The pages stay in the WAL (no checkpoint), as a staging
+        // transaction's do until the next one.
+        staging.execute_batch("PRAGMA wal_autocheckpoint=0; CREATE TABLE pad(b);").unwrap();
+        staging.execute("INSERT INTO pad VALUES (zeroblob(1048576))", []).unwrap();
+        let limit = 512 * 1024;
+        assert!(file_len(&staging_path(&db_path)) < limit, "the pages reached the file");
+        let refusal = staged_bytes_over(&staging, limit).unwrap();
+        assert!(refusal.is_some(), "1 MiB staged in the WAL passed a 512 KiB bound");
+        drop(staging);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+}

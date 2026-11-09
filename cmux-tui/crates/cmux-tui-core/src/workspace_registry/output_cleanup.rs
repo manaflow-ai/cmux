@@ -168,6 +168,13 @@ fn kept_refusal(kept: u64, total: u64) -> Option<String> {
     }
 }
 
+/// Test seam only: the base's measure (the staging file's length) against `limit`.
+#[cfg(test)]
+fn staged_bytes_over(staging: &Connection, limit: u64) -> anyhow::Result<Option<String>> {
+    let staged = file_len(Path::new(staging.path().unwrap_or_default()));
+    Ok((staged > limit).then(|| format!("the staging file is {staged} bytes")))
+}
+
 /// `Some(reason)` when the staging file is over [`MAX_STAGED_BYTES`].
 fn staged_bytes_refusal(db_path: &Path) -> Option<String> {
     let staged = file_len(&staging_path(db_path));
