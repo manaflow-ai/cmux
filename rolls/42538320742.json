@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42538320742",
+  "recorded_at": "2026-11-09T00:14:49Z",
+  "reason": "cmux-tui cdf72685fc9e changes the image's cmux-tui (pinned 4e56f97d02e3)",
+  "dry_run": false,
+  "cmux_tui": "cdf72685fc9ee469466bb56316d2dd8cac0d3405",
+  "fixes": [
+    {
+      "sha": "f400b07a8d6997cd0e0af6940f5bcf6471e08412",
+      "mergedAt": "2026-11-08T15:48:48-08:00",
+      "subject": "cmux-action-catalog: Show/Hide Chief from Any App, as in the app (#38888)"
+    },
+    {
+      "sha": "ae80f7034942e4a28f25d45ba7dbca883d24df95",
+      "mergedAt": "2026-11-08T23:41:05Z",
+      "subject": "cmux-tui: split session/mod.rs (tests, receipted creation, SurfaceHandle) (#38951)"
+    },
+    {
+      "sha": "6e76c075ec474cabf34c02ab896516360d4a0d47",
+      "mergedAt": "2026-11-08T23:40:53Z",
+      "subject": "cmux-tui: split session/remote.rs into interactive writer and message transport modules (#38932)"
+    },
+    {
+      "sha": "5da6c5e929813607d14a0637d3384a0082f8a02d",
+      "mergedAt": "2026-11-08T23:40:31Z",
+      "subject": "cmux-tui-hooks: move lib.rs tests to tests.rs and codex trust state to codex_trust.rs (#38909)"
+    },
+    {
+      "sha": "6ab88276a04ec78f2f3c56cfb9382b72d3f78d2e",
+      "mergedAt": "2026-11-08T15:39:43-08:00",
+      "subject": "relay: a closing socket never decides the current registration, checked over Register/Ping/close interleavings (#38741)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T00:14:49Z",
+    "snapshot_id": "sh-67c0d0a748b243b1bbce3f08751d4f26",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42538320742): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "de98a3d045c2af621a17f18ff72ac7f85b2c02fd",
+    "image": "cloud-native-auto-cdf72685-42538320742-1",
+    "revision": "ci-42538320742-1",
+    "at": "2026-11-09T00:14:49Z"
+  },
+  "rolled_back": false
+}
