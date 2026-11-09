@@ -255,3 +255,40 @@ fn a_harness_folder_linked_to_the_subpath_is_never_marked() {
     assert_eq!(state(&folder), state(&world.mac));
     whole(&folder);
 }
+
+/// Review F1 (cmux#39018, 4f2b22b): a `.claude` kept as a submodule is an empty folder at
+/// the head (submodules come after the fill), so the head is never marked. A submodule off
+/// the head leaves it marked.
+#[test]
+fn a_harness_folder_kept_as_a_submodule_is_never_marked() {
+    for (label, at, marked) in [("harness", ".claude", false), ("elsewhere", "vendor/lib", true)] {
+        let world = World::new(&format!("head-submodule-{label}"));
+        let lib = world.home.join("lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        git(&lib, &["init", "-q", "-b", "main"]);
+        write(&lib.join("CLAUDE.md"), "lib\n");
+        git(&lib, &["add", "-A"]);
+        git(&lib, &["commit", "-q", "-m", "lib"]);
+        let commit = git(&lib, &["rev-parse", "HEAD"]);
+        // A gitlink in the Mac's index and its folder not initialized, as a clone leaves a
+        // submodule (no `.gitmodules`, so the seed never reaches for it over the network).
+        git(&world.mac, &["update-index", "--add", "--cacheinfo", &format!("160000,{commit},{at}")]);
+        std::fs::create_dir_all(world.mac.join(at)).unwrap();
+        let snapshot = world.snapshot("one", &[&world.base]);
+        let folder = world.home.join("project");
+        let params = head_params(&world, &folder, &snapshot, None);
+        let (service, job, release) = held_at_head(&world, &params, &folder);
+        let probed = probe(&folder).unwrap();
+        if marked {
+            assert_eq!(status(&service, &job)["head_ready"], true, "{label}");
+            assert!(matches!(probed, Probe::HeadReady), "{label}");
+        } else {
+            assert!(status(&service, &job)["head_ready"].is_null(), "{label}");
+            assert!(matches!(probed, Probe::Syncing), "{label}: a start waits");
+        }
+        drop(release);
+        let done = wait(&service, &job);
+        // No `.gitmodules`, so the seed skips submodule update and finishes.
+        assert_eq!(done["state"], "done", "{label}: {done}");
+    }
+}

@@ -632,12 +632,41 @@ impl Seed {
     fn mark_head(&self, head: &HeadFirst, barrier: &mut Barrier) {
         let folders = head.folders();
         let folders: Vec<&Path> = folders.iter().map(Path::new).collect();
-        if cmux_git::harness_head::head_allowed(&self.folder, &folders) {
+        if cmux_git::harness_head::head_allowed(&self.folder, &folders)
+            && !self.head_has_submodule(head)
+        {
             barrier.head_ready();
             self.job.reached_head();
         }
         #[cfg(test)]
         hold::at_head(&self.folder);
+    }
+
+    /// Whether a submodule is in the head: its folder is still empty (submodules come after
+    /// the fill), so a `.claude` kept as a submodule would start a harness with none of its
+    /// instructions or settings. A gitlink (`160000`) in the index (WORK here) is in the head
+    /// when it is a subpath folder, or a harness folder of a head folder or inside one (git
+    /// does not mark a gitlink outside the patterns skip-worktree, so the path decides). An
+    /// unreadable index counts as one: such a head is never marked.
+    fn head_has_submodule(&self, head: &HeadFirst) -> bool {
+        let Ok(listing) = self.git(&["ls-files", "-s", "-z"]) else { return true };
+        let subpath = head.folders();
+        let folders: Vec<String> = std::iter::once(String::new())
+            .chain(subpath.iter().map(|folder| format!("{folder}/")))
+            .collect();
+        let in_head = |path: &str| {
+            subpath.iter().any(|folder| folder == path)
+                || folders.iter().any(|folder| {
+                    path.strip_prefix(folder.as_str()).is_some_and(|rest| {
+                        let first = rest.split('/').next().unwrap_or(rest);
+                        cmux_git::harness_head::HEAD_DIRS.contains(&first)
+                    })
+                })
+        };
+        listing.split(|byte| *byte == 0).any(|entry| {
+            let entry = String::from_utf8_lossy(entry);
+            entry.starts_with("160000 ") && entry.split_once('\t').is_some_and(|(_, path)| in_head(path))
+        })
     }
 
     /// The rest of the checkout, under the barrier the head was marked on. The index is
