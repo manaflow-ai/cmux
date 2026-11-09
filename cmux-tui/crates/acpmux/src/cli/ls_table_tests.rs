@@ -115,6 +115,31 @@ fn a_recovered_harness_sandbox_says_nothing() {
     assert!(!out.lines().next().unwrap().ends_with("STUCK"), "{out}");
 }
 
+/// The STUCK cell of a lane whose harness refuses every command, compact and wide (printed for
+/// review with `--nocapture`), beside a recovered one and a healthy one.
+#[test]
+fn a_failing_harness_sandbox_shows_in_compact_and_wide() {
+    let rows = [
+        with(
+            lane("model-picker"),
+            json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": true}),
+        ),
+        with(
+            lane("recovered"),
+            json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": false}),
+        ),
+        lane("healthy"),
+    ];
+    for wide in [false, true] {
+        let out = render(&rows, Some(&[]), View { all: false, wide }, false, NOW);
+        println!("{out}");
+        let line = |name: &str| out.lines().find(|l| l.starts_with(name)).unwrap().to_owned();
+        assert!(out.lines().next().unwrap().contains("STUCK"), "{out}");
+        assert!(line("model-picker").contains("harness sandbox"), "{out}");
+        assert!(!line("recovered").contains("harness sandbox"), "{out}");
+    }
+}
+
 #[test]
 fn host_shows_only_when_a_row_is_on_a_peer() {
     assert!(!compact(&[lane("a")]).contains("HOST"));

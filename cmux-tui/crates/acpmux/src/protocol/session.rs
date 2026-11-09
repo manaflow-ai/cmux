@@ -80,6 +80,11 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub harness_sandbox_failed: Option<u64>,
+    /// Whether its harness refuses commands now for that reason; a completed command or a new
+    /// harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
+    #[serde(default)]
+    #[schemars(default)]
+    pub harness_sandbox_failing: bool,
     pub agent_session_id: Option<String>,
     /// The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
     /// a Codex chat's earlier roots, which its older records still name, so a client folding

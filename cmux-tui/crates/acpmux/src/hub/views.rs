@@ -489,7 +489,8 @@ impl Hub {
                     hint: episode.hint,
                 }
             }),
-            harness_sandbox_failed: session.harness_sandbox_failed.get().copied(),
+            harness_sandbox_failed: m.harness_sandbox.first_at,
+            harness_sandbox_failing: m.harness_sandbox.failing,
             agent_session_id: m.agent_session_id.clone(),
             retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,
