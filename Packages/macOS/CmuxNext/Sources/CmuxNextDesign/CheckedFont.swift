@@ -69,7 +69,7 @@ enum CheckedFont {
 
     private static func fresh(_ design: Typography.Design, family: String?, size: CGFloat, weight: NSFont.Weight) -> NSFont {
         if let family, let font = named(family, size: size, weight: weight) { return font }
-        switch design {
+        return switch design {
         case .default: .systemFont(ofSize: size, weight: weight)
         case .monospaced: .monospacedSystemFont(ofSize: size, weight: weight)
         case .monospacedDigit: .monospacedDigitSystemFont(ofSize: size, weight: weight)
