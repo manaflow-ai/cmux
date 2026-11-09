@@ -2992,7 +2992,7 @@
     },
     "home.chiefPanel.seesScreen" : {
       "default" : true,
-      "description" : "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off.",
+      "description" : "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on.",
       "title" : "Chief Sees Your Screen When It Opens",
       "type" : "boolean"
     },
