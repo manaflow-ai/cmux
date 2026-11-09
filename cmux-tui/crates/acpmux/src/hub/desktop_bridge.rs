@@ -15,7 +15,8 @@
 //!
 //! The loop reads the registry folder only when its modification time changed, and of it only
 //! the `<pid>.json` entries whose pid runs, so its cost follows the live sessions, not the
-//! thousands of stale entries a busy machine keeps. Codex's writer-lock folder is read the same
+//! thousands of stale entries a busy machine keeps; a session it could not list yet (no
+//! transcript before its first turn) makes the next scan read the folder again. Codex's writer-lock folder is read the same
 //! way: only when it changed (a thread opened or closed), and of it only the held locks; a thread
 //! with no rollout yet is tried again at each scan until it is listed. While the setting is off it
 //! only rereads the setting. It ends when the daemon shuts down.
@@ -66,9 +67,11 @@ impl Hub {
                 .await
                 .unwrap_or_default();
                 // A session with no transcript yet (no turn so far) is not found: it is tried
-                // again at the registry's next change, which its first turn makes.
+                // again at the next scan. Its first turn rewrites its entry in place, which leaves
+                // the folder's modification time as it was (seen in the Codex rehearsal).
                 for peer in peers {
                     if let Err(e) = h.list_desktop_session(&peer).await {
+                        seen = None;
                         tracing::debug!(
                             "desktop bridge: Claude session {} not listed yet: {e}",
                             peer.session_id
