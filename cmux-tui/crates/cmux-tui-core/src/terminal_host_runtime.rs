@@ -1005,7 +1005,7 @@ mod unix {
             (pending.writes, pending.bytes)
         }
 
-        fn defer_cell_pixel(&self, request_id: u64, expected: (u16, u16)) -> bool {
+        pub(crate) fn defer_cell_pixel(&self, request_id: u64, expected: (u16, u16)) -> bool {
             let mut waiters = self.waiters.lock().unwrap();
             let Some(waiter) = waiters.get_mut(&request_id) else { return false };
             if !matches!(
