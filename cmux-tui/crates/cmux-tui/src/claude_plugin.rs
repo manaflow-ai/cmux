@@ -34,7 +34,8 @@ use crate::agent_hook_install;
 /// The variable Claude Code reads plugin folders from (`:`-separated,
 /// absolute paths only).
 pub(crate) const PLUGIN_DIRS_ENV: &str = "CLAUDE_CODE_PLUGIN_DIRS";
-/// The plugin's name; also how a folder is recognized as a cmux-tui plugin.
+/// The plugin's name; a folder whose manifest names it is a cmux-tui plugin
+/// (so is a build's plugin folder, by its place: [`PLUGIN_FOLDER`]).
 const PLUGIN_NAME: &str = "cmux-tui";
 const MANIFEST: &str = ".claude-plugin/plugin.json";
 /// The folder a build writes its plugin into, inside its build folder
@@ -110,8 +111,20 @@ fn kept_folders(value: &OsStr, keep: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Whether `folder` holds a plugin whose manifest names it `cmux-tui`.
+/// Whether `folder` is a cmux-tui plugin: a build's plugin folder
+/// (`…/cmux-tui/builds/<build>/claude-plugin`, which holds for a build
+/// deleted since), or a folder whose manifest names it `cmux-tui`.
 fn is_cmux_tui_plugin(folder: &Path) -> bool {
+    let builds = folder.parent().and_then(Path::parent);
+    let named = |path: Option<&Path>, name: &str| {
+        path.and_then(Path::file_name).is_some_and(|file| file == name)
+    };
+    if named(Some(folder), PLUGIN_FOLDER)
+        && named(builds, "builds")
+        && named(builds.and_then(Path::parent), "cmux-tui")
+    {
+        return true;
+    }
     read_small(&folder.join(MANIFEST))
         .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
         .is_some_and(|manifest| manifest.get("name").and_then(Value::as_str) == Some(PLUGIN_NAME))
