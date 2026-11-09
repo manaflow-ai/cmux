@@ -26395,6 +26395,138 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "shell-run": {
+   "authority": "control",
+   "since": 12,
+   "capability": "shell-runs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "command": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cwd": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "scope": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "run": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+    "Answers {run} or {refused}: too_many, folder_missing, spawn_failed, invalid.",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "shell-read": {
+   "authority": "control",
+   "since": 12,
+   "capability": "shell-runs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "run": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "after": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": 0
+     },
+     "wait_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+    "Waits at most 10 s (the default) for output after `after` or the command's end.",
+    "Answers {output, next, truncated?, exit?} or {refused}: unknown_run, busy.",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "shell-stop": {
+   "authority": "control",
+   "since": 12,
+   "capability": "shell-runs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "run": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+    "Answers {} or {refused: unknown_run}."
+   ]
+  },
   "new-remote-terminal-tab": {
    "authority": "control",
    "since": 12,

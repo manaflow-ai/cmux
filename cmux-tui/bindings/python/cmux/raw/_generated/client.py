@@ -777,6 +777,15 @@ class GeneratedClientMixin:
     def set_workspace_metadata(self, workspace: Union[Id, None, MissingType] = MISSING, *, color: Union[str, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, marked_unread: Union[bool, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, pinned: Union[bool, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('set-workspace-metadata', SetWorkspaceMetadataRequest(workspace=workspace, color=color, expected_generation=expected_generation, expected_revision=expected_revision, icon=icon, key=key, marked_unread=marked_unread, mutation_id=mutation_id, origin=origin, pinned=pinned, title=title))
 
+    def shell_read(self, run: str, *, after: Union[int, MissingType] = MISSING, wait_ms: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('shell-read', ShellReadRequest(run=run, after=after, wait_ms=wait_ms))
+
+    def shell_run(self, command: str, *, cwd: Union[str, None, MissingType] = MISSING, run: Union[str, None, MissingType] = MISSING, scope: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('shell-run', ShellRunRequest(command=command, cwd=cwd, run=run, scope=scope))
+
+    def shell_stop(self, run: str) -> JsonValue:
+        return self._invoke_command('shell-stop', ShellStopRequest(run=run))
+
     def shutdown_daemon(self, pid: int, generation: str, *, force: Union[bool, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING, keep_layout: Union[bool, MissingType] = MISSING, restart: Union[bool, None, MissingType] = MISSING) -> ShutdownDaemonResult:
         return self._invoke_command('shutdown-daemon', ShutdownDaemonRequest(pid=pid, generation=generation, force=force, end_terminals=end_terminals, keep_layout=keep_layout, restart=restart))
 
@@ -1153,6 +1162,9 @@ GeneratedClientMixin.set_terminal_keep.__cmux_command__ = COMMANDS['set-terminal
 GeneratedClientMixin.set_viewport_pane_width.__cmux_command__ = COMMANDS['set-viewport-pane-width']
 GeneratedClientMixin.set_window_title.__cmux_command__ = COMMANDS['set-window-title']
 GeneratedClientMixin.set_workspace_metadata.__cmux_command__ = COMMANDS['set-workspace-metadata']
+GeneratedClientMixin.shell_read.__cmux_command__ = COMMANDS['shell-read']
+GeneratedClientMixin.shell_run.__cmux_command__ = COMMANDS['shell-run']
+GeneratedClientMixin.shell_stop.__cmux_command__ = COMMANDS['shell-stop']
 GeneratedClientMixin.shutdown_daemon.__cmux_command__ = COMMANDS['shutdown-daemon']
 GeneratedClientMixin.sidebar_plugin.__cmux_command__ = COMMANDS['sidebar-plugin']
 GeneratedClientMixin.snapshot_request.__cmux_command__ = COMMANDS['snapshot-request']

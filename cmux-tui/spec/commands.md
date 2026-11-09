@@ -5829,6 +5829,54 @@ today).
 
 Result: `object{item:FeedLocalItem}`
 
+### shell-run
+
+| Field | Value |
+| --- | --- |
+| name | `shell-run` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `shell-runs-v1` |
+
+Shell mode's `!` command of a chat that lives on this machine: runs `command` in the user's shell, in `cwd` (the home folder when absent). Each `scope` (the chat pane) has its own cap on running commands.
+
+Owner only: a local Unix connection of the daemon's own user that is bound to no agent, or the owner's signed Native link. Any other connection (relayed peer, guest, WebSocket page, agent-bound connection) is refused with `forbidden` before anything runs. Refusals below are answers (`object{refused:string}`), not errors.
+
+Params: `command` (string, required), `cwd` (string, optional), `scope` (string, optional), `run` (string, optional: the run id the caller chose, `run_` and 32 lowercase hex digits, so it can stop the command even when this answer is lost).
+
+Result: `object{run:string}` or `object{refused:"too_many"|"folder_missing"|"spawn_failed"|"invalid"}` (`invalid` also covers a malformed or taken `run`).
+
+### shell-read
+
+| Field | Value |
+| --- | --- |
+| name | `shell-read` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `shell-runs-v1` |
+
+Reads a run's output after byte offset `after`. Answers once there is output after `after` or the command ended, else after `wait_ms` (at most 10 s, the default). A read that waits does so off the connection's dispatcher.
+
+Owner only: a local Unix connection of the daemon's own user that is bound to no agent, or the owner's signed Native link. Any other connection (relayed peer, guest, WebSocket page, agent-bound connection) is refused with `forbidden` before anything runs. Refusals below are answers (`object{refused:string}`), not errors.
+
+Params: `run` (string, required), `after` (uint64, default 0), `wait_ms` (uint64, optional).
+
+Result: `object{output:string, next:uint64, truncated?:true, exit?:object{code?:int32, signal?:int32}}` or `object{refused:"unknown_run"|"busy"}`.
+
+### shell-stop
+
+| Field | Value |
+| --- | --- |
+| name | `shell-stop` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `shell-runs-v1` |
+
+Stops a run: Ctrl-C, escalating.
+
+Owner only: a local Unix connection of the daemon's own user that is bound to no agent, or the owner's signed Native link. Any other connection (relayed peer, guest, WebSocket page, agent-bound connection) is refused with `forbidden` before anything runs. Refusals below are answers (`object{refused:string}`), not errors.
+
+Params: `run` (string, required).
+
+Result: `object{}` or `object{refused:"unknown_run"}`.
+
 ### list-notifications
 
 | Field | Value |

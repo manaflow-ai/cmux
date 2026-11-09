@@ -1292,6 +1292,21 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object shellRead(ShellReadRequest request) throws CmuxException {
+        Object result = execute(Commands.SHELL_READ, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object shellRun(ShellRunRequest request) throws CmuxException {
+        Object result = execute(Commands.SHELL_RUN, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object shellStop(ShellStopRequest request) throws CmuxException {
+        Object result = execute(Commands.SHELL_STOP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final ShutdownDaemonResult shutdownDaemon(ShutdownDaemonRequest request) throws CmuxException {
         Object result = execute(Commands.SHUTDOWN_DAEMON, request.toWire());
         return ShutdownDaemonResult.fromWire(result);

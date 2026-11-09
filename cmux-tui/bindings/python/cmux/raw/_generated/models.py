@@ -4867,6 +4867,29 @@ class SetWorkspaceMetadataRequest:
 
 
 @dataclass(frozen=True)
+class ShellReadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/shell-read/request'
+    run: str
+    after: Union[int, MissingType] = field(default=MISSING)
+    wait_ms: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ShellRunRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/shell-run/request'
+    command: str
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    run: Union[str, None, MissingType] = field(default=MISSING)
+    scope: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ShellStopRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/shell-stop/request'
+    run: str
+
+
+@dataclass(frozen=True)
 class ShutdownDaemonRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/shutdown-daemon/request'
     pid: int
@@ -6768,6 +6791,9 @@ __all__ = [
     'SetViewportPaneWidthRequest',
     'SetWindowTitleRequest',
     'SetWorkspaceMetadataRequest',
+    'ShellReadRequest',
+    'ShellRunRequest',
+    'ShellStopRequest',
     'ShutdownDaemonRequest',
     'SidebarPluginRequest',
     'SnapshotRequestRequest',
