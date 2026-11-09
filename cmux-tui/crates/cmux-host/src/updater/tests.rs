@@ -1114,8 +1114,14 @@ fn a_resume_hold_without_the_flag_is_busy() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
     gate::Gate::new(&paths).hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Resume);
-    let (gated, skipped) =
-        role::flip_in_gate(&paths, T0_MS + 1_000, gate::Honor::All, || Ok(Vec::new()), || false, no_flip);
+    let (gated, skipped) = role::flip_in_gate(
+        &paths,
+        T0_MS + 1_000,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        no_flip,
+    );
     assert!(matches!(gated, role::Gated::Held(_)), "{gated:?}");
     assert_eq!(skipped, None);
 
@@ -1302,8 +1308,14 @@ fn a_stop_during_the_carrier_look_stops_the_flip() {
     );
     assert!(matches!(gated, role::Gated::Held(_)), "{gated:?}");
     assert!(!flipped, "flipped across a stop");
-    let (gated, _) =
-        role::flip_in_gate(&paths, T0_MS + 1_000, gate::Honor::All, || Ok(Vec::new()), || false, no_flip);
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        T0_MS + 1_000,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        no_flip,
+    );
     assert!(matches!(gated, role::Gated::Held(_)), "the stop's hold did not last: {gated:?}");
 }
 

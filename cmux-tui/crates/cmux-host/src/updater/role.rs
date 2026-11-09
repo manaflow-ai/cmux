@@ -658,19 +658,20 @@ fn check_inner(
         let paused = paused_since(looks.watch, looks.handled, now);
         restore_look(&mut last, crate::linux::realtime_minus_boottime_ns()) || paused
     };
-    let (flipped, went_past) = flip_in_gate(paths, wall_ms(), honor, carrier_sessions, stopped, |inside| {
-        store::flip(paths, plan.to)?;
-        log(&format!(
-            "profile {} -> {}: cmux-tui {} ({}); restarting the services",
-            plan.from,
-            plan.to,
-            short_hex(&plan.cmux_tui.sha256),
-            short_hex(&plan.commit)
-        ));
-        inside.restart_queued();
-        restart_after_flip(&store_binary(&plan.old_cmux_tui));
-        Ok::<(), std::io::Error>(())
-    });
+    let (flipped, went_past) =
+        flip_in_gate(paths, wall_ms(), honor, carrier_sessions, stopped, |inside| {
+            store::flip(paths, plan.to)?;
+            log(&format!(
+                "profile {} -> {}: cmux-tui {} ({}); restarting the services",
+                plan.from,
+                plan.to,
+                short_hex(&plan.cmux_tui.sha256),
+                short_hex(&plan.commit)
+            ));
+            inside.restart_queued();
+            restart_after_flip(&store_binary(&plan.old_cmux_tui));
+            Ok::<(), std::io::Error>(())
+        });
     drop(commit);
     *skipped = went_past;
     if !matches!(flipped, Gated::Flipped) {
