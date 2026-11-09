@@ -314,7 +314,9 @@ import Testing
     /// install still ends that install with its Sign In (manaflow-ai/cmux#39388 review F1).
     @Test func anInstallsSignInSurvivesARefreshThatSupersedesItsRead() async {
         let (model, services) = model([OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown, installed: false)])
+        model.stepDidAppear()
         await Self.until { model.agents.loaded }
+        #expect(model.agents.installable.map(\.id) == ["claude"])
         services.holdNextRead = true
         model.agents.install("claude")
         await Self.until { services.heldRead != nil }
