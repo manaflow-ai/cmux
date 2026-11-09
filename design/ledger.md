@@ -41,7 +41,7 @@ same CSV, or JSON for a script (`ledgerModel.ts` `ledgerJson`: the range, the pr
 totals and every row with its cost source and share from cache). It holds every session of the
 range, not only the 200 the page reads: grouped by session it reads the range again at acpmux's
 most (5,000). A range with more sessions than that saves the 5,000 most expensive and says so:
-the note line adds "Saved 5,000 of 6,001 sessions" (whole numbers, never compact), and the JSON
+the note line adds "5,000 of 6,001 sessions" (whole numbers, never compact), and the JSON
 has `truncated: true` and `sessionsTotal`. The CSV stays a plain table, with no summary line a
 spreadsheet would read as a row. A host that cannot save the file copies it to the clipboard and says so. A host with
 no save panel shows no Save. Like Copy CSV, it acts only on the answer for the range shown.

@@ -1,8 +1,7 @@
 // l10n-allow-file: test fixtures (sample sessions), not shipped UI.
-// Costs' Export (ledger/LedgerScreen.tsx) writes every session of the range, reading again at
+// Costs' Save (ledger/LedgerScreen.tsx) writes every session of the range, reading again at
 // acpmux's most (5,000) when the page holds only the top ones. A range with more sessions than
-// that still exports, and says so: the status reads "Exported 5,000 of 6,001 sessions" beside
-// Saved, and the JSON says `truncated` with `sessionsTotal` (the cmux#39335 review's F1).
+// that still saves, and says so: the status reads "5,000 of 6,001 sessions" beside Saved, and the JSON says `truncated` with `sessionsTotal` (the cmux#39335 review's F1).
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
