@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: a row patch with the list attached copies no node list. Leo, verbatim: "never ... acceptable ...
+  linear time growth degradation". `patchRowsNow` cached the model's section and group again on each patch, so the
+  list's cache shared the model's storage and the model's next in-place write copied the section's whole node list.
+  The list now writes the patched row into its own cached section and group in place (`SidebarSection.setRow`).
+  Regression: `SidebarListPatchCopyTests` (a real `SidebarListView` attached, elements copied per patch).
+  dcb21bf3e42 (review F1 of #39638: write into the cached section only when the same node sits at that place) has no
+  visual change; it reached the branch without its `Sidebar-Look:` trailer.
 - 2026-11-09: a multi-selection drags as one stack of its rows, as a browser's vertical tabs do. Leo,
   verbatim (2026-11-08, ask-2ba1bed2e4, screen recordings of ours beside a browser's): "ours vs edge's group moving i
   think we need to make ours more like edge and chrome". The card carried only the pressed row and a count badge
@@ -1829,6 +1836,15 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - The App reads and answers through the approval banners' `AcpmuxApprovalAnswerer` (`SidebarApprovals`, in
   CmuxNextAgentLanes); a question, several prompts or another machine's chat keeps the old row. Tests:
   `SidebarApprovalAnswerTests`.
+
+## The sidebar says when this Mac's sessions are restoring (2026-11-08, #39186)
+
+- Leo 2026-11-08 (softened): "me trying to click into any other chat in the sidebar doesn't work"; a 30-minute
+  restore after an app restart said only that the background service isn't connected.
+- While `server ensure` reports restore progress, the sidebar's notice card shows "Restoring sessions… 4m 12s"
+  (`SidebarNoticeCard.restoring`): the update status's look (text at the card's padding, the bar's sweep), no
+  leading spinner, no button and no x. The App shows it until the sessions connect. No row, group or rail changes.
+  Tests: `DaemonRestoreProgressTests`.
 
 ## Reviewed behavior-only commits
 

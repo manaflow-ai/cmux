@@ -118,6 +118,7 @@ final class CloudService {
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
+    @ObservationIgnored let claimedCopies = CloudClaimedCopyRegistrations() // the claims' login copies Rust has not registered yet (CloudSpareWarm)
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
