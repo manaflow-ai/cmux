@@ -5,8 +5,8 @@ import WebKit
 /// The WebKit view of every first-party page (DESKTOP-FEEL, R139): the host half of the shared
 /// desktop layer (the web half is webviews/src/pages/shared/desktop.ts). A page is app chrome:
 /// - no pinch or smart magnification (the UI scale comes from the app);
-/// - the native context menu offers only Copy, and only on a selection (a page that draws its own
-///   menu cancels `contextmenu`, so WebKit shows none);
+/// - the native context menu offers only Copy, on a selection, and Copy Link, on a link (a page that
+///   draws its own menu cancels `contextmenu`, so WebKit shows none);
 /// - Select All acts only inside the focused field, never over the whole page.
 /// Swipe navigation and link previews are off in ``PageWebView``. Third-party pages in browser tabs
 /// use their own views and are not affected.
@@ -17,8 +17,9 @@ final class PageWKWebView: WKWebView {
     /// Whether the page now shown accepts the first mouse (``PageDescriptor/acceptsFirstMouse``);
     /// read per click, so a pooled view rebound to another page answers for that page.
     var pageAcceptsFirstMouse: (() -> Bool)?
-    /// The context menu items a page keeps: Copy (WebKit adds it only when there is a selection).
-    static let keptMenuItems: Set<String> = ["WKMenuItemIdentifierCopy"]
+    /// The context menu items a page keeps: Copy (WebKit adds it only when there is a selection) and
+    /// Copy Link (only on a link; Leo, 2026-11-09: "feel like this should have a copy link button").
+    static let keptMenuItems: Set<String> = ["WKMenuItemIdentifierCopy", PageSelectionMenu.copyLinkItem]
 
     /// Selects the text of the focused field; does nothing when no field has focus.
     static let selectAllScript = """
@@ -174,7 +175,7 @@ final class PageWKWebView: WKWebView {
         super.didCloseMenu(menu, with: event)
     }
 
-    /// Removes every item but Copy (and the separators around removed items).
+    /// Removes every item but Copy and Copy Link (and the separators around removed items).
     static func keepDesktopItems(in menu: NSMenu) {
         for item in menu.items.reversed() where !keptMenuItems.contains(item.identifier?.rawValue ?? "") {
             menu.removeItem(item)

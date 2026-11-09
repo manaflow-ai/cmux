@@ -460,7 +460,7 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
         source.busy_timeout(Duration::from_secs(5))?;
         (sealed_records(&source, state_u64(&staged, "staged_through")?)?, live_records(&source)?)
     };
-    if let Some(reason) = staged_bytes_refusal(db_path).or_else(|| {
+    if let Some(reason) = staged_bytes_refusal(&staged)?.or_else(|| {
         kept_refusal(
             staged_kept + tail.kept_at_most + live_kept,
             staged_total + tail.total + live_total,

@@ -90,9 +90,13 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
     public struct KeepingAwake: Sendable, Hashable {
         /// Terminal commands that keep it awake (`sessions.keepAwakeForCommands`); 0 hides their line.
         public var commands: Int
+        /// The setting behind the hold (`sessions.keepAwake`, `phone.keepAwake`), which the line
+        /// opens; nil (the Keep Mac Awake action alone) leaves it a plain line.
+        public var setting: String?
 
-        public init(commands: Int = 0) {
+        public init(commands: Int = 0, setting: String? = nil) {
             self.commands = commands
+            self.setting = setting
         }
     }
 

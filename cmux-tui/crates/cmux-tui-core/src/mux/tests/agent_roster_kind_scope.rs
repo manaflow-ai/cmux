@@ -495,3 +495,105 @@ fn roster_kind_scope_folds_the_same_roster_as_every_record() {
     drop(registry);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// A kind-scoped read inflates several sealed segments at once
+/// (`segment_decode_workers`). It returns what a read one segment at a time
+/// returns, at any page size. A segment that does not decode, in the middle
+/// of a batch, ends the page before it: the segments ahead of it still
+/// count, and the next page fails at its start, so the roster's salvaging
+/// read skips only that segment.
+#[test]
+fn a_parallel_kind_read_matches_one_at_a_time_and_stops_before_a_bad_segment() {
+    use crate::workspace_registry::session_journal::kind_read::SEGMENT_DECODE_WORKERS;
+    let session = "roster-kind-parallel";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-kind-parallel-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux(session, &root);
+    let mut seals = Vec::new();
+    for part in 0..6 {
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_records_for_test(&mixed_stream(part % 2));
+        seals.push(seal_journal(&mux, &format!("kind_parallel_{part}")));
+    }
+    let head = mux.session_journal_head().unwrap();
+    mux.shutdown();
+    drop(mux);
+
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let database = registry.session_journal_database_path().unwrap();
+    let read = |workers: usize, limit: usize| {
+        SEGMENT_DECODE_WORKERS.with(|cell| cell.set(Some(workers)));
+        let records = read_scoped(
+            |cursor, through, limit| {
+                registry.session_journal_kinds_after(
+                    cursor,
+                    through,
+                    AgentRoster::folds_kind,
+                    limit,
+                )
+            },
+            head,
+            limit,
+        );
+        SEGMENT_DECODE_WORKERS.with(|cell| cell.set(None));
+        records
+    };
+    // Sealing kept the agent records, so the read decodes no segment. Drop
+    // them, as for segments an older build sealed: every segment with an
+    // agent record now decodes, which is what this test exercises.
+    let from_kept_records = read(4, 512);
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute("DELETE FROM journal_segment_reducer_records", [])
+        .unwrap();
+    let one_at_a_time = read(1, 512);
+    assert!(one_at_a_time.iter().any(|record| AgentRoster::folds_kind(&record.kind)));
+    assert_eq!(from_kept_records, one_at_a_time, "the kept records read as the segments");
+    for (workers, limit) in [(4, 512), (4, 1), (3, 5), (8, 512)] {
+        assert_eq!(read(workers, limit), one_at_a_time, "{workers} workers, page limit {limit}");
+    }
+
+    // Destroy the third seal's segments.
+    let bad_start = {
+        let connection = rusqlite::Connection::open(&database).unwrap();
+        connection.execute_batch("DROP TRIGGER IF EXISTS journal_segments_reject_update;").unwrap();
+        let mut bad_start = u64::MAX;
+        for segment_id in &seals[2] {
+            connection
+                .execute(
+                    "UPDATE journal_segments SET content = x'00112233' WHERE segment_id = ?1",
+                    [segment_id],
+                )
+                .unwrap();
+            let start: i64 = connection
+                .query_row(
+                    "SELECT start_sequence FROM journal_segments WHERE segment_id = ?1",
+                    [segment_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            bad_start = bad_start.min(u64::try_from(start).unwrap());
+        }
+        bad_start
+    };
+    SEGMENT_DECODE_WORKERS.with(|cell| cell.set(Some(4)));
+    let (page, reached) =
+        registry.session_journal_kinds_after(0, head, AgentRoster::folds_kind, 512).unwrap();
+    assert_eq!(reached, bad_start - 1, "the page ends before the bad segment");
+    let before = one_at_a_time
+        .iter()
+        .filter(|record| record.sequence <= reached)
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(!before.is_empty());
+    assert_eq!(page, before);
+    assert!(
+        registry.session_journal_kinds_after(reached, head, AgentRoster::folds_kind, 512).is_err(),
+        "the next page meets the bad segment at its start"
+    );
+    SEGMENT_DECODE_WORKERS.with(|cell| cell.set(None));
+    drop(registry);
+    std::fs::remove_dir_all(root).unwrap();
+}
