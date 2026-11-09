@@ -1,5 +1,5 @@
 public import CmuxNextDaemon
-import Foundation
+public import Foundation
 import os
 
 /// One captured Chief control route. The brain owns turn eligibility and reply bookkeeping.
@@ -8,12 +8,15 @@ public struct HomeChiefTurnControl {
     public let connection: DaemonConnection?
     public let named: String?
     public let isHosted: Bool
+    /// The Chief's home (`$MUX_HOME`) when its host runs on this Mac; nil for a hosted or paired-server Chief.
+    public let brainHome: URL?
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
-    public init(connection: DaemonConnection?, named: String?, isHosted: Bool) {
+    public init(connection: DaemonConnection?, named: String?, isHosted: Bool, brainHome: URL? = nil) {
         self.connection = connection
         self.named = named
         self.isHosted = isHosted
+        self.brainHome = brainHome
     }
 
     /// `chief.stop` on this Chief's brain; nil when it stopped (or had no
@@ -78,6 +81,18 @@ public struct HomeChiefTurnControl {
         } catch {
             Self.logger.error("home: stop all agents failed: \(String(describing: error), privacy: .public)")
             return .failure(HomeChiefEngineError(error))
+        }
+    }
+
+    /// `chief.stop {start: name}`: Start now on a queued agent's tab in Home; nil
+    /// when it started, else why not.
+    public func startNow(_ name: String) async -> HomeChiefEngineError? {
+        guard let connection else { return .unreachable }
+        do throws(ChiefControlError) {
+            let answer = try await ChiefControlClient(connection).startAgent(name, chief: named)
+            return answer.started ? nil : .other(answer.note ?? name)
+        } catch {
+            return HomeChiefEngineError(error)
         }
     }
 

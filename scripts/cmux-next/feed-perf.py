@@ -3,7 +3,7 @@
 CMUX_NEXT_FEED_BENCH=<path> (CmuxNextFeed/Views/FeedBench.swift), the Mac twin of the iPhone rig's
 CMUX_MOBILE_FEED_STRESS (cmux-next-ios/verify/feedperf).
 
-Launch the tagged app with the variables, open the Feed panel (`action.run {"id": "feed.show"}` on its control socket),
+Launch the tagged app with the variables, open the Feed in the right sidebar (`action.run {"id": "switchRightSidebarToFeed"}` on its control socket),
 and the app seeds the list and runs three phases on display frames: scroll (down and back at the set speed), scroll-live
 (the same while live events arrive) and live (events only). Then:
 

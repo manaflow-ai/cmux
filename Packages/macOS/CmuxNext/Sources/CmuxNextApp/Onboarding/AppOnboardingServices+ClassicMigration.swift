@@ -12,8 +12,10 @@ import Foundation
 struct ClassicMigrationOutcome: Equatable {
     var decision: ClassicMigrationPlanner.Decision
     var summary = ClassicImportSummary()
-    /// False when the person declined the exact plan before it wrote anything.
+    /// False when the person declined the exact plan, or nobody answered it, before it wrote anything.
     var confirmed = true
+    /// What the launch's run tells the person when it made nothing (a declined preview, a classic still open).
+    var notice: String?
     /// The cmux-next workspaces it made, in order.
     var opened: [String] = []
     /// Why classic workspaces did not open, by classic key (the next manual run tries them again).
@@ -64,7 +66,7 @@ extension AppOnboardingServices {
         do {
             let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
                                                    confirmation: confirmClassicImport)
-            guard !outcome.opened.isEmpty, let notice = owner.classicImportNotice else { return }
+            guard let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
             ClassicImportStrings.toast(notice, in: services.windows.active?.window)
         } catch {
             services.daemon.logger.error("classic migration failed: \(String(describing: error), privacy: .public)")
@@ -74,7 +76,7 @@ extension AppOnboardingServices {
     /// One migration run. Runs never overlap: a second one waits for the first. `progress`
     /// hears the share of the plan's classic workspaces handled (opened or left), 0...1.
     func migrateClassic(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String? = nil,
-                        confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool,
+                        confirmation: @escaping @MainActor (ClassicImportPlan) async -> ClassicImportAnswer,
                         progress: (@MainActor (Double) -> Void)? = nil) async throws -> ClassicMigrationOutcome {
         let previous = owner.classicMigrationRun
         let run = Task { @MainActor in
@@ -86,13 +88,13 @@ extension AppOnboardingServices {
     }
 
     /// The one confirmation path for launch and manual migration.
-    func confirmClassicImport(_ plan: ClassicImportPlan) async -> Bool {
+    func confirmClassicImport(_ plan: ClassicImportPlan) async -> ClassicImportAnswer {
         if let confirmation = owner.classicMigrationConfirmation { return await confirmation(plan) }
         return await ClassicImportConfirmation(plan: plan, services: services).ask()
     }
 
     private func runClassicMigration(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String?,
-                                     confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool,
+                                     confirmation: @escaping @MainActor (ClassicImportPlan) async -> ClassicImportAnswer,
                                      progress: (@MainActor (Double) -> Void)?) async throws -> ClassicMigrationOutcome {
         let repository = ClassicMigrationRepository(directory: classicMigrationDirectory)
         let load = await repository.load()
@@ -108,6 +110,7 @@ extension AppOnboardingServices {
             if firstContact { try? await save(ClassicMigrationLedger(state: .completed), to: repository) }
             throw error
         }
+        let classicRunning = classicIsRunning(read?.source)
         let decision: ClassicMigrationPlanner.Decision
         switch mode {
         case .automatic:
@@ -120,12 +123,26 @@ extension AppOnboardingServices {
                     ?? ClassicMigrationLedger(state: .completed)
                 ledger.source = read?.source
                 try await save(ledger, to: repository)
-                return ClassicMigrationOutcome(decision: .skip(.inUseBefore))
+                var seen = ClassicMigrationOutcome(decision: .skip(.inUseBefore))
+                // Classic's workspaces were only recorded: say so once, and where to bring them.
+                if read?.snapshot.workspaces.contains(where: { $0.cloudVM == nil }) == true {
+                    seen.notice = ClassicImportStrings.inUseBefore
+                    owner.classicImportNotice = seen.notice
+                }
+                return seen
             }
-            decision = planner.decision(load, source: read?.source, classicRunning: classicIsRunning(read?.source))
-            if case .skip = decision {
-                if firstContact { try await save(ClassicMigrationLedger(state: .completed), to: repository) }
-                return ClassicMigrationOutcome(decision: decision)
+            decision = planner.decision(load, source: read?.source, classicRunning: classicRunning)
+            if case .skip(let reason) = decision {
+                var skipped = ClassicMigrationOutcome(decision: decision)
+                if firstContact {
+                    try await save(ClassicMigrationLedger(state: .completed), to: repository)
+                    // The first launch beside an open classic says why nothing came over, once.
+                    if reason == .classicRunning, let source = read?.source {
+                        skipped.notice = ClassicImportStrings.classicOpen(ClassicImportPlan.source(source.bundleID).appName)
+                        owner.classicImportNotice = skipped.notice
+                    }
+                }
+                return skipped
             }
         case .manual:
             decision = .merge
@@ -150,19 +167,40 @@ extension AppOnboardingServices {
         guard !plan.isEmpty else {
             ledger.state = .completed
             ledger.source = read.source
+            // Asking by hand with nothing left to bring still takes back a launch's No.
+            if mode == .manual { ledger.declinedAt = nil }
             try await save(ledger, to: repository)
             return outcome
         }
 
-        let preview = ClassicImportPlan(source: read.source, migration: plan)
-        guard await confirmation(preview) else {
+        let preview = ClassicImportPlan(source: read.source, migration: plan, classicRunning: classicRunning)
+        switch await confirmation(preview) {
+        case .accepted:
+            break
+        case .declined:
             outcome.confirmed = false
+            // The launch's No is kept: later launches stop asking. Import Workspaces from Classic cmux still runs.
+            guard mode == .automatic else { return outcome }
+            ledger.declinedAt = Date().timeIntervalSince1970
+            // A declined resume ends too (its half-made workspaces close on the next manual run), so no launch asks again.
+            ledger.state = .completed
+            ledger.source = ledger.source ?? read.source
+            try await save(ledger, to: repository)
+            outcome.notice = ClassicImportStrings.declined
+            owner.classicImportNotice = outcome.notice
+            return outcome
+        case .unanswered:
+            outcome.confirmed = false
+            // Recorded as contact without a save read, so the next launch asks again rather than taking
+            // its own New Tab page for a tree in use and only recording classic's workspaces.
+            if firstContact { try await save(ClassicMigrationLedger(state: .completed), to: repository) }
             return outcome
         }
 
         // The classic files this run read, copied before anything changes here.
         let stamp = Self.backupStamp()
         try await repository.backup(read.backups, stamp: stamp)
+        ledger.declinedAt = nil
         ledger.state = .inProgress
         ledger.source = read.source
         ledger.runs += 1
@@ -337,16 +375,16 @@ extension AppOnboardingServices {
         try await repository.save(ledger)
     }
 
-    /// Classic's session: the test's file when set, else the channel the
-    /// finder picks, trying its session file, `-previous` copy and newest
-    /// archive in turn until one decodes.
+    /// Classic's session: the test's file when set, else the newest channel's
+    /// session file, `-previous` copy and newest archive in turn until one
+    /// decodes, then the next channel's.
     private func readClassicSnapshot() async throws -> ClassicSnapshotRead? {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let finder = ClassicMigrationSourceFinder(support: owner.classicMigrationSupport ?? support,
                                                   ownBundleID: services.environment.launch.bundleID)
         let candidates: [(url: URL, bundleID: String)]
         if let seam = owner.classicSessions { candidates = [(seam.fileURL, ClassicSessionImporter.stableBundleIdentifier)] }
-        else { candidates = finder.candidates() }
+        else { candidates = finder.allCandidates() }
         var lastError: (any Error)?
         for candidate in candidates {
             let importer = ClassicSessionImporter(fileURL: candidate.url)
@@ -355,7 +393,8 @@ extension AppOnboardingServices {
                 guard let snapshot else { continue }
                 let opened = Self.openingMissingFolders(snapshot)
                 guard let source = finder.source(candidate.url, bundleID: candidate.bundleID, createdAt: snapshot.createdAt) else { continue }
-                let siblings = candidates.map(\.url).filter { $0 != candidate.url }
+                // Only the read channel's files are backed up: another channel's stale save may be huge.
+                let siblings = candidates.filter { $0.bundleID == candidate.bundleID && $0.url != candidate.url }.map(\.url)
                 return ClassicSnapshotRead(snapshot: opened, source: source, backups: [candidate.url] + siblings)
             } catch {
                 // A damaged or oversized file: the next copy may still read.
@@ -441,11 +480,16 @@ extension AppOnboardingServices {
         }
     }
 
-    /// Whether classic cmux is running and may still save (``ClassicRunningProbe``:
-    /// its launch sentinel and a recent save). No process scan (plans/cmux-next/pty-holder.md).
+    /// Whether the classic app that saves `source` is open and may still save: it holds the lock beside
+    /// its control socket (``ClassicRunningProbe/lockPaths(channel:home:)``), or its launch sentinel and a
+    /// recent save say so. A non-blocking `flock`, no process scan (plans/cmux-next/pty-holder.md).
     private func classicIsRunning(_ source: ClassicMigrationSource?) -> Bool {
         if let seam = owner.classicRunning { return seam() }
         guard let source else { return false }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        for path in ClassicRunningProbe.lockPaths(channel: source.bundleID, home: home) {
+            if owner.classicLockHeld?(path) ?? ClassicRunningProbe.isLockHeld(path) { return true }
+        }
         let root = owner.classicStateRoot ?? ClassicRunningProbe.defaultStateRoot(
             home: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment)
         return ClassicRunningProbe(stateRoot: root).isRunning(source, now: Date().timeIntervalSince1970)

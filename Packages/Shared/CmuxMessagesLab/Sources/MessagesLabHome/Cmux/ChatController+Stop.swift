@@ -29,6 +29,7 @@ extension ChatController {
     }
 
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if handlesSlashCommand(commandSelector) { return true }  // the `/` menu first (ChatController+SlashSkills.swift)
         if handlesHistoryCommand(commandSelector, in: textView) { return true }
         if handlesLineEdgeCommand(commandSelector, in: textView) { return true }
         guard commandSelector == #selector(NSResponder.cancelOperation(_:)), isWorking, picker == nil else { return false }
