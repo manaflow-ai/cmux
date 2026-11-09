@@ -320,18 +320,35 @@ const WAITING: &str = r"(?i)\b(still (waiting|running|in progress|pending|going|
 /// report, as before.
 const DECISIVE: &str = r"(?i)\b(merged|landed|shipped|done|finished|completed?|passed|passing|green|succeeded|ready|fail(?:ed|s|ing|ure|ures)?|errors?|blocked|stuck|needs?|question|approve|approval|refused|denied|cancell?ed|broken|red|timed out|time ?outs?|please|rebase|restart|retry|retrying|can you|could you|should|must|want|you|your|yours|input|reply|answer|confirm|confirmation|decision|decide|permission|access|credentials?|token|login|sign in|upload)\b|\?|!";
 
+/// A sentence of a still-waiting reply that only says how long it has waited ("4 min in").
+const ELAPSED: &str = r"(?i)^\(?\s*(about |over |~)?\d+\s*(s|sec|secs|seconds?|m|min|mins|minutes?|h|hours?)\b( in| so far| now| elapsed)?\)?$";
+/// Where a reply's sentences end: `.`, `;`, `!` or `?` before a space or the end, or a line
+/// break. A period inside a URL ends none.
+const SENTENCE_END: &str = r"[.;!?](\s+|$)|\n";
+
 static WAITING_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(WAITING).ok());
 static DECISIVE_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(DECISIVE).ok());
+static ELAPSED_LINE: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(ELAPSED).ok());
+static SENTENCE_ENDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(SENTENCE_END).ok());
 
-/// Whether `reply`, a lane's turn's, says only that it still waits: it says it waits
-/// ([`WAITING`]) and has no review verdict, no full commit sha and none of [`DECISIVE`]'s words.
-/// A pull request it names is news only when not reported before, which delivery decides
-/// (`due_report`). A pattern that failed to build counts every reply as news.
+/// Whether `reply`, a lane's turn's, says only that it still waits: each of its sentences says
+/// it waits ([`WAITING`]) or how long ([`ELAPSED`]), so a request beside a wait ("Still waiting
+/// on fleet. Stop the rollout.", review of #39105 at dd6dd96, F2) is news; and it has no review
+/// verdict, no full commit sha and none of [`DECISIVE`]'s words. A pull request it names is news
+/// only when not reported before, which delivery decides (`due_report`). A pattern that failed
+/// to build counts every reply as news.
 fn says_only_waiting(reply: &str) -> bool {
-    let (Some(waiting), Some(decisive)) = (WAITING_WORDS.as_ref(), DECISIVE_WORDS.as_ref()) else {
+    let (Some(waiting), Some(decisive), Some(elapsed), Some(ends)) = (
+        WAITING_WORDS.as_ref(),
+        DECISIVE_WORDS.as_ref(),
+        ELAPSED_LINE.as_ref(),
+        SENTENCE_ENDS.as_ref(),
+    ) else {
         return false;
     };
-    waiting.is_match(reply)
+    let mut sentences = ends.split(reply).map(str::trim).filter(|s| !s.is_empty()).peekable();
+    sentences.peek().is_some()
+        && sentences.all(|s| waiting.is_match(s) || elapsed.is_match(s))
         && !decisive.is_match(reply)
         && !super::lane_report_text::has_verdict(reply)
         && matches(&FULL_SHA, reply).is_empty()
@@ -977,6 +994,7 @@ fn delivered(l: &mut Link, report: &Report, key: String, now: u64) {
 /// A newer turn's report replaces one still queued, keeping the pull requests only that one
 /// named, and counting a still-waiting one it folds in. A still-waiting turn's report never
 /// replaces one that is news: that one stays queued, to go as it is.
+#[cfg(test)]
 fn replace_ready(newer: Report, queued: Option<Report>) -> Report {
     replace_ready_seen(newer, queued, &[])
 }
@@ -1717,6 +1735,8 @@ mod tests {
             "Still waiting for you to upload the credentials.",
             "Still waiting on your answer about the schema.",
             "Waiting for permission to push to the mirror.",
+            "Still waiting on fleet. Stop the rollout.",
+            "Still waiting on the fleet run.\nThe staging deploy looks wrong to me.",
             "",
         ] {
             assert!(!says_only_waiting(news), "{news:?} read as no news");
