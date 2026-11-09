@@ -385,12 +385,16 @@ pub(crate) fn numstat_without_config(
             cmd
         };
         // The worktree's index spares hashing every file again (its stat data); one this git
-        // cannot use alone (a split index) is replaced by `from`'s tree.
+        // cannot use alone (a split index) is replaced by the run's own HEAD tree, never
+        // `from`'s: a file committed since that an exclude pattern matches stays in it, as it does
+        // in the worktree's index, and still counts against `from`.
         let copied = std::fs::copy(&index, &scratch_index).is_ok();
         let staged = copied && run_by(isolated(), &["add", "-A"], Some(by)).is_ok();
         if !staged {
             let _ = std::fs::remove_file(&scratch_index);
-            run_by(isolated(), &["read-tree", from], Some(by))?;
+            let head = at(&["rev-parse", "--verify", "HEAD^{commit}"]);
+            let seed = head.as_deref().map(str::trim).unwrap_or(from);
+            run_by(isolated(), &["read-tree", seed], Some(by))?;
             run_by(isolated(), &["add", "-A"], Some(by))?;
         }
         run_by(isolated(), &["diff", "--cached", "--numstat", "--no-renames", from, "--"], Some(by))
@@ -425,13 +429,17 @@ fn read_patterns(path: &Path) -> String {
 /// default (`$XDG_CONFIG_HOME/git/ignore`, `~/.config/git/ignore`). Read from the global config
 /// alone, never a repository's.
 fn global_excludes(by: Instant) -> Option<PathBuf> {
-    let home = dirs::home_dir();
     let mut cmd = Command::new("git");
     cmd.current_dir(std::env::temp_dir()).env("GIT_CONFIG_NOSYSTEM", "1");
-    let named = run_by(cmd, &["config", "--global", "--get", "core.excludesFile"], Some(by))
-        .ok()
-        .map(|v| v.trim().to_owned())
-        .filter(|v| !v.is_empty());
+    excludes_file(cmd, dirs::home_dir(), by)
+}
+
+/// [`global_excludes`] as `cmd` (a `git` with its environment) reads the global config, its
+/// `[include]`s followed as git follows them.
+fn excludes_file(cmd: Command, home: Option<PathBuf>, by: Instant) -> Option<PathBuf> {
+    let args = ["config", "--global", "--includes", "--get", "core.excludesFile"];
+    let named =
+        run_by(cmd, &args, Some(by)).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
     match named {
         Some(path) => match (path.strip_prefix("~/"), &home) {
             (Some(rest), Some(home)) => Some(home.join(rest)),
@@ -1765,5 +1773,45 @@ mod tests {
         let status = sh(&repo, &["status", "--porcelain", "--untracked-files=all"]);
         assert!(status.contains("kept.txt"), "{status}");
         assert!(!status.contains("other.txt"), "{status}");
+    }
+
+    /// A worktree's split index sends Compare to its fallback: the scratch index starts from the
+    /// run's HEAD, so a file committed since `from` that an exclude matches still counts.
+    #[test]
+    fn a_committed_file_an_exclude_matches_counts_through_the_split_index_fallback() {
+        let (_scratch, repo, _home) = repo();
+        let from = sh(&repo, &["rev-parse", "HEAD"]).trim().to_owned();
+        std::fs::write(repo.join(".git/info/exclude"), "*.log\n").unwrap();
+        std::fs::write(repo.join("kept.log"), "kept\n").unwrap();
+        sh(&repo, &["add", "-f", "kept.log"]);
+        sh(&repo, &["commit", "-q", "-m", "kept"]);
+        sh(&repo, &["update-index", "--split-index"]);
+        let by = Instant::now() + std::time::Duration::from_secs(20);
+        let numstat = numstat_without_config(&repo, &from, by).unwrap();
+        assert!(numstat.contains("kept.log"), "{numstat:?}");
+    }
+
+    /// A `core.excludesFile` set in a file the global config includes is the one Compare reads.
+    #[test]
+    fn the_global_excludes_file_is_found_through_an_include() {
+        let dir = std::env::temp_dir().join(format!("acpmux-includes-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let named = dir.join("my-ignore");
+        std::fs::write(
+            dir.join("included"),
+            format!("[core]\n\texcludesFile = {}\n", named.display()),
+        )
+        .unwrap();
+        let global = dir.join("gitconfig");
+        std::fs::write(
+            &global,
+            format!("[include]\n\tpath = {}\n", dir.join("included").display()),
+        )
+        .unwrap();
+        let mut cmd = Command::new("git");
+        cmd.current_dir(&dir).env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", &global);
+        let by = Instant::now() + std::time::Duration::from_secs(10);
+        assert_eq!(excludes_file(cmd, None, by), Some(named));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
