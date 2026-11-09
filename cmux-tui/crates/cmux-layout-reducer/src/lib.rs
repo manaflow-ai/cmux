@@ -972,3 +972,4 @@ pub mod sidebar_edits;
 pub mod sidebar_face;
 pub mod sidebar_layout;
 pub mod sidebar_layout_plan;
+pub mod sidebar_launch_order;
