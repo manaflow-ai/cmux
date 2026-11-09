@@ -34,9 +34,11 @@ A pull request's same-tree run has a concurrency group of its own and no
 cancel, and is_current() is read only at the dispatch, so when the head moves
 on its older same-tree runs stay in the Mac queue (2026-11-09: 14 runs waiting
 only for their scheme compile, 3 of them for one branch). After a dispatch on a
-pull request's head branch, cancel_superseded_same_tree() cancels that
-branch's superseded same-tree runs, but keeps the newest run and the oldest
-candidate (module constant comments; base tier: cmux_next_base_tier.py).
+same-repository pull request's head branch, and after a marker of that
+pull request is found superseded, cancel_superseded_same_tree() cancels that
+branch's superseded same-tree runs, but keeps the newest run, the runs of the
+pull request's head and the oldest candidate (base tier:
+cmux_next_base_tier.py). A fork pull request sweeps nothing.
 
 Usage: cmux_next_tree_notify.py --repo OWNER/NAME --key KEY --state ready|failed
        [--reason TEXT]
@@ -281,15 +283,30 @@ def mac_job_running(jobs: list[dict]) -> bool:
     return any(job.get("name") in MAC_JOBS and job.get("status") == "in_progress" for job in jobs)
 
 
-def cancel_superseded_same_tree(api: Api, repo: str, branch: str,
+def sweep_branch(marker: dict, repo: str) -> str | None:
+    """The head branch whose same-tree runs a pull request marker may sweep, or None.
+
+    Only a same-repository pull request's head branch: only that pull request's same-tree runs run there. A
+    fork's runs go to the base branch (dispatch_refs), which holds every fork pull request's same-tree runs
+    and the push verdicts, so a fork marker sweeps nothing, whatever its branch is named (review of #39634:
+    a fork branch named feat-cmux-next)."""
+    head_ref = str(marker.get("head_ref", ""))
+    if (marker.get("origin") != "pull_request" or marker.get("head_repo") != repo or not REF.match(head_ref)
+            or head_ref == marker.get("base_ref")):
+        return None
+    return head_ref
+
+
+def cancel_superseded_same_tree(api: Api, repo: str, branch: str, head: str,
                                 log: Callable[[str], None] = print) -> list[int]:
     """Cancel a pull request's superseded same-tree runs on its head BRANCH; returns their ids.
 
     The runs looked at are cmux-next.yml's open first-attempt dispatch runs on BRANCH named
     `cmux-next · <their head>` (base tier, tip suite, DEV daily and uncached runs have other names). The
-    newest of them is kept. The others are superseded (a newer run exists, and their head may no longer be
-    the pull request's head); of those, a run whose jobs are unreadable, that is not a same-tree run (is_same_tree) or
-    that has a Mac job in progress is kept, and the rest are the candidates. The OLDEST candidate is kept
+    newest of them is kept, and so is every run of HEAD, the pull request's head (two markers of one head
+    may carry other tiers). The others are superseded; of those, a run whose jobs are unreadable, that is
+    not a same-tree run (is_same_tree) or that has a Mac job in progress is kept, and the rest are the
+    candidates. The OLDEST candidate is kept
     too: its queued Mac job is nearest a runner, so the pull request still gets verdicts when the Mac wait
     is longer than its push interval (cancelling every older run starved the DEV publisher on 2026-10-26).
     The other candidates are cancelled. The jobs are read just before the cancels; a Mac job that starts
@@ -315,7 +332,8 @@ def cancel_superseded_same_tree(api: Api, repo: str, branch: str,
     for run in runs[:-1]:
         if run.get("run_attempt", 1) != 1:
             continue
-        # Every run before the newest is superseded by it (whether or not its head is still HEAD).
+        if run["head_sha"] == head:
+            continue
         jobs = run_jobs(api, repo, run["id"])
         if jobs is None or not is_same_tree(jobs):
             continue
@@ -352,6 +370,8 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
     listing = api.get(f"repos/{repo}/actions/artifacts?name=cmux-next-tree-wait-{key}&per_page=100")
     artifacts = [artifact for artifact in listing.get("artifacts", []) if not artifact.get("expired")]
     dispatched = 0
+    # Head branches a superseded marker already swept in this notify.
+    swept: set[str] = set()
     # The failed report goes out once per marker (module docstring): read the run history once.
     history: dict[str, list[str]] | None = None
     stamps = [str(artifact.get("created_at", "")) for artifact in artifacts[:MAX_MARKERS]]
@@ -376,6 +396,16 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         if not current:
             log(f"run {run_id} ({marker['origin']} {marker['status_sha'][:12]}) was superseded; nothing to start")
             api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
+            # Its pull request moved on: the branch's older same-tree runs are superseded too. Once per branch.
+            branch = sweep_branch(marker, repo)
+            if branch is not None and branch not in swept:
+                swept.add(branch)
+                try:
+                    head = str(api.get(f"repos/{repo}/pulls/{marker['pr']}").get("head", {}).get("sha", ""))
+                    if SHA.match(head):
+                        cancel_superseded_same_tree(api, repo, branch, head, log)
+                except (RuntimeError, OSError, ValueError, AttributeError) as error:
+                    log(f"::warning::run {run_id}: could not cancel the superseded same-tree runs on {branch}: {error}")
             continue
         if marker["origin"] == "pull_request" and state == "failed":
             log(f"::notice title=same-tree cmux-tui skipped::run {run_id} ({marker['status_sha'][:12]}): "
@@ -410,9 +440,10 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
                     f"for {marker['sha'][:12]}, tiers {inputs['same_tree_tiers']}")
                 if state == "ready":
                     api.delete(f"repos/{repo}/actions/artifacts/{artifact['id']}")
-                if marker["origin"] == "pull_request" and ref == marker.get("head_ref"):
+                if ref == sweep_branch(marker, repo):
                     try:
-                        cancel_superseded_same_tree(api, repo, ref, log)
+                        # is_current read the pull request's head as this marker's status_sha.
+                        cancel_superseded_same_tree(api, repo, ref, marker["status_sha"], log)
                     except (RuntimeError, OSError, ValueError) as error:
                         log(f"::warning::run {run_id}: could not cancel the superseded same-tree runs on {ref}: {error}")
                 break
