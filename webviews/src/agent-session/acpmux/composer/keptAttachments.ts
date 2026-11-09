@@ -63,7 +63,7 @@ export function useKeptAttachments(
   setAttachments: (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => void,
   store: KeptAttachments | undefined,
   carrying: () => boolean,
-): void {
+): boolean {
   const [readFor, setReadFor] = useState<string>();
   /// The chips' ids the host holds for the chat as last written, and which of them it has contents for.
   const written = useRef<{ sessionId?: string; ids: string; stored: Set<string> }>({ ids: "", stored: new Set() });
@@ -234,6 +234,9 @@ export function useKeptAttachments(
       flushNow.current();
     };
   }, []);
+  // Whether the chat's own chips were read: until then a read still out sets them over what the
+  // prompt holds (a stash restored meanwhile would lose its chips).
+  return !sessionId || !store || readFor === sessionId;
 }
 
 /// What a write would change: each chip's id; its source, which the host may say a moment after

@@ -761,6 +761,8 @@ function ComposerFrame({
   pendingRef.current = pending;
   const originalUploadsRef = useRef(originalUploads);
   originalUploadsRef.current = originalUploads;
+  /// Whether the chat's kept chips were read (useKeptAttachments, below); the stash waits for it.
+  const keptReadRef = useRef(false);
   /// A new chat's text as the host keeps it (`onUnsentDraft`): the person's words only. The host keeps
   /// no attachment with it, so each attachment's token goes, a placeholder still being read included.
   const unsentText = (value: string) =>
@@ -917,9 +919,10 @@ function ComposerFrame({
       text: field.current?.value() ?? textRef.current,
       attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
     }),
-    // A chip still loading, or an image's original still uploading under its preview (a send waits
-    // for both): clearing would cancel it.
-    loading: () => pendingRef.current.length > 0 || originalUploadsRef.current.size > 0,
+    // An attachment still loading, an image's original still uploading under its preview (a send
+    // waits for both), or the chat's own chips not yet read back (that read would set them over a
+    // restored draft's): clearing or restoring now would lose one.
+    loading: () => pendingRef.current.length > 0 || originalUploadsRef.current.size > 0 || !keptReadRef.current,
     clear: () => {
       stashEdited();
       notTyped();
@@ -1148,13 +1151,14 @@ function ComposerFrame({
   // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
   useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
-  useKeptAttachments(
+  const keptRead = useKeptAttachments(
     sessionId,
     attachments,
     setAttachments,
     keptAttachments,
     () => !suppressedAttachmentCarry.current && carryPrompt.current,
   );
+  keptReadRef.current = keptRead;
   // Run after useKeptAttachments' session read/effects. Recovery copied text only; ordinary
   // switching can carry attachments again once the destination session is shown.
   useEffect(() => {

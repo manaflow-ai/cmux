@@ -13,8 +13,9 @@ export type StashedComposer = {
   held(): HeldDraft;
   /// Empties the prompt and its chips.
   clear(): void;
-  /// Whether an attachment is still loading: its contents are not in the draft yet, and clearing
-  /// would cancel it, so ⌃S waits and the draft stays.
+  /// Whether the prompt is not ready for a stash or a restore: an attachment still loading (its
+  /// contents are not in the draft yet, and clearing would cancel it), or the chat's own draft
+  /// still being read back over it. ⌃S and a pick wait, and the draft stays where it is.
   loading(): boolean;
   /// Puts a draft back in the prompt, before what is typed there.
   restore(text: string, attachments: ComposerAttachment[]): void;
@@ -68,13 +69,13 @@ export function useDraftStash(chat: string, composer: StashedComposer) {
   const unstash = (id?: string) => {
     const on = chat;
     const target = id ?? stashed[0]?.id;
-    if (!target || restoring.current) return;
+    if (!target || restoring.current || io.current.loading()) return;
     restoring.current = true;
     void (async () => {
       // Read whole, put back before what the prompt holds, and dropped only once this composer has
       // it again in the same chat: until then acpmux keeps it, so a page that goes loses nothing.
       const entry = await readStashed(on, target);
-      if (!entry || !showing(on)) return;
+      if (!entry || !showing(on) || io.current.loading()) return;
       io.current.restore(entry.text, entry.attachments);
       io.current.focus();
       // Dropped once the composer has drawn it back, and only while it still shows the chat: one

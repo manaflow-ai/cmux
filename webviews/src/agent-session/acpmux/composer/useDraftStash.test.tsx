@@ -75,3 +75,32 @@ test("⌃S while an attachment loads stashes nothing and keeps the prompt", asyn
   expect(pushed).toEqual(["a draft with an image on its way"]);
   expect(cleared).toBe(1);
 });
+
+test("a pick while the prompt is not ready restores nothing and keeps the stashed copy", async () => {
+  const dropped: string[] = [];
+  const restored: string[] = [];
+  const transport: StashTransport = {
+    list: async () => ({ drafts: [{ id: "stash-1", text: "kept", attachments: [], at: 1 }] }),
+    push: async () => ({}),
+    get: async () => ({ draft: { id: "stash-1", text: "kept", attachments: [], at: 1 } }),
+    drop: async (_chat, id) => (dropped.push(id), { removed: true }),
+    move: async () => ({ moved: 0, ids: [] }),
+  };
+  resetStashForTests(transport);
+  let unstash: (id?: string) => void = () => {};
+  function Probe() {
+    unstash = useDraftStash("chat", {
+      held: () => ({ text: "", attachments: [] }),
+      loading: () => true,
+      clear: () => {},
+      restore: (text) => void restored.push(text),
+      focus: () => {},
+    }).unstash;
+    return null;
+  }
+  root = createRoot(installDom());
+  await act(async () => root!.render(<Probe />));
+  await act(async () => unstash("stash-1"));
+  expect(restored).toEqual([]);
+  expect(dropped).toEqual([]);
+});
