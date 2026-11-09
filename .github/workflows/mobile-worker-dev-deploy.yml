@@ -1,0 +1,137 @@
+# Deploys the cmux-next-ios mobile Worker (cmux-next-ios/backend) to its dev environment,
+# `cmux-mobile-api-dev` (https://cmux-mobile-api-dev.debussy.workers.dev).
+#
+# Manual runs only, from feat-cmux-next. The env is fixed to `dev`: this workflow has no
+# input that picks one and no production target. `cmux-mobile-api-prod` stays a hand deploy
+# (cmux-next-ios/backend/README.md, "Test and deploy").
+#
+# The job runs the README's gates first (frozen install, typecheck, the vitest suite on
+# workerd), then `wrangler deploy --env dev` with the wrangler pinned in the package's
+# lockfile, then checks that /v1/health serves the API version wrangler.jsonc declares.
+#
+# Migrations: the README's rule is to apply a migration to a database before deploying the
+# Worker that reads it. This job holds no database credentials, so it cannot apply or read
+# them. DEV_DB_LATEST_MIGRATION below records the newest migration known to be applied to the
+# dev database; a tree with a newer file under drizzle/ stops before the deploy. Apply it to
+# the dev database (README, "Migrations"), then raise DEV_DB_LATEST_MIGRATION in the same PR.
+#
+# Required repository secrets (the ones presence.yml and cloudflare-relay.yml use):
+#   CLOUDFLARE_API_TOKEN   API token with Workers Scripts:Edit on the account
+#   CLOUDFLARE_ACCOUNT_ID  the Cloudflare account id
+#
+# Worker secrets (TURN, APNs, Stack) are set once per env with `wrangler secret put` and
+# survive every deploy; this workflow never reads or writes them.
+
+name: Mobile Worker dev deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-worker-dev-deploy
+  cancel-in-progress: false
+
+env:
+  # Newest drizzle migration applied to the dev database (cmux-mobile-dev). 0004 is what
+  # API 0.13.0 and later read; dev served 0.14.0 on 2026-11-09.
+  DEV_DB_LATEST_MIGRATION: "0004_push_settings"
+
+jobs:
+  deploy-dev:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: cmux-next-ios/backend
+    steps:
+      - name: Only from feat-cmux-next
+        working-directory: .
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/feat-cmux-next" ]; then
+            echo "::error::The dev Worker deploys from feat-cmux-next only; this run is on $REF."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      # Wrangler and workerd need Node >= 22; the Blacksmith ubuntu-2404 image ships Node 20.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      - name: Check Cloudflare secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=()
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing+=(CLOUDFLARE_API_TOKEN)
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing+=(CLOUDFLARE_ACCOUNT_ID)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::The mobile Worker dev deploy needs repository secrets ${missing[*]}."
+            exit 1
+          fi
+
+      - name: No migration newer than the dev database
+        run: |
+          latest="$(find drizzle -maxdepth 1 -name '[0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' | sort | tail -n 1)"
+          latest="${latest%.sql}"
+          echo "Newest migration in the tree: $latest; newest applied to the dev database: $DEV_DB_LATEST_MIGRATION"
+          if [[ "$latest" > "$DEV_DB_LATEST_MIGRATION" ]]; then
+            echo "::error::drizzle/$latest.sql is newer than the dev database ($DEV_DB_LATEST_MIGRATION). Apply it to cmux-mobile-dev first (cmux-next-ios/backend/README.md, Migrations), then raise DEV_DB_LATEST_MIGRATION in this workflow."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bunx tsc -p .
+
+      - name: Tests (vitest on workerd)
+        run: bunx vitest run
+
+      - name: Deploy to dev
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          # The wrangler pinned in bun.lock (wrangler 4), not a fresh download.
+          bunx wrangler deploy --env dev 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+          version="$(grep -oE 'Current Version ID: [0-9a-f-]+' "$RUNNER_TEMP/deploy.log" | tail -n 1 | sed 's/.*: //')"
+          if [ -z "$version" ]; then
+            echo "::warning::wrangler printed no Current Version ID."
+            version=unknown
+          fi
+          echo "Deployed cmux-mobile-api-dev version $version at $GITHUB_SHA"
+          echo "Deployed \`cmux-mobile-api-dev\` version \`$version\` at \`$GITHUB_SHA\`." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Health check
+        run: |
+          expected="$(node -e 'const fs=require("fs");const t=fs.readFileSync("wrangler.jsonc","utf8");const m=t.slice(t.indexOf("\"dev\":")).match(/"API_VERSION":\s*"([^"]+)"/);process.stdout.write(m?m[1]:"")')"
+          for attempt in 1 2 3 4 5 6; do
+            body="$(curl -fsS --max-time 10 https://cmux-mobile-api-dev.debussy.workers.dev/v1/health || true)"
+            served="$(printf '%s' "$body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s).version??""))}catch{}})')"
+            if [ -n "$expected" ] && [ "$served" = "$expected" ]; then
+              echo "/v1/health serves API $served"
+              echo "/v1/health serves API \`$served\`." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "attempt $attempt: /v1/health served '${served:-nothing}', expected '$expected'"
+            sleep 5
+          done
+          echo "::error::/v1/health did not serve API $expected after the deploy."
+          exit 1
