@@ -145,12 +145,13 @@ if cleared:
     run_round(session, [("SessionEnd", {"reason": "clear"})])
     outputs = run_round(cleared, [("SessionStart", {"source": "clear"})] + turn)
     write_record(os.environ["OB_TAG"] + "-clear", {"session_id": cleared, "outputs": outputs})
-# An in-process `/resume`: the same Claude process takes an older session,
-# with no `SessionEnd` for the one it leaves.
+# An in-process `/resume`: the same Claude process ends its session and takes
+# another (Claude Code 2.1.319 sends SessionEnd with reason "resume" first).
 resumed = os.environ.get("FAKE_RESUME_SESSION_ID")
 if resumed:
     if round_go:
         wait_for(round_go)
+    run_round(session, [("SessionEnd", {"reason": "resume"})])
     outputs = run_round(resumed, [("SessionStart", {"source": "resume"})] + turn)
     write_record(os.environ["OB_TAG"] + "-resume", {"session_id": resumed, "outputs": outputs})
 # A tool call that starts another Claude (`claude -p`) once the test says go:
@@ -839,8 +840,8 @@ fn any_launcher_w5n3_the_pane_agent_keeps_its_messages_after_clear_and_resume() 
     let mut daemon = Daemon::start(&root, &daemon_exe, "again", &home, &data, &path);
     let cli_env = [("HOME", home.as_path()), ("XDG_DATA_HOME", data.as_path())];
     // The pane's agent goes on in a new session of the same process: after
-    // `/clear` (its old session ended) or an in-process `/resume` (its old
-    // session still live in the roster). The messages for the pane are its.
+    // `/clear` or an in-process `/resume` (each ends the old session first).
+    // The messages for the pane are its, and the row follows it.
     let cases = [
         ("clear", "FAKE_CLEAR_SESSION_ID", "00000000-0000-4000-8000-000000000072", 7),
         ("resume", "FAKE_RESUME_SESSION_ID", "00000000-0000-4000-8000-000000000082", 8),
@@ -877,8 +878,17 @@ fn any_launcher_w5n3_the_pane_agent_keeps_its_messages_after_clear_and_resume() 
         assert!(sent, "{tag}: agent message failed: {text}");
         fs::write(root.join(format!("go-{tag}")), b"go").unwrap();
     }
-    for (tag, _, _) in &terminals {
+    for ((tag, terminal, _), (_, _, session, _)) in terminals.iter().zip(&cases) {
         let next = launch_record(&root, &daemon, &format!("{tag}-{tag}"));
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
+            if row["source"] == "hook" && row["extra"]["agent_session_id"] == *session {
+                break;
+            }
+            assert!(Instant::now() < deadline, "{tag}: the row did not follow the agent: {row}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
         let note = format!("note for the {tag} pane agent 41c9");
         let prompt = next["outputs"]["UserPromptSubmit"].to_string();
         assert!(
