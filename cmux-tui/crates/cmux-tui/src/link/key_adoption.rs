@@ -117,6 +117,7 @@ pub(super) const ABORT_AFTER: &str = "CMUX_LINK_TEST_ADOPT_ABORT_AFTER";
 fn finished(step: Step) {
     #[cfg(test)]
     if std::env::var(ABORT_AFTER).is_ok_and(|name| name == step.name()) {
+        // crash-allow: test-only; the migration test's child process stops here to prove each step survives a crash
         std::process::abort();
     }
     let _ = step;
