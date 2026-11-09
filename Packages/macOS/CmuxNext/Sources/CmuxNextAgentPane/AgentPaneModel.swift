@@ -266,6 +266,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onGitWrite: (@MainActor (AgentPaneGitWrite, String) async throws -> Data)?
     /// Whether the Changes view's git writes (cx-tcwj) may run here: only a chat on this Mac. Unset: never.
     @ObservationIgnored public var gitWritesHere: (@MainActor () -> Bool)?
+    /// Whether a Cloud or SSH chat's git writes reach that chat's own machine (its daemon's link,
+    /// never this Mac's): New Worktree makes the worktree there. Unset: never.
+    @ObservationIgnored public var gitWritesOnChatMachine: (@MainActor () -> Bool)?
     /// Moves a file the turn created to the Trash (`turn.undo`); tests replace it.
     @ObservationIgnored public var trashFile: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
 
@@ -543,8 +546,8 @@ public final class AgentPaneModel {
             if remoteChat { return Self.unsupported("shell") }
             return await respondToShellComplete(line: line, cwd: cwd)
         case .newTabContext:
-            AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context")
-            // Only a page with no chat yet is a New Tab page; the handshake still sends the same context.
+            // Only a page with no chat yet is a New Tab page, and marks so; the handshake still sends the same context.
+            if sessionId == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context") }
             guard sessionId == nil, let newTab = newTabForPage, let data = try? JSONEncoder().encode(newTab),
                   let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])

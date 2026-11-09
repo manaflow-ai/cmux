@@ -47,6 +47,7 @@ pub mod link_preview;
 pub mod lock;
 pub mod log;
 pub mod mcp;
+pub mod mcp_hub;
 pub mod membership;
 pub mod memory_cli;
 pub mod memory_sync;

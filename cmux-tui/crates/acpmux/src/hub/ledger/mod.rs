@@ -28,12 +28,18 @@ pub use query::{LedgerQuery, LedgerReply, Rollup, Row};
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::store::{EventRecord, TurnUsage};
+
+/// Whether a chat copy's purged flag is set.
+fn is_gone(gone: Option<&AtomicBool>) -> bool {
+    gone.is_some_and(|g| g.load(Ordering::SeqCst))
+}
 
 pub(crate) const DAY_MS: u64 = 24 * 3_600_000;
 /// Past this the writer rewrites the file as aggregated buckets.
@@ -332,6 +338,8 @@ pub(crate) enum Work {
         sid: String,
         cwd: PathBuf,
     },
+    /// Write the first start's seed, already in the state, as one rewrite of the file.
+    Seed,
     #[cfg(test)]
     Flush(std::sync::mpsc::SyncSender<()>),
 }
@@ -365,16 +373,30 @@ fn host_person() -> String {
 impl Ledger {
     /// A ledger kept in `dir` (`<home>/ledger`), folded from its file now; `None` keeps it in
     /// memory only (a memory store).
+    ///
+    /// A first start (no ledger file) writes nothing until [`Ledger::seed`]: the hub seeds it
+    /// as it loads the store, and lines before that are held in memory for the seed's rewrite.
     pub fn open(dir: Option<PathBuf>) -> Self {
-        Self::open_with(dir, COMPACT_BYTES, host_person())
+        Self::open_as(dir, COMPACT_BYTES, host_person(), true)
     }
 
+    /// A ledger that writes from the start, seeded or not (tests).
+    #[cfg(test)]
     pub(crate) fn open_with(dir: Option<PathBuf>, compact_bytes: u64, person: String) -> Self {
+        Self::open_as(dir, compact_bytes, person, false)
+    }
+
+    pub(crate) fn open_as(
+        dir: Option<PathBuf>,
+        compact_bytes: u64,
+        person: String,
+        hold_for_seed: bool,
+    ) -> Self {
         let state = Arc::new(Mutex::new(State::default()));
         let mut repos = Vec::new();
         let spawned = dir.and_then(|dir| {
             let path = dir.join(store::FILE);
-            let size = {
+            let (size, awaiting_seed) = {
                 let mut s = state.lock().unwrap_or_else(PoisonError::into_inner);
                 let size = store::fold(&path, &mut s);
                 // Folded sessions with no repository yet: their folder's origin, once.
@@ -387,9 +409,9 @@ impl Ledger {
                         repos.push(Work::Repo { sid: id.to_string(), cwd: PathBuf::from(cwd) });
                     }
                 }
-                size
+                (size, hold_for_seed && !s.existed)
             };
-            store::spawn_writer(dir, path, size, compact_bytes, Arc::clone(&state))
+            store::spawn_writer(dir, path, size, compact_bytes, awaiting_seed, Arc::clone(&state))
         });
         let (writer, thread) = match spawned {
             Some((tx, thread)) => (Some(tx), Some(thread)),
@@ -446,45 +468,57 @@ impl Ledger {
     /// Observes one appended record. Only prompts, turn starts, tool calls and turn results do
     /// anything; the meta read is one short lock of the session's own meta.
     pub(crate) fn observe(&self, session: &super::Session, record: &EventRecord) {
-        use std::sync::atomic::Ordering;
         if session.purged.load(Ordering::SeqCst) {
             return;
         }
-        self.record(&session.id, record, || {
+        // The chat's own flag is read again under the ledger's lock: a purge sets it before it
+        // drops the chat's rows (`Hub::kill`), so a record counted first is the purge's to drop,
+        // and one that comes later adds nothing, even once a new chat has taken the id.
+        self.record_as(&session.id, Some(&session.purged), record, || {
             TurnContext::of(&session.meta.lock().unwrap_or_else(PoisonError::into_inner))
         });
-        // A purge that landed while this record was counted: it is the purge's to drop.
-        if session.purged.load(Ordering::SeqCst) {
-            self.purge(&session.id);
-        }
     }
 
-    /// [`Ledger::observe`] for session `id`; `ctx` is read only for a turn result.
+    /// [`Ledger::observe`] for session `id`, with no chat copy's flag (tests); `ctx` is read
+    /// only for a turn result.
+    #[cfg(test)]
     pub(crate) fn record(&self, id: &str, record: &EventRecord, ctx: impl FnOnce() -> TurnContext) {
+        self.record_as(id, None, record, ctx);
+    }
+
+    /// One record of chat `id`, for one copy of it: once `gone` (that copy's purged flag) is
+    /// set, its records add nothing. `ctx` is read only for a turn result.
+    pub(crate) fn record_as(
+        &self,
+        id: &str,
+        gone: Option<&AtomicBool>,
+        record: &EventRecord,
+        ctx: impl FnOnce() -> TurnContext,
+    ) {
         match (record.dir.as_str(), record.kind.as_str()) {
             (_, "user_message") => {
                 if record.msg.get("steer").and_then(Value::as_bool) == Some(true) {
                     return;
                 }
-                self.open_turn(id, record.at, false);
+                self.open_turn(id, record.at, false, gone);
             }
-            ("mux", "turn_started") => self.open_turn(id, record.at, true),
+            ("mux", "turn_started") => self.open_turn(id, record.at, true, gone),
             ("in", "tool_call") => {
                 let mut s = self.lock();
-                if s.blocked(id) {
+                if s.blocked(id) || is_gone(gone) {
                     return;
                 }
                 let key = s.session_key_open(id);
                 s.open.entry(key).or_default().tool_calls += 1;
             }
-            ("mux", "turn_result") => self.close_turn(id, record, ctx()),
+            ("mux", "turn_result") => self.close_turn(id, record, ctx(), gone),
             _ => {}
         }
     }
 
-    fn open_turn(&self, session: &str, at: u64, started: bool) {
+    fn open_turn(&self, session: &str, at: u64, started: bool, gone: Option<&AtomicBool>) {
         let mut s = self.lock();
-        if s.blocked(session) {
+        if s.blocked(session) || is_gone(gone) {
             return;
         }
         let key = s.session_key_open(session);
@@ -496,7 +530,13 @@ impl Ledger {
         }
     }
 
-    fn close_turn(&self, session: &str, record: &EventRecord, ctx: TurnContext) {
+    fn close_turn(
+        &self,
+        session: &str,
+        record: &EventRecord,
+        ctx: TurnContext,
+        gone: Option<&AtomicBool>,
+    ) {
         let msg = &record.msg;
         let model = msg
             .get("model")
@@ -515,7 +555,7 @@ impl Ledger {
         let version = crate::pricing::table().version.clone();
         let cwd = ctx.info.cwd.clone();
         let mut s = self.lock();
-        if s.blocked(session) {
+        if s.blocked(session) || is_gone(gone) {
             return;
         }
         let open = s.open.remove(session).unwrap_or_default();
@@ -550,6 +590,12 @@ impl Ledger {
         if known {
             self.emit(&mut s, Line::Purge { sid: session.to_owned() });
         }
+    }
+
+    /// A chat was created under `session` (`Hub::new_session_with_id`): a purge of that id this
+    /// run no longer blocks it, so the new chat's turns count.
+    pub fn reopen(&self, session: &str) {
+        self.lock().purged.remove(session);
     }
 
     /// A pull request `session` opened (`hub/pull_requests.rs`).
@@ -609,14 +655,13 @@ impl Ledger {
             {
                 repos.push(Work::Repo { sid: seed.id.clone(), cwd: PathBuf::from(cwd) });
             }
-            let info = s.sessions.get(seed.id.as_str()).cloned().unwrap_or_default();
-            self.emit(&mut s, Line::Session { sid: seed.id.clone(), info });
             s.add_bucket(&seed.id, &model, &version, seed.at, &totals);
-            let line =
-                Line::Spend { sid: seed.id, at: seed.at, model, pv: version.clone(), totals };
-            self.emit(&mut s, line);
         }
         drop(s);
+        // One rewrite, not a line per row: a crash part way through a seed of appended lines left
+        // a file that read as a ledger, and the sessions after the crash were never seeded. Sent
+        // even with nothing seeded: it ends the writer's hold on lines from before it.
+        self.send(Work::Seed);
         for work in repos {
             self.send(work);
         }

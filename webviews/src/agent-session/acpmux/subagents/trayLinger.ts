@@ -235,8 +235,9 @@ export const trayItemEnd = (item: TrayItem): number | undefined =>
   item.kind === "agent" ? item.agent.endedAt : item.kind === "command" ? item.command.endedAt : undefined;
 
 /// The ended items that stay, latest end first. A subagent and the nested ones under it move as one
-/// group, kept while any of them is, at its latest end. A command whose end only this view saw takes
-/// that time as its end, so its line can say how long it ran.
+/// group, kept while any of them is, at its latest end. A command or a subagent whose end only this
+/// view saw takes that time as its end, so its line says how long it ran and that time stays put when
+/// the hat folds and opens again (its line, Elapsed.tsx, mounts anew).
 export function lingeringTrayItems(ended: readonly TrayItem[], kept: ReadonlyMap<string, number>): TrayItem[] {
   if (kept.size === 0) return [];
   const groups: { at: number; index: number; items: TrayItem[] }[] = [];
@@ -249,9 +250,13 @@ export function lingeringTrayItems(ended: readonly TrayItem[], kept: ReadonlyMap
     const at = kept.get(trayItemKey(item));
     if (at !== undefined) current.at = Math.max(current.at, at);
     current.items.push(
-      item.kind === "command" && at !== undefined && item.command.endedAt === undefined
-        ? { ...item, command: { ...item.command, endedAt: at } }
-        : item,
+      at === undefined
+        ? item
+        : item.kind === "command" && item.command.endedAt === undefined
+          ? { ...item, command: { ...item.command, endedAt: at } }
+          : item.kind === "agent" && item.agent.endedAt === undefined
+            ? { ...item, agent: { ...item.agent, endedAt: at } }
+            : item,
     );
   }
   return groups

@@ -106,7 +106,8 @@ fn tab_close_selects_before_on_rapid_repeated_closes() {
 
 #[test]
 fn live_openers_skip_tabs_that_left() {
-    // B left: C, which B opened, takes B's opener A (Chrome's FixOpeners).
+    // B left: C, which B opened, takes B's opener A (Chrome's FixOpeners; new
+    // link tab placement).
     assert_eq!(live_openers(&map(&[("B", "A"), ("C", "B")]), &s(&["A", "C"])), map(&[("C", "A")]));
     // Only tabs in the order are keys; a chain that leads nowhere present is
     // dropped.
@@ -118,7 +119,7 @@ fn live_openers_skip_tabs_that_left() {
 }
 
 #[test]
-fn a_surviving_selection_stays() {
+fn closing_an_unselected_tab_keeps_the_selection() {
     let shown: HashSet<String> = s(&["A"]).into_iter().collect();
     assert_eq!(tab(Some(&"A".to_owned()), &s(&["A", "B"]), &s(&["A"]), &shown), some("A"));
 }
@@ -154,4 +155,33 @@ fn a_workspace_hands_off_to_the_next_drawn_row() {
     assert_eq!(workspace(Some(&"w2".to_owned()), &old, &surviving, &[]), some("w2"));
     assert_eq!(workspace(None, &old, &surviving, &[]), some("w1"));
     assert_eq!(workspace(Some(&"w1".to_owned()), &s(&["w1"]), &[], &[]), None);
+}
+
+/// Issue 38194: with no surviving pane in the focus history (a relaunch with
+/// only the closed pane focused), `MostRecent` falls back to the closed
+/// pane's sibling, the first pane of the subtree that takes its space, as
+/// classic's `closePaneRecursively`: `H(1, V(2, 3))`, close 2: 3, not 1.
+#[test]
+fn most_recent_without_history_focuses_the_closed_panes_sibling() {
+    use cmux_focus_core::close_focus::pane_or_sibling;
+    use cmux_focus_core::state::CloseFocusPolicy::{MostRecent, PreviousNeighbor};
+    let before = vec![s(&["1", "2", "3"])];
+    let after = vec![s(&["1", "3"])];
+    let two = "2".to_owned();
+    let three = "3".to_owned();
+    let pick = |history: &[&str], policy| {
+        pane_or_sibling(Some(&two), &before, &after, &s(history), Some(&three), policy)
+    };
+    assert_eq!(pick(&["2"], MostRecent), some("3"));
+    assert_eq!(pick(&[], MostRecent), some("3"));
+    // A surviving pane in the history wins over the sibling.
+    assert_eq!(pick(&["2", "1"], MostRecent), some("1"));
+    // previousNeighbor keeps its own rule.
+    assert_eq!(pick(&["2"], PreviousNeighbor), some("1"));
+    // A sibling that did not survive is not picked.
+    let gone = "9".to_owned();
+    assert_eq!(
+        pane_or_sibling(Some(&two), &before, &after, &s(&["2"]), Some(&gone), MostRecent),
+        some("1")
+    );
 }

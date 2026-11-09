@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.category.personalization": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التخصيص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizacija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalisering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalisierung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalization"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalización"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnalisation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizzazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パーソナライズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការកំណត់ផ្ទាល់ខ្លួន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개인화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalisering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizacja"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Персонализация"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การปรับแต่งส่วนตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kişiselleştirme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Персоналізація"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cá nhân hóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个性化"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "個人化"
+          }
+        }
+      }
+    },
     "settings.choice.groupPalettePictorial": {
       "comment": "Group Colors choice: colors from the desktop picture by place",
       "extractionState": "manual",
@@ -1088,27 +1219,27 @@
       "comment": "Settings > Chief > Chief Dock: help for the floating Chief's look at the screen.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off."}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "يمنح فتح Chief العائم نظرة واحدة على الشاشة خلف cmux والنافذة في المقدمة، لتسأل عمّا تراه. يستخدم إذن تسجيل الشاشة الخاص بمساعد Computer Use ولا يطلبه أبدًا. تطفئه العين في اللوحة."}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Otvaranje plutajućeg Chiefa daje mu jedan pogled na ekran iza cmuxa i prozor ispred, pa možeš pitati o onome što vidiš. Koristi dozvolu za snimanje ekrana Computer Use pomoćnika i nikad je ne traži. Oko u panelu to isključuje."}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Når du åbner den svævende Chief, får den ét kig på skærmen bag cmux og vinduet forrest, så du kan spørge om det, du ser. Den bruger Computer Use-hjælperens tilladelse til skærmoptagelse og beder aldrig om den. Øjet i panelet slår det fra."}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Beim Öffnen wirft der schwebende Chief einen Blick auf den Bildschirm hinter cmux und das vordere Fenster, damit du nach dem Gesehenen fragen kannst. Er nutzt die Bildschirmaufnahme-Berechtigung des Computer-Use-Helfers und fragt nie danach. Das Auge im Bereich schaltet es aus."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Al abrir Chief flotante, echa un vistazo a la pantalla detrás de cmux y a la ventana delantera, para que preguntes por lo que ves. Usa el permiso de grabación de pantalla del asistente de Computer Use y nunca lo pide. El ojo del panel lo desactiva."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "À l’ouverture, Chief flottant jette un coup d’œil à l’écran derrière cmux et à la fenêtre au premier plan, pour que vous l’interrogiez sur ce que vous voyez. Il utilise l’autorisation d’enregistrement de l’écran de l’assistant Computer Use et ne la demande jamais. L’œil du panneau le désactive."}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Quando apri Chief mobile, dà un’occhiata allo schermo dietro cmux e alla finestra in primo piano, così puoi chiedere di ciò che vedi. Usa il permesso di registrazione dello schermo dell’helper Computer Use e non lo chiede mai. L’occhio nel pannello lo disattiva."}},
-        "ja": {"stringUnit": {"state": "needs_review", "value": "フローティング Chief を開くと、cmux の背後の画面と最前面のウインドウを一度見るので、見ているものについて質問できます。Computer Use ヘルパーの画面収録の許可を使い、許可を求めることはありません。パネルの目のボタンでオフにできます。"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ការបើក Chief អណ្ដែត ឲ្យវាមើលអេក្រង់នៅពីក្រោយ cmux និងបង្អួចខាងមុខម្ដង ដើម្បីអ្នកអាចសួរអំពីអ្វីដែលអ្នកឃើញ។ វាប្រើការអនុញ្ញាតថតអេក្រង់របស់ជំនួយការ Computer Use ហើយមិនដែលសុំវាទេ។ ភ្នែកក្នុងផ្ទាំងបិទវា។"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "떠 있는 Chief를 열면 cmux 뒤의 화면과 맨 앞 창을 한 번 보므로, 보고 있는 것에 대해 물어볼 수 있습니다. Computer Use 도우미의 화면 기록 권한을 쓰며 권한을 요청하지 않습니다. 패널의 눈 버튼으로 끕니다."}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Når du åpner den svevende Chief, får den ett blikk på skjermen bak cmux og vinduet foran, så du kan spørre om det du ser. Den bruker Computer Use-hjelperens tillatelse til skjermopptak og ber aldri om den. Øyet i panelet slår det av."}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Otwarcie pływającego Chief daje mu jedno spojrzenie na ekran za cmux i okno na wierzchu, więc możesz zapytać o to, co widzisz. Używa uprawnienia nagrywania ekranu pomocnika Computer Use i nigdy o nie nie prosi. Oko w panelu to wyłącza."}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ao abrir o Chief flutuante, ele dá uma olhada na tela atrás do cmux e na janela da frente, para você perguntar sobre o que vê. Usa a permissão de gravação de tela do auxiliar do Computer Use e nunca a pede. O olho no painel desliga isso."}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "При открытии плавающий Chief один раз смотрит на экран за cmux и на переднее окно, чтобы вы могли спросить о том, что видите. Он использует разрешение на запись экрана помощника Computer Use и никогда его не запрашивает. Глаз в панели это выключает."}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "การเปิด Chief แบบลอยให้มันดูหน้าจอหลัง cmux และหน้าต่างด้านหน้าหนึ่งครั้ง เพื่อให้คุณถามเกี่ยวกับสิ่งที่เห็นได้ ใช้สิทธิ์บันทึกหน้าจอของตัวช่วย Computer Use และไม่เคยขอสิทธิ์นี้ ปุ่มรูปตาในแผงใช้ปิด"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Serbest Chief'i açmak, cmux'un arkasındaki ekrana ve öndeki pencereye bir kez bakmasını sağlar; böylece gördüğünüz şeyi sorabilirsiniz. Computer Use yardımcısının ekran kaydı iznini kullanır ve asla istemez. Paneldeki göz bunu kapatır."}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Відкриваючи плаваючий Chief, ви даєте йому один раз глянути на екран за cmux і переднє вікно, щоб ви могли спитати про побачене. Він використовує дозвіл на запис екрана помічника Computer Use і ніколи його не просить. Око в панелі це вимикає."}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Khi mở Chief nổi, nó xem một lần màn hình phía sau cmux và cửa sổ phía trước để bạn có thể hỏi về những gì mình thấy. Nó dùng quyền ghi màn hình của trình trợ giúp Computer Use và không bao giờ xin quyền đó. Biểu tượng mắt trong bảng tắt tính năng này."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "打开浮动 Chief 时，它会看一眼 cmux 背后的屏幕和最前面的窗口，方便你询问所见内容。它使用 Computer Use 助手的屏幕录制权限，从不请求该权限。面板中的眼睛按钮可关闭此功能。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "開啟浮動 Chief 時，它會看一眼 cmux 背後的螢幕和最前面的視窗，方便你詢問所見內容。它使用 Computer Use 輔助程式的螢幕錄製權限，從不要求該權限。面板中的眼睛按鈕可關閉此功能。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يمنح فتح Chief العائم نظرة واحدة على الشاشة خلف cmux والنافذة في المقدمة، لتسأل عمّا تراه. يستخدم إذن تسجيل الشاشة الخاص بمساعد Computer Use ولا يطلبه أبدًا. تطفئه العين في اللوحة. لا ينظر إلا عندما يكون Computer Use قيد التشغيل."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Otvaranje plutajućeg Chiefa daje mu jedan pogled na ekran iza cmuxa i prozor ispred, pa možeš pitati o onome što vidiš. Koristi dozvolu za snimanje ekrana Computer Use pomoćnika i nikad je ne traži. Oko u panelu to isključuje. Gleda samo dok je Computer Use uključen."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Når du åbner den svævende Chief, får den ét kig på skærmen bag cmux og vinduet forrest, så du kan spørge om det, du ser. Den bruger Computer Use-hjælperens tilladelse til skærmoptagelse og beder aldrig om den. Øjet i panelet slår det fra. Den kigger kun, mens Computer Use er slået til."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Beim Öffnen wirft der schwebende Chief einen Blick auf den Bildschirm hinter cmux und das vordere Fenster, damit du nach dem Gesehenen fragen kannst. Er nutzt die Bildschirmaufnahme-Berechtigung des Computer-Use-Helfers und fragt nie danach. Das Auge im Bereich schaltet es aus. Er schaut nur, solange Computer Use eingeschaltet ist."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Al abrir Chief flotante, echa un vistazo a la pantalla detrás de cmux y a la ventana delantera, para que preguntes por lo que ves. Usa el permiso de grabación de pantalla del asistente de Computer Use y nunca lo pide. El ojo del panel lo desactiva. Solo mira mientras Computer Use está activado."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "À l’ouverture, Chief flottant jette un coup d’œil à l’écran derrière cmux et à la fenêtre au premier plan, pour que vous l’interrogiez sur ce que vous voyez. Il utilise l’autorisation d’enregistrement de l’écran de l’assistant Computer Use et ne la demande jamais. L’œil du panneau le désactive. Il ne regarde que lorsque Computer Use est activé."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Quando apri Chief mobile, dà un’occhiata allo schermo dietro cmux e alla finestra in primo piano, così puoi chiedere di ciò che vedi. Usa il permesso di registrazione dello schermo dell’helper Computer Use e non lo chiede mai. L’occhio nel pannello lo disattiva. Guarda solo mentre Computer Use è attivo."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "フローティング Chief を開くと、cmux の背後の画面と最前面のウインドウを一度見るので、見ているものについて質問できます。Computer Use ヘルパーの画面収録の許可を使い、許可を求めることはありません。パネルの目のボタンでオフにできます。Computer Use がオンのときだけ見ます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ការបើក Chief អណ្ដែត ឲ្យវាមើលអេក្រង់នៅពីក្រោយ cmux និងបង្អួចខាងមុខម្ដង ដើម្បីអ្នកអាចសួរអំពីអ្វីដែលអ្នកឃើញ។ វាប្រើការអនុញ្ញាតថតអេក្រង់របស់ជំនួយការ Computer Use ហើយមិនដែលសុំវាទេ។ ភ្នែកក្នុងផ្ទាំងបិទវា។ វាមើលតែពេល Computer Use បើកប៉ុណ្ណោះ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "떠 있는 Chief를 열면 cmux 뒤의 화면과 맨 앞 창을 한 번 보므로, 보고 있는 것에 대해 물어볼 수 있습니다. Computer Use 도우미의 화면 기록 권한을 쓰며 권한을 요청하지 않습니다. 패널의 눈 버튼으로 끕니다. Computer Use가 켜져 있을 때만 봅니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Når du åpner den svevende Chief, får den ett blikk på skjermen bak cmux og vinduet foran, så du kan spørre om det du ser. Den bruker Computer Use-hjelperens tillatelse til skjermopptak og ber aldri om den. Øyet i panelet slår det av. Den ser bare mens Computer Use er slått på."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Otwarcie pływającego Chief daje mu jedno spojrzenie na ekran za cmux i okno na wierzchu, więc możesz zapytać o to, co widzisz. Używa uprawnienia nagrywania ekranu pomocnika Computer Use i nigdy o nie nie prosi. Oko w panelu to wyłącza. Patrzy tylko wtedy, gdy Computer Use jest włączone."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ao abrir o Chief flutuante, ele dá uma olhada na tela atrás do cmux e na janela da frente, para você perguntar sobre o que vê. Usa a permissão de gravação de tela do auxiliar do Computer Use e nunca a pede. O olho no painel desliga isso. Ele só olha enquanto o Computer Use está ativado."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "При открытии плавающий Chief один раз смотрит на экран за cmux и на переднее окно, чтобы вы могли спросить о том, что видите. Он использует разрешение на запись экрана помощника Computer Use и никогда его не запрашивает. Глаз в панели это выключает. Смотрит, только пока Computer Use включён."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "การเปิด Chief แบบลอยให้มันดูหน้าจอหลัง cmux และหน้าต่างด้านหน้าหนึ่งครั้ง เพื่อให้คุณถามเกี่ยวกับสิ่งที่เห็นได้ ใช้สิทธิ์บันทึกหน้าจอของตัวช่วย Computer Use และไม่เคยขอสิทธิ์นี้ ปุ่มรูปตาในแผงใช้ปิด จะดูเฉพาะเมื่อเปิด Computer Use อยู่เท่านั้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Serbest Chief'i açmak, cmux'un arkasındaki ekrana ve öndeki pencereye bir kez bakmasını sağlar; böylece gördüğünüz şeyi sorabilirsiniz. Computer Use yardımcısının ekran kaydı iznini kullanır ve asla istemez. Paneldeki göz bunu kapatır. Yalnızca Computer Use açıkken bakar."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відкриваючи плаваючий Chief, ви даєте йому один раз глянути на екран за cmux і переднє вікно, щоб ви могли спитати про побачене. Він використовує дозвіл на запис екрана помічника Computer Use і ніколи його не просить. Око в панелі це вимикає. Дивиться, лише поки Computer Use увімкнено."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khi mở Chief nổi, nó xem một lần màn hình phía sau cmux và cửa sổ phía trước để bạn có thể hỏi về những gì mình thấy. Nó dùng quyền ghi màn hình của trình trợ giúp Computer Use và không bao giờ xin quyền đó. Biểu tượng mắt trong bảng tắt tính năng này. Chỉ nhìn khi Computer Use đang bật."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "打开浮动 Chief 时，它会看一眼 cmux 背后的屏幕和最前面的窗口，方便你询问所见内容。它使用 Computer Use 助手的屏幕录制权限，从不请求该权限。面板中的眼睛按钮可关闭此功能。仅在 Computer Use 开启时查看。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "開啟浮動 Chief 時，它會看一眼 cmux 背後的螢幕和最前面的視窗，方便你詢問所見內容。它使用 Computer Use 輔助程式的螢幕錄製權限，從不要求該權限。面板中的眼睛按鈕可關閉此功能。僅在 Computer Use 開啟時查看。"}}
       }
     },
     "settings.choice.chiefPanelStyle.seeThrough": {
@@ -134298,6 +134429,268 @@
         }
       }
     },
+    "settings.sessions.keepAwakeForCommands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also While Terminal Commands Run"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أيضًا أثناء تشغيل أوامر الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Također dok se izvršavaju naredbe terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Også mens terminalkommandoer kører"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auch während Terminalbefehle laufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "También mientras se ejecutan comandos del terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aussi pendant l’exécution de commandes du terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anche durante l’esecuzione di comandi del terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのコマンド実行中も"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក៏ពេលពាក្យបញ្ជាទែមីណាល់កំពុងដំណើរការដែរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 명령이 실행되는 동안에도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Også mens terminalkommandoer kjører"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Również podczas działania poleceń terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Também enquanto comandos do terminal são executados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Также во время выполнения команд терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขณะที่คำสั่งในเทอร์มินัลทำงานด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal komutları çalışırken de"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Також під час виконання команд термінала"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cả khi lệnh terminal đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端命令运行时也保持唤醒"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機指令執行時也保持喚醒"
+          }
+        }
+      }
+    },
+    "settings.sessions.keepAwakeForCommands.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُبقي البناء أو الاختبار الذي يعمل منذ دقيقة جهاز Mac مستيقظًا ما دام يطبع مخرجات. يتبع إعداد إبقاء Mac مستيقظًا أثناء عمل الوكلاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build ili test koji radi već minutu drži Mac budnim dok god ispisuje. Prati postavku Drži Mac budnim dok agenti rade."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et build eller en test, der har kørt i et minut, holder Mac vågen, så længe den stadig skriver output. Følger Hold Mac vågen, mens agenter arbejder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Build oder Test, der seit einer Minute läuft, hält den Mac wach, solange er noch ausgibt. Folgt „Mac wach halten, während Agenten arbeiten“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una compilación o prueba que lleva un minuto en ejecución mantiene el Mac activo mientras siga mostrando salida. Sigue el ajuste Mantener el Mac activo mientras trabajan los agentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une compilation ou un test lancé depuis une minute garde le Mac éveillé tant qu’il affiche encore des sorties. Suit le réglage Garder le Mac éveillé pendant que les agents travaillent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una build o un test in esecuzione da un minuto mantiene il Mac attivo finché produce output. Segue Mantieni il Mac attivo mentre gli agenti lavorano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 分以上実行中のビルドやテストは、出力が続く間 Mac をスリープさせません。「エージェントの作業中は Mac をスリープさせない」の設定に従います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបង្កើត ឬការធ្វើតេស្តដែលដំណើរការបានមួយនាទី រក្សា Mac ឱ្យភ្ញាក់ ដរាបណាវានៅតែបោះពុម្ពលទ្ធផល។ អនុវត្តតាម រក្សា Mac ឱ្យភ្ញាក់ពេលភ្នាក់ងារកំពុងធ្វើការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1분 이상 실행 중인 빌드나 테스트가 출력을 계속하는 동안 Mac을 깨어 있게 유지합니다. 에이전트가 작업하는 동안 Mac 깨어 있게 유지 설정을 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et bygg eller en test som har kjørt i ett minutt, holder Mac våken så lenge den fortsatt skriver ut. Følger Hold Mac våken mens agenter arbeider."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompilacja lub test działający od minuty nie pozwala Macowi zasnąć, dopóki wypisuje dane. Działa zgodnie z ustawieniem Nie usypiaj Maca, gdy agenci pracują."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um build ou teste em execução há um minuto mantém o Mac ativo enquanto ainda gera saída. Segue Manter o Mac ativo enquanto os agentes trabalham."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сборка или тест, работающие уже минуту, не дают Mac уснуть, пока продолжают выводить данные. Следует настройке «Не давать Mac уснуть, пока работают агенты»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บิลด์หรือการทดสอบที่ทำงานมาแล้วหนึ่งนาทีจะทำให้ Mac ไม่หลับตราบที่ยังแสดงผลอยู่ ทำตามการตั้งค่าให้ Mac ไม่หลับขณะที่เอเจนต์ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir dakikadır çalışan bir derleme veya test, çıktı vermeye devam ettiği sürece Mac’i uyanık tutar. Ajanlar Çalışırken Mac’i Uyanık Tut ayarını izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збірка або тест, що працюють уже хвилину, не дають Mac заснути, поки виводять дані. Дотримується налаштування «Не давати Mac заснути, поки працюють агенти»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản build hoặc bài test đã chạy một phút sẽ giữ Mac thức khi vẫn còn in ra kết quả. Theo cài đặt Giữ Mac thức khi tác tử làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已运行一分钟的构建或测试只要仍有输出，就会让 Mac 保持唤醒。遵循“代理工作时保持 Mac 唤醒”设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已執行一分鐘的建置或測試只要仍有輸出，就會讓 Mac 保持喚醒。依循「代理程式工作時讓 Mac 保持喚醒」設定。"
+          }
+        }
+      }
+    },
     "settings.sessions.keepAwake.help": {
       "extractionState": "manual",
       "localizations": {
@@ -216827,6 +217220,84 @@
             "value": "結束 cmux 時工作階段即結束"
           }
         }
+      }
+    },
+    "settings.remote.ultraMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "وضع الاتصال الفائق"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ultra način veze"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Ultra-forbindelsestilstand"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Ultra-Verbindungsmodus"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Ultra Connection Mode"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Modo de conexión ultra"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Mode de connexion ultra"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Modalità connessione ultra"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ウルトラ接続モード"}},
+        "km": {"stringUnit": {"state": "translated", "value": "របៀបតភ្ជាប់អ៊ុលត្រា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "울트라 연결 모드"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Ultra-tilkoblingsmodus"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Tryb połączenia ultra"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Modo de conexão ultra"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Режим ультрасоединения"}},
+        "th": {"stringUnit": {"state": "translated", "value": "โหมดการเชื่อมต่ออัลตร้า"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ultra bağlantı modu"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Режим ультраз’єднання"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chế độ kết nối Ultra"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "超强连接模式"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "超強連線模式"}}
+      }
+    },
+    "settings.remote.ultraMode.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يرسل بيانات إصلاح مع كل اتصال بـ Cloud وأجهزتك الأخرى، فتبقى الشبكة التي تفقد الحزم سريعة. يستهلك نحو ضعفين إلى ثلاثة أضعاف البيانات. يُطبَّق على الاتصال التالي."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Šalje podatke za popravak uz svaku vezu prema Cloudu i vašim drugim računarima, pa mreža koja gubi pakete ostaje brza. Troši oko 2 do 3 puta više podataka. Primjenjuje se na sljedeću vezu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Sender reparationsdata med hver forbindelse til Cloud og dine andre maskiner, så et netværk, der taber pakker, forbliver hurtigt. Bruger cirka 2 til 3 gange så meget data. Gælder for den næste forbindelse."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Sendet bei jeder Verbindung zu Cloud und deinen anderen Rechnern Reparaturdaten mit, damit ein Netz, das Pakete verliert, schnell bleibt. Verbraucht etwa das 2- bis 3-Fache an Daten. Gilt ab der nächsten Verbindung."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Envía datos de reparación con cada conexión a Cloud y a tus otras máquinas, para que una red que pierde paquetes siga siendo rápida. Usa entre 2 y 3 veces más datos. Se aplica a la siguiente conexión."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Envoie des données de réparation avec chaque connexion à Cloud et à vos autres machines, pour qu’un réseau qui perd des paquets reste rapide. Utilise environ 2 à 3 fois plus de données. S’applique à la prochaine connexion."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Invia dati di riparazione con ogni connessione a Cloud e alle tue altre macchine, così una rete che perde pacchetti resta veloce. Usa circa da 2 a 3 volte i dati. Si applica alla connessione successiva."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud や他のマシンへの各接続で修復データを送り、パケットが失われるネットワークでも速さを保ちます。データ量は約 2〜3 倍になります。次の接続から適用されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ផ្ញើទិន្នន័យជួសជុលជាមួយការតភ្ជាប់នីមួយៗទៅ Cloud និងម៉ាស៊ីនផ្សេងទៀតរបស់អ្នក ដូច្នេះបណ្ដាញដែលបាត់កញ្ចប់ព័ត៌មាននៅតែលឿន។ ប្រើទិន្នន័យប្រហែល 2 ទៅ 3 ដង។ អនុវត្តចំពោះការតភ្ជាប់បន្ទាប់។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud와 다른 기기로의 모든 연결에 복구 데이터를 함께 보내, 패킷이 손실되는 네트워크에서도 빠르게 유지합니다. 데이터를 약 2~3배 사용합니다. 다음 연결부터 적용됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Sender reparasjonsdata med hver tilkobling til Cloud og de andre maskinene dine, slik at et nettverk som mister pakker, forblir raskt. Bruker omtrent 2 til 3 ganger så mye data. Gjelder fra neste tilkobling."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wysyła dane naprawcze z każdym połączeniem z Cloud i Twoimi innymi maszynami, więc sieć gubiąca pakiety pozostaje szybka. Zużywa około 2–3 razy więcej danych. Działa od następnego połączenia."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Envia dados de reparo em cada conexão com o Cloud e suas outras máquinas, para que uma rede que perde pacotes continue rápida. Usa cerca de 2 a 3 vezes mais dados. Vale a partir da próxima conexão."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Отправляет данные для восстановления с каждым подключением к Cloud и другим вашим машинам, чтобы сеть с потерей пакетов оставалась быстрой. Расходует примерно в 2–3 раза больше данных. Действует со следующего подключения."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ส่งข้อมูลกู้คืนไปกับทุกการเชื่อมต่อไปยัง Cloud และเครื่องอื่นของคุณ เพื่อให้เครือข่ายที่ทำแพ็กเก็ตหายยังคงเร็ว ใช้ข้อมูลประมาณ 2 ถึง 3 เท่า มีผลกับการเชื่อมต่อครั้งถัดไป"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Cloud’a ve diğer makinelerinize yapılan her bağlantıyla onarım verisi gönderir; böylece paket kaybeden bir ağ hızlı kalır. Yaklaşık 2 ila 3 kat veri kullanır. Bir sonraki bağlantıda geçerli olur."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Надсилає дані для відновлення з кожним з’єднанням із Cloud та іншими вашими машинами, щоб мережа із втратою пакетів залишалася швидкою. Використовує приблизно у 2–3 рази більше даних. Діє з наступного з’єднання."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Gửi dữ liệu sửa lỗi kèm mỗi kết nối tới Cloud và các máy khác của bạn, để mạng bị mất gói vẫn nhanh. Dùng khoảng 2 đến 3 lần dữ liệu. Áp dụng cho kết nối tiếp theo."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在每个连接到 Cloud 和你其他机器的连接中附带修复数据，让丢包的网络依然快速。数据用量约为 2 到 3 倍。从下一次连接开始生效。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在每個連到 Cloud 和你其他機器的連線中附帶修復資料，讓會掉封包的網路依然快速。資料用量約為 2 到 3 倍。從下一次連線開始生效。"}}
+      }
+    },
+    "settings.remote.ultraMode.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يستهلك بيانات أكثر ليبقى سريعًا على الشبكات غير المستقرة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Troši više podataka da ostane brz na mrežama s gubicima"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Bruger mere data for at forblive hurtig på ustabile netværk"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Verbraucht mehr Daten, um in verlustreichen Netzen schnell zu bleiben"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Uses more data to stay fast on lossy networks"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Usa más datos para seguir rápido en redes con pérdidas"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Utilise plus de données pour rester rapide sur les réseaux instables"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Usa più dati per restare veloce sulle reti con perdite"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "データを多く使い、不安定なネットワークでも速さを保ちます"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រើទិន្នន័យច្រើនជាងមុន ដើម្បីនៅតែលឿននៅលើបណ្ដាញដែលបាត់កញ្ចប់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "데이터를 더 사용해 손실이 많은 네트워크에서도 빠르게 유지"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bruker mer data for å holde seg rask på ustabile nettverk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zużywa więcej danych, by działać szybko w sieciach z utratą pakietów"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Usa mais dados para continuar rápido em redes instáveis"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Расходует больше данных, чтобы оставаться быстрым в сетях с потерями"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ใช้ข้อมูลมากขึ้นเพื่อให้ยังเร็วบนเครือข่ายที่สัญญาณไม่เสถียร"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Kayıplı ağlarda hızlı kalmak için daha fazla veri kullanır"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Використовує більше даних, щоб лишатися швидким у мережах із втратами"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Dùng nhiều dữ liệu hơn để vẫn nhanh trên mạng chập chờn"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "使用更多数据，在丢包的网络上保持快速"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "使用更多資料，在會掉封包的網路上保持快速"}}
       }
     },
     "settings.agentPane.display.statusVerbs": {

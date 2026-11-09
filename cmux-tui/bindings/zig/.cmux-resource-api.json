@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "154a7c364bd86de362350a59cedc5c9409f419b62b27631210e856399d1b3b3d",
+  "catalog_sha256": "7be279edf9e67500ec5f487784fd59725de13d0f569f817385a2081a725f64b2",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -137,6 +137,12 @@
       "class": "mutation"
     },
     "chief.stop": {
+      "class": "mutation"
+    },
+    "classic_import.plan": {
+      "class": "read"
+    },
+    "classic_import.record": {
       "class": "mutation"
     },
     "client.cell_pixels.set": {
