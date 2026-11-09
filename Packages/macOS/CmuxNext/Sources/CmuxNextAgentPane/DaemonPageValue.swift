@@ -6,7 +6,8 @@ import Foundation
 /// A value between a page and the session host (react-pages.md 1.1): params from the page's JSON
 /// to the session host's, a result back, and a session host refusal as the page's error, its
 /// code under `cmux.`.
-public enum DaemonPageValue {
+public struct DaemonPageValue {
+    public init() {}
     public static func daemonParams(_ members: [String: CmuxNextSettings.JSONValue]) throws -> [String: CmuxNextDaemon.JSONValue] {
         try JSONDecoder().decode([String: CmuxNextDaemon.JSONValue].self,
                                  from: Data(CmuxNextSettings.JSONValue.object(members).compactText.utf8))
