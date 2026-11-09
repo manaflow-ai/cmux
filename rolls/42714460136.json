@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42714460136",
+  "recorded_at": "2026-11-09T22:54:59Z",
+  "reason": "cmux-tui 2834d7f92098 changes the image's cmux-tui (pinned aff712f53bc8)",
+  "dry_run": false,
+  "cmux_tui": "2834d7f920981da4a849e79eadb17fef7644dbf3",
+  "fixes": [
+    {
+      "sha": "2834d7f920981da4a849e79eadb17fef7644dbf3",
+      "mergedAt": "2026-11-09T22:27:43Z",
+      "subject": "cmux-tui: server-stats reports disk use by journal kind; a guard holds each kind to a daily disk budget (#39134)"
+    },
+    {
+      "sha": "b00cf0dfbce3cdd1f0ca63e29b4c93713375888e",
+      "mergedAt": "2026-11-09T22:21:05Z",
+      "subject": "acpmux: sender chips on older pages, never from acpmux's own CLI, none for withdrawn or resent inbox messages (#38286)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T22:54:59Z",
+    "snapshot_id": "sh-a773c6f7073c44c1a030dfbb409e31be",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42714460136): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4b8bd43c8c2dcffaa21d2f0cc94afb389ebbd6fa",
+    "image": "cloud-native-auto-2834d7f9-42714460136-1",
+    "revision": "ci-42714460136-1",
+    "at": "2026-11-09T22:54:59Z"
+  },
+  "rolled_back": false
+}
