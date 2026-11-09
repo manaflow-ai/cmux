@@ -331,6 +331,76 @@ fn unowned_hosts_of_other_builds_state_roots_end_unless_their_owner_runs() {
     assert_eq!(pids(&running_before), pids(&running_after), "a running build's host was ended");
 }
 
+#[test]
+fn unowned_hosts_of_a_session_whose_guard_is_missing_are_never_ended() {
+    let dir = FaultDir::new("unowned-noguard");
+    let mut gone = Owner::start(&dir, "gone-session", &[NIGHTLY]).0;
+    gone.run_terminals(2, &["/bin/cat"]);
+    gone.stop_keeping_hosts();
+    // Without its guard file no lease can keep the session from starting
+    // and adopting its hosts while they are judged.
+    for entry in fs::read_dir(dir.state_root().join("session-locks")).unwrap().flatten() {
+        let name = entry.file_name().into_string().unwrap();
+        if name.starts_with("gone-session-") {
+            fs::remove_file(entry.path()).unwrap();
+        }
+    }
+    let (current, _) = Owner::start(&dir, "current-session", &FAST_REAP);
+    std::thread::sleep(Duration::from_secs(5));
+    assert_eq!(live_hosts(&gone.host_root()).len(), 2, "{}", current.log_text());
+}
+
+#[test]
+fn unowned_hosts_grace_starts_over_after_their_owner_ran_in_between() {
+    const GRACE: [(&str, &str); 2] = [
+        ("CMUX_TUI_TEST_UNOWNED_HOST_GRACE_MS", "4000"),
+        ("CMUX_TUI_TEST_UNOWNED_HOST_INTERVAL_MS", "250"),
+    ];
+    let dir = FaultDir::new("unowned-between");
+    let mut gone = Owner::start(&dir, "gone-session", &[NIGHTLY]).0;
+    let terminals = gone.run_terminals(1, &["/bin/cat"]);
+    gone.stop_keeping_hosts();
+    let gone_root = gone.host_root();
+
+    // The reaper sees the host and saves its time, then stops in the grace.
+    let mut current = Owner::start(&dir, "current-session", &GRACE).0;
+    std::thread::sleep(Duration::from_millis(1500));
+    current.stop_keeping_hosts();
+    assert_eq!(live_hosts(&gone_root).len(), 1, "ended within its grace");
+
+    // The host's own session comes back, adopts and uses it, and quits.
+    let mut back = Owner::start(&dir, "gone-session", &[NIGHTLY]).0;
+    let resolved = back.data(json!({"cmd": "resolve-terminal", "terminal_id": terminals[0]}));
+    let deadline = Instant::now() + BOUND;
+    let mut resolved = resolved;
+    while resolved["lifecycle"] != "running" {
+        assert!(Instant::now() < deadline, "not adopted: {resolved}");
+        std::thread::sleep(Duration::from_millis(50));
+        resolved = back.data(json!({"cmd": "resolve-terminal", "terminal_id": terminals[0]}));
+    }
+    if let Some(surface) = resolved["surface"].as_u64() {
+        back.data(json!({"cmd": "send", "surface": surface, "text": "still here\n"}));
+    }
+    back.stop_keeping_hosts();
+    // Past the first saved time plus the grace.
+    std::thread::sleep(Duration::from_secs(3));
+
+    let current = Owner::start(&dir, "current-session", &GRACE).0;
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(
+        live_hosts(&gone_root).len(),
+        1,
+        "the grace did not start over after the host's owner used it: {}",
+        current.log_text()
+    );
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !live_hosts(&gone_root).is_empty() {
+        assert!(Instant::now() < deadline, "never ended: {}", current.log_text());
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    drop(back);
+}
+
 /// Makes every host under `root` one its session cannot place on its next
 /// start: the registry is gone and the record names no workspace, so the
 /// start ends it instead of recovering it (cx-0tgl LC).

@@ -196,7 +196,9 @@ impl Mux {
 /// Elsewhere (Linux, Windows, a standalone cmux-tui) a state root has no
 /// such siblings and only the own one is looked in.
 fn state_roots(own_state_root: &Path) -> Vec<PathBuf> {
-    let name = |path: Option<&Path>| path.and_then(Path::file_name).and_then(|name| name.to_str());
+    fn name(path: Option<&Path>) -> Option<&str> {
+        path.and_then(Path::file_name).and_then(|name| name.to_str())
+    }
     let tag_dir = own_state_root.parent();
     let tags = tag_dir.and_then(Path::parent);
     let base = if name(Some(own_state_root)) == Some("tui")
