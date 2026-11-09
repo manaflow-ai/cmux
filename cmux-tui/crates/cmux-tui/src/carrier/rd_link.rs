@@ -412,8 +412,9 @@ where
             let mut finished = false;
             let host_full = host_queued.load(Ordering::Relaxed) >= QUEUE_LIMIT;
             let viewer_full = viewer_queued.load(Ordering::Relaxed) >= QUEUE_LIMIT;
+            // Unbiased: tokio picks among ready branches at random, so steady
+            // input, video or link traffic never starves the others.
             tokio::select! {
-                biased;
                 read = reader.read(&mut buffer), if viewer_open && !host_full => {
                     let size = read?;
                     if size == 0 {
