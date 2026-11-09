@@ -100,6 +100,13 @@ public nonisolated enum SidebarTunables {
         help: "Where a workspace row draws the brand mark of an agent running in it (R79 prototype).",
         default: .off, code: "SidebarTunables.agentMark")
 
+    /// How a row shows an agent driving the screen or a browser (`AgentDriveIndicatorView`): on whatever
+    /// `presenceDots` says, since it is the one presence mark that needs the person's eye.
+    public static let driveIndicator = Tunable<SidebarDriveIndicatorVariant>.choice(
+        "sidebar.driveIndicator", .sidebar, "Agent drive indicator",
+        help: "How a workspace row shows an agent using the computer or a browser: a capsule with its name, a glyph, a solid badge or the old dot.",
+        default: .capsule, code: "SidebarTunables.driveIndicator")
+
     /// Multiplayer agent presence (cx-gg84): off until the dots are styled
     /// into the row; the daemon feed (`agent-presence-v1`) runs either way.
     public static let presenceDots = Tunable<Bool>.toggle(
@@ -240,6 +247,7 @@ public nonisolated enum SidebarTunables {
             agentMark.descriptor,
             collapseMotion.descriptor,
             dragThreshold.descriptor,
+            driveIndicator.descriptor,
             groupByStatus.descriptor,
             groupChromeShape.descriptor,
             groupEdgeFraction.descriptor,

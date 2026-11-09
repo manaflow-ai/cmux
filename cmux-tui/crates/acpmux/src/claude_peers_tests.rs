@@ -13,8 +13,35 @@ fn entry(pid: u32, id: &str, entrypoint: &str, socket: &Path) -> Value {
     json!({
         "pid": pid, "sessionId": id, "cwd": "/work", "entrypoint": entrypoint,
         "kind": "interactive", "version": "2.1.310", "name": "desk chat",
-        "messagingSocketPath": socket, "status": "idle",
+        "messagingSocketPath": socket, "status": "idle", "startedAt": now_ms(),
     })
+}
+
+fn now_ms() -> u64 {
+    let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap();
+    u64::try_from(since.as_millis()).unwrap()
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn an_entry_names_a_sender_only_while_its_process_is_the_one_that_wrote_it() {
+    let dir = scratch("reused");
+    let me = std::process::id();
+    let write = |record: Value| {
+        std::fs::write(dir.join(format!("sessions/{me}.json")), record.to_string()).unwrap();
+        live(&dir).into_iter().map(|p| p.session_id).collect::<Vec<_>>()
+    };
+    let sock = dir.join("me.sock");
+    assert_eq!(write(entry(me, "mine", "claude-desktop", &sock)), ["mine"]);
+    // Written by an app that started (and ended) long before this process took its pid.
+    let mut stale = entry(me, "stale", "claude-desktop", &sock);
+    stale["startedAt"] = json!(1_000);
+    assert!(write(stale).is_empty(), "a reused pid never stands in for a stale entry");
+    // No start time recorded: the entry cannot be tied to this process, so it is refused.
+    let mut unknown = entry(me, "unknown", "claude-desktop", &sock);
+    unknown.as_object_mut().unwrap().remove("startedAt");
+    assert!(write(unknown).is_empty(), "an entry with no start time names no sender");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -76,7 +103,7 @@ fn frames_are_an_auth_line_then_a_user_line() {
 
 #[test]
 fn a_from_address_keeps_only_address_characters() {
-    assert_eq!(from_address("big red/review 42"), "acpmux:big-red/review-42");
+    assert_eq!(from_address("some host/review 42"), "acpmux:some-host/review-42");
     assert!(from_address(&"x".repeat(1000)).len() <= 300);
 }
 

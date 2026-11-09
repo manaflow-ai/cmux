@@ -62,7 +62,9 @@ fn fake_claude(
     let pid = std::process::id();
     let sock = config.join("inbox.sock");
     let listener = std::os::unix::net::UnixListener::bind(&sock).unwrap();
-    let entry = json!({"pid": pid, "sessionId": sid, "cwd": "/w", "entrypoint": "claude-desktop", "messagingSocketPath": sock});
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap();
+    let entry = json!({"pid": pid, "sessionId": sid, "cwd": "/w", "entrypoint": "claude-desktop",
+        "messagingSocketPath": sock, "startedAt": u64::try_from(now.as_millis()).unwrap()});
     std::fs::write(config.join(format!("sessions/{pid}.json")), entry.to_string()).unwrap();
     let key = crate::claude_peers::key_file(config, pid, &sock);
     std::fs::write(key, json!({"peerToken": "0123456789abcdef0123456789abcdef"}).to_string())

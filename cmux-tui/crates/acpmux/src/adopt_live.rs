@@ -105,13 +105,11 @@ fn claude_holder(config: &Path, id: &str) -> Option<LiveUse> {
 /// `startedAt` (milliseconds since the epoch), so a pid reused by a later
 /// process does not stand in for the ended one.
 pub(crate) fn registered_runs(pid: u32, started_at_ms: Option<u64>) -> bool {
-    /// Clock granularity between the process start and the time it records.
-    const SLACK_MS: u64 = 1_000;
     if !pid_exists(pid) {
         return false;
     }
     match (started_at_ms, pid_start_ms(pid)) {
-        (Some(recorded), Some(started)) => started <= recorded.saturating_add(SLACK_MS),
+        (Some(recorded), Some(started)) => started_matches(started, recorded),
         _ => true,
     }
 }
@@ -139,11 +137,48 @@ fn pid_start_ms(pid: u32) -> Option<u64> {
     Some(sec.saturating_mul(1000).saturating_add(usec / 1000))
 }
 
+/// When `pid` started, in milliseconds since the epoch (Linux): `/proc/<pid>/stat`'s `starttime`
+/// (clock ticks since boot) after `/proc/stat`'s `btime` (the boot, seconds since the epoch).
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn pid_start_ms(pid: u32) -> Option<u64> {
+    let ticks = crate::daemon::owner_exit::process_start(pid)?;
+    let stat = std::fs::read_to_string("/proc/stat").ok()?;
+    let boot: u64 =
+        stat.lines().find_map(|line| line.strip_prefix("btime "))?.trim().parse().ok()?;
+    // SAFETY: sysconf reads a constant of the running system.
+    let hz =
+        u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }).ok().filter(|hz| *hz > 0)?;
+    boot.checked_mul(1000)?.checked_add(ticks.checked_mul(1000)? / hz)
+}
+
 /// Elsewhere the registry's pid decides alone.
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
 fn pid_start_ms(_pid: u32) -> Option<u64> {
     None
 }
+
+/// Whether a registry entry provably names the process it was written by: `pid` runs, the
+/// entry recorded `startedAt` and the process's start time reads and is no later than it. What
+/// names a message's sender (claude_peers.rs, hub/desktop_bridge.rs) asks this, not
+/// [`registered_runs`]: a pid reused after the app exited never stands in for its stale entry,
+/// and where either time is unknown the entry is refused.
+pub(crate) fn registered_proven(pid: u32, started_at_ms: Option<u64>) -> bool {
+    let (Some(recorded), Some(started)) =
+        (started_at_ms, pid_exists(pid).then(|| pid_start_ms(pid)).flatten())
+    else {
+        return false;
+    };
+    started_matches(started, recorded)
+}
+
+/// A process started at `started` (ms) is the one an entry recorded at `recorded` (ms): it started
+/// no later, within the clock granularity between its start and the time it wrote.
+fn started_matches(started: u64, recorded: u64) -> bool {
+    started <= recorded.saturating_add(START_SLACK_MS)
+}
+
+/// Clock granularity between a process's start and the time it records.
+const START_SLACK_MS: u64 = 1_000;
 
 /// A running Codex that holds thread `id`'s writer lock. Probed as Codex
 /// probes it before it publishes a thread: under the home's coordination lock
