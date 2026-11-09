@@ -158,3 +158,56 @@ it("deletes no tunnel when the sweep's lookup fails", async () => {
   expect(outcome._tag).toBe("Left");
   expect(p.deletes).toEqual([]);
 });
+
+it("reads a tunnel listing far over the 1 MiB reply cap as it streams, and still sweeps it", async () => {
+  // 4,000 tunnels with a full WireGuard config each: about 3 MiB, streamed in 16 KiB chunks.
+  const listing = Array.from({ length: 4_000 }, (_, n) => ({
+    ...deviceTunnel(n + 1),
+    clientConfig: `[Interface]\nPrivateKey = \nAddress = 100.64.0.1/32\n${"#".repeat(600)}`,
+    attachments: [{ vpcId: "vpc-1", address: "10.0.0.2" }],
+  }));
+  const text = JSON.stringify({ tunnels: listing, totalCount: listing.length });
+  expect(text.length).toBeGreaterThan(3 * 1024 * 1024);
+  const deletes: string[] = [];
+  const fetch = async (request: Request) => {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/v5/tunnels") {
+      const bytes = new TextEncoder().encode(text);
+      let offset = 0;
+      return new Response(new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (offset >= bytes.length) return controller.close();
+          controller.enqueue(bytes.slice(offset, offset + 16 * 1024));
+          offset += 16 * 1024;
+        },
+      }), { headers: { "content-type": "application/json" } });
+    }
+    if (request.method === "DELETE") {
+      deletes.push(decodeURIComponent(url.pathname.replace("/v5/tunnels/", "")));
+      return Response.json({});
+    }
+    return new Response(null, { status: 500 });
+  };
+  const report = await Effect.runPromise(sweepOrphanTunnels(
+    { baseUrl: "https://provider.test", apiKey: Redacted.make("key"), environment: "production", fetch },
+    { dryRun: false, sweepable: (owners) => {
+      const found: ReadonlySet<string> = new Set(owners.map((owner) => owner.deviceId).filter((x) => x === device(3_999)));
+      return Effect.succeed(found);
+    } },
+  ));
+  expect(report.listed).toBe(4_000);
+  expect(report.deleted).toEqual(["tun-3999"]);
+  expect(deletes).toEqual(["tun-3999"]);
+});
+
+it("deletes nothing when the listing is cut off", async () => {
+  const fetch = async (request: Request) =>
+    new URL(request.url).pathname === "/v5/tunnels" && request.method === "GET"
+      ? new Response(JSON.stringify({ tunnels: [deviceTunnel(1)] }).slice(0, -3))
+      : new Response(null, { status: 500 });
+  const outcome = await Effect.runPromise(Effect.either(sweepOrphanTunnels(
+    { baseUrl: "https://provider.test", apiKey: Redacted.make("key"), environment: "production", fetch },
+    { dryRun: false, sweepable: () => Effect.succeed(new Set([device(1)])) },
+  )));
+  expect(outcome._tag).toBe("Left");
+});
