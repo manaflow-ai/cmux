@@ -617,7 +617,8 @@ pub struct SshWorld {
     pub platform: SocketAddr,
     pub dir: tempfile::TempDir,
     pub ssh: Arc<SshStub>,
-    /// The tunnel hub's socket (a listener that only accepts).
+    /// The tunnel hub's socket: a listener that only accepts, or, in a
+    /// [`world_ssh_via_hub`], the stand-in hub at the default socket.
     pub hub: std::path::PathBuf,
     /// The fake ssh client, and the file it writes its arguments to.
     pub fake_ssh: std::path::PathBuf,
@@ -630,7 +631,12 @@ pub struct SshWorld {
     pub ssh_junk: std::path::PathBuf,
     /// Cuts every relay connection, and refuses new ones.
     pub cut: watch::Sender<bool>,
-    _hub: std::os::unix::net::UnixListener,
+    /// In a [`world_ssh_via_hub`]: while set, the stand-in hub ends every
+    /// tunneled connection and refuses new ones (the tunnel is down).
+    pub hub_cut: Arc<std::sync::atomic::AtomicBool>,
+    /// The `host:port` of each SOCKS5 CONNECT the stand-in hub took.
+    pub hub_dialed: Arc<Mutex<Vec<String>>>,
+    _hub: Option<std::os::unix::net::UnixListener>,
     _link: cmux_remote::daemon::UnixServer,
     _registration: Option<cmux_remote::provider::RelayDaemonRegistration>,
     _runtime: tokio::runtime::Runtime,
@@ -652,14 +658,48 @@ impl SshWorld {
 /// `relay_up`: the platform names a relay proxy the test can cut; else an
 /// address nothing listens on, so every relay connect is refused.
 pub fn world_ssh(relay_up: bool) -> SshWorld {
+    ssh_world(relay_up, false)
+}
+
+/// A machine whose ssh carrier goes the whole way the dial's ProxyCommand
+/// names: the fake ssh runs that ProxyCommand (the real `cmux-tui wg dial
+/// --hub <socket> %h %p`), whose SOCKS5 CONNECT reaches a stand-in tunnel
+/// hub on the default socket (`<state dir>/carrier/tunnel.sock`), which
+/// plays the machine's sshd: it runs the carrier key's forced command, the
+/// real `cmux-tui remote-link --stdio`, on the tunneled stream. Only the
+/// WireGuard tunnel and sshd's encryption are left out; [`SshWorld::hub_cut`]
+/// takes the tunnel down.
+pub fn world_ssh_via_hub() -> SshWorld {
+    ssh_world(true, true)
+}
+
+fn ssh_world(relay_up: bool, via_hub: bool) -> SshWorld {
     use std::os::unix::fs::PermissionsExt as _;
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let mux = dir.path().join("mux.sock");
     let link = dir.path().join("link.sock");
     let state = dir.path().join("daemon");
-    let hub = dir.path().join("hub.sock");
-    let hub_listener = std::os::unix::net::UnixListener::bind(&hub).unwrap();
+    let hub_cut = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hub_dialed = Arc::new(Mutex::new(Vec::new()));
+    let (hub, hub_listener) = if via_hub {
+        let carrier = dir.path().join(".local/state/cmux-tui/sessions/carrier");
+        std::fs::create_dir_all(&carrier).unwrap();
+        let hub = carrier.join("tunnel.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&hub).unwrap();
+        stand_in_hub(
+            listener,
+            link.clone(),
+            dir.path().into(),
+            hub_cut.clone(),
+            hub_dialed.clone(),
+        );
+        (hub, None)
+    } else {
+        let hub = dir.path().join("hub.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&hub).unwrap();
+        (hub, Some(listener))
+    };
     let ssh_args = dir.path().join("ssh-args");
     let fake_ssh = dir.path().join("fake-ssh");
     let ssh_cut = dir.path().join("ssh-cut");
@@ -669,8 +709,9 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
     // link ends when `ssh_cut` appears (by SIGKILL, so it ends whatever
     // remote-link makes of a SIGTERM; stdin goes to the command through
     // fd 3: a background command's own stdin is /dev/null).
-    std::fs::write(
-        &fake_ssh,
+    let script = if via_hub {
+        PROXY_SSH.replace("{args}", &ssh_args.display().to_string())
+    } else {
         format!(
             "#!/bin/sh\n\
              printf '%s\\n' \"$@\" >> '{args}'\n\
@@ -689,9 +730,9 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
             cut = ssh_cut.display(),
             junk = ssh_junk.display(),
             link = link.display(),
-        ),
-    )
-    .unwrap();
+        )
+    };
+    std::fs::write(&fake_ssh, script).unwrap();
     std::fs::set_permissions(&fake_ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
     let ssh = Arc::new(SshStub::default());
     let (cut, cut_seen) = watch::channel(false);
@@ -760,11 +801,117 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
         ssh_cut,
         ssh_junk,
         cut,
+        hub_cut,
+        hub_dialed,
         _hub: hub_listener,
         _link: link_server,
         _registration: registration,
         _runtime: runtime,
     }
+}
+
+/// The fake ssh of a [`world_ssh_via_hub`]: it records its arguments, then
+/// becomes the ProxyCommand the dial gave it, with `%h`, `%p` and `%%`
+/// expanded as ssh does, so the link's bytes go through `wg dial`. (The
+/// real ssh would speak its protocol over that stream; the stand-in hub's
+/// "sshd" runs the forced command on it directly.)
+const PROXY_SSH: &str = r#"#!/bin/sh
+printf '%s\n' "$@" >> '{args}'
+port=22
+proxy=
+dest=
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -p) port=$2; shift 2 ;;
+        -o) case "$2" in ProxyCommand=*) proxy=${2#ProxyCommand=} ;; esac; shift 2 ;;
+        --) dest=$2; break ;;
+        *) shift ;;
+    esac
+done
+[ -n "$proxy" ] || { echo 'ssh: no ProxyCommand' >&2; exit 255; }
+host=${dest#*@}
+proxy=$(printf '%s' "$proxy" | sed -e "s/%h/$host/g" -e "s/%p/$port/g" -e 's/%%/%/g')
+exec /bin/sh -c "exec $proxy"
+"#;
+
+/// The stand-in tunnel hub on `listener`: SOCKS5 CONNECT without auth (what
+/// `wg dial` sends for port 22), recorded in `dialed`, then the machine's
+/// sshd with the carrier key's forced command: `cmux-tui remote-link
+/// --stdio` into the daemon's `link` socket, with the tunneled stream as its
+/// stdin and stdout. While `cut` is set every tunneled stream ends (the
+/// command is killed and the stream shut down) and new ones are dropped.
+fn stand_in_hub(
+    listener: std::os::unix::net::UnixListener,
+    link: std::path::PathBuf,
+    home: std::path::PathBuf,
+    cut: Arc<std::sync::atomic::AtomicBool>,
+    dialed: Arc<Mutex<Vec<String>>>,
+) {
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            if cut.load(Ordering::SeqCst) {
+                continue;
+            }
+            let (link, home, cut, dialed) =
+                (link.clone(), home.clone(), cut.clone(), dialed.clone());
+            std::thread::spawn(move || hub_stream(stream, &link, &home, &cut, &dialed));
+        }
+    });
+}
+
+fn hub_stream(
+    mut stream: std::os::unix::net::UnixStream,
+    link: &Path,
+    home: &Path,
+    cut: &std::sync::atomic::AtomicBool,
+    dialed: &Mutex<Vec<String>>,
+) {
+    use std::io::{Read as _, Write as _};
+    // The hub's own liveness check (`hub_up`) connects and closes: no greeting.
+    let mut greeting = [0_u8; 3];
+    if stream.read_exact(&mut greeting).is_err() || greeting != [5, 1, 0] {
+        return;
+    }
+    let mut head = [0_u8; 4];
+    if stream.write_all(&[5, 0]).is_err() || stream.read_exact(&mut head).is_err() {
+        return;
+    }
+    // CONNECT to a literal IPv4 address: the ssh candidate's mesh address.
+    let mut target = [0_u8; 6];
+    if head != [5, 1, 0, 1] || stream.read_exact(&mut target).is_err() {
+        let _ = stream.write_all(&[5, 7, 0, 1, 0, 0, 0, 0, 0, 0]);
+        return;
+    }
+    let ip = std::net::Ipv4Addr::new(target[0], target[1], target[2], target[3]);
+    let port = u16::from_be_bytes([target[4], target[5]]);
+    dialed.lock().unwrap().push(format!("{ip}:{port}"));
+    if stream.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).is_err() {
+        return;
+    }
+    // sshd hands the forced command the session's own descriptors: here the
+    // tunneled stream itself is its stdin and stdout, with nothing copying
+    // between them.
+    let (Ok(input), Ok(output)) = (stream.try_clone(), stream.try_clone()) else { return };
+    let mut child = std::process::Command::new(BIN)
+        .args(["remote-link", "--stdio", "--session", "carrier-ssh", "--link-socket"])
+        .arg(link)
+        .env_clear()
+        .env("HOME", home)
+        .stdin(std::process::Stdio::from(std::os::fd::OwnedFd::from(input)))
+        .stdout(std::process::Stdio::from(std::os::fd::OwnedFd::from(output)))
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    while child.try_wait().ok().flatten().is_none() {
+        if cut.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = stream.shutdown(std::net::Shutdown::Both);
 }
 
 /// A TCP proxy to `relay` whose connections all end, and whose new ones

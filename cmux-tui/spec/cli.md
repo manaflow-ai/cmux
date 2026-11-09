@@ -20,7 +20,7 @@ cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token-
 cmux wg dial --hub <unix socket> <host> <port>
 cmux carrier dial --machine <vm_id> [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N]
 cmux carrier key --public
-cmux carrier capabilities [--json]
+cmux carrier capabilities [--json] [--wg-hub PATH]
 cmux carrier serve --machine <vm_id> --socket <absolute path> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]
 cmux link dial --host <install or host id> [--service daemon|ssh|owner_session|desktop|acpmux] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--cloud-token-file PATH] [--handoff]
@@ -103,10 +103,14 @@ nothing and writes the dial's failure line (`handshake`, exit 5); other argument
 `bad_request` (64).
 
 `carrier capabilities` prints one JSON object on stdout and exits 0, with no network,
-sign-in or app: `routes` (the carriers this build can carry a Cloud session over, today
-`["relay"]`), `faults` (the faults a probe can inject, `["kill-route"]`), and `carriers.relay`
-and `carriers.ssh`, each `{available, probe, faults, reason?}`. ssh is `available: false`
-until the build has an ssh route to a Cloud machine. The probe account's fault drill,
+sign-in or app: `routes` (the carriers this device can carry a Cloud session over,
+`["relay"]` or `["relay", "ssh"]`), `faults` (the faults a probe can inject, `["kill-route"]`),
+and `carriers.relay` and `carriers.ssh`, each `{available, probe, faults, code?, reason?}`.
+ssh is available exactly when the dial's own check of this device passes: the tunnel hub
+answers at `--wg-hub` (else `<state dir>/carrier/tunnel.sock`) and the carrier key is there
+(made the first time, as a dial makes it). When it is not, `code` is the connect log's `ssh=`
+word (`no_tunnel`, `no_key`) and `reason` says it in words. The machine's own `ssh` candidate
+is per answer, so only the dial's `carrier.routes` line reports it. The probe account's fault drill,
 `cmux cloud start-chat … --carrier-fault kill-route=relay,after-events=N`, is refused unless
 `CMUX_CARRIER_PROBE_FAULTS=1` is set and the app is signed in to a probe account; a fault
 that leaves no other carrier is `carrier_fault.no_other_route` before anything starts, with
