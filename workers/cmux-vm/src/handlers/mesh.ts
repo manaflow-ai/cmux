@@ -942,6 +942,9 @@ const definitelyNotCreated = (error: { readonly operation: string; readonly stat
 const providerAnswered = (error: { readonly operation: string; readonly status: number | null }) =>
   (error.operation === "createTunnel" && error.status !== null && ![408, 502, 503, 504].includes(error.status)) ||
   error.operation === "createTunnel.mintedKey" ||
+  // The endpoint lookup runs after the provider answered the create with a tunnel (its rollback delete is
+  // createTunnel.resolve, which never propagates): the create was processed, so nothing more can land.
+  error.operation === "resolveEndpoint" ||
   error.operation === "createTunnel.resolve";
 
 /** The caller as the intent authorization predicate (`authorizes`, migration 0018) sees it. */
