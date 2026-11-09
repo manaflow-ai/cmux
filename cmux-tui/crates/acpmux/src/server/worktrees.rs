@@ -1,7 +1,9 @@
 //! The worktree cleanup methods (`hub/worktree_care.rs`):
-//! `_acpmux/worktree/report {}` (a pass that only decides and measures,
-//! and the last pass's report), `_acpmux/worktree/clean {only?}` (the
-//! machine view's Clean up now: a pass that acts) and
+//! `_acpmux/worktree/report {staleOnly?}` (a pass that only decides and
+//! measures, and the last pass's report), `_acpmux/worktree/clean {only?,
+//! staleOnly?}` (the machine view's Clean up now: a pass that acts; with
+//! `staleOnly`, Session Info's Storage section, which frees only clean,
+//! finished worktrees nothing live uses) and
 //! `_acpmux/worktree/restore {key, path?}` (a reclaimed worktree back, by
 //! its folder, branch or archive id).
 //!
@@ -79,7 +81,7 @@ pub(super) async fn retention(
 async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
     match m {
         method::MUX_WORKTREE_REPORT => {
-            let report = hub.care_pass(false, Vec::new()).await?;
+            let report = hub.care_pass(false, Vec::new(), stale_only(params)).await?;
             Ok(json!({"report": report, "last": hub.care_last_report()}))
         }
         method::MUX_WORKTREE_CLEAN => {
@@ -92,7 +94,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
                     .ok_or_else(|| RpcError::invalid_params("only must be a list of folders"))?,
                 Some(_) => return Err(RpcError::invalid_params("only must be a list of folders")),
             };
-            hub.care_pass(true, only).await
+            hub.care_pass(true, only, stale_only(params)).await
         }
         _ => {
             let key = str_param(params, "key")
@@ -101,4 +103,9 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
             hub.care_restore(key.to_string(), path).await
         }
     }
+}
+
+/// `staleOnly`: act on and measure only stale worktrees (`policy::stale`).
+fn stale_only(params: &Value) -> bool {
+    params.get("staleOnly").and_then(Value::as_bool).unwrap_or(false)
 }

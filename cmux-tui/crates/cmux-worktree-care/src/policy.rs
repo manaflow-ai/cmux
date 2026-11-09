@@ -209,6 +209,16 @@ pub fn decide(
     trim(format!("idle {idle_hours} h"))
 }
 
+/// Whether a verdict's worktree is stale: its folder may go (`Reclaim` or
+/// `Archive`, so no open session or program is in it and it is past its
+/// quiet time), its work is finished (merged or squashed into a base), and
+/// it has no changed or untracked file. Ignored data (a `.env`) is archived
+/// on the way out. The Storage panel offers only these.
+pub fn stale(verdict: &Verdict, facts: Option<&crate::Facts>) -> bool {
+    matches!(verdict.action, Action::Reclaim | Action::Archive)
+        && facts.is_some_and(|f| f.finished.is_some() && f.changed == 0 && f.untracked.is_empty())
+}
+
 fn only_here_reason(facts: &crate::Facts) -> String {
     let mut parts = Vec::new();
     if facts.unpushed > 0 {
@@ -375,5 +385,21 @@ mod care_tests {
         assert_eq!(settings.pressure(0.5), Pressure::Normal);
         assert_eq!(settings.pressure(0.85), Pressure::High);
         assert_eq!(settings.pressure(0.94), Pressure::Critical);
+    }
+
+    #[test]
+    fn only_clean_finished_work_that_may_go_is_stale() {
+        let finished = Facts { finished: Some("merged into origin/main".into()), ..pushed(30) };
+        let go = verdict(Action::Reclaim, "finished");
+        assert!(stale(&go, Some(&finished)));
+        assert!(stale(&verdict(Action::Archive, "finished"), Some(&finished)));
+        assert!(!stale(&verdict(Action::Keep, "session lane is open in it"), Some(&finished)));
+        assert!(!stale(&verdict(Action::Trim, "idle"), Some(&finished)));
+        assert!(!stale(&go, Some(&pushed(30))), "pushed but not merged");
+        let dirty = Facts { changed: 1, ..finished.clone() };
+        assert!(!stale(&go, Some(&dirty)));
+        let untracked = Facts { untracked: vec!["notes.md".into()], ..finished };
+        assert!(!stale(&go, Some(&untracked)));
+        assert!(!stale(&go, None), "unreadable facts");
     }
 }
