@@ -448,6 +448,35 @@ impl Drop for TerminalReaper {
     }
 }
 
+/// A reaper thread started before the owner binds its socket and held until
+/// the owner holds the session: `identify` lists `terminal-reaper-active-v1`
+/// from the bind, and the thread runs no pass before [`Self::release`].
+/// Dropping it (a failed bind or a failed later startup step) ends the
+/// thread and the advertisement.
+pub struct HeldTerminalReaper {
+    reaper: TerminalReaper,
+}
+
+impl HeldTerminalReaper {
+    /// The owner holds the session: the reaper runs from now on.
+    pub fn release(self) -> TerminalReaper {
+        self.reaper
+    }
+
+    /// End the held thread and wait for it; `identify` no longer lists the
+    /// reaper when this returns.
+    pub fn cancel(self) {
+        self.reaper.stop();
+    }
+}
+
+/// Start the unplaced-terminal reaper thread held: see
+/// [`HeldTerminalReaper`].
+pub fn prepare_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<HeldTerminalReaper> {
+    mux.announce_terminal_reaper();
+    Ok(HeldTerminalReaper { reaper: start_terminal_reaper(mux)? })
+}
+
 /// Start the unplaced-terminal reaper for an owner with the mux's current
 /// grace period. It runs until stopped or the mux is gone.
 pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> {
