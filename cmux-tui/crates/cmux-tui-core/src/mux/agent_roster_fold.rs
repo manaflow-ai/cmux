@@ -646,8 +646,11 @@ impl Mux {
     /// Compare durable values first so a healthy restart emits no mutations.
     pub(super) fn reconcile_agent_roster_projections(&self) {
         // A roster still replaying is behind the journal: its entries are
-        // older than the projections. The replay reconciles when it is done.
-        if self.agent_roster_replaying() {
+        // older than the projections. The replay reconciles when it is done,
+        // under the hook projector's lock (`reconcile_after_replay`); until
+        // then the roster can still hold an entry older than a row written
+        // since, so this one waits for that too.
+        if self.agent_roster_settling() {
             return;
         }
         // A stale roster (a reducer bump) can disagree with projections the
@@ -779,7 +782,8 @@ impl Mux {
     }
 
     /// [`Self::reconcile_agent_roster_projection_for_entry`]; with
-    /// `sequence_lock_held`, the caller holds `agent_hook_fences`.
+    /// `sequence_lock_held`, the caller (the reconcile after a background
+    /// replay) holds `agent_hook_fences`, and a row newer than the entry stays.
     fn reconcile_agent_roster_projection_with(
         &self,
         terminal_id: &TerminalPublicId,
@@ -811,7 +815,16 @@ impl Mux {
                 && projection.source_session == entry.session
                 && projection.agent == entry.agent
         });
-        if matches {
+        // After a background replay, a row newer than the roster's entry was
+        // written since: a direct report commits its row and releases the hook
+        // projector's lock before it appends the journal echo the roster
+        // folds, and that echo moves only the roster. Replacing the row would
+        // leave it on the replay's older state.
+        let newer = sequence_lock_held
+            && projection
+                .as_ref()
+                .is_some_and(|projection| projection.updated_at_ms > entry.updated_at_ms);
+        if matches || newer {
             return;
         }
         self.apply_roster_delta_with(
