@@ -5271,6 +5271,31 @@ pub(crate) fn probe_session_owner(root: &Path, component: &str) -> SessionOwnerP
     }
 }
 
+/// What the last owner run of the session `component` of `root` left in its
+/// session directory: the newest modification time and the total size of
+/// its top-level files (registry, its WAL, `startup-timings.jsonl`). Every
+/// owner start and every adoption commits there, so a change means an owner
+/// ran in between; nothing else writes there while its guard is free.
+pub(crate) fn session_owner_mark(root: &Path, component: &str) -> String {
+    let dir = platform::normalize_filesystem_path(root.join(component));
+    let (mut newest, mut size, mut files) = (0_u128, 0_u64, 0_usize);
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let Ok(metadata) = entry.metadata() else { continue };
+        if !metadata.is_file() {
+            continue;
+        }
+        files += 1;
+        size = size.saturating_add(metadata.len());
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |since| since.as_nanos());
+        newest = newest.max(modified);
+    }
+    format!("{newest}:{size}:{files}")
+}
+
 /// The guard file stems in `root` (`session-locks/<stem>.lock`), sorted.
 #[cfg(unix)]
 pub(crate) fn session_guard_components(root: &Path) -> Vec<String> {
@@ -5297,6 +5322,34 @@ pub(crate) fn session_guard_component(session: &str) -> String {
 
 fn session_guard_lock_component_path(lock_dir: &Path, component: &str) -> PathBuf {
     platform::normalize_filesystem_path(lock_dir.join(format!("{component}.lock")))
+}
+
+#[cfg(test)]
+mod session_owner_probe_tests {
+    use super::*;
+
+    #[test]
+    fn a_held_probe_lease_keeps_the_session_from_starting_and_a_missing_guard_is_no_lease() {
+        let root = std::env::temp_dir().join(format!("owner-probe-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let component = session_guard_component("cmux-app-gone");
+        assert!(matches!(probe_session_owner(&root, &component), SessionOwnerProbe::NoGuard));
+
+        // The session ran once: its guard file exists and is free.
+        drop(acquire_session_guard(&root, "cmux-app-gone").unwrap());
+        let SessionOwnerProbe::Unowned(lease) = probe_session_owner(&root, &component) else {
+            panic!("a free guard was not taken");
+        };
+        // A daemon starting now cannot take the session (and adopt its hosts).
+        assert!(acquire_session_guard(&root, "cmux-app-gone").is_err());
+        drop(lease);
+        // A running daemon's guard is never taken.
+        let owner = acquire_session_guard(&root, "cmux-app-gone").unwrap();
+        assert!(matches!(probe_session_owner(&root, &component), SessionOwnerProbe::Owned));
+        drop(owner);
+        let _ = fs::remove_dir_all(&root);
+    }
 }
 
 fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {

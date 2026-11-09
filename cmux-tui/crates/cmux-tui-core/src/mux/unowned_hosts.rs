@@ -17,11 +17,15 @@
 //!    by every owner from its registry open to its exit) is free, and this
 //!    owner holds that guard while it ends the host, so the session cannot
 //!    start and adopt it meanwhile (such a start fails as during a session
-//!    reset, and the app's next ensure starts it). A session whose guard is
-//!    held is never touched, and its hosts' times start over;
+//!    reset, and the app's next ensure starts it). A root whose guard is
+//!    held, missing, or cannot be named is never touched; a held one starts
+//!    its hosts' times over;
 //! 2. it has been seen that way for its grace, counted from the first pass
 //!    that saw it, kept across restarts in this session's directory
-//!    ([`STORE_FILE`]), so an owner in a restart loop still reaps.
+//!    ([`STORE_FILE`]), so an owner in a restart loop still reaps. Each time
+//!    is saved with what the session's last owner run left in its session
+//!    directory (`session_owner_mark`): an owner run since then (one that
+//!    adopted or used the host) starts the grace over.
 //!
 //! Graces: [`LIVE_SHELL_GRACE`] for a host whose shell still runs (the user's
 //! work may be in it: a session that has not started for a day while this
@@ -283,16 +287,24 @@ fn other_session_roots(own_root: &Path) -> Vec<(PathBuf, PathBuf, Option<String>
     roots
 }
 
+/// When a pass first saw a host (or a dead record) with no owner, and what
+/// its session's last owner run had left then
+/// ([`crate::workspace_registry::session_owner_mark`]).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct Seen {
+    first_seen_ms: u64,
+    owner_mark: String,
+}
+
 /// What the reaper keeps across passes and restarts ([`STORE_FILE`]).
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct Store {
     /// The last record root a pass finished: the next pass starts after it.
     #[serde(default)]
-    cursor: Option<String>,
-    /// `<record root>|<terminal id>|<incarnation>`: when a pass first saw
-    /// that host (or dead record) with no owner, wall-clock ms.
+    cursor: Option<PathBuf>,
+    /// By `<record root>|<terminal id>|<incarnation>`.
     #[serde(default)]
-    hosts: BTreeMap<String, u64>,
+    hosts: BTreeMap<String, Seen>,
 }
 
 fn load_store(path: &Path) -> Store {
@@ -308,7 +320,7 @@ fn save_store(path: &Path, store: &Store) {
         let Some(newest) = store
             .hosts
             .iter()
-            .max_by_key(|(_, first_seen)| **first_seen)
+            .max_by_key(|(_, seen)| seen.first_seen_ms)
             .map(|(key, _)| key.clone())
         else {
             break;
@@ -320,6 +332,48 @@ fn save_store(path: &Path, store: &Store) {
     if std::fs::write(&temporary, bytes).is_ok() && std::fs::rename(&temporary, path).is_err() {
         let _ = std::fs::remove_file(&temporary);
     }
+}
+
+/// How a pass left one record root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Visit {
+    /// No records: not counted against [`MAX_ROOTS_PER_PASS`].
+    Empty,
+    /// Looked at in full.
+    Done,
+    /// A cap stopped it part way: the next pass starts at it again.
+    Unfinished,
+}
+
+/// Visits `roots` (sorted) in order from the first after `cursor`, wrapping
+/// around, at most [`MAX_ROOTS_PER_PASS`] roots with records. Returns the new
+/// cursor (the last root finished) and whether a cap or a stop ended the pass
+/// with roots left.
+fn walk_roots<T>(
+    roots: &[T],
+    path: impl Fn(&T) -> &Path,
+    cursor: Option<&Path>,
+    stopped: &dyn Fn() -> bool,
+    mut visit: impl FnMut(&T) -> Visit,
+) -> (Option<PathBuf>, bool) {
+    let start = cursor.map_or(0, |cursor| roots.partition_point(|root| path(root) <= cursor));
+    let mut cursor = cursor.map(Path::to_path_buf);
+    let mut counted = 0;
+    for root in roots[start..].iter().chain(&roots[..start]) {
+        if stopped() {
+            return (cursor, true);
+        }
+        if counted == MAX_ROOTS_PER_PASS {
+            return (cursor, true);
+        }
+        match visit(root) {
+            Visit::Empty => {}
+            Visit::Done => counted += 1,
+            Visit::Unfinished => return (cursor, true),
+        }
+        cursor = Some(path(root).to_path_buf());
+    }
+    (cursor, false)
 }
 
 /// One pass over the other sessions' record roots ([`other_session_roots`]),
@@ -334,134 +388,125 @@ fn reap_pass(
     let mut report = PassReport::default();
     let previous = load_store(store_path);
     let mut store = previous.clone();
-    let mut roots = other_session_roots(own_root);
-    if let Some(cursor) = previous.cursor.as_deref() {
-        let cursor = Path::new(cursor);
-        let after = roots.partition_point(|(_, root, _)| root.as_path() <= cursor);
-        roots.rotate_left(after);
-    }
-    // Roots with records looked at, and dead records removed, this pass.
-    let (mut visited, mut removed) = (0, 0);
-    for (state_root, root, component) in roots {
-        if stopped() {
-            break;
-        }
-        let root_key = root.to_string_lossy().into_owned();
-        let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(&root) else {
-            continue;
-        };
-        if records.is_empty() {
-            store.cursor = Some(root_key);
-            continue;
-        }
-        if visited == MAX_ROOTS_PER_PASS {
-            report.capped = true;
-            break;
-        }
-        visited += 1;
-        report.roots += 1;
-        let prefix = format!("{root_key}|");
-        store.hosts.retain(|key, _| !key.starts_with(&prefix));
-        // Held to the end of this root: no owner of the session can start
-        // while its hosts are judged and ended.
-        let _lease =
-            match component.as_deref().map(|component| probe_session_owner(&state_root, component))
-            {
-                Some(SessionOwnerProbe::Owned) => {
+    let roots = other_session_roots(own_root);
+    let mut removed = 0;
+    let (cursor, capped) = walk_roots(
+        &roots,
+        |(_, root, _)| root.as_path(),
+        previous.cursor.as_deref(),
+        stopped,
+        |(state_root, root, component)| {
+            let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
+                return Visit::Done;
+            };
+            if records.is_empty() {
+                return Visit::Empty;
+            }
+            report.roots += 1;
+            let prefix = format!("{}|", root.display());
+            store.hosts.retain(|key, _| !key.starts_with(&prefix));
+            // Only while this root's own session guard is held here: no owner
+            // of it runs, and none can start and adopt its hosts until the
+            // lease drops at the end of this root. A root whose guard is held,
+            // missing or cannot be named is never touched.
+            let Some(component) = component else {
+                report.owned_roots += 1;
+                return Visit::Done;
+            };
+            let _lease = match probe_session_owner(state_root, component) {
+                SessionOwnerProbe::Unowned(lease) => lease,
+                SessionOwnerProbe::Owned | SessionOwnerProbe::NoGuard => {
                     report.owned_roots += 1;
-                    store.cursor = Some(root_key);
-                    continue;
+                    return Visit::Done;
                 }
-                Some(SessionOwnerProbe::Unowned(lease)) => Some(lease),
-                Some(SessionOwnerProbe::NoGuard) | None => None,
             };
-        let mut finished = true;
-        let mut dead = Vec::new();
-        let mut all_dead = true;
-        for (record_path, record) in records {
-            let key = format!("{prefix}{}|{}", record.terminal_id, record.incarnation);
-            // A wall clock set back only restarts the count.
-            let first_seen = previous.hosts.get(&key).copied().filter(|first| *first <= now_ms);
-            let first_seen = first_seen.unwrap_or(now_ms);
-            let unowned_for = Duration::from_millis(now_ms - first_seen);
-            match terminal_host_record_liveness(&record_path, &record) {
-                TerminalHostLiveness::Dead => {
-                    dead.push((record_path, record, key, first_seen, unowned_for));
+            // An owner run since a time was saved (it adopted or used the
+            // hosts) starts every grace of this root over.
+            let owner_mark = crate::workspace_registry::session_owner_mark(state_root, component);
+            let mut visit = Visit::Done;
+            let mut dead = Vec::new();
+            let mut all_dead = true;
+            for (record_path, record) in records {
+                let key = format!("{prefix}{}|{}", record.terminal_id, record.incarnation);
+                // A wall clock set back only restarts the count.
+                let first_seen = previous
+                    .hosts
+                    .get(&key)
+                    .filter(|seen| seen.owner_mark == owner_mark && seen.first_seen_ms <= now_ms)
+                    .map_or(now_ms, |seen| seen.first_seen_ms);
+                let seen = Seen { first_seen_ms: first_seen, owner_mark: owner_mark.clone() };
+                let unowned_for = Duration::from_millis(now_ms - first_seen);
+                match terminal_host_record_liveness(&record_path, &record) {
+                    TerminalHostLiveness::Dead => {
+                        dead.push((record_path, record, key, seen, unowned_for));
+                        continue;
+                    }
+                    TerminalHostLiveness::Indeterminate => {
+                        all_dead = false;
+                        continue;
+                    }
+                    TerminalHostLiveness::Live => all_dead = false,
+                }
+                let grace = if record_path.with_extension("exit").exists() {
+                    timing.ended_grace
+                } else {
+                    timing.live_grace
+                };
+                if unowned_for < grace {
+                    report.in_grace += 1;
+                    store.hosts.insert(key, seen);
                     continue;
                 }
-                TerminalHostLiveness::Indeterminate => {
-                    all_dead = false;
+                if report.reaped + report.failed >= MAX_REAPS_PER_PASS || stopped() {
+                    visit = Visit::Unfinished;
+                    store.hosts.insert(key, seen);
                     continue;
                 }
-                TerminalHostLiveness::Live => all_dead = false,
+                if cleanup_terminal_host_record(&record, &record_path) {
+                    eprintln!(
+                        "cmux-tui: ended terminal host {} of another session ({}): no live \
+                         session owned it for {} s",
+                        record.terminal_id,
+                        root.display(),
+                        unowned_for.as_secs()
+                    );
+                    report.reaped += 1;
+                } else {
+                    report.failed += 1;
+                    store.hosts.insert(key, seen);
+                }
             }
-            let grace = if record_path.with_extension("exit").exists() {
-                timing.ended_grace
-            } else {
-                timing.live_grace
-            };
-            if unowned_for < grace {
-                report.in_grace += 1;
-                store.hosts.insert(key, first_seen);
-                continue;
-            }
-            if report.reaped + report.failed >= MAX_REAPS_PER_PASS || stopped() {
-                report.capped = true;
-                finished = false;
-                store.hosts.insert(key, first_seen);
-                continue;
-            }
-            if cleanup_terminal_host_record(&record, &record_path) {
-                eprintln!(
-                    "cmux-tui: ended terminal host {} of another session ({}): no live \
-                     session owned it for {} s",
-                    record.terminal_id,
-                    root.display(),
-                    unowned_for.as_secs()
-                );
-                report.reaped += 1;
-            } else {
-                report.failed += 1;
-                store.hosts.insert(key, first_seen);
-            }
-        }
-        // A root whose hosts are all dead holds only stale records: each is
-        // removed (its record, live marker and endpoint, as the owner's own
-        // cleanup does) once it has been seen that way for the ended-shell
-        // grace. A root with a live or unclear host keeps its dead records
-        // for that session's next start.
-        if all_dead {
-            for (record_path, record, key, first_seen, unowned_for) in dead {
-                if unowned_for < timing.ended_grace {
-                    store.hosts.insert(key, first_seen);
+            // A root whose hosts are all dead holds only stale records: each
+            // is removed (its record, live marker and endpoint, as the owner's
+            // own cleanup does) once seen so for the ended-shell grace. A root
+            // with a live or unclear host keeps its dead records for that
+            // session's next start.
+            for (record_path, record, key, seen, unowned_for) in dead {
+                if !all_dead || unowned_for < timing.ended_grace {
+                    store.hosts.insert(key, seen);
                     continue;
                 }
                 if removed == MAX_REMOVALS_PER_PASS {
-                    report.capped = true;
-                    finished = false;
-                    store.hosts.insert(key, first_seen);
+                    visit = Visit::Unfinished;
+                    store.hosts.insert(key, seen);
                     continue;
                 }
                 match crate::terminal_host_runtime::remove_stale_terminal_host_record(
                     &record_path,
                     &record,
                 ) {
-                    Ok(true) => {
-                        removed += 1;
-                        report.removed += 1;
-                    }
+                    Ok(true) => removed += 1,
                     Ok(false) | Err(_) => {
-                        store.hosts.insert(key, first_seen);
+                        store.hosts.insert(key, seen);
                     }
                 }
             }
-        }
-        if !finished {
-            // The next pass starts at this root again.
-            break;
-        }
-        store.cursor = Some(root_key);
-    }
+            visit
+        },
+    );
+    report.removed = removed;
+    report.capped = capped;
+    store.cursor = cursor;
     if store != previous {
         save_store(store_path, &store);
     }
@@ -521,17 +566,71 @@ mod tests {
     }
 
     #[test]
+    fn passes_resume_after_the_last_root_so_every_root_is_seen_past_the_cap() {
+        let roots = (0..MAX_ROOTS_PER_PASS + 6)
+            .map(|index| PathBuf::from(format!("/roots/r{index:03}")))
+            .collect::<Vec<_>>();
+        let never = || false;
+        let mut seen = HashSet::new();
+        let walk = |cursor: Option<&Path>| {
+            let mut visited = Vec::new();
+            let result = walk_roots(
+                &roots,
+                |root| root.as_path(),
+                cursor,
+                &never,
+                |root| {
+                    visited.push(root.clone());
+                    Visit::Done
+                },
+            );
+            (result, visited)
+        };
+        let ((cursor, capped), first) = walk(None);
+        assert!(capped);
+        assert_eq!(first.len(), MAX_ROOTS_PER_PASS);
+        assert_eq!(cursor.as_ref(), Some(&roots[MAX_ROOTS_PER_PASS - 1]));
+        seen.extend(first);
+        let ((_, capped), second) = walk(cursor.as_deref());
+        assert!(capped);
+        // The second pass starts at the first root the first one left out.
+        assert_eq!(second.first(), Some(&roots[MAX_ROOTS_PER_PASS]));
+        seen.extend(second);
+        assert_eq!(seen.len(), roots.len(), "a root no pass reached");
+
+        // A root a cap left part way is the next pass's first.
+        let ((cursor, capped), _) = {
+            let mut visited = Vec::new();
+            let result = walk_roots(
+                &roots,
+                |root| root.as_path(),
+                None,
+                &never,
+                |root| {
+                    visited.push(root.clone());
+                    if visited.len() == 3 { Visit::Unfinished } else { Visit::Done }
+                },
+            );
+            (result, visited)
+        };
+        assert!(capped);
+        assert_eq!(cursor.as_ref(), Some(&roots[1]));
+    }
+
+    #[test]
     fn the_store_keeps_the_oldest_first_seen_times_past_its_cap() {
         let dir = std::env::temp_dir().join(format!("unowned-store-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(STORE_FILE);
         let hosts = (0..MAX_STORE_ENTRIES as u64 + 2)
-            .map(|index| (format!("root/{index}"), index))
+            .map(|index| {
+                (format!("root/{index}"), Seen { first_seen_ms: index, owner_mark: "-".into() })
+            })
             .collect::<BTreeMap<_, _>>();
         save_store(&path, &Store { cursor: None, hosts });
         let loaded = load_store(&path).hosts;
         assert_eq!(loaded.len(), MAX_STORE_ENTRIES);
-        assert_eq!(loaded.get("root/0"), Some(&0));
+        assert_eq!(loaded.get("root/0").map(|seen| seen.first_seen_ms), Some(0));
         assert!(!loaded.contains_key(&format!("root/{}", MAX_STORE_ENTRIES + 1)));
         let _ = std::fs::remove_dir_all(&dir);
     }
