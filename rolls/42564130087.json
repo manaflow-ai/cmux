@@ -1,0 +1,107 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42564130087",
+  "recorded_at": "2026-11-09T05:00:11Z",
+  "reason": "cmux-tui 73b88a5cf8b1 changes the image's cmux-tui (pinned 29b1527bdde8)",
+  "dry_run": false,
+  "cmux_tui": "73b88a5cf8b156e564832f033d0e35998bb825f7",
+  "fixes": [
+    {
+      "sha": "73b88a5cf8b156e564832f033d0e35998bb825f7",
+      "mergedAt": "2026-11-09T04:38:27Z",
+      "subject": "chore(next): base autofix at dd5d3e0c5068"
+    },
+    {
+      "sha": "dd5d3e0c506819fd9d53b306c430233b78630862",
+      "mergedAt": "2026-11-08T20:36:24-08:00",
+      "subject": "acpmux: the harness sandbox warning survives a restart and clears when the harness recovers (#39166)"
+    },
+    {
+      "sha": "9bc9e404291193397f8a96ad6157a2772f8f5a3c",
+      "mergedAt": "2026-11-08T20:35:38-08:00",
+      "subject": "prediction: never draw a glyph while the remote conceals text (#39064)"
+    },
+    {
+      "sha": "6ef42b103ff713ab6808519c70f1c5ec156013d2",
+      "mergedAt": "2026-11-09T04:33:32Z",
+      "subject": "Cloud environment sheet says why a secret couldn't be saved (#39043)"
+    },
+    {
+      "sha": "ae81081710bab0a11789c4c35c694f3dd6ab71f7",
+      "mergedAt": "2026-11-09T04:33:20Z",
+      "subject": "Cloud: domains, publications and API keys go to cmux-platform, not classic /api/vm (#39075)"
+    },
+    {
+      "sha": "7ac2c53be5fa6edafec4ec5d6b165d6cfbe5a2ca",
+      "mergedAt": "2026-11-09T04:33:09Z",
+      "subject": "cmux-daemon-conn-core: an action the daemon cannot take while unreachable is held, replayed once, or refused once (#39130)"
+    },
+    {
+      "sha": "bcb8b2035f4b8420d43bef9005df4d69b379a0cf",
+      "mergedAt": "2026-11-09T04:32:58Z",
+      "subject": "acpmux: the Claude chat rules name Claude Code's task tools (#39146)"
+    },
+    {
+      "sha": "0f5ed2ab8e16e2751520cfa8fcdb47f3ae8a3c21",
+      "mergedAt": "2026-11-09T04:32:32Z",
+      "subject": "acpmux: a restored chat's prompt reaches the agent once (#39132)"
+    },
+    {
+      "sha": "8c0e62c163b84848f8616e42ed8e4d366255af30",
+      "mergedAt": "2026-11-09T04:32:16Z",
+      "subject": "carrier tunnel: stays up, binds the real hub, bounded reads, refresh replaces routes (#39095)"
+    },
+    {
+      "sha": "b6cc3d9f8f3d9ebc11d40f24bd75f5d0128e0962",
+      "mergedAt": "2026-11-09T04:32:04Z",
+      "subject": "carrier: the dial runs on LinkCell::dial, one retry loop (S1 follow-up) (#39091)"
+    },
+    {
+      "sha": "53d31675a225c1ad8d86e209f2e5d1a8f4c30c5a",
+      "mergedAt": "2026-11-08T20:31:17-08:00",
+      "subject": "cmux mcp: cmux_exec says the parallel-work rule once, not twice (#39124)"
+    },
+    {
+      "sha": "462c0a605f28be559d28c042648a5f732ed9be5f",
+      "mergedAt": "2026-11-08T20:30:14-08:00",
+      "subject": "acpmux: the Bash hook starts no process for a quick foreground call (#39161)"
+    },
+    {
+      "sha": "ba488635ae2159e7990fb512e0bd4319c08bba66",
+      "mergedAt": "2026-11-08T20:29:57-08:00",
+      "subject": "cmux-tui: the write budget leaves out a resource row's idempotency key and hashes object boundaries (#39176)"
+    },
+    {
+      "sha": "63ad99e127c521e0ffb34cccb41851acc6098c6b",
+      "mergedAt": "2026-11-08T20:28:48-08:00",
+      "subject": "fix(cmux-tui): macOS clippy: gate acpmux set_link_socket to the Linux tests (#39188)"
+    },
+    {
+      "sha": "864ddd24530aa0c6f1f548c795d39452bee04db2",
+      "mergedAt": "2026-11-08T20:26:49-08:00",
+      "subject": "git seed: never mark a head missing a harness file (links, nested subpath, submodules) (#39117)"
+    },
+    {
+      "sha": "57aca18b27f0dd73258f2238bd708cc308a39c20",
+      "mergedAt": "2026-11-08T20:26:33-08:00",
+      "subject": "cmux-tui: output cleanup runs only where output is most of the journal, and never copies past a bound at open (#39175)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T05:00:11Z",
+    "snapshot_id": "sh-7001d188f6fa4b0a97656ce0331faaba",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42564130087): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bb3d2b55471aea603a798efc1bfd329c537f6999",
+    "image": "cloud-native-auto-73b88a5c-42564130087-1",
+    "revision": "ci-42564130087-1",
+    "at": "2026-11-09T05:00:11Z"
+  },
+  "rolled_back": false
+}
