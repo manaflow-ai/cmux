@@ -523,8 +523,10 @@ pub(super) fn move_pane<B: Daemon + ?Sized>(
     }
     if let Some(placeholder) = &placeholder {
         // Ending the shell takes its tab; closing only the tab left the
-        // shell running with no tab until the session ended (W5-O). A daemon
-        // that names no terminal gets the tab close.
+        // shell running with no tab until the session ended (W5-O). A result
+        // that names no terminal gets the tab close, which leaves the shell
+        // to the session's end (main's daemon has no reaper and always names
+        // the terminal).
         let close = match &placeholder.terminal {
             Some(terminal) => ["terminal", terminal.as_str(), "close"],
             None => ["tab", placeholder.tab.as_str(), "close"],
