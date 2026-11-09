@@ -48,7 +48,7 @@ import type {
 import { QUEUED_MESSAGE, SINCE_DIVIDER, TURN_RETRY, type AcpmuxSince, type AcpmuxTurnRetry } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
-import { hostIsReconnecting } from "./hostRetry";
+import { HOST_ERROR_DEADLINE_MS, hostIsReconnecting } from "./hostRetry";
 import { sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -984,7 +984,14 @@ function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromp
 /// (plans/cmux-next/composer-delivery-DESIGN.md): `failMs` on a connection with no native relay
 /// journal, `localFailMs` on one to this Mac's acpmux (a busy session's acknowledgement may be slow,
 /// and the page cannot see whether the journal kept the prompt). Tests shorten them.
-export const deliveryTiming = { slowMs: 10_000, failMs: 60_000, localFailMs: 300_000 };
+/// `hostWaitMs`: how long a prompt waits for an acpmux that is starting or reconnecting before it
+/// fails with Retry (sendWhenReady.ts), the pane's one deadline for a recovery.
+export const deliveryTiming = {
+  slowMs: 10_000,
+  failMs: 60_000,
+  localFailMs: 300_000,
+  hostWaitMs: HOST_ERROR_DEADLINE_MS,
+};
 
 const DELIVERY_RANK: Record<PromptDelivery["state"], number> = {
   sending: 0,
@@ -9486,6 +9493,7 @@ export class AcpmuxDirectClient {
             },
           }),
         {
+          deadlineMs: deliveryTiming.hostWaitMs,
           stop: () => taken || this.closed || this.deliveries.get(promptId)?.delivery.state !== "sending",
           waiting: () => {
             unhold ??= sendsHeldForHost.hold();
@@ -9586,7 +9594,9 @@ export class AcpmuxDirectClient {
       const refusedAtTurn = queued && !String(code ?? "").startsWith("native.");
       // The connection went before acpmux took it (`rejectPending`, a closed client): this client's
       // rows go with it, so the sender gets the prompt back instead of a row nobody will see.
-      if (!taken && (this.closed || code === "native.timed_out")) {
+      // A prompt that waited out the host's deadline on a client still open is not that: it fails as
+      // its row, kept with Retry (sendFailure.ts `host-away`), instead of leaving the transcript.
+      if (!taken && (this.closed || (code === "native.timed_out" && !unhold))) {
         this.rows.delete(rowId);
         this.failedPrompts.delete(rowId);
         this.optimisticPromptRows.delete(promptId);

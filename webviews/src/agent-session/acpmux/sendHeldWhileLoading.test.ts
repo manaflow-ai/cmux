@@ -63,10 +63,12 @@ test("a prompt acpmux times out on while it loads is sent again under its id and
   );
   let accepted = 0;
   try {
-    const sent = client.send("ship it", [], "held-prompt", () => (accepted += 1)).then(
-      () => undefined,
-      (error: unknown) => error,
-    );
+    const sent = client
+      .send("ship it", [], "held-prompt", () => (accepted += 1))
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
     // Before the fix the first refusal failed the send at once.
     await Promise.race([askedTwice, sent]);
     expect(prompts.length).toBe(2);
@@ -81,6 +83,49 @@ test("a prompt acpmux times out on while it loads is sent again under its id and
     expect(row?.failed).not.toBe(true);
     expect(row?.delivery?.waitingForHost).toBeUndefined();
   } finally {
+    client.close?.();
+  }
+});
+
+test("a prompt that waits out the host's deadline stays as a failed row with Retry, never gone", async () => {
+  const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const { translate } = await import("./i18n");
+  type Hooks = { answer: (method: string, params: any) => Promise<unknown> };
+  let asks = 0;
+  class StuckHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = (method, params) => {
+        if (method !== "session/prompt") return answer(method, params);
+        asks += 1;
+        return Promise.reject(Object.assign(new Error("acpmux did not answer in time"), { code: "native.timed_out" }));
+      };
+    }
+  }
+  const timing = { ...deliveryTiming };
+  Object.assign(deliveryTiming, { hostWaitMs: 600 });
+  let rows: Row[] = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => (rows = snapshot.rows as Row[]),
+    undefined,
+    () => new StuckHost() as unknown as WebSocket,
+  );
+  try {
+    const error = (await client.send("ship it", [], "stuck-prompt").catch((caught: unknown) => caught)) as {
+      failedRow?: string;
+    };
+    expect(asks).toBeGreaterThan(1);
+    expect(error.failedRow).toBe("local-stuck-prompt");
+    const row = rows.find((candidate) => candidate.id === "local-stuck-prompt") as Row & { error?: string };
+    expect(row?.failed).toBe(true);
+    expect(row?.error).toBe(translate("prompt.failure.hostAway"));
+    expect(row?.error).not.toMatch(/restart/i);
+  } finally {
+    Object.assign(deliveryTiming, timing);
     client.close?.();
   }
 });
