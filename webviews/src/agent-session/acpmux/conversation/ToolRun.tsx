@@ -48,6 +48,8 @@ export function ToolRun({
   children,
   disclosureKey,
   inherits,
+  passesDown,
+  closedBy,
   defaultOpen = false,
 }: {
   items: readonly AcpmuxActivity[];
@@ -55,6 +57,10 @@ export function ToolRun({
   disclosureKey: string;
   /// The keys of the group lines this run's line took the place of: one the reader opened opens it.
   inherits?: readonly string[];
+  /// The group lines this run's line splits back into, which take the reader's choice on it.
+  passesDown?: readonly string[];
+  /// The group lines that drew open while the turn ran: the reader closing every one closes this.
+  closedBy?: readonly string[];
   /// Open until the reader closes it: a run inside a steered turn's opened Worked for (turns.ts).
   defaultOpen?: boolean;
 }) {
@@ -71,9 +77,7 @@ export function ToolRun({
     disclosureKey,
     defaultOpen || holdsThought,
     true,
-    inherits,
-    true,
-    members,
+    { inherits, passesDown, members, closedBy },
   );
   const pin = useFoldPin(disclosureKey);
   useFindReveal(items, () => setOpen(true));

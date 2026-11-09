@@ -366,6 +366,7 @@ export function ToolGroupRow({
   folded = false,
   findTitle,
   inherits,
+  closedBy,
   thoughtId = (n) => `${disclosureKey}:thought:${n}`,
 }: {
   kind: ToolGroupKind;
@@ -374,6 +375,8 @@ export function ToolGroupRow({
   folded?: boolean;
   /// The key of the run line this group's line takes the place of (TurnRows.tsx): opened, it opens this.
   inherits?: readonly string[];
+  /// The key of the run line this group's line takes the place of: closed by the reader, it closes this.
+  closedBy?: readonly string[];
   /** Original single-call title, revealed when Find matches a path the summary shortens. */
   findTitle?: string;
   /// The id of the group's n-th thought (TurnRows.tsx `thoughtIds`): the same one the thought had
@@ -394,9 +397,7 @@ export function ToolGroupRow({
     disclosureKey,
     (kind !== "edits" && !folded) || holdsThought,
     true,
-    inherits,
-    false,
-    members,
+    { inherits, members, closedBy },
   );
   const pin = useFoldPin(disclosureKey);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
