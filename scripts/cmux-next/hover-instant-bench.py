@@ -114,6 +114,9 @@ def where():
         return None
 
 
+LAST_POINT = {}
+
+
 def move_path(start, end, steps):
     """Moves from `start` to `end` (window points), `steps` moves about 120 Hz apart; returns the monotonic time
     the last move was posted."""
@@ -122,7 +125,8 @@ def move_path(start, end, steps):
         for i in range(1, steps + 1):
             x = start[0] + (end[0] - start[0]) * i / steps
             y = start[1] + (end[1] - start[1]) * i / steps
-            rpc("debug.pointer_hover", {"point": [x, height - y]})
+            LAST_POINT.update(window_top_left=[x, y], sent=[x, height - y], height=height,
+                              reply=rpc("debug.pointer_hover", {"point": [x, height - y]}))
         return time.monotonic()
     (x0, y0), (x1, y1) = to_screen(start), to_screen(end)
     probe("path", x0, y0, x1, y1, steps)
@@ -130,12 +134,15 @@ def move_path(start, end, steps):
 
 
 def real_input_works():
-    """A posted move moves the pointer (the step's process holds the Accessibility grant)."""
+    """A posted move moves the pointer (the step's process holds the Accessibility grant); else why not."""
     f = (main_window() or {}).get("frame") or {}
     target = to_screen([f.get("width", 800) * 0.6, f.get("height", 600) * 0.5])
-    probe("move", target[0], target[1])
+    run = subprocess.run([PROBE, "move", str(target[0]), str(target[1])], capture_output=True, text=True, timeout=20)
     at = where()
-    return bool(at) and abs(at[0] - target[0]) < 2 and abs(at[1] - target[1]) < 2
+    if at and abs(at[0] - target[0]) < 2 and abs(at[1] - target[1]) < 2:
+        return None
+    return (f"pointer-probe move {target[0]:.0f} {target[1]:.0f}: exit {run.returncode}, "
+            f"stderr {run.stderr.strip()[-300:]!r}, pointer after {at}")
 
 
 def activate():
@@ -180,9 +187,17 @@ def sample(count, index, key, point, frame):
     if shown is None:
         run["miss"] = {k: v for k, v in report.items() if k != "card_text"}
         run["pointer"] = where() if opts.input == "real" else None
-        run["focus"] = {k: v for k, v in (rpc("debug.focus") or {}).items() if k in ("app_active", "key_window", "main_window")}
-    print(f"   {count}w #{index} {key}: pending {run['pending_ms']} shown {run['shown_ms']}"
-          + (f" MISS {json.dumps(run.get('miss'))[:600]}" if shown is None else ""), flush=True)
+        if report.get("last_hit", "-") == "-":
+            # A coordinate mismatch or a source refusing the hit: the row's frame against the point the move used,
+            # and every visible row's frame now.
+            run["row_frame"] = frame
+            run["point"] = dict(LAST_POINT) if opts.input == "synthetic" else to_screen(point)
+            run["rows_now"] = [(k, f) for k, _, f in rows()][:12]
+    run["active"] = (rpc("debug.focus") or {}).get("app_active")
+    print(f"   {count}w #{index} {key}: active {run['active']} pending {run['pending_ms']} shown {run['shown_ms']}"
+          + (f" MISS {json.dumps(run.get('miss'))[:600]}" if shown is None else "")
+          + (f" ROW {run['row_frame']} POINT {json.dumps(run['point'])[:400]} ROWS {json.dumps(run['rows_now'][:4])}"
+             if "row_frame" in run else ""), flush=True)
     return run
 
 
@@ -215,8 +230,9 @@ try:
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_CHIEF_ISOLATED": "1",
            "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1100,720",
-           # As a person's app: it takes focus, so cards need it active and real moves reach its window.
-           "CMUX_NEXT_NO_ACTIVATE": None}
+           # A fleet step cannot activate the app (no LaunchServices session): WindowPlacement.noActivate counts it as
+           # active and the coordinator hit-tests against its own windows.
+           "CMUX_NEXT_NO_ACTIVATE": "1"}
     try:
         app, SOCKET = launch_app(APP, env, os.path.join(OUT, f"app-{opts.tag}.log"), timeout=180,
                                  on_start=lambda p: globals().__setitem__("APP_PID", p.pid))
@@ -227,8 +243,10 @@ try:
     REPORT["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     REPORT["host"] = subprocess.run(["hostname", "-s"], capture_output=True, text=True).stdout.strip()
     REPORT["active_at_start"] = activate()
-    if opts.input == "real" and not real_input_works():
-        REPORT["notes"].append("a posted mouse move did not move the pointer (no Accessibility grant): synthetic input")
+    why = real_input_works() if opts.input == "real" else None
+    if why:
+        REPORT["notes"].append(f"real input fell back to synthetic: {why}")
+        print(f"real input fell back to synthetic: {why}", flush=True)
         opts.input = REPORT["input"] = "synthetic"
     report = cards()
     REPORT["defaults"] = {k: report.get(k) for k in ("enabled", "delay_ms", "sources", "monitor", "suppressions", "quiet")}
