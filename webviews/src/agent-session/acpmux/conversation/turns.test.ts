@@ -182,3 +182,27 @@ test("an inbox notice that lands mid-thought leaves the thought in its run", () 
     );
   }
 });
+
+// A run that asks for an edit's permission is still the running turn's: its thought keeps the
+// shape it streamed in (ThoughtRow `held`) instead of folding under the reader while the turn waits.
+test("a running turn's run waiting on an edit's permission stays a live run", () => {
+  const thought = {
+    kind: "thought",
+    text: "The retry loop lives in the fetch client; changing its backoff",
+    startedAt: 2_000,
+    endedAt: 2_400,
+  };
+  const edit = {
+    kind: "tool",
+    text: "",
+    tool: { id: "e1", title: "Edit fetch.ts", kind: "edit", status: "pending", locations: [{ path: "fetch.ts" }] },
+  };
+  const shown = turnView(
+    [user(1_000), { id: "act", version: 1, at: 2_000, kind: "activity", items: [thought, edit] }],
+    new Set(),
+    { now: 3_000, working: true },
+  );
+  const run = shown.find((row) => row.id === "act");
+  expect(run?.items?.map((item) => item.kind)).toEqual(["thought", "tool"]);
+  expect(run?.liveRun).toBe(true);
+});
