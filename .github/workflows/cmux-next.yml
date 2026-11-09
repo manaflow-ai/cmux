@@ -1681,8 +1681,8 @@ jobs:
     needs: [portable-placement]
     if: ${{ !cancelled() && inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
-    # Fleet Linux, then a free mini (portable-placement), then Blacksmith 16 vCPU, which runs the script
-    # tests 32 at once (scripts/ci/run-checks-concurrently.sh): 6.2 min mean, 7.3 p90 there. While the overflow
+    # Fleet Linux, then a free mini (portable-placement), then Blacksmith 16 vCPU. The slow checks run
+    # concurrently, one per CPU ("Start the slow checks in the background", scripts/ci/run-checks-concurrently.sh). While the overflow
     # switch has failed over it takes 8 vCPU, not 32 (.github/runners.json linux_sizes), hence 15 minutes.
     # The checks are Python and bash; none needs Linux.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' checks ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' checks ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
@@ -1721,6 +1721,202 @@ jobs:
       # left there (a no-op on Blacksmith, which starts with none).
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
+
+      # The slow independent checks run concurrently in the background, at most one per CPU, from here
+      # on (one after another they took about 7 of the job's 8.4 min). Each of their steps below waits
+      # for its own commands, prints their output and keeps its name, id and outcome. A `[step-id]`
+      # line names the step the commands under it belong to; the longest commands start first.
+      # Not here: "Pushed commits add no violations" deepens the clone and writes its step summary.
+      - name: Start the slow checks in the background
+        run: |
+          scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" --jobs "$(getconf _NPROCESSORS_ONLN)" <<'CHECKS'
+            [no-process-scan]
+            python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
+            [state-roots]
+            bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
+            [concurrency]
+            scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+            [overlay-glass]
+            python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
+            [checks-structure]
+            python3 tests/test_cmux_next_checks_workflow.py
+            [script-tests]
+            bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
+            bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
+            [package-dependency-lists]
+            python3 scripts/cmux-next/check-package-dependency-lists.py
+            python3 scripts/cmux-next/tests/test_check_package_dependency_lists.py
+            [tier-routing]
+            python3 tests/test_cmux_next_route.py
+            python3 tests/test_cmux_next_base_tier.py
+            python3 tests/test_ci_target_graph.py
+            python3 tests/test_ci_swiftpm_build_metrics.py
+            python3 tests/test_cmux_next_route_replay.py
+            python3 tests/test_ci_cmux_next_compile_revert.py
+            python3 tests/test_ci_cmux_next_compile_status.py
+            [package-conventions]
+            ./scripts/lint-ios-package-conventions.sh
+            [checks-structure]
+            python3 tests/test_cmux_next_generated_fold.py
+            python3 tests/test_cmux_next_pr_autofix_push_gate.py
+            python3 tests/test_run_checks_concurrently.py
+            python3 tests/test_cmux_next_release_build_retention.py
+            python3 tests/test_cmux_next_dev_release_host_root.py
+            python3 tests/test_cmux_next_hybrid_ref_capture.py
+            python3 tests/test_cmux_next_dev_release_import_out.py
+            python3 tests/test_xcode_build_timeline.py
+            python3 tests/test_cmux_next_dev_landing_workflow.py
+            python3 tests/test_dev_landing_place.py
+            python3 tests/test_cmux_next_dev_cas_seed.py
+            python3 tests/test_cmux_next_dev_daily_tree_wait.py
+            [script-tests]
+            bash scripts/cmux-next/tests/pin-cmux-tui-run-fetch.test.sh
+            bash scripts/cmux-next/tests/nightly-tree-at-install.test.sh
+            bash scripts/cmux-next/tests/fake-clock.test.sh
+            bash scripts/cmux-next/tests/preview.test.sh
+            python3 tests/test_intent_familiar_warning.py
+            python3 tests/test_ci_launch_budget_gate.py
+            python3 tests/test_strings_output_encoding.py
+            bash tests/test_strip_release_bundle.sh
+            # The pre-push gate refuses a push that adds a violation and names the commit in CI.
+            python3 tests/test_cmux_next_prepush_gate.py
+            # UI font: the system font everywhere, no Inter default (check-ui-font.py).
+            python3 tests/test_ui_font.py
+            # The perf gate skips its per-frame timings on a window that draws no frames (--frames auto).
+            python3 tests/test_cmux_next_perf_gate_unlit.py
+            # A base merge pushed while the PR's CI runs gets a warning (scripts/ci/base_merge_warning.py).
+            python3 tests/test_base_merge_warning.py
+            # A changed input, workflow file or toolchain never reuses a pass (CI_NEXT_JOB_REUSE).
+            python3 tests/test_job_input_fingerprint.py
+            # Only a pass from this repository's own runs is reused, never a fork's (scripts/ci/job_reuse.py).
+            python3 tests/test_job_reuse.py
+            python3 tests/test_rebuild_mirror.py
+            # The DEV Release app's key changes with every path that can reach it (dev-release-product).
+            python3 tests/test_dev_release_product_key.py
+            # A reused DEV Release app is trusted and intact, or the job compiles; DEV lane only.
+            python3 tests/test_dev_release_product_reuse.py
+            # The cmux NEXT Nightly app's key and record namespace: never a DEV key or record.
+            python3 tests/test_nightly_release_product_key.py
+            # The nightly app's products pack and unpack safely, and nightly.yml keys what it skips.
+            python3 tests/test_nightly_release_product_reuse.py
+            # The advisory test-compile check: its plan, the lane phase and red only for a compile failure.
+            python3 tests/test_ci_compile_test_plan.py
+            # A merge goes to the landing gate installed from cmuxterm-hq, never a guard in a checkout.
+            python3 tests/test_guard_hooks_from_base.py
+            # ci-guards.yml's `ci` group runs for feat-cmux-next too (cmux-next-guards.yml).
+            python3 tests/test_feat_ci_guard_group.py
+            python3 tests/test_guards_new_reds.py
+            python3 tests/test_webviews_test_history.py
+            python3 tests/test_app_symbol_map.py
+            bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
+            bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh
+            bash scripts/cmux-next/tests/pin-cmux-tui-acpmux-only.test.sh
+            bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh
+            bash scripts/cmux-next/tests/write-daemon-capabilities.test.sh
+            bash scripts/cmux-next/tests/pin-cmux-tui-linux-fetch.test.sh
+            bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
+            bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
+            python3 tests/test_cmux_next_tree_notify.py
+            python3 tests/test_idea_ledger.py
+            # The INTERNAL iOS builder's trigger decisions and What to Test notes.
+            python3 tests/test_ios_internal_builder.py
+            python3 tests/test_ios_internal_notes.py
+            bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
+            bash scripts/cmux-next/tests/pin-cmux-tui-fallback-key.test.sh
+            bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
+            bash scripts/cmux-next/tests/cmux-tui-tree-claim.test.sh
+            bash scripts/cmux-next/tests/request-nightly-next.test.sh
+            bash scripts/cmux-next/tests/cef-runtime-pack.test.sh
+            bash scripts/cmux-next/tests/continue-nightly-next.test.sh
+            bash scripts/cmux-next/tests/wait-dev-daily-tree.test.sh
+            bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
+            bash scripts/cmux-next/tests/tree-key-v2.test.sh
+            bash scripts/cmux-next/tests/tree-key-embeds.test.sh
+            bash scripts/cmux-next/tests/tree-publish-v2.test.sh
+            bash scripts/cmux-next/tests/embed-cef.test.sh
+            bash scripts/cmux-next/tests/ublock-pin.test.sh
+            bash scripts/cmux-next/tests/base-autofix-push.test.sh
+            bash scripts/cmux-next/tests/base-autofix-land.test.sh
+            bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
+            bash scripts/cmux-next/tests/base-autofix-changed.test.sh
+            bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
+            bash scripts/cmux-next/tests/judge-action-exports.test.sh
+            bash scripts/cmux-next/tests/publish-bot-head-tree.test.sh
+            bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
+            bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
+            bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
+            bash scripts/cmux-next/tests/cargo-test-selected.test.sh
+            bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
+            bash scripts/cmux-next/tests/app-capability-references.test.sh
+            bash scripts/cmux-next/tests/tagged-launch-acpmux-env.test.sh
+            bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
+            bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
+            bash scripts/cmux-next/tests/check-fleet-only.test.sh
+            node --test scripts/lib/reload-shim.test.mjs
+            # Version skew: the capability-text lint.
+            bash scripts/cmux-next/tests/capability-text.test.sh
+            bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
+            bash scripts/cmux-next/tests/release-compile-fleet-cas.test.sh
+            bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
+            bash scripts/cmux-next/tests/scheme-compile-browser-import.test.sh
+            bash scripts/cmux-next/tests/dev-account-guard.test.sh
+            bash scripts/cmux-next/tests/private-bun.test.sh
+            bash scripts/cmux-next/tests/check-webviews-bun-version.test.sh
+            bash scripts/cmux-next/tests/check-motion.test.sh
+            bash scripts/cmux-next/tests/fast-tier.test.sh
+            bash scripts/cmux-next/tests/check-scrollbars.test.sh
+            bash scripts/cmux-next/tests/check-overlay-glass.test.sh
+            bash scripts/cmux-next/tests/check-no-process-scan.test.sh
+            bash scripts/cmux-next/tests/check-single-omnibar.test.sh
+            bash scripts/cmux-next/tests/check-no-swiftui.test.sh
+            bash scripts/cmux-next/tests/check-default-cursor.test.sh
+            bash scripts/cmux-next/tests/check-state-roots.test.sh
+            bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
+            bash scripts/cmux-next/tests/check-switch-fetches.test.sh
+            bash scripts/cmux-next/tests/check-xcstrings-keys.test.sh
+            bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
+            python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
+            bash scripts/cmux-next/tests/check-app-size.test.sh
+            python3 -I scripts/cmux-next/tests/test_bundle_size.py
+            bash tests/test_strip_release_bundle_atom_info.sh
+            bash scripts/cmux-next/tests/version-surfaces.test.sh
+            bash scripts/cmux-next/tests/ratchet-tiers.test.sh
+            bash scripts/cmux-next/tests/base-autofix.test.sh
+            bash scripts/cmux-next/tests/pr-autofix.test.sh
+            bash tests/test_ci_generator_input_freshness.sh
+            bash scripts/cmux-next/tests/generated-ownership.test.sh
+            bash scripts/ci/tests/cmux-tui-rust-check.test.sh
+            bash scripts/ci/tests/cmux-tui-base-red.test.sh
+            bash scripts/ci/tests/package-test-lane-suite-args.test.sh
+            bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
+            bash scripts/ci/tests/ios-sim-fetch-commit.test.sh
+            bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh
+            bash scripts/ci/tests/run-webviews-tests-retry.test.sh
+            bash scripts/cmux-next/tests/cef-credits.test.sh
+            bash scripts/cmux-next/tests/swift-test-summary.test.sh
+            bash scripts/cmux-next/tests/cef-license.test.sh
+            bash scripts/cmux-next/tests/ensure-cef-store.test.sh
+            bash scripts/cmux-next/tests/cef-build-flags.test.sh
+            bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
+            bash scripts/cmux-next/tests/build-cmux-tui-client.test.sh
+            bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
+            # The Chromium staleness guard (cmux-next-chromium-staleness.yml) fails a pin 2+ stable majors behind.
+            python3 -I tests/test_chromium_staleness.py
+            # The herdr-derived agent plugin's vendored manifests match their pin.
+            python3 -I scripts/cmux-next/herdr-sync.py check
+            python3 -I scripts/cmux-next/tests/test_herdr_sync.py
+            # The restore journey names a DEV build's socket and acpmux home by the app's rule.
+            python3 -I scripts/cmux-next/tests/test_build_names.py
+            # Its view-report rows say what they saw (an unreadable report is not a missing grid).
+            python3 -I scripts/cmux-next/tests/test_rj_rows.py
+            # Its update to another build installs B with the running copy's identity (rj_update.py).
+            python3 -I scripts/cmux-next/tests/test_rj_update.py
+            # The fleet sidebar benches emit receipts; this portable test keeps their validator deterministic.
+            python3 -I scripts/cmux-next/tests/test_sidebar_perf_validate.py
+            bash scripts/cef/tests/test-embedder-step.test.sh
+            [web-bundle-key-inputs]
+            bash tests/test_web_bundle_key_inputs.sh
+          CHECKS
 
       # Every check runs even when an earlier one fails; the last step fails the
       # job once, naming each red check. Checkout stays fatal: with no tree,
@@ -1835,7 +2031,7 @@ jobs:
       - name: No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
         id: no-process-scan
         continue-on-error: true
-        run: python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" no-process-scan
 
       # The user (2026-10-30): "change all pointers back to cursor-default". App UI shows the
       # arrow; only web page and terminal content may show the pointing hand (allowlist).
@@ -1847,7 +2043,7 @@ jobs:
       - name: No literal state roots (per-build isolation S7, cx-is1kf.8)
         id: state-roots
         continue-on-error: true
-        run: bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" state-roots
 
       - name: Dialog buttons show their keys (u2647)
         id: dialog-key-hints
@@ -1857,7 +2053,7 @@ jobs:
       - name: Main-thread concurrency
         id: concurrency
         continue-on-error: true
-        run: scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" concurrency
 
       # Every web view goes through the engine decision (browser.defaultEngine,
       # browser.siteEngines): PageWebView for cmux pages, BrowserTab for tabs.
@@ -1926,7 +2122,7 @@ jobs:
       - name: Overlays are glass, never solid
         id: overlay-glass
         continue-on-error: true
-        run: python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" overlay-glass
 
       # The one type scale (schemas/type-scale/type-scale.json): its CSS and Swift copies, and no new raw
       # font sizes or off-scale weights in the app's Swift (fails the checks; the webviews ratchet runs in react-apps-check).
@@ -2025,159 +2221,7 @@ jobs:
       - name: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
         id: script-tests
         continue-on-error: true
-        run: |
-          # Independent scripts, run a few at a time: one after another they took 203 s
-          # (scripts/ci/run-checks-concurrently.sh). The two pin-cmux-tui waits run on a
-          # virtual clock (tests/lib/fake-clock.sh), so a busy pool cannot fail them; they
-          # are the longest, so they start first.
-          scripts/ci/run-checks-concurrently.sh <<'CHECKS'
-            bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
-            bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
-            bash scripts/cmux-next/tests/pin-cmux-tui-run-fetch.test.sh
-            bash scripts/cmux-next/tests/nightly-tree-at-install.test.sh
-            bash scripts/cmux-next/tests/fake-clock.test.sh
-            bash scripts/cmux-next/tests/preview.test.sh
-            python3 tests/test_intent_familiar_warning.py
-            python3 tests/test_ci_launch_budget_gate.py
-            python3 tests/test_strings_output_encoding.py
-            bash tests/test_strip_release_bundle.sh
-            # The pre-push gate refuses a push that adds a violation and names the commit in CI.
-            python3 tests/test_cmux_next_prepush_gate.py
-            # UI font: the system font everywhere, no Inter default (check-ui-font.py).
-            python3 tests/test_ui_font.py
-            # The perf gate skips its per-frame timings on a window that draws no frames (--frames auto).
-            python3 tests/test_cmux_next_perf_gate_unlit.py
-            # A base merge pushed while the PR's CI runs gets a warning (scripts/ci/base_merge_warning.py).
-            python3 tests/test_base_merge_warning.py
-            # A changed input, workflow file or toolchain never reuses a pass (CI_NEXT_JOB_REUSE).
-            python3 tests/test_job_input_fingerprint.py
-            # Only a pass from this repository's own runs is reused, never a fork's (scripts/ci/job_reuse.py).
-            python3 tests/test_job_reuse.py
-            python3 tests/test_rebuild_mirror.py
-            # The DEV Release app's key changes with every path that can reach it (dev-release-product).
-            python3 tests/test_dev_release_product_key.py
-            # A reused DEV Release app is trusted and intact, or the job compiles; DEV lane only.
-            python3 tests/test_dev_release_product_reuse.py
-            # The cmux NEXT Nightly app's key and record namespace: never a DEV key or record.
-            python3 tests/test_nightly_release_product_key.py
-            # The nightly app's products pack and unpack safely, and nightly.yml keys what it skips.
-            python3 tests/test_nightly_release_product_reuse.py
-            # The advisory test-compile check: its plan, the lane phase and red only for a compile failure.
-            python3 tests/test_ci_compile_test_plan.py
-            # A merge goes to the landing gate installed from cmuxterm-hq, never a guard in a checkout.
-            python3 tests/test_guard_hooks_from_base.py
-            # ci-guards.yml's `ci` group runs for feat-cmux-next too (cmux-next-guards.yml).
-            python3 tests/test_feat_ci_guard_group.py
-            python3 tests/test_guards_new_reds.py
-            python3 tests/test_webviews_test_history.py
-            python3 tests/test_app_symbol_map.py
-            bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
-            bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh
-            bash scripts/cmux-next/tests/pin-cmux-tui-acpmux-only.test.sh
-            bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh
-            bash scripts/cmux-next/tests/write-daemon-capabilities.test.sh
-            bash scripts/cmux-next/tests/pin-cmux-tui-linux-fetch.test.sh
-            bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
-            bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
-            python3 tests/test_cmux_next_tree_notify.py
-            python3 tests/test_idea_ledger.py
-            # The INTERNAL iOS builder's trigger decisions and What to Test notes.
-            python3 tests/test_ios_internal_builder.py
-            python3 tests/test_ios_internal_notes.py
-            bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
-            bash scripts/cmux-next/tests/pin-cmux-tui-fallback-key.test.sh
-            bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
-            bash scripts/cmux-next/tests/cmux-tui-tree-claim.test.sh
-            bash scripts/cmux-next/tests/request-nightly-next.test.sh
-            bash scripts/cmux-next/tests/cef-runtime-pack.test.sh
-            bash scripts/cmux-next/tests/continue-nightly-next.test.sh
-            bash scripts/cmux-next/tests/wait-dev-daily-tree.test.sh
-            bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
-            bash scripts/cmux-next/tests/tree-key-v2.test.sh
-            bash scripts/cmux-next/tests/tree-key-embeds.test.sh
-            bash scripts/cmux-next/tests/tree-publish-v2.test.sh
-            bash scripts/cmux-next/tests/embed-cef.test.sh
-            bash scripts/cmux-next/tests/ublock-pin.test.sh
-            bash scripts/cmux-next/tests/base-autofix-push.test.sh
-            bash scripts/cmux-next/tests/base-autofix-land.test.sh
-            bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
-            bash scripts/cmux-next/tests/base-autofix-changed.test.sh
-            bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
-            bash scripts/cmux-next/tests/judge-action-exports.test.sh
-            bash scripts/cmux-next/tests/publish-bot-head-tree.test.sh
-            bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
-            bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
-            bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
-            bash scripts/cmux-next/tests/cargo-test-selected.test.sh
-            bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
-            bash scripts/cmux-next/tests/app-capability-references.test.sh
-            bash scripts/cmux-next/tests/tagged-launch-acpmux-env.test.sh
-            bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
-            bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
-            bash scripts/cmux-next/tests/check-fleet-only.test.sh
-            node --test scripts/lib/reload-shim.test.mjs
-            # Version skew: the capability-text lint.
-            bash scripts/cmux-next/tests/capability-text.test.sh
-            bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
-            bash scripts/cmux-next/tests/release-compile-fleet-cas.test.sh
-            bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
-            bash scripts/cmux-next/tests/scheme-compile-browser-import.test.sh
-            bash scripts/cmux-next/tests/dev-account-guard.test.sh
-            bash scripts/cmux-next/tests/private-bun.test.sh
-            bash scripts/cmux-next/tests/check-webviews-bun-version.test.sh
-            bash scripts/cmux-next/tests/check-motion.test.sh
-            bash scripts/cmux-next/tests/fast-tier.test.sh
-            bash scripts/cmux-next/tests/check-scrollbars.test.sh
-            bash scripts/cmux-next/tests/check-overlay-glass.test.sh
-            bash scripts/cmux-next/tests/check-no-process-scan.test.sh
-          bash scripts/cmux-next/tests/check-single-omnibar.test.sh
-            bash scripts/cmux-next/tests/check-no-swiftui.test.sh
-            bash scripts/cmux-next/tests/check-default-cursor.test.sh
-            bash scripts/cmux-next/tests/check-state-roots.test.sh
-            bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
-            bash scripts/cmux-next/tests/check-switch-fetches.test.sh
-            bash scripts/cmux-next/tests/check-xcstrings-keys.test.sh
-            bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
-            python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
-            bash scripts/cmux-next/tests/check-app-size.test.sh
-            python3 -I scripts/cmux-next/tests/test_bundle_size.py
-            bash tests/test_strip_release_bundle_atom_info.sh
-            bash scripts/cmux-next/tests/version-surfaces.test.sh
-            bash scripts/cmux-next/tests/ratchet-tiers.test.sh
-            bash scripts/cmux-next/tests/base-autofix.test.sh
-            bash scripts/cmux-next/tests/pr-autofix.test.sh
-            bash tests/test_ci_generator_input_freshness.sh
-            bash scripts/cmux-next/tests/generated-ownership.test.sh
-            bash scripts/ci/tests/cmux-tui-rust-check.test.sh
-            bash scripts/ci/tests/cmux-tui-base-red.test.sh
-            bash scripts/ci/tests/package-test-lane-suite-args.test.sh
-            bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
-            bash scripts/ci/tests/ios-sim-fetch-commit.test.sh
-            bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh
-            bash scripts/ci/tests/run-webviews-tests-retry.test.sh
-            bash scripts/cmux-next/tests/cef-credits.test.sh
-            bash scripts/cmux-next/tests/swift-test-summary.test.sh
-            bash scripts/cmux-next/tests/cef-license.test.sh
-            bash scripts/cmux-next/tests/ensure-cef-store.test.sh
-            bash scripts/cmux-next/tests/cef-build-flags.test.sh
-            bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
-            bash scripts/cmux-next/tests/build-cmux-tui-client.test.sh
-            bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
-            # The Chromium staleness guard (cmux-next-chromium-staleness.yml) fails a pin 2+ stable majors behind.
-            python3 -I tests/test_chromium_staleness.py
-            # The herdr-derived agent plugin's vendored manifests match their pin.
-            python3 -I scripts/cmux-next/herdr-sync.py check
-            python3 -I scripts/cmux-next/tests/test_herdr_sync.py
-            # The restore journey names a DEV build's socket and acpmux home by the app's rule.
-            python3 -I scripts/cmux-next/tests/test_build_names.py
-            # Its view-report rows say what they saw (an unreadable report is not a missing grid).
-            python3 -I scripts/cmux-next/tests/test_rj_rows.py
-            # Its update to another build installs B with the running copy's identity (rj_update.py).
-            python3 -I scripts/cmux-next/tests/test_rj_update.py
-            # The fleet sidebar benches emit receipts; this portable test keeps their validator deterministic.
-            python3 -I scripts/cmux-next/tests/test_sidebar_perf_validate.py
-            bash scripts/cef/tests/test-embedder-step.test.sh
-          CHECKS
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" script-tests
 
       # The app's Ghostty shell integration comes from ghostty-next (the
       # Ghostty of GhosttyNextKit and libghostty-vt): the bundle phase output
@@ -2205,7 +2249,7 @@ jobs:
       - name: Package conventions lint
         id: package-conventions
         continue-on-error: true
-        run: ./scripts/lint-ios-package-conventions.sh
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-conventions
 
       # The browser chrome draws Chromium's own icons (design/icons/chromium): the
       # generated batch is current and no browser control uses an SF Symbol or a
@@ -2263,20 +2307,7 @@ jobs:
       - name: Checks job structure
         id: checks-structure
         continue-on-error: true
-        run: |
-          python3 tests/test_cmux_next_checks_workflow.py
-          python3 tests/test_cmux_next_generated_fold.py
-          python3 tests/test_cmux_next_pr_autofix_push_gate.py
-          python3 tests/test_run_checks_concurrently.py
-          python3 tests/test_cmux_next_release_build_retention.py
-          python3 tests/test_cmux_next_dev_release_host_root.py
-          python3 tests/test_cmux_next_hybrid_ref_capture.py
-          python3 tests/test_cmux_next_dev_release_import_out.py
-          python3 tests/test_xcode_build_timeline.py
-          python3 tests/test_cmux_next_dev_landing_workflow.py
-          python3 tests/test_dev_landing_place.py
-          python3 tests/test_cmux_next_dev_cas_seed.py
-          python3 tests/test_cmux_next_dev_daily_tree_wait.py
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" checks-structure
 
       # The tier routing on the committed target graph: a UI change selects its
       # own test targets, a daemon change the live-daemon suites, an unknown
@@ -2284,14 +2315,7 @@ jobs:
       - name: Tier routing
         id: tier-routing
         continue-on-error: true
-        run: |
-          python3 tests/test_cmux_next_route.py
-          python3 tests/test_cmux_next_base_tier.py
-          python3 tests/test_ci_target_graph.py
-          python3 tests/test_ci_swiftpm_build_metrics.py
-          python3 tests/test_cmux_next_route_replay.py
-          python3 tests/test_ci_cmux_next_compile_revert.py
-          python3 tests/test_ci_cmux_next_compile_status.py
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" tier-routing
 
       # The CmuxNextAppTests dependencies are one sorted entry per line, so two
       # pull requests adding different modules merge cleanly; the long lines they
@@ -2299,16 +2323,14 @@ jobs:
       - name: Package dependency lists sorted
         id: package-dependency-lists
         continue-on-error: true
-        run: |
-          python3 scripts/cmux-next/check-package-dependency-lists.py
-          python3 scripts/cmux-next/tests/test_check_package_dependency_lists.py
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-dependency-lists
 
       # The web bundle source key covers every file outside webviews/ that a bundle
       # imports, and the publish and routing path lists name each one (cx-wtsf3).
       - name: Web bundle key inputs
         id: web-bundle-key-inputs
         continue-on-error: true
-        run: bash tests/test_web_bundle_key_inputs.sh
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" web-bundle-key-inputs
 
       # build-web-bundles.sh --from installs and stamps bundles built elsewhere. It and the key
       # inputs test ran last in the web-bundles job until 2026-10-20: a red there failed the job
@@ -6796,7 +6818,7 @@ jobs:
           app="$RUNNER_TEMP/crash-gate/cmux DEV ${tag}.app"
           mkdir -p "$RUNNER_TEMP/crash-gate/out"
           /bin/cp -R "$built" "$app"
-          trap 'python3 scripts/cmux-next/tag_teardown.py "$app" || true; rm -rf "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/Library/Application Support/cmux-next/com.cmuxterm.app.debug.${tag//-/.}" "$HOME/Library/Caches/SentryCrash/cmux DEV $tag" "$HOME/.acpmux/builds/com.cmuxterm.app.debug--$tag" "$HOME/.cmux/mux/tags/$tag" "$app"' EXIT
+          trap 'python3 scripts/cmux-next/tag_teardown.py "$app" || true; rm -rf "$HOME/Library/Application Support/cmux-next/tags/$tag" "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/Library/Application Support/cmux-next/com.cmuxterm.app.debug.${tag//-/.}" "$HOME/Library/Caches/SentryCrash/cmux DEV $tag" "$HOME/.acpmux/builds/com.cmuxterm.app.debug--$tag" "$HOME/.cmux/mux/tags/$tag" "$app"' EXIT
           python3 scripts/cmux-next/crash-ends-app-gate.py --app "$app" --out "$RUNNER_TEMP/crash-gate/out"
 
       - name: Upload the crash gate samples
