@@ -1366,8 +1366,7 @@ fn note_write_budget(record: &EventRecord, bytes: usize) {
     if !cmux_tui_platform::write_budget::WriteBudget::enabled() {
         return;
     }
-    let payload = serde_json::to_vec(&record.msg).unwrap_or_default();
-    if let Some(warning) = EVENT_LOG_BUDGET.note(&record.kind, bytes, &payload, now_ms()) {
+    if let Some(warning) = EVENT_LOG_BUDGET.note(&record.kind, bytes, &record.msg, now_ms()) {
         tracing::warn!("{warning}");
     }
 }

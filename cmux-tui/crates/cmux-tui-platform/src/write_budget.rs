@@ -64,12 +64,18 @@ impl WriteBudget {
         })
     }
 
-    /// Counts a record of `kind`, `bytes` long, whose content (without its sequence or time) is
-    /// `payload`, written at `now_ms`. The warning to log when this record takes the kind over a
-    /// limit for the first time in its window.
-    pub fn note(&self, kind: &str, bytes: usize, payload: &[u8], now_ms: u64) -> Option<String> {
+    /// Counts a record of `kind`, `bytes` long, whose content is `payload` (compared without its
+    /// [`volatile`] fields), written at `now_ms`. The warning to log when this record takes the
+    /// kind over a limit for the first time in its window.
+    pub fn note(
+        &self,
+        kind: &str,
+        bytes: usize,
+        payload: &serde_json::Value,
+        now_ms: u64,
+    ) -> Option<String> {
         let mut hasher = DefaultHasher::new();
-        payload.hash(&mut hasher);
+        fingerprint(payload, &mut hasher);
         let hash = hasher.finish();
         let mut kinds = self.kinds.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let window = kinds.entry(kind.to_owned()).or_default();
@@ -109,9 +115,45 @@ impl WriteBudget {
     }
 }
 
+/// Whether a field is bookkeeping that changes on every write whatever the state: a revision, a
+/// time, an id of the write itself. Two writes of the same state differ only in these.
+fn volatile(key: &str) -> bool {
+    key.ends_with("revision")
+        || key.ends_with("_ms")
+        || key.ends_with("At")
+        || key.ends_with("_at")
+        || matches!(key, "uuid" | "user_message_uuids" | "event_id" | "seq")
+}
+
+/// Hashes `value` without its [`volatile`] fields, at any depth, so a record that repeats a state
+/// with a new revision or time counts as a repeat.
+fn fingerprint(value: &serde_json::Value, hasher: &mut DefaultHasher) {
+    use serde_json::Value;
+    match value {
+        Value::Object(fields) => {
+            let mut keys: Vec<&String> = fields.keys().filter(|k| !volatile(k)).collect();
+            keys.sort();
+            b'{'.hash(hasher);
+            for key in keys {
+                key.hash(hasher);
+                fingerprint(&fields[key.as_str()], hasher);
+            }
+        }
+        Value::Array(items) => {
+            b'['.hash(hasher);
+            items.len().hash(hasher);
+            for item in items {
+                fingerprint(item, hasher);
+            }
+        }
+        other => other.to_string().hash(hasher),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     const LIMITS: WriteLimits =
         WriteLimits { bytes: 1000, records: 50, repeat_percent: 50, repeat_floor: 10 };
@@ -122,34 +164,48 @@ mod tests {
         let budget = WriteBudget::new("test log", LIMITS);
         let warnings = |start: u64| {
             (0..8u64)
-                .filter_map(|i| budget.note("big", 200, &i.to_le_bytes(), start + i))
+                .filter_map(|i| budget.note("big", 200, &json!({"n": i}), start + i))
                 .collect::<Vec<_>>()
         };
         let first = warnings(0);
         assert_eq!(first.len(), 1);
         assert!(first[0].contains("kind big wrote 1200 bytes in 6 records"), "{}", first[0]);
         assert_eq!(warnings(WINDOW_MS).len(), 1, "a new window warns again");
-        assert!(budget.note("other", 10, b"x", WINDOW_MS + 9).is_none(), "kinds count apart");
+        assert!(
+            budget.note("other", 10, &json!("x"), WINDOW_MS + 9).is_none(),
+            "kinds count apart"
+        );
     }
 
-    /// Two states written in turn (ABAB) warn as repeats though no record equals the one before.
+    /// Two states written in turn (ABAB), each with a new revision and time, warn as repeats though
+    /// no record equals the one before.
     #[test]
     fn a_ping_pong_warns_as_repeats() {
         let budget = WriteBudget::new("test log", LIMITS);
         let warned: Vec<String> = (0..12u64)
-            .filter_map(|i| budget.note("flip", 10, if i % 2 == 0 { b"a" } else { b"b" }, i))
+            .filter_map(|i| {
+                budget.note(
+                    "flip",
+                    10,
+                    &json!({"state": i % 2, "revision": i, "updated_at_ms": i}),
+                    i,
+                )
+            })
             .collect();
         assert_eq!(warned.len(), 1);
         assert!(warned[0].contains("in 10 records"), "{}", warned[0]);
         let distinct = WriteBudget::new("test log", LIMITS);
-        assert!((0..40u64).all(|i| distinct.note("new", 10, &i.to_le_bytes(), i).is_none()));
+        assert!(
+            (0..40u64)
+                .all(|i| distinct.note("new", 10, &json!({"n": i, "revision": i}), i).is_none())
+        );
     }
 
     /// Too many records warn even when each is small.
     #[test]
     fn too_many_records_warn() {
         let budget = WriteBudget::new("test log", LIMITS);
-        let warned = (0..60u64).filter(|i| budget.note("tick", 1, &i.to_le_bytes(), *i).is_some());
+        let warned = (0..60u64).filter(|i| budget.note("tick", 1, &json!({"n": i}), *i).is_some());
         assert_eq!(warned.count(), 1);
     }
 }

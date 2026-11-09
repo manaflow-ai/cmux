@@ -1099,8 +1099,7 @@ fn note_write_budget(append: &JournalAppend<'_>, payload_json: &str, now_ms: u64
         return;
     }
     let bytes = payload_json.len() + append.content.map_or(0, <[u8]>::len);
-    if let Some(warning) = JOURNAL_BUDGET.note(append.kind, bytes, payload_json.as_bytes(), now_ms)
-    {
+    if let Some(warning) = JOURNAL_BUDGET.note(append.kind, bytes, append.payload, now_ms) {
         eprintln!("cmux-tui: {warning}");
     }
 }
