@@ -272,3 +272,31 @@ test("Edit > Undo and Redo take the same line as the keys, one step each", async
   expect(composer.files()).toEqual(["d.txt"]);
   await composer.unmount();
 });
+
+test("a file edit after a text undo ends the text's redo, as typing would", async () => {
+  const composer = await mount();
+  await composer.type("gone");
+  await composer.key(false);
+  expect(composer.text()).toBe("");
+  await composer.pick("e.txt");
+  // Shift-Cmd-Z has nothing to redo: the undone text stays out, by key and by Edit > Redo.
+  await composer.key(true);
+  expect(composer.text()).toBe("");
+  expect(composer.files()).toEqual(["e.txt"]);
+  await composer.menu("historyRedo");
+  expect(composer.text()).toBe("");
+  // The file edit itself still undoes and redoes, and the dead text stays out after it.
+  await composer.key(false);
+  expect(composer.files()).toEqual([]);
+  await composer.key(true);
+  expect(composer.files()).toEqual(["e.txt"]);
+  await composer.key(true);
+  expect(composer.text()).toBe("");
+  // Text typed and undone after the file edit still redoes.
+  await composer.type("kept");
+  await composer.key(false);
+  expect(composer.text()).toBe("");
+  await composer.key(true);
+  expect(composer.text()).toBe("kept");
+  await composer.unmount();
+});
