@@ -141,8 +141,9 @@ class Api:
 
     def dispatch(self, number: str, branch: str) -> int | None:
         """Dispatch the fast gates; the run's id from GitHub's 200 answer (workflow_run_id), else None (refused)."""
+        # return_run_details: without it GitHub (API 2022-11-28) answers 204 with no body, so no run id.
         text = self.gh("-X", "POST", f"repos/{self.repo}/actions/workflows/{WORKFLOW}/dispatches",
-                       "-f", f"ref={branch}", "-f", f"inputs[pr]={number}")
+                       "-f", f"ref={branch}", "-f", f"inputs[pr]={number}", "-F", "return_run_details=true")
         try:
             run_id = json.loads(text).get("workflow_run_id") if text.strip() else None
         except (ValueError, AttributeError):
