@@ -503,7 +503,7 @@ async fn serve(
     // after it (`Peers::load` below), so a peer added during the adoption is not missed. The
     // home is the one the app recorded (`key_lock::record_home`): launchd gives `serve` none of
     // the app's environment, so it is never resolved here.
-    let acpmux_home = acpmux::cli::mesh_node_key::recorded_home(state.dir());
+    let acpmux_home = ::acpmux::cli::mesh_node_key::recorded_home(state.dir());
     let served_key = key_adoption::serve_key(&state, key, acpmux_home.as_deref()).await?;
     let public_key = state::public_key(&served_key.key);
     let mut own_keys = vec![public_key];
