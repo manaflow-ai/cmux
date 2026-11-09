@@ -77,6 +77,10 @@ class TraceTests(unittest.TestCase):
         stats = ssm.trace_stats({"refresh_ms": 8.33, "samples": samples})
         self.assertEqual(stats["retargets"], 0, stats["retargeted"])
 
+    def test_speeding_up_after_a_dropped_frame_is_a_retarget(self):
+        # The slowest step spanned a dropped frame (33 ms): it is judged by its speed, not its points (#38998 review F1).
+        self.assertEqual(ssm.retargets([(0, (0,)), (8.33, (100,)), (41.66, (110,)), (50, (118,))]), {50})
+
     def test_a_dropped_frame_is_counted_and_is_no_retarget(self):
         times = [0, 8.33, 16.67, 25, 50, 58.3, 66.7, 75]
         stats = ssm.trace_stats(trace([1000, 1000, 800, 700, 600, 580, 575, 575], times=times))
