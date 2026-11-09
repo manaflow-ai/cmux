@@ -12,7 +12,7 @@
 //! | `event` | `{id, event, nowMs, pid?, value?}` | `{nextTickMs}` |
 //! | `size` | `{id, bytes, nowMs}` | `{nextTickMs}` |
 //! | `tick` | `{nowMs}` | `{actions, nextTickMs}` |
-//! | `repairResult` | `{id, action, ok, nowMs}` | `{nextTickMs}` |
+//! | `repairResult` | `{id, action, token?, ok, nowMs}` | `{nextTickMs}` |
 //! | `repairNow` | `{id, nowMs}` | `{actions, nextTickMs}` |
 //! | `snapshot` | `{}` | the snapshot |
 //! | `pending` | `{id, label, nowMs}` | `{nextTickMs}` |
@@ -141,6 +141,8 @@ struct Size {
 struct RepairResult {
     id: String,
     action: RepairAction,
+    #[serde(default)]
+    token: Option<u64>,
     ok: bool,
     #[serde(deserialize_with = "ms")]
     now_ms: u64,
@@ -191,7 +193,7 @@ pub fn call(health: &mut Health, op: &str, request: &Value) -> Result<Value, OpE
         }
         "repairResult" => {
             let r: RepairResult = de(request)?;
-            health.repair_result(&r.id, r.action, r.ok, r.now_ms);
+            health.repair_result(&r.id, r.action, r.token, r.ok, r.now_ms);
         }
         "repairNow" => {
             let r: At = de(request)?;

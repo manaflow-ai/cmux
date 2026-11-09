@@ -92,6 +92,9 @@ pub struct Action {
     pub action: RepairAction,
     /// 1 for the first step of an episode.
     pub attempt: u32,
+    /// This part's count of actions sent, never reset: the host echoes it in
+    /// `repairResult`, so a late result never lands on a newer attempt.
+    pub token: u64,
 }
 
 /// How a receipt's repair ended.
