@@ -82,3 +82,20 @@ import Testing
         }
     }
 }
+
+/// CMUX-10: the terminal's Jump to bottom row shows only in scroll mode and
+/// only while Settings → Terminal → Jump to Bottom Button is on.
+@Suite struct TerminalJumpToBottomTests {
+    @Test func showsOnlyWhenScrolledUpInScrollMode() {
+        #expect(TerminalJumpToBottom.isShown(scrolledUp: true, isTUI: false, enabled: true))
+        #expect(!TerminalJumpToBottom.isShown(scrolledUp: false, isTUI: false, enabled: true))
+    }
+
+    @Test func neverInAFullScreenApp() {
+        #expect(!TerminalJumpToBottom.isShown(scrolledUp: true, isTUI: true, enabled: true))
+    }
+
+    @Test func settingOffRemovesIt() {
+        #expect(!TerminalJumpToBottom.isShown(scrolledUp: true, isTUI: false, enabled: false))
+    }
+}

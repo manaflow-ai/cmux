@@ -149,6 +149,8 @@ public final class SettingsStore {
     public var wrapCode: Bool { didSet { save(wrapCode, "wrapCode") } }
     /// Read by the terminal key bar.
     public var keyClicks: Bool { didSet { save(keyClicks, "keyClicks") } }
+    /// Read by the terminal composer (`CmuxMobilePreferences.terminalJumpToBottom`).
+    public var terminalJumpToBottom: Bool { didSet { save(terminalJumpToBottom, "terminalJumpToBottom") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
     /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key; Rust turns ultra
@@ -190,6 +192,7 @@ public final class SettingsStore {
         followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
         wrapCode = bool("wrapCode", false)
         keyClicks = bool("keyClicks", true)
+        terminalJumpToBottom = bool("terminalJumpToBottom", true)
         predictiveEcho = bool("predictiveEcho", true)
         ultraOnCellular = bool("ultraOnCellular", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".
