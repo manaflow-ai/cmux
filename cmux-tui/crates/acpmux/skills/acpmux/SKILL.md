@@ -21,6 +21,14 @@ test "${ACPMUX_ENV:-}" = 1 && echo "I am session $ACPMUX_SESSION_NAME ($ACPMUX_S
 When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
+Inside a session, run the daemon's own CLI: `"$ACPMUX_BIN"` is one absolute
+path that runs it, also inside cmux. Use it in place of `acpmux` in every
+command, as in `"$ACPMUX_BIN" send NAME "text"`. The `acpmux` on your PATH can
+be another, older build (a login profile puts `~/.local/bin` first). A CLI
+older than the daemon does not say who runs it: the daemon records its sends as
+an unverified program, not as you or the person, and refuses it what only the
+person's terminal may do (`caller.old_client`).
+
 Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own, or `fork: true` for a
 fork of your own chat that keeps its history),
@@ -164,6 +172,7 @@ the person's prompt. What the receiver gets depends on who you are to it:
 | the session that started it or first gave it work | a prompt, its own turn | yes | `send --wait` prints it |
 | another session, with `--wait` | a question in its inbox | yes | `send --wait` prints that turn's reply |
 | another session, with `--no-wait` | an action in its inbox | no: it goes with its next turn | it answers with `inbox_reply` or `acpmux send YOU` |
+| another session, `--no-wait --class question` or `block` | a question in its inbox | yes | that turn's report comes back to you (to your subagent, if one asked); not to a session on another machine |
 | the person, in a plain terminal | the person's prompt | yes | streamed |
 
 - `--class question` or `block` always wakes the receiver; `result` (an
@@ -182,9 +191,10 @@ the person's prompt. What the receiver gets depends on who you are to it:
   next Bash command or one of those MCP calls: a subagent that makes no such
   call any more does not get it. Once it has ended, the report goes to the
   lead, saying `This report is for your TYPE subagent ID`. If it ended with no
-  `SubagentStop` hook, its reports wait until no subagent of the lead runs. A
-  background task a subagent starts (`bg_start`) still sends its end message
-  to the lead's chat: a subagent passes `notify: false` and reads the task
+  `SubagentStop` hook, its reports wait until no subagent of the lead runs. The
+  end message of a background task it started (`bg_start`, `run_wait`) takes
+  the same rule. On a path that names no subagent (a cmux workflow script), a
+  subagent passes `notify: false` and reads the task
   with `bg_output`. The receiver reads `From another agent (LEAD's TYPE
   subagent ID)` and ends its turn with its answer; it does not send it to the
   lead.
@@ -256,16 +266,23 @@ cooperatively.
 
 To try a build or a daemon restart, use a daemon of your own, never the one
 every session on this machine shares. Point `ACPMUX_HOME` and `ACPMUX_SOCKET`
-at a folder you made (acpmux never creates a missing `ACPMUX_HOME`), and unset
-`ACPMUX_SESSION_ID` and `ACPMUX_SESSION_TOKEN` there, so your sends are the
-person's and not your session's:
+at a folder you made (acpmux never creates a missing `ACPMUX_HOME`). Unset every
+other `ACPMUX_*` variable and Claude Code's `CLAUDE_CODE_MESSAGING_*` there: they
+name your own session, its token and its daemon, so your sends would be your
+session's (or go to the shared daemon) and not the person's. The first command
+starts the daemon in the background by itself (detached; no background shell
+needed). A new home has no `defaults`: set the profile you want (`claude-sr2`
+for sr2), or `-m claude` runs plain `claude`.
 
 ```bash
+X=/abs/path/to/acpmux                       # the build you try (in a session, "$ACPMUX_BIN" is its daemon's)
 mkdir -p /tmp/try-acpmux
+for v in $(env | grep -oE '^(ACPMUX|CLAUDE_CODE_MESSAGING)_[A-Z0-9_]*'); do unset "$v"; done
 export ACPMUX_HOME=/tmp/try-acpmux ACPMUX_SOCKET=/tmp/try-acpmux/acpmux.sock
-acpmux daemon status                        # this home's sessions and live agents: check before a restart
-acpmux daemon restart                       # the new daemon adopts every live agent; they keep their conversation
-acpmux daemon shutdown --end-agents         # done: end its agents too
+$X defaults claude prefer=claude-sr2,claude  # as the shared home has it (`acpmux defaults` there)
+$X daemon status                            # starts it; this home's sessions and live agents
+$X daemon restart                           # the new daemon adopts every live agent; they keep their conversation
+$X daemon shutdown --end-agents             # done: end its agents too, then rm -rf /tmp/try-acpmux
 ```
 
 ## 5. Permissions

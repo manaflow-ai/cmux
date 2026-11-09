@@ -71,6 +71,54 @@ It is captured when the chat is created, like the rest of the first-turn context
   `agents.guidance.userSkills`. They apply to chats created after the change. The Claude switch
   also leaves `cmux-chat` out of the session plugin.
 
+## Audit of the first prompt, 2026-11-09
+
+Leo, 2026-11-09: "we should also audit what cmux-next is adding to the initial context/prompt and
+compare it to claude desktop and codex desktop. see if there are things we can do better, whether
+that be slimming things down or rewriting skills/reorganizing skills/writing in better
+ways/adding more tools/consolidating tools/etc"
+
+What a chat gets from cmux before its first reply, in estimated tokens (`estimated_tokens`:
+characters / 4), read from the constants and skill frontmatter at feat-cmux-next 2026-11-09 and
+checked against a live Claude Code chat on a Linux lane VM:
+
+| Part | Claude Code | Codex |
+|---|---|---|
+| First-turn rule (`CONCURRENT_WORK_RULE`) | 91 | 91 |
+| Guidance (`CLAUDE_GUIDANCE` / `AGENT_GUIDANCE`) | 99 | 404 |
+| cmux MCP instructions (code mode, `ASKING_RULE` included) | 362 | 362 |
+| `cmux_exec` and `cmux_workflow` descriptions | about 1,710, deferred behind tool search | about 1,710, every turn |
+| Built-in skill listings (seven) | 910 | none |
+| Total every turn | about 1,460 | about 2,570 |
+
+The design the harnesses' own apps follow: their app features reach the model as tool
+descriptions and listed skills, each present only when the feature is, and almost no always-on
+prose. cmux follows it for the MCP servers (a server a chat lacks is not attached) but not for
+skills: every Claude Code chat listed all seven built-in skills, whatever its servers.
+
+Changed here:
+
+- **A skill for a server the chat lacks is not listed** (`agent_tools::SKILL_SERVERS`,
+  `AgentTools::fit_skills`): `cmux-cua` needs the `cmux-cua` server, `cmux-sudo` needs
+  `cmux-secrets` (`request_elevation`). A chat without them (Linux, Cloud and lane
+  machines, a Mac without the helper) drops 301 tokens of listings every turn (910 to 609), and is no longer sent to read a 6,000-token computer use skill for tools
+  it does not have. The fitted plugin is its own content-hashed folder; the chat's tool rows and
+  Context viewer sources list the same skills.
+- **Shorter descriptions** for five of the skills are #39113, from the same ask: Claude Code fits
+  skill descriptions into a fixed listing budget and cuts the last ones to a bare name when a
+  person has many skills, which is how `cmux-chat` went unread. Fewer listings leave more of that
+  budget too.
+
+Found, not changed here (each changes what an agent does, so each wants a run of
+`tests/tool-evals/prompt-behavior.mjs` before and after):
+
+- `cmux_exec`'s description, every turn for Codex, repeats the MCP instructions' first sentence,
+  the first-turn parallel rule, and the recap, offer and suggest rules `AGENT_GUIDANCE` already
+  gives Codex: about 400 tokens said twice.
+- A Claude Code chat's first turn says "run ... in the background" twice
+  (`CONCURRENT_WORK_RULE` and `CLAUDE_GUIDANCE`).
+- `cmux-live` is a cmux developer's skill; a person who does not work on cmux still sees it listed.
+
 ## Later
 
 - A Settings card listing the person's skills with a per-skill switch and "Reveal in Finder".

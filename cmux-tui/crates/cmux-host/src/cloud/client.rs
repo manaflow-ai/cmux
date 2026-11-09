@@ -251,7 +251,11 @@ pub fn hold_then_bind(
     now_wall_ms: u64,
 ) -> Option<BindResult> {
     #[cfg(unix)]
-    if !crate::updater::gate::hold_connects(paths, now_wall_ms) {
+    if !crate::updater::gate::hold_connects(
+        paths,
+        now_wall_ms,
+        crate::updater::gate::HoldKind::Connect,
+    ) {
         return None;
     }
     #[cfg(not(unix))]

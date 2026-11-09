@@ -86,6 +86,10 @@ Swift outside function bodies still needs a build; edits inside them take a live
 - The dev server's log is in the status output's state folder (`dev-server.log`).
 - cmux loads only a dev server that proves it holds the token `start` wrote; one started some
   other way is ignored. Start it with `cmux live start`, not `bun run dev` by hand.
+- A page that goes blank or shows another page: the server's checkout predates the 404 for files
+  it lacks, or lacks that page. Pull, `cmux live start` again, and serve a tree near the app's commit.
+- `cmux live` and Live Web Reload are one feature: the command starts it, the setting lets the app
+  load it. Swift, Rust and Chromium are `--swift`, `--rust` and `--chromium` of the same command.
 
 The full guide, including remote slots and following a pull request's head, is
 `docs/cmux-next/hot-reload.md`.
