@@ -157,7 +157,7 @@ fn a_restore_with_its_data_size_reads_as_a_percent_and_without_counters_as_resto
     }
     assert_eq!(part(&h, ID).map(|p| p.state), Some(State::Slow));
     h.event(ID, "restoreProgress", 301_000, Some(GB * 59 / 4));
-    assert_eq!(part(&h, ID).map(|p| p.detail), Some("Restoring workspaces, 25%".into()));
+    assert_eq!(part(&h, ID).map(|p| p.detail), Some("Restoring workspaces, about 25%".into()));
     h.event(ID, "restoreProgress", 302_000, Some(60 * GB));
-    assert_eq!(part(&h, ID).map(|p| p.detail), Some("Restoring workspaces, 99%".into()));
+    assert_eq!(part(&h, ID).map(|p| p.detail), Some("Restoring workspaces, about 99%".into()));
 }

@@ -103,11 +103,11 @@ pub fn cause(cause: Cause) -> String {
              Holding restarts so the current one can finish restoring.",
             duration(span_ms)
         ),
-        // A restore reads the data at least once, so read over size is a floor on how far it got;
-        // capped at 99 so it never says done before ready.
+        // Read over size only estimates how far a restore got (it rereads some pages and skips others),
+        // so it says "about" and caps at 99: never done before ready.
         Cause::DaemonRestoring { bytes: 0, .. } => "Restoring workspaces".into(),
         Cause::DaemonRestoring { bytes, total } if total > 0 => {
-            format!("Restoring workspaces, {}%", (bytes.saturating_mul(100) / total).min(99))
+            format!("Restoring workspaces, about {}%", (bytes.saturating_mul(100) / total).min(99))
         }
         Cause::DaemonRestoring { bytes, .. } => {
             format!("Restoring workspaces, {} read", human_bytes(bytes))
