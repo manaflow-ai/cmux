@@ -615,7 +615,8 @@ async fn a_revoke_racing_a_rekey_stays_revoked() {
         let revoke = tokio::task::spawn_blocking(move || {
             Pairings::update(&path, |pairings| Ok(pairings.remove("inst_x")))
         });
-        let rekey = target.apply("inst_x", &[round + 50; 32]);
+        let new_key = [round + 50; 32];
+        let rekey = target.apply("inst_x", &new_key);
         let (revoked, _) = tokio::join!(revoke, rekey);
         assert!(revoked.unwrap().unwrap(), "round {round}");
         let now = Pairings::load(&file).unwrap();
