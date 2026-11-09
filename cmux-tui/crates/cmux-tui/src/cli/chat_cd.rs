@@ -28,7 +28,7 @@ use serde_json::{Value, json};
 
 use super::chat_send::{self, Place};
 use super::cloud_start_chat::{self, GUEST_PRELUDE, Runner, sections, shell_quote};
-use super::{GlobalArgs, OutputMode, UsageError};
+use super::{OutputMode, UsageError};
 
 pub(super) const USAGE: &str = "\
 usage: cmux chat cd SESSION DIR [--on vm:ID|NAME] [--json]
