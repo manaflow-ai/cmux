@@ -882,10 +882,18 @@ async fn forward_inner(
             hub.peer_accepts.forget(&peer.name, &id, prompt_id, token);
         }
         // `Peer::request` already took the peer's display lines out of the result and the error.
-        if result.is_err() && first_attach && m == method::MUX_ATTACH {
+        if first_attach
+            && m == method::MUX_ATTACH
+            && let Err(e) = &result
+        {
             // Do not strand the marker when the first baseline request failed.
             // A retry must be able to establish a fresh no-history cursor.
             peer.clear_attached(&id);
+            // The client was subscribed to the chat, and the link has no stream of it: one the
+            // peer did not refuse is attached again on this link while it stays up.
+            if !crate::peer::refuses_attach(e) {
+                peer.retry_attach(&id, link);
+            }
         }
         let mut result = result.map_err(|e| {
             if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK | method::MUX_FILE_PUT_FINISH | method::MUX_FILE_PUT_CANCEL | method::MUX_FILE_PUT_STATUS)
@@ -924,8 +932,12 @@ async fn forward_inner(
                 peer.note_hidden_attach_page(&id, &result);
             } else if let Some(after) = params.get("afterSeq").and_then(Value::as_u64) {
                 peer.note_attached_page_after(&id, after, &result);
-            } else {
-                // Advance only after permission-history filtering.
+            } else if held(&result).is_some_and(|n| n > 0)
+                || (params.get("kinds").is_none_or(Value::is_null) && held(&result) == before)
+            {
+                // Advance only after permission-history filtering. An empty page settles the
+                // baseline at its `pageThrough` only when it held every record through it: no
+                // `kinds` left some out, and no ask was taken out here.
                 peer.note_attached_page(&id, &result);
             }
         }

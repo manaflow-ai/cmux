@@ -343,6 +343,13 @@ pub struct Peer {
     /// silently loses the gap between links). A chat marked in `attached` with no cursor has no
     /// baseline yet, and the next link attaches it without history as before.
     cursors: StdMutex<HashMap<String, u64>>,
+    /// The marked chats whose cursor a page settled ([`Self::note_baseline`]): for these a
+    /// cursor of 0 is a baseline too (the peer's chat held nothing yet, as a new Cloud chat
+    /// does), so a reconnect replays them from it instead of attaching them without history.
+    baselined: StdMutex<HashSet<String>>,
+    /// The chats whose attach failed on a live link and is being tried again on that link
+    /// ([`Self::retry_attach`]): one retry loop per chat.
+    attach_retries: StdMutex<HashSet<String>>,
     /// Highest live sequence observed while a session is being replayed. The
     /// payload is intentionally not retained: the next bounded page fetches it
     /// from the peer journal, so memory cannot grow with a long turn.
@@ -533,6 +540,8 @@ impl Peer {
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
             cursors: StdMutex::new(HashMap::new()),
+            baselined: StdMutex::new(HashSet::new()),
+            attach_retries: StdMutex::new(HashSet::new()),
             replay_highwater: StdMutex::new(HashMap::new()),
             replay_tail: StdMutex::new(HashMap::new()),
             notices,
@@ -1194,6 +1203,7 @@ impl Peer {
     pub fn clear_attached(&self, session_id: &str) {
         self.replay_highwater.lock_or_recover().remove(session_id);
         self.cursors.lock_or_recover().remove(session_id);
+        self.baselined.lock_or_recover().remove(session_id);
     }
 
     /// The link's own attach of the peer's chat `id` ([`hidden_attach`]), marked already. Its
@@ -1202,11 +1212,23 @@ impl Peer {
     /// peer takes no such attach) is no longer marked, so no reconnect asks for it again and the
     /// next prompt attaches it anew, unless a client marked it again while this attach was out:
     /// that client relies on the mark. Any other failure (the link dropped, a timeout, a full
-    /// queue) keeps the mark, and the next link's handshake attaches it again. Its answer, on
-    /// the link it went out on, is the chat's replay baseline.
-    pub async fn attach_hidden(&self, id: &str) -> Result<Value, RpcError> {
-        let ticket = self.attached.lock_or_recover().get(id).copied();
+    /// queue) keeps the mark, and is tried again on the same link while it stays up
+    /// ([`Self::retry_attach`]); the next link's handshake attaches it again in any case. Its
+    /// answer, on the link it went out on, is the chat's replay baseline.
+    pub async fn attach_hidden(self: &Arc<Self>, id: &str) -> Result<Value, RpcError> {
         let link = self.link_epoch();
+        let attached = self.attach_hidden_on(id, link).await;
+        if let Err(e) = &attached
+            && !refuses_attach(e)
+        {
+            self.retry_attach(id, link);
+        }
+        attached
+    }
+
+    /// One [`Self::attach_hidden`] on link `link`, with no retry.
+    async fn attach_hidden_on(&self, id: &str, link: u64) -> Result<Value, RpcError> {
+        let ticket = self.attached.lock_or_recover().get(id).copied();
         let attached = self.request_on(method::MUX_ATTACH, hidden_attach(id), Some(link)).await;
         match &attached {
             Ok(page) if self.link_epoch() == link => self.note_hidden_attach_page(id, page),
@@ -1226,6 +1248,54 @@ impl Peer {
         attached
     }
 
+    /// Chat `id`'s attach on link `link` failed without the peer refusing it (it timed out, the
+    /// queue was full): it streams nothing on this link, and a Cloud chat's output would just
+    /// stop until the next reconnect. It is attached again on the same link, after each of
+    /// [`ATTACH_RETRY_AFTER`] in turn, and once it is, its clients are told to read what they
+    /// missed ([`Self::tell_reattached`]). It stops when the link ends (the next link's
+    /// handshake attaches the chat), when the chat is no longer marked or the peer refuses it,
+    /// when another attach gave the chat a stream meanwhile, or after the last retry; the mark
+    /// stays for the next link.
+    pub(crate) fn retry_attach(self: &Arc<Self>, id: &str, link: u64) {
+        if !self.attach_wanted(id, link)
+            || !self.attach_retries.lock_or_recover().insert(id.to_owned())
+        {
+            return;
+        }
+        let (me, id) = (self.clone(), id.to_owned());
+        tokio::spawn(async move {
+            for (n, after) in ATTACH_RETRY_AFTER.iter().enumerate() {
+                tokio::time::sleep(*after).await;
+                if !me.attach_wanted(&id, link) {
+                    break;
+                }
+                match me.attach_hidden_on(&id, link).await {
+                    Ok(_) => {
+                        if me.link_epoch() == link {
+                            me.tell_reattached(&id, link).await;
+                        }
+                        break;
+                    }
+                    Err(e) if refuses_attach(&e) => break,
+                    Err(_) if n + 1 == ATTACH_RETRY_AFTER.len() => {
+                        tracing::warn!(peer = %me.name, session = %id, "the peer's chat was not attached after {} retries; the next link attaches it", n + 1);
+                    }
+                    Err(_) => {}
+                }
+            }
+            me.attach_retries.lock_or_recover().remove(&id);
+        });
+    }
+
+    /// Whether chat `id`, whose attach on link `link` failed, still needs it: that link is up, the
+    /// chat is still marked, and no attach since gave it a stream (which sets its cursor again).
+    fn attach_wanted(&self, id: &str, link: u64) -> bool {
+        self.link_epoch() == link
+            && self.connected.load(Ordering::SeqCst)
+            && self.attached.lock_or_recover().contains_key(id)
+            && !self.cursors.lock_or_recover().contains_key(id)
+    }
+
     /// Chat `sid` was attached again without history on link `link` ([`REATTACHED_NOTICE`]).
     async fn tell_reattached(&self, sid: &str, link: u64) {
         let notice = PeerNotice::Notification {
@@ -1239,9 +1309,15 @@ impl Peer {
     /// Advance the reconnect cursor from a page returned by `_acpmux/attach`.
     /// The page's `lastSeq` includes records filtered out by `kinds`, so only
     /// the records actually delivered to the client may advance the cursor.
+    /// An empty page settles the baseline at its `pageThrough` (it holds every record through
+    /// it), so a chat first read with nothing in it is replayed after a reconnect; the caller
+    /// passes one only when the page held everything asked for (`server/peer_forward.rs`). A
+    /// page that says neither settles nothing.
     pub fn note_attached_page(&self, session_id: &str, page: &Value) {
-        let seq = page_max_seq(page).unwrap_or(0);
-        self.note_baseline(session_id, seq);
+        let seq = page_max_seq(page).or_else(|| page.get("pageThrough").and_then(Value::as_u64));
+        if let Some(seq) = seq {
+            self.note_baseline(session_id, seq);
+        }
     }
 
     /// Record an explicit `afterSeq` baseline together with the delivered page.
@@ -1278,6 +1354,7 @@ impl Peer {
             .entry(session_id.to_owned())
             .and_modify(|cursor| *cursor = (*cursor).max(seq))
             .or_insert(seq);
+        self.baselined.lock_or_recover().insert(session_id.to_owned());
     }
 
     /// Advance the cursor for a live event sent on this peer link.
@@ -1750,6 +1827,8 @@ impl Peer {
                 }
                 let mut highwater = self.replay_highwater.lock_or_recover();
                 self.cursors.lock_or_recover().insert(sid.clone(), 0);
+                // Replayed from its start: 0 is its baseline now.
+                self.baselined.lock_or_recover().insert(sid.clone());
                 highwater.insert(sid.clone(), 0);
                 after = 0;
                 rewound = true;
@@ -1940,7 +2019,8 @@ impl Peer {
         self.open.store(true, Ordering::SeqCst);
         // Gate existing streams before initialize/watch or outcome recovery can
         // produce events. A live record must not move the replay cursor past a gap.
-        let replay_cursors = replayable(&self.cursors.lock_or_recover());
+        let replay_cursors =
+            replayable(&self.cursors.lock_or_recover(), &self.baselined.lock_or_recover());
         *self.replay_highwater.lock_or_recover() = replay_cursors.into_iter().collect();
         self.replay_tail.lock_or_recover().clear();
         *self.last_error.lock_or_recover() = None;
@@ -2108,7 +2188,8 @@ impl Peer {
             // list was read (`watch_delta.rs`).
             me.known_tools.store(tools, Ordering::SeqCst);
             me.recover_prompts(link).await?;
-            let attached = replayable(&me.cursors.lock_or_recover());
+            let attached =
+                replayable(&me.cursors.lock_or_recover(), &me.baselined.lock_or_recover());
             // Forwarders can register an attachment during the handshake before
             // request_on refuses their request. Gate those sessions too, without
             // replacing high-water marks already observed on this connection.
@@ -2168,7 +2249,10 @@ impl Peer {
             let attached: Vec<String> = {
                 let marks = me.attached.lock_or_recover();
                 let cursors = me.cursors.lock_or_recover();
-                let replayed = |sid: &String| cursors.get(sid).is_some_and(|c| *c > 0);
+                let baselined = me.baselined.lock_or_recover();
+                let replayed = |sid: &String| {
+                    cursors.get(sid).is_some_and(|c| *c > 0 || baselined.contains(sid))
+                };
                 marks.keys().filter(|sid| !replayed(sid)).cloned().collect()
             };
             // Each starts its stream anew at the peer's present, so what the peer sent since the
@@ -2678,11 +2762,27 @@ fn lends_over(url: &str) -> bool {
 /// How many of a link's chats its handshake attaches again at once after a reconnect.
 const REATTACHES_AT_ONCE: usize = 16;
 
-/// The chats a reconnect replays from their cursor. A cursor still at 0 has no baseline yet (its
-/// first attach did not answer, or an older peer gave no `pageThrough`): replaying it would send
-/// its whole history again as live events, so it is attached without history after connect.
-fn replayable(cursors: &HashMap<String, u64>) -> Vec<(String, u64)> {
-    cursors.iter().filter(|(_, c)| **c > 0).map(|(sid, c)| (sid.clone(), *c)).collect()
+/// How long a link waits before each attach it tries again after one failed on it
+/// ([`Peer::retry_attach`]): about a minute in all, then the chat waits for the next link.
+const ATTACH_RETRY_AFTER: [Duration; 6] = [
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+    Duration::from_secs(16),
+    Duration::from_secs(30),
+];
+
+/// The chats a reconnect replays from their cursor. A cursor still at 0 has no baseline yet
+/// unless a page settled it (`baselined`: the chat held nothing then); one with none (its first
+/// attach did not answer, or an older peer gave no `pageThrough`) would send its whole history
+/// again as live events if replayed, so it is attached without history after connect.
+fn replayable(cursors: &HashMap<String, u64>, baselined: &HashSet<String>) -> Vec<(String, u64)> {
+    cursors
+        .iter()
+        .filter(|(sid, c)| **c > 0 || baselined.contains(*sid))
+        .map(|(sid, c)| (sid.clone(), *c))
+        .collect()
 }
 
 /// The greatest event sequence an `_acpmux/attach` page holds, if it holds any.
@@ -2699,7 +2799,7 @@ fn page_max_seq(page: &Value) -> Option<u64> {
 /// the peer takes no such request. The link's own failures (dropped, timed out, too large, a
 /// full queue) are internal errors or carry `peer_unreachable` / `peer_disconnected`, never
 /// these codes.
-fn refuses_attach(e: &RpcError) -> bool {
+pub(crate) fn refuses_attach(e: &RpcError) -> bool {
     matches!(e.code, -32002 | -32601 | -32602)
 }
 
