@@ -107,7 +107,8 @@ fn link_dir_for(home: &Path) -> Option<std::path::PathBuf> {
 }
 
 /// Removes the join from `home`: the record marked revoked first (so nothing reads it as
-/// live if this stops part way), then `meshRelay` (only a joined one), then the credential and
+/// live if this stops part way), then `meshRelay` (only the one this join wrote: the join's
+/// credential for the record's hub, [`join_relay_for`]; with no record, none), then the credential and
 /// the node key: one the join made, or a copied home's (`copy`, or a record marked `cloned`:
 /// the original box's key, or the one put in its place), never one the link adopted. Returns
 /// what it removed. The caller holds the join lock.
@@ -115,6 +116,7 @@ pub(super) fn remove_local(home: &std::path::Path, copy: bool) -> Result<Vec<&'s
     let mut removed = Vec::new();
     let record = load_at(home)?;
     let copy = copy || record.as_ref().is_some_and(|record| record.cloned);
+    let hub = record.as_ref().map(|record| record.hub_origin.clone());
     if let Some(mut record) = record
         && !record.revoked
     {
@@ -126,18 +128,10 @@ pub(super) fn remove_local(home: &std::path::Path, copy: bool) -> Result<Vec<&'s
             true,
         )?;
     }
-    let config_path = home.join("config.json");
-    if config_path.exists() {
-        let mut config = crate::config::Config::load_from(&config_path)?;
-        if config
-            .mesh_relay
-            .as_ref()
-            .is_some_and(|relay| relay.credential.as_deref() == Some("join"))
-        {
-            config.mesh_relay = None;
-            config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))?;
-            removed.push("meshRelay");
-        }
+    if let Some(hub) = hub
+        && remove_relay_at(home, |relay| join_relay_for(relay, &hub))?
+    {
+        removed.push("meshRelay");
     }
     let made = copy || std::fs::symlink_metadata(home.join(NODE_KEY_MADE)).is_ok();
     let node_key = (made && !link_adopted(link_dir_for(home).as_deref()))
@@ -158,6 +152,35 @@ pub(super) fn remove_local(home: &std::path::Path, copy: bool) -> Result<Vec<&'s
     Ok(removed)
 }
 
+/// Removes config.json's `meshRelay` from `home` when `ours` says it is the leave's to remove.
+/// True when it removed one.
+fn remove_relay_at(
+    home: &Path,
+    ours: impl FnOnce(&crate::mesh_http::MeshRelayConfig) -> bool,
+) -> Result<bool> {
+    let config_path = home.join("config.json");
+    if !config_path.exists() {
+        return Ok(false);
+    }
+    let mut config = crate::config::Config::load_from(&config_path)?;
+    if !config.mesh_relay.as_ref().is_some_and(ours) {
+        return Ok(false);
+    }
+    config.mesh_relay = None;
+    config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))?;
+    Ok(true)
+}
+
+/// A person's own `machine leave` with nothing joined: a join's relay left with no record
+/// (the join's credential and no `tokenCommand`, for any hub) goes, as it always did. A
+/// sign-out never takes this path; it removes only the relay its join wrote ([`remove_local`]).
+fn remove_stray_join_relay(home: &Path) -> Result<Vec<&'static str>> {
+    let stray = |relay: &crate::mesh_http::MeshRelayConfig| {
+        relay.credential.as_deref() == Some("join") && relay.token_command.is_empty()
+    };
+    Ok(if remove_relay_at(home, stray)? { vec!["meshRelay"] } else { Vec::new() })
+}
+
 fn leave_error(code: &str, exit: i32, message: String) -> anyhow::Error {
     crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, code, &message)
         .with_exit(exit)
@@ -168,8 +191,8 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     let _lock = join_lock().map_err(|_| store_error())?;
     let home = state_dir();
     let Some(record) = load_at(&home).map_err(|_| store_error())? else {
-        // Nothing joined; a stray joined `meshRelay` still goes.
-        let removed = remove_local(&home, false).map_err(|_| store_error())?;
+        // Nothing joined; a stray joined `meshRelay` still goes, as the person asked to leave.
+        let removed = remove_stray_join_relay(&home).map_err(|_| store_error())?;
         let out = json!({"left": false, "joined": false, "removed": removed});
         if json_out {
             crate::cli::output::print_json(&out);
