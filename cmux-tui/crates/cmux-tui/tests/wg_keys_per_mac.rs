@@ -51,15 +51,10 @@ fn keys_on_disk(home: &Path, link: &Path) -> usize {
     publics.len()
 }
 
-#[tokio::test]
-async fn one_mac_runs_one_wireguard_key_and_one_udp_socket() {
-    let root = tempfile::tempdir().unwrap();
-    let home = root.path().join("acpmux");
-    let link = root.path().join("state/link");
-    // A joined Mac: acpmux made its node key (the platform knows its public half).
-    acpmux::cli::mesh_node_key::load_or_create_at(&home).unwrap();
+/// `cmux link init` of install `inst_a` in `link`.
+fn init(root: &Path, link: &Path) {
     let init = cmux(
-        root.path(),
+        root,
         &[
             "link",
             "init",
@@ -74,9 +69,13 @@ async fn one_mac_runs_one_wireguard_key_and_one_udp_socket() {
     .output()
     .unwrap();
     assert!(init.status.success(), "{}", String::from_utf8_lossy(&init.stderr));
+}
 
+/// The real `cmux link serve` of `link` under the key lock in the acpmux `home`, as the app
+/// starts it, and its ready line once it serves.
+async fn serve_until_ready(root: &Path, link: &Path, home: &Path) -> (Serving, serde_json::Value) {
     let mut serve = cmux(
-        root.path(),
+        root,
         &[
             "link",
             "serve",
@@ -87,7 +86,7 @@ async fn one_mac_runs_one_wireguard_key_and_one_udp_socket() {
         ],
     );
     // The app's acpmux home, as the app resolves it: the link adopts only there.
-    serve.env("ACPMUX_HOME", &home).stdout(Stdio::piped()).stderr(Stdio::null());
+    serve.env("ACPMUX_HOME", home).stdout(Stdio::piped()).stderr(Stdio::null());
     let mut serving = Serving(serve.spawn().unwrap());
     let stdout = serving.0.stdout.take().unwrap();
     let ready = tokio::time::timeout(
@@ -103,7 +102,19 @@ async fn one_mac_runs_one_wireguard_key_and_one_udp_socket() {
     .expect("the link was not ready in 60 s")
     .unwrap()
     .expect("the link exited before it was ready");
-    let ready: serde_json::Value = serde_json::from_str(&ready).unwrap();
+    (serving, serde_json::from_str(&ready).unwrap())
+}
+
+#[tokio::test]
+async fn one_mac_runs_one_wireguard_key_and_one_udp_socket() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("acpmux");
+    let link = root.path().join("state/link");
+    // A joined Mac: acpmux made its node key (the platform knows its public half).
+    acpmux::cli::mesh_node_key::load_or_create_at(&home).unwrap();
+    init(root.path(), &link);
+
+    let (_serving, ready) = serve_until_ready(root.path(), &link, &home).await;
     let link_sockets = usize::from(ready["udp"].is_string());
 
     let mut counted = Vec::new();
@@ -134,4 +145,81 @@ async fn one_mac_runs_one_wireguard_key_and_one_udp_socket() {
     for (labs, keys, sockets) in counted {
         assert_eq!((keys, sockets), (1, 1), "labs_wireguard={labs}");
     }
+}
+
+/// A link the test started through `cmux link ensure`, stopped through `cmux link stop` (by the
+/// pid its registration names, after the link proved it serves this state dir).
+struct Ensured<'a> {
+    root: &'a Path,
+    link: &'a Path,
+}
+
+impl Drop for Ensured<'_> {
+    fn drop(&mut self) {
+        let _ =
+            cmux(self.root, &["link", "stop", "--state-dir", self.link.to_str().unwrap()]).output();
+    }
+}
+
+/// Review F1 at c1898fca: a sign-out archives the adoption record with its install
+/// (`key-adopted.inst_a.json`). With the link stopped, `machine leave` must still keep the
+/// node key that record names: when the install signs in again, its link serves that key to
+/// the peers that know it by it alone, never `key_adoption.node_key_missing`.
+#[tokio::test]
+async fn an_archived_adoption_keeps_its_node_key_through_a_leave_and_serves_it_restored() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("acpmux");
+    let link = root.path().join("state/link");
+    let node = acpmux::cli::mesh_node_key::load_or_create_at(&home).unwrap().public_key;
+    let node_bytes = std::fs::read(KeyFile::Node.path_in(&home)).unwrap();
+    init(root.path(), &link);
+    // The link adopts the node key, then stops.
+    drop(serve_until_ready(root.path(), &link, &home).await);
+    assert!(link.join("key-adopted.json").is_file(), "the link did not adopt the node key");
+
+    // Sign-out: the install's record goes into its archive.
+    let archive = cmux(root.path(), &["link", "archive", "--state-dir", link.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(archive.status.success(), "{}", String::from_utf8_lossy(&archive.stderr));
+    assert!(link.join("key-adopted.inst_a.json").is_file());
+    assert!(!link.join("key-adopted.json").exists());
+
+    // `machine leave`, with no link running: the archived adoption keeps the key.
+    let leave = cmux(root.path(), &["acp", "machine", "leave", "--local-only", "--json"])
+        .env("ACPMUX_HOME", &home)
+        .output()
+        .unwrap();
+    assert!(leave.status.success(), "{}", String::from_utf8_lossy(&leave.stderr));
+    let left: serde_json::Value = serde_json::from_slice(&leave.stdout).unwrap();
+    let removed = left["removed"].as_array().cloned().unwrap_or_default();
+    assert!(!removed.contains(&serde_json::json!("nodeKey")), "{left}");
+    assert_eq!(std::fs::read(KeyFile::Node.path_in(&home)).unwrap(), node_bytes);
+
+    // The install signs in again: its link comes back and serves the same node key.
+    let ensure = cmux(
+        root.path(),
+        &[
+            "link",
+            "ensure",
+            "--state-dir",
+            link.to_str().unwrap(),
+            "--install",
+            "inst_a",
+            "--port",
+            "0",
+        ],
+    )
+    .env("ACPMUX_HOME", &home)
+    .output()
+    .unwrap();
+    let _ensured = Ensured { root: root.path(), link: &link };
+    assert!(ensure.status.success(), "{}", String::from_utf8_lossy(&ensure.stderr));
+    assert!(link.join("key-adopted.json").is_file(), "the restore did not bring the record back");
+    let show = cmux(root.path(), &["link", "show", "--state-dir", link.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(show.status.success(), "{}", String::from_utf8_lossy(&show.stderr));
+    let shown: serde_json::Value = serde_json::from_slice(&show.stdout).unwrap();
+    assert_eq!(shown["public_key"], STANDARD.encode(node), "{shown}");
 }

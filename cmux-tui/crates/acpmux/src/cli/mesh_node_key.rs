@@ -92,22 +92,69 @@ pub fn public_key_at(state_dir: &Path) -> Option<[u8; 32]> {
     Some(NodeKeypair::of(&private).public_key)
 }
 
-/// Whether the cmux link in `link_dir` adopted the node key in `home` as its only key
-/// (`key-adopted.json`, the link's `key_adoption.rs`, names the adopted key's directory in
-/// `key_dir`): its paired peers know the link by that key alone, so nothing deletes or replaces
-/// it then. A record naming another directory adopted another home's key; one that cannot be
-/// read or names none counts as this home's, so the key stays.
+/// The refusal of a node key change an adoption depends on ([`adoption_depends`]).
+pub(crate) const ADOPTED: &str = "node_key.adopted";
+
+/// Whether the cmux link in `link_dir` adopted the node key in `home` as its only key: an
+/// adoption record names the adopted key's directory in `key_dir` (the link's
+/// `key_adoption.rs`), either the current one (`key-adopted.json`) or one a sign-out or an
+/// install switch archived with its install (`key-adopted.<install>.json`, restored when that
+/// install comes back). The paired peers of that install know the link by that key alone, so
+/// nothing deletes, replaces or rotates it then. A record naming another directory adopted
+/// another home's key; one that cannot be read or names none, or a link directory that cannot
+/// be listed, counts as this home's, so the key stays.
 pub(crate) fn link_adopted(link_dir: Option<&Path>, home: &Path) -> bool {
-    let Some(marker) = link_dir.map(|dir| dir.join("key-adopted.json")) else { return false };
-    if std::fs::symlink_metadata(&marker).is_err() {
-        return false;
-    }
-    let key_dir = std::fs::read(&marker)
-        .ok()
-        .and_then(|text| serde_json::from_slice::<serde_json::Value>(&text).ok())
-        .and_then(|record| record.get("key_dir")?.as_str().map(std::path::PathBuf::from));
+    let Some(link_dir) = link_dir else { return false };
+    let mut entries = match std::fs::read_dir(link_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(_) => return true,
+    };
     let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-    key_dir.is_none_or(|key_dir| canonical(&key_dir) == canonical(home))
+    let names_home = |record: &Path| {
+        let key_dir = std::fs::read(record)
+            .ok()
+            .and_then(|text| serde_json::from_slice::<serde_json::Value>(&text).ok())
+            .and_then(|record| record.get("key_dir")?.as_str().map(std::path::PathBuf::from));
+        key_dir.is_none_or(|key_dir| canonical(&key_dir) == canonical(home))
+    };
+    entries.any(|entry| match entry {
+        Ok(entry) => {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.starts_with("key-adopted.") && name.ends_with(".json"))
+                && names_home(&entry.path())
+        }
+        Err(_) => true,
+    })
+}
+
+/// Whether an adoption, current or archived, depends on the node key in `home`
+/// ([`link_adopted`] in this machine's link state directory). The one check before anything
+/// deletes, replaces or rotates that key: [`lock_to_remove`] (`machine leave`, [`replace_at`])
+/// and [`adoption_depends_held`] (`machine.tunnel.rekey`, [`promote_pending_held`]) ask it under
+/// the WireGuard key lock, which the link adopts under.
+pub(crate) fn adoption_depends(home: &Path) -> bool {
+    link_adopted(link_dir_for(home).as_deref(), home)
+}
+
+/// [`adoption_depends`], asked with the key lock (`_held`) held, so no adoption begins before
+/// the change it allows is done.
+pub(crate) fn adoption_depends_held(home: &Path, _held: &KeyHolder) -> bool {
+    adoption_depends(home)
+}
+
+/// Refused [`ADOPTED`] when an adoption depends on the node key in `home`
+/// ([`adoption_depends_held`]). Until the link rekeys its paired peers itself, a rotation
+/// would leave every one of them dialing a key it no longer serves.
+pub(crate) fn refuse_adopted_held(home: &Path, held: &KeyHolder) -> Result<()> {
+    anyhow::ensure!(
+        !adoption_depends_held(home, held),
+        "{ADOPTED}: the cmux link serves this node key, and its paired peers know the link by it \
+         alone; it is not replaced or rotated"
+    );
+    Ok(())
 }
 
 /// This machine's link state directory; a test's is beside its home.
@@ -119,7 +166,7 @@ pub(crate) fn link_dir_for(home: &Path) -> Option<std::path::PathBuf> {
 pub(crate) enum RemoveLock {
     /// The WireGuard key lock, held: the key may go while it is.
     Free(KeyHolder),
-    /// The cmux link adopted the key ([`link_adopted`]): it stays.
+    /// An adoption, current or archived, depends on the key ([`adoption_depends`]): it stays.
     Adopted,
     /// Another process holds the key lock (a running link or WireGuard transport): it stays.
     Held,
@@ -135,7 +182,7 @@ pub(crate) fn lock_to_remove(home: &Path) -> Result<RemoveLock> {
             return Err(anyhow::Error::from(e).context("take the WireGuard key lock"));
         }
     };
-    if link_adopted(link_dir_for(home).as_deref(), home) {
+    if adoption_depends(home) {
         return Ok(RemoveLock::Adopted);
     }
     Ok(RemoveLock::Free(holder))
@@ -151,7 +198,7 @@ pub fn replace_at(state_dir: &Path) -> Result<NodeKeypair> {
     let _lock = match lock_to_remove(state_dir)? {
         RemoveLock::Free(holder) => holder,
         RemoveLock::Adopted => anyhow::bail!(
-            "node_key.adopted: the cmux link serves this node key, and its paired peers know the \
+            "{ADOPTED}: the cmux link serves this node key, and its paired peers know the \
              link by it alone; it is not replaced"
         ),
         RemoveLock::Held => anyhow::bail!(
@@ -203,8 +250,10 @@ pub(crate) fn read_pending_held(
     })
 }
 
-/// The pending node key becomes the node key in one rename.
+/// The pending node key becomes the node key in one rename; refused, with both left as they
+/// are, while an adoption depends on the node key ([`refuse_adopted_held`]).
 pub(crate) fn promote_pending_held(state_dir: &Path, holder: &KeyHolder) -> Result<()> {
+    refuse_adopted_held(state_dir, holder)?;
     let pending = KeyFile::NodePending.path_in(state_dir);
     holder.open(KeyFile::Node, state_dir, |path| -> Result<()> {
         std::fs::rename(&pending, path).context("put the pending node key in place")?;
@@ -367,6 +416,50 @@ mod tests {
         let refused = replace_at(dir.path()).unwrap_err();
         assert!(refused.to_string().starts_with("node_key.adopted:"), "{refused}");
         assert_eq!(public_key_at(dir.path()), Some(fresh.public_key));
+    }
+
+    /// Review F1 and F2 at c1898fca: a sign-out archives the adoption record with its install
+    /// (`key-adopted.<install>.json`), and that install's peers still know the link by the node
+    /// key. Every change of the key (a leave's delete, a copied home's replacement, a rekey's
+    /// promotion) is refused while an archived record names this home, as for a current one.
+    #[test]
+    fn an_archived_adoption_keeps_the_key_from_every_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let kept = load_or_create_at(dir.path()).unwrap();
+        let kept_bytes = std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap();
+        std::fs::create_dir_all(dir.path().join("link")).unwrap();
+        let archived = dir.path().join("link/key-adopted.inst_a.json");
+        std::fs::write(&archived, serde_json::json!({ "key_dir": dir.path() }).to_string())
+            .unwrap();
+        assert!(adoption_depends(dir.path()));
+        assert!(matches!(lock_to_remove(dir.path()).unwrap(), RemoveLock::Adopted));
+        let refused = replace_at(dir.path()).unwrap_err();
+        assert!(refused.to_string().starts_with("node_key.adopted:"), "{refused}");
+        let holder = KeyHolder::acquire(dir.path()).unwrap();
+        write_pending_held(dir.path(), &holder, &[9u8; 32]).unwrap();
+        let refused = promote_pending_held(dir.path(), &holder).unwrap_err();
+        assert!(refused.to_string().starts_with("node_key.adopted:"), "{refused}");
+        assert!(KeyFile::NodePending.path_in(dir.path()).exists(), "the pending key stays");
+        drop(holder);
+        assert_eq!(std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap(), kept_bytes);
+        assert_eq!(public_key_at(dir.path()), Some(kept.public_key));
+        // An archive that cannot be read counts as this home's too.
+        std::fs::write(&archived, b"not json").unwrap();
+        assert!(adoption_depends(dir.path()));
+        // Files that are not adoption records (a write's temporary file) do not.
+        std::fs::remove_file(&archived).unwrap();
+        std::fs::write(dir.path().join("link/.key-adopted.json.1.tmp"), b"{}").unwrap();
+        std::fs::write(dir.path().join("link/peers.inst_a.json"), b"{}").unwrap();
+        assert!(!adoption_depends(dir.path()));
+        // An archive naming another home keeps only that home's key.
+        let other = tempfile::tempdir().unwrap();
+        std::fs::write(&archived, serde_json::json!({ "key_dir": other.path() }).to_string())
+            .unwrap();
+        assert!(!adoption_depends(dir.path()));
+        let holder = KeyHolder::acquire(dir.path()).unwrap();
+        promote_pending_held(dir.path(), &holder).unwrap();
+        drop(holder);
+        assert_eq!(std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap(), [9u8; 32]);
     }
 
     #[test]

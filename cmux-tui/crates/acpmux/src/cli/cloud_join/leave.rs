@@ -4,7 +4,8 @@
 //! mesh address-book rows with it), then removes the join here: the record is marked revoked,
 //! `meshRelay` leaves config.json, and the credential file is deleted, with `node.wg.key` only
 //! under the WireGuard key lock and never one the cmux link adopted as its own
-//! (`key-adopted.json`): its paired peers know the link by that key alone.
+//! (`key-adopted.json`, or `key-adopted.<install>.json` archived at a sign-out): its paired peers
+//! know the link by that key alone (`mesh_node_key::adoption_depends`).
 //!
 //! A running daemon's relay reads the credential from its file at every hub call
 //! (`mesh_http.rs` `token`): with the record revoked and then gone, its next heartbeat or inbox
@@ -365,6 +366,29 @@ mod tests {
         // Neither: it goes.
         record(home.path());
         assert_eq!(remove_local(home.path()).unwrap(), vec!["credential", "nodeKey"]);
+        assert_eq!(key(home.path()), None);
+    }
+
+    /// Review F1 at c1898fca: a sign-out archives the adoption record with its install
+    /// (`key-adopted.<install>.json`); with the link stopped, a leave still keeps the key that
+    /// record names, so the install serves it when it signs in again.
+    #[test]
+    fn a_leave_keeps_a_node_key_an_archived_adoption_names() {
+        let key = |home: &Path| std::fs::read(home.join("node.wg.key")).ok();
+        let home = tempfile::tempdir().unwrap();
+        crate::cli::mesh_node_key::load_or_create_at(home.path()).unwrap();
+        let made = key(home.path());
+        std::fs::create_dir_all(home.path().join("link")).unwrap();
+        let archived = home.path().join("link/key-adopted.inst_a.json");
+        std::fs::write(&archived, serde_json::json!({ "key_dir": home.path() }).to_string())
+            .unwrap();
+        assert!(remove_local(home.path()).unwrap().is_empty());
+        assert_eq!(key(home.path()), made);
+        // Archived for another home: this home's key goes.
+        let other = tempfile::tempdir().unwrap();
+        std::fs::write(&archived, serde_json::json!({ "key_dir": other.path() }).to_string())
+            .unwrap();
+        assert_eq!(remove_local(home.path()).unwrap(), vec!["nodeKey"]);
         assert_eq!(key(home.path()), None);
     }
 }

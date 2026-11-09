@@ -330,8 +330,11 @@ fn adopt(state: &LinkState, holder: &KeyHolder) -> anyhow::Result<ServeKey> {
 /// Refuse to serve when the node key a committed adoption serves is gone from
 /// `key_dir`. Every peer that was told knows this link by that key, and the
 /// commit names no other key to tell them over: a fresh key would reach none
-/// of them and tell none of them, so none is made. (`acpmux machine leave`
-/// never removes an adopted node key, and only under the key lock.)
+/// of them and tell none of them, so none is made. (acpmux never deletes,
+/// replaces or rotates a node key an adoption record names, current or
+/// archived with a signed-out install: `machine leave`, a copied home's new
+/// key and `machine.tunnel.rekey` all ask `mesh_node_key::adoption_depends`
+/// under the key lock.)
 fn node_key_kept(key_dir: &Path) -> anyhow::Result<()> {
     let path = KeyFile::Node.path_in(key_dir);
     match std::fs::symlink_metadata(&path) {

@@ -16,3 +16,21 @@ paired peer knows the link by that key alone.
   WireGuard for that run, as for any failed clone check, and the record stays unmarked.
 - Tests: `a_leave_never_deletes_an_adopted_or_held_node_key`,
   `replacing_never_touches_an_adopted_or_held_key`.
+
+## Follow-up: archived adoptions and the tunnel rekey (review at c1898fca, F1 and F2)
+
+- `mesh_node_key::link_adopted` now reads every adoption record in the link state dir: the
+  current `key-adopted.json` and each `key-adopted.<install>.json` a sign-out or install switch
+  archived (`LinkState::move_install`). A record naming this home, unreadable, or naming no
+  `key_dir` keeps the key; a link dir that cannot be listed keeps it too.
+- One guard, `mesh_node_key::adoption_depends(home)` (and `adoption_depends_held` with the key
+  lock), is asked before every change of `node.wg.key`: `lock_to_remove` (`machine leave`'s
+  delete, `replace_at` for a copied home) and `promote_pending_held` plus the start of
+  `machine_tunnel::rekey` (`_acpmux/machine.tunnel.rekey`, and the pending rekey an attach
+  finishes). The rekey is refused with `reason`/`code` `node_key.adopted` before a candidate is
+  written or sent, until the link can rekey its paired peers itself.
+- Tests: `an_archived_adoption_keeps_the_key_from_every_change`,
+  `a_leave_keeps_a_node_key_an_archived_adoption_names`,
+  `a_rekey_is_refused_while_an_adoption_depends_on_the_key` and, end to end with the real
+  binary, `an_archived_adoption_keeps_its_node_key_through_a_leave_and_serves_it_restored`
+  (`cmux-tui/tests/wg_keys_per_mac.rs`).
