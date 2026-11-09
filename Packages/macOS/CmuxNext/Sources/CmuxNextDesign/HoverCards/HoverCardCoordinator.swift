@@ -95,6 +95,10 @@ public final class HoverCardCoordinator {
     /// pointer gives no target a card (a row's, a tab's or a user's custom
     /// one); Show Resource Usage still pins one. Tests inject one.
     public var hoverCardsEnabled: () -> Bool = { DesignSettings.shared.showsHoverCards }
+    /// The cold delay is the default one, which opens a card once the pointer stops; a delay the
+    /// user set in `sidebar.hoverCards.delay`, 400 ms too, is a fixed wait (review F2 of #38872).
+    /// Tests inject one.
+    public var delaySettles: () -> Bool = { !DesignSettings.shared.hoverCardDelayIsSet }
     /// A mouse button is down (a press, a drag, a selection): the pointer
     /// gives no target a card, as in Chrome. Tests inject one.
     public var mouseButtonDown: () -> Bool = { NSEvent.pressedMouseButtons != 0 }
@@ -207,10 +211,15 @@ public final class HoverCardCoordinator {
     /// now, else it opens if no move follows within the quiet window. Content moving under a still
     /// pointer sends no move, so it still waits the whole delay.
     private func settle(at point: CGPoint) {
+        // The same point again is the same move reported twice (crossing between strips, one event is
+        // the exit of one and the entry of the next, review F1 of #38872): not a sample, or it reads
+        // as a pointer at rest and opens the card it is passing over.
+        if let lastMove, lastMove.point == point { return }
         let at = elapsed()
         let last = lastMove
         lastMove = (point, at)
-        guard case .pending(let target, let token) = machine.phase, target.delay == HoverCardTiming.showDelay else {
+        guard case .pending(let target, let token) = machine.phase, target.delay == HoverCardTiming.showDelay,
+              delaySettles() else {
             settleTimer.cancel()
             return
         }

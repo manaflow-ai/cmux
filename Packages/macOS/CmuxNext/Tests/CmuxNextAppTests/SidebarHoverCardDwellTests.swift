@@ -57,6 +57,14 @@ import CmuxNextWakeupsTestSupport
         for _ in 0..<(done == nil ? 3 : 500) where done?() != true { try await Task.sleep(for: .milliseconds(10)) }
     }
 
+    /// Returns once the pending card's delay timer and its settle timer both sleep on the clock: an
+    /// advance before the settle timer registers would move its deadline (review F3 of #38872).
+    private static func bothTimersAsleep(_ clock: ManualClock) async throws {
+        try await clock.waitForSleeper()
+        for _ in 0..<10_000 where clock.sleeperCount < 2 { await Task.yield() }
+        try #require(clock.sleeperCount >= 2, "the settle timer never slept (\(clock.sleeperCount) sleepers)")
+    }
+
     private static func tearDown(_ list: SidebarListView, _ window: NSWindow, _ coordinator: HoverCardCoordinator) {
         coordinator.dismiss(.action)
         coordinator.cardWindow?.closeAfterTest()
@@ -98,7 +106,7 @@ import CmuxNextWakeupsTestSupport
         defer { Self.tearDown(list, window, coordinator) }
         let row = try #require(rows.dropFirst(2).first)
         Self.move(list, to: (row.y + row.maxY) / 2)
-        try await clock.waitForSleeper()
+        try await Self.bothTimersAsleep(clock)
         clock.advance(by: HoverCardTiming.settleQuiet - .milliseconds(10))
         try await Self.settle()
         #expect(coordinator.machine.shownTarget == nil, "the card showed before the pointer had stopped")
@@ -125,6 +133,41 @@ import CmuxNextWakeupsTestSupport
         clock.advance(by: .milliseconds(8))
         Self.move(list, to: middle)
         #expect(coordinator.machine.shownTarget != nil, "a pointer easing onto the row at 125 pt/s got no card (\(coordinator.machine.phase))")
+    }
+
+    /// One move reported twice (crossing between strips, the same event is one strip's exit and the
+    /// next one's entry) is one sample: the repeat reads as no motion, and a pointer passing at
+    /// 875 pt/s got its card (review F1 of #38872).
+    @Test func oneMoveReportedTwiceIsNotAPointerAtRest() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { Self.tearDown(list, window, coordinator) }
+        let row = try #require(rows.dropFirst(2).first)
+        let middle = (row.y + row.maxY) / 2
+        Self.move(list, to: middle - 7)
+        clock.advance(by: .milliseconds(8))
+        Self.move(list, to: middle)
+        clock.advance(by: .milliseconds(1))
+        Self.move(list, to: middle)
+        #expect(coordinator.machine.shownTarget == nil, "the same move reported twice opened the card")
+    }
+
+    /// A delay set in `sidebar.hoverCards.delay`, even the default's 400 ms, is a fixed wait: a stop
+    /// opens nothing before it (review F2 of #38872).
+    @Test func aDelayTheUserSetWaitsItsWholeTime() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { Self.tearDown(list, window, coordinator) }
+        coordinator.delaySettles = { false }
+        let row = try #require(rows.dropFirst(2).first)
+        Self.move(list, to: (row.y + row.maxY) / 2)
+        try await clock.waitForSleeper()
+        clock.advance(by: HoverCardTiming.settleQuiet + .milliseconds(10))
+        try await Self.settle()
+        #expect(coordinator.machine.shownTarget == nil, "a set delay opened the card once the pointer stopped")
+        clock.advance(by: DesignSettings.shared.hoverCardDelay)
+        try await Self.settle(until: { coordinator.machine.shownTarget != nil })
+        #expect(coordinator.machine.shownTarget != nil, "no card after the set delay")
     }
 
     /// Lawrence 2026-10-19: "there's a slight delay from when I mouse over the card for our own

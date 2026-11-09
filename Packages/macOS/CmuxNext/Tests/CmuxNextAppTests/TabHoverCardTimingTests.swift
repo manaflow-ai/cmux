@@ -85,6 +85,14 @@ import CmuxNextWakeupsTestSupport
         for _ in 0..<(done == nil ? 3 : 500) where done?() != true { try await Task.sleep(for: .milliseconds(10)) }
     }
 
+    /// Returns once the pending card's delay timer and its settle timer both sleep on the clock: an
+    /// advance before the settle timer registers would move its deadline (review F3 of #38872).
+    private static func bothTimersAsleep(_ clock: ManualClock) async throws {
+        try await clock.waitForSleeper()
+        for _ in 0..<10_000 where clock.sleeperCount < 2 { await Task.yield() }
+        try #require(clock.sleeperCount >= 2, "the settle timer never slept (\(clock.sleeperCount) sleepers)")
+    }
+
     /// Rests on `id` until its card shows.
     private static func open(_ id: String, _ s: Strip) async throws {
         s.move(to: try s.center(id))
@@ -101,7 +109,7 @@ import CmuxNextWakeupsTestSupport
         defer { s.tearDown() }
         s.move(to: try s.center("b"))
         #expect(!s.showsAny, "the card showed on the first frame")
-        try await s.clock.waitForSleeper()
+        try await Self.bothTimersAsleep(s.clock)
         s.clock.advance(by: HoverCardTiming.settleQuiet - .milliseconds(10))
         try await Self.settle()
         #expect(!s.showsAny, "the card showed before the pointer had stopped")
