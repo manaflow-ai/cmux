@@ -205,9 +205,9 @@ fn a_hook_after_the_replay_reconciles_check_keeps_its_public_row() {
     // At the reconcile, a hook from another thread. It gets 2 s to project
     // before the reconcile goes on: all of it where nothing holds it back.
     let (projected_tx, projected) = std::sync::mpsc::channel();
-    let thread = Arc::new(std::sync::Mutex::new(None));
+    let thread = Arc::new(Mutex::new(None));
     let (hook_mux, hook_terminal, hook_thread) =
-        (Arc::clone(&mux), terminal_id.clone(), Arc::clone(&thread));
+        (Arc::clone(&mux), terminal_id, Arc::clone(&thread));
     *mux.agent_roster_worker.reconcile_seam.lock().unwrap() = Some(Box::new(move || {
         tick();
         let handle = std::thread::spawn(move || {
