@@ -168,6 +168,29 @@ struct CloudFileViewerTests {
         provider.close()
     }
 
+    /// App health never reloads a page over unsaved edits (#39247): another machine's file has no
+    /// quit document, so its tab is unsaved from an edit until a save that saw that edit.
+    @Test func aCloudTabHoldsItsUnsavedEditsUntilASaveWritesThem() async throws {
+        let path = "/home/cmux/notes.md"
+        let machine = MachineFiles()
+        machine.set(path, "one\n")
+        let provider = FilePageProvider(kind: .markdown, file: URL(fileURLWithPath: path), host: Host(), libraries: nil, images: NoImages(),
+                                        files: RemoteFilePageFiles(client: machine, machine: Self.machine))
+        let config = try await Self.call(provider, "config")
+        let base = try #require(config["hash"]?.stringValue)
+        #expect(!provider.holdsUnsavedRemoteEdits)
+        _ = try await Self.call(provider, "edited", ["path": .string(path), "text": "two\n", "baseHash": .string(base)])
+        #expect(provider.holdsUnsavedRemoteEdits)
+        // A save that fails leaves the edit unsaved.
+        machine.offline = true
+        _ = try? await Self.call(provider, "save", ["path": .string(path), "text": "two\n", "baseHash": .string(base)])
+        #expect(provider.holdsUnsavedRemoteEdits)
+        machine.offline = false
+        _ = try await Self.call(provider, "save", ["path": .string(path), "text": "two\n", "baseHash": .string(base)])
+        #expect(!provider.holdsUnsavedRemoteEdits)
+        provider.close()
+    }
+
     @Test func aCloudTabFollowsChangesOnTheMachineAndSaysWhenItIsGone() async throws {
         let path = "/home/cmux/notes.md"
         let machine = MachineFiles()
