@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42559866370",
+  "recorded_at": "2026-11-09T04:16:58Z",
+  "reason": "cmux-tui 34dd21dafa1f changes the image's cmux-tui (pinned 8272944ebc30)",
+  "dry_run": false,
+  "cmux_tui": "34dd21dafa1f26fd0c498cedffc011828b7b0b1e",
+  "fixes": [
+    {
+      "sha": "34dd21dafa1f26fd0c498cedffc011828b7b0b1e",
+      "mergedAt": "2026-11-08T19:50:38-08:00",
+      "subject": "cmux-tui: a per-kind write budget warns when the registry journal or acpmux's log churns (#39148)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T04:16:58Z",
+    "snapshot_id": "sh-0ab441d4bdea4bc49b0b8c7963ede611",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42559866370): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "fe266c3b97e6b928d3975e61768321c330e0fc24",
+    "image": "cloud-native-auto-34dd21da-42559866370-1",
+    "revision": "ci-42559866370-1",
+    "at": "2026-11-09T04:16:58Z"
+  },
+  "rolled_back": false
+}
