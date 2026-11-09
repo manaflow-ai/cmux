@@ -411,6 +411,15 @@
 .acpmux-bg__run-steps {
   padding-inline-start: var(--ds-space-3);
 }
+/* A run's line (`RunLine`): its summary ellipsizes, its failures after it never shrink. */
+.acpmux-bg__run-name {
+  display: inline-flex;
+  min-width: 0;
+}
+.acpmux-bg__run-sep {
+  flex: none;
+  white-space: pre;
+}
 .acpmux-bg__thought-text {
   margin: var(--ds-space-1) 0 0;
   color: var(--agent-muted);

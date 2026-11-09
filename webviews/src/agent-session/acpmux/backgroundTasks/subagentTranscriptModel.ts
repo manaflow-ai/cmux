@@ -13,7 +13,7 @@ export type Range = { start: number; end?: number };
 /// The most rows mounted at once while the reader pages up or down: one window gained, one kept.
 export const MOUNTED = 2 * WINDOW;
 
-export function windowRange(rows: readonly AcpmuxRow[], anchor?: string): Range {
+export function windowRange(rows: readonly { id: string }[], anchor?: string): Range {
   const newest = Math.max(0, rows.length - WINDOW);
   const at = anchor === undefined ? -1 : rows.findIndex((row) => row.id === anchor);
   if (at < 0) return { start: newest };
@@ -34,7 +34,7 @@ export const NestedAgents = createContext<{
 /// call), or a run, the stretch of work rows between two of those folded under one line (Claude Code's
 /// drill-in: "Ran 14 commands, read a file and created a file", which opens to its steps).
 export type TranscriptBlock =
-  | { type: "row"; row: AcpmuxRow }
+  | { type: "row"; id: string; row: AcpmuxRow }
   | {
       type: "run";
       /// Its first row's id: where it starts, for a key.
@@ -74,7 +74,7 @@ export function transcriptBlocks(rows: readonly AcpmuxRow[], fold: number): Tran
         failed: tools.filter(countsFailed).length,
         running: tools.some(isRunning),
       });
-    else for (const row of stretch) blocks.push({ type: "row", row });
+    else for (const row of stretch) blocks.push({ type: "row", id: row.id, row });
     stretch = [];
   };
   for (const row of rows) {
@@ -83,7 +83,7 @@ export function transcriptBlocks(rows: readonly AcpmuxRow[], fold: number): Tran
       continue;
     }
     flush();
-    blocks.push({ type: "row", row });
+    blocks.push({ type: "row", id: row.id, row });
   }
   flush();
   return blocks;

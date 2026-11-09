@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { SUBAGENTS } from "../subagents/subagentFold";
-import { runFold, transcriptBlocks } from "./subagentTranscriptModel";
+import { MOUNTED, runFold, transcriptBlocks, windowRange } from "./subagentTranscriptModel";
 
 let seq = 0;
 const call = (status = "completed"): AcpmuxActivity => ({
@@ -68,5 +68,12 @@ describe("transcriptBlocks", () => {
       "run:b+c",
       "p",
     ]);
+  });
+
+  test("a run longer than the mounted window is one block, so the window over blocks mounts it whole", () => {
+    const long = Array.from({ length: 2 * MOUNTED }, (_, index) => work(`w${index}`, call()));
+    const blocks = transcriptBlocks([...long, reply("r")], 2);
+    expect(blocks).toHaveLength(2);
+    expect(windowRange(blocks)).toEqual({ start: 0 });
   });
 });

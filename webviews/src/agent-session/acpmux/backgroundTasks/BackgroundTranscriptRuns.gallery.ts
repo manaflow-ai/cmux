@@ -92,24 +92,41 @@ const helperView = (): AcpmuxRow[] => [
   ),
 ];
 
-const snapshot = chat(
-  [
-    user("Get the Cloud media path onto UDP and check the transport docs", 43),
-    row(SUBAGENTS, 42, { id: "runs-group", subagents: [HELPER, DOCS] }),
-    assistant("Two helpers are on it; I'll report when each is back.", 41.8),
-    summary(41.8, { status: "completed", durationMs: 12_000 }),
-  ],
-  {
-    title: "Cross-account chat visibility",
-    subagentViews: {
-      [HELPER.id]: helperView(),
-      [DOCS.id]: [
-        user("Check the transport docs", 30, { id: "docs-ask" }),
-        assistant("The docs already describe the path picker; nothing to change.", 26, { id: "docs-done" }),
-      ],
+/// A helper that worked a long while without a word: 240 calls, more than the transcript mounts at
+/// once (subagentTranscriptModel.ts `MOUNTED`), all one run.
+const longView = (): AcpmuxRow[] => [
+  user("Sweep every crate for the old path picker", 42, { id: "long-ask" }),
+  ...Array.from({ length: 240 }, (_, index) =>
+    activity(
+      [ran(`Check crate ${index + 1}`, `rg -n pick_path crates/c${index + 1}`, 41 - index * 0.1, 1)],
+      41 - index * 0.1,
+      {
+        id: `long-step-${index}`,
+      },
+    ),
+  ),
+];
+
+const snapshotWith = (view: AcpmuxRow[]) =>
+  chat(
+    [
+      user("Get the Cloud media path onto UDP and check the transport docs", 43),
+      row(SUBAGENTS, 42, { id: "runs-group", subagents: [HELPER, DOCS] }),
+      assistant("Two helpers are on it; I'll report when each is back.", 41.8),
+      summary(41.8, { status: "completed", durationMs: 12_000 }),
+    ],
+    {
+      title: "Cross-account chat visibility",
+      subagentViews: {
+        [HELPER.id]: view,
+        [DOCS.id]: [
+          user("Check the transport docs", 30, { id: "docs-ask" }),
+          assistant("The docs already describe the path picker; nothing to change.", 26, { id: "docs-done" }),
+        ],
+      },
     },
-  },
-);
+  );
+const snapshot = snapshotWith(helperView());
 
 const drill = async (ctx: PlayContext) => {
   await ctx.click({ role: "button", name: "Chat actions" });
@@ -137,6 +154,11 @@ export default agentPaneEntry({
     drill: {
       note: "A helper opened from the panel: its prose, and between two replies one line per stretch of work; a lone call keeps its own line; the last stretch still runs, with the spinner under it.",
       snapshot,
+      play: drill,
+    },
+    "long-run": {
+      note: 'A helper\'s 240 calls with no reply between, more than the transcript mounts at once: one line, "Ran 240 commands", and the transcript holds still (it pages by what it draws, not by rows).',
+      snapshot: snapshotWith(longView()),
       play: drill,
     },
     "run-open": {

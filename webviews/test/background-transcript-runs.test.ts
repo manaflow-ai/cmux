@@ -17,6 +17,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("background-transcript-runs.test.ts", async () => {
   setDefaultTimeout(240_000);
   const ENTRY = "agent-pane.background-tasks";
+  const RUNS = "agent-pane.background-tasks-runs";
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
@@ -29,17 +30,17 @@ await requireBrowserLane("background-transcript-runs.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, [ENTRY], { browser });
+    await warmGalleryFrame(vite, [ENTRY, RUNS], { browser });
   });
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
   });
 
-  const open = async (): Promise<Page> => {
+  const open = async (entry = ENTRY, variant = "transcript"): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 1280, height: 800 } });
     const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
-    await page.goto(base + galleryFrame(ENTRY, { variant: "transcript" }));
+    await page.goto(base + galleryFrame(entry, { variant }));
     await page.waitForFunction(
       () => {
         const root = document.documentElement.dataset;
@@ -87,6 +88,41 @@ await requireBrowserLane("background-transcript-runs.test.ts", async () => {
       // A second click folds it again.
       await page.locator(".acpmux-bg__run .acpmux-bg__line--fold").first().click();
       await page.waitForFunction(() => !document.querySelector(".acpmux-bg__run-steps"));
+    } finally {
+      await page.close();
+    }
+  });
+  // More calls in one run than the transcript mounts at once (MOUNTED rows): the window pages by what
+  // it draws, so the one folded line never leaves both paging sentinels in view, swapping the mounted
+  // rows back and forth with nobody scrolling (#39368's review).
+  test("a run longer than the mounted window is one line that holds still", async () => {
+    const page = await open(RUNS, "long-run");
+    try {
+      const frames = (n: number) =>
+        page.evaluate(
+          (count) =>
+            new Promise<void>((resolve) => {
+              let left = count;
+              // raf-read: it only lets frames pass for the sentinels' observers to fire; the state is read after.
+              const step = () => (--left <= 0 ? resolve() : requestAnimationFrame(step));
+              requestAnimationFrame(step);
+            }),
+          n,
+        );
+      const state = () =>
+        page.evaluate(() => ({
+          lines: [...document.querySelectorAll(".acpmux-bg__transcript .acpmux-bg__line--fold")].map(
+            (node) => node.textContent?.trim() ?? "",
+          ),
+          sentinels: document.querySelectorAll(".acpmux-bg__transcript .acpmux-bg__sentinel").length,
+          run: document.querySelector(".acpmux-bg__run")?.getAttribute("data-run-id") ?? null,
+        }));
+      const before = await state();
+      console.log("LONG", JSON.stringify(before));
+      expect(before.lines).toEqual(["Ran 240 commands"]);
+      expect(before.sentinels).toBe(0);
+      await frames(30);
+      expect(await state()).toEqual(before);
     } finally {
       await page.close();
     }
