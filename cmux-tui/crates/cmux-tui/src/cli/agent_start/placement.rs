@@ -11,7 +11,8 @@
 //! A split takes the new pane's width only from the pane it splits: every
 //! other pane of the row (the chain of splits in the same direction around
 //! it) keeps its width, so a person's column keeps its width. The agent
-//! panes next to the new one in that row (each tab named as an agent) then
+//! panes next to the new one in that row (each tab runs an agent start
+//! launch, arg0 `cmux-agent`; a tab's name does not count) then
 //! share their space equally, so the third agent of a row is not an eighth
 //! of it (W5-Q, bench round 4 orchestration friction 6). A screen of
 //! viewport columns keeps each column's width.
@@ -25,6 +26,7 @@ use serde_json::{Value, json};
 
 use super::super::agent_names::{self, Found};
 use super::super::terminal_talk::send::{self, Daemon};
+use super::launch::Launch;
 use super::{Failure, plan};
 
 /// A new tab in a pane, or a new pane next to it.
@@ -375,8 +377,9 @@ fn balance<D: Daemon + ?Sized>(daemon: &D, screen: Option<&str>, pane: &str) {
     let Ok(export) = plan(&["screen", screen.as_str(), "layout", "export"]) else { return };
     let Ok(layout) = daemon.request(None, export) else { return };
     let root = layout.get("root").unwrap_or(&layout);
-    let agents = snapshot.as_ref().map(agent_panes).unwrap_or_default();
-    let is_agent = |id: &str| id == pane || agents.contains(id);
+    let is_agent = |id: &str| {
+        id == pane || snapshot.as_ref().is_some_and(|snapshot| started_agents(daemon, snapshot, id))
+    };
     for (split, ratio) in row_ratios(root, pane, &is_agent) {
         let ratio = format!("{ratio:.6}");
         let words = [
@@ -397,24 +400,30 @@ fn balance<D: Daemon + ?Sized>(daemon: &D, screen: Option<&str>, pane: &str) {
     }
 }
 
-/// The panes whose tabs all carry an agent name (`agent start` names each
-/// agent tab): the panes agent start made, as far as the session shows.
-fn agent_panes(snapshot: &Value) -> std::collections::HashSet<String> {
-    let mut named = std::collections::HashMap::<&str, bool>::new();
-    for tab in list(snapshot, "tabs") {
-        let Some(pane) = tab["pane_id"].as_str() else { continue };
-        let agent =
-            tab["name"].as_str().is_some_and(|name| agent_names::valid_agent_name(name).is_ok());
-        let all = named.entry(pane).or_insert(true);
-        *all = *all && agent;
-    }
-    named.into_iter().filter(|(_, agent)| *agent).map(|(pane, _)| pane.to_owned()).collect()
+/// Whether agent start made `pane`: it has tabs, and each one's terminal
+/// runs an agent start launch ([`Launch::argv`], arg0 `cmux-agent`), as
+/// `terminal <t> process show` reports it. A person's tab never runs that
+/// launch, whatever its name. A terminal whose process the daemon cannot
+/// show (an exited agent) counts as the person's, so its width stays.
+fn started_agents<D: Daemon + ?Sized>(daemon: &D, snapshot: &Value, pane: &str) -> bool {
+    let mut tabs = list(snapshot, "tabs").iter().filter(|tab| tab["pane_id"] == pane).peekable();
+    tabs.peek().is_some()
+        && tabs.all(|tab| {
+            let Some(terminal) = tab["content_id"].as_str() else { return false };
+            let Ok(show) = plan(&["terminal", terminal, "process", "show"]) else { return false };
+            let Ok(process) = daemon.request(None, show) else { return false };
+            let argv: Vec<String> = process["argv"]
+                .as_array()
+                .map(|words| words.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default();
+            Launch::from_argv(&argv).is_some()
+        })
 }
 
 /// The split ratios (`split_id`, share of `first`) after a split made
 /// `pane`: the row is the largest chain of splits in the direction of
 /// `pane`'s own split. The run of agent panes around `pane` along the row
-/// (`is_agent`) shares its width equally; every other pane of the row keeps
+/// (`is_agent`, [`started_agents`]) shares its width equally; every other pane of the row keeps
 /// its width, so a new pane takes space only from agent panes (the column
 /// rule). Ratios that already fit are left out; a layout that is not a
 /// split tree gives none.
