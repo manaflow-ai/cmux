@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42618538395",
+  "recorded_at": "2026-11-09T12:48:30Z",
+  "reason": "cmux-tui f001d5c8089d changes the image's cmux-tui (pinned 11464531da01)",
+  "dry_run": false,
+  "cmux_tui": "f001d5c8089dc156de3abd5c7e25a8c90d37953e",
+  "fixes": [
+    {
+      "sha": "f001d5c8089dc156de3abd5c7e25a8c90d37953e",
+      "mergedAt": "2026-11-09T04:14:11-08:00",
+      "subject": "ci(linux release): sign a release file and a channel pointer for every published Linux build (#39452)"
+    },
+    {
+      "sha": "91c5040d1a44427ff61b2310fc6937932304bc9a",
+      "mergedAt": "2026-11-09T04:13:45-08:00",
+      "subject": "base red: CI guard group send-path caps and short timeout ratchet (#39555)"
+    },
+    {
+      "sha": "7bea2096c33a35a3001fda32961f5f127c6d5576",
+      "mergedAt": "2026-11-09T04:06:22-08:00",
+      "subject": "cmux-tui journal: one seal at a time per owner; the registry generator seals alone (#39562)"
+    },
+    {
+      "sha": "aaf15a479ef8d01d2c2b474e8081b38cf77be653",
+      "mergedAt": "2026-11-09T04:02:14-08:00",
+      "subject": "acpmux ledger: price 1-hour cache writes at their tier (#39324)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T12:48:30Z",
+    "snapshot_id": "sh-778dab73535e4fa1b0727514e54881c2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42618538395): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c71068e7fa4affba5fe0a7cc8d48f7beed7509b3",
+    "image": "cloud-native-auto-f001d5c8-42618538395-1",
+    "revision": "ci-42618538395-1",
+    "at": "2026-11-09T12:48:30Z"
+  },
+  "rolled_back": false
+}
