@@ -2,6 +2,7 @@
 import CmuxConversationCore
 import CmuxConversationGeometry
 public import CmuxMobileSupport
+import CmuxSpinner
 import GameController
 import UIKit
 
@@ -97,7 +98,7 @@ public final class ConversationViewController: UIViewController {
     var pendingFlightRowIDs: Set<String> = []
     var composerBottomConstraint: NSLayoutConstraint?
     /// Shown until the newest page arrives (slow links can take seconds).
-    let initialSpinner = UIActivityIndicatorView(style: .medium)
+    let initialSpinner = CmuxSpinnerView(side: 20)
     lazy var cameraDelegate: ConversationMediaDelegate = {
         let delegate = ConversationMediaDelegate()
         delegate.controller = self
@@ -733,6 +734,9 @@ public final class ConversationViewController: UIViewController {
             view.layoutIfNeeded()
             return
         }
+        // Reduce Motion keeps this: it only ever rides the system keyboard's
+        // own animation (remaining > 0), which Reduce Motion doesn't remove;
+        // landing early would part the composer from the keyboard.
         UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) {
             self.view.layoutIfNeeded()
         }
@@ -883,7 +887,8 @@ public final class ConversationViewController: UIViewController {
         let probeStart = probeClock()
         defer { probeSection(.rebuild, since: probeStart) }
         rebuildSerial &+= 1
-        if store.hasLoadedNewest, initialSpinner.isAnimating {
+        // Kept messages from an earlier run show at once; the server's page replaces them.
+        if store.hasLoadedNewest || store.isShowingKeptTranscript, initialSpinner.isAnimating {
             initialSpinner.stopAnimating()
             initialSpinner.isHidden = true
         }
@@ -1432,7 +1437,7 @@ public final class ConversationViewController: UIViewController {
             // Pinned: insertions and the scroll to the new bottom share one
             // spring, ChatKit's transcript update spring on iOS 26 and 27
             // (stiffness 438.649, damping 41.888: 0.3 s, critically damped).
-            UIView.animate(springDuration: 0.3, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            UIView.animateUnlessReduceMotion(springDuration: 0.3, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.collectionView.performBatchUpdates(updates)
                 if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
                 self.collectionView.layoutIfNeeded()
@@ -1441,7 +1446,7 @@ public final class ConversationViewController: UIViewController {
             }
         } else if animateLive {
             // Away from bottom: animate in place, keep the reader's anchor fixed.
-            UIView.animate(withDuration: 0.3, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            UIView.animateUnlessReduceMotion(withDuration: 0.3, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.collectionView.performBatchUpdates(updates)
                 if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
                 self.collectionView.layoutIfNeeded()
@@ -1533,7 +1538,7 @@ public final class ConversationViewController: UIViewController {
             UIView.performWithoutAnimation {
                 cell.contentView.transform = CGAffineTransform(translationX: 0, y: -shared)
             }
-            UIView.animate(withDuration: 0.28, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
+            UIView.animateUnlessReduceMotion(withDuration: 0.28, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
                 cell.contentView.transform = .identity
             }
         }
@@ -1563,6 +1568,7 @@ public final class ConversationViewController: UIViewController {
                 continue
             }
             UIView.performWithoutAnimation { cell.contentView.alpha = 0 }
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: Self.arrivalFadeDuration, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
                 cell.contentView.alpha = 1
             }
@@ -1579,6 +1585,8 @@ public final class ConversationViewController: UIViewController {
     private func flyTypingAvatar(from start: CGRect, initials: String, to cell: MessageCell) {
         guard !cell.avatar.isHidden, let indexPath = collectionView.indexPath(for: cell),
               let rowFrame = layout.frame(at: indexPath.item) else { return }
+        // Reduce Motion: no flying copy; the message's own avatar shows in place.
+        guard !UIView.reducesMotion else { return }
         // The cell's final place: it may still be moving with the batch.
         let end = cell.avatar.frame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
         let overlay = ConversationAvatarView(frame: start)

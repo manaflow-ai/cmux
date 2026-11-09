@@ -375,7 +375,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         if animated, date != nil {
             sendLaterChip.alpha = 0
             sendLaterChip.transform = CGAffineTransform(scaleX: 0.85, y: 0.85)
-            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0) {
+            UIView.animateUnlessReduceMotion(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0) {
                 self.sendLaterChip.alpha = 1
                 self.sendLaterChip.transform = .identity
             }
@@ -571,7 +571,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             self.micButton.alpha = show ? 0 : 1
         }
         guard animated, (sendButton.alpha == 1) != show else { apply(); return }
-        UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: apply)
+        UIView.animateUnlessReduceMotion(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: apply)
     }
 
     /// Point size of an emoji-only draft, or nil for body text. Messages
@@ -788,7 +788,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         // Collapse on ChatKit's entry-view spring, logged on iOS 26.5 and
         // 27.0 (mass 2, stiffness 447, damping 49: response 0.4203 s,
         // bounce 0.1806).
-        UIView.animate(springDuration: 0.4203, bounce: 0.1806, options: [.beginFromCurrentState]) {
+        UIView.animateUnlessReduceMotion(springDuration: 0.4203, bounce: 0.1806, options: [.beginFromCurrentState]) {
             self.layoutSubviews()
             self.delegate?.composerDidChangeHeight(self)
         }

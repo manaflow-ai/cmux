@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import CmuxSpinner
 import UIKit
 
 /// One message: optional sender name, reply quote, images, text bubble or
@@ -354,15 +355,17 @@ final class MessageCell: UICollectionViewCell {
             UIView.performWithoutAnimation { failedBadge.setUntransformedFrame(frame) }
         }
         if sameRow, badgeWasHidden, !failedBadge.isHidden {
-            // A send failing on this row: the red badge pops in.
+            // A send failing on this row: the red badge pops in (under
+            // Reduce Motion it only fades in, at its full size).
             let pop = CABasicAnimation(keyPath: "transform.scale")
             pop.fromValue = 0.3
             pop.toValue = 1
+            // motion: allow crossfade, the Reduce Motion form
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
             let group = CAAnimationGroup()
-            group.animations = [pop, fade]
+            group.animations = UIView.reducesMotion ? [fade] : [pop, fade]
             group.duration = 0.25
             group.timingFunction = CAMediaTimingFunction(name: .easeOut)
             failedBadge.layer.add(group, forKey: "failedPop")
@@ -482,6 +485,7 @@ final class MessageCell: UICollectionViewCell {
             imageTasks.append(Task { @MainActor [weak self, weak view] in
                 let image = await ConversationImageLoader.shared.image(for: attachment, pixelWidth: pixelWidth)
                 guard let self, let view, self.model?.rowID == rowID, !Task.isCancelled else { return }
+                // motion: allow crossfade, the Reduce Motion form
                 UIView.transition(with: view, duration: 0.18, options: .transitionCrossDissolve) {
                     view.image = image
                 }
@@ -559,9 +563,11 @@ final class MessageCell: UICollectionViewCell {
 
     /// Appearing: grows from its center on a critically damped spring
     /// (response 0.52 s) while fading in over 0.25 s; leaving: fades and
-    /// shrinks to 0.9 in 0.1 s.
+    /// shrinks to 0.9 in 0.1 s. Under Reduce Motion only the fades run, at
+    /// full size.
     static func statusAnimation(appearing: Bool) -> CAAnimation {
         let group = CAAnimationGroup()
+        let reducesMotion = UIView.reducesMotion
         if appearing {
             let scale = CASpringAnimation(keyPath: "transform")
             scale.isAdditive = true
@@ -571,22 +577,24 @@ final class MessageCell: UICollectionViewCell {
             scale.fromValue = CATransform3DMakeScale(0.01, 0.01, 1)
             scale.toValue = CATransform3DIdentity
             scale.duration = scale.settlingDuration
+            // motion: allow crossfade, the Reduce Motion form
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
             fade.duration = 0.25
             fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            group.animations = [scale, fade]
-            group.duration = scale.duration
+            group.animations = reducesMotion ? [fade] : [scale, fade]
+            group.duration = reducesMotion ? fade.duration : scale.duration
         } else {
             let scale = CABasicAnimation(keyPath: "transform")
             scale.isAdditive = true
             scale.fromValue = CATransform3DIdentity
             scale.toValue = CATransform3DMakeScale(0.9, 0.9, 1)
+            // motion: allow crossfade, the Reduce Motion form
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 1
             fade.toValue = 0
-            group.animations = [scale, fade]
+            group.animations = reducesMotion ? [fade] : [scale, fade]
             group.duration = 0.1
         }
         return group
@@ -704,6 +712,7 @@ extension MessageCell {
             bubble.strokeColor = nil
             if wasScheduled {
                 bubble.animateFill(from: .clear, duration: 0.3)
+                // motion: allow crossfade, the Reduce Motion form
                 UIView.transition(with: textLabel, duration: 0.3, options: [.transitionCrossDissolve, .allowUserInteraction], animations: nil)
             }
             return
@@ -851,7 +860,7 @@ final class LoadingCell: UICollectionViewCell {
     static let reuseID = "loading"
     /// ChatKit's load-more row (CKTranscriptHeaderCell.defaultCellHeight).
     static let height: CGFloat = 20
-    let spinner = UIActivityIndicatorView(style: .medium)
+    let spinner = CmuxSpinnerView(side: 20)
 
     override init(frame: CGRect) {
         super.init(frame: frame)

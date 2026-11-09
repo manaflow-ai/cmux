@@ -131,6 +131,7 @@ final class AppsMenuOverlay: UIView {
             state = .open
             apply(State.open, frame: openFrame)
             panel.alpha = 0
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: 0.25) { self.panel.alpha = 1 }
             return
         }
@@ -148,6 +149,7 @@ final class AppsMenuOverlay: UIView {
         // An item opens its own UI as the menu closes, as in Messages.
         completion?()
         if UIAccessibility.isReduceMotionEnabled {
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: 0.2) { self.panel.alpha = 0 } completion: { _ in self.finish() }
             return
         }
@@ -630,8 +632,18 @@ extension ConversationViewController {
     /// 0.2667 s), read from the animations UIKit adds for a keyboard
     /// notification (curve 7, 0.383 s). Inside a keyboard notification the
     /// block inherits UIKit's own animation instead.
+    /// Reduce Motion: our own spring lands at once. Inside a keyboard
+    /// animation the block still rides it: the system moves the keyboard
+    /// either way, and landing early would part the composer from it.
     func animateAlongsideKeyboard(_ animations: @escaping () -> Void, completion: ((Bool) -> Void)? = nil) {
-        UIView.animate(
+        guard UIView.inheritedAnimationDuration == 0 else {
+            UIView.animate(
+                springDuration: 0.2667, bounce: 0, options: [.beginFromCurrentState],
+                animations: animations, completion: completion
+            )
+            return
+        }
+        UIView.animateUnlessReduceMotion(
             springDuration: 0.2667, bounce: 0, options: [.beginFromCurrentState],
             animations: animations, completion: completion
         )

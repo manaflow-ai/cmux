@@ -348,7 +348,7 @@ extension ConversationComposeViewController: ComposeRecipientFieldDelegate {
 
     func recipientFieldDidChangeHeight(_ field: ComposeRecipientField) {
         recipientHeight.constant = field.preferredHeight
-        UIView.animate(withDuration: 0.2) { self.view.layoutIfNeeded() }
+        UIView.animateUnlessReduceMotion(withDuration: 0.2) { self.view.layoutIfNeeded() }
     }
 }
 
