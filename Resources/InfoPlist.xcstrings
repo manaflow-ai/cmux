@@ -1449,127 +1449,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A program running within cmux would like to discover devices on your local network."
+            "value": "cmux uses your local network to reach your other devices. Programs you run in cmux can use it too."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 内で実行中のプログラムがローカルネットワーク上のデバイスの検出を求めています。"
+            "value": "cmux はほかのデバイスに接続するためにローカルネットワークを使います。cmux で実行するプログラムも使用できます。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein in cmux ausgeführtes Programm möchte Geräte in Ihrem lokalen Netzwerk finden."
+            "value": "cmux nutzt dein lokales Netzwerk, um deine anderen Geräte zu erreichen. Programme, die du in cmux ausführst, können es ebenfalls nutzen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un programme s’exécutant dans cmux souhaite découvrir des appareils sur votre réseau local."
+            "value": "cmux utilise votre réseau local pour joindre vos autres appareils. Les programmes que vous exécutez dans cmux peuvent aussi l’utiliser."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يرغب برنامج يعمل داخل cmux في اكتشاف الأجهزة على شبكتك المحلية."
+            "state": "needs_review",
+            "value": "يستخدم cmux شبكتك المحلية للوصول إلى أجهزتك الأخرى. ويمكن للبرامج التي تشغّلها في cmux استخدامها أيضًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un programa que se ejecuta dentro de cmux desea buscar dispositivos en tu red local."
+            "value": "cmux usa tu red local para conectarse con tus otros dispositivos. Los programas que ejecutas en cmux también pueden usarla."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 cmux 中執行的程式想要尋找您區域網路上的裝置。"
+            "value": "cmux 使用你的區域網路連接你的其他裝置。你在 cmux 中執行的程式也可以使用它。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 cmux 中运行的程序想要发现您本地网络上的设备。"
+            "value": "cmux 使用你的本地网络连接你的其他设备。你在 cmux 中运行的程序也可以使用它。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 내에서 실행 중인 프로그램이 로컬 네트워크의 기기를 탐색하려고 합니다."
+            "value": "cmux는 다른 기기에 연결하기 위해 로컬 네트워크를 사용합니다. cmux에서 실행하는 프로그램도 사용할 수 있습니다."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Un programma in esecuzione in cmux desidera accedere alla rete locale."
+            "state": "needs_review",
+            "value": "cmux usa la tua rete locale per raggiungere gli altri tuoi dispositivi. Anche i programmi che esegui in cmux possono usarla."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Et program, der kører i cmux, vil gerne have adgang til det lokale netværk."
+            "state": "needs_review",
+            "value": "cmux bruger dit lokale netværk til at nå dine andre enheder. Programmer, du kører i cmux, kan også bruge det."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Program działający w cmux chciałby uzyskać dostęp do sieci lokalnej."
+            "state": "needs_review",
+            "value": "cmux używa sieci lokalnej, aby łączyć się z innymi Twoimi urządzeniami. Programy uruchamiane w cmux również mogą z niej korzystać."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Программа, запущенная в cmux, хотела бы получить доступ к локальной сети."
+            "state": "needs_review",
+            "value": "cmux использует локальную сеть, чтобы связываться с другими вашими устройствами. Программы, запущенные в cmux, тоже могут её использовать."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Program koji se izvršava unutar cmux želi pristupiti lokalnoj mreži."
+            "state": "needs_review",
+            "value": "cmux koristi tvoju lokalnu mrežu da dođe do tvojih drugih uređaja. Programi koje pokrećeš u cmuxu također je mogu koristiti."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Et program som kjører i cmux ønsker å få tilgang til det lokale nettverket."
+            "state": "needs_review",
+            "value": "cmux bruker det lokale nettverket ditt for å nå de andre enhetene dine. Programmer du kjører i cmux, kan også bruke det."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Um programa em execução no cmux gostaria de acessar a rede local."
+            "state": "needs_review",
+            "value": "O cmux usa sua rede local para alcançar seus outros dispositivos. Os programas que você executa no cmux também podem usá-la."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการเข้าถึงเครือข่ายท้องถิ่น"
+            "state": "needs_review",
+            "value": "cmux ใช้เครือข่ายภายในของคุณเพื่อเชื่อมต่อกับอุปกรณ์อื่นๆ ของคุณ โปรแกรมที่คุณเรียกใช้ใน cmux ก็ใช้ได้เช่นกัน"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux içinde çalışan bir program yerel ağa erişmek istiyor."
+            "state": "needs_review",
+            "value": "cmux, diğer cihazlarına ulaşmak için yerel ağını kullanır. cmux’ta çalıştırdığın programlar da onu kullanabilir."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កម្មវិធីដែលកំពុងដំណើរការក្នុង cmux ចង់រកមើលឧបករណ៍នៅលើបណ្ដាញមូលដ្ឋានរបស់អ្នក។"
+            "value": "cmux ប្រើបណ្ដាញមូលដ្ឋានរបស់អ្នក ដើម្បីភ្ជាប់ទៅឧបករណ៍ផ្សេងទៀតរបស់អ្នក។ កម្មវិធីដែលអ្នកដំណើរការក្នុង cmux ក៏អាចប្រើវាបានដែរ។"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Програма, запущена в cmux, хоче виявляти пристрої у вашій локальній мережі."
+            "value": "cmux використовує локальну мережу, щоб зʼєднуватися з іншими вашими пристроями. Програми, запущені в cmux, теж можуть її використовувати."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Một chương trình đang chạy trong cmux muốn tìm thiết bị trên mạng cục bộ của bạn."
+            "value": "cmux dùng mạng cục bộ của bạn để kết nối với các thiết bị khác của bạn. Các chương trình bạn chạy trong cmux cũng có thể dùng nó."
           }
         }
       }

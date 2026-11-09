@@ -4,8 +4,13 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextCLIInstall
+import CmuxNextChiefMemory
+import CmuxNextCloud
 import CmuxNextCookieImport
 import CmuxNextDesign
+import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextImportCards
 import CmuxNextOnboarding
 import CmuxNextSettings
@@ -190,6 +195,10 @@ final class OnboardingService {
 
     /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
     private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.skipsOnboarding)
+    /// The sidebar's "Finish setting up" card's rows while ``setup`` shows.
+    private(set) lazy var setupChecklist = SetupChecklist(setup: setup, agents: signInHarnesses) { [weak services] in
+        SetupCardEnvironment(services: services)
+    }
 
     /// A first run starts Home's Set Up cmux card, which offers the agents, the chat history (when found), the
     /// account and the command line in one place: the Agents window and the CLI toast count as shown, and
@@ -221,5 +230,23 @@ extension SavingImportDestination {
             let entries = pages.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
             await MainActor.run { cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default).apply(merging: entries, forgetting: gone) }
         }
+    }
+}
+
+extension SetupCardEnvironment {
+    /// What the setup rows read and run that only the App has: the account, the `cmux` on PATH, the history import
+    /// (moved from HomeHostView+SetupCard.swift with the card).
+    init(services: AppServices?) {
+        let auth = services?.cloud.auth, registry = services?.registry
+        let muxHome = services.map { HomeBrainHost.muxHome(tag: $0.environment.tag).path }
+        self.init(
+            account: { (auth?.isSignedIn ?? false, auth?.user?.primaryEmail) },
+            signInAccount: { _ = registry?.perform("palette.auth.signIn", invocation: ActionInvocation(origin: .user)) },
+            cliState: { CLIInstallReport.setupRow(await CLIInstallHandlers.pathCheck(CLIPathInstaller().source)) },
+            installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) },
+            openAgents: { [weak services] in services?.onboarding.show(step: .agents) },
+            historySources: { guard let muxHome else { return false }
+                return MemorySource.offerTitle(await ChiefMemoryImportHandlers.detectForOffer(muxHome: muxHome)) != nil },
+            importHistory: { [weak services] in services.map { TopPages.show(.page(.importHistory), services: $0) != nil } ?? false })
     }
 }

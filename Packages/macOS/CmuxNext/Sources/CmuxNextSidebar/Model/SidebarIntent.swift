@@ -96,6 +96,13 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// The Now Playing card's x (u2437): the App runs `nowPlaying.hideCard`, which hides the card
     /// until other media starts.
     case hideNowPlayingCard
+    /// A row or the button of the "Finish setting up" card (``SidebarSetupCard``): the App runs that step.
+    case runSetupStep(String)
+    /// The "Finish setting up" card's x: the App hides it for good.
+    case hideSetupCard
+    /// The window showing the "Finish setting up" card became key (back from a sign-in elsewhere): the App reads
+    /// the steps again.
+    case refreshSetupCard
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Workspace rows dropped on a top section (the pinned tiles or the top

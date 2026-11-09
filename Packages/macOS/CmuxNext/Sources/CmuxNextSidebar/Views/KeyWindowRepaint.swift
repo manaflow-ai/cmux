@@ -7,6 +7,8 @@ import AppKit
 @MainActor
 final class KeyWindowRepaint {
     private weak var view: NSView?
+    /// Called when the view's window becomes key (after the repaint is asked for).
+    var onBecomeKey: (() -> Void)?
     private var tokens: [any NSObjectProtocol] = []
 
     init(_ view: NSView) {
@@ -27,7 +29,10 @@ final class KeyWindowRepaint {
         tokens = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
             NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                 // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { self?.view?.needsDisplay = true }
+                MainActor.assumeIsolated {
+                    self?.view?.needsDisplay = true
+                    if name == NSWindow.didBecomeKeyNotification { self?.onBecomeKey?() }
+                }
             }
         }
     }

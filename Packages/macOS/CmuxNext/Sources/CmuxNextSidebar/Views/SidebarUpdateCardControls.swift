@@ -56,6 +56,9 @@ final class SidebarUpdateButton: NSView {
     /// A fixed fill (the notice card's prominent action keeps ``SidebarUpdateButtonStyle/inverted``);
     /// nil follows `sidebar.updateCard.button` (the update card).
     var fixedStyle: SidebarUpdateButtonStyle? { didSet { if fixedStyle != oldValue { needsLayout = true; needsDisplay = true } } }
+    /// A corner radius set by the card the button sits in (the Finish setting up card's full-width
+    /// button, concentric with the card across its padding); nil keeps the style's radius.
+    var cornerRadiusOverride: CGFloat? { didSet { if cornerRadiusOverride != oldValue { needsLayout = true } } }
     /// The fill this button draws.
     var style: SidebarUpdateButtonStyle { fixedStyle ?? SidebarTunables.updateCardButton.value }
     /// The app's button (hairline edge, regular weight, popup row corners) rather than a call-to-action slab.
@@ -131,7 +134,7 @@ final class SidebarUpdateButton: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = isBordered ? Metrics.controlCornerRadius : Metrics.insetCornerRadius
+        layer?.cornerRadius = cornerRadiusOverride ?? (isBordered ? Metrics.controlCornerRadius : Metrics.insetCornerRadius)
         label.font = Self.font(bordered: isBordered)
         let h = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: Metrics.space2, y: (bounds.height - h) / 2, width: max(0, bounds.width - 2 * Metrics.space2), height: h)

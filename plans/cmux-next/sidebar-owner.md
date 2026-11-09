@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: first-run setup docks as a compact "Finish setting up" card in the bottom-left card slot
+  (`SidebarSetupCardView`, `SidebarModel.setupCard`), after a staged update or a question waiting on the person and
+  before Now Playing, the Updated card and the tips; Home no longer floats the Set Up cmux card over its chat. Title
+  and x, a 4 pt progress bar with "1 of N", a row per step (dashed circle; a check on a dimmed row once done; a
+  spinner while it installs) and one full-width bordered button for the next step. Row hover fills sit 4 pt inside
+  the card at its radius less 4, the button 12 pt inside at the radius less 12 (a1050's concentric rule). Lawrence,
+  verbatim (msg 25425): "remove the floating 'Set Up cmux' card ... It's in the wrong place and must not float. Move
+  it to a compact card docked at the bottom-left of the sidebar". Regression: SidebarSetupCardTests.
 - 2026-11-09: Next and Previous Sidebar Item from a selected row step from where it draws. Leo (2026-11-07): "when I
   command 1 2 3 4 5 6 7, right, when I do that around an area that has a group at the, like, immediate top or bottom,
   it messes things up." #39747's review follow-ups: a selected row of an opened "Done (N)" fold stepped from the

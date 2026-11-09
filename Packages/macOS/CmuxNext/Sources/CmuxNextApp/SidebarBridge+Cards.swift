@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextDaemonService
 import CmuxNextNowPlaying
+import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -18,9 +19,10 @@ extension SidebarBridge {
         // The Priority view (`sidebar.priorityView.*`) ends with the cards.
         let priority = SidebarPriorityFeed(services: services).start(container.sidebarView, approvals: SidebarApprovals(environment: services.feed.acpmuxEnvironment))
         let updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater)
+        let setup = SidebarCardFeed.followSetup(model: model, checklist: services.onboarding.setupChecklist)
         let document: @MainActor @Sendable () -> SidebarDocStore? = { [weak services] in services?.sidebarDoc.store }
         cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks, restoring: { [weak services] in services?.daemon.recovery.restoringText })
-            .cancelling(nowPlaying).cancelling(priority).cancelling(updateButton)
+            .cancelling(nowPlaying).cancelling(priority).cancelling(updateButton).cancelling(setup)
     }
 }
 
@@ -64,6 +66,30 @@ enum SidebarCardFeed {
         }
     }
 
+    /// The "Finish setting up" card (``setupCard(_:)``) in `model` until the task is cancelled (the window's
+    /// sidebar bridge owns it); starts the app's one checklist.
+    static func followSetup(model: SidebarModel, checklist: SetupChecklist) -> Task<Void, Never> {
+        checklist.start()
+        model.setupCard = checklist.steps.map(setupCard) // before the window's first frame
+        // task-owner: the sidebar bridge (cancelled with the cards); event-driven (Observation).
+        return Task { [weak model] in
+            for await card in ObservationStream({ checklist.steps.map(setupCard) }) {
+                guard let model else { return }
+                if model.setupCard != card { model.setupCard = card }
+            }
+        }
+    }
+
+    /// The card for `steps`: the button runs the first step a click can run now.
+    static func setupCard(_ steps: [SetupChecklistStep]) -> SidebarSetupCard {
+        let next = steps.first { !$0.done && $0.runnable }
+        return SidebarSetupCard(
+            title: SetupCardPageProvider.checklistTitle,
+            steps: steps.map { SidebarSetupCard.Step(id: $0.kind.rawValue, title: $0.title, done: $0.done, busy: $0.busy, runnable: $0.runnable, help: $0.help) },
+            progressText: SetupCardPageProvider.checklistProgress(steps.count(where: \.done), of: steps.count),
+            buttonTitle: next?.actionTitle, buttonStep: next?.kind.rawValue, closeLabel: SetupCardPageProvider.checklistHideLabel)
+    }
+
     /// The sidebar footer's quiet Update Available button (``UpdaterService/availableButton``) on `view`
     /// until the task is cancelled (the window's sidebar bridge owns it).
     static func followAvailableUpdate(_ view: SidebarView, updater: UpdaterService) -> Task<Void, Never> {
@@ -94,6 +120,10 @@ enum SidebarCardFeed {
         case .openWhatsNew, .dismissUpdated: route(intent, registry: services.registry, updater: services.updater)
         // The media card's x runs the menu's and the palette's Hide (one action, u2437).
         case .hideNowPlayingCard: _ = services.registry.perform("nowPlaying.hideCard", invocation: ActionInvocation(origin: .user))
+        // The Finish setting up card: a row or its button runs that step; its x ends setup for good.
+        case .runSetupStep(let id): services.onboarding.setupChecklist.run(id)
+        case .hideSetupCard: services.onboarding.setupChecklist.hide()
+        case .refreshSetupCard: services.onboarding.setupChecklist.refresh()
         // Edit mode's Add Items (SidebarView+EditItems): Settings on the sidebar's rows (the sidebar
         // items are settings, not store items: extensibility-DESIGN.md).
         case .addItems: try? services.settingsWindow.show(section: nil, setting: "sidebar.showProjects", focus: true)

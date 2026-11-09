@@ -6,7 +6,7 @@ import CmuxNextDesign
 /// the R114 card stack: the staged update card first, else the answer to
 /// something the person just asked for (an update check's notice,
 /// ``SidebarNoticeCard/userAsked``), else the Now Playing
-/// card (cx-ouoxo), else the "cmux Updated!" card, else the shared notice card (the update status or the
+/// card (cx-ouoxo) — the "Finish setting up" card (``SidebarSetupCard``) goes just before it — else the "cmux Updated!" card, else the shared notice card (the update status or the
 /// "Did you know" tip; the App picks one), never two. They are
 /// the sidebar's own views, not band items, so minimal mode's band fade
 /// never hides them. Without a card the slot takes no room; the footer
@@ -17,6 +17,7 @@ struct SidebarBottomCardSlot {
     let nowPlaying: SidebarNowPlayingCardView
     let updated: SidebarUpdatedCardHost
     let notice: SidebarNoticeCardView
+    var setup = SidebarSetupCardView()
 
     /// Adds the views to `sidebar` and routes their actions to its model.
     func install(in sidebar: SidebarView) {
@@ -36,7 +37,11 @@ struct SidebarBottomCardSlot {
         sidebar.addSubview(update)
         sidebar.addSubview(nowPlaying)
         sidebar.addSubview(updated)
+        setup.onRun = { [weak sidebar] id in sidebar?.model.send(.runSetupStep(id)) }
+        setup.onClose = { [weak sidebar] in sidebar?.model.send(.hideSetupCard) }
+        setup.onWindowKey = { [weak sidebar] in sidebar?.model.send(.refreshSetupCard) }
         sidebar.addSubview(notice)
+        sidebar.addSubview(setup)
     }
 
     /// Shows the cards the model holds (the slot picks one).
@@ -45,18 +50,21 @@ struct SidebarBottomCardSlot {
         nowPlaying.configure(cards.nowPlaying)
         updated.configure(cards.updated)
         notice.configure(cards.notice)
+        setup.configure(cards.setup)
     }
 
-    private enum Shown { case update, nowPlaying, updated, notice }
+    private enum Shown { case update, nowPlaying, updated, notice, setup }
 
     /// The card that has the slot: a question waiting on the person, then update, then an asked-for notice,
-    /// then Now Playing, then updated, then any other notice.
+    /// then first-run setup, then Now Playing, then updated, then any other notice.
     private var shown: Shown? {
         // An agent waiting on the person's answer never hides behind another card.
         if notice.notice?.awaitsAnswer == true { return .notice }
         if update.card != nil { return .update }
         // "Is it checking?" must never hide behind a song (Lawrence 2026-10-19).
         if notice.notice?.userAsked == true { return .notice }
+        // Unfinished first-run setup (Lawrence msg 25425: docked here, never floating over Home).
+        if setup.isShowing { return .setup }
         if nowPlaying.nowPlaying != nil { return .nowPlaying }
         // The React card's actions go to the App through its page; it shows once it has drawn.
         if updated.card != nil, updated.height > 0 { return .updated }
@@ -84,6 +92,7 @@ struct SidebarBottomCardSlot {
         case .nowPlaying: (nowPlaying.nowPlaying.map(SidebarNowPlayingCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case .updated: updated.height + 2 * Metrics.space2
         case .notice: (notice.notice.map { notice.height(for: $0, width: Self.cardWidth(in: sidebarWidth)) } ?? 0) + 2 * Metrics.space2
+        case .setup: (setup.card.map(SidebarSetupCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case nil: 0
         }
     }
@@ -114,6 +123,11 @@ struct SidebarBottomCardSlot {
         if shown == .update || !update.isLeaving {
             update.frame = frame(.update, height: update.card.map(SidebarUpdateCardView.height(for:)) ?? 0)
         }
+        if shown == .setup || !setup.isLeaving {
+            setup.frame = frame(.setup, height: setup.card.map(SidebarSetupCardView.height(for:)) ?? 0)
+        }
+        // Another card took the slot: the setup card waits hidden (its own x or the App ends it).
+        if setup.isShowing, shown != .setup, !setup.isLeaving { setup.isHidden = true } else if shown == .setup { setup.isHidden = false }
         notice.presence.setShown(shown == .notice)
         if shown == .notice || !notice.isLeaving {
             notice.frame = frame(.notice, height: notice.notice.map { notice.height(for: $0, width: width) } ?? 0)

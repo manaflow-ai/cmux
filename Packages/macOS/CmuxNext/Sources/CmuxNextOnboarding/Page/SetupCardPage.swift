@@ -3,12 +3,12 @@ public import CmuxNextPages
 public import CmuxNextSettings
 import CmuxNextCompat
 import Foundation
-import WebKit
 public import Observation
 
 extension PageDescriptor {
-    /// Home's Set Up cmux card (webviews/src/pages/setup-card, the React card home-messages/cards/setup), shown
-    /// in the native Home's Chief chat (``SetupCardHost``).
+    /// The Set Up cmux page (webviews/src/pages/setup-card, the React card home-messages/cards/setup). Home no
+    /// longer mounts it (Lawrence msg 25425): the sidebar's native "Finish setting up" card draws the same rows
+    /// from ``SetupCardPageProvider/checklist``; the page stays for the dev server and its ops' tests.
     public static let setupCard = PageDescriptor(
         id: "cmux.setup-card", resource: "setup-card", namespaces: [SetupCardPageProvider.prefix],
         acceptsFirstMouse: true, followsChatZoom: true)
@@ -53,52 +53,6 @@ public struct SetupCardEnvironment {
     }
 }
 
-/// The Set Up cmux card in the native Home: its page view, sized to the card, and its provider. The
-/// React Home draws the same component itself, so this host goes with the native transcript.
-@MainActor
-public final class SetupCardHost {
-    public let page: PageWebView
-    public let provider: SetupCardPageProvider
-    /// The card's height in points at the page's zoom; 0 before the page measured it.
-    public private(set) var height: CGFloat = 0
-    /// Called after each height change.
-    public var onHeightChange: (() -> Void)?
-
-    public init?(setup: FirstRunSetup, agents: (any AgentSignInSource)?, environment: SetupCardEnvironment,
-                 overlayProcess: PageOverlayProcess?) {
-        let provider = SetupCardPageProvider(setup: setup, agents: agents, environment: environment)
-        // The card floats on the chat's backdrop: a Chromium page cannot be transparent.
-        guard let page = PageWebView(descriptor: .setupCard, routes: [PageRoute(prefix: SetupCardPageProvider.prefix, provider: provider)],
-                                     options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true),
-                                     overlayProcess: overlayProcess) else { return nil }
-        self.page = page
-        self.provider = provider
-        provider.onSize = { [weak self] height in
-            self?.cssHeight = height
-            self?.resize()
-        }
-        // The page follows interface and chat zoom: its CSS height is drawn at the zoom's scale.
-        page.onZoomChange = { [weak self] in self?.resize() }
-    }
-
-    /// The page's last measured height in CSS px.
-    private var cssHeight: CGFloat = 0
-
-    /// The card's height in points: its CSS height at the page's zoom (as ``WebCardPanel`` sizes its card).
-    private func resize() {
-        let zoom = page.webKitView.pageZoom * page.webKitView.magnification
-        let next = ceil(cssHeight * max(zoom, 0.01))
-        guard next != height else { return }
-        height = next
-        onHeightChange?()
-    }
-
-    public func close() {
-        provider.stop()
-        page.close()
-    }
-}
-
 /// `cmux.setup.*` (webviews/src/pages/setup-card/ops.ts): `state` and the `changed` stream (the rows' state as
 /// values: the agents from Settings' acpmux sign-ins, the account, the `cmux` on the login PATH); `run {action}`
 /// and `hide`, each on the person's own click or key only, one per gesture, as the onboarding page's gestures;
@@ -111,9 +65,9 @@ public final class SetupCardPageProvider: PageProvider {
     /// The agents the card names, in its order: the ones cmux can install.
     static let agentIDs = ["claude", "codex"]
 
-    @ObservationIgnored private let setup: FirstRunSetup
+    @ObservationIgnored let setup: FirstRunSetup
     @ObservationIgnored let agents: AgentsStepModel
-    @ObservationIgnored private let environment: SetupCardEnvironment
+    @ObservationIgnored let environment: SetupCardEnvironment
     /// The `cmux` a new login shell runs, read at start, on focus and after an install; nil before the first read.
     private(set) var cli: String?
     /// Whether this Mac has chats to bring in; nil before the one read.
@@ -125,7 +79,8 @@ public final class SetupCardPageProvider: PageProvider {
     /// An install of the `cmux` command runs (the row shows its spinner, and another click starts nothing).
     private(set) var cliInstalling = false
 
-    init(setup: FirstRunSetup, agents: (any AgentSignInSource)?, environment: SetupCardEnvironment) {
+    /// Starts the rows' reads (the agents, the `cmux` on PATH, the chat sources); ``stop()`` ends them.
+    public init(setup: FirstRunSetup, agents: (any AgentSignInSource)?, environment: SetupCardEnvironment) {
         self.setup = setup
         self.agents = setup.agents(source: agents)
         self.environment = environment
@@ -140,12 +95,12 @@ public final class SetupCardPageProvider: PageProvider {
     }
 
     /// The card's own reads end; the shared agents model (``FirstRunSetup/agents(source:)``) and its install go on.
-    func stop() {
+    public func stop() {
         cliRead?.cancel()
         historyRead?.cancel()
     }
 
-    private func readCLI() {
+    func readCLI() {
         cliRead?.cancel()
         // task-owner: one PATH read; the next read or stop() cancels it.
         cliRead = Task { [weak self, environment] in
@@ -157,7 +112,18 @@ public final class SetupCardPageProvider: PageProvider {
 
     /// The card's state on the wire (setupModel.ts `SetupState`).
     var state: JSONValue {
-        let rows: [JSONValue] = Self.agentIDs.compactMap { id in
+        let rows: [JSONValue] = agentRows.map { ["id": .string($0.id), "name": .string($0.name), "state": .string($0.state)] }
+        let account = environment.account()
+        var wire: [String: JSONValue] = ["signedIn": .bool(account.signedIn)]
+        if account.signedIn, let email = account.email { wire["email"] = .string(email) }
+        return ["agents": .array(rows), "history": history == true ? ["done": .bool(setup.historyDone)] : .null,
+                "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null]
+    }
+
+    /// The agents the card names, each with its state ("missing", "installing", "failed", "signedOut",
+    /// "unverified", "signedIn"; setupModel.ts `SetupAgent`).
+    var agentRows: [(id: String, name: String, state: String)] {
+        Self.agentIDs.compactMap { id in
             guard let agent = agents.agents.first(where: { $0.id == id }) ?? agents.installable.first(where: { $0.id == id }) else { return nil }
             // A read that finds the agent installed wins over an earlier failed install (installed by hand, or
             // found after all): the row then offers its Sign In, not an Install that has nothing to do.
@@ -167,13 +133,8 @@ public final class SetupCardPageProvider: PageProvider {
             default: !agent.installed ? "missing" : agents.countsAsSignedIn(agent) ? "signedIn"
                 : agents.awaitsConfirmation(agent) ? "unverified" : "signedOut"
             }
-            return ["id": .string(id), "name": .string(agent.name), "state": .string(state)]
+            return (id, agent.name, state)
         }
-        let account = environment.account()
-        var wire: [String: JSONValue] = ["signedIn": .bool(account.signedIn)]
-        if account.signedIn, let email = account.email { wire["email"] = .string(email) }
-        return ["agents": .array(rows), "history": history == true ? ["done": .bool(setup.historyDone)] : .null,
-                "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null]
     }
 
     /// Every row is done: an agent signed in, the chat history answered (when found: never before the read of
@@ -222,7 +183,7 @@ public final class SetupCardPageProvider: PageProvider {
         return [:]
     }
 
-    private func run(_ action: JSONValue) throws {
+    func run(_ action: JSONValue) throws {
         let id = action["id"]?.stringValue ?? ""
         switch action["kind"]?.stringValue {
         case "installAgent" where Self.agentIDs.contains(id): agents.install(id)

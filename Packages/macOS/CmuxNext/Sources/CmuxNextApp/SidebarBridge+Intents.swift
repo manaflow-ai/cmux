@@ -125,7 +125,7 @@ extension SidebarBridge {
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
         case .installUpdate, .downloadUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
-             .hideNowPlayingCard, .addItems:
+             .hideNowPlayingCard, .runSetupStep, .hideSetupCard, .refreshSetupCard, .addItems:
             SidebarCardFeed.handle(intent, services: services)
         case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
         case .toggleWorkspaceAudio(let id):

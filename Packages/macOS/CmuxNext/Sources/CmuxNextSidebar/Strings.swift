@@ -146,6 +146,10 @@ enum Strings {
         String(localized: "sidebar.space.inAnotherWindow", defaultValue: "\(name), in another window", bundle: .module)
     }
     /// The Now Playing card's scrubber (its value says the position and the length).
+    /// VoiceOver's value on a done row of the Finish setting up card.
+    static var setupStepDone: String {
+        String(localized: "sidebar.a11y.setup.stepDone", defaultValue: "Done", bundle: .module)
+    }
     static var nowPlayingPosition: String {
         String(localized: "sidebar.a11y.nowPlaying.position", defaultValue: "Playback Position", bundle: .module)
     }

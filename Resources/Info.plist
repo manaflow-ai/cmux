@@ -307,7 +307,7 @@
 	<key>NSSystemAdministrationUsageDescription</key>
 	<string>A program running within cmux would like to perform system administration tasks.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>A program running within cmux would like to discover devices on your local network.</string>
+	<string>cmux uses your local network to reach your other devices. Programs you run in cmux can use it too.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
