@@ -775,6 +775,8 @@ pub(crate) struct ProcessHubLauncher {
     exe: PathBuf,
     token: Zeroizing<String>,
     ready_timeout: Duration,
+    /// How long a hub gets after SIGTERM before SIGKILL.
+    kill_after: Duration,
 }
 
 impl ProcessHubLauncher {
@@ -785,7 +787,7 @@ impl ProcessHubLauncher {
         SystemRandom::new().fill(bytes.as_mut()).map_err(|_| "no random source".to_owned())?;
         let token = Zeroizing::new(bytes.iter().map(|b| format!("{b:02x}")).collect::<String>());
         // Covers endpoint resolution and the first handshake inside `wg hub`.
-        Ok(Self { exe, token, ready_timeout: Duration::from_secs(45) })
+        Ok(Self { exe, token, ready_timeout: Duration::from_secs(45), kill_after: HUB_KILL_AFTER })
     }
 }
 
@@ -802,6 +804,9 @@ enum HubSignal {
 /// the child's exit event (the wait itself is an event, not a poll).
 const HUB_OWNER_TICK: Duration = Duration::from_millis(50);
 
+/// SIGTERM to SIGKILL, for a stop and for an abandoned hub alike.
+const HUB_KILL_AFTER: Duration = Duration::from_secs(5);
+
 /// The owner thread: the one place that holds the `Child`, waits on it, and
 /// signals it. A signal goes out only after `try_wait` said the child still
 /// runs and before this same thread reaps it, so its pid cannot have been
@@ -811,14 +816,29 @@ fn own_hub(
     mut child: cmux_process::Child,
     requests: std::sync::mpsc::Receiver<HubSignal>,
     done: watch::Sender<Option<String>>,
+    kill_after: Duration,
 ) {
     use std::sync::mpsc::TryRecvError;
     let mut asked_term = false;
+    // When the `ProcessHub` went away (a stop during startup drops it), the
+    // owner ends the child itself: SIGTERM, then SIGKILL after `kill_after`,
+    // so a hub that ignores SIGTERM cannot outlive its supervisor (its stdout
+    // reader would hold the runtime's shutdown).
+    let mut orphaned_at: Option<std::time::Instant> = None;
     let why = loop {
         let request = match requests.try_recv() {
             Ok(signal) => Some(signal),
-            Err(TryRecvError::Disconnected) if !asked_term => Some(HubSignal::Term),
-            Err(_) => None,
+            Err(TryRecvError::Disconnected) => {
+                let since = *orphaned_at.get_or_insert_with(std::time::Instant::now);
+                if !asked_term {
+                    Some(HubSignal::Term)
+                } else if since.elapsed() >= kill_after {
+                    Some(HubSignal::Kill)
+                } else {
+                    None
+                }
+            }
+            Err(TryRecvError::Empty) => None,
         };
         if let Some(signal) = request {
             match child.try_wait() {
@@ -873,7 +893,7 @@ impl RunningHub for ProcessHub {
 
     async fn stop(mut self: Box<Self>) {
         let _ = self.requests.send(HubSignal::Term);
-        if tokio::time::timeout(Duration::from_secs(5), self.wait_ended()).await.is_err() {
+        if tokio::time::timeout(HUB_KILL_AFTER, self.wait_ended()).await.is_err() {
             let _ = self.requests.send(HubSignal::Kill);
             self.wait_ended().await;
         }
@@ -903,7 +923,8 @@ impl HubLauncher for ProcessHubLauncher {
         let stdout = child.stdout.take();
         let (done, ended) = watch::channel(None);
         let (requests, asked) = std::sync::mpsc::channel();
-        std::thread::spawn(move || own_hub(child, asked, done));
+        let kill_after = self.kill_after;
+        std::thread::spawn(move || own_hub(child, asked, done, kill_after));
         let hub = ProcessHub { requests, ended };
         let mut input = Zeroizing::new(Vec::with_capacity(self.token.len() + 1 + config.len()));
         input.extend_from_slice(self.token.as_bytes());

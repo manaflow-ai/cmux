@@ -662,3 +662,33 @@ async fn stop_during_a_stalled_read_stops_the_hub_and_ends_stopped() {
     assert_eq!(stopped.expect("stop cancels the read"), TunnelStatus::Stopped);
     assert_eq!(*rig.hubs.stopped.lock().unwrap(), 1);
 }
+
+/// A stop while the hub has not answered yet drops its launch: the owner
+/// still ends a child that ignores SIGTERM, with SIGKILL after the grace.
+#[tokio::test]
+async fn a_stop_before_hub_ready_kills_a_hub_that_ignores_sigterm() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = socket_path("prehub").parent().unwrap().to_path_buf();
+    let pid_file = dir.join("hub.pid");
+    let script = dir.join("stubborn-hub");
+    std::fs::write(
+        &script,
+        format!("#!/bin/sh\ntrap '' TERM\necho $$ > {}\nexec sleep 60\n", pid_file.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut launcher = ProcessHubLauncher::new(script).unwrap();
+    launcher.kill_after = Duration::from_millis(200);
+    let config = Zeroizing::new(String::from("unused\n"));
+    // The stop: the launch is dropped before the hub says it is ready.
+    let launch = launcher.launch(config, &dir.join("hub.sock"));
+    assert!(tokio::time::timeout(Duration::from_millis(500), launch).await.is_err());
+    let pid: libc::pid_t = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    // SAFETY: signal 0 only asks whether `pid` exists; it is reaped by the
+    // owner thread, after which it no longer does.
+    while unsafe { libc::kill(pid, 0) } == 0 {
+        assert!(tokio::time::Instant::now() < deadline, "the abandoned hub was not killed");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
