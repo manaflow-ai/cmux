@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chaosProbeRow, dropCommand, FAULTS, NOT_INJECTED, relayCutCommand, type ChaosResult } from "./cloud-chaos.ts";
+import { chaosProbeRow, dropCommand, FAULTS, NOT_INJECTED, relayCutCommand, sessionHostKillCommand, type ChaosResult } from "./cloud-chaos.ts";
 
 const ok = (fault: string, ms: number): ChaosResult => ({ fault, outcome: "ok", recover_ms: ms, carrier: "resumed the session", turn: "completed once", detail: "" });
 
@@ -45,9 +45,13 @@ describe("faults", () => {
     expect(cmd).toContain("then echo @@ok nft; else nft delete table inet cmuxchaos");
   });
 
-  test("the session host is found without matching the shell that looks for it", () => {
+  test("the session host is found in cmux-host.service's cgroup, never by a name match", () => {
     const restart = FAULTS.find((f) => f.name === "session host restart")!;
-    expect(restart.command).toContain("'--relay-slo[t]'");
+    expect(restart.command).toBe(sessionHostKillCommand());
+    expect(restart.command).toContain("systemctl show -p ControlGroup --value cmux-host.service");
+    // The only kill is of the pid read from the unit's cgroup.
+    expect(restart.command.match(/\bkill\b/g)).toEqual(["kill"]);
+    expect(restart.command).toContain("/cgroup.procs");
   });
 
   test("a relay cut says ok only when ss -K exits 0 and closed a socket", () => {

@@ -64,9 +64,7 @@ export const FAULTS: Array<{ name: string; secs: number; command: string }> = [
   {
     name: "session host restart",
     secs: 0,
-    // The session host is the one process started with --relay-slot (cmux-host's carrier_entry.rs); its pid is read
-    // first and only that pid is killed.
-    command: "p=$(pgrep -f -- '--relay-slo[t]' | head -1); [ -n \"$p\" ] && sudo -n kill -KILL \"$p\" && echo \"@@ok $p\"",
+    command: sessionHostKillCommand(),
   },
   {
     name: "agent daemon restart",
@@ -84,6 +82,20 @@ export function relayCutCommand(): string {
   return "out=$(sudo -n ss -K -H state established '( dport = :443 )' 2>&1); rc=$?; " +
     "n=$(printf '%s\\n' \"$out\" | grep -c ':443'); " +
     "if [ \"$rc\" -eq 0 ] && [ \"$n\" -gt 0 ]; then echo \"@@ok $n\"; else echo \"@@failed rc=$rc closed=$n\"; fi";
+}
+
+/**
+ * SIGKILL the session host: the one process in cmux-host.service's own cgroup started with `--relay-slot`
+ * (carrier_entry.rs). Its pid comes from the unit systemd records, never a match across every process on the machine,
+ * and only that pid is killed.
+ */
+export function sessionHostKillCommand(): string {
+  return "cg=$(systemctl show -p ControlGroup --value cmux-host.service 2>/dev/null); host=''; " +
+    // Every cgroup.procs under the unit (the session host may sit in a child cgroup). The pattern's brackets keep this
+    // shell, whose own command line holds the pattern's text, from matching itself, and its own pid is skipped too.
+    "for p in $(find \"/sys/fs/cgroup$cg\" -name cgroup.procs -exec cat {} + 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; " +
+    "{ tr '\\0' ' ' < \"/proc/$p/cmdline\"; } 2>/dev/null | grep -q -- ' --relay-slo[t] ' && { host=$p; break; }; done; " +
+    "if [ -n \"$cg\" ] && [ -n \"$host\" ] && sudo -n kill -KILL \"$host\"; then echo \"@@ok $host\"; else echo \"@@failed cgroup=$cg pid=$host\"; fi";
 }
 
 /** Not injectable from the machine: recorded as not run, with whose lane can run them. */
