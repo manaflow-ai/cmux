@@ -140,12 +140,14 @@ fn a_mistyped_id_says_it_is_not_an_id_and_where_ids_come_from() {
     // A Codex interop proof run dropped the last digit of a terminal id and
     // got "reserved or ambiguous names must use the name: prefix", then
     // guessed `terminal_id:`, `id:` and bare hex forms for minutes.
+    // A short id is now a unique id prefix (W5-P): it selects the terminal
+    // whose id starts with it, and a prefix of no id says what an id is.
     let short = format!("term_{}", "6".repeat(31));
-    let error = Selector::parse(&short).unwrap_err();
-    assert_eq!(error.code, "validation.invalid");
-    assert!(error.message.contains(&short), "{}", error.message);
-    assert!(error.message.contains("32 hex"), "{}", error.message);
-    assert!(error.message.contains("cmux terminal list"), "{}", error.message);
+    assert_eq!(Selector::parse(&short).unwrap(), Selector::Id(short.clone()));
+    let message = unmatched_id_prefix_message("terminal", &short);
+    assert!(message.contains(&short), "{message}");
+    assert!(message.contains("32 hex digits, and this one has 31"), "{message}");
+    assert!(message.contains("cmux terminal list"), "{message}");
     let upper = format!("ws_{}", "A".repeat(32));
     let error = Selector::parse(&upper).unwrap_err();
     assert!(error.message.contains("lowercase"), "{}", error.message);

@@ -1025,6 +1025,24 @@ pub fn is_bare_id(value: &str) -> bool {
     value.len() == ID_PAYLOAD_LEN && is_lower_hex(value)
 }
 
+/// The message for a unique-prefix selector that no id starts with. A
+/// mistyped id (one digit dropped) reads as a prefix, so the message names
+/// the id shape and where such ids come from, as the old refusal did.
+pub fn unmatched_id_prefix_message(kind: &str, value: &str) -> String {
+    let (prefix, payload) = value.rsplit_once('_').unwrap_or((kind, value));
+    let source = PUBLIC_ID_PREFIXES
+        .iter()
+        .find(|(known, _)| *known == prefix)
+        .and_then(|(_, scope)| *scope)
+        .map(|scope| format!("; copy one from `cmux {scope} list --json`"))
+        .unwrap_or_default();
+    format!(
+        "no {kind} id starts with {value}: an id is {prefix}_ and 32 hex digits, and this \
+         one has {}{source}, or pass name:{value} for a name",
+        payload.len()
+    )
+}
+
 fn is_registered_public_id(value: &str) -> bool {
     let Some((prefix, payload)) = value.rsplit_once('_') else {
         return false;
