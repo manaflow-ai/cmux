@@ -1,11 +1,16 @@
 //! `cmux terminal wait --any|--all`: its words, what it reads from a
 //! snapshot, and when the wait holds, waits on, or can never hold.
 
-use std::time::Duration;
+use std::cell::Cell;
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::{Mode, Outcome, Request, Until, evaluate, observe, parse, result};
+use super::super::super::resolve::Failure;
+use super::{
+    Mode, Outcome, Request, Session, Until, Wake, evaluate, observe, parse, result, watch,
+};
 
 fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(str::to_owned).collect()
@@ -135,4 +140,78 @@ fn w5t_wait_fails_when_ended_agents_make_it_impossible() {
     assert_eq!(evaluate(&all, &seen), Outcome::Impossible { ended: vec![1] });
     let until_ended = request(Mode::All, &[Until::Idle, Until::Ended], 2);
     assert_eq!(evaluate(&until_ended, &seen), Outcome::Holds { terminal: 0 });
+}
+
+/// A session that answers from a script and moves a fake clock: a wake
+/// may let time pass, and a snapshot may fail.
+struct Scripted<'a> {
+    snapshots: VecDeque<Result<Value, Failure>>,
+    wakes: VecDeque<(Duration, Wake)>,
+    elapsed: &'a Cell<Duration>,
+}
+
+impl Session for Scripted<'_> {
+    fn snapshot(&mut self, _deadline: Option<Instant>) -> Result<Value, Failure> {
+        let Some(snapshot) = self.snapshots.pop_front() else {
+            panic!("no scripted snapshot left")
+        };
+        snapshot
+    }
+
+    fn wake(&mut self, _within: Option<Duration>) -> Wake {
+        let (passes, wake) = self.wakes.pop_front().expect("a scripted wake");
+        self.elapsed.set(self.elapsed.get() + passes);
+        wake
+    }
+}
+
+#[test]
+fn w5t_a_timeout_names_where_each_agent_stood_when_the_last_read_fails() {
+    // The deadline passes during the event read, and the read after it gets
+    // no answer in time (a busy session): the timeout still lists the
+    // agents as the wait last saw them.
+    let start = Instant::now();
+    let elapsed = Cell::new(Duration::ZERO);
+    let now = || start + elapsed.get();
+    let mut session = Scripted {
+        snapshots: VecDeque::from([
+            Ok(snapshot(&[Some("working"), Some("working")], &[])),
+            Err(Failure::Transport("the session did not answer in time".into())),
+        ]),
+        wakes: VecDeque::from([(Duration::from_secs(2), Wake::ReadFailed("timed out".into()))]),
+        elapsed: &elapsed,
+    };
+    let mut request = request(Mode::Any, &[Until::Blocked], 2);
+    request.timeout = Some(Duration::from_secs(1));
+    let deadline = start.checked_add(Duration::from_secs(1));
+    let Err(Failure::Local { error, exit }) = watch(&mut session, &request, deadline, &now) else {
+        panic!("the wait must end with a local wait.timeout error");
+    };
+    assert_eq!(exit, 124);
+    assert_eq!(error["code"], "wait.timeout");
+    let agents = error["details"]["agents"].as_array().expect("agents");
+    assert_eq!(agents.len(), 2, "{error}");
+    assert_eq!(agents[0]["terminal"], terminal(1));
+    assert_eq!(agents[0]["status"], "working");
+}
+
+#[test]
+fn w5t_a_wait_wakes_on_an_event_and_reads_again() {
+    let start = Instant::now();
+    let elapsed = Cell::new(Duration::ZERO);
+    let now = || start + elapsed.get();
+    let mut session = Scripted {
+        snapshots: VecDeque::from([
+            Ok(snapshot(&[Some("working"), Some("working")], &[])),
+            Ok(snapshot(&[Some("working"), Some("blocked")], &[])),
+        ]),
+        wakes: VecDeque::from([(Duration::from_millis(300), Wake::Event)]),
+        elapsed: &elapsed,
+    };
+    let request = request(Mode::Any, &[Until::Blocked], 2);
+    let Ok((seen, named)) = watch(&mut session, &request, None, &now) else {
+        panic!("the wait must hold on the second read");
+    };
+    assert_eq!(seen[named].terminal, terminal(2));
+    assert_eq!(seen[named].status, "blocked");
 }

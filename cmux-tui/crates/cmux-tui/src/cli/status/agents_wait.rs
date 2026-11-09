@@ -26,7 +26,9 @@ use serde_json::{Map, Value, json};
 use super::super::resolve::{self, Failure, SocketRoute};
 use super::super::terminal_talk::{roster, roster_names, send};
 use super::super::{GlobalArgs, OutputMode, UsageError, wire};
-use super::terminal_wait::{ANSWER_TIMEOUT, TIMEOUT_EXIT, answer_wait, duration, past};
+use super::terminal_wait::{
+    ANSWER_TIMEOUT, DEADLINE_SLACK, TIMEOUT_EXIT, answer_wait, duration, past,
+};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -388,7 +390,8 @@ fn print(global: &GlobalArgs, value: &Value) {
     }
 }
 
-/// Reads the snapshot until `request` holds, waking on each session event.
+/// Opens the session's event stream, then reads the snapshot until
+/// `request` holds, waking on each session event.
 fn hold(
     reader: &mut Reader,
     socket: &SocketRoute<'_>,
@@ -400,7 +403,7 @@ fn hold(
     // subscription still wakes the wait.
     let now = Instant::now();
     let opened = now.checked_add(answer_wait(deadline)).unwrap_or(now);
-    let mut events =
+    let events =
         resolve::session_events(socket, &resolve::route(params), opened).ok_or_else(|| {
             if past(deadline) {
                 timed_out(request, &[])
@@ -410,13 +413,84 @@ fn hold(
         })?;
     // Ctrl-C shuts the stream down, which ends a wait without a timeout.
     wire::arm_signal_interrupt(events.get_ref().as_ref());
+    let mut session = LiveSession { reader, events, params };
+    watch(&mut session, request, deadline, &Instant::now)
+}
+
+/// What one blocking read of the session's event stream gave.
+#[derive(Debug)]
+pub(super) enum Wake {
+    /// An event came: read the snapshot again.
+    Event,
+    /// Ctrl-C (or a shutdown signal) ended the read.
+    Interrupted,
+    /// The stream ended.
+    Ended,
+    /// The read failed or timed out, with the transport's message.
+    ReadFailed(String),
+    /// The stream cannot take the read timeout.
+    Unwaitable,
+}
+
+/// The session a wait reads: its snapshot and its event stream (tests pass
+/// a fake one).
+pub(super) trait Session {
+    /// The session snapshot, answered before `deadline` or failed.
+    fn snapshot(&mut self, deadline: Option<Instant>) -> Result<Value, Failure>;
+    /// Blocks until the next event, at most `within` (`None`: no bound).
+    fn wake(&mut self, within: Option<Duration>) -> Wake;
+}
+
+struct LiveSession<'a> {
+    reader: &'a mut Reader,
+    events: Reader,
+    params: &'a Map<String, Value>,
+}
+
+impl Session for LiveSession<'_> {
+    fn snapshot(&mut self, deadline: Option<Instant>) -> Result<Value, Failure> {
+        let _ = self.reader.get_mut().set_read_timeout(Some(answer_wait(deadline)));
+        resolve::read(self.reader, ResourceOperation::SessionSnapshot, self.params.clone())
+    }
+
+    fn wake(&mut self, within: Option<Duration>) -> Wake {
+        if self.events.get_mut().set_read_timeout(within).is_err() {
+            return Wake::Unwaitable;
+        }
+        match wire::read_envelope(&mut self.events, false) {
+            Ok(Some(_)) => Wake::Event,
+            _ if crate::shutdown_requested() => Wake::Interrupted,
+            Ok(None) => Wake::Ended,
+            Err(error) => Wake::ReadFailed(error),
+        }
+    }
+}
+
+/// Whether `deadline` passed at `now` (within the slack a read timeout
+/// may wake early by).
+fn past_at(now: Instant, deadline: Option<Instant>) -> bool {
+    deadline.is_some_and(|deadline| {
+        now.checked_add(DEADLINE_SLACK).is_none_or(|slack| slack >= deadline)
+    })
+}
+
+/// Reads `session` until `request` holds, it can never hold, or `deadline`
+/// passes. `now` is the clock.
+pub(super) fn watch<S, N>(
+    session: &mut S,
+    request: &Request,
+    deadline: Option<Instant>,
+    now: &N,
+) -> Result<(Vec<Seen>, usize), Failure>
+where
+    S: Session + ?Sized,
+    N: Fn() -> Instant + ?Sized,
+{
     let mut terminals: Option<Vec<String>> = None;
-    // What the last read showed, so a timeout says where each agent stood.
-    let mut last: Vec<Seen> = Vec::new();
     loop {
-        let _ = reader.get_mut().set_read_timeout(Some(answer_wait(deadline)));
-        let snapshot = resolve::read(reader, ResourceOperation::SessionSnapshot, params.clone())
-            .map_err(|failure| if past(deadline) { timed_out(request, &last) } else { failure })?;
+        let snapshot = session.snapshot(deadline).map_err(|failure| {
+            if past_at(now(), deadline) { timed_out(request, &[]) } else { failure }
+        })?;
         // The names are resolved once, so a renamed tab keeps its place.
         if terminals.is_none() {
             terminals = Some(resolve_targets(&snapshot, &request.targets)?);
@@ -427,20 +501,16 @@ fn hold(
             Outcome::Impossible { ended } => return Err(agents_ended(request, &seen, &ended)),
             Outcome::Pending => {}
         }
-        last = seen;
         let remaining = match deadline {
             None => None,
-            Some(deadline) => match deadline.checked_duration_since(Instant::now()) {
+            Some(deadline) => match deadline.checked_duration_since(now()) {
                 Some(remaining) if !remaining.is_zero() => Some(remaining),
-                _ => return Err(timed_out(request, &last)),
+                _ => return Err(timed_out(request, &seen)),
             },
         };
-        if events.get_mut().set_read_timeout(remaining).is_err() {
-            return Err(Failure::Transport("cmux: cannot wait on the event stream".into()));
-        }
-        match wire::read_envelope(&mut events, false) {
-            Ok(Some(_)) => {}
-            _ if crate::shutdown_requested() => {
+        match session.wake(remaining) {
+            Wake::Event => {}
+            Wake::Interrupted => {
                 return Err(Failure::Local {
                     error: json!({
                         "code": "wait.interrupted",
@@ -453,11 +523,14 @@ fn hold(
             }
             // The read timed out at the deadline: read once more (a change
             // may have landed just before it), then time out.
-            Err(_) if past(deadline) => {}
-            Ok(None) => {
+            Wake::ReadFailed(_) if past_at(now(), deadline) => {}
+            Wake::ReadFailed(error) => return Err(Failure::Transport(error)),
+            Wake::Ended => {
                 return Err(Failure::Transport("cmux: the session's event stream ended".into()));
             }
-            Err(error) => return Err(Failure::Transport(error)),
+            Wake::Unwaitable => {
+                return Err(Failure::Transport("cmux: cannot wait on the event stream".into()));
+            }
         }
     }
 }

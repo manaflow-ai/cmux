@@ -39,7 +39,7 @@ pub(super) const TIMEOUT_EXIT: i32 = 124;
 /// How long the daemon may take to open the event stream or answer a read.
 pub(super) const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
 /// A read timeout may wake this much before the deadline it was set for.
-const DEADLINE_SLACK: Duration = Duration::from_millis(50);
+pub(super) const DEADLINE_SLACK: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Until {
