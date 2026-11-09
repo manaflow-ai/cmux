@@ -1737,12 +1737,14 @@ function inboxThreadCard(
   // 2px above, 4px below, 8px padding each side, as an opened received message's panel.
   const panel = 2 + 4 + 16;
   if (!messageOpened(sessionId, key)) {
-    const height = measure(messages?.at(-1)?.text ?? preview);
+    // What the card draws (InboxNoticeCard.tsx `newestText`): the message read, else acpmux's whole
+    // newest, else the preview.
+    const height = measure(messages?.at(-1)?.text ?? newest ?? preview);
     const limit = CLAMPED_LINES * lineHeight;
     if (height <= limit + 1) return panel + height;
     return panel + (messageOpened(sessionId, newestWholeKey(key)) ? height : limit) + CLAMP_MORE_HEIGHT;
   }
-  const list = messages ?? [{ text: preview }];
+  const list = messages ?? [{ text: newest ?? preview }];
   // The back control's line over a 22px row per message.
   if (inboxThreadLook() === "drill" && messages) return panel + 4 + 24 + 22 * list.length;
   const shown = list.slice(-THREAD_PAGE);
