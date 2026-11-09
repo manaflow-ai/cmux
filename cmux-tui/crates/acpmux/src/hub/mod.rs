@@ -1590,6 +1590,8 @@ impl Hub {
             turn_claimed: AtomicBool::new(false),
             admit: StdMutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
+            #[cfg(test)]
+            sent_seam: Default::default(),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),
             queued: AtomicU64::new(0),

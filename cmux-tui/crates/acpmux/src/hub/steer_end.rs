@@ -148,6 +148,14 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
         }
         delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
         let callback = move || {
+            // Tests only: the prompt is written and its `on_sent` has not run yet.
+            #[cfg(test)]
+            if let Some((arrived, release)) =
+                session.sent_seam.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                let _ = arrived.send(());
+                let _ = release.recv();
+            }
             drop(input_handoff);
             on_sent();
         };
