@@ -543,7 +543,7 @@ jobs:
         working-directory: webviews
         run: |
           set -euo pipefail
-          bun install --frozen-lockfile --ignore-scripts
+          bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile --ignore-scripts
           node_modules/.bin/vp fmt
           git diff --binary -- . > "$RUNNER_TEMP/webviews-fmt.patch"
           git checkout --quiet -- .

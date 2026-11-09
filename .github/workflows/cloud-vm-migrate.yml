@@ -37,6 +37,19 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
+      # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
+      # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
+      - name: Check out the bounded bun install
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .bun-install-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout-cone-mode: false
+      - name: Keep the bounded bun install outside the checkout
+        working-directory: .
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
       - name: Pin migration source
         id: source
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -45,7 +58,7 @@ jobs:
         with:
           bun-version: "1.4.4"
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
       - name: Cloud VM migration preflight
         run: bun run cloud-vm:preflight -- --schema-only .
       - name: Rehearse Iroh cleanup on isolated Postgres
@@ -69,12 +82,25 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.preflight.outputs.source_sha }}
+      # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
+      # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
+      - name: Check out the bounded bun install
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .bun-install-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout-cone-mode: false
+      - name: Keep the bounded bun install outside the checkout
+        working-directory: .
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
       - name: Validate PlanetScale credentials
         run: |
           set -euo pipefail
@@ -118,12 +144,25 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.preflight.outputs.source_sha }}
+      # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
+      # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
+      - name: Check out the bounded bun install
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .bun-install-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout-cone-mode: false
+      - name: Keep the bounded bun install outside the checkout
+        working-directory: .
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
       - name: Validate PlanetScale credentials
         run: |
           set -euo pipefail

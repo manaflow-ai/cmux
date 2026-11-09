@@ -150,7 +150,7 @@ jobs:
           createdb -h localhost -p "$PGPORT" -U cmux cmux
           export DATABASE_URL="postgres://cmux:cmux@localhost:${PGPORT}/cmux"
           export DIRECT_DATABASE_URL="$DATABASE_URL"
-          cd web && bun install
+          cd web && bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --
           bun scripts/db-migrate.mjs
           # load dev secrets (Stack keys + dedicated CI account); keep our DB url
           set -a; source scripts/load-dev-env.sh; set +a
@@ -190,7 +190,7 @@ jobs:
           # bun-global agents (package names verified from a working install).
           command -v bun >/dev/null || curl -fsSL https://bun.sh/install | bash
           export PATH="$HOME/.bun/bin:$PATH"
-          bun install -g opencode-ai @openai/codex @earendil-works/pi-coding-agent || true
+          bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" -g opencode-ai @openai/codex @earendil-works/pi-coding-agent || true
           sudo mkdir -p /usr/local/bin || mkdir -p /usr/local/bin || true
           link() { [ -x "$2" ] && { sudo ln -sf "$2" "/usr/local/bin/$1" 2>/dev/null || ln -sf "$2" "/usr/local/bin/$1"; } || echo "warn: $1 not found at $2"; }
           link claude   "$HOME/.local/bin/claude"

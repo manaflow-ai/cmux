@@ -8,7 +8,9 @@
 # cancelled the job, which merge_hold then refused. The same registry answered in under a second from another network.
 #
 # Usage, in the package's folder: bash scripts/ci/bun-install.sh [bun install args...]
-#   (default args: --frozen-lockfile)
+#   (default args: --frozen-lockfile; a lone `--` first means exactly the args after it, none included,
+#   for a step that runs a plain `bun install`)
+# Every workflow's bun install goes through here (tests/test_ci_required_checks_are_bounded.py fails on a bare one).
 # Knobs (environment, each with a default):
 #   BUN_CONFIG_HTTP_IDLE_TIMEOUT  seconds a registry connection may sit idle before bun drops and retries it (30)
 #   BUN_CONFIG_HTTP_RETRY_COUNT   bun's own retries of one failed request (5)
@@ -36,7 +38,48 @@ for value in "$BUN_CONFIG_HTTP_IDLE_TIMEOUT" "$BUN_CONFIG_HTTP_RETRY_COUNT" "$at
 done
 if [ "$#" -eq 0 ]; then
   set -- --frozen-lockfile
+elif [ "$1" = "--" ]; then
+  shift
 fi
+
+# One attempt under its deadline. A host with no coreutils `timeout` (a stock macOS runner) gets the same bound
+# from a watchdog on this attempt's own PID; either way 124 means the deadline ended it.
+bounded() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout --kill-after=15 "$attempt_seconds" "$@"
+    return
+  fi
+  if command -v gtimeout >/dev/null 2>&1; then
+    gtimeout --kill-after=15 "$attempt_seconds" "$@"
+    return
+  fi
+  local marker pid watchdog code
+  marker="$(mktemp)"
+  rm -f "$marker"
+  "$@" &
+  pid=$!
+  # The watchdog's own sleep goes with it (the trap), so nothing it started outlives the attempt or holds the log open.
+  (
+    trap 'kill "$nap" 2>/dev/null; exit 0' TERM
+    sleep "$attempt_seconds" & nap=$!
+    wait "$nap"
+    : > "$marker"
+    kill -TERM "$pid" 2>/dev/null
+    sleep 15 & nap=$!
+    wait "$nap"
+    kill -KILL "$pid" 2>/dev/null
+  ) >/dev/null 2>&1 &
+  watchdog=$!
+  wait "$pid"
+  code=$?
+  kill "$watchdog" 2>/dev/null
+  wait "$watchdog" 2>/dev/null
+  if [ -e "$marker" ]; then
+    rm -f "$marker"
+    return 124
+  fi
+  return "$code"
+}
 
 # One timed request to the registry, so the log says how it answered from this runner before the install.
 probe() {
@@ -48,7 +91,7 @@ echo "bun-install: registry ${shown_registry} answers $(probe) (runner ${runner}
 attempt=1
 while :; do
   started=$SECONDS
-  timeout --kill-after=15 "$attempt_seconds" bun install "$@"
+  bounded bun install "$@"
   code=$?
   took=$((SECONDS - started))
   if [ "$code" -eq 0 ]; then

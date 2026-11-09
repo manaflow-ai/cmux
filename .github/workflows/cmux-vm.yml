@@ -243,8 +243,15 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-cmux-vm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('workers/cmux-vm/bun.lock', 'scripts/cmux-next/release/bun.lock') }}
+          restore-keys: |
+            bun-cmux-vm-${{ runner.os }}-${{ runner.arch }}-
       - id: install
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       # Every check below runs whenever install succeeded, so one run reports all failures.
       - name: Migration lint (expand-only, schema cmux_vm only, numbering, hash lock)
         if: ${{ !cancelled() && steps.roll.outputs.short != 'true' }}
@@ -252,7 +259,7 @@ jobs:
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
-          bun install --frozen-lockfile
+          bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
           # A new branch (all-zero BEFORE) lints against origin/feat-cmux-next; a base that cannot be fetched fails.
           if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then
             git fetch --quiet --no-tags --depth=1 origin feat-cmux-next || { echo "::error title=Migration lint::cannot fetch origin/feat-cmux-next"; exit 1; }
@@ -452,7 +459,7 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           node-version: "24"
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
         if: steps.gate.outputs.enabled == 'true'
       - name: Deploy and set secrets
         if: steps.gate.outputs.enabled == 'true'
@@ -506,12 +513,12 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           node-version: "24"
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
         if: steps.gate.outputs.enabled == 'true'
       - name: Install the release rails
         if: steps.gate.outputs.enabled == 'true'
         working-directory: scripts/cmux-next/release
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       # Deploy ordering (plans/cmux-next/release-rails.md): read the staging database and refuse a
       # commit whose migrations are not applied there, before anything ships. On 2026-10-07 a push
       # ran ahead of 0008 and every Stack webhook answered 503.
@@ -740,12 +747,12 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         with:
           node-version: "24"
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
         if: steps.gate.outputs.enabled == 'true'
       - name: Install the release rails
         if: steps.gate.outputs.enabled == 'true'
         working-directory: scripts/cmux-next/release
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       # Deploy ordering (plans/cmux-next/release-rails.md): read the staging database and refuse a
       # commit whose migrations are not applied there, before anything ships. On 2026-10-07 a push
       # ran ahead of 0008 and every Stack webhook answered 503.
@@ -1203,7 +1210,7 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       - name: Tail cmux-vm-production
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -1246,7 +1253,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       - name: Sweep cmux-vm-production orphans
         env:
           CMUX_VM_ENVIRONMENT: production
@@ -1356,7 +1363,7 @@ jobs:
           node-version: "24"
       - name: Install the release rails
         working-directory: scripts/cmux-next/release
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       - name: Install pscale 0.349.0 (checksum pinned)
         run: |
           set -euo pipefail

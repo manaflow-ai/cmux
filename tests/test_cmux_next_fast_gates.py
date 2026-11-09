@@ -23,6 +23,7 @@ import json
 import os
 import re
 import select
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1107,7 +1108,7 @@ class BunInstallScript(unittest.TestCase):
 
     SCRIPT = ROOT / "scripts/ci/bun-install.sh"
 
-    def install(self, fake_bun: str, **env: str) -> subprocess.CompletedProcess:
+    def install(self, fake_bun: str, *args: str, no_timeout: bool = False, **env: str) -> subprocess.CompletedProcess:
         tmp = Path(tempfile.mkdtemp(prefix="bun-install-test-"))
         self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)])
         bin_dir = tmp / "bin"
@@ -1115,11 +1116,19 @@ class BunInstallScript(unittest.TestCase):
         (bin_dir / "bun").write_text("#!/bin/sh\n" + fake_bun, encoding="utf-8")
         (bin_dir / "bun").chmod(0o755)
         (tmp / "count").write_text("", encoding="utf-8")
-        environment = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "COUNT": str(tmp / "count"),
+        path = f"{bin_dir}{os.pathsep}{os.environ['PATH']}"
+        if no_timeout:
+            # A host with no coreutils `timeout` (a stock macOS runner): only the tools the script and the fake use.
+            for tool in ("sed", "curl", "mktemp", "rm", "sleep", "hostname", "wc", "sh"):
+                found = shutil.which(tool)
+                if found:
+                    (bin_dir / tool).symlink_to(found)
+            path = str(bin_dir)
+        environment = {**os.environ, "PATH": path, "COUNT": str(tmp / "count"),
                        # A closed local port: the registry probe answers at once, with no network.
                        "BUN_CONFIG_REGISTRY": "http://127.0.0.1:9/", **env}
-        result = subprocess.run(["bash", str(self.SCRIPT)], cwd=tmp, env=environment, capture_output=True, text=True,
-                                timeout=60)
+        result = subprocess.run([shutil.which("bash") or "bash", str(self.SCRIPT), *args], cwd=tmp, env=environment,
+                                capture_output=True, text=True, timeout=60)
         result.attempts = len((tmp / "count").read_text(encoding="utf-8"))
         return result
 
@@ -1142,6 +1151,23 @@ class BunInstallScript(unittest.TestCase):
         result = self.install('echo "idle=$BUN_CONFIG_HTTP_IDLE_TIMEOUT retry=$BUN_CONFIG_HTTP_RETRY_COUNT args=$*"\n')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("idle=30 retry=5 args=install --frozen-lockfile", result.stdout)
+
+    def test_a_lone_double_dash_passes_exactly_the_args_after_it(self):
+        # A step that ran a plain `bun install` keeps it: no --frozen-lockfile added.
+        result = self.install('echo "args=$*."\n', "--")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("args=install.", result.stdout)
+        result = self.install('echo "args=$*."\n', "--", "-g", "some-tool")
+        self.assertIn("args=install -g some-tool.", result.stdout)
+
+    def test_a_host_without_timeout_still_bounds_the_attempt(self):
+        result = self.install('printf x >> "$COUNT"; sleep 30\n', no_timeout=True, BUN_INSTALL_ATTEMPT_SECONDS="1",
+                              BUN_INSTALL_ATTEMPTS="2")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.attempts, 2)
+        self.assertIn("::error title=bun install stalled::", result.stdout)
+        passed = self.install('exit 0\n', no_timeout=True)
+        self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
 
     def test_a_zero_bound_is_refused(self):
         # GNU `timeout 0` disables the deadline, so a zero would let a hung install run to the job limit again.

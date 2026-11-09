@@ -136,7 +136,7 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       - name: Typecheck
         run: bun run typecheck
       - name: Catalog and generated client drift
@@ -154,7 +154,7 @@ jobs:
         run: bun migrate.ts --lint && bun test test
       - name: Release rails migration lint (expand-only, numbering, hash lock)
         working-directory: scripts/cmux-next/release
-        run: bun install --frozen-lockfile && bun lint.ts --tree backend
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile && bun lint.ts --tree backend
       - name: Migrations apply from zero (scratch Postgres)
         working-directory: backend/db
         env:
@@ -232,7 +232,7 @@ jobs:
           key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/bun.lock', 'scripts/cmux-next/release/bun.lock') }}
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
         working-directory: backend
       - name: Projection SQL on PlanetScale Vitess (development branch, test-only keys)
         env:
@@ -259,7 +259,7 @@ jobs:
           key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/bun.lock', 'scripts/cmux-next/release/bun.lock') }}
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
         working-directory: backend
       - name: Apply to cmux-next/development (shared by previews)
         env:
@@ -292,7 +292,7 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       - name: Deploy preview Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -384,10 +384,10 @@ jobs:
               if [ "$REF_NAME" = feat-cmux-next ] && grep -qE '^--[[:space:]]*phase:[[:space:]]*contract' "$path" && ! grep -qE '^--[[:space:]]*contract:[[:space:]]*[^[:space:]]' "$path"; then echo "::error file=$path,title=Contract migration on feat-cmux-next::a contract migration needs a '-- contract: <reason>' line, and the release rails lint must accept it."; errors=1; fi
             done < <(git diff --name-only --diff-filter=A "$BEFORE" HEAD -- "$dir")
           fi
-          (cd backend && bun install --frozen-lockfile >/dev/null)
+          (cd backend && bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile >/dev/null)
           (cd backend/db && bun migrate.ts --lint) || errors=1
           # Release rails: the hash lock and the previous head's files and lock entries (plans/cmux-next/release-rails.md).
-          (cd scripts/cmux-next/release && bun install --frozen-lockfile >/dev/null && bun lint.ts --tree backend --base "${BEFORE:-origin/feat-cmux-next}") || errors=1
+          (cd scripts/cmux-next/release && bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile >/dev/null && bun lint.ts --tree backend --base "${BEFORE:-origin/feat-cmux-next}") || errors=1
           # Vitess (drizzle-mysql): expand/contract phases, append-only history, expand and contract in separate pushes
           # (backend/db/vitess-guard.ts, plans/cmux-next/db-migrations-DESIGN.md).
           (cd backend/db && bun migrate-mysql.ts --lint --base "${BEFORE:-origin/feat-cmux-next}") || errors=1
@@ -431,7 +431,7 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       # Read-only source fence runs while the environment lock is held, before any mutation.
       - name: Refuse older source before migrations or deployment
         id: source
@@ -611,7 +611,7 @@ jobs:
         with:
           node-version: "24"
       - if: steps.changed.outputs.deploy == 'true'
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       - name: Deploy dashboard (console-staging.cmux.dev)
         if: steps.changed.outputs.deploy == 'true'
         working-directory: backend/apps/dashboard
@@ -733,7 +733,7 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       # Read-only source fence runs while the environment lock is held, before any mutation.
       - name: Refuse older source before migrations or deployment
         id: source
@@ -846,7 +846,7 @@ jobs:
           key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/bun.lock', 'scripts/cmux-next/release/bun.lock') }}
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
         working-directory: scripts/cmux-next/release
       - name: Production staleness (opens or closes the prod-stale issue)
         env:
@@ -896,6 +896,19 @@ jobs:
           ref: ${{ needs.promote-gates.outputs.candidate }}
           fetch-depth: 0
           persist-credentials: false
+      # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
+      # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
+      - name: Check out the bounded bun install
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .bun-install-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout-cone-mode: false
+      - name: Keep the bounded bun install outside the checkout
+        working-directory: .
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -909,8 +922,8 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-      - run: bun install --frozen-lockfile
-      - run: bun install --frozen-lockfile
+      - run: bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
+      - run: bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
         working-directory: scripts/cmux-next/release
       # Right before the deploy: hold released, 6 h spacing, and production's backend changes are
       # in the candidate by ancestry or patch-equivalent cherry-pick (an older job never downgrades).
@@ -978,9 +991,9 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
         working-directory: backend
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
         working-directory: scripts/cmux-next/release
       - name: Roll production back to the previous version
         env:
@@ -1009,6 +1022,19 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
+      # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
+      - name: Check out the bounded bun install
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .bun-install-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout-cone-mode: false
+      - name: Keep the bounded bun install outside the checkout
+        working-directory: .
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -1019,7 +1045,7 @@ jobs:
           key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/bun.lock', 'scripts/cmux-next/release/bun.lock') }}
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
-      - run: bun install --frozen-lockfile
+      - run: bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
         working-directory: scripts/cmux-next/release
       - name: The serving source commit
         id: serving
@@ -1037,9 +1063,9 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-      - run: bun install --frozen-lockfile
+      - run: bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
         working-directory: backend
-      - run: bun install --frozen-lockfile
+      - run: bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
         working-directory: scripts/cmux-next/release
       - name: The serving commit has the off switch
         run: grep -q CMUX_DEPLOY_CHIEF_OFF backend/scripts/deploy-worker.sh || { echo "::error::the serving commit's deploy-worker.sh has no CMUX_DEPLOY_CHIEF_OFF; deploying it would keep the brain on"; exit 1; }
@@ -1099,7 +1125,7 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       # The same hold switch as the promotion (cx-w1ald review P2): only "released" deploys. deploy-worker.sh
       # runs the production config gate itself.
       - name: Hold switch

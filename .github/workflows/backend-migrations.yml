@@ -52,6 +52,19 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           path: trusted
           persist-credentials: false
+      # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
+      # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
+      - name: Check out the bounded bun install
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .bun-install-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout-cone-mode: false
+      - name: Keep the bounded bun install outside the checkout
+        working-directory: .
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
       - name: Changed files and head migrations
         id: files
         env:
@@ -145,7 +158,7 @@ jobs:
       - name: Lint head SQL with the base's parser rules
         if: steps.files.outputs.migrations == 'true'
         run: |
-          (cd trusted/backend && bun install --frozen-lockfile)
+          (cd trusted/backend && bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile)
           (cd trusted/backend/db && bun migrate.ts --lint --dir "$GITHUB_WORKSPACE/head-migrations")
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: steps.files.outputs.migrations == 'true'
@@ -181,6 +194,19 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted
           persist-credentials: false
+      # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
+      # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
+      - name: Check out the bounded bun install
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .bun-install-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout-cone-mode: false
+      - name: Keep the bounded bun install outside the checkout
+        working-directory: .
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: head-migrations
@@ -199,7 +225,7 @@ jobs:
         env:
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
         run: |
-          (cd trusted/backend && bun install --frozen-lockfile)
+          (cd trusted/backend && bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile)
           cd trusted/backend/db
           bun migrate.ts --env staging --dir "$GITHUB_WORKSPACE/head-migrations"
           bun migrate.ts --env staging --dir "$GITHUB_WORKSPACE/head-migrations" --verify
@@ -216,6 +242,19 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted
           persist-credentials: false
+      # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
+      # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
+      - name: Check out the bounded bun install
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .bun-install-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout-cone-mode: false
+      - name: Keep the bounded bun install outside the checkout
+        working-directory: .
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: head-migrations
@@ -236,7 +275,7 @@ jobs:
         env:
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
         run: |
-          (cd trusted/backend && bun install --frozen-lockfile)
+          (cd trusted/backend && bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile)
           cd trusted/backend/db
           bun migrate.ts --env production --confirm-production --dir "$GITHUB_WORKSPACE/head-migrations"
           bun migrate.ts --env production --dir "$GITHUB_WORKSPACE/head-migrations" --verify
@@ -269,6 +308,19 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted
           persist-credentials: false
+      # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
+      # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
+      - name: Check out the bounded bun install
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .bun-install-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout-cone-mode: false
+      - name: Keep the bounded bun install outside the checkout
+        working-directory: .
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         with:
@@ -295,7 +347,7 @@ jobs:
           if [ -z "$PROD_URL" ] || [ -z "$STAGING_URL" ]; then
             echo "::error::no database access for this PR (fork PRs never get it); a maintainer carries the migration on a same-repo branch"; exit 1
           fi
-          (cd trusted/backend && bun install --frozen-lockfile)
+          (cd trusted/backend && bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile)
           cd trusted/backend/db
           ok=1
           CMUX_NEXT_PG_MIGRATOR_URL="$STAGING_URL" bun migrate.ts --env staging --verify --dir "$GITHUB_WORKSPACE/head-migrations" || ok=0

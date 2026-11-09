@@ -320,6 +320,19 @@ jobs:
           ref: ${{ inputs.sha }}
           persist-credentials: false
           submodules: false
+      # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
+      # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
+      - name: Check out the bounded bun install
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .bun-install-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout-cone-mode: false
+      - name: Keep the bounded bun install outside the checkout
+        working-directory: .
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -348,7 +361,7 @@ jobs:
           names=()
           # Formatting first: the bundles are then built from formatted sources.
           if [[ " $KINDS " == *" format "* ]]; then
-            (cd webviews && bun install --frozen-lockfile) || fail "bun install"
+            (cd webviews && bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile) || fail "bun install"
             (cd webviews && bun run check:fix) \
               || echo "check:fix left issues it cannot fix; keeping what it fixed"
             names+=("webviews formatting")
