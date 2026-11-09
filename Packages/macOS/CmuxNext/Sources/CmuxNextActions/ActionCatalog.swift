@@ -195,7 +195,21 @@ public nonisolated enum ActionCatalog {
         for index in all.indices where focusActionIDs.contains(all[index].id) { all[index].focuses = true }
         for index in all.indices where keyedCreateActionIDs.contains(all[index].id) { all[index].waitsForKeyedCreate = true }
         for index in all.indices where workspaceContentActionIDs.contains(all[index].id) { all[index].opensWorkspaceContent = true }
-        return ActionSurfaceCatalog.apply(to: all).withLeaderChords()
+        return ActionSurfaceCatalog.apply(to: all).withLeaderChords().withDebugActionsLast()
+    }
+}
+
+nonisolated extension [ActionDescriptor] {
+    /// Debug-only actions are Command Palette rows only (Lawrence 2026-11-09: "move all debug things to
+    /// cmd shift p"), shown while Internal Developer Mode is on (`DebugActionGate`): each titled
+    /// "Debug: <name>", listed last and sorted by name (`DebugActionsPaletteOnlyTests`: no menu placement).
+    func withDebugActionsLast() -> [ActionDescriptor] {
+        var debug = filter(\.isDebugOnly)
+        for index in debug.indices {
+            debug[index].title = String(format: DebugActionGate.titleFormat, debug[index].title)
+        }
+        debug.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        return filter { !$0.isDebugOnly } + debug
     }
 }
 

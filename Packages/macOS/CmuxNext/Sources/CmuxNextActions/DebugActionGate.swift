@@ -7,7 +7,7 @@ public import Foundation
 /// (`app.internalDeveloperMode`) is on; a script (the CLI, MCP, the socket) runs them whenever developer
 /// tools exist, the toggle aside. `isOn` is read when asked (each palette open, each key press), so a
 /// change of the setting shows at the next open with no restart.
-public struct DebugActionGate {
+public nonisolated struct DebugActionGate {
     /// A debug-only action's title in the palette: "Debug: Tab Bar Playground" (`%@` is its name).
     public static var titleFormat: String {
         String(localized: "action.debug.titleFormat", defaultValue: "Debug: %@", bundle: .module)
@@ -22,4 +22,7 @@ public struct DebugActionGate {
         self.devTools = devTools
         self.isOn = isOn
     }
+
+    /// Whether the person is offered them now: developer tools and the toggle on.
+    @MainActor public var offeredToPerson: Bool { devTools && isOn() }
 }

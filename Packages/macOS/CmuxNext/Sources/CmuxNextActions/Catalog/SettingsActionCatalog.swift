@@ -507,12 +507,12 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             // Leo 2026-10-21: the lens is a toggle to see and feel before it is the default. Flips the
             // Debug choice `glass.lens` between Plain Glass (the default) and Lens, live, from the
-            // palette or the Debug menu (DEV and NIGHTLY).
+            // palette (Internal Developer Mode).
             ActionDescriptor(
                 id: "appearance.glass.lens.toggle",
                 title: String(localized: "action.appearance.glass.lens.toggle", defaultValue: "Toggle Liquid Glass Lens", bundle: .module),
                 keywords: ["glass", "liquid glass", "lens", "refraction", "wallpaper", "plain glass", "appearance"],
-                category: .settings, symbol: "drop", surfaces: [.palette, .menu], mainMenu: .debug, isDebugOnly: true,
+                category: .settings, symbol: "drop", surfaces: [.palette], isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             // Lawrence 2026-11-02: "get rid of host-pressure warning by default, can be enabled in cmd shift p tho".
@@ -533,64 +533,63 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             // Lawrence msgs 19596, 19605, 19613, 19627: a live Swift playground of tab bar designs (crowded
-            // tabs, the new-tab control, the trailing ⋮), each row the real tab strip (Debug menu, DEV and NIGHTLY).
+            // tabs, the new-tab control, the trailing ⋮), each row the real tab strip (palette, Internal Developer Mode).
             ActionDescriptor(
                 id: "debug.tabBarPlayground",
                 title: String(localized: "action.debug.tabBarPlayground", defaultValue: "Tab Bar Playground", bundle: .module),
                 keywords: ["tab bar", "tabs", "playground", "gallery", "variants", "crowded", "new tab", "plus", "chevron", "more", "debug"],
-                category: .settings, symbol: "rectangle.3.group", surfaces: [.palette, .menu], mainMenu: .debug,
+                category: .settings, symbol: "rectangle.3.group", surfaces: [.palette],
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             // User 2026-11-03 ("we need to make sure every single theme, all the UI elements are colored properly"):
             // every bundled theme as the App Theme, each element's ink on its grounds with its contrast, failures
-            // ringed red; the same audit EveryThemeElementContrastTests runs (Debug menu, DEV and NIGHTLY).
+            // ringed red; the same audit EveryThemeElementContrastTests runs (palette, Internal Developer Mode).
             ActionDescriptor(
                 id: "debug.allThemesPlayground",
                 title: String(localized: "action.debug.allThemesPlayground", defaultValue: "All Themes Playground", bundle: .module),
                 keywords: ["themes", "app theme", "contrast", "colors", "playground", "gallery", "audit", "debug"],
-                category: .settings, symbol: "paintpalette", surfaces: [.palette, .menu], mainMenu: .debug,
+                category: .settings, symbol: "paintpalette", surfaces: [.palette],
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             // Lawrence msg 19746: "show me all the possible sidebar states, and i will critique their sizings": every
             // sidebar row state at every density and text size, light and dark, each the real row with its trailing
-            // marks measured (Debug menu, DEV and NIGHTLY).
+            // marks measured (palette, Internal Developer Mode).
             ActionDescriptor(
                 id: "debug.sidebarStatesPlayground",
                 title: String(localized: "action.debug.sidebarStatesPlayground", defaultValue: "Sidebar States Playground", bundle: .module),
                 keywords: ["sidebar", "states", "rows", "playground", "gallery", "density", "text size", "dots", "spinner", "sizes", "debug"],
-                category: .settings, symbol: "sidebar.left", surfaces: [.palette, .menu], mainMenu: .debug,
+                category: .settings, symbol: "sidebar.left", surfaces: [.palette],
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             // Leo 2026-11-04: "shouldn't the nightly itself or whatever stable app be able to simply do this? Like the
             // view if you wanna separate it out". The app's UI from your checkout's gallery dev server in a window of
             // the running app (`ViewWindow`), no DEV or shell build; `port`, `width`, `height` and any mock app key
-            // (`fixture`, `density`, `script`, ...) as arguments (Debug menu, DEV and NIGHTLY).
+            // (`fixture`, `density`, `script`, ...) as arguments (palette, Internal Developer Mode).
             ActionDescriptor(
                 id: "debug.viewWindow",
                 title: String(localized: "action.debug.viewWindow", defaultValue: "Open View Window", bundle: .module),
                 keywords: ["view", "window", "preview", "shell", "live", "hot reload", "dev server", "gallery", "mock app", "checkout", "debug"],
-                category: .settings, symbol: "macwindow.on.rectangle", surfaces: [.palette, .menu], mainMenu: .debug,
+                category: .settings, symbol: "macwindow.on.rectangle", surfaces: [.palette],
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             // Leo 2026-11-05 (HQ#7149 L10): "the view of the app that's separate ... with your actual config, your
             // actual settings": a real window of this app whose pages load from a worktree's dev server, the other
-            // windows untouched (WebProjection, CmuxNextPages; Debug menu, DEV and NIGHTLY).
+            // windows untouched (WebProjection, CmuxNextPages; palette, Internal Developer Mode).
             ActionDescriptor(
                 id: "debug.projection",
                 title: String(localized: "action.debug.projection", defaultValue: "Open Projection Window", bundle: .module),
                 keywords: ["projection", "worktree", "dev server", "hot reload", "live", "preview", "view", "window", "debug"],
-                category: .settings, symbol: "rectangle.on.rectangle", surfaces: [.palette, .menu],
+                category: .settings, symbol: "rectangle.on.rectangle", surfaces: [.palette],
                 arguments: [
                     ActionArgument(name: "server", title: String(localized: "argument.projection.server", defaultValue: "Server", bundle: .module), kind: .string, isRequired: false),
                     ActionArgument(name: "worktree", title: String(localized: "argument.projection.worktree", defaultValue: "Worktree", bundle: .module), kind: .string, isRequired: false),
                     ActionArgument(name: "test", title: String(localized: "argument.projection.test", defaultValue: "Test Command", bundle: .module), kind: .string, isRequired: false),
                     ActionArgument(name: "page", title: String(localized: "argument.projection.page", defaultValue: "Page", bundle: .module), kind: .string, isRequired: false),
                 ],
-                mainMenu: .debug,
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
@@ -599,33 +598,67 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 id: "debug.projection.runTest",
                 title: String(localized: "action.debug.projection.runTest", defaultValue: "Run Projection Test", bundle: .module),
                 keywords: ["projection", "test", "run", "worktree", "debug"],
-                category: .settings, symbol: "checkmark.circle", surfaces: [.palette, .menu],
+                category: .settings, symbol: "checkmark.circle", surfaces: [.palette],
                 arguments: [
                     ActionArgument(name: "test", title: String(localized: "argument.projection.test", defaultValue: "Test Command", bundle: .module), kind: .string, isRequired: false),
                 ],
-                mainMenu: .debug,
                 isDebugOnly: true,
                 startsTerminal: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs
-            // and their perform-to-commit times, over-budget ones in red (Debug menu, DEV and NIGHTLY).
+            // and their perform-to-commit times, over-budget ones in red (palette, Internal Developer Mode).
             ActionDescriptor(
                 id: "debug.actionLatencyHUD",
                 title: String(localized: "action.debug.actionLatencyHUD", defaultValue: "Toggle Action Latency HUD", bundle: .module),
                 keywords: ["latency", "budget", "10 ms", "slow", "action", "hud", "perf", "frame", "debug"],
-                category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette, .menu], mainMenu: .debug,
+                category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette],
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
-            // Debug menu > Main-Thread Blocking (N) > Reset Counts (threading-model.md): zeroes the blocking
-            // detector's per-site counts. `BlockingCallsMenu` places the row in its submenu, so no `mainMenu`.
+            // Main-Thread Blocking (threading-model.md): zeroes the blocking detector's per-site counts.
             ActionDescriptor(
                 id: "debug.blockingCalls.reset",
                 title: String(localized: "action.debug.blockingCalls.reset", defaultValue: "Reset Main-Thread Blocking Counts",
                               bundle: .module),
                 keywords: ["blocking", "main thread", "hang", "stall", "reset", "counts", "debug"],
-                category: .settings, symbol: "arrow.counterclockwise", surfaces: [.palette, .menu], isDebugOnly: true,
+                category: .settings, symbol: "arrow.counterclockwise", surfaces: [.palette], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // The call sites that blocked the main thread since launch, one line each with its count, to the
+            // clipboard (the old Debug menu's Main-Thread Blocking (N) list).
+            ActionDescriptor(
+                id: "debug.blockingCalls.copy",
+                title: String(localized: "action.debug.blockingCalls.copy", defaultValue: "Copy Main-Thread Blocking Sites",
+                              bundle: .module),
+                keywords: ["blocking", "main thread", "hang", "stall", "sites", "copy", "list", "debug"],
+                category: .settings, symbol: "doc.on.doc", surfaces: [.palette], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // The sidebar toggle's glyph and the status indicators' icon set: the Debug Settings choices,
+            // picked from a list (the old Debug menu's Sidebar Toggle Icon and Status Icons submenus).
+            ActionDescriptor(
+                id: "debug.sidebarToggleIcon",
+                title: String(localized: "action.debug.sidebarToggleIcon", defaultValue: "Sidebar Toggle Icon…", bundle: .module),
+                keywords: ["sidebar", "toggle", "icon", "glyph", "button", "debug"],
+                category: .settings, symbol: "sidebar.left", surfaces: [.palette],
+                arguments: [
+                    ActionArgument(name: "icon", title: String(localized: "argument.debug.sidebarToggleIcon", defaultValue: "Icon", bundle: .module),
+                                   kind: .string, suggestions: ActionSuggestions(source: ActionSuggestions.debugSidebarToggleIcons, pinned: [])),
+                ],
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "debug.statusIconSet",
+                title: String(localized: "action.debug.statusIconSet", defaultValue: "Status Icons…", bundle: .module),
+                keywords: ["status", "indicator", "icons", "question", "blocked", "waiting", "debug"],
+                category: .settings, symbol: "questionmark.circle", surfaces: [.palette],
+                arguments: [
+                    ActionArgument(name: "set", title: String(localized: "argument.debug.statusIconSet", defaultValue: "Icon Set", bundle: .module),
+                                   kind: .string, suggestions: ActionSuggestions(source: ActionSuggestions.debugStatusIconSets, pinned: [])),
+                ],
+                isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(

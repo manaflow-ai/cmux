@@ -485,17 +485,17 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // DEV and NIGHTLY: MessagesLab's flight recorder writes the last ~10 s of the
-            // Home transcript to ~/Library/Logs/<app>/blink-<time>/ (Debug menu, palette).
+            // Home transcript to ~/Library/Logs/<app>/blink-<time>/ (palette, Internal Developer Mode).
             ActionDescriptor(
                 id: "home.saveFlightRecording", title: t("action.home.saveFlightRecording", "Save Last 10 Seconds"),
                 keywords: ["home", "flight recorder", "blink", "debug", "record", "dump", "messages"],
-                category: .window, symbol: "record.circle", surfaces: [.palette, .menu], mainMenu: .debug, isDebugOnly: true,
+                category: .window, symbol: "record.circle", surfaces: [.palette], isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
         ]
     }
 
-    /// DEV builds only: Debug > Agent Messages Playground (the agent-message header variants live in the
+    /// DEV builds only: Debug: Agent Messages Playground (the agent-message header variants live in the
     /// real Home transcript, user 2026-11-02). `style` picks a variant (0: the shipped look), `expanded`
     /// opens the folds, `team` shows a chat with a teammate, `peer` clicks that agent's pill, `dark` picks the
     /// dark look.
@@ -505,7 +505,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "home.agentMessagePlayground", title: t("action.home.agentMessagePlayground", "Agent Messages Playground"),
                 keywords: ["home", "chief", "agent", "messages", "playground", "variants", "header", "fold", "debug"],
-                category: .window, symbol: "square.stack.3d.up", surfaces: [.palette, .menu],
+                category: .window, symbol: "square.stack.3d.up", surfaces: [.palette],
                 arguments: [
                     ActionArgument(name: "style", title: t("argument.home.playgroundStyle", "Header Style"), kind: .int(0...32), isRequired: false),
                     ActionArgument(name: "expanded", title: t("argument.home.playgroundExpanded", "Expanded"), kind: .bool, isRequired: false),
@@ -513,48 +513,48 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                     ActionArgument(name: "peer", title: t("argument.home.playgroundPeer", "Agent"), kind: .string, isRequired: false),
                     ActionArgument(name: "dark", title: t("argument.home.playgroundDark", "Dark Look"), kind: .bool, isRequired: false),
                 ],
-                mainMenu: .debug, isDebugOnly: true,
+                isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
-            // Debug > MCP Connect Card Playground (plans/cmux-next/mcp-connect-DESIGN.md section 8): the card's
+            // Debug: MCP Connect Card Playground (plans/cmux-next/mcp-connect-DESIGN.md section 8): the card's
             // styles for each kind of server, in each phase, light and dark.
             ActionDescriptor(
                 id: "home.mcpConnectPlayground", title: t("action.home.mcpConnectPlayground", "MCP Connect Card Playground"),
                 keywords: ["home", "chief", "mcp", "connect", "server", "card", "playground", "variants", "debug"],
-                category: .window, symbol: "square.stack.3d.up", surfaces: [.palette, .menu],
+                category: .window, symbol: "square.stack.3d.up", surfaces: [.palette],
                 arguments: [
                     ActionArgument(name: "style", title: t("argument.home.mcpPlaygroundStyle", "Card Style"), kind: .int(1...6), isRequired: false),
                     ActionArgument(name: "fixture", title: t("argument.home.mcpPlaygroundServer", "Server"), kind: .int(0...5), isRequired: false),
                     ActionArgument(name: "phase", title: t("argument.home.mcpPlaygroundPhase", "Phase"), kind: .int(0...6), isRequired: false),
                 ],
-                mainMenu: .debug, isDebugOnly: true,
+                isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
-            // Debug > Before/After Table Playground (the user, 2026-11-05): seven live ways to show a Before|After ×
+            // Debug: Before/After Table Playground (the user, 2026-11-05): seven live ways to show a Before|After ×
             // Light|Dark table of pictures (slider, toggle, onion skin, synced zoom, filmstrip, the chat card's
             // large pairs and grid).
             ActionDescriptor(
                 id: "home.compareTablePlayground", title: t("action.home.compareTablePlayground", "Before/After Table Playground"),
                 keywords: ["home", "chief", "table", "before", "after", "compare", "slider", "pictures", "playground", "variants", "debug"],
-                category: .window, symbol: "rectangle.split.2x1", surfaces: [.palette, .menu],
+                category: .window, symbol: "rectangle.split.2x1", surfaces: [.palette],
                 arguments: [
                     ActionArgument(name: "variant", title: t("argument.home.comparePlaygroundVariant", "Variant"), kind: .int(1...7), isRequired: false),
                     ActionArgument(name: "row", title: t("argument.home.comparePlaygroundRow", "Picture Set"), kind: .int(0...1), isRequired: false),
                     ActionArgument(name: "dark", title: t("argument.home.playgroundDark", "Dark Look"), kind: .bool, isRequired: false),
                 ],
-                mainMenu: .debug, isDebugOnly: true,
+                isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
-            // Debug > Chief Teleport Playground: the Chief's location chip variants in every state
+            // Debug: Chief Teleport Playground: the Chief's location chip variants in every state
             // (This Mac, cmux Cloud, a Mac mini, moving, failed, rolled back, a CLI move, a fork), light and dark.
             ActionDescriptor(
                 id: "home.chiefTeleportPlayground", title: t("action.home.chiefTeleportPlayground", "Chief Teleport Playground"),
                 keywords: ["home", "chief", "teleport", "move", "location", "cloud", "mac mini", "playground", "variants", "debug"],
-                category: .window, symbol: "location.circle", surfaces: [.palette, .menu],
+                category: .window, symbol: "location.circle", surfaces: [.palette],
                 arguments: [
                     ActionArgument(name: "state", title: t("argument.home.teleportPlaygroundState", "Menu State"), kind: .int(0...9), isRequired: false),
                 ],
-                mainMenu: .debug, isDebugOnly: true,
+                isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
         ]

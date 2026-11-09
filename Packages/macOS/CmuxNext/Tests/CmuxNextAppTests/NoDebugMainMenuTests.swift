@@ -15,7 +15,7 @@ import Testing
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
         registry.debugActions = DebugActionGate(devTools: true, isOn: { on })
-        let bar = MainMenu.make(registry: registry, blocking: .forProcess())
+        let bar = MainMenu.make(registry: registry)
         #expect(!bar.items.contains { $0.title == "Debug" }, "top menus: \(bar.items.map(\.title))")
         let debugIDs = Set(ActionCatalog.all.filter(\.isDebugOnly).map(\.id.rawValue))
         let placed = Set(MainMenuPlacementTests.actionIDs(in: bar)).intersection(debugIDs)
