@@ -143,9 +143,11 @@ fn pid_start_ms(pid: u32) -> Option<u64> {
 fn pid_start_ms(pid: u32) -> Option<u64> {
     let ticks = crate::daemon::owner_exit::process_start(pid)?;
     let stat = std::fs::read_to_string("/proc/stat").ok()?;
-    let boot: u64 = stat.lines().find_map(|line| line.strip_prefix("btime "))?.trim().parse().ok()?;
+    let boot: u64 =
+        stat.lines().find_map(|line| line.strip_prefix("btime "))?.trim().parse().ok()?;
     // SAFETY: sysconf reads a constant of the running system.
-    let hz = u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }).ok().filter(|hz| *hz > 0)?;
+    let hz =
+        u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }).ok().filter(|hz| *hz > 0)?;
     boot.checked_mul(1000)?.checked_add(ticks.checked_mul(1000)? / hz)
 }
 
@@ -161,7 +163,8 @@ fn pid_start_ms(_pid: u32) -> Option<u64> {
 /// [`registered_runs`]: a pid reused after the app exited never stands in for its stale entry,
 /// and where either time is unknown the entry is refused.
 pub(crate) fn registered_proven(pid: u32, started_at_ms: Option<u64>) -> bool {
-    let (Some(recorded), Some(started)) = (started_at_ms, pid_exists(pid).then(|| pid_start_ms(pid)).flatten())
+    let (Some(recorded), Some(started)) =
+        (started_at_ms, pid_exists(pid).then(|| pid_start_ms(pid)).flatten())
     else {
         return false;
     };
