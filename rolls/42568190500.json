@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42568190500",
+  "recorded_at": "2026-11-09T05:39:43Z",
+  "reason": "cmux-tui fd8a53265837 changes the image's cmux-tui (pinned 1dea36a86007)",
+  "dry_run": false,
+  "cmux_tui": "fd8a53265837305b859f7b42fea31c529f3176ec",
+  "fixes": [
+    {
+      "sha": "5199a765dde8be18f312eefaab79e018893ec812",
+      "mergedAt": "2026-11-08T21:21:07-08:00",
+      "subject": "feat(chief): MCP hub: the Chief adds MCP servers itself and uses them in code mode"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-09T05:39:43Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
