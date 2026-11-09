@@ -1,7 +1,7 @@
 import CmuxNextSettings
 
 /// Whether this Mac holds off idle system sleep, from who asks (the action,
-/// working agents, phone access) and the power source. Free of AppKit and
+/// working agents, long terminal commands, phone access) and the power source. Free of AppKit and
 /// IOKit so the rule is tested on its own.
 nonisolated struct KeepAwakePolicy: Equatable, Sendable {
     /// The Keep Mac Awake action is on. The person asked, so it holds on battery too.
@@ -10,6 +10,10 @@ nonisolated struct KeepAwakePolicy: Equatable, Sendable {
     var agentsWorking = false
     /// `sessions.keepAwake`.
     var agents: SessionKeepAwakeSetting = SessionSettings.keepAwakeDefault
+    /// Local terminal commands that keep the Mac awake now (Rust `keep_awake_plan`).
+    var commandsRunning = 0
+    /// `sessions.keepAwakeForCommands`: those commands count, as `agents` allows.
+    var commands = SessionSettings.keepAwakeForCommandsDefault
     /// Phones can reach this Mac (signed in, `phone.allowConnections` on).
     var phoneServing = false
     /// NEXT iPhone connections are enabled for a signed-in account. Independent of Iroh.
@@ -20,7 +24,7 @@ nonisolated struct KeepAwakePolicy: Equatable, Sendable {
     var onBattery = false
 
     var holds: Bool {
-        manual || (agentsWorking && Self.allows(agents, onBattery: onBattery))
+        manual || ((agentsWorking || (commands && commandsRunning > 0)) && Self.allows(agents, onBattery: onBattery))
             || ((phoneServing || iPhoneServing) && Self.allows(SessionKeepAwakeSetting(rawValue: phone.rawValue) ?? .off, onBattery: onBattery))
     }
 

@@ -10271,6 +10271,16 @@ Result<Json> Codec<ServerStatsWritePath>::encode(const ServerStatsWritePath& val
     auto encoded_effect_intents = encode_value(value.effect_intents);
     if (!encoded_effect_intents) return std::move(encoded_effect_intents).error();
     object.emplace("effect_intents", std::move(encoded_effect_intents).value());
+    if (value.registry_wal_file_bytes) {
+        auto encoded = encode_value(*value.registry_wal_file_bytes);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("registry_wal_file_bytes", std::move(encoded).value());
+    }
+    if (value.registry_wal_file_high_water_bytes) {
+        auto encoded = encode_value(*value.registry_wal_file_high_water_bytes);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("registry_wal_file_high_water_bytes", std::move(encoded).value());
+    }
     if (value.registry_wal_frame_bytes) {
         auto encoded = encode_value(*value.registry_wal_frame_bytes);
         if (!encoded) return std::move(encoded).error();
@@ -10325,6 +10335,18 @@ Result<ServerStatsWritePath> Codec<ServerStatsWritePath>::decode(const Json& val
         auto decoded = decode_value<std::uint64_t>(*field_effect_intents);
         if (!decoded) return std::move(decoded).error();
         result.effect_intents = std::move(decoded).value();
+    }
+    const Json* field_registry_wal_file_bytes = value.find("registry_wal_file_bytes");
+    if (field_registry_wal_file_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_registry_wal_file_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.registry_wal_file_bytes = std::move(decoded).value();
+    }
+    const Json* field_registry_wal_file_high_water_bytes = value.find("registry_wal_file_high_water_bytes");
+    if (field_registry_wal_file_high_water_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_registry_wal_file_high_water_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.registry_wal_file_high_water_bytes = std::move(decoded).value();
     }
     const Json* field_registry_wal_frame_bytes = value.find("registry_wal_frame_bytes");
     if (field_registry_wal_frame_bytes) {

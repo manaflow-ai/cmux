@@ -85,6 +85,7 @@ mod resource_effect_commit;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
 pub(crate) mod session_journal;
+pub mod synth;
 pub(crate) mod terminal_archive_store;
 mod terminal_exit_store;
 mod terminal_keep_store;

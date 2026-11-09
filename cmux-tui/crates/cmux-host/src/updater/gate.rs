@@ -16,6 +16,15 @@
 //! ([`Gate::service_started`]). A mark it never clears (a restart that never
 //! came) lapses after [`RESTART_PENDING_FOR`].
 //!
+//! Each hold has a kind ([`HoldKind`]). A resume hold (the role's start, a
+//! resume, a snapshot restore) is the machine's own wake; a connect hold (a
+//! bind, a `Bound`, a new carrier session) is a person's link coming up. The
+//! file keeps the end of the connect holds apart from the end of every hold,
+//! so a later hold of either kind never turns the other into one that may be
+//! skipped. Only `cmux host update check --skip-resume-hold` (the Scaler's
+//! spare refresh) skips a resume hold ([`Honor::AllButResume`]); a file from
+//! before the kinds reads as connect holds only.
+//!
 //! When the files can't be opened (not root, no state dir) the gate runs
 //! without them, as it must on a machine without the updater.
 
@@ -43,10 +52,64 @@ pub const GATE_FILE: &str = "/var/lib/cmux/self-update/gate.json";
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct GateState {
+    /// The end of every hold, whatever its kind (all a build from before the
+    /// kinds reads).
     #[serde(default)]
     held_until_ms: Option<u64>,
+    /// The end of the connect holds alone (0: none). Missing in a file from
+    /// before the kinds: then every hold in it is a connect hold.
+    #[serde(default)]
+    connect_until_ms: Option<u64>,
     #[serde(default)]
     restart_pending_until_ms: Option<u64>,
+}
+
+impl GateState {
+    /// When the holds no flag skips end.
+    fn connect_until(&self) -> Option<u64> {
+        self.connect_until_ms.or(self.held_until_ms)
+    }
+
+    fn hold(&mut self, until: u64, kind: HoldKind) {
+        // Read before `held_until_ms` moves: an old file's hold is a connect hold.
+        let connect = self.connect_until().unwrap_or(0);
+        self.connect_until_ms =
+            Some(if kind == HoldKind::Connect { connect.max(until) } else { connect });
+        self.held_until_ms = Some(self.held_until_ms.map_or(until, |held| held.max(until)));
+    }
+}
+
+/// What started a connect hold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HoldKind {
+    /// The machine's own wake: the role's start (a boot or an update's
+    /// restart), a resume or a snapshot restore. A person's link may follow,
+    /// and it takes its own connect hold (a bind, a new carrier session).
+    Resume,
+    /// A person's link coming up: a bind, a `Bound` or a new carrier session.
+    Connect,
+}
+
+impl HoldKind {
+    /// Its name in `cmux host update check`'s answer.
+    pub fn name(self) -> &'static str {
+        match self {
+            HoldKind::Resume => "resume",
+            HoldKind::Connect => "connect",
+        }
+    }
+}
+
+/// Which holds a flip honors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Honor {
+    /// Every hold: an update's flip.
+    All,
+    /// Every hold but a resume hold: `cmux host update check
+    /// --skip-resume-hold`, the Scaler's refresh of a spare it just warmed.
+    AllButResume,
+    /// None: a rollback (still serialized with binds).
+    Nothing,
 }
 
 fn ms(d: Duration) -> u64 {
@@ -61,6 +124,43 @@ pub struct Gate {
 /// The gate's flock, held until dropped.
 struct Locked {
     _file: Option<fs::File>,
+}
+
+/// What `act` may do inside [`Gate::run`], under the gate's flock.
+pub struct Inside<'a> {
+    gate: &'a Gate,
+    skipped: Option<HoldKind>,
+}
+
+impl Inside<'_> {
+    /// Marks the service's restart pending: after the flip, before the restarts.
+    pub fn restart_queued(&self, now_ms: u64) {
+        let mut state = self.gate.read();
+        state.restart_pending_until_ms = Some(now_ms.saturating_add(ms(RESTART_PENDING_FOR)));
+        let _ = self.gate.write(&state);
+    }
+
+    /// Starts or extends a connect hold under the flock already held (a new
+    /// carrier session the flip's last look found), so the next flip sees it.
+    pub fn hold_connects(&self, now_ms: u64) {
+        self.hold(HoldKind::Connect, now_ms);
+    }
+
+    /// Starts or extends a hold of `kind` under the flock already held: a
+    /// connect, or a stop the flip's last look found (the machine's own wake).
+    /// `now_ms` is read when the hold starts, not the run's start: the look
+    /// before it can take seconds, and a pause during it minutes.
+    pub fn hold(&self, kind: HoldKind, now_ms: u64) {
+        let mut state = self.gate.read();
+        state.hold(now_ms.saturating_add(ms(CONNECT_HOLD)), kind);
+        let _ = self.gate.write(&state);
+    }
+
+    /// The hold this run went past ([`Honor::AllButResume`] with a resume
+    /// hold on), if any.
+    pub fn skipped(&self) -> Option<HoldKind> {
+        self.skipped
+    }
 }
 
 impl Gate {
@@ -105,14 +205,14 @@ impl Gate {
         fs::rename(&tmp, &path)
     }
 
-    /// Starts or extends the connect hold to at least `now_ms + hold`. False
-    /// when a restart of the service is pending at `now_ms`: a link made now
-    /// would be cut, so a bind waits for the restarted service.
-    pub fn hold(&self, now_ms: u64, hold: Duration) -> bool {
+    /// Starts or extends the connect hold to at least `now_ms + hold`, as a
+    /// hold of `kind`. False when a restart of the service is pending at
+    /// `now_ms`: a link made now would be cut, so a bind waits for the
+    /// restarted service.
+    pub fn hold(&self, now_ms: u64, hold: Duration, kind: HoldKind) -> bool {
         let _lock = self.lock();
         let mut state = self.read();
-        let until = now_ms.saturating_add(ms(hold));
-        state.held_until_ms = Some(state.held_until_ms.map_or(until, |held| held.max(until)));
+        state.hold(now_ms.saturating_add(ms(hold)), kind);
         let _ = self.write(&state);
         state.restart_pending_until_ms.is_none_or(|pending| now_ms >= pending)
     }
@@ -123,28 +223,39 @@ impl Gate {
         left(self.read().held_until_ms, now_ms)
     }
 
-    /// Runs `act` (a flip and its restarts) inside the gate, unless
-    /// `honor_hold` and the connect hold is on at `now_ms` (`Err` is the hold
-    /// left). `act` gets the call that marks the service's restart pending,
-    /// made after its flip and before its restarts. An update's flip honors
-    /// the hold; a rollback does not (keeping a build that never proved itself
-    /// is worse than a restart, #37280), but it is still serialized with binds.
+    /// Runs `act` (a flip and its restarts) inside the gate, unless a hold
+    /// `honor` honors is on at `now_ms` (`Err` is the hold left). `act` gets
+    /// [`Inside`]: its `restart_queued` marks the service's restart pending,
+    /// called after its flip and before its restarts. An update's flip honors
+    /// every hold; `--skip-resume-hold` every hold but a resume hold; a
+    /// rollback none (keeping a build that never proved itself is worse than
+    /// a restart, #37280), but it is still serialized with binds.
     pub fn run<R>(
         &self,
         now_ms: u64,
-        honor_hold: bool,
-        act: impl FnOnce(&dyn Fn()) -> R,
+        honor: Honor,
+        act: impl FnOnce(&Inside) -> R,
     ) -> Result<R, Duration> {
         let _lock = self.lock();
-        if honor_hold && let Some(left) = left(self.read().held_until_ms, now_ms) {
-            return Err(left);
+        let state = self.read();
+        let mut skipped = None;
+        match honor {
+            Honor::All => {
+                if let Some(left) = left(state.held_until_ms, now_ms) {
+                    return Err(left);
+                }
+            }
+            Honor::AllButResume => {
+                if let Some(left) = left(state.connect_until(), now_ms) {
+                    return Err(left);
+                }
+                if left(state.held_until_ms, now_ms).is_some() {
+                    skipped = Some(HoldKind::Resume);
+                }
+            }
+            Honor::Nothing => {}
         }
-        let mark = || {
-            let mut state = self.read();
-            state.restart_pending_until_ms = Some(now_ms.saturating_add(ms(RESTART_PENDING_FOR)));
-            let _ = self.write(&state);
-        };
-        Ok(act(&mark))
+        Ok(act(&Inside { gate: self, skipped }))
     }
 
     /// The service started: no restart of it is pending any more.
@@ -157,10 +268,11 @@ impl Gate {
     }
 }
 
-/// The connect hold a bind (or a new connect) takes at `now_ms`: false when
-/// a restart of the service is pending, so the caller does not bind now.
-pub fn hold_connects(paths: &Paths, now_ms: u64) -> bool {
-    Gate::new(paths).hold(now_ms, CONNECT_HOLD)
+/// The connect hold of `kind` a bind, a new connect or a wake takes at
+/// `now_ms`: false when a restart of the service is pending, so the caller
+/// does not bind now.
+pub fn hold_connects(paths: &Paths, now_ms: u64, kind: HoldKind) -> bool {
+    Gate::new(paths).hold(now_ms, CONNECT_HOLD, kind)
 }
 
 fn left(until_ms: Option<u64>, now_ms: u64) -> Option<Duration> {

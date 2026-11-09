@@ -158,6 +158,8 @@ pub(super) fn always_identified() -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.push(crate::apps::AGENT_INVENTORY_INVALIDATION_CAPABILITY);
     #[cfg(unix)]
+    capabilities.push(crate::apps::PROVIDER_CHANGED_CAPABILITY);
+    #[cfg(unix)]
     capabilities.push(client_registry::machine_catalog::CAPABILITY);
     #[cfg(unix)]
     capabilities.push(cloud_api::CAPABILITY);
@@ -214,6 +216,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::fs_ops::FS_SYMLINK_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY
+            && *capability != crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
