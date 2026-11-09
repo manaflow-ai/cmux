@@ -1231,6 +1231,9 @@ export function ModelPicker(props: ModelPickerProps) {
   // message runs.
   const fastOn = held ? held.fast === true : fastMode !== undefined && fastModeIsOn(fastMode);
   const fastModeText = t("picker.fastMode");
+  // With its logo hidden, the chip's shortest name also stands in for the row's icon step
+  // (composerRowFit.ts `modelMark`), so a narrow row keeps naming the model, never an empty chip.
+  const asIcon = showChipIcon ? "" : " icon";
   const chipFace = (
     <>
       {/* The provider's logo left of the model's name (cmux#38053): Claude for Claude models, OpenAI
@@ -1246,7 +1249,7 @@ export function ModelPicker(props: ModelPickerProps) {
         className="acpmux-model-name"
         {...(chipShort
           ? { "data-short": "" }
-          : { "data-fit-part": "model", "data-fit-forms": chipFamily ? "full" : "full family" })}
+          : { "data-fit-part": "model", "data-fit-forms": chipFamily ? "full" : `full family${asIcon}` })}
       >
         {chipName}
       </span>
@@ -1255,7 +1258,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <span
           className="acpmux-model-short acpmux-fit-label"
           data-fit-part="model"
-          data-fit-forms={chipFamily ? "full" : "full family"}
+          data-fit-forms={chipFamily ? "full" : `full family${asIcon}`}
           data-label={chipShort}
         />
       )}
@@ -1263,7 +1266,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <span
           className="acpmux-model-short acpmux-fit-label"
           data-fit-part="model"
-          data-fit-forms="family"
+          data-fit-forms={`family${asIcon}`}
           data-label={chipFamily}
         />
       )}
@@ -1291,6 +1294,7 @@ export function ModelPicker(props: ModelPickerProps) {
       className="acpmux-picker acpmux-model"
       // Its right-click is its own customize menu (below), not its picker (composerChipMenu.ts).
       data-own-context-menu=""
+      data-chip-icon={showChipIcon ? undefined : "off"}
       style={{ position: "relative" }}
       // The controls row's harness mark alone names the model in a tooltip (composerRowFit.ts).
       {...(rowChip ? { "data-fit-title": chipTitle, "data-fit-title-unit": "model" } : {})}

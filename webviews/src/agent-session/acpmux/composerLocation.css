@@ -773,7 +773,8 @@
 @container composer (max-width: 297px) {
   .nt-pickers .acpmux-chips > .acpmux-model { flex: none; min-width: 0; }
   .nt-pickers .acpmux-model .acpmux-picker-button { position: relative; overflow: clip; }
-  .nt-pickers .acpmux-model :is([data-fit-part="model"], .acpmux-model-name) {
+  /* A chip whose logo is hidden (modelChipIcon.ts) keeps its name's fit forms: no mark to stand for it. */
+  .nt-pickers .acpmux-model:not([data-chip-icon="off"]) :is([data-fit-part="model"], .acpmux-model-name) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;

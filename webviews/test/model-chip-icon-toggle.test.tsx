@@ -142,3 +142,16 @@ test("Show Provider Icon hides the logo, keeps the choice and shows it again", a
   expect(mark()).not.toBeNull();
   expect(localStorage.getItem("cmux.acpmux.modelChipIcon")).toBeNull();
 });
+
+test("with its logo hidden, the chip's shortest name stands in for the narrow row's icon step", async () => {
+  await chip();
+  const iconForms = () =>
+    [...host.querySelectorAll<HTMLElement>('.acpmux-model [data-fit-part="model"]')].filter((part) =>
+      (part.dataset.fitForms ?? "").split(" ").includes("icon"),
+    );
+  expect(iconForms()).toHaveLength(0);
+  const { setModelChipIcon } = await import("../src/agent-session/acpmux/modelChipIcon");
+  await act(async () => setModelChipIcon(false));
+  expect(iconForms()).toHaveLength(1);
+  expect(host.querySelector(".acpmux-model")?.getAttribute("data-chip-icon")).toBe("off");
+});
