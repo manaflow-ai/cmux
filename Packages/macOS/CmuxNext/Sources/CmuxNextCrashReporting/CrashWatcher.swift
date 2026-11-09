@@ -27,9 +27,9 @@ import Foundation
 /// `sample` has no time limit of its own: on a loaded host it did not return
 /// for minutes (run 42568653071), even after its target ended. So the watcher
 /// runs it as a coprocess and waits for its EOF at most ``sampleSeconds``; a
-/// `sample` still running then gets SIGKILL, and the app gets its SIGKILL at
-/// most ``seconds`` + ``sampleSeconds`` after the first byte, with or without
-/// a sample file.
+/// `sample` still running then gets SIGKILL, and the app gets its SIGKILL
+/// about ``seconds`` + ``sampleSeconds`` after the first byte (plus the start-up
+/// of `ps`, `sample` and `kill`), with or without a sample file.
 ///
 /// The script needs only the system's zsh (`zsh/system`'s `sysread`, whose
 /// statuses tell a timeout (4) from EOF (5); `/bin/sh` is bash 3.2 in POSIX
@@ -45,9 +45,13 @@ struct CrashWatcher: Sendable {
     /// acts first.
     static let defaultSeconds = 15
 
-    /// How long the watcher waits for `sample` (a 2 s sample, then its write) before it ends
-    /// `sample` and the app: ``defaultSeconds`` plus this (18 s) leaves the crash gate's 20 s
-    /// about 2 s for process start-up on a loaded host.
+    /// How long the watcher waits for `sample` before it ends `sample` and the app:
+    /// ``defaultSeconds`` plus this (18 s) leaves the crash gate's 20 s about 2 s for process
+    /// start-up on a loaded host.
+    ///
+    /// The sample itself takes 1 s (a stuck app's stacks do not change), which leaves about 2 s
+    /// for `sample` to attach, symbolicate and write. `sample` writes its file only at the end:
+    /// on a host so loaded that it needs longer, the app still ends on time, with no sample file.
     static let sampleSeconds = 3
 
     /// The system's `sample`, the tool the watcher runs on a stuck app.
@@ -75,7 +79,7 @@ struct CrashWatcher: Sendable {
     # Still open: the app still runs. Never end a process a debugger traces (ps STAT X).
     [[ "$(/bin/ps -o stat= -p "$pid" 2>/dev/null)" == *X* ]] && exit 0
     # sample has no time limit: run it as a coprocess, whose output pipe reaches EOF when it ends.
-    coproc "$sampler" "$pid" 2 -mayDie -file "$out" 2>&1
+    coproc "$sampler" "$pid" 1 -mayDie -file "$out" 2>&1
     sampler_pid=$!
     exec {sampled}<&p
     # A bounded wait is the intended deadline: sample's EOF (5) or $sampling seconds, never longer.
