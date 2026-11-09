@@ -127,6 +127,7 @@ import { trayLatestLook } from "./trayLatest.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
 import { DoneCheck, DoneMark } from "./DoneMark";
 import { Tick } from "./trayMotion";
+import { useCountedRender } from "../perfRender";
 import { useTrayMotion } from "./trayMotionModel";
 import { useTraySeen } from "./traySeen";
 import type { StartedSession } from "../started/startedSessions";
@@ -241,6 +242,9 @@ export const SubagentTray = memo(function SubagentTray({
   /// and false when the hat stops drawing.
   onSeen?: (seen: boolean) => void;
 }) {
+  // Its committed renders while measuring (loadDebug.ts `loadTick` `still`): the hat over the composer
+  // draws again on an event, never on the clock's tick.
+  useCountedRender("tray");
   const t = useT();
   const language = usePaneLanguage();
   // The chat's harness, for a subagent that names none (SubagentGroup.tsx `Avatar`).
