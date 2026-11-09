@@ -22,13 +22,16 @@ public import os
     /// Fires the warm; the caller never awaits it. Rust decides everything around it: the team (from the active team),
     /// the throttle, the copy target (the only ownership check) and the copy in flight a start waits on, which this
     /// reports finished, or abandoned when the account or team switched mid-copy (Rust then answers it again).
-    public func start() {
-        guard let userID = auth.user?.id else { return }
+    /// `claimed`: a reserve's or a claim's answer named this machine, so no warm goes out: Rust answers the copy onto
+    /// that exact machine unless one onto it is in flight or given, and a start onto it waits on that copy.
+    /// Off unless `cmux.cloud.copyLoginOnClaim` is on (``CloudMoveCLI/copiesLoginOnClaim(_:)``).
+    public func start(claimed: String? = nil) {
+        guard let userID = auth.user?.id, claimed == nil || CloudMoveCLI.copiesLoginOnClaim(.standard) else { return }
         let teamID = auth.teamID
         // task-owner: none; one bounded warm, its calls' own timeouts end it, and Rust's lock and throttle answer repeats.
         Task { @MainActor [self] in
             guard let token = try? await auth.tokens().access, let install = try? await installIdentity.installToken(),
-                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install) else { return }
+                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, claimed: claimed) else { return }
             let still: @MainActor @Sendable () async throws -> Bool = { [auth] in auth.user?.id == userID && auth.teamID == teamID }
             let installed = await copyLogin(onto: copy.machineID, userID: userID, teamID: teamID, still: still)
             let kept = installed ? true : (try? await still()) == true

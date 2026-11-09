@@ -23,6 +23,8 @@ import { shortCommand } from "./shortCommand";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { SubagentNavContext } from "../subagents/subagentGroupModel";
+import { commandRead } from "../session-info/commandRules";
+import { currentCommandRules } from "../session-info/commandLabelSettings";
 import { spanDuration } from "./turns";
 
 export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
@@ -36,6 +38,10 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
   const detailsId = useId();
   const read = useBackgroundTaskOutput(task.toolCallId, open);
   const command = shortCommand(task.command);
+  // A call the agent named reads as the tray names it, what it does and then its name ("Waiting 14m ·
+  // hold", commandRules.ts), never the bare name: Leo, 2026-11-05, on a note reading "Background
+  // command completed hold": "what are you even holding for?". The command as typed stays in the card.
+  const named = task.description ? commandRead(t, task, "terminal", currentCommandRules()).label : undefined;
   // A shell that finished or failed reads as Claude Code desktop notes it, "Background command
   // completed" in the rows' muted tone, then the command in the transcript's ink (Leo, 2026-11-03:
   // "claude code desktop's summarization of tool calls/parsing of them seem kinda good?").
@@ -104,7 +110,13 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
               <span className="cv-bgtask__state">{lead}</span>{" "}
             </>
           )}
-          <code className="cv-bgtask__command">{task.command || command}</code>
+          {named ? (
+            <span className="cv-bgtask__title" title={task.command}>
+              {named}
+            </span>
+          ) : (
+            <code className="cv-bgtask__command">{task.command || command}</code>
+          )}
         </span>
         <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>

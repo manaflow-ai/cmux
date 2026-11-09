@@ -2,12 +2,12 @@
    (Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FindPill/). Every Cmd-F bar in a page (Find in
    Chat, Find in Diff) is this one capsule, the same size and place as the terminal's and the
    browser's (Lawrence, 2026-10-20; plans/cmux-next/find-pill-gallery.html, variant A). The numbers
-   below are FindPillMetrics'. Material: the card material native cards and the native pill draw
-   (CardMaterial: --cmux-card-tint, the popup surface mostly opaque at the least alpha that keeps
-   primary and secondary text 4.5:1 over black and white; Lawrence 2026-10-20: floating cards were
-   "too liquid glassy") under the tooltip blur, the popup's one-pixel rim and the raised drop. A
-   page the host has not themed yet falls back to the tooltip tint. Reduce Transparency: the
-   opaque popup surface (desktop.css swaps both tokens). Reduce Motion: it appears in one frame. */
+   below are FindPillMetrics'. Material: see-through glass (Leo, 2026-11-05: "I don't think it's
+   glass enough"): the tooltip tint and its paired ink, under the shared glass material's blur and
+   lit rim over the popup's one-pixel rim and the raised drop; its text is full ink, the only ink
+   the tint keeps 4.5:1 over black and white. Reduce Transparency: the opaque popup surface, no
+   blur and no material rim. Reduce Motion: it appears in one frame. The native pill
+   (FindPillView) still draws the card material. */
 :root {
   --find-pill-height: 34px;
   --find-pill-inset: 10px;
@@ -28,12 +28,18 @@
   height: var(--find-pill-height);
   padding: 0 var(--find-pill-padding-end) 0 var(--find-pill-padding-start);
   border-radius: calc(var(--find-pill-height) / 2);
-  background: var(--cmux-card-tint, var(--tooltip-tint, var(--surface-popup, Canvas)));
-  -webkit-backdrop-filter: var(--tooltip-blur, none);
-  backdrop-filter: var(--tooltip-blur, none);
+  /* Real glass (Leo, 2026-11-05: "I don't think it's glass enough"): the tooltip's tint (the popup
+     surface at the least alpha that keeps the text 4.5:1 over black and white), not the near-opaque
+     card tint, under the shared glass material's blur and saturation (ui/glass/glass.css) and its
+     lit rim over the popup's one hairline and drop. A page without glass.css keeps the tooltip blur
+     and the plain popup rim. */
+  background: var(--tooltip-tint, var(--cmux-card-tint, var(--surface-popup, Canvas)));
+  -webkit-backdrop-filter: var(--glass-material-backdrop, var(--tooltip-blur, none));
+  backdrop-filter: var(--glass-material-backdrop, var(--tooltip-blur, none));
   /* The popup rim and drop; a page that loads no popupSurface.css (the code editor) gets the drop. */
-  box-shadow: var(--ui-popup-shadow, var(--elevation-2));
-  color: var(--cmux-text, CanvasText);
+  box-shadow: var(--glass-material-rim, 0 0 transparent), var(--ui-popup-shadow, var(--elevation-2));
+  /* The ink the host pairs with the tooltip tint, as tooltips draw (desktop.css). */
+  color: var(--cmux-tooltip-ink, var(--cmux-text, CanvasText));
   font-family: var(--font-ui);
   font-size: var(--text-body);
   line-height: 1;
@@ -42,18 +48,20 @@
   letter-spacing: var(--text-body--letter-spacing);
 }
 
-/* Reduce Transparency: the opaque popup surface, no blur (desktop.css also swaps the tint tokens). */
+/* Reduce Transparency: the opaque popup surface, no blur and no material rim (desktop.css also swaps the tint tokens). */
 @media (prefers-reduced-transparency: reduce) {
   .find-pill {
     background: var(--surface-popup, Canvas);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+    box-shadow: var(--ui-popup-shadow, var(--elevation-2));
   }
 }
 :root[data-reduce-transparency] .find-pill {
   background: var(--surface-popup, Canvas);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+  box-shadow: var(--ui-popup-shadow, var(--elevation-2));
 }
 
 /* The pill drops a few points from the top edge it sits under (directional motion, Leo 2026-10-20). */
@@ -74,7 +82,9 @@
   display: inline-flex;
   flex: none;
   margin-right: 6px;
-  color: color-mix(in srgb, currentColor 62%, transparent);
+  /* Full ink: the tooltip tint keeps only full ink 4.5:1 over black and white, so a dimmed glyph
+     over a bright backdrop would not read. The same for the count and the steps. */
+  color: inherit;
 }
 
 .find-pill__field {
@@ -91,7 +101,16 @@
   -webkit-appearance: none;
   appearance: none;
 }
+/* Full ink on the see-through tint, which keeps only full ink 4.5:1; dimmed on the opaque surface. */
 .find-pill__field::placeholder {
+  color: inherit;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .find-pill__field::placeholder {
+    color: color-mix(in srgb, currentColor 55%, transparent);
+  }
+}
+:root[data-reduce-transparency] .find-pill__field::placeholder {
   color: color-mix(in srgb, currentColor 55%, transparent);
 }
 .find-pill__field::-webkit-search-cancel-button {
@@ -103,7 +122,7 @@
   min-width: var(--find-pill-count-min);
   padding-right: 4px;
   text-align: right;
-  color: color-mix(in srgb, currentColor 62%, transparent);
+  color: inherit;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -133,11 +152,10 @@
   border: 0;
   border-radius: calc(var(--find-pill-button) / 2);
   background: none;
-  color: color-mix(in srgb, currentColor 62%, transparent);
+  color: inherit;
 }
 .find-pill__button:hover:not(:disabled) {
   background: color-mix(in srgb, currentColor 9%, transparent);
-  color: inherit;
 }
 .find-pill__button:disabled {
   opacity: 0.4;

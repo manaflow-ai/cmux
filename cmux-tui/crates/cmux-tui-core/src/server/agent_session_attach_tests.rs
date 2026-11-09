@@ -343,6 +343,8 @@ fn serve(
                 })
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
+            // The media reader (agent_session_media_tests.rs): one video, [`FAKE_VIDEO`].
+            "_acpmux/media_open" | "_acpmux/media_range" => Some(media_reply(&frame)),
             // A fork through turn 7 makes a copy acpmux then refuses to tag (side chat tests).
             "acp.session.fork" => Some(json!({"sessionId":
                 if params["throughSeq"] == json!(7) { "acp_untaggable" } else { "acp_side_1" }})),
@@ -713,6 +715,7 @@ include!("agent_session_observe_tests.rs");
 include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
 include!("agent_session_context_tests.rs");
+include!("agent_session_media_tests.rs");
 
 // MARK: Capability and trust
 

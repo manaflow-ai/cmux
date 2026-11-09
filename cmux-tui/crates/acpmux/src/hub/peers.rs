@@ -171,6 +171,10 @@ impl Hub {
             peer.set_link_host(host);
         }
         peer.set_last_good(self.peer_paths.clone());
+        // A plain ssh machine found to be a paired install on an earlier run keeps the cmux
+        // link as its backup path (`peer_overlay.rs`), before its first dial.
+        peer.set_explicit_route(pc.names_route());
+        peer.recall_overlay();
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
@@ -674,7 +678,7 @@ impl Hub {
         let Some(id) = summary.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
             return;
         };
-        let _ = self.events.send(HubEvent {
+        let _ = self.events.send_remote(HubEvent {
             session_id: id,
             record: Arc::new(EventRecord {
                 seq: 0,
@@ -686,6 +690,7 @@ impl Hub {
             }),
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
             update_line: Default::default(),
+            row: Default::default(),
         });
     }
 
@@ -963,7 +968,7 @@ impl Hub {
                             removed
                         };
                         self.save_peer_cache(&peer, generation, false);
-                        let _ = self.events.send(HubEvent {
+                        let _ = self.events.send_remote(HubEvent {
                             session_id: mux_id.clone(),
                             record: Arc::new(EventRecord {
                                 seq,
@@ -978,6 +983,7 @@ impl Hub {
                                 summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
                             }),
                             update_line: Default::default(),
+                            row: Default::default(),
                         });
                         return;
                     }
@@ -1027,7 +1033,7 @@ impl Hub {
                         self.held_peer_asks.forget(&peer, &mux_id, None);
                     }
                     self.save_peer_cache(&peer, generation, false);
-                    let _ = self.events.send(HubEvent {
+                    let _ = self.events.send_remote(HubEvent {
                         session_id: mux_id,
                         record: Arc::new(EventRecord {
                             seq,
@@ -1039,6 +1045,7 @@ impl Hub {
                         }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary: summary.clone() }),
                         update_line: Default::default(),
+                        row: Default::default(),
                     });
                     // The rest of its live asks that came before the session was listed, after
                     // the row.
@@ -1070,6 +1077,7 @@ impl Hub {
                         }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
                         update_line: Default::default(),
+                        row: Default::default(),
                     });
                 }
                 PeerNotice::Notification { method: m, params, link } if m == "_acpmux/lagged" => {
@@ -1084,7 +1092,7 @@ impl Hub {
                         .map(|(_, r)| r.receipt.mux_session_id.clone())
                         .collect();
                     for id in ids {
-                        let _ = self.events.send(HubEvent {
+                        let _ = self.events.send_remote(HubEvent {
                             session_id: id,
                             record: Arc::new(EventRecord {
                                 seq: 0,
@@ -1096,6 +1104,7 @@ impl Hub {
                             }),
                             remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
                             update_line: Default::default(),
+                            row: Default::default(),
                         });
                     }
                 }
@@ -1229,11 +1238,12 @@ impl Hub {
                         );
                     }
                     self.capture_peer_record((&peer, generation, link), &id, &summary, &record);
-                    let _ = self.events.send(HubEvent {
+                    let _ = self.events.send_remote(HubEvent {
                         session_id: id,
                         record: Arc::new(record),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                         update_line: Default::default(),
+                        row: Default::default(),
                     });
                 }
             }

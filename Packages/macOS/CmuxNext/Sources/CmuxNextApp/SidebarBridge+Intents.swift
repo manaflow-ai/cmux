@@ -47,7 +47,7 @@ extension SidebarBridge {
             case .snapBack, nil: return resync()
             }
         }
-        if usesPersonalOrganization, PersonalGroupPin(bridge: self).handle(intent) || handlePersonal(intent) { return }
+        if usesPersonalOrganization, groupFlow.sendsUnderDaemonID(intent) || PersonalGroupPin(bridge: self).handle(intent) || handlePersonal(intent) { return }
         switch intent {
         case .select(let id):
             // A placeholder row is no workspace: never claimed or shown.
