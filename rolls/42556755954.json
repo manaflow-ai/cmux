@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42556755954",
+  "recorded_at": "2026-11-09T03:40:19Z",
+  "reason": "cmux-tui 6c323e858fe9 changes the image's cmux-tui (pinned eb37e1673480)",
+  "dry_run": false,
+  "cmux_tui": "6c323e858fe94fcabda9dddd64bbf646c168071b",
+  "fixes": [
+    {
+      "sha": "6c323e858fe94fcabda9dddd64bbf646c168071b",
+      "mergedAt": "2026-11-08T19:14:38-08:00",
+      "subject": "Cloud phone chat: the daemon advertises cloud-mobile-chat-v1 (#38881)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T03:40:19Z",
+    "snapshot_id": "sh-124ed77680244fe5846f951fb4a80861",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42556755954): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d8678b55f0a535b145eacae5a64155d2c75cac0c",
+    "image": "cloud-native-auto-6c323e85-42556755954-1",
+    "revision": "ci-42556755954-1",
+    "at": "2026-11-09T03:40:19Z"
+  },
+  "rolled_back": false
+}
