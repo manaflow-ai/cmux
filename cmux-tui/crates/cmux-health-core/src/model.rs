@@ -242,12 +242,13 @@ fn evaluate(part: &mut Part, now: u64) -> Cond {
         Kind::SessionDaemon => {
             prune(&mut s.starts, policy::DAEMON_LOOP_WINDOW_MS, now);
             let starts = s.starts.len();
-            let looping = if starts >= policy::DAEMON_LOOP_STARTS {
-                let first = s.starts[0];
-                let span_ms = s.starts[starts - 1] - first;
+            let loop_starts = starts.checked_sub(policy::DAEMON_LOOP_STARTS).and_then(|third| {
+                Some((*s.starts.front()?, *s.starts.back()?, *s.starts.get(third)?))
+            });
+            let looping = if let Some((first, last, third)) = loop_starts {
+                let span_ms = last - first;
                 // Ends when the third newest start leaves the window.
-                let ends =
-                    s.starts[starts - policy::DAEMON_LOOP_STARTS] + policy::DAEMON_LOOP_WINDOW_MS;
+                let ends = third + policy::DAEMON_LOOP_WINDOW_MS;
                 stuck(Cause::DaemonLoop { starts, span_ms }, Mode::Hold).until(ends)
             } else {
                 healthy
@@ -301,6 +302,11 @@ impl Health {
     }
 
     /// The live part in `slot`; `None` only for a slot freed by `unregister`.
+    /// Whether `slot` still holds the part whose deadline carried `generation`.
+    fn is_live(&self, slot: usize, generation: u64) -> bool {
+        self.slots.get(slot).and_then(Option::as_ref).is_some_and(|p| p.generation == generation)
+    }
+
     fn part(&mut self, slot: usize) -> Option<&mut Part> {
         self.slots.get_mut(slot)?.as_mut()
     }
@@ -330,10 +336,16 @@ impl Health {
             generation: 0,
         };
         let slot = match self.free.pop() {
-            Some(slot) => {
-                self.slots[slot] = Some(part);
-                slot
-            }
+            Some(slot) => match self.slots.get_mut(slot) {
+                Some(free) => {
+                    *free = Some(part);
+                    slot
+                }
+                None => {
+                    self.slots.push(Some(part));
+                    self.slots.len() - 1
+                }
+            },
             None => {
                 self.slots.push(Some(part));
                 self.slots.len() - 1
@@ -348,8 +360,10 @@ impl Health {
     pub fn unregister(&mut self, id: &str) {
         let Some(slot) = self.ids.remove(id) else { return };
         self.set_deadline(slot, None);
-        self.slots[slot] = None;
-        self.free.push(slot);
+        if let Some(freed) = self.slots.get_mut(slot) {
+            *freed = None;
+            self.free.push(slot);
+        }
         self.unhealthy.remove(id);
     }
 
@@ -536,7 +550,7 @@ impl Health {
             {
                 self.visited += 1;
             }
-            let live = self.slots[slot].as_ref().is_some_and(|p| p.generation == generation);
+            let live = self.is_live(slot, generation);
             if live {
                 due.push(slot);
             }
@@ -556,7 +570,7 @@ impl Health {
     /// The earliest live deadline: the host's one timer. `None`: no timer.
     pub fn next_tick_ms(&mut self) -> Option<u64> {
         while let Some(&Reverse((deadline, generation, slot))) = self.heap.peek() {
-            if self.slots[slot].as_ref().is_some_and(|p| p.generation == generation) {
+            if self.is_live(slot, generation) {
                 return Some(deadline);
             }
             self.heap.pop();
@@ -578,7 +592,7 @@ impl Health {
         let parts: Vec<PartView> = self
             .unhealthy
             .iter()
-            .filter_map(|id| self.slots[*self.ids.get(id)?].as_ref())
+            .filter_map(|id| self.slots.get(*self.ids.get(id)?)?.as_ref())
             .map(|p| PartView {
                 id: p.id.clone(),
                 kind: p.kind,
