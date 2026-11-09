@@ -30,8 +30,9 @@
 //! Graces: [`LIVE_SHELL_GRACE`] for a host whose shell still runs (the user's
 //! work may be in it: a session that has not started for a day while this
 //! one ran is taken as gone; its tab, if it comes back, starts a new shell),
-//! [`ENDED_SHELL_GRACE`] for one whose shell already ended (its exit
-//! sidecar is written; nothing is lost but the PTY it holds). Only a host
+//! [`ENDED_SHELL_GRACE`] for one whose shell already ended (a valid exit
+//! sidecar of its own incarnation is written; nothing is lost but the PTY it
+//! holds; an older incarnation's sidecar keeps the live-shell grace). Only a host
 //! proven live is ended (a dead one holds nothing; an unclear one is never
 //! ended). A root whose hosts are all dead loses its stale records once
 //! they have been seen so for [`ENDED_SHELL_GRACE`]. Bounds: at most
@@ -310,6 +311,21 @@ struct Seen {
     failed_ms: Option<u64>,
 }
 
+/// Whether the host's exit sidecar is valid and records the end of this
+/// record's own shell. Startup keeps the sidecars of older incarnations
+/// (`terminal_adoption.rs`), and a replacement launch leaves them in
+/// place, so any other sidecar says nothing about the shell running now.
+fn current_shell_ended(
+    record_path: &Path,
+    record: &crate::terminal_host_runtime::TerminalHostRecord,
+) -> bool {
+    matches!(
+        crate::terminal_host_runtime::terminal_host_exit_record(record_path),
+        Ok(Some((_, exit)))
+            if exit.terminal_id == record.terminal_id && exit.incarnation == record.incarnation
+    )
+}
+
 /// The record root a store key names (`<record root>|<id>|<incarnation>`).
 fn key_root(key: &str) -> Option<&str> {
     key.rsplitn(3, '|').nth(2)
@@ -511,7 +527,7 @@ fn reap_pass_with(
                     }
                     TerminalHostLiveness::Live => all_dead = false,
                 }
-                let grace = if record_path.with_extension("exit").exists() {
+                let grace = if current_shell_ended(&record_path, &record) {
                     timing.ended_grace
                 } else {
                     timing.live_grace
