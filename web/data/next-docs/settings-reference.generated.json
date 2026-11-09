@@ -743,7 +743,7 @@
           "title": "Focus After Closing a Pane",
           "help": "Which pane gets focus when the focused pane closes.",
           "kind": "choice",
-          "default": "previousNeighbor",
+          "default": "mostRecent",
           "group": "Columns",
           "values": [
             "previousNeighbor",

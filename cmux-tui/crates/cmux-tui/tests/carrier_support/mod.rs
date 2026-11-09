@@ -204,9 +204,24 @@ pub async fn platform(
     address
 }
 
-/// The session's mux socket: echoes each line, then pushes one line of its
-/// own naming the mux connection (`conn`, 0 for the first), so two sessions
-/// tell apart.
+/// Answers `line` when it is the role stamp the session host writes first on a
+/// grant's `mux-control` stream (`cmux-remote` `mux_carrier_role.rs`), the way
+/// the session daemon takes it (`cmux-tui-core` `server/carrier_role.rs`), and
+/// says whether it was. A stand-in that echoed the stamp instead did not take
+/// it, so the host refused every stream of a grant that is not the owner's.
+pub async fn took_role_stamp(line: &str, writer: &mut tokio::net::unix::OwnedWriteHalf) -> bool {
+    let Ok(request) = serde_json::from_str::<Value>(line) else { return false };
+    if request["cmd"] != cmux_link::carrier_role::COMMAND {
+        return false;
+    }
+    let taken = json!({"id": request["id"], "ok": true, "data": {}});
+    let _ = writer.write_all(format!("{taken}\n").as_bytes()).await;
+    true
+}
+
+/// The session's mux socket: takes the role stamp ([`took_role_stamp`]),
+/// echoes each line, then pushes one line of its own naming the mux
+/// connection (`conn`, 0 for the first), so two sessions tell apart.
 pub async fn fake_mux(path: &Path) {
     let listener = tokio::net::UnixListener::bind(path).unwrap();
     tokio::spawn(async move {
@@ -216,6 +231,9 @@ pub async fn fake_mux(path: &Path) {
                 let (reader, mut writer) = stream.into_split();
                 let mut lines = tokio::io::BufReader::new(reader).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    if took_role_stamp(&line, &mut writer).await {
+                        continue;
+                    }
                     writer.write_all(format!("{line}\n").as_bytes()).await.unwrap();
                     let pushed = format!("{{\"event\":\"pushed\",\"conn\":{conn}}}\n");
                     writer.write_all(pushed.as_bytes()).await.unwrap();

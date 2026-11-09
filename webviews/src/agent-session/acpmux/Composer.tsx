@@ -2451,6 +2451,9 @@ function ComposerFrame({
       {...{ [WEB_SWAP_FOCUS]: "composer" }}
       data-cmux-component="Composer"
       data-cmux-source="webviews/src/agent-session/acpmux/Composer.tsx:1420"
+      // It holds still while the chat streams, ticks and scrolls: the dev budgets warn when anything
+      // but its own events changes its nodes (devkit/perfBudgets.ts `still-surface`).
+      data-perf-still="composer"
       data-shell={shell ? "" : undefined}
       // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
       data-composer-look={look === "codex" ? "codex" : undefined}
