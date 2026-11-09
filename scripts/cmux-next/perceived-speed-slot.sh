@@ -89,7 +89,7 @@ app=$(ssh "$host" "ls -d $cache/*.app | head -1")
 btag=$(basename "$app" .app); btag=${btag#cmux DEV }
 # The bundle id spells the tag's hyphens as dots (`whatsnew-ff` is `debug.whatsnew.ff`).
 as="/Users/cmux/Library/Application Support" bid=com.cmuxterm.app.debug.${btag//-/.}.capslot$slot
-state="'$as/cmux/$btag-capslot$slot' '$as/cmux/tags/$btag-capslot$slot' '$as/cmux-next/tags/$btag-capslot$slot' '$as/cmux/$bid' '$as/cmux/managed-status.$bid.json' '$as/cmux-next/$bid' '/Users/cmux/Library/Caches/$bid' '/Users/cmux/.acpmux/tags/$btag-capslot$slot'"
+state="'$as/cmux/$btag-capslot$slot' '$as/cmux/tags/$btag-capslot$slot' '$as/cmux-next/tags/$btag-capslot$slot' '$as/cmux-next/$btag-capslot$slot' '$as/cmux/$bid' '$as/cmux/managed-status.$bid.json' '$as/cmux-next/managed-status.$bid.json' '$as/cmux-next/$bid' '/Users/cmux/Library/Caches/$bid' '/Users/cmux/.acpmux/tags/$btag-capslot$slot'"
 # Since per-build isolation a slot clone keeps its state under its build key, `<bundle id>--<tag slug>`
 # (scripts/cmux-next/build_names.py): without these a run restores the last run's workspaces and tabs.
 key="$bid--$(printf %s "$btag" | tr 'A-Z' 'a-z' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"

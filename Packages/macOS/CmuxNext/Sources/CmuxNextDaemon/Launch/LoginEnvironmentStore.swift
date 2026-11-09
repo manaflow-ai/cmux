@@ -40,11 +40,11 @@ struct LoginEnvironmentStore: Sendable {
         })
     }
 
-    /// `~/Library/Application Support/cmux/login-environment.json`.
+    /// `~/Library/Application Support/cmux-next/login-environment.json`
+    /// (``DaemonLauncher/nextSupport(_:)``); regenerated, so the file older
+    /// builds kept in classic's `cmux` is not moved.
     static func standard() -> LoginEnvironmentStore {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        return file(support.appendingPathComponent("cmux/login-environment.json"))
+        file(DaemonLauncher.nextSupport().appendingPathComponent("login-environment.json"))
     }
 
     /// The remembered environment, or nil when there is none, it cannot be

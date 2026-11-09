@@ -75,6 +75,16 @@ struct StateFolderMoveTests {
         #expect(!FileManager.default.fileExists(atPath: support.appending(path: "cmux").path))
     }
 
+    @Test func theLaunchMoveAlsoMovesTheLooseItems() throws {
+        let support = try Self.support()
+        defer { try? FileManager.default.removeItem(at: support) }
+        let draft = support.appending(path: "cmux/recovery/a.draft")
+        try FileManager.default.createDirectory(at: draft.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("draft".utf8).write(to: draft)
+        #expect(StateFolderMove(applicationSupport: support).run(build: Self.nightly) == .nothing)
+        #expect(try String(contentsOf: support.appending(path: "cmux-next/recovery/a.draft"), encoding: .utf8) == "draft")
+    }
+
     @Test func aPerKeyBuildMovesItsBuildsFolder() throws {
         let support = try Self.support()
         defer { try? FileManager.default.removeItem(at: support) }
