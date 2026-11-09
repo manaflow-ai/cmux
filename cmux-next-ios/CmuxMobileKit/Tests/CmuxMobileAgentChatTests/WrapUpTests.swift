@@ -121,10 +121,10 @@ import Testing
         #expect(sent == "> Claude Code: Push it?\n\nNot now")
         #expect(ask.chosenAnswer(sent) == "Not now")
         #expect(ask.chosenAnswer("> Something else\n\nNot now") == "> Something else")
-        let split = try #require(UserBubble.leadingQuote(sent))
+        let split = try #require(NextStepAsk.replyQuote(sent))
         #expect(split.quote == "Claude Code: Push it?")
         #expect(split.body == "Not now")
-        #expect(UserBubble.leadingQuote("Not now") == nil)
+        #expect(NextStepAsk.replyQuote("Not now") == nil)
     }
 
     @Test func aQuotedReplyFoldsTheBoxToItsAnswer() throws {

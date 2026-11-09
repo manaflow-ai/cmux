@@ -135,9 +135,22 @@ public struct NextStepAsk: Equatable, Sendable {
         return "\(quoted)\n\n\(label)"
     }
 
+    /// A reply's leading Markdown quote (`> ` lines, then a blank line), as Quote in Reply and an
+    /// answer to an agent's ask record it on the Mac: the quoted text and the reply under it. The
+    /// one reader of that record on the phone: the bubble (`UserBubble`), the native row's choice
+    /// to leave it to SwiftUI (`ChatNativeWidgets`), the row estimate and `answer(of:)`.
+    public static func replyQuote(_ prompt: String) -> (quote: String, body: String)? {
+        let lines = prompt.components(separatedBy: "\n")
+        let quoted = lines.prefix { $0.hasPrefix(">") }
+        guard !quoted.isEmpty, quoted.count < lines.count else { return nil }
+        let quote = quoted.map { String($0.dropFirst($0.hasPrefix("> ") ? 2 : 1)) }.joined(separator: "\n")
+        let body = lines.dropFirst(quoted.count).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return body.isEmpty ? nil : (quote.trimmingCharacters(in: .whitespaces), body)
+    }
+
     /// A reply without its quote of this ask (nextStepAsk.ts `answerOf`); any other prompt as it is.
     public func answer(of reply: String) -> String {
-        guard !question.isEmpty, let split = UserBubble.leadingQuote(reply) else { return reply }
+        guard !question.isEmpty, let split = Self.replyQuote(reply) else { return reply }
         guard split.quote == question || split.quote.hasSuffix(": \(question)") else { return reply }
         return split.body
     }

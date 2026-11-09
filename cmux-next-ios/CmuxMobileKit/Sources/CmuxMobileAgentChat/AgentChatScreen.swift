@@ -948,20 +948,9 @@ struct UserBubble: View {
 }
 
 extension UserBubble {
-    /// A reply's leading Markdown quote (`> ` lines, then a blank line), as Quote in Reply and an
-    /// answer to an agent's ask record it on the Mac: the quoted text and the reply under it.
-    static func leadingQuote(_ prompt: String) -> (quote: String, body: String)? {
-        let lines = prompt.components(separatedBy: "\n")
-        let quoted = lines.prefix { $0.hasPrefix(">") }
-        guard !quoted.isEmpty, quoted.count < lines.count else { return nil }
-        let quote = quoted.map { String($0.dropFirst($0.hasPrefix("> ") ? 2 : 1)) }.joined(separator: "\n")
-        let body = lines.dropFirst(quoted.count).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        return body.isEmpty ? nil : (quote.trimmingCharacters(in: .whitespaces), body)
-    }
-
     /// The prompt, its leading quote drawn as the Mac draws one: muted, behind a bar.
     @ViewBuilder var bubbleText: some View {
-        if let split = Self.leadingQuote(prompt) {
+        if let split = NextStepAsk.replyQuote(prompt) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(split.quote)
                     .font(.body).lineSpacing(4).foregroundStyle(.secondary)
