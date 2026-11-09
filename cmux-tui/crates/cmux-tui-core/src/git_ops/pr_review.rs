@@ -253,7 +253,8 @@ fn checkout(target: &Target) -> Result<Repository, ResourceError> {
         return Ok(target.repository.clone());
     }
     let Some(main) = cmux_git::main_root(target.common_dir()) else {
-        let message = "start the review from the repository's main checkout, not a review's worktree";
+        let message =
+            "start the review from the repository's main checkout, not a review's worktree";
         return Err(refused(START, "not_main_checkout", message, Value::Null));
     };
     open_repository(main, START).map_err(normalized)
