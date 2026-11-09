@@ -294,6 +294,20 @@ mod tests {
         assert!(!detect(&batch(65)).agent());
     }
 
+    /// The cases the browser's mirror reads too (webviews agentText.ts, pasteMarks.test.tsx):
+    /// one list, so the composer and the daemon cannot drift on what reads as an agent's.
+    #[test]
+    fn the_shared_cases_read_as_the_browser_reads_them() {
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("agent_text_cases.json")).expect("the cases parse");
+        for case in cases {
+            let text = case["text"].as_str().expect("a case's text");
+            let found = detect(text);
+            assert_eq!(found.from.as_deref(), case["from"].as_str(), "{text:?}");
+            assert_eq!(found.agent(), !case["from"].is_null(), "{text:?}");
+        }
+    }
+
     #[test]
     fn a_huge_text_reads_its_head_and_tail_only() {
         let text = format!("From Hermes:\n{}\nTrace-ID: x", "y".repeat(10 * 1024 * 1024));

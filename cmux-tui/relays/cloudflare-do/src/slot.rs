@@ -17,8 +17,8 @@ use crate::abuse::{
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
 use crate::daemon::{
-    current_registration, live_daemon, next_registration_number, owed_handover_after_fallback,
-    record_ping, replaced_by_register, still_allocated_to,
+    current_registration, live_daemon, next_registration_number, owed_handover_after_close,
+    owed_handover_after_fallback, record_ping, replaced_by_register, still_allocated_to,
 };
 use crate::park::{
     ConnectDisposition, DAEMON_OFFLINE_CODE, DAEMON_OFFLINE_MESSAGE, ParkedConnect,
@@ -167,16 +167,35 @@ impl RelaySlot {
     /// registrations are owed its circuit if it never joins
     /// (`crate::daemon::owed_handover_after_fallback`).
     fn owe_handover_after_fallback(&self, slot: &str, chosen: &WebSocket) {
+        self.owe_handover(chosen, |other, ready_state| {
+            owed_handover_after_fallback(other, ready_state, slot)
+        });
+    }
+
+    /// `closed`, a control socket, closed: if it was a legacy registration,
+    /// the slot's other open legacy registrations are owed the circuits it
+    /// may have held (`crate::daemon::owed_handover_after_close`).
+    fn owe_handover_after_close(&self, closed: &WebSocket) {
+        let Ok(attachment) = Self::attachment(closed) else {
+            return;
+        };
+        let slot = attachment.relay.slot.clone();
+        self.owe_handover(closed, |other, ready_state| {
+            owed_handover_after_close(&attachment, other, ready_state, &slot)
+        });
+    }
+
+    /// Sets `pending_handover` on every control socket but `except` that
+    /// `owed` picks (given its attachment and ready state).
+    fn owe_handover(&self, except: &WebSocket, owed: impl Fn(&SlotAttachment, u16) -> bool) {
         for other in self.state.get_websockets_with_tag(CONTROL_TAG) {
-            if other == *chosen {
+            if other == *except {
                 continue;
             }
             let Ok(mut attachment) = Self::attachment(&other) else {
                 continue;
             };
-            if attachment.pending_handover
-                || !owed_handover_after_fallback(&attachment, other.as_ref().ready_state(), slot)
-            {
+            if attachment.pending_handover || !owed(&attachment, other.as_ref().ready_state()) {
                 continue;
             }
             attachment.pending_handover = true;
@@ -924,6 +943,7 @@ impl DurableObject for RelaySlot {
             }
             if attachment.idle_deadline_ms <= now_ms {
                 close(&socket, CLOSE_POLICY, "relay socket expired");
+                self.owe_handover_after_close(&socket);
             }
         }
         self.schedule_next_cleanup(now_ms).await?;
@@ -944,16 +964,18 @@ impl DurableObject for RelaySlot {
 
     async fn websocket_close(
         &self,
-        _socket: WebSocket,
+        socket: WebSocket,
         _code: usize,
         _reason: String,
         _was_clean: bool,
     ) -> Result<()> {
+        self.owe_handover_after_close(&socket);
         Ok(())
     }
 
-    async fn websocket_error(&self, _socket: WebSocket, error: worker::Error) -> Result<()> {
+    async fn websocket_error(&self, socket: WebSocket, error: worker::Error) -> Result<()> {
         worker::console_error!("RelaySlot WebSocket error: {error}");
+        self.owe_handover_after_close(&socket);
         Ok(())
     }
 }
