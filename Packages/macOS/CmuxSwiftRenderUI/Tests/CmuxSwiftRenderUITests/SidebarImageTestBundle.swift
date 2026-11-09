@@ -9,9 +9,15 @@ struct SidebarImageTestBundle {
     let bundle: Bundle
 
     init() throws {
-        url = FileManager.default.temporaryDirectory
+        let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("bundle")
+        // Callers remove the bundle after init succeeds; clean up here if setup throws.
+        var succeeded = false
+        defer {
+            if !succeeded { try? FileManager.default.removeItem(at: root) }
+        }
+        url = root
         let resources = url.appendingPathComponent("Contents/Resources")
         try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
         let info: [String: String] = [
@@ -63,5 +69,6 @@ struct SidebarImageTestBundle {
             ])
         }
         bundle = try #require(Bundle(url: url))
+        succeeded = true
     }
 }
