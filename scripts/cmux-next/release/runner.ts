@@ -45,9 +45,10 @@ export const connectRetrying = async (
     try {
       return await connect(url)
     } catch (e) {
-      if (!connectBusy(e) || attempt >= waitsMs.length) throw e
-      log(`database busy (${(e as { code?: string }).code}: ${String((e as Error).message).slice(0, 120)}); trying again in ${waitsMs[attempt] / 1000} s`)
-      await sleep(waitsMs[attempt])
+      const wait = waitsMs[attempt]
+      if (!connectBusy(e) || wait === undefined) throw e
+      log(`database busy (${(e as { code?: string }).code}: ${String((e as Error).message).slice(0, 120)}); trying again in ${wait / 1000} s`)
+      await sleep(wait)
     }
   }
 }
