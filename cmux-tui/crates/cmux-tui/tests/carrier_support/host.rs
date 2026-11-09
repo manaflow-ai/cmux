@@ -7,7 +7,7 @@
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -22,11 +22,14 @@ use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
 use cmux_remote::workspace::WorkspaceService;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Notify, watch};
 
-use super::{Bearers, ISSUER, Keys, MACHINE, SLOT, Signer, TEAM, Teams, fake_mux, now, platform};
+use super::{
+    Bearers, ISSUER, Keys, MACHINE, SLOT, Signer, TEAM, Teams, fake_mux, now, platform,
+    took_role_stamp,
+};
 
 /// When the session host restarts by itself.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -37,6 +40,16 @@ pub enum Restart {
     /// on it: the client's handshake finished, and its first request finds
     /// the link gone (the updater restarting the session host at boot).
     AfterFirstSession,
+    /// Once the first mux-control stream has opened: from the moment it
+    /// connects to the mux socket no client byte reaches the old host (the
+    /// host's answers still flow, so the open completes), then the host
+    /// restarts and every link drops. The session's next stream (a desktop
+    /// stream) goes out on the resume and finds the session gone.
+    AfterMuxOpen,
+    /// On every session, in turn: the odd ones (1st, 3rd, ...) right after
+    /// the handshake, the even ones once mux control opened (as
+    /// [`Restart::AfterMuxOpen`]). No dial ever gets a session that lasts.
+    Always,
 }
 
 /// What the mux socket behind the daemon is.
@@ -55,6 +68,8 @@ pub struct HostWorld {
     pub events: Arc<EventLog>,
     /// How many times the session host started (1 before any restart).
     pub starts: Arc<AtomicUsize>,
+    /// Sessions the hosts admitted, in all (counted under [`Restart::Always`]).
+    pub sessions: Arc<AtomicUsize>,
     proxy: Arc<Proxy>,
     host: Arc<tokio::sync::Mutex<Host>>,
     runtime: tokio::runtime::Runtime,
@@ -65,6 +80,7 @@ struct Host {
     relay: SocketAddr,
     mux: PathBuf,
     proxy: Arc<Proxy>,
+    sessions: Arc<AtomicUsize>,
     registration: Option<RelayDaemonRegistration>,
     shutdown: Option<watch::Sender<bool>>,
     /// What a stopped host left behind (as a killed process leaves its
@@ -79,6 +95,7 @@ pub fn host_world(restart: Restart, mux: Mux) -> HostWorld {
     let state = dir.path().join("daemon");
     let events = Arc::new(EventLog::default());
     let starts = Arc::new(AtomicUsize::new(0));
+    let sessions = Arc::new(AtomicUsize::new(0));
     let proxy = Arc::new(Proxy::default());
     let (platform_address, host) = runtime.block_on(async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -99,19 +116,23 @@ pub fn host_world(restart: Restart, mux: Mux) -> HostWorld {
             CarrierGrantVerifier::new(ISSUER, MACHINE, TEAM, signer.keyset(), || Some(now()), 64)
                 .unwrap();
         auth.set_grant_verifier(Arc::new(verifier)).unwrap();
-        match mux {
-            Mux::Echo => fake_mux(&mux_path).await,
-            Mux::Events => events.clone().serve(&mux_path),
-        }
         let host = Arc::new(tokio::sync::Mutex::new(Host {
             auth: auth.clone(),
             relay: relay_address,
             mux: mux_path.clone(),
             proxy: proxy.clone(),
+            sessions: sessions.clone(),
             registration: None,
             shutdown: None,
             stopped: Vec::new(),
         }));
+        match (mux, restart) {
+            (Mux::Echo, Restart::AfterMuxOpen | Restart::Always) => {
+                restarting_mux(&mux_path, host.clone(), starts.clone(), restart);
+            }
+            (Mux::Echo, _) => fake_mux(&mux_path).await,
+            (Mux::Events, _) => events.clone().serve(&mux_path),
+        }
         start(host.clone(), starts.clone(), restart).await;
         let client_relay = proxy.clone().listen(relay_address).await;
         let daemon_key = Some(URL_SAFE_NO_PAD.encode(auth.identity().public_key()));
@@ -128,7 +149,7 @@ pub fn host_world(restart: Restart, mux: Mux) -> HostWorld {
         .await;
         (platform_address, host)
     });
-    HostWorld { platform: platform_address, dir, events, starts, proxy, host, runtime }
+    HostWorld { platform: platform_address, dir, events, starts, sessions, proxy, host, runtime }
 }
 
 type Started = (
@@ -145,7 +166,52 @@ async fn start(host: Arc<tokio::sync::Mutex<Host>>, starts: Arc<AtomicUsize>, re
         tokio::spawn(restart_after_first(host, starts, accepted, services));
         return;
     }
-    run(accepted, services, shutdown);
+    serve(host, starts, restart, (accepted, services, shutdown));
+}
+
+/// Runs a started host's services. Under [`Restart::Always`], each odd
+/// session it admits restarts it right after the handshake, unserved.
+fn serve(
+    host: Arc<tokio::sync::Mutex<Host>>,
+    starts: Arc<AtomicUsize>,
+    restart: Restart,
+    (mut accepted, services, shutdown): Started,
+) {
+    if restart != Restart::Always {
+        run(accepted, services, shutdown);
+        return;
+    }
+    let (served, rx) = tokio::sync::mpsc::channel(8);
+    run(rx, services, shutdown);
+    tokio::spawn(async move {
+        while let Some(session) = accepted.recv().await {
+            let sessions = host.lock().await.sessions.clone();
+            if sessions.fetch_add(1, Ordering::SeqCst) % 2 == 1 {
+                if served.send(session).await.is_err() {
+                    return;
+                }
+                continue;
+            }
+            // As in the desktop window: client bytes wait, so the handshake
+            // completes on the client and its mux-control open (not the
+            // handshake) is what finds the session gone.
+            let proxy = host.lock().await.proxy.clone();
+            proxy.frozen.store(true, Ordering::SeqCst);
+            proxy.holding.send_replace(true);
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            stop(&host).await;
+            host.lock().await.stopped.extend([
+                Box::new(session) as Box<dyn std::any::Any + Send>,
+                Box::new(accepted),
+                Box::new(served),
+            ]);
+            let started = register(&host, &starts).await;
+            serve(host, starts, restart, started);
+            proxy.frozen.store(false, Ordering::SeqCst);
+            proxy.holding.send_replace(false);
+            return;
+        }
+    });
 }
 
 /// The first session is admitted (its handshake is done), then the host
@@ -198,6 +264,52 @@ fn run(
     std::thread::spawn(move || {
         let local = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         local.block_on(services.run_with_shutdown(accepted, shutdown));
+    });
+}
+
+/// An echoing mux socket (it takes the role stamp, [`took_role_stamp`]) whose
+/// first connection restarts the session host
+/// ([`Restart::AfterMuxOpen`]), or every one ([`Restart::Always`]).
+fn restarting_mux(
+    path: &Path,
+    host: Arc<tokio::sync::Mutex<Host>>,
+    starts: Arc<AtomicUsize>,
+    restart: Restart,
+) {
+    let listener = tokio::net::UnixListener::bind(path).unwrap();
+    tokio::spawn(async move {
+        let mut first = true;
+        loop {
+            let Ok((stream, _)) = listener.accept().await else { return };
+            if std::mem::take(&mut first) || restart == Restart::Always {
+                let proxy = host.lock().await.proxy.clone();
+                proxy.frozen.store(true, Ordering::SeqCst);
+                proxy.holding.send_replace(true);
+                let (host, starts) = (host.clone(), starts.clone());
+                tokio::spawn(async move {
+                    // The daemon's Opened, written after this accept,
+                    // reaches the client meanwhile.
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    stop(&host).await;
+                    let started = register(&host, &starts).await;
+                    serve(host, starts, restart, started);
+                    proxy.frozen.store(false, Ordering::SeqCst);
+                    proxy.holding.send_replace(false);
+                });
+            }
+            tokio::spawn(async move {
+                let (reader, mut writer) = stream.into_split();
+                let mut lines = tokio::io::BufReader::new(reader).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if took_role_stamp(&line, &mut writer).await {
+                        continue;
+                    }
+                    if writer.write_all(format!("{line}\n").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
     });
 }
 
@@ -264,12 +376,25 @@ impl HostWorld {
 
 /// The client side's way to the relay: forwards each TCP connection, and
 /// can drop them all ([`Proxy::cut`]) or hold new ones.
-#[derive(Default)]
 struct Proxy {
     cuts: watch::Sender<u64>,
     holding: watch::Sender<bool>,
     /// Client links it accepted.
     links: AtomicUsize,
+    /// While set, client bytes wait (until the link is cut) instead of
+    /// crossing; the host's bytes still flow.
+    frozen: AtomicBool,
+}
+
+impl Default for Proxy {
+    fn default() -> Self {
+        Self {
+            cuts: watch::channel(0).0,
+            holding: watch::channel(false).0,
+            links: AtomicUsize::new(0),
+            frozen: AtomicBool::new(false),
+        }
+    }
 }
 
 impl Proxy {
@@ -298,9 +423,25 @@ impl Proxy {
                     let Ok(upstream) = TcpStream::connect(relay).await else { return };
                     let (mut client_read, mut client_write) = client.into_split();
                     let (mut upstream_read, mut upstream_write) = upstream.into_split();
+                    let upward = async {
+                        let mut chunk = [0_u8; 16 * 1024];
+                        loop {
+                            let Ok(read) = client_read.read(&mut chunk).await else { return };
+                            if read == 0 {
+                                return;
+                            }
+                            if proxy.frozen.load(Ordering::SeqCst) {
+                                // Held until a cut ends this link.
+                                std::future::pending::<()>().await;
+                            }
+                            if upstream_write.write_all(&chunk[..read]).await.is_err() {
+                                return;
+                            }
+                        }
+                    };
                     tokio::select! {
                         _ = tokio::io::copy(&mut upstream_read, &mut client_write) => {}
-                        _ = tokio::io::copy(&mut client_read, &mut upstream_write) => {}
+                        () = upward => {}
                         _ = cuts.changed() => {}
                     }
                 });
@@ -346,7 +487,11 @@ impl EventLog {
                 tokio::spawn(async move {
                     let (reader, mut writer) = stream.into_split();
                     let mut lines = tokio::io::BufReader::new(reader).lines();
-                    let Ok(Some(line)) = lines.next_line().await else { return };
+                    let Ok(Some(mut line)) = lines.next_line().await else { return };
+                    if took_role_stamp(&line, &mut writer).await {
+                        let Ok(Some(next)) = lines.next_line().await else { return };
+                        line = next;
+                    }
                     let request: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
                     let mut sent = request["afterSeq"].as_u64().unwrap_or(0);
                     loop {

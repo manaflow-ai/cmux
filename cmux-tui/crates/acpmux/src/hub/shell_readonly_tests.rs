@@ -313,8 +313,6 @@ fn a_repository_that_names_a_program_asks() {
         &[("credential.helper", "!/tmp/x")],
         &[("include.path", "/tmp/x")],
         &[("remote.origin.uploadpack", "/tmp/x")],
-        // A lazy fetch writes objects and runs the transport.
-        &[("remote.origin.promisor", "true")],
         // A signature sort key verifies with gpg (`git branch`).
         &[("branch.sort", "signature:grade")],
     ] {
@@ -340,6 +338,70 @@ fn a_repository_that_names_a_program_asks() {
     ]);
     assert!(request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// W5-L: a review chat could not run `git diff origin/x -- file` in the cmux checkout, a partial
+/// clone whose config names merge drivers. A merge driver runs only when git merges and a
+/// promisor remote only fetches what the clone left out, so git reads there pass; a remerge diff,
+/// which runs the merge drivers, and anything that writes still ask.
+#[test]
+fn a_partial_clone_with_merge_drivers_still_reads() {
+    let dir = repo(&[
+        ("merge.pbxproj-v1.driver", "/tmp/x %O %A %B"),
+        ("merge.pbxproj-v1.name", "pbxproj"),
+        ("merge.conflictstyle", "zdiff3"),
+        ("remote.origin.url", "https://example.invalid/r.git"),
+        ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"),
+        ("remote.origin.promisor", "true"),
+        ("remote.origin.partialclonefilter", "blob:none"),
+        ("rerere.enabled", "true"),
+    ]);
+    let reads = |script: &str| request_is_read_only(&execute(json!(script)), &dir, &system_env());
+    for script in [
+        "git diff origin/x -- file.txt",
+        "git diff --stat origin/feat-cmux-next...HEAD",
+        "git log --oneline -5",
+        "git show HEAD:file.txt",
+        "git blame -L 1,5 file.txt",
+        "git status --short",
+        "git log --cc -1",
+        "cat file.txt",
+        "grep -rn needle .",
+        "rg -n needle",
+    ] {
+        assert!(is_read_only(script), "{script}");
+        if !script.starts_with("rg") {
+            assert!(reads(script), "{script}");
+        }
+    }
+    for script in [
+        "git commit -qm x",
+        "git merge origin/x",
+        "git cherry-pick HEAD",
+        "git stash apply",
+        "git show --remerge-diff HEAD",
+        "git log --remerge -1",
+        "git log --diff-merges=remerge -1",
+        "git diff --output=out",
+        "git fetch origin",
+        "touch x",
+        "rg foo > out",
+    ] {
+        assert!(!reads(script), "{script}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+    // The transport's own programs still ask.
+    for config in [
+        &[("remote.origin.promisor", "true"), ("remote.origin.uploadpack", "/tmp/x")][..],
+        &[("remote.origin.promisor", "true"), ("core.sshcommand", "/tmp/x")],
+    ] {
+        let dir = repo(config);
+        assert!(
+            !request_is_read_only(&execute(json!("git log -1")), &dir, &system_env()),
+            "{config:?}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
 
 #[test]

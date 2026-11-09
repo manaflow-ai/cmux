@@ -241,6 +241,18 @@ pub fn with_subagent(mut provenance: Value, params: &Value) -> Value {
     provenance
 }
 
+/// Set beside [`FROM_SUBAGENT`] when the subagent's message starts a turn of a lane of its own
+/// lead: that turn's answer reaches the subagent (`hub/lane_report_subagents.rs`).
+pub const SUBAGENT_GETS_REPLY: &str = "subagentGetsReply";
+
+/// `provenance` marked [`SUBAGENT_GETS_REPLY`] when it names a subagent ([`FROM_SUBAGENT`]).
+pub fn subagent_gets_reply(mut provenance: Value) -> Value {
+    if provenance.get(FROM_SUBAGENT).is_some() {
+        provenance.set(SUBAGENT_GETS_REPLY, json!(true));
+    }
+    provenance
+}
+
 /// The subagent a send names (`_meta.acpmux.callerSubagent`), `{id, type}`, when both are plain
 /// words (`cli::sender::subagent_word`).
 pub fn subagent_of(params: &Value) -> Option<Value> {
@@ -323,7 +335,7 @@ pub fn named_sender(name: &str, to: &str) -> Value {
 /// ([`of`] keeps only its listed fields), and the person's prompt carries none (see [`ORIGIN`]).
 pub const VERIFIED: &str = "verified";
 /// How the prompt reached this daemon, as the daemon saw it: `unix` (the socket, any local
-/// process of the user), `app` (the app's own connection), `web`, `peer`, `trigger`.
+/// process of the user), `app` (the app's own connection), `web`, `peer`, `carrier`, `trigger`.
 pub const TRANSPORT: &str = "transport";
 /// Labels a sender gave about itself that prove nothing (`cliHost`, `fromHarness`): kept apart
 /// from who the daemon knows sent it.

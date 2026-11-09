@@ -632,6 +632,34 @@ pub(crate) struct AgentRoster {
 }
 
 impl AgentRoster {
+    /// The journal kinds [`Self::apply`] can act on. Its replays read only
+    /// these (`session_journal_kinds_after`), so a replay costs the agent
+    /// records, not the journal's other history. Every other kind is a no-op:
+    ///
+    /// - `apply` folds a record of the agent hook producer or a valid plugin
+    ///   event, and drops the rest first.
+    /// - A plugin event's kind must be `plugin.<producer>.agent.state.changed`
+    ///   or `plugin.<producer>.agent.session.ended` ([`RosterEvent::plugin_event`]).
+    /// - The hook producer appends through journal ingress, which refuses a
+    ///   kind its manifest does not declare; it declares only `agent.*` kinds
+    ///   (`AGENT_EVENT_KINDS`). That covers the plugin exit, program status,
+    ///   socket echo and legacy screen-detect events, which are all hook
+    ///   producer events.
+    /// - A record of another writer whose producer id happens to be the hook
+    ///   producer's (an admin, checkpoint, retention or resource record, named
+    ///   by its origin) has no `agent.*` kind and none of the hook envelope's
+    ///   `adapter` and `native_event` fields, so every branch of `apply`
+    ///   returns before it changes anything: the hook branch needs a kind
+    ///   [`hook_roster_state`] maps, which are `agent.*` kinds.
+    ///
+    /// `mux/tests/agent_roster_kind_scope.rs` checks this on a mixed stream.
+    pub(crate) fn folds_kind(kind: &str) -> bool {
+        kind.starts_with("agent.")
+            || (kind.starts_with("plugin.")
+                && (kind.ends_with(".agent.state.changed")
+                    || kind.ends_with(".agent.session.ended")))
+    }
+
     /// Fold one committed record. Deterministic: identical event sequences
     /// produce identical rosters, so a snapshot plus the journal tail always
     /// reproduces the live state.

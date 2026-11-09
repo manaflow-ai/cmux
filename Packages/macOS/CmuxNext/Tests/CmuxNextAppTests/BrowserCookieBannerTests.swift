@@ -73,7 +73,7 @@ import Testing
 
     static func freshDefaults() -> UserDefaults {
         let name = "cnc-cookie-banner-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let defaults = UserDefaults(testSuiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return defaults
     }
@@ -238,11 +238,14 @@ import Testing
         let h = try await make()
         defer { h.tearDown() }
         try await h.settings.set(.bool(false), at: Self.cookieBannerPath)
-        h.services.onboarding.browserImportOffer.importFinished(ImportCounts(cookies: 3))
+        let offer = h.services.onboarding.browserImportOffer
+        offer.importFinished(ImportCounts(cookies: 3))
         #expect(h.services.registry.perform("browser.showCookieImportBanner", invocation: ActionInvocation(origin: .cli)))
-        try await Task.sleep(for: .milliseconds(300))
+        // Every banner write the action could start is `bannerWrite`: wait for its end, not a while.
+        #expect(offer.bannerWrite == nil, "the action wrote browser.import.cookieBanner after cookies came over")
+        await offer.bannerWrite?.value
         #expect(try h.storedBannerValue() == false, "the action turned the banner back on after cookies came over")
-        #expect(!h.services.onboarding.browserImportOffer.shownThisLaunch)
+        #expect(!offer.shownThisLaunch)
     }
 
     /// Only cookies coming over ends the banner: a bookmarks-only import keeps offering it.

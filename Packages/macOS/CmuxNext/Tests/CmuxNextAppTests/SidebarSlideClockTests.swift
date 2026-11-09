@@ -12,6 +12,12 @@ import Testing
 /// frame; on an AppKit animation timer of its own the two drifted apart.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarSlideClockTests {
+    /// Waits until `done` holds (the slide ran and landed), or 10 s pass; the test's own checks then say what is wrong.
+    private static func settle(_ done: () -> Bool) async {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !done(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(16)) }
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"), arguments: [false, true])
     func theSlideStepsOnTheWindowsMotionClock(startShown: Bool) async throws {
         _ = NSApplication.shared
@@ -60,7 +66,7 @@ struct SidebarSlideClockTests {
         defer { probe.deactivate() }
         sidebar.model.presentation = startShown ? .hidden : .shown
         sidebar.apply()
-        try await Task.sleep(for: .seconds(1))
+        await Self.settle { frames > 0 && !sidebar.isWidthAnimating && !clock.running.contains("sidebar.width") }
         probe.deactivate()
         try #require(frames >= 6, "the slide must run over several display frames (\(frames))")
         #expect(onClock >= frames - 1, "the slide was off the window's motion clock on \(frames - onClock) of \(frames) frames")
@@ -116,7 +122,7 @@ struct SidebarSlideClockTests {
         }
         probe.activate()
         defer { probe.deactivate() }
-        try await Task.sleep(for: .seconds(1))
+        await Self.settle { frames >= 3 && !sidebar.isWidthAnimating }
         probe.deactivate()
         try #require(frames >= 3, "the switch must happen mid-slide (\(frames) frames)")
         #expect(!sidebar.isWidthAnimating, "the slide did not settle")

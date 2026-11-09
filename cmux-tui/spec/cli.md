@@ -704,7 +704,7 @@ agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent message release <message-id> --recipient <agent> --approve|--decline
 agent message unsend <message-id> [--recipient <agent>]
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
-agent report --terminal <selector> --state <state> --source <source>
+agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
 
@@ -714,7 +714,8 @@ client <selector> metadata set
 client <selector> sizing set|release
 client <selector> cell pixels set
 
-workspace list|create
+workspace list [--order session|personal] [--name <name>] [--cwd <path>]
+workspace create
 workspace create --worktree <name> [--repo <path>] [--base <revision>] [workspace create options]
 workspace <selector> show|rename|move|focus|close|run
 workspace <selector> close --remove-worktree [--discard]
@@ -728,7 +729,8 @@ screen <selector> layout export|undo
 screen <selector> column <split_id> update
 screen <selector> pane ...
 
-pane list|create
+pane list [--name <name>] [--cwd <path>]
+pane create
 pane <selector> show|rename|focus|close|split|neighbor|swap|zoom|run
 pane <selector> move --to-pane <selector> [--split <dir>]|--to-tab <selector>|--to-workspace <selector>|--new-screen [--name <value>] [--focus]
 pane <selector> focus direction <left|right|up|down>
@@ -741,7 +743,7 @@ tab create terminal|browser [--engine chromium|webkit]
 tab <selector> show|rename|move|focus|close
 tab <selector> terminal|browser ...
 
-terminal list
+terminal list [--cwd <path>]
 terminal <selector> show|status|write|keys|mouse|copy|move|project|attach|close
 terminal <term_id> keep on|off
 terminal <selector> focus <in|out>
@@ -916,8 +918,9 @@ Every `--pattern` regex (`screen wait`, `send`, `run`, and `agents wait
 they go into a new pane split off q. `--to-tab <t>` puts them after tab t in
 its pane. `--to-workspace <w>` and `--new-screen` (alias `--new-tab`, the
 pane's own workspace) put them into a new screen there, named `--name`. A new
-pane's shell tab closes once the tabs are in, and the new pane takes the
-moved pane's name. `tab.move` focuses what it moved, so afterwards the command
+pane's shell ends once the tabs are in (`terminal <t> close`, which takes
+its tab; a tab close alone left the shell running with no tab), and the new
+pane takes the moved pane's name. `tab.move` focuses what it moved, so afterwards the command
 focuses the pane that had the focus before (`--focus`: the destination pane);
 when the moved pane had the focus, the focus stays with its tabs. A
 destination in the pane itself is a usage error. The result is `{pane,
@@ -942,8 +945,10 @@ command goes on). The result is the `workspace create` result plus
 --remove-worktree [--discard]` runs `git worktree remove` of the workspace's
 agent folder when it has one, else of the worktree its current terminal works
 in (`--workspace <ws>`; the main checkout is never removed), then closes the
-workspace; a refused remove closes nothing. The result is the close result
-plus `worktree`, the removal. Each step has its own key derived from `--idempotency-key` (made
+workspace, then ends each terminal whose every tab was in it (they worked in
+the removed folder); a refused remove closes nothing. The result is the close
+result plus `worktree`, the removal, and `ended_terminals`, the terminals it
+ended (one it could not end is left to the reaper). Each step has its own key derived from `--idempotency-key` (made
 when absent), so retrying the whole command replays the steps that ran; a
 failed step's error names `step`, the command's `idempotency_key` and what
 the steps before it `made`.
@@ -1218,6 +1223,47 @@ session host sets `createdAt` and `updatedAt`. `delete` names the ids to
 remove (at most 500); `--versions-json` maps an id to the `updatedAt` read, and
 a comment edited since is kept. Unknown ids are ignored.
 
+## Waiting for one event
+
+`cmux events` (the app's event stream) and `cmux agents events` (the
+daemon's journal and the app's dialogs and chat states) take the same three
+flags, so an agent waiting for one event needs no timeout wrapper or grep:
+
+```bash
+cmux events --until action.catalog.changed --timeout 30s --jsonl
+cmux events --until 'mobile.*' --timeout 5m --jsonl
+cmux agents events --until workspace.changed --match name=build --timeout 30s --json
+cmux agents events --until agent.state --match state=idle --match terminal_id=term_1 --timeout 10m --json
+```
+
+- `--until NAME` names the event: exactly, or by a prefix ending in `*`
+  (`mobile.*`). For `cmux events` it is the frame's `name` (what the app
+  publishes: `action.catalog.changed`, `mobile.rpc.ready`); for `agents
+  events` it is `KIND.CHANGE` (`workspace.changed`, `tab.closed`,
+  `notification.created`, `dialog.opened`, `agent.state`).
+- `--match PATH=VALUE`, repeatable, compares the field at a dotted path into
+  the event's JSON (`workspace_id`, `payload.state`; a number steps into an
+  array): a string by its text, any other value by its JSON (`true`, `3`,
+  `null`). Every condition must hold. Either flag alone starts a wait.
+- `--timeout DURATION` takes `30s`, `5m`, `2h`, `1500ms` or plain seconds.
+
+A wait prints only the matching event and exits 0. When the time runs out it
+exits 124: `cmux events` prints a last line `{"type": "timeout", "timed_out":
+true, "waited_ms": "30000", "until": {...}}` with `--json` or `--jsonl` (a
+person gets a line on stderr), and `agents events` answers `matched: false,
+timed_out: true`. If the app closes the stream before a match, `cmux events`
+fails with `events.closed` (exit 1); rerun it with `--after <last seq>`.
+
+`cmux events` keeps no default timeout (a plain `--timeout` ends a stream
+the same way, exit 124), so an agent passes one. Start the wait before the
+action it waits for, or pass `--after` so events already past count: a
+`cmux events --after <seq>` wait matches replayed events, and an `agents
+events --after <cursor>` wait matches events pending since the cursor. Its
+`next_after` continues right after the matched event. Without `--until` or
+`--match`, `agents events` stays the long-poll it was (at most 60 s, exit 0
+when empty); with one the CLI waits up to a day. The MCP tool `agents_events`
+takes `until` and `match` (an object of path to value) within its 60 s bound.
+
 ## Local sidebar plugins
 
 `sidebar plugin` commands read and write local plugin installation state. They
@@ -1231,8 +1277,15 @@ rows, so the wire value is unchanged. `--state` and `--terminal` are the
 read's own filters. Every row has `status`, one of the words `terminal list
 --agents` and `agent wait` use: `blocked`, `done` (idle with an unread
 notification on its terminal), `working`, `idle` or `unknown`, and `null` for
-an agent whose session ended. The daemon's `state` field (`working`,
-`blocked`, `idle`, `done` = ended, `unknown`) stays as it was. `--state` takes
+an agent whose session ended. The CLI writes the row's `state` over with
+the same word (`ended` for an ended session), as a deprecated alias of
+`status`. The daemon's wire does not change: `agent.list` and
+`session.snapshot` still say `state: done` for an ended session, and the CLI
+maps that `done` to `ended` in every output (`agent list`, `agent report`,
+`terminal list --agents`, the `send` receipt). In the CLI, `done` means only a
+finished turn that nobody viewed yet. The CLI leaves out the ended agents of
+terminals that closed (the snapshot has no such terminal); `--state ended`
+shows them. `--state` takes
 the status words and `ended` and asks the daemon for its state: `done` and
 `idle` ask for `idle` (the CLI then keeps the rows with that status), `ended`
 asks for the daemon's `done`, the others for themselves. `--state done` used to
@@ -1297,9 +1350,10 @@ extra argument stays one argv word, with `pane run --on-exit keep`: the exited
 terminal keeps its argv and name for `resume`. Without `--pane` or `--split`
 the caller's pane (else the focused pane) is split to the right; `--pane SEL`
 alone opens a tab in that pane; `--split DIR` splits SEL (default: the
-caller's pane). The split's shell tab is closed once the agent runs. In a session
+caller's pane). The split's shell ends (`terminal <t> close`, which takes its
+tab) once the agent runs. In a session
 with no pane yet (a daemon that no client opened), it creates a workspace named
-NAME and replaces its shell tab; the pane and the shell tab come from the create
+NAME and ends its shell the same way; the pane and the shell tab come from the create
 receipt (else the pane of the receipt's workspace), never from focus, so two
 starts at once each use their own workspace. The tab
 is focused unless `--no-focus`.
@@ -1453,7 +1507,21 @@ puts a group right before the personal workspace at placement index `<n>`;
 sets the group's icon (one emoji, an SF Symbol name, or a stored
 `image:sha256-<hex>` or `svg:sha256-<hex>` asset) and `--clear-icon`
 removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
-or unpins it (`workspace-group-pin-v1`). `workspace list --order personal` lists the
+or unpins it (`workspace-group-pin-v1`). `workspace list --name <name>` keeps the workspaces whose name is exactly
+`<name>`, and `--cwd <path>` those with at least one terminal whose folder
+(`terminal.cwd`) is `<path>` or inside it; `pane list` takes the same two
+flags for panes, and `terminal list --cwd <path>` keeps the terminals in or
+under `<path>`. `<path>` is made absolute against the caller's folder (`.`
+and `..` resolved) and also matched with its links resolved. Filters combine
+with AND and keep the list's JSON shape and order; no match prints `[]` and
+exits 0. The CLI filters the rows it read: `--name` and `terminal list --cwd`
+add no request, and a workspace or pane `--cwd` adds one `session.snapshot`
+read on the same connection, joined in memory (a constant two requests, not
+one per row). A Cloud machine's workspaces (`--machine <Cloud machine> workspace
+list`, which the app answers) take `--name`; a `--cwd` there fails with
+`validation.invalid`, since those rows carry no terminals. A `name:<name>` selector that two workspaces share fails with
+`selector.ambiguous`; `workspace list --name <name> --json` lists both ids.
+`workspace list --order personal` lists the
 workspaces in the sidebar order. With the sidebar document (`sidebar-doc-v1`),
 `workspace list` without `--order` also lists the sidebar order (one order
 with the sidebar). `--order session` (and, without the

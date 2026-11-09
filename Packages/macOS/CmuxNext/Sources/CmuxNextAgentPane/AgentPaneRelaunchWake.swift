@@ -84,28 +84,47 @@ public final class AgentPaneRelaunchWake {
     /// Whether the last quit may have left tab `key` a state no page took: the launch read runs, or it
     /// left one.
     public func mayHold(_ key: String) -> Bool {
-        guard let launch, !claimed.contains(key) else { return false }
-        return launch.value.map { $0[key] != nil } ?? true
+        mayHold([key])
+    }
+
+    /// Whether any of the equivalent keys may have a launch state. AgentTabs passes a
+    /// machine-qualified key first and the old bare key second so files from before machine
+    /// scoping remain readable without making the new path ambiguous.
+    public func mayHold(_ keys: [String]) -> Bool {
+        guard let launch, keys.contains(where: { !claimed.contains($0) }) else { return false }
+        return launch.value.map { states in keys.contains { states[$0] != nil } } ?? true
     }
 
     /// Hands tab `key`'s state from the last quit to `model`, a page with none of its own
     /// (``AgentPaneModel/pendingWake``): at once when the launch read has ended (never waiting), else
     /// through ``AgentPaneModel/wakeSource``, which the page's first `ready` awaits.
     public func hand(_ key: String, to model: AgentPaneModel) {
-        guard model.pendingWake == nil, let launch, !claimed.contains(key) else { return }
+        hand([key], to: model)
+    }
+
+    /// Hands the first available state for a machine-qualified key, with compatibility fallbacks.
+    public func hand(_ keys: [String], to model: AgentPaneModel) {
+        guard model.pendingWake == nil, let launch, keys.contains(where: { !claimed.contains($0) }) else { return }
         if let states = launch.value {
-            claimed.insert(key)
-            model.pendingWake = states[key]
+            let match = keys.first { !claimed.contains($0) && states[$0] != nil }
+            keys.forEach { claimed.insert($0) }
+            model.pendingWake = match.flatMap { states[$0] }
         } else {
-            model.wakeSource = { [weak self] in await self?.state(for: key) }
+            model.wakeSource = { [weak self] in await self?.state(for: keys) }
         }
     }
 
     /// Tab `key`'s state from the last quit, once, after the launch read.
     private func state(for key: String) async -> AgentPaneWakeState? {
+        await state(for: [key])
+    }
+
+    private func state(for keys: [String]) async -> AgentPaneWakeState? {
         guard let launch else { return nil }
         let states = await launch.finished()
-        return claimed.insert(key).inserted ? states[key] : nil
+        let match = keys.first { !claimed.contains($0) && states[$0] != nil }
+        keys.forEach { claimed.insert($0) }
+        return match.flatMap { states[$0] }
     }
 
     /// The last quit's states, by tab, once: the file and the attachments' files go, so a crash

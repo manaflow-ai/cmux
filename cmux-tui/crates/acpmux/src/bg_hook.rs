@@ -133,6 +133,36 @@ const QUICK: &[&str] = &[
 /// The comment that lets a known-slow command run in the foreground.
 pub const FOREGROUND_OK: &str = "# fg-ok";
 
+/// Claude Code's input names `agent_id` only for a subagent's call (a `case` pattern; a quoted
+/// `"agent_id"` in a command's own text is escaped in the JSON and does not match).
+pub const SUBAGENT_PATTERN: &str = "*'\"agent_id\"'*";
+
+/// The `Bash` calls [`main`] may answer, as shell `case` patterns on Claude Code's input
+/// (`agent_tools::hook_command`): a background shell, a subagent's call ([`subagent_mark`]), and
+/// for each [`SLOW`] entry its program and next word as written (`cargo test`), then the word it
+/// also needs. The plugin starts this binary only on a match, so the common call, the lead's quick
+/// foreground command, costs a shell and no process start. A false match only starts the binary,
+/// which answers as before; a slow command spelled another way (`cargo  test`) runs as asked, and
+/// `hub/auto_background.rs` moves it to the background after a minute, as for any long command.
+/// The 2026-11 context audit measured the unfiltered hook at about 20-40 ms on each of 84,542
+/// Bash calls.
+pub fn bash_patterns() -> Vec<String> {
+    let mut all: Vec<String> = ["\"run_in_background\":true", "\"run_in_background\": true"]
+        .iter()
+        .map(|w| format!("*'{w}'*"))
+        .chain([SUBAGENT_PATTERN.to_owned()])
+        .collect();
+    for (tool, next, needs, _) in SLOW {
+        let first = next.map_or_else(|| (*tool).to_owned(), |next| format!("{tool} {next}"));
+        let then = needs.map(|w| format!("*' {w}'")).unwrap_or_default();
+        let pattern = format!("*'{first}'{then}*");
+        if !all.contains(&pattern) {
+            all.push(pattern);
+        }
+    }
+    all
+}
+
 /// Why `command` would hold the turn for long, if one of its simple commands is known to
 /// ([`SLOW`]), or None. A command that puts itself in the background (a trailing `&`) or
 /// carries [`FOREGROUND_OK`] holds nothing; `nohup` or `setsid` alone still runs in the
@@ -394,15 +424,116 @@ pub fn without_subagent_mark(command: &str) -> &str {
     if marked { rest } else { command }
 }
 
+/// The answer to a subagent's `PostToolUse` (its Bash or acpmux MCP call ended): the notices the
+/// daemon left for it (`subagent_notice.rs`: reports of turns it asked for without waiting), taken
+/// once, as `additionalContext`, which Claude Code adds to that subagent's own context. None for
+/// the lead's own call (no `agent_id`) or when none waits.
+pub fn subagent_notices(home: &std::path::Path, session: &str, input: &Value) -> Option<Value> {
+    let agent = input.get("agent_id").and_then(Value::as_str)?;
+    let dir = crate::subagent_notice::agent_dir(home, session, agent)?;
+    let texts: Vec<String> = crate::subagent_notice::take_all(&dir)
+        .iter()
+        .filter_map(|n| n.get("text").and_then(Value::as_str).map(str::to_owned))
+        .collect();
+    (!texts.is_empty()).then(|| {
+        json!({"hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": texts.join("\n\n"),
+        }})
+    })
+}
+
+/// A subagent's `SubagentStop`: it reads no more notices, so the daemon gives the ones left for it
+/// to its lead (`hub/lane_report_subagents.rs`), and none of its tool calls runs any more
+/// (`subagent_call.rs`). Prints nothing: blocking the stop to hand one over would make the
+/// subagent's answer to it its last message, the result its lead reads.
+pub fn subagent_stopped(home: &std::path::Path, session: &str, input: &Value) {
+    let Some(agent) = input.get("agent_id").and_then(Value::as_str) else { return };
+    if let Some(dir) = crate::subagent_notice::agent_dir(home, session, agent) {
+        let _ = crate::subagent_notice::mark_stopped(&dir);
+    }
+    crate::subagent_call::end_agent(home, session, agent);
+}
+
+/// The MCP tools through which an agent reaches acpmux without Bash: acpmux's own server, and
+/// cmux's in front of it (its listed tools, and `cmux_exec`, whose script calls them). acpmux's
+/// hook runs on these for a subagent ([`mcp_matcher`]) and records which subagent makes each call
+/// (`subagent_call.rs`): the incident's subagent ran `acpmux run` and `acpmux send` through
+/// `cmux.acpmux_bg_start` in a `cmux_exec` script, so its lane reports went to its lead (W5-M,
+/// 2026-11-08).
+pub const MCP_CALLS: &[&str] = &[
+    "mcp__acpmux__bg_start",
+    "mcp__acpmux__send",
+    "mcp__cmux__acpmux_bg_start",
+    "mcp__cmux__acpmux_send",
+    "mcp__cmux__cmux_exec",
+];
+
+/// [`MCP_CALLS`] as one hooks.json matcher (a regex of alternatives).
+pub fn mcp_matcher() -> String {
+    MCP_CALLS.join("|")
+}
+
+/// Whether `input` is a call of one of [`MCP_CALLS`].
+fn mcp_call(input: &Value) -> bool {
+    input.get("tool_name").and_then(Value::as_str).is_some_and(|t| MCP_CALLS.contains(&t))
+}
+
+/// A subagent's [`MCP_CALLS`] call starts (`PreToolUse`): records which subagent makes it, by its
+/// tool use id, for acpmux's MCP server (`subagent_call.rs`). Nothing for the lead's own call (no
+/// `agent_id`). Prints nothing: the call runs as asked.
+pub fn subagent_call_starts(home: &std::path::Path, session: &str, input: &Value) {
+    let text = |key: &str| input.get(key).and_then(Value::as_str);
+    let (Some(agent), Some(call), true) = (text("agent_id"), text("tool_use_id"), mcp_call(input))
+    else {
+        return;
+    };
+    let kind =
+        text("agent_type").filter(|k| crate::cli::sender::subagent_word(k)).unwrap_or("subagent");
+    let _ = crate::subagent_call::record(home, session, call, agent, kind);
+}
+
+/// A subagent's [`MCP_CALLS`] call ended (`PostToolUse`, `PostToolUseFailure`): its id names
+/// nobody any more (`subagent_call.rs`).
+pub fn subagent_call_ends(home: &std::path::Path, session: &str, input: &Value) {
+    if let (Some(call), true) = (input.get("tool_use_id").and_then(Value::as_str), mcp_call(input))
+    {
+        crate::subagent_call::end(home, session, call);
+    }
+}
+
 /// The hook process: reads the call on stdin, prints a deny, a subagent's mark
-/// ([`subagent_mark`]) or nothing, and always exits 0.
-/// `home` is the daemon's (`agent_tools::bg_hooks` passes it), where the chat's MCP config is.
+/// ([`subagent_mark`]), a subagent's notices ([`subagent_notices`]) or nothing, and always
+/// exits 0. `home` is the daemon's (`agent_tools::bg_hooks` passes it), where the chat's MCP
+/// config and its subagents' notices are.
 pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let mut text = String::new();
     let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text);
     let Ok(input) = serde_json::from_str::<Value>(&text) else { return Ok(()) };
     let Ok(session) = std::env::var(crate::acpmux_mcp::SESSION_ENV) else { return Ok(()) };
     let home = home.unwrap_or_else(crate::config::home);
+    match input.get("hook_event_name").and_then(Value::as_str) {
+        Some("PostToolUse") => {
+            subagent_call_ends(&home, &session, &input);
+            if let Some(answer) = subagent_notices(&home, &session, &input) {
+                println!("{answer}");
+            }
+            return Ok(());
+        }
+        Some("PostToolUseFailure") => {
+            subagent_call_ends(&home, &session, &input);
+            return Ok(());
+        }
+        Some("SubagentStop") => {
+            subagent_stopped(&home, &session, &input);
+            return Ok(());
+        }
+        Some("PreToolUse") if mcp_call(&input) => {
+            subagent_call_starts(&home, &session, &input);
+            return Ok(());
+        }
+        _ => {}
+    }
     let config = crate::agent_tools::mcp_config_path(&home, &session);
     let route = std::fs::read(&config)
         .ok()
@@ -728,5 +859,68 @@ mod tests {
         );
         assert_eq!(decide(&foreground("git status"), None), None);
         assert_eq!(decide(&foreground("git status"), Some(Route::Direct)), None);
+    }
+
+    /// The plugin's Bash hook starts this binary for every call [`main`] may answer (a
+    /// background shell, a subagent's call, each known-slow command, the forms agents write) and
+    /// for no quick foreground call of the lead, which then costs a shell and no process start.
+    #[cfg(unix)]
+    #[test]
+    fn the_bash_hook_starts_the_binary_only_for_a_call_it_may_answer() {
+        use std::io::Write;
+        let words = ["sh", "-c", "cat >/dev/null; echo started"].map(str::to_owned);
+        let hook = crate::agent_tools::hook_command(&words, &bash_patterns());
+        let starts = |input: &Value| {
+            let mut child = std::process::Command::new("sh")
+                .args(["-c", &hook])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            child.stdin.take().unwrap().write_all(input.to_string().as_bytes()).unwrap();
+            let out = child.wait_with_output().unwrap();
+            assert!(out.status.success(), "{out:?}");
+            String::from_utf8_lossy(&out.stdout).trim() == "started"
+        };
+        let mut slow: Vec<String> = SLOW
+            .iter()
+            .map(|(tool, next, needs, _)| {
+                [Some(*tool), *next, *needs].into_iter().flatten().collect::<Vec<_>>().join(" ")
+            })
+            .collect();
+        slow.extend(
+            [
+                "cd cmux-tui && cargo test -p acpmux --lib 2>&1 | tail -40",
+                "/usr/bin/xcodebuild -scheme cmux -configuration Debug build",
+                "gh pr checks 12 --watch --interval 30",
+                "tail -n 50 -F /tmp/app.log",
+                "npm run dev -- --port 3000",
+                "set -e\nswift build -c release",
+            ]
+            .map(str::to_owned),
+        );
+        for command in &slow {
+            assert!(slow_reason(command).is_some(), "{command}");
+            assert!(
+                starts(&foreground(command)),
+                "a slow command did not start the hook: {command}"
+            );
+        }
+        let quick =
+            ["git status --short | head -20", "ls -la", "rg -n TODO src", "echo run_in_background"];
+        for command in quick {
+            assert!(slow_reason(command).is_none());
+            assert!(!starts(&foreground(command)), "a quick command started the hook: {command}");
+            let mut call = foreground(command);
+            call["tool_input"]["run_in_background"] = json!(false);
+            assert!(!starts(&call), "{command}");
+            call["tool_input"]["run_in_background"] = json!(true);
+            assert!(decide(&call, Some(Route::Direct)).is_some());
+            assert!(starts(&call), "a background shell did not start the hook: {command}");
+            let mut call = foreground(command);
+            call["agent_id"] = json!("a0");
+            call["agent_type"] = json!("Explore");
+            assert!(starts(&call), "a subagent's call did not start the hook: {command}");
+        }
     }
 }

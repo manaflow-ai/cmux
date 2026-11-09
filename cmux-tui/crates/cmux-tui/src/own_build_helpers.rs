@@ -1,6 +1,7 @@
 //! The agent helpers a daemon's panes run, all of this daemon's own build:
-//! the `claude` and `codex` shims first on the pane PATH, and the agent hook
-//! helper in `CMUX_TUI_HOOK`.
+//! the `claude` and `codex` shims first on the pane PATH, the agent hook
+//! helper in `CMUX_TUI_HOOK`, and the Claude Code plugin in
+//! `CLAUDE_CODE_PLUGIN_DIRS`.
 //!
 //! Every install on a machine (the npm package, the app bundle, a tagged dev
 //! build) shares the user's data home. When all of them wrote one
@@ -77,12 +78,40 @@ pub(crate) fn launch_hook_helper(
     executable: &Path,
     inherited: Option<OsString>,
 ) -> Option<PathBuf> {
+    inherited_hook_helper(inherited).or_else(|| hook_helper(executable))
+}
+
+/// The inherited `CMUX_TUI_HOOK` when it names an absolute executable file
+/// other than the shared per-user helper, else `None`. Reads only: it never
+/// writes a launcher.
+pub(crate) fn inherited_hook_helper(inherited: Option<OsString>) -> Option<PathBuf> {
     let shared = agent_hook_install::runtime_helper_path();
     inherited
         .map(PathBuf::from)
         .filter(|path| path.is_absolute() && agent_hook_install::is_executable_file(path))
         .filter(|path| shared.as_deref().is_none_or(|shared| !same_file(path, shared)))
-        .or_else(|| hook_helper(executable))
+}
+
+/// The pane's `CLAUDE_CODE_PLUGIN_DIRS` with this build's Claude Code plugin
+/// (claude_plugin.rs), written into the build folder. `None` leaves the
+/// variable as the daemon inherited it: cmux-tui's Claude hooks are turned
+/// off, this machine's Claude Code policy refuses plugin folders from the
+/// environment, or the plugin could not be written.
+fn claude_plugin_dirs(executable: &Path, helper: &Path) -> Option<String> {
+    if std::env::var_os("CMUX_TUI_CLAUDE_HOOKS_DISABLED").is_some_and(|value| value == "1") {
+        return None;
+    }
+    let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from);
+    let config_dir =
+        std::env::var_os("CLAUDE_CONFIG_DIR").filter(|dir| !dir.is_empty()).map(PathBuf::from);
+    let policy = crate::claude_plugin::policy_files(home.as_deref(), config_dir.as_deref());
+    if crate::claude_plugin::sideloading_disabled(&policy) {
+        return None;
+    }
+    let dir = build_dir(executable)?.join(crate::claude_plugin::PLUGIN_FOLDER);
+    crate::claude_plugin::install(&dir, executable, helper).ok()?;
+    let inherited = std::env::var_os(crate::claude_plugin::PLUGIN_DIRS_ENV);
+    crate::claude_plugin::pane_plugin_dirs(inherited.as_deref(), &dir)?.into_string().ok()
 }
 
 fn same_file(a: &Path, b: &Path) -> bool {
@@ -91,14 +120,19 @@ fn same_file(a: &Path, b: &Path) -> bool {
 
 /// Points this daemon's panes at this build's helpers: `CMUX_TUI_HOOK`, the
 /// shim folder first on PATH (kept first over a caller PATH and after shell
-/// startup files), and `CMUX_TUI_AGENT_SHIMS`. A helper that could not be
-/// written leaves its part of the pane environment alone.
+/// startup files), `CMUX_TUI_AGENT_SHIMS`, and this build's Claude Code
+/// plugin in `CLAUDE_CODE_PLUGIN_DIRS`. A helper that could not be written
+/// leaves its part of the pane environment alone.
 pub(crate) fn configure_pane(options: &mut cmux_tui_core::SurfaceOptions) {
     let Ok(executable) = crate::claude_wrapper::current_executable() else { return };
+    let helper = hook_helper(&executable);
     if let Some(helper) =
-        hook_helper(&executable).and_then(|helper| helper.into_os_string().into_string().ok())
+        helper.clone().and_then(|helper| helper.into_os_string().into_string().ok())
     {
         options.extra_env.push(("CMUX_TUI_HOOK".into(), helper));
+    }
+    if let Some(dirs) = helper.and_then(|helper| claude_plugin_dirs(&executable, &helper)) {
+        options.extra_env.push((crate::claude_plugin::PLUGIN_DIRS_ENV.into(), dirs));
     }
     let Some(dir) = shim_dir(&executable) else { return };
     let claude = crate::claude_wrapper::install_shim(&dir, &executable).is_ok();

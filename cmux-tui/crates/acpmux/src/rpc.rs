@@ -541,6 +541,14 @@ pub mod method {
     /// Stop and delete every chat of one cmux workspace, an incognito one when its window
     /// closes (`server/chats/workspace_purge.rs`); the local unix socket only.
     pub const MUX_WORKSPACE_PURGE: &str = "_acpmux/workspace_purge";
+    /// Every ask waiting on the person and the pull requests without a review verdict, here and
+    /// on each peer (`hub/review_queue.rs`); the local socket and the app, a peer its own only.
+    pub const MUX_REVIEW_QUEUE: &str = "_acpmux/review_queue";
+    /// A review verdict on a session's pull request, written to the audit trail
+    /// (`hub/audit_entries.rs`); the person's local socket or app only.
+    pub const MUX_REVIEW_VERDICT: &str = "_acpmux/review_verdict";
+    /// The approvals audit trail (`hub/audit_log.rs`); the local socket and the app only.
+    pub const MUX_AUDIT: &str = "_acpmux/audit";
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
@@ -661,6 +669,9 @@ pub mod method {
     pub const MUX_ACCOUNTS: &str = "_acpmux/accounts";
     pub const MUX_ACCOUNT_SET: &str = "_acpmux/account/set";
     pub const MUX_ACCOUNT_USAGE: &str = "_acpmux/account/usage";
+    /// Create a fix chat from a GitHub issue URL (`{url, cwd?}`).
+    pub const CHAT_FIX_FROM_LINK: &str = "chat.fix_from_link";
+    pub const CHAT_FIX_FROM_LINK_PREPARE: &str = "chat.fix_from_link.prepare";
     // Cross-harness handoff: a reviewed first message from one session to a
     // new session on another harness (see hub/handoff.rs).
     pub const MUX_HANDOFF_PREPARE: &str = "_acpmux/handoff_prepare";
@@ -729,6 +740,11 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    /// Building an approved plan here, in a new worktree, or on two agents to compare
+    /// (`server/plan_build.rs`, `hub/plan_build.rs`).
+    pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";
+    pub const MUX_PLAN_COMPARE: &str = "_acpmux/plan/compare";
+    pub const MUX_PLAN_KEEP: &str = "_acpmux/plan/keep";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";

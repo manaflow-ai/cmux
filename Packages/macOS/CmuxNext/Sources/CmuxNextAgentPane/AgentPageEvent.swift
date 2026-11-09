@@ -1,6 +1,7 @@
 public import CmuxNextDesign
 public import CmuxNextDictation
 public import CmuxNextSettings
+import CryptoKit
 public import Foundation
 
 /// One push from the host to the agent page on the shared page host, an event of the stream
@@ -22,11 +23,15 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// The stream event: `{kind, value}`.
     public var data: JSONValue { ["kind": .string(kind), "value": value] }
 
-    /// The shared web theme for `surface` (`web`, `--cmux-*`) and the pane's own values (`agent`).
+    /// The shared web theme for `surface` (`web`, `--cmux-*`) and the pane's own values (`agent`),
+    /// and `key`, a digest of both: a chat's drawn copy is drawn only under the theme it was drawn in
+    /// (``AgentPaneChatSnapshots``, chatSnapshot/shared.ts), which the page knows only by this key.
     @MainActor public static func theme(_ tokens: ThemeTokens, surface: SurfaceKind) -> AgentPageEvent? {
         guard let web = try? JSONValue.parse(Data(AgentPaneTheme.webTheme(tokens, surface: surface).payloadJSON.utf8)),
               let agent = JSONValue(foundation: AgentPaneTheme.values(tokens, surface: surface)) else { return nil }
-        return AgentPageEvent(kind: "theme", value: ["web": web, "agent": agent])
+        let theme: JSONValue = ["web": web, "agent": agent]
+        let digest = SHA256.hash(data: Data(theme.compactText.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+        return AgentPageEvent(kind: "theme", value: ["web": web, "agent": agent, "key": .string(digest)])
     }
 
     /// The shortcut labels the page shows.
@@ -126,4 +131,7 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// Focus Location Bar on a new tab page.
     public static let focusLocation = AgentPageEvent(kind: "focusLocation")
+
+    /// Write the chat's drawn copy now: the page was hidden (``AgentPaneChatSnapshots``).
+    public static let chatSnapshotWrite = AgentPageEvent(kind: "chatSnapshot.write")
 }

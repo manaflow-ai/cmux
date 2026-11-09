@@ -121,6 +121,11 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     } else {
         ""
     };
+    let send = if tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(SEND)) {
+        SEND_STEER
+    } else {
+        ""
+    };
     let grouped = families(tools);
     // A harness that shows one tool must still find computer use in it: a
     // chat asked to "open Calculator" used osascript (2026-10-27).
@@ -200,7 +205,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
              app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
              field has the error, its state and its idempotency key; its message names the fix. \
-             A failed script reports the calls that already ran. Families: {families}.{bg}{github}{wrap_up}{offers}"
+             A failed script reports the calls that already ran. Families: {families}.{bg}{github}{wrap_up}{offers}{send}"
         ),
         "inputSchema": {
             "type": "object",
@@ -215,18 +220,24 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
             "required": ["script"],
         },
         "annotations": {"destructiveHint": true, "openWorldHint": false},
+        // Claude Code defers MCP tools behind its tool search unless a tool says it always
+        // loads. Every NEXT chat that used cmux_exec first spent a round trip on
+        // `ToolSearch select:mcp__cmux__cmux_exec` (5 of 5 guided chats, 64 searches in 172
+        // transcripts, 2026-11-09 audit), and its description is the guide to cmux's tools.
+        // Other harnesses ignore the key.
+        "_meta": {"anthropic/alwaysLoad": true},
     })]
 }
 
 /// acpmux's `bg_start` behind this server (its upstream prefix `acpmux`).
+/// Only the bg_start rule: the parallel-work rule reaches the chat once, in the
+/// first-turn context (`acpmux::agent_tools::CONCURRENT_WORK_RULE`), and Claude Code's
+/// own prompt says it too.
 const BG_START: &str = "acpmux_bg_start";
 const BG_STEER: &str = " Long-running commands (a dev server, a watcher, a long build or \
     test run) go to `cmux.acpmux_bg_start({command, cwd})`, not a background shell or terminal \
     of your own: this chat's agent hibernates after 2 idle minutes and its own background shells \
-    end with it, while that task keeps running; `cmux.acpmux_bg_output({id, fromByte})` reads it. \
-    Work in parallel: at the start of a task, read the files and run the searches you already \
-    know you need as one batch of independent tool calls, not one after another, and while that \
-    task runs, go on with the parts that do not need its result.";
+    end with it, while that task keeps running; `cmux.acpmux_bg_output({id, fromByte})` reads it.";
 
 /// acpmux's `github_status` behind this server (acpmux `github_status.rs`).
 const GITHUB_STATUS: &str = "acpmux_github_status";
@@ -239,15 +250,10 @@ const GITHUB_STEER: &str = " When the person asks about their GitHub (can you se
 /// acpmux's `wrap_up` behind this server (acpmux `acpmux_mcp_wrap_up.rs`): the next-step box the
 /// person sees under the answer. Its `call_log` record carries what it showed (`shown`), which
 /// the agent pane reads to draw the box (webviews `conversation/wrapUp.ts`). The steer goes in
-/// `cmux_exec`'s description and in the server's instructions: Claude Code defers MCP tools, so
-/// a description is seen only after a tool search, and a DEV chat asked for "your next-step box"
-/// reached for AskUserQuestion instead (2026-11-04).
+/// `cmux_exec`'s description, which Claude Code always loads: while it was deferred, a DEV chat
+/// asked for "your next-step box" reached for AskUserQuestion instead (2026-11-04), and the
+/// server's instructions carried a second copy until `cmux_exec` stopped being deferred.
 pub(super) const WRAP_UP: &str = "acpmux_wrap_up";
-/// The acpmux upstream that serves [`WRAP_UP`] (acpmux `agent_tools.rs`).
-pub(super) const WRAP_UP_SERVER: &str = "acpmux";
-/// The server instructions' line: Claude Code may cut instructions past 2048 characters, so it
-/// stays short and the full steer is [`WRAP_UP_STEER`] in `cmux_exec`'s description.
-pub(super) const WRAP_UP_INSTRUCTION: &str = " End a turn that did work with cmux.acpmux_wrap_up({recap, ask, actions}), not AskUserQuestion.";
 pub(super) const WRAP_UP_STEER: &str = " When you end a turn that did work, call \
     `cmux.acpmux_wrap_up({recap, ask, actions})` from cmux_exec as its last step: it draws the \
     next-step box under your answer. recap says in two or three plain sentences what changed and \
@@ -263,14 +269,10 @@ pub(super) const WRAP_UP_STEER: &str = " When you end a turn that did work, call
 /// folds as `sessions`): a new chat the agent suggests, which the agent pane draws as a card with
 /// Options, Do it here and Start (webviews `offer/SuggestedTasks.tsx`). Its server's instructions
 /// reach a code-mode chat only through `cmux.docs`, so a default chat never offered one; the steer
-/// goes in `cmux_exec`'s description and the server's instructions, as the wrap-up's does. Leo,
+/// goes in `cmux_exec`'s description, as the wrap-up's does. Leo,
 /// 2026-11-05, on Claude Desktop's suggested-session card: "I want to be able to, like, recommend
 /// Claude to be able to do that as well. in our cmux-next app. and have it be rendered."
 pub(super) const OFFER: &str = "sessions_offer_session";
-/// The upstream that serves [`OFFER`] (acpmux `offer_mcp::SERVER_NAME`).
-pub(super) const OFFER_SERVER: &str = "cmux-sessions";
-/// The server instructions' line, short for the 2048-character cut; [`OFFER_STEER`] has the rest.
-pub(super) const OFFER_INSTRUCTION: &str = " Side work you notice but should not do now: suggest it as a new chat with cmux.sessions_offer_session({title, prompt}).";
 pub(super) const OFFER_STEER: &str = " When you notice work outside the task at hand that the \
     person would likely want (a bug, a follow-up, a cleanup), do not do it inline and do not only \
     mention it: call `cmux.sessions_offer_session({title, prompt, worktree?})` from cmux_exec. It \
@@ -278,6 +280,17 @@ pub(super) const OFFER_STEER: &str = " When you notice work outside the task at 
     prompt, which must carry the whole task and its context, since the new chat has none of this \
     one's history. It returns at once: go on with your task. For a few follow-ups at the end of a \
     turn, `cmux.sessions_suggest_tasks({tasks: [{title, prompt}]})`.";
+
+/// acpmux's `send` behind this server (acpmux `acpmux_mcp_send.rs`). Its own description says to
+/// use it instead of `acpmux send` in a shell, but code mode shows that description only after a
+/// `cmux.docs` search, so a folded chat never read it: in 172 NEXT Claude transcripts, chats that
+/// had only `cmux_exec` sent 9,260 messages with `acpmux send` in Bash and 2 with
+/// `cmux.acpmux_send`, while chats shown `mcp__acpmux__send` itself sent a third through it
+/// (117 of 340), 2026-11-09 audit.
+const SEND: &str = "acpmux_send";
+const SEND_STEER: &str = " Message another agent session (a lane, a coordinator, host/name) \
+    with `cmux.acpmux_send({to, text})` (messages: [...] batches; file, attach, class, pr), not \
+    `acpmux send` in a shell; `cmux.acpmux_inbox_reply({thread, text})` answers an inbox thread.";
 
 /// Tool names grouped by their first word (`pane_split` is `pane`).
 fn families(tools: &[Value]) -> BTreeMap<String, Vec<String>> {
@@ -289,8 +302,21 @@ fn families(tools: &[Value]) -> BTreeMap<String, Vec<String>> {
     families
 }
 
-/// `cmux_docs`: tools that match, with schemas; or every name by family.
+/// How a docs answer's tools answer. 8 of 1,100 sampled `cmux_exec` calls failed with "not a
+/// function" from calling an array method on a list's `{items}` answer (2026-11-09 audit).
+const RESULTS_NOTE: &str = "A list answers {items: [...]}, not an array: (await \
+    cmux.tab_list({pane})).items.map((t) => t.id). A change answers {value: {...}}.";
+
+/// `cmux_docs`: tools that match, with schemas, and [`RESULTS_NOTE`]; or every name by family.
 pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Value, String> {
+    let mut answer = lookup(tools, arguments)?;
+    if answer.get("tools").and_then(Value::as_array).is_some_and(|tools| !tools.is_empty()) {
+        answer.set("results", json!(RESULTS_NOTE));
+    }
+    Ok(answer)
+}
+
+fn lookup(tools: &[Value], arguments: &Map<String, Value>) -> Result<Value, String> {
     if let Some(name) =
         arguments.keys().find(|name| !matches!(name.as_str(), "query" | "names" | "limit"))
     {
@@ -563,10 +589,13 @@ fn exec_mode(
     workflow_inputs: Option<Value>,
 ) -> Result<Value, String> {
     let workflow_mode = workflow_inputs.is_some();
-    if let Some(name) = arguments.keys().find(|name| name.as_str() != "script") {
+    // `code` is what models that know other code-mode tools send (6 of 1,100 cmux_exec calls
+    // in NEXT transcripts failed on it, 2026-11-09 audit): it is the script under another name.
+    let key = if arguments.contains_key("script") { "script" } else { "code" };
+    if let Some(name) = arguments.keys().find(|name| name.as_str() != key) {
         return Err(format!("{EXEC} has no argument {name:?}"));
     }
-    let script = match arguments.get("script") {
+    let script = match arguments.get(key) {
         Some(Value::String(script)) if !script.trim().is_empty() => script.clone(),
         _ => return Err(format!("{EXEC} needs script, a non-empty string")),
     };
@@ -771,13 +800,18 @@ const PRELUDE: &str = r#"
       });
     },
   });
+  // The usual cause: an array method on a list's answer, which is {items: [...]} (8 of 1,100
+  // sampled cmux_exec calls, 2026-11-09 audit). QuickJS's message names no method.
+  const notAFunction = (message) => /not a function/.test(message)
+    ? `${message} (a cmux list answers {items: [...]}, not an array: use .items.map(...))`
+    : message;
   // `({cmux}) => {...}` takes the object a function script is called with: cmux itself.
   base.cmux = globalThis.cmux;
   globalThis.__cmuxFinish = (promise) => promise.then(
     (value) => native.done(true, encode(value)),
     (error) => native.done(false, encode({
       code: "script.error",
-      message: String(error && error.message !== undefined ? error.message : error),
+      message: notAFunction(String(error && error.message !== undefined ? error.message : error)),
       stack: error && error.stack ? String(error.stack) : undefined,
       cmux: error && error.cmux,
     })),
@@ -1243,7 +1277,9 @@ mod bg_steer_tests {
         let text = with[0]["description"].as_str().unwrap();
         assert!(text.contains("cmux.acpmux_bg_start({command, cwd})"), "{text}");
         assert!(text.contains("hibernates after 2 idle minutes"), "{text}");
-        assert!(text.contains("as one batch of independent tool calls"), "{text}");
+        // The parallel-work rule is the first-turn context's (`CONCURRENT_WORK_RULE`), sent once
+        // per chat; the tool description does not say it a second time.
+        assert!(!text.contains("one batch of independent tool calls"), "{text}");
         let without = descriptors(&[json!({"name": "pane_split"})]);
         assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_bg_start"));
     }
@@ -1262,6 +1298,24 @@ mod github_steer_tests {
         assert!(text.contains("cmux.acpmux_github_status({})"), "{text}");
         let without = descriptors(&[json!({"name": "pane_split"})]);
         assert!(!without[0]["description"].as_str().unwrap().contains("github_status"));
+    }
+}
+
+#[cfg(test)]
+mod send_steer_tests {
+    use super::*;
+
+    /// A chat with acpmux's `send` folded in is told in `cmux_exec`'s description to message
+    /// other sessions with it, not the CLI in a shell; one without it is not.
+    #[test]
+    fn the_exec_description_names_the_send_tool_only_where_it_is() {
+        let with = descriptors(&[json!({"name": SEND}), json!({"name": "acpmux_inbox_reply"})]);
+        let text = with[0]["description"].as_str().unwrap();
+        assert!(text.contains("cmux.acpmux_send({to, text})"), "{text}");
+        assert!(text.contains("not `acpmux send` in a shell"), "{text}");
+        assert!(text.contains("cmux.acpmux_inbox_reply({thread, text})"), "{text}");
+        let without = descriptors(&[json!({"name": "pane_split"})]);
+        assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_send"));
     }
 }
 

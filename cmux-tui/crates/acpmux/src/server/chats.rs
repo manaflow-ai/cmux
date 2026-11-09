@@ -46,11 +46,12 @@
 //!   a transcript; its store root joins the index (recorded roots file).
 //! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
 //!   permissionMode?, permissionModeManaged?, allowFullAccess?,
-//!   allowFullAccessManaged?}`: the app's effective cmux.json
-//!   `agents.chats.*` values (`chats/settings.rs`) and its effective
-//!   `agents.defaultPermissionMode` and `sessions.allowFullAccess`, each with
-//!   whether MDM or the team policy forces it (`hub/start_mode_state.rs`; a
-//!   forced full-access off is an upper bound); answers the roots view with
+//!   allowFullAccessManaged?, promptSuggestions?, promptSuggestionsManaged?}`:
+//!   the app's effective cmux.json `agents.chats.*` values (`chats/settings.rs`)
+//!   and its effective `agents.defaultPermissionMode`, `sessions.allowFullAccess`
+//!   and `agents.promptSuggestions`, each with whether MDM or the team policy
+//!   forces it (`hub/start_mode_state.rs`; a forced full-access off is an upper
+//!   bound, a forced prompt-suggestions value beats the file); answers the roots view with
 //!   `applied: true`. While chats are off, `_acpmux/chats` answers
 //!   `enabled: false` and no chats.
 //!
@@ -73,7 +74,9 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
 
 use super::{Conn, Origin};
-use crate::chats::{ChatQuery, ChatService, activity_change, change_value, changes_activity};
+use crate::chats::{
+    ChatQuery, ChatService, activity_change, change_value, changes_activity, transcript_turns,
+};
 use crate::heap_future::heap;
 use crate::hub::Hub;
 use crate::hub::HubEvent;
@@ -90,6 +93,8 @@ pub(super) async fn route(
 ) -> Result<Value, RpcError> {
     // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
     let params = super::pairing::gate(conn, m, params)?;
+    // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
+    let params = super::carrier::gate(hub, conn, m, params)?;
     hub.prepare_store_request(m, &params).await;
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
@@ -142,6 +147,10 @@ pub(super) async fn route(
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
         return reply;
     }
+    // The plan approval card's builds (`plan_build.rs`): sub-sessions of this daemon.
+    if let Some(reply) = heap(|| super::plan_build::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     if let Some(reply) = heap(|| super::memory_inbox::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
@@ -166,6 +175,12 @@ pub(super) async fn route(
     // Personal stats over the session logs (`stats.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_STATS {
         return stats::handle(hub, conn.origin, &params).await;
+    }
+    // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
+    if let Some(reply) =
+        super::review_queue::route(hub, conn.origin, conn.auth, conn.is_person(), m, &params).await
+    {
+        return reply;
     }
     // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
     if m == crate::rpc::method::MUX_LEDGER {
@@ -412,6 +427,7 @@ pub(super) async fn route(
             let forced = full_access_managed
                 .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
             hub.apply_full_access_push(forced).await;
+            hub.apply_prompt_suggestions_push(prompt_suggestions_forced(&params)?).await;
             hub.set_session_recap(settings.session_recap);
             let hub = hub.clone();
             blocking(move || {
@@ -442,6 +458,20 @@ pub(super) async fn route(
         "_acpmux/chats_window_close" => super::chat_windows::close(conn, &params),
         other => Err(RpcError::method_not_found(other)),
     }
+}
+
+/// The `agents.promptSuggestions` MDM or the team policy forces, from a `_acpmux/chat_settings`
+/// push: `None` unless `promptSuggestionsManaged` is true (an older app sends neither key). A forced
+/// value that is not a boolean is off, so an unreadable policy never turns on extra model calls.
+fn prompt_suggestions_forced(params: &Value) -> Result<Option<bool>, RpcError> {
+    let managed = match params.get("promptSuggestionsManaged") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(managed)) => *managed,
+        Some(_) => {
+            return Err(RpcError::invalid_params("promptSuggestionsManaged must be true or false"));
+        }
+    };
+    Ok(managed.then(|| params.get("promptSuggestions") == Some(&Value::Bool(true))))
 }
 
 async fn page(
@@ -475,41 +505,6 @@ async fn settled_page(
     let mut page = page(hub, service, query).await?;
     page.set("settled", Value::Bool(true));
     Ok(page)
-}
-
-/// A chat's turns: Claude Code and Codex through adopt's reader (`adopt_replay.rs`, the turns an
-/// adopted chat replays), every other harness through `cmux_chat_index::transcript`. Both come
-/// out with the same caps, and a file that cannot be read is an error, never "no turns".
-fn transcript_turns(
-    entry: &cmux_chat_index::ChatEntry,
-) -> Result<Vec<cmux_chat_index::transcript::Turn>, cmux_chat_index::transcript::TranscriptError> {
-    use cmux_chat_index::AdapterKind;
-    use cmux_chat_index::transcript::{TranscriptError, Turn, capped};
-    let family = match entry.harness {
-        AdapterKind::ClaudeCode => "claude",
-        AdapterKind::Codex => "codex",
-        kind => {
-            return cmux_chat_index::transcript::read_turns(
-                kind,
-                &entry.source_path,
-                &entry.session_id,
-            );
-        }
-    };
-    // adopt's reader answers an unreadable file with no turns.
-    std::fs::File::open(&entry.source_path)
-        .map_err(|e| TranscriptError::Unreadable(e.to_string()))?;
-    let turns = crate::adopt_replay::read(family, &entry.source_path);
-    Ok(turns
-        .into_iter()
-        .map(|t| Turn {
-            prompt: capped(t.prompt),
-            // No answer yet has no answer time (adopt's reader starts it at the prompt's).
-            answer_at: t.answer_at.filter(|_| !t.answer.is_empty()),
-            answer: capped(t.answer),
-            prompt_at: t.prompt_at,
-        })
-        .collect())
 }
 
 /// The index lock may be held by a scan: never wait for it on the executor.
@@ -581,4 +576,36 @@ pub(super) async fn watch_take_over(hub: &Arc<Hub>, params: &Value) -> Result<Va
     let if_live = crate::adopt::IfLive::parse(super::str_param(params, "ifLive"))
         .map_err(RpcError::invalid_params)?;
     hub.watch_take_over(&s, if_live).await
+}
+
+#[cfg(test)]
+mod prompt_suggestions_push_tests {
+    use super::prompt_suggestions_forced;
+    use serde_json::json;
+
+    #[test]
+    fn only_a_managed_push_forces_and_a_non_boolean_is_off() {
+        let forced = |p| prompt_suggestions_forced(&p).unwrap();
+        assert_eq!(forced(json!({})), None, "an older app sends neither key");
+        assert_eq!(
+            forced(json!({"promptSuggestions": false})),
+            None,
+            "not managed: the file decides"
+        );
+        assert_eq!(forced(json!({"promptSuggestionsManaged": null})), None);
+        assert_eq!(
+            forced(json!({"promptSuggestions": false, "promptSuggestionsManaged": true})),
+            Some(false)
+        );
+        assert_eq!(
+            forced(json!({"promptSuggestions": true, "promptSuggestionsManaged": true})),
+            Some(true)
+        );
+        assert_eq!(
+            forced(json!({"promptSuggestions": "true", "promptSuggestionsManaged": true})),
+            Some(false)
+        );
+        assert_eq!(forced(json!({"promptSuggestionsManaged": true})), Some(false));
+        assert!(prompt_suggestions_forced(&json!({"promptSuggestionsManaged": "yes"})).is_err());
+    }
 }

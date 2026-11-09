@@ -47,6 +47,8 @@ mod billing;
 mod caller_browser;
 mod capability_cache;
 #[cfg(unix)]
+mod chat_cd;
+#[cfg(unix)]
 mod chat_send;
 #[cfg(unix)]
 mod chat_start;
@@ -86,6 +88,7 @@ mod command;
 #[cfg(unix)]
 mod dev;
 mod docs;
+mod event_match;
 mod extra_help;
 mod federation;
 mod fix_command;
@@ -98,6 +101,7 @@ mod inference_gateway;
 #[cfg(unix)]
 mod inference_setup;
 mod internal;
+mod keys_help;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
@@ -169,6 +173,7 @@ mod skew;
 mod skill;
 #[cfg(unix)]
 mod status;
+mod stream_output;
 mod surface;
 mod tab_capabilities;
 #[cfg(unix)]
@@ -613,6 +618,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Some(code) = chat_send::run_if_requested(args) {
         return code;
     }
+    // `chat cd SESSION DIR|--repo R`: a Cloud chat goes on in another folder (chat_cd.rs).
+    #[cfg(unix)]
+    if let Some(code) = chat_cd::run_if_requested(args) {
+        return code;
+    }
     // `chat send` from a coding agent is the agent's message, not the owner's
     // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
     // the app action with its text labelled.
@@ -926,7 +936,9 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands" | "docs" | "run") => {
+            Some(scope)
+                if matches!(scope.as_str(), "start" | "shorthands" | "docs" | "run" | "keys") =>
+            {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if surface.accepts(shorthand::scope(scope)) => {
@@ -1312,8 +1324,19 @@ fn scope_help_for(
     scope: &str,
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
+    scope_help_with_keys(scope, catalog, || crate::config::load().keys)
+}
+
+/// [`scope_help_for`] with the key bindings `help keys` lists read from
+/// `keys` (the person's config in the CLI; fixed bindings in a test).
+fn scope_help_with_keys(
+    scope: &str,
+    catalog: &'static crate::localization::Catalog,
+    keys: impl FnOnce() -> crate::config::Keys,
+) -> Cow<'static, str> {
     let text = code_mode::scope_help(scope).unwrap_or_else(|| match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
+        "keys" => Cow::Owned(keys_help::help(&keys(), catalog)),
         machine_server::HELP_TOPIC => Cow::Owned(machine_server::help()),
         "docs" => Cow::Borrowed(docs::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),
@@ -1513,9 +1536,12 @@ USAGE
   cmux agent list [--needs-me] [--state working|blocked|done|idle|unknown|ended]
                   [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
                   (done: idle with an unread notification; ended: the session
-                  ended, which --state done selected before)
+                  ended, which --state done selected before; rows carry name
+                  and status, and state is a deprecated alias of status; an
+                  ended agent of a closed terminal is listed only with
+                  --state ended)
   cmux agent <agent> focus
-  cmux agent report --terminal <selector> --state <value> --source <value>
+  cmux agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
   cmux agent plugin list

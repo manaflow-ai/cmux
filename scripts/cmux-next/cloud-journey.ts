@@ -22,7 +22,8 @@
  * same routes the app and the cmux CLI use, against the cmux API Worker (which forwards Cloud ops to
  * cmux-platform):
  *
- *   health -> sign in -> user.ensure -> install token -> create machine -> running (status) -> listed
+ *   health -> sign in -> user.ensure -> install token -> sweep leaked journey machines -> create machine
+ *   -> running (status) -> listed
  *   -> first exec -> pass Claude login -> start agent (acpmux on the machine) -> send chat -> reply -> turn 2 (same
  *   session) -> daemon restart keeps the session (the guest's agent daemon killed, then a turn) -> connect_info
  *   -> carrier dial (an identify answered over the machine's relay slot) -> handoff record -> pause -> resume
@@ -30,7 +31,14 @@
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
  * summary.md (a table for a PR comment or job summary). The machine this run made is deleted at the
- * end, pass or fail, by its exact id, unless --keep. Exit 0 only when no step failed.
+ * end, pass or fail, by its exact id, unless --keep. A run that was killed before its cleanup leaves its
+ * machines behind, holding the test account's machine quota: so before create (not with --machine or --keep),
+ * the journey deletes `cloud journey auto jr-<tag>` machines (and their gateways) whose tag says they started
+ * more than 3 hours ago (no journey job runs past 90 minutes) and that have had no activity for an hour, so a
+ * running journey's machines are never touched.
+ * Only a run that deletes its machine gives the `auto` name; a --keep run's plain `cloud journey jr-<tag>` is never
+ * swept. Every page of the machine list is read, and each machine is logged before its delete.
+ * A sweep error is recorded as a skip and the run goes on. Exit 0 only when no step failed.
  *
  * Exec goes the CLI's own way (`cmux machine access exec`: a client session minted at
  * POST /v1/cloud/machines/{id}/client-session, then the provider's exec-await). --cmux PATH runs every
@@ -64,6 +72,12 @@
  * the reply, the local gateway's log line for the chat machine's call, and that the chat machine has no login file.
  * Either way the team is put in gateway mode before the chat machine is made (its edge route is picked when it is
  * made) and set back to its earlier mode at the end.
+ *
+ * --machines lists the agent test account's machines (one JSON line each, with `eligible` by the leaked journey
+ * machine rule; --also-team T lists a second team too), and --delete-ids vm_a@JOB,vm_b@JOB deletes exactly those (at
+ * most 5), each only when JOB is a trusted cmux-vm.yml deploy-staging job whose log shows it made the machine and its cleanup delete failed
+ * (GITHUB_TOKEN reads it), the live list has it and the rule allows it, logged first (cmux-vm.yml action
+ * journey-machines-staging).
  *
  * --probe-out FILE writes the run as one synthetic-probe result row (cmuxterm-hq probes.py: probe, at,
  * outcome ok|fail, ms = send to first reply, error), --probe NAME naming it.
@@ -139,7 +153,7 @@ export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<st
   const total = steps.reduce((n, s) => n + s.ms, 0);
   const head = `${failed ? "FAIL" : "PASS"}: Cloud journey on \`${backend.name}\` (${backend.api}), ${(total / 1000).toFixed(1)} s`;
   const extra = Object.entries(meta).map(([k, v]) => `${k}: ${v}`).join(", ");
-  const rows = steps.map((s) => `| ${s.status === "pass" ? "pass" : s.status === "fail" ? "**FAIL**" : "skip"} | ${s.step} | ${s.ms} | ${s.detail.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 300)} |`);
+  const rows = steps.map((s) => `| ${s.status === "pass" ? "pass" : s.status === "fail" ? "**FAIL**" : "skip"} | ${s.step} | ${s.ms} | ${s.detail.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 1000)} |`);
   return [head, extra ? `\n${extra}` : "", "", "| result | step | ms | detail |", "|---|---|---:|---|", ...rows, ""].join("\n");
 }
 
@@ -154,7 +168,7 @@ class Journey {
       this.record({ step: name, status: "pass", ms: Date.now() - t0, detail });
       return value;
     } catch (error) {
-      this.record({ step: name, status: "fail", ms: Date.now() - t0, detail: String((error as Error)?.message ?? error).slice(0, 600) });
+      this.record({ step: name, status: "fail", ms: Date.now() - t0, detail: String((error as Error)?.message ?? error).slice(0, 1000) });
       throw error;
     }
   }
@@ -216,6 +230,8 @@ export async function oidcSignIn(apiOrigin: string, env: Record<string, string |
 }
 
 const OP_ATTEMPTS = 3;
+/** How long a machine delete keeps retrying an indeterminate answer under its key. */
+const DELETE_BUDGET_MS = 180_000;
 /** The ops API says a provider call was cut off and the same idempotency key may be sent again. */
 export const opRetryable = (body: any): boolean => body?.ok !== true && body?.error?.code === "mutation.indeterminate" && body?.error?.retryable === true;
 
@@ -234,13 +250,27 @@ class Api {
       return r.body.value;
     }
   }
-  async read(op: string, params: unknown): Promise<any> {
-    const r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers());
+  /**
+   * A machine delete that must not leak: retried under the same key while the ops API answers it was cut off
+   * (mutation.indeterminate, retryable), for up to `budgetMs`. op() gives up after three tries in about six
+   * seconds, which leaked a machine on a 502 storm (cmux-vm run 42485334511).
+   */
+  async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
+    const until = Date.now() + budgetMs;
+    for (let attempt = 1; ; attempt++) {
+      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000);
+      if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
+      if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
+      return r.body.value;
+    }
+  }
+  async read(op: string, params: unknown, timeoutMs = 30_000): Promise<any> {
+    const r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs);
     if (r.status !== 200 || (r.body.ok === false)) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
     return r.body.value;
   }
-  async raw(method: string, route: string, body?: unknown): Promise<Answer> {
-    return http(method, `${this.origin}${route}`, body, this.headers(), 60_000);
+  async raw(method: string, route: string, body?: unknown, timeoutMs = 60_000): Promise<Answer> {
+    return http(method, `${this.origin}${route}`, body, this.headers(), timeoutMs);
   }
 }
 
@@ -328,46 +358,86 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
   };
 }
 
+/** An awk function that reads one string field of a journalctl JSON line, past escaped quotes (`\"` reads as `"`). */
+export const JOURNAL_FIELD = `function field(name,   r) { if (match($0, "\\"" name "\\":\\"([^\\"\\\\\\\\]|\\\\\\\\.)*\\"")) { r = substr($0, RSTART, RLENGTH); sub(/^"[^"]*":"/, "", r); sub(/"$/, "", r); gsub(/\\\\"/, "\\"", r); return r } return "" }`;
+
 /**
- * When the guest set up its carrier, in the guest's own clock: the bind the host finished (bound.json; the platform's
- * bind.json is gone by now, since the host deletes it once bound.json is written, cmux-host cloud/client.rs), the
- * carrier.json and grant the host wrote from it, the session host's start (it is respawned with the relay flags; from
- * /proc/uptime, which keeps hundredths where btime is whole seconds), and the host's journal lines about them. Each line
- * is `<name> <epoch ms>`. The session host's pid and
- * the journal may need root: the pid falls back to `sudo -n`, and the journal tries it first (journalctl run without
- * root can exit 0 with nothing to show).
+ * When the guest set up its carrier: the bind the host finished (bound.json; the platform's bind.json is gone by now,
+ * since the host deletes it once bound.json is written, cmux-host cloud/client.rs), the carrier.json and grant the host
+ * wrote from it, the session host's start (it is respawned with the relay flags), and the host's journal lines about
+ * them. Times are on the guest's boot clock where it has one, so a wall clock stepped after boot (a machine resumed
+ * from a snapshot, then synced) moves nothing: `guest_now <wall ms> <uptime ms>` read together, `mono <name> <ms since
+ * boot>` (the session host), `journal <ms since boot> <message>`, `wall <name> <epoch ms>` (a file's mtime) and
+ * `clock <epoch ms> <boot's epoch ms>` each time the journal's wall clock moved against its boot clock. The pid and the
+ * journal may need root: each tries `sudo -n` (journalctl run without root can exit 0 with nothing to show).
  */
 export const GUEST_CARRIER_TIMELINE = [
-  'echo "guest_now $(date +%s%3N)"',
+  `echo "guest_now $(date +%s%3N) $(awk '{ printf "%.0f", $1 * 1000 }' /proc/uptime)"`,
   "for f in /var/lib/cmux/bound.json /var/lib/cmux/carrier.json /run/cmux/carrier-grant.json; do",
-  '  t=$(date -r "$f" +%s%3N 2>/dev/null || sudo -n date -r "$f" +%s%3N 2>/dev/null) && echo "$(basename "$f") $t"',
+  '  t=$(date -r "$f" +%s%3N 2>/dev/null || sudo -n date -r "$f" +%s%3N 2>/dev/null) && echo "wall $(basename "$f") $t"',
   "done",
   "pid=$(cat /run/cmux-host/daemon.pid 2>/dev/null || sudo -n cat /run/cmux-host/daemon.pid 2>/dev/null)",
   'if [ -n "$pid" ] && [ -r "/proc/$pid/stat" ]; then',
-  "  now=$(date +%s%3N); up=$(awk '{print $1}' /proc/uptime); st=$(awk '{print $22}' \"/proc/$pid/stat\"); hz=$(getconf CLK_TCK)",
-  "  awk -v n=\"$now\" -v u=\"$up\" -v s=\"$st\" -v h=\"$hz\" 'BEGIN { printf \"session_host_start %.0f\\n\", n - u * 1000 + s * 1000 / h }'",
+  "  st=$(awk '{print $22}' \"/proc/$pid/stat\"); hz=$(getconf CLK_TCK)",
+  "  awk -v s=\"$st\" -v h=\"$hz\" 'BEGIN { printf \"mono session_host_start %.0f\\n\", s * 1000 / h }'",
   "fi",
-  "{ sudo -n journalctl -u cmux-host.service -o short-unix --no-pager -n 200 2>/dev/null || journalctl -u cmux-host.service -o short-unix --no-pager -n 200 2>/dev/null; } \\",
-  "  | grep -iE 'carrier|session host|relay|regist' | tail -8 | awk '{ t = $1; $1 = \"\"; $2 = \"\"; sub(/^ +/, \"\"); printf \"journal %.0f %s\\n\", t * 1000, $0 }'",
+  "{ sudo -n journalctl -b -o json --no-pager 2>/dev/null || journalctl -b -o json --no-pager 2>/dev/null; } | head -n 4000 \\",
+  `  | awk '${JOURNAL_FIELD} { rt = field("__REALTIME_TIMESTAMP"); mo = field("__MONOTONIC_TIMESTAMP"); if (rt == "" || mo == "") next; bw = (rt - mo) / 1000; if (!n || bw - last > 500 || last - bw > 500) { printf "clock %.0f %.0f\\n", rt / 1000, bw; last = bw; n++ } }'`,
+  "{ sudo -n journalctl -b -u cmux-host.service -o json --no-pager -n 400 2>/dev/null || journalctl -b -u cmux-host.service -o json --no-pager -n 400 2>/dev/null; } \\",
+  `  | awk '${JOURNAL_FIELD} { m = field("MESSAGE"); if (tolower(m) ~ /carrier|session host|relay|regist/) line[++n] = sprintf("journal %.0f %s", field("__MONOTONIC_TIMESTAMP") / 1000, m) } END { for (i = (n > 8 ? n - 7 : 1); i <= n; i++) print line[i] }'`,
   "true",
 ].join("\n");
 
 /**
- * GUEST_CARRIER_TIMELINE's lines as ms after create's answer, corrected by the guest's clock offset: guest_now against the
- * midpoint of the exec (`before`, `after`, this computer's clock), so each offset is good to about half the exec's time.
+ * GUEST_CARRIER_TIMELINE's lines as ms after create's answer. Each time goes to the guest's boot clock (a file's mtime
+ * through the wall clock segment it was written in), then to this computer's clock through the uptime read at the
+ * exec's midpoint (`before`, `after`), so a time is good to about half the exec, whatever the guest's wall clock did.
  */
-export function guestTimeline(stdout: string, answeredAt: number, before: number, after: number): string {
-  const rows = stdout.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
-    const [name, at, ...rest] = l.split(" ");
-    return { name, at: Number(at), rest: rest.join(" ") };
-  }).filter((r) => Number.isFinite(r.at) && r.at > 0);
-  const now = rows.find((r) => r.name === "guest_now");
-  const skew = now ? now.at - Math.round((before + after) / 2) : 0;
-  const parts = rows.filter((r) => r.name !== "guest_now").map((r) => {
-    const ms = r.at - skew - answeredAt;
-    return `${r.name}${r.rest ? ` "${r.rest.slice(0, 80)}"` : ""} ${ms >= 0 ? "+" : ""}${ms} ms`;
-  });
-  return `after create's answer (guest clock ${skew >= 0 ? "+" : ""}${skew} ms, ±${Math.round((after - before) / 2)} ms): ${parts.join("; ") || "nothing read"}`;
+export function guestTimeline(stdout: string, answeredAt: number, before: number, after: number, sentAt = answeredAt): string {
+  let wallNow = NaN;
+  let upNow = NaN;
+  const segments: Array<{ rt: number; boot: number }> = [];
+  const events: Array<{ name: string; mono?: number; wall?: number; text?: string }> = [];
+  for (const line of stdout.split("\n").map((l) => l.trim()).filter(Boolean)) {
+    const [kind, a, b, ...rest] = line.split(" ");
+    if (kind === "guest_now") [wallNow, upNow] = [Number(a), Number(b)];
+    else if (kind === "clock") segments.push({ rt: Number(a), boot: Number(b) });
+    else if (kind === "wall") events.push({ name: a, wall: Number(b) });
+    else if (kind === "mono") events.push({ name: a, mono: Number(b) });
+    else if (kind === "journal") events.push({ name: "journal", mono: Number(a), text: [b, ...rest].join(" ") });
+  }
+  const half = Math.round((after - before) / 2);
+  if (!Number.isFinite(wallNow) || !Number.isFinite(upNow)) return `after create's answer (±${half} ms): no guest clock read`;
+  const bootNow = wallNow - upNow;
+  const clock = segments.filter((c) => Number.isFinite(c.rt) && Number.isFinite(c.boot));
+  if (!clock.length || Math.abs(clock[clock.length - 1].boot - bootNow) > 500) clock.push({ rt: wallNow, boot: bootNow });
+  // A wall time in the boot clock, through the segment whose boot-clock span it falls in.
+  const toMono = (wall: number) => {
+    for (let i = 0; i < clock.length; i += 1) {
+      const mono = wall - clock[i].boot;
+      const start = i === 0 ? -Infinity : clock[i].rt - clock[i].boot;
+      const end = i + 1 < clock.length ? clock[i + 1].rt - clock[i + 1].boot : Infinity;
+      if (mono >= start && mono < end) return mono;
+    }
+    return wall - bootNow;
+  };
+  const mid = Math.round((before + after) / 2);
+  const rel = (mono: number) => {
+    const ms = Math.round(mid - (upNow - mono) - answeredAt);
+    return `${ms >= 0 ? "+" : ""}${ms} ms`;
+  };
+  const parts = [`guest boot ${rel(0)}`, ...events.flatMap((e) => {
+    const mono = e.mono ?? (e.wall !== undefined ? toMono(e.wall) : NaN);
+    return Number.isFinite(mono) ? [`${e.name}${e.text ? ` "${e.text.slice(0, 80)}"` : ""} ${rel(mono)}`] : [];
+  })];
+  const step = clock.length > 1 ? Math.round(clock[clock.length - 1].boot - clock[0].boot) : 0;
+  // A machine bound before create was sent is a claimed spare (made and bound ahead, handed out at create); a cold
+  // machine can bind while create's answer is on its way back, so the send, not the answer, is the line. Its boot
+  // time is the snapshot base's, so the bind, not the boot, is what says so.
+  const bound = events.find((e) => e.name === "bound.json" && e.wall !== undefined);
+  const boundAt = bound ? mid - (upNow - toMono(bound.wall!)) : NaN;
+  const spare = boundAt < sentAt ? `; a claimed spare: bound ${Math.round(answeredAt - boundAt)} ms before create answered` : "";
+  return `after create's answer (±${half} ms${step ? `; the guest's wall clock stepped ${step >= 0 ? "+" : ""}${step} ms after boot` : ""}${spare}): ${parts.join("; ")}`;
 }
 
 /** A carrier answer's `relay`, as the dial takes it (cmux-tui carrier/answer.rs relay_route): a bare `relay+do://<host>`. */
@@ -411,6 +481,8 @@ export function carrierTicketProblem(status: number, body: any, nowS = Date.now(
 
 /** The carrier dials still running, so a cancelled journey stops them instead of leaving them to their deadline. */
 const carrierDials = new Set<ReturnType<typeof spawn>>();
+/** Their state dirs, which a cancel (SIGTERM skips `finally`) removes too. */
+const carrierStateDirs = new Set<string>();
 
 /**
  * `cmux carrier dial` (design/cloud-carrier.md): this device reaches the machine's session daemon over its relay slot,
@@ -418,11 +490,42 @@ const carrierDials = new Set<ReturnType<typeof spawn>>();
  * line gets the daemon's answer. connectMs is the dial's own `cloud.connect ... ms=` (ticket, relay, Noise handshake);
  * replyMs runs from the spawn to the answer.
  */
-export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; retries: number; failed: string[]; reply: string }> {
+/**
+ * The dial's `carrier.phases` lines (cmux-tui carrier/contract.rs phases_line, one per attempt, written only to the
+ * connect log) as `<phase> <outcome>: ticket N, relay N, parked N, handshake N, mux N ms, lanes N, N ms`, without the
+ * machine id. A key the line does not have is left out, so a later field (a detail) shows as `key value`.
+ */
+export function dialPhases(log: string): string[] {
+  const named = ["ticket_ms", "relay_ms", "parked_ms", "handshake_ms", "mux_ms"];
+  return log.split("\n").filter((l) => l.startsWith("carrier.phases ")).map((line) => {
+    const f = Object.fromEntries(line.split(" ").slice(1).map((kv) => kv.split("=")).filter((kv) => kv.length === 2));
+    const steps = named.filter((k) => k in f).map((k) => `${k.replace(/_ms$/, "")} ${f[k]}`);
+    const rest = Object.keys(f).filter((k) => ![...named, "machine", "phase", "carrier", "outcome", "lanes", "ms"].includes(k));
+    return `${f.phase} ${f.outcome}: ${steps.join(", ")} ms${"lanes" in f ? `, lanes ${f.lanes}` : ""}${rest.map((k) => `, ${k} ${f[k]}`).join("")}, ${f.ms} ms`;
+  });
+}
+
+/** A carrier dial step's detail: the connect and reply times, the failed attempts, and each attempt's phases. */
+export function dialDetail(d: { connectMs: number; replyMs: number; retries: number; failed: string[]; phases: string[]; reply: string }): string {
+  return `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts${d.failed.length ? ` (${d.failed.join(", ")})` : ""}`
+    + `${d.phases.length ? `; phases: ${d.phases.join("; ")}` : ""}: ${d.reply.slice(0, 160)}`;
+}
+
+export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; retries: number; failed: string[]; phases: string[]; reply: string }> {
   const started = performance.now();
+  // The dial's own state dir, so its connect log holds only this dial's lines (the device key is not kept there).
+  const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-carrier-"));
+  carrierStateDirs.add(stateDir);
+  const phases = () => {
+    try {
+      return dialPhases(readFileSync(path.join(stateDir, "carrier", "connect.log"), "utf8"));
+    } catch {
+      return [];
+    }
+  };
   // The team is the journey's own or none: an inherited CMUX_CLOUD_TEAM would send a header its API calls do not.
   const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
-  const env = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
+  const env = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, CMUX_TUI_STATE_DIR: stateDir };
   const args = ["carrier", "dial", "--machine", machine, "--deadline-ms", String(deadlineMs), ...(api.team ? ["--team", api.team] : [])];
   const child = spawn(cmux, args, { env, stdio: ["pipe", "pipe", "pipe"] });
   carrierDials.add(child);
@@ -514,11 +617,17 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
       }
       if (answer?.id !== 1) continue;
       if (answer.ok !== true || typeof answer.data?.app !== "string") throw new Error(`carrier dial: identify answered ${short(answer)}`);
-      return { connectMs, replyMs: Math.round(performance.now() - started), retries, failed, reply };
+      return { connectMs, replyMs: Math.round(performance.now() - started), retries, failed, phases: phases(), reply };
     }
+  } catch (e) {
+    // Every way a dial fails shows each attempt's phases, read before the dir goes.
+    const tried = phases();
+    throw tried.length ? new Error(`${(e as Error).message} (phases: ${tried.join("; ")})`) : e;
   } finally {
     if (!failed) child.stdin!.end();
     child.kill("SIGTERM");
+    rmSync(stateDir, { recursive: true, force: true });
+    carrierStateDirs.delete(stateDir);
   }
 }
 
@@ -780,6 +889,56 @@ export function machineIds(rows: any[]): string[] {
   return rows.filter((m) => m && m.status !== "deleted").map((m) => String(m.id ?? m.machine_id ?? "")).filter(Boolean);
 }
 
+/**
+ * How old a journey's own machine must be before a later run may sweep it: well past the longest job that runs a
+ * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow that runs it to be at most
+ * half of this), so a journey that is still running never loses its machine.
+ */
+export const STALE_JOURNEY_MS = 3 * 3_600_000;
+/** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
+export const IDLE_JOURNEY_MS = 60 * 60_000;
+export interface StaleMachine { id: string; name: string; status: string; created: string }
+
+/**
+ * The machines earlier journey runs meant to delete and left behind (killed or timed out before their cleanup):
+ * named `cloud journey auto jr-<tag>` or `cloud journey auto jr-<tag> gateway`, a name only a run that deletes its
+ * machine gives, whose tag (`Date.now().toString(36)`, the run's start) is more than `maxAgeMs` old, with no activity
+ * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted.
+ * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
+ * does not read as a time are never picked.
+ */
+export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS): StaleMachine[] {
+  const out: StaleMachine[] = [];
+  for (const r of rows) {
+    if (!r || r.status === "deleted" || r.status === "deleting") continue;
+    const name = typeof r.name === "string" ? r.name : "";
+    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway)?$/.exec(name);
+    if (!m) continue;
+    const started = parseInt(m[1], 36);
+    // A real tag is a millisecond time after 2020 and not in the future.
+    if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
+    if (nowMs - started <= maxAgeMs) continue;
+    if (typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
+    const id = String(r.id ?? r.machine_id ?? "");
+    const created = typeof r.created_at === "number" ? new Date(r.created_at).toISOString() : new Date(started).toISOString();
+    if (id) out.push({ id, name, status: String(r.status ?? "?"), created });
+  }
+  return out;
+}
+
+/** Every page of cloud.machine.list (`next_cursor`), at most `maxPages` pages. */
+export async function listAllMachines(read: (params: Record<string, unknown>) => Promise<any>, maxPages = 20): Promise<any[]> {
+  const rows: any[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < maxPages; page++) {
+    const v = await read(cursor === null ? { limit: 100 } : { limit: 100, cursor });
+    rows.push(...(v?.machines ?? v?.items ?? (Array.isArray(v) ? v : [])));
+    cursor = typeof v?.next_cursor === "string" && v.next_cursor ? v.next_cursor : null;
+    if (cursor === null) return rows;
+  }
+  throw new Error(`more than ${maxPages} pages of machines`);
+}
+
 /** The ids in `after` that `before` lacks. */
 export function newMachineIds(before: string[], after: string[]): string[] {
   const seen = new Set(before);
@@ -887,6 +1046,349 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
 }
 
 /**
+ * --machines: the agent test account's machines, one JSON line each, with whether a leaked journey machine may be
+ * deleted by the operator's rule (cmux-vm.yml action journey-machines-staging). A journey whose cleanup delete got
+ * mutation.indeterminate leaves its `cloud journey jr-*` machine behind, and five of them fill the account's quota.
+ * The rule: delete only `cloud journey jr-*` machines (the run's own, or its `gateway`) that are paused or failed, or
+ * older than 24 h and not in use; never `cloud journey kept jr-*` (a --keep run's) and never anything else. When the
+ * row leaves any doubt, the answer is no, with the reason.
+ */
+export const JOURNEY_MACHINE_NAME = /^cloud journey jr-[a-z0-9]+( gateway)?$/;
+/** A strict machine id (cloud-machine-ops.ts MachineId). */
+export const MACHINE_ID = /^vm_[a-z0-9]{20}$/;
+const HOUR_MS = 3_600_000;
+/** A journey runs well under this (its jobs time out at 45 min), so a younger paused machine may be one in flight. */
+const JOURNEY_IN_FLIGHT_MS = HOUR_MS;
+/** Activity this recent means the machine is in use. */
+const IN_USE_MS = 45 * 60_000;
+const OLD_MS = 24 * HOUR_MS;
+
+export function journeyMachineEligible(m: any, now = Date.now()): { eligible: boolean; reason: string } {
+  const no = (reason: string) => ({ eligible: false, reason });
+  const name = typeof m?.name === "string" ? m.name : "";
+  if (!MACHINE_ID.test(String(m?.id ?? ""))) return no("not a machine id");
+  if (!JOURNEY_MACHINE_NAME.test(name)) return no(name.startsWith("cloud journey kept ") ? "a kept journey machine" : "not a leaked journey machine's name");
+  const created = m?.created_at;
+  if (!Number.isSafeInteger(created) || created <= 0 || created > now) return no("no creation time");
+  const age = now - created;
+  const status = String(m?.status ?? "");
+  if (status === "paused" || status === "failed") {
+    return age > JOURNEY_IN_FLIGHT_MS ? { eligible: true, reason: status } : no(`${status} but made under 1 h ago: a journey may still be running`);
+  }
+  if (status !== "running" && status !== "provisioning") return no(`status ${status || "missing"}`);
+  if (age <= OLD_MS) return no(`${status} and made under 24 h ago`);
+  const last = m?.last_active_at;
+  if (last !== null && last !== undefined) {
+    if (!Number.isSafeInteger(last) || last <= 0) return no("an unreadable last activity");
+    if (now - last <= IN_USE_MS) return no("active in the last 45 min");
+  }
+  return { eligible: true, reason: `${status}, older than 24 h, ${last ? "idle over 45 min" : "no activity recorded"}` };
+}
+
+/**
+ * At most this many ids in one run. Each delete is bounded at 5 min (its mutation.indeterminate retries, 180 s, and
+ * its read back, 120 s), so 5 fit the workflow job's 35 min with sign-in, the list and the log reads.
+ */
+export const MAX_DELETE_IDS = 5;
+
+/** One id to delete and the GitHub Actions job whose journey made it and failed to delete it. */
+export type DeleteEntry = { id: string; job: string };
+
+/** --delete-ids: `vm_<20>@<job id>` entries, comma or space separated, checked before anything signs in. */
+export function parseDeleteEntries(text: string): DeleteEntry[] {
+  const raw = [...new Set(text.split(/[\s,]+/).filter(Boolean))];
+  if (!raw.length) throw new Error("--delete-ids: no machine ids");
+  const bad = raw.filter((e) => !/^vm_[a-z0-9]{20}@[1-9][0-9]{0,19}$/.test(e));
+  if (bad.length) throw new Error(`--delete-ids: not vm_<20 lowercase letters or digits>@<GitHub Actions job id>: ${bad.map((b) => JSON.stringify(b.slice(0, 60))).join(", ")}`);
+  const entries = raw.map((e) => { const [id, job] = e.split("@"); return { id: id!, job: job! }; });
+  const ids = entries.map((e) => e.id);
+  const twice = ids.filter((id, i) => ids.indexOf(id) !== i);
+  if (twice.length) throw new Error(`--delete-ids: an id given twice: ${twice.join(", ")}`);
+  if (entries.length > MAX_DELETE_IDS) throw new Error(`--delete-ids: ${entries.length} ids; at most ${MAX_DELETE_IDS} in one run`);
+  return entries;
+}
+
+/**
+ * The one job whose journey log is trusted as a leak's proof: cmux-vm.yml's deploy-staging (where the journey
+ * leaked, job 128746706182), which runs the staging journey through cloud-journey-ci.sh. That script passes only
+ * --backend, --out, --cmux or --skip sync, --model and --team, never --keep or --machine (checked 2026-11-09): only
+ * hand runs pass --keep, so a machine this job made is never a kept one. A --keep run also never logs a cleanup
+ * delete (cleanup returns before it), so the FAIL line is a second proof.
+ *
+ * The log is trusted only when the job ran this repo's own code on a protected branch: a run of a pull request
+ * (a fork's above all), a merge queue or a workflow_run runs code a contributor wrote, which can print any line.
+ * So the run's event must be push or workflow_dispatch (deploy-staging's only triggers), its head repository this
+ * repo and its head branch feat-cmux-next or main. backend.yml, cloud-journey-pr.yml and cloudflare-relay.yml run
+ * the journey on pull requests too, so none of their jobs counts. The jobs API does not say which environment a job
+ * ran in; the job name and workflow stand for it (deploy-staging always runs in cmux-vm-staging).
+ */
+export const PROOF_WORKFLOW = ".github/workflows/cmux-vm.yml";
+export const PROOF_JOB = "deploy-staging";
+export const PROOF_EVENTS = new Set(["push", "workflow_dispatch"]);
+export const PROOF_BRANCHES = new Set(["feat-cmux-next", "main"]);
+export const JOURNEY_REPO = "manaflow-ai/cmux";
+
+/**
+ * Whether a job's log proves this machine leaked: one journey in it (from its `health` step to the next) logged
+ * `PASS create machine <ms> ms :: <id> ...` and then `FAIL delete (cleanup) ...`. Null when proven, else why not.
+ * A job runs several journeys (baseline and after a deploy, the test team and the product team), so the create
+ * and the failed cleanup must be in the same one.
+ */
+export function leakProof(log: string, id: string): string | null {
+  const lines = log.split("\n").map((l) => l.replace(/\r$/, "").replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z /, ""));
+  let inJourney = false;
+  let created = false;
+  let seenCreate = false;
+  for (const line of lines) {
+    if (/^(PASS|FAIL) health \d+ ms ::/.test(line)) { inJourney = true; created = false; continue; }
+    if (!inJourney) continue;
+    const c = /^PASS create machine \d+ ms :: (vm_[a-z0-9]{20})( |$)/.exec(line);
+    if (c) { created = c[1] === id; seenCreate ||= created; continue; }
+    if (created && /^FAIL delete \(cleanup\) \d+ ms ::/.test(line)) return null;
+  }
+  return seenCreate ? `the job's journey made ${id} but logged no failed cleanup delete for it` : `the job's log has no journey that made ${id}`;
+}
+
+type GhGet = (url: string, headers: Record<string, string>) => Promise<{ status: number; location: string | null; text: string }>;
+
+const ghGet: GhGet = async (url, headers) => {
+  const res = await fetch(url, { headers, redirect: "manual", signal: AbortSignal.timeout(60_000) });
+  const text = await res.text();
+  return { status: res.status, location: res.headers.get("location"), text: text.slice(0, 64 * 1024 * 1024) };
+};
+
+/**
+ * The GitHub side of the proof: the job is PROOF_JOB of PROOF_WORKFLOW in a trusted run of JOURNEY_REPO (PROOF_EVENTS,
+ * its own head repository, PROOF_BRANCHES), and its log has leakProof's two lines. Null when proven, else why not. The log's download link is fetched without the token.
+ */
+export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet = ghGet): Promise<string | null> {
+  const api = `https://api.github.com/repos/${JOURNEY_REPO}/actions`;
+  const auth = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
+  const json = async (url: string) => {
+    const r = await get(url, auth);
+    if (r.status !== 200) throw new Error(`GET ${url.slice(api.length)}: HTTP ${r.status}`);
+    return JSON.parse(r.text);
+  };
+  try {
+    const job = await json(`${api}/jobs/${entry.job}`);
+    if (String(job?.id) !== entry.job || !Number.isSafeInteger(job?.run_id)) return `job ${entry.job}: not a job of ${JOURNEY_REPO}`;
+    if (job.name !== PROOF_JOB) return `job ${entry.job}: ${short(job.name)} is not ${PROOF_JOB}`;
+    const run = await json(`${api}/runs/${job.run_id}`);
+    if (run?.id !== job.run_id) return `job ${entry.job}: its run did not read back`;
+    if (run?.repository?.full_name !== JOURNEY_REPO) return `job ${entry.job}: its run is not in ${JOURNEY_REPO}`;
+    if (run?.head_repository?.full_name !== JOURNEY_REPO) return `job ${entry.job}: its run ran code from ${short(run?.head_repository?.full_name)}, not ${JOURNEY_REPO}`;
+    if (!PROOF_EVENTS.has(String(run?.event))) return `job ${entry.job}: its run's event ${short(run?.event)} runs code a contributor may have written`;
+    if (!PROOF_BRANCHES.has(String(run?.head_branch)) || job.head_branch !== run.head_branch) return `job ${entry.job}: branch ${short(run?.head_branch)} is not feat-cmux-next or main`;
+    const workflow = String(run?.path ?? "").replace(/@.*$/, "");
+    if (workflow !== PROOF_WORKFLOW) return `job ${entry.job}: workflow ${workflow || "?"} is not ${PROOF_WORKFLOW}`;
+    const link = await get(`${api}/jobs/${entry.job}/logs`, auth);
+    let log = link.text;
+    if (link.status === 302 && link.location) {
+      const blob = await get(link.location, {});
+      if (blob.status !== 200) return `job ${entry.job}: its log download answered HTTP ${blob.status}`;
+      log = blob.text;
+    } else if (link.status !== 200) return `job ${entry.job}: its log answered HTTP ${link.status}`;
+    const why = leakProof(log, entry.id);
+    return why ? `job ${entry.job}: ${why}` : null;
+  } catch (e) {
+    return `job ${entry.job}: ${(e as Error).message}`;
+  }
+}
+
+const iso = (ms: unknown) => (Number.isSafeInteger(ms) && (ms as number) > 0 ? new Date(ms as number).toISOString() : null);
+
+/** One --machines line: what the list gives, and the rule's answer. */
+export function machineLine(m: any, scope: string, now = Date.now()): Record<string, unknown> {
+  const { eligible, reason } = journeyMachineEligible(m, now);
+  const created = Number.isSafeInteger(m?.created_at) ? m.created_at : null;
+  // A delete needs the job that made it (DeleteEntry); this tool cannot search logs, so it says where to look.
+  const findJob = eligible
+    ? `the cmux-vm.yml deploy-staging job (a push or dispatch on feat-cmux-next or main) running at ${iso(created)} whose log has "PASS create machine ... :: ${m.id}" and "FAIL delete (cleanup)"; pass ${m.id}@<job id>. No such job (another workflow's journey): this tool cannot delete it`
+    : null;
+  return {
+    scope,
+    id: m?.id ?? null,
+    name: m?.name ?? null,
+    status: m?.status ?? null,
+    created: iso(m?.created_at),
+    age_h: created ? Math.round(((now - created) / HOUR_MS) * 10) / 10 : null,
+    last_active: iso(m?.last_active_at),
+    pause_reason: m?.pause_reason ?? null,
+    error: m?.error?.code ?? null,
+    eligible,
+    reason,
+    ...(findJob ? { find_job: findJob } : {}),
+  };
+}
+
+/**
+ * A team (null: the account's own) and its API, as the journey calls it. `get` and `remove` give up after
+ * `timeoutMs` (the request's own AbortSignal timeout), so a delete's deadline holds across its requests.
+ */
+export type MachineScope = { scope: string; list(): Promise<any[]>; get(id: string, timeoutMs: number): Promise<any | null>; remove(id: string, key: string, timeoutMs: number): Promise<Answer> };
+export type DeleteDeps = { now(): number; sleep(ms: number): Promise<void>; log(line: string): void; retryMs?: number; readBackMs?: number };
+
+/**
+ * Delete each id only when a scope's live list has it and the rule allows it. Every id is checked first and one
+ * refusal deletes nothing; right before each delete the machine is read again and checked again. Each delete is
+ * logged before it is sent, retried under the same idempotency key while the API answers mutation.indeterminate
+ * (bounded), then read back until it is gone or deleting (bounded). Returns the ids it could not delete, with why.
+ *
+ * Each id's whole delete (the read before it, the deletes and their pauses, the read back and its pauses) ends
+ * within retryMs + readBackMs (5 min): every request and every pause is cut to the time left, and the deadline is
+ * checked before each one, so a slow answer cannot carry it past the bound (the workflow's timeout counts on it).
+ */
+export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[], runTag: string, deps: DeleteDeps): Promise<{ deleted: string[]; failed: Array<{ id: string; reason: string }> }> {
+  const retryMs = deps.retryMs ?? 180_000;
+  const readBackMs = deps.readBackMs ?? 120_000;
+  const where = new Map<string, MachineScope>();
+  const refused: Array<{ id: string; reason: string }> = [];
+  const rows = new Map<string, any>();
+  for (const s of scopes) for (const m of await s.list()) if (m?.id && !where.has(m.id)) { where.set(m.id, s); rows.set(m.id, m); }
+  for (const id of ids) {
+    const m = rows.get(id);
+    if (!m) { refused.push({ id, reason: "not in the account's machine list" }); continue; }
+    const e = journeyMachineEligible(m, deps.now());
+    if (!e.eligible) refused.push({ id, reason: `not eligible: ${e.reason} (${m.name ?? "no name"}, ${m.status})` });
+  }
+  for (const r of refused) deps.log(JSON.stringify({ refused: r.id, reason: r.reason }));
+  if (refused.length) return { deleted: [], failed: refused };
+  const deleted: string[] = [];
+  const failed: Array<{ id: string; reason: string }> = [];
+  for (const id of ids) {
+    const s = where.get(id)!;
+    const fail = (reason: string) => { failed.push({ id, reason }); deps.log(JSON.stringify({ failed: id, reason })); };
+    const t0 = deps.now();
+    const retryEnd = t0 + retryMs;
+    const deadline = retryEnd + readBackMs;
+    // Whole milliseconds left before `until`: a request or a pause starts only when at least one is.
+    const left = (until: number) => Math.floor(until - deps.now());
+    // A request's timeout: its usual one, never past `until`; 0 when no whole millisecond is left (skip it).
+    const cut = (until: number, usual: number) => Math.max(0, Math.min(usual, left(until)));
+    let m: any;
+    const first = cut(retryEnd, 30_000);
+    if (first < 1) { fail("read before delete: no time left"); continue; }
+    try { m = await s.get(id, first); } catch (e) { fail(`read before delete: ${(e as Error).message}`); continue; }
+    const e = m ? journeyMachineEligible(m, deps.now()) : { eligible: false, reason: "gone from the account" };
+    if (!m || !e.eligible) { fail(`not eligible at delete time: ${e.reason}`); continue; }
+    deps.log(JSON.stringify({ before_delete: id, scope: s.scope, name: m.name, status: m.status, created: iso(m.created_at), last_active: iso(m.last_active_at) }));
+    const key = `${runTag}-delete-${id}`;
+    const cutOff = (message: string): Answer => ({ status: 0, body: { ok: false, error: { code: "transport", message, retryable: true } } });
+    let answer: Answer = cutOff("no delete sent: the read before it used the time");
+    for (let attempt = 1; ; attempt++) {
+      const budget = cut(retryEnd, 60_000);
+      if (budget < 1) break;
+      try { answer = await s.remove(id, key, budget); } catch (e) { answer = cutOff((e as Error).message); }
+      const again = opRetryable(answer.body) || answer.status === 0;
+      const pause = Math.min(5_000 * attempt, 30_000, left(retryEnd));
+      if (!again || pause <= 0) break;
+      deps.log(JSON.stringify({ retry_delete: id, attempt, error: answer.body?.error?.code ?? null }));
+      await deps.sleep(pause);
+    }
+    const accepted = answer.status === 200 && answer.body?.ok === true;
+    const unsure = !accepted && (opRetryable(answer.body) || answer.status === 0);
+    // A refusal is final. An answer still cut off after the retries may have deleted it: read back before saying no.
+    if (!accepted && !unsure) {
+      fail(`delete: HTTP ${answer.status} ${short(answer.body?.error ?? answer.body)}`);
+      continue;
+    }
+    let gone = "";
+    for (;;) {
+      const budget = cut(deadline, 30_000);
+      if (budget < 1) break;
+      try {
+        const back = await s.get(id, budget);
+        if (!back || back.status === "deleting" || back.status === "deleted") { gone = back ? back.status : "gone"; break; }
+      } catch { /* read again */ }
+      const pause = Math.min(3_000, left(deadline));
+      if (pause <= 0) break;
+      await deps.sleep(pause);
+    }
+    if (!gone) {
+      fail(`${accepted ? "deleted" : `delete: HTTP ${answer.status} ${short(answer.body?.error ?? answer.body)} after the retries`}, but read back still not gone or deleting by its ${(retryMs + readBackMs) / 1000} s deadline`);
+      continue;
+    }
+    deleted.push(id);
+    deps.log(JSON.stringify({ deleted: id, read_back: gone, ...(accepted ? {} : { after: answer.body?.error?.code ?? "transport" }) }));
+  }
+  return { deleted, failed };
+}
+
+/** The Stack password sign-in the journey uses: the agent test account's access token. */
+async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, password: string): Promise<{ access: string; refresh: string }> {
+  const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
+    "x-stack-access-type": "client",
+    "x-stack-project-id": stack.project,
+    ...(stack.clientKey ? { "x-stack-publishable-client-key": stack.clientKey } : {}),
+  });
+  if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`Stack sign-in HTTP ${r.status} ${String(r.body.code ?? "")}`);
+  return { access: r.body.access_token, refresh: String(r.body.refresh_token ?? "") };
+}
+
+async function machinesMode(argv: string[], backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined): Promise<number> {
+  const idsArg = argv.includes("--delete-ids") ? argValue("--delete-ids", argv) ?? "" : null;
+  // The ids, and each one's proof that a CI journey made it and failed to delete it, are checked before anything
+  // signs in. One without its proof deletes nothing.
+  const entries = idsArg === null ? null : parseDeleteEntries(idsArg);
+  if (entries) {
+    const token = process.env.GITHUB_TOKEN ?? "";
+    if (!token) throw new Error("--delete-ids needs GITHUB_TOKEN (actions: read on manaflow-ai/cmux) to read each id's journey job");
+    let unproven = 0;
+    for (const e of entries) {
+      const why = await provenLeak(e, token);
+      console.log(JSON.stringify(why ? { refused: e.id, job: e.job, reason: why } : { proven: e.id, job: e.job }));
+      if (why) unproven++;
+    }
+    if (unproven) {
+      console.log(JSON.stringify({ deleted: 0, not_deleted: entries.length, reason: `${unproven} id(s) without a CI journey's proof of a leak` }));
+      return 1;
+    }
+  }
+  const ids = entries?.map((e) => e.id) ?? null;
+  const alsoTeams = (argValue("--also-team", argv) ?? "").split(/[\s,]+/).filter(Boolean);
+  const secrets: string[] = password ? [password] : [];
+  const say = (line: string) => console.log(scrub(line, secrets));
+  const signIn = argValue("--sign-in", argv) ?? "password";
+  let bearer: string;
+  if (signIn === "oidc") bearer = (await oidcSignIn(backend.api, process.env, secrets)).token;
+  else {
+    if (!email || !password) throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
+    const s = await passwordSignIn(STACK[backend.stack], email, password);
+    secrets.push(s.access, s.refresh);
+    bearer = s.access;
+  }
+  const scopes: MachineScope[] = [...new Set([team ?? "", ...alsoTeams])].map((t) => {
+    const api = new Api(backend.api, t || undefined);
+    api.bearer = bearer;
+    return {
+      scope: t || "personal",
+      list: () => listAllMachines((params) => api.read("cloud.machine.list", params), 50),
+      get: async (id, timeoutMs) => {
+        try { return await api.read("cloud.machine.get", { machine: id }, timeoutMs); } catch (e) {
+          if (/HTTP 404|not[ _.-]?found/i.test(String((e as Error).message))) return null;
+          throw e;
+        }
+      },
+      remove: (id, key, timeoutMs) => api.raw("POST", "/v1/ops", { op: "cloud.machine.delete", params: { machine: id }, idempotency_key: key }, timeoutMs),
+    };
+  });
+  const now = Date.now();
+  let count = 0;
+  for (const s of scopes) {
+    for (const m of await s.list()) {
+      if (m?.status === "deleted") continue;
+      count++;
+      say(JSON.stringify(machineLine(m, s.scope, now)));
+    }
+  }
+  say(JSON.stringify({ backend: backend.name, scopes: scopes.map((s) => s.scope), machines: count }));
+  if (!ids) return 0;
+  const result = await deleteJourneyMachines(ids, scopes, `journey-machines-${Date.now().toString(36)}`, { now: Date.now, sleep, log: say });
+  say(JSON.stringify({ deleted: result.deleted.length, not_deleted: result.failed.length }));
+  return result.failed.length ? 1 : 0;
+}
+
+/**
  * Steps that passed on the version before a deploy and fail after it: the deploy's own reds. A step that
  * was already red before (a known backend bug) is not the deploy's fault and never triggers a rollback.
  * With no baseline (the first run, or it could not sign in), every failed step counts.
@@ -930,6 +1432,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const team = argValue("--team", argv) ?? process.env.CMUX_JOURNEY_TEAM ?? undefined;
   const signIn = argValue("--sign-in", argv) ?? "password";
   if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
+  // --machines (list) and --delete-ids (delete exact ids): the operator's leaked-machine cleanup, no journey.
+  if (argv.includes("--machines") || argv.includes("--delete-ids")) return machinesMode(argv, backend, email, password, team);
   const agent = argValue("--agent", argv) ?? "claude";
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;
@@ -963,6 +1467,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const probeOut = argValue("--probe-out", argv);
   const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backend.name === "prod" ? "production" : backend.name}`;
   const tag = `jr-${Date.now().toString(36)}`;
+  // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
+  // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
+  // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
+  const machineName = keep ? `cloud journey ${tag}` : `cloud journey auto ${tag}`;
   const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" });
   if (password) J.secrets.push(password);
   if (claudeLogin) J.secrets.push(claudeLogin);
@@ -1022,7 +1530,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (gatewayMachine) {
       const g: string = gatewayMachine;
       await J.step("delete gateway machine (cleanup)", async () => {
-        await api.op("cloud.machine.delete", { machine: g }, `${tag}-gw-delete`);
+        await api.deleteMachine(g, `${tag}-gw-delete`);
         return { value: null, detail: g };
       }).catch(() => undefined);
     }
@@ -1031,12 +1539,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (!id) {
       const v = await api.read("cloud.machine.list", {}).catch(() => null);
       const rows: any[] = v?.machines ?? v?.items ?? (Array.isArray(v) ? v : []);
-      id = rows.find((r) => r?.name === `cloud journey ${tag}` && r.status !== "deleted")?.id ?? null;
+      id = rows.find((r) => r?.name === machineName && r.status !== "deleted")?.id ?? null;
     }
     if (!id) return;
     const target: string = id;
     await J.step("delete (cleanup)", async () => {
-      await api.op("cloud.machine.delete", { machine: target }, `${tag}-cleanup-delete`);
+      await api.deleteMachine(target, `${tag}-cleanup-delete`);
       return { value: null, detail: target };
     }).catch(() => undefined);
   };
@@ -1047,6 +1555,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
   const onSignal = (signal: string) => {
     for (const dial of carrierDials) dial.kill("SIGTERM");
+    for (const dir of carrierStateDirs) rmSync(dir, { recursive: true, force: true });
     void cleanup().finally(() => {
       J.flush();
       writeProbe();
@@ -1073,14 +1582,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     const stack = STACK[backend.stack];
     if (signIn === "password") api.bearer = await J.step("sign in (agent test account)", async () => {
-      const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
-        "x-stack-access-type": "client",
-        "x-stack-project-id": stack.project,
-        ...(stack.clientKey ? { "x-stack-publishable-client-key": stack.clientKey } : {}),
-      });
-      if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`Stack sign-in HTTP ${r.status} ${String(r.body.code ?? "")}`);
-      J.secrets.push(r.body.access_token, r.body.refresh_token ?? "");
-      return { value: r.body.access_token as string, detail: `Stack project ${stack.project.slice(0, 8)}` };
+      const s = await passwordSignIn(stack, email!, password!);
+      J.secrets.push(s.access, s.refresh);
+      return { value: s.access, detail: `Stack project ${stack.project.slice(0, 8)}` };
     });
     const user = await J.step("user.ensure", async () => {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
@@ -1115,7 +1619,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
     }
+    if (!keep) {
+      // Machines that killed or timed-out runs left behind hold the account's quota (cloud.quota.exceeded at create).
+      // A sweep error never fails the journey: the step is recorded as skipped with the error, and create goes on.
+      const name = "sweep leaked journey machines";
+      const t0 = Date.now();
+      const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
+      try {
+        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
+        const stale = staleJourneyMachines(rows, Date.now());
+        const failed: string[] = [];
+        for (const m of stale) {
+          // Each row is logged before its delete, so a wrong pick can be traced to the machine it took.
+          console.log(`sweep: deleting ${m.id} "${m.name}" status ${m.status} created ${m.created}`);
+          await api.deleteMachine(m.id, `${tag}-sweep-${m.id}`).catch((e) => failed.push(`${m.id}: ${err(e)}`));
+        }
+        const detail = `${stale.length - failed.length} of ${stale.length} leaked deleted (${rows.length} machines)${stale.length ? `: ${stale.map((m) => m.id).join(", ")}` : ""}${failed.length ? `; failed ${failed.join("; ")}` : ""}`;
+        J.record({ step: name, status: failed.length ? "skip" : "pass", ms: Date.now() - t0, detail });
+      } catch (e) {
+        J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
+      }
+    }
     let createAnsweredAt: number | null = null;
+    let createSentAt: number | null = null;
     const created = reuse
       ? await J.step("use machine", async () => {
           const m = await api.read("cloud.machine.get", { machine: reuse });
@@ -1123,7 +1649,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           return { value: m, detail: `${reuse} status ${m.status}${m.status === "paused" ? " (started)" : ""}, kept` };
         })
       : await J.step("create machine", async () => {
-          const v = await api.op("cloud.machine.create", { name: `cloud journey ${tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
+          createSentAt = Date.now();
+          const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
           return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
@@ -1179,7 +1706,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     let gwStubUrl: string | null = null;
     if (gatewayCmux) {
       const g = await J.step("gateway machine", async () => {
-        const v = await api.op("cloud.machine.create", { name: `cloud journey ${tag} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-gw-create`);
+        const v = await api.op("cloud.machine.create", { name: `${machineName} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-gw-create`);
         gatewayMachine = v.machine.id as string;
         const m = await waitMachine(api, gatewayMachine, (x) => x.status === "running" && Boolean(x.host), 300_000);
         return { value: m, detail: `${gatewayMachine}, daemon ${m.image?.daemon_version ?? "?"}` };
@@ -1570,7 +2097,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (cmux) {
       await J.step("connect (carrier dial)", async () => {
         const d = await carrierDial(cmux, api, created.id);
-        return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts${d.failed.length ? ` (${d.failed.join(", ")})` : ""}: ${d.reply.slice(0, 160)}` };
+        return { value: null, detail: dialDetail(d) };
       });
     } else {
       // Without a cmux binary (the production journeys) the dial cannot run; its platform half still can: the
@@ -1589,7 +2116,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const r = await exec(GUEST_CARRIER_TIMELINE);
         const after = Date.now();
         if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
-        return { value: null, detail: guestTimeline(r.stdout, createAnsweredAt!, before, after) };
+        return { value: null, detail: guestTimeline(r.stdout, createAnsweredAt!, before, after, createSentAt ?? createAnsweredAt!) };
       });
     }
 
@@ -1624,7 +2151,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (cmux) {
         await J.step("carrier dial after resume", async () => {
           const d = await carrierDial(cmux, api, created.id);
-          return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts${d.failed.length ? ` (${d.failed.join(", ")})` : ""}: ${d.reply.slice(0, 160)}` };
+          return { value: null, detail: dialDetail(d) };
         });
       } else {
         J.skip("carrier dial after resume", "--cmux is required for a carrier dial");
@@ -1634,7 +2161,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     if (!keep) {
       await J.step("delete", async () => {
-        await api.op("cloud.machine.delete", { machine: created.id }, `${tag}-delete`);
+        await api.deleteMachine(created.id, `${tag}-delete`);
         deleted = true;
         const m = await waitMachine(api, created.id, (x) => x.status === "deleted" || x.status === "deleting", 120_000, true).catch(() => null);
         return { value: null, detail: `${created.id} ${m?.status ?? "gone"}` };

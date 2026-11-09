@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 615,
+  "count": 618,
   "sections": [
     {
       "id": "general",
@@ -373,6 +373,14 @@
           ]
         },
         {
+          "key": "agents.promptSuggestions",
+          "title": "Suggest Next Prompt",
+          "help": "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Sessions"
+        },
+        {
           "key": "agents.subsessions.answerQuestions",
           "title": "Let Sessions Answer Their Sub-sessions' Questions",
           "help": "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
@@ -735,7 +743,7 @@
           "title": "Focus After Closing a Pane",
           "help": "Which pane gets focus when the focused pane closes.",
           "kind": "choice",
-          "default": "previousNeighbor",
+          "default": "mostRecent",
           "group": "Columns",
           "values": [
             "previousNeighbor",
@@ -1177,6 +1185,14 @@
           "group": "cmux Remote"
         },
         {
+          "key": "remote.ultraMode",
+          "title": "Ultra Connection Mode",
+          "help": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection.",
+          "kind": "toggle",
+          "default": false,
+          "group": "cmux Remote"
+        },
+        {
           "key": "screenshots.findTools",
           "title": "Find Screenshot Apps",
           "help": "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap.",
@@ -1212,6 +1228,14 @@
             "pluggedIn",
             "always"
           ]
+        },
+        {
+          "key": "sessions.keepAwakeForCommands",
+          "title": "Also While Terminal Commands Run",
+          "help": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Sessions"
         },
         {
           "key": "sessions.promptSuggestions",
@@ -2119,8 +2143,8 @@
         },
         {
           "key": "app.uiScale",
-          "title": "Interface Scale",
-          "help": "",
+          "title": "App Zoom",
+          "help": "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app.",
           "kind": "number",
           "default": 1,
           "group": "Density and Motion",
@@ -2549,9 +2573,9 @@
         {
           "key": "appearance.density",
           "title": "Density",
-          "help": "Row height, padding, corners, icons and text size together. Compact is the default.",
+          "help": "Row height, padding, corners, icons and text size together.",
           "kind": "choice",
-          "default": "compact",
+          "default": "cozy",
           "group": "Density and Motion",
           "values": [
             "ultraCompact",
@@ -2643,8 +2667,8 @@
         },
         {
           "key": "appearance.metrics.chromeFontSize",
-          "title": "Interface Size",
-          "help": "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
+          "title": "Text Size",
+          "help": "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size.",
           "kind": "number",
           "default": null,
           "group": "Density and Motion",
@@ -5907,7 +5931,7 @@
         {
           "key": "home.chiefPanel.seesScreen",
           "title": "Chief Sees Your Screen When It Opens",
-          "help": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off.",
+          "help": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on.",
           "kind": "toggle",
           "default": true,
           "group": "Chief Dock"

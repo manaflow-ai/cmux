@@ -86,6 +86,13 @@ export async function newWorktree(
   return { root, ...(typeof branch === "string" ? { branch } : {}), ...(ask ? { ask } : {}) };
 }
 
+/// A new chat in `folder`, a worktree New Worktree made, for a chat that started while it was being
+/// made (that chat keeps its own folder). A Cloud or SSH chat's worktree is that machine's folder:
+/// the new chat starts there too (`chat.newHere`), never on this Mac in a same-named path.
+export function newChatInWorktree(callNative: Native, folder: string, remote: boolean): Promise<unknown> {
+  return remote ? callNative("chat.newHere", { cwd: folder }) : callNative("chat.new", { cwd: folder });
+}
+
 /// Use Home Folder: the answer goes to the host from this click (it spends the click's gesture
 /// and makes the folder a root), then the folder is used at once, so the chat starts there with no
 /// Retry. Rejects when the host refuses; nothing is used then.

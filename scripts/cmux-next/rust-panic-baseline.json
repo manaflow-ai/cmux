@@ -26,7 +26,7 @@
  ],
  "crates": {
   "acpmux": {
-   "unwrap_used": 143,
+   "unwrap_used": 135,
    "expect_used": 18,
    "panic": 1,
    "unreachable": 2,
@@ -467,19 +467,6 @@
    "arithmetic_side_effects": 3,
    "cast_possible_truncation": 11
   },
-  "cmux-mux2": {
-   "unwrap_used": 0,
-   "expect_used": 11,
-   "panic": 0,
-   "unreachable": 0,
-   "todo": 0,
-   "unimplemented": 0,
-   "indexing_slicing": 18,
-   "string_slice": 0,
-   "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 25,
-   "cast_possible_truncation": 3
-  },
   "cmux-palette-ranker": {
    "unwrap_used": 0,
    "expect_used": 0,
@@ -794,7 +781,7 @@
   },
   "cmux-tui": {
    "unwrap_used": 354,
-   "expect_used": 70,
+   "expect_used": 69,
    "panic": 1,
    "unreachable": 30,
    "todo": 0,
@@ -832,14 +819,14 @@
    "cast_possible_truncation": 1
   },
   "cmux-tui-core": {
-   "unwrap_used": 1035,
-   "expect_used": 173,
+   "unwrap_used": 1021,
+   "expect_used": 172,
    "panic": 2,
-   "unreachable": 24,
+   "unreachable": 22,
    "todo": 0,
    "unimplemented": 0,
    "indexing_slicing": 853,
-   "string_slice": 52,
+   "string_slice": 50,
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 875,
    "cast_possible_truncation": 92

@@ -309,7 +309,8 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
 fn run(global: &GlobalArgs, command: &Command) -> i32 {
     let backend = super::mcp::cli_backend(global.clone());
     let env = Env::of_process(global);
-    let mut sleep = std::thread::sleep;
+    let mut cursor = None;
+    let mut sleep = |at_most: Duration| readiness::wake_on_event(&backend, &mut cursor, at_most);
     let mut clock =
         Clock { now: &Instant::now, sleep: &mut sleep, now_ms: super::terminal_talk::now_ms() };
     let result = match command {
@@ -496,7 +497,7 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     let created =
         placement::open(daemon, &pane, &placement, Some(name), cwd.as_deref(), &launch.argv())?;
     if let Some((_, Some(shell))) = &fresh {
-        placement::close_tab(daemon, shell);
+        placement::end_placeholder(daemon, shell);
     }
     let mut report =
         report(Some(name), &launch, harness.as_deref(), cwd.as_deref(), &placement, &created);
@@ -748,7 +749,9 @@ pub(in crate::cli) fn wait_ready_command(
     timeout: Option<Duration>,
 ) -> i32 {
     let backend = super::mcp::cli_backend(global.clone());
-    match wait_ready(&backend, selector, timeout) {
+    let mut cursor = None;
+    let mut sleep = |at_most: Duration| readiness::wake_on_event(&backend, &mut cursor, at_most);
+    match wait_ready(&backend, selector, timeout, &mut sleep) {
         Ok((report, exit)) => print_report(global.output, &report, exit),
         Err(failure) => wire::print_local_error(&failure.error, global.output, failure.exit),
     }
@@ -758,13 +761,14 @@ fn wait_ready<D: Daemon + ?Sized>(
     daemon: &D,
     selector: &str,
     timeout: Option<Duration>,
+    sleep: &mut dyn FnMut(Duration),
 ) -> Result<(Value, i32), Failure> {
     let snapshot = send::snapshot(daemon, None)?;
     let terminal = send::find_terminal(&snapshot, selector)?;
     let id = terminal["id"].as_str().unwrap_or_default().to_owned();
     let reads = terminal_reads(&id)?;
     let options = WaitOptions::new(timeout.unwrap_or(UNBOUNDED_WAIT), 0);
-    let outcome = readiness::wait(daemon, &reads, options, &Instant::now, &mut std::thread::sleep)?;
+    let outcome = readiness::wait(daemon, &reads, options, &Instant::now, sleep)?;
     let mut report = json!({"terminal_id": id, "until": "ready"});
     let exit = apply_outcome(&mut report, &outcome, &id);
     match outcome.readiness {
