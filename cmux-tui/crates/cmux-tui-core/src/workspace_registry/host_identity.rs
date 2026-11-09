@@ -208,7 +208,8 @@ pub(super) fn rehome_registry(connection: &Connection) -> anyhow::Result<()> {
     let copied_unstamped = stored.is_none()
         && connection
             .path()
-            .is_some_and(|path| !path.is_empty() && made_before_binding(Path::new(path)));
+            // rusqlite's path is a `&str`: "" for an in-memory database.
+            .is_some_and(|path: &str| !path.is_empty() && made_before_binding(Path::new(path)));
     let tx = connection.unchecked_transaction()?;
     if stored.is_some() || copied_unstamped {
         let copied = required_meta(&tx, "registry_id")?;
