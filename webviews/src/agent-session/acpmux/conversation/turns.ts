@@ -2108,7 +2108,12 @@ function codexLiveTurn(
   trayAgents = 0,
   start = user.at,
 ): AcpmuxRow[] {
-  let rows = runs;
+  // A stretch that already ended with its footer (a turn the agent ran on its own, its reply's
+  // buttons drawn) while the chat still works: the line takes that footer's slot, and the footer
+  // comes back in it when the work ends, so neither stacks under the other and nothing moves (Leo,
+  // 2026-11-08: "the bottom buttons appear and then there's thinking then thinking disappears then
+  // there's a jolt. but the thinking should essentially take the same spot as the bottom buttons").
+  let rows = runs.at(-1)?.kind === "turnSummary" ? runs.slice(0, -1) : runs;
   // The one live block sits at the turn's bottom, as the ChatGPT and Codex apps draw it: no
   // "Working for" over the turn (with steers it stood above all of them, far from the line; Leo,
   // 2026-10-21). Between steps it reads "Thinking 18s", timed from the prompt.
