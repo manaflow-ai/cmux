@@ -167,24 +167,27 @@ def main():
     parser.add_argument("--ready-timeout", type=float, default=3600)
     args = parser.parse_args()
     generated = json.loads(Path(args.generate).read_text())
+    registry = session_dir(args.state) / REGISTRY
     # The first exec of a binary just linked pays for macOS's check of it, before main and
     # without opening a registry. Two `--version` execs before the timed starts pay it and
     # show it (the first against the second), so the starts time only the owner.
-    # The generator's writes are still going to disk; a first start's fsyncs (its build's
-    # helper files, F_FULLFSYNC on macOS) would wait for them. Flush them first, timed: sync,
-    # then one full fsync (on macOS sync returns before the drive has the data).
+    # The generator's writes are still going to disk: the first durable sync a start makes
+    # (anywhere: the drive flush queues behind them) would wait for them. Wait for them here,
+    # timed: a full fsync of each file the generator wrote (on macOS, sync returns at once).
     sync_started = time.monotonic()
     os.sync()
-    flush = os.path.join(args.home, ".drs-flush")
-    with open(flush, "wb") as handle:
-        handle.write(b"flush")
-        handle.flush()
-        full_fsync = getattr(fcntl, "F_FULLFSYNC", None)
-        if full_fsync is not None:
-            fcntl.fcntl(handle.fileno(), full_fsync)
-        else:
-            os.fsync(handle.fileno())
-    os.unlink(flush)
+    full_fsync = getattr(fcntl, "F_FULLFSYNC", None)
+    for path in (registry, Path(str(registry) + "-wal")):
+        if not path.exists():
+            continue
+        descriptor = os.open(path, os.O_RDWR)
+        try:
+            if full_fsync is not None:
+                fcntl.fcntl(descriptor, full_fsync)
+            else:
+                os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
     sync_ms = round((time.monotonic() - sync_started) * 1000, 1)
     print("DRS-SYNC " + json.dumps({"sync_ms": sync_ms}), flush=True)
     execs = []
@@ -195,7 +198,6 @@ def main():
         execs.append(round((time.monotonic() - exec_started) * 1000, 1))
     print("DRS-EXEC " + json.dumps({"first_exec_ms": execs[0], "second_exec_ms": execs[1]}), flush=True)
     starts = []
-    registry = session_dir(args.state) / REGISTRY
     for index in range(max(args.rounds, 1)):
         # The generator wrote the first bump; later rounds set it again.
         bumped = bool(args.bump)
