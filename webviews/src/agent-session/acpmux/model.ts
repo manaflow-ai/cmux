@@ -12,6 +12,7 @@ import {
   MARK_CARD,
   MARK_STATUS,
   MARK_STEP,
+  MARK_OPENS_TURN,
   MARK_WORKED,
   rowMark,
   gridScale,
@@ -182,6 +183,10 @@ export type AcpmuxBackgroundTurn = {
   /// Its reply went onto the call that started the task (`AcpmuxBackgroundReaction`), so the
   /// transcript draws no line for it.
   attached?: true;
+  /// It ended with more to say than a note (backgroundTurns.ts `isReactionNote`): its rows draw as
+  /// the agent's own turn, at the reply column with a footer of its own, never inside the call that
+  /// started its task (Leo, 2026-11-08: "the text in this situation isn't from the subagent?").
+  ownTurn?: true;
 };
 
 /// How much a background task's end is worth (Leo, 2026-11-03: "there's like... background tasks
@@ -1491,6 +1496,17 @@ export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
 /// A compact live line keeps its 22px height and composer gap, but is a live indicator for
 /// spacing: classifying it as another step would swallow the run gap before Thinking.
 export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
+  rowGridMark(row, prev) | (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0);
+/// Whether `row` is the first drawn row of a turn the agent ran on its own that draws as its own
+/// turn (a reply or a tool run with no background line over it, backgroundTurns.ts
+/// `foldsBackground`): `prev`, the drawn row above, is neither its line nor one of its rows. O(1).
+export const opensBackgroundTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
+  row.inBackground !== undefined &&
+  (row.kind === "activity" || (row.kind === "assistant" && (row.text?.length ?? 0) > 0)) &&
+  prev !== undefined &&
+  prev.inBackground !== row.inBackground &&
+  !(prev.kind === BACKGROUND_TURN && prev.background?.id === row.inBackground);
+const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
   row.kind === WORKED
     ? MARK_WORKED
     : isEditCard(row)

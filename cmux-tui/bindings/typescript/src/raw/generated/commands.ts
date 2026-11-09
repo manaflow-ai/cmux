@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e7af6076daff4eb4abb7391170e60058b9981e9e9de358d6bb23d5c14eb08d37. */
+/* cmux-tui mux protocol 12, IR 2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8. */
 
 
 import type * as T from "./types.js";
@@ -2636,6 +2636,7 @@ export interface SnapshotRequestRequest extends CmuxRequestBase {
 /** Protocol v5; authority: control. */
 export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
+  "before"?: boolean;
   "cols"?: (number) | null;
   "cwd"?: (string) | null;
   "dir": T.SplitDirection;

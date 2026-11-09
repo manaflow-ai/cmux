@@ -7343,3 +7343,17 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
     transition-duration: var(--agent-motion-in);
   }
 }
+
+/* The `rule` look of a turn the agent ran on its own (gallery agent-pane.turn-after-subagent,
+   `data-turn-boundary`): a hairline centred in the turn gap over its first row
+   (VirtualTranscript.tsx `data-opens-turn`). Drawn in the gap the stack already places, so it adds no
+   height and moves no row. The shipped look is the gap and the turn's own footer alone. */
+:root[data-turn-boundary="rule"] .acpmux-row[data-opens-turn]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--grid-gap-turn) / -2);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--cv-rule);
+  pointer-events: none;
+}

@@ -42453,6 +42453,43 @@
       "args" : [
 
       ],
+      "cli" : "familyMember",
+      "cli_name" : "action home-show-hide-chief-from-any-app",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : " ",
+        "modifiers" : [
+          "opt",
+          "shift"
+        ]
+      },
+      "id" : "home.showHideChiefFromAnyApp",
+      "main_menu" : null,
+      "mcp" : "familyMember",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show\/Hide Chief from Any App",
+      "title_key" : "action.home.showHideChiefFromAnyApp",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
       "cli" : "offered",
       "cli_name" : "pane move-to-dock",
       "context_menu" : "pointerMenuTrim",

@@ -50,6 +50,8 @@ const SAVE_EVERY: Duration = Duration::from_secs(600);
 const ROW_SNIPPET: usize = 96;
 const ROW_BEFORE: usize = 24;
 const SCHEMA: u32 = 1;
+/// The largest saved copy read back: the most text a run holds, with room for JSON's escapes.
+const SAVED_BYTES: u64 = 2 * TOTAL_BYTES as u64;
 
 /// When a chat's text was read: the chat index's time and message count for it then.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,6 +123,16 @@ impl Doc {
     fn read_folds(&mut self) {
         self.folds_to_ascii = !self.text.is_ascii()
             && self.text.chars().any(|c| !c.is_ascii() && c.to_lowercase().any(|l| l.is_ascii()));
+    }
+
+    /// Whether a doc read back holds its bound and its messages start in its text, in order, each on
+    /// a character boundary.
+    fn is_sound(&self) -> bool {
+        self.text.len() <= CHAT_BYTES
+            && self.messages.windows(2).all(|pair| matches!(pair, [a, b] if a.start < b.start))
+            && self.messages.iter().all(|m| {
+                self.text.is_char_boundary(m.start as usize) && (m.start as usize) < self.text.len()
+            })
     }
 
     /// Message `i`'s byte range in `text`, its newline left out.
@@ -256,23 +268,34 @@ impl ChatText {
     /// Takes the text an earlier run saved; a missing, damaged or older copy is read past.
     pub fn load(&self) {
         // Not from a lost home (`config::mark_home_lost`): the copy there may be another daemon's.
+        // A copy past what a run can hold (with room for JSON's escapes) is not read at all: the
+        // memory bound holds from the first byte.
         let Some(saved) = crate::config::refuse_lost_home(&self.path)
             .ok()
+            .filter(|()| std::fs::metadata(&self.path).is_ok_and(|m| m.len() <= SAVED_BYTES))
             .and_then(|()| std::fs::read(&self.path).ok())
             .and_then(|bytes| serde_json::from_slice::<Loaded>(&bytes).ok())
             .filter(|saved| saved.schema == SCHEMA)
         else {
             return;
         };
-        let mut inner = lock(&self.inner);
-        inner.docs = saved
+        // A doc another build wrote, or a damaged one, is left out: each holds its own bound, and
+        // every message starts inside its text, in order.
+        let mut room = TOTAL_BYTES;
+        let docs = saved
             .docs
             .into_iter()
+            .filter(|(_, doc)| doc.is_sound())
+            .take_while(|(_, doc)| {
+                room.checked_sub(doc.text.len()).map(|left| room = left).is_some()
+            })
             .map(|(key, mut doc)| {
                 doc.read_folds();
                 (key, Arc::new(doc))
             })
             .collect();
+        let mut inner = lock(&self.inner);
+        inner.docs = docs;
         inner.saved_at = Some(Instant::now());
         self.publish(&mut inner);
         inner.dirty = false;
