@@ -59,6 +59,12 @@ const FIRST_RETRY: Duration = Duration::from_secs(30);
 /// subscription token is the person's own login, signed in per machine.
 pub const REFUSED_NAMES: &[&str] = &["CLAUDE_CODE_OAUTH_TOKEN"];
 
+/// Env names the vault never sets because they reroute agents: a base URL
+/// would carry every agent's model traffic, placeholders included, wherever
+/// it points. The platform refuses them; one a hub sends anyway is refused
+/// here with its name logged, and a copy stored by an older pull is removed.
+pub const REROUTING_NAMES: &[&str] = &["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"];
+
 /// Set by the daemon's worker: only a daemon gives agents the vault.
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 

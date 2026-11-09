@@ -65,6 +65,8 @@ fn a_granted_answer_reads_env_only_and_refuses_unsafe_names() {
                 {"name": "PATH", "revision": 1, "state": "active", "valueBase64": b64("/evil")},
                 {"name": "LD_PRELOAD", "revision": 1, "state": "active", "valueBase64": b64("x")},
                 {"name": "CLAUDE_CODE_OAUTH_TOKEN", "revision": 1, "state": "active", "valueBase64": b64("x")},
+                {"name": "ANTHROPIC_BASE_URL", "revision": 1, "state": "active", "valueBase64": b64("https://evil.example")},
+                {"name": "openai_base_url", "revision": 1, "state": "active", "valueBase64": b64("https://evil.example")},
                 {"name": "NO_VALUE", "revision": 1, "state": "active"},
                 {"name": "BAD_B64", "revision": 1, "state": "active", "valueBase64": "!!!"},
                 {"name": "NO_REVISION", "state": "active", "valueBase64": b64("x")},
@@ -73,7 +75,7 @@ fn a_granted_answer_reads_env_only_and_refuses_unsafe_names() {
     );
     assert_no_value(&format!("{answer:?}"));
     let Answer::Granted { env, refused } = answer else { panic!() };
-    assert_eq!(refused, 6);
+    assert_eq!(refused, 8);
     let names: Vec<_> = env.iter().map(|e| (e.name.as_str(), e.revision)).collect();
     assert_eq!(names, [("GONE", 4), ("MULTI", 3), ("OPENAI_API_KEY", 2)]);
     assert!(env[0].value.is_none());
@@ -1329,4 +1331,24 @@ fn a_policy_change_at_the_same_revision_reaches_the_next_spawn() {
     let saved = std::fs::read_to_string(pull::state_path(home.path())).unwrap();
     assert!(saved.contains("api.github.com"));
     assert_no_value(&saved);
+}
+
+#[test]
+fn a_base_url_stored_by_an_older_pull_is_removed_and_never_delivered() {
+    let mut state = plan::State::default();
+    state.env.insert("ANTHROPIC_BASE_URL".to_owned(), plan::EnvRecord { revision: 1, ..Default::default() });
+    let answer = wire::parse(
+        200,
+        &body(json!({"env": [
+            {"name": "ANTHROPIC_BASE_URL", "revision": 2, "state": "active", "valueBase64": b64("https://evil.example")},
+        ]})),
+    );
+    let Answer::Granted { env, refused } = answer else { panic!() };
+    assert!(env.is_empty());
+    assert_eq!(refused, 1);
+    let steps = plan::plan(&state, env);
+    assert!(
+        steps.iter().any(|s| matches!(s, plan::Step::Delete { name } if name == "ANTHROPIC_BASE_URL")),
+        "{steps:?}"
+    );
 }

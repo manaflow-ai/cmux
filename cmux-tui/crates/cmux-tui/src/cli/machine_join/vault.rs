@@ -114,7 +114,7 @@ pub(super) fn parse(rest: &[String]) -> Result<super::Command, UsageError> {
             return Err(UsageError::new("--host, --no-hosts and --env go with vault set or vault policy"));
         }
         ["ls" | "list"] => VaultVerb::Ls,
-        ["rm" | "remove", name] => VaultVerb::Rm { name: checked_name(name)? },
+        ["rm" | "remove", name] => VaultVerb::Rm { name: removable_name(name)? },
         ["grant", machine] => VaultVerb::Grant { machine: (*machine).to_owned(), granted: true },
         ["revoke", machine] => VaultVerb::Grant { machine: (*machine).to_owned(), granted: false },
         // A value after the name would be in argv for every process to read.
@@ -138,6 +138,16 @@ pub(super) fn parse(rest: &[String]) -> Result<super::Command, UsageError> {
 /// URLs are not keys: they stay reserved, so no vault entry can reroute agents.
 const PROVIDER_KEYS: [&str; 3] = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
 
+/// Names `ls` still lists and `rm` still removes, though `set` refuses them: the base URLs.
+/// Machines never deliver one (acpmux `vault::REROUTING_NAMES`); one left in a vault from before
+/// is shown as not delivered so its person can remove it.
+const NOT_DELIVERED: [&str; 2] = ["OPENAI_BASE_URL", "ANTHROPIC_BASE_URL"];
+
+/// Whether `name` is listed and may be removed: a vault var name, or one [`NOT_DELIVERED`].
+fn listed_name_ok(name: &str) -> bool {
+    vault_name_ok(name) || NOT_DELIVERED.iter().any(|n| n.eq_ignore_ascii_case(name))
+}
+
 /// Whether `name` is a vault var name: [`PROVIDER_KEYS`], else the Cloud secrets' rules
 /// (`[A-Za-z_][A-Za-z0-9_]*`, at most 128, not one the machine's shell or cmux owns).
 pub(super) fn vault_name_ok(name: &str) -> bool {
@@ -145,7 +155,16 @@ pub(super) fn vault_name_ok(name: &str) -> bool {
 }
 
 fn checked_name(name: &str) -> Result<String, UsageError> {
-    Some(name).filter(|n| vault_name_ok(n)).map(str::to_owned).ok_or_else(|| {
+    checked_with(name, vault_name_ok)
+}
+
+/// [`checked_name`] for `rm`: also a name [`NOT_DELIVERED`], so it can be cleaned up.
+fn removable_name(name: &str) -> Result<String, UsageError> {
+    checked_with(name, listed_name_ok)
+}
+
+fn checked_with(name: &str, ok: fn(&str) -> bool) -> Result<String, UsageError> {
+    Some(name).filter(|n| ok(n)).map(str::to_owned).ok_or_else(|| {
         UsageError::new(format!(
             "{:?} is not an env var name: [A-Za-z_][A-Za-z0-9_]*, and not PATH, HOME, LD_*, CMUX_* or another the machine owns",
             clean(name)
@@ -192,7 +211,7 @@ pub(super) fn entries(body: &Value) -> Option<Vec<Entry>> {
         rows.iter()
             .filter_map(|row| {
                 let name = row.get("name")?.as_str()?;
-                vault_name_ok(name).then_some(())?;
+                listed_name_ok(name).then_some(())?;
                 let updated_at = match row.get("updatedAt") {
                     Some(Value::String(text)) => Value::String(clean(text)),
                     Some(Value::Number(n)) => Value::Number(n.clone()),
@@ -217,7 +236,8 @@ pub(super) fn env_names(platform: &Platform) -> Result<Vec<String>, Failure> {
     let rows = entries(&body).ok_or_else(|| {
         Failure::new("machine_vault.unreadable", "the cmux platform's vault list is unreadable")
     })?;
-    Ok(rows.into_iter().map(|e| e.name).collect())
+    // A name machines never deliver is not one the machine gets.
+    Ok(rows.into_iter().map(|e| e.name).filter(|n| vault_name_ok(n)).collect())
 }
 
 /// The question `machine add --vault` asks before it makes a line.
@@ -347,7 +367,15 @@ pub(super) fn run(
                         let revision = e.revision.map_or_else(String::new, |r| format!("  r{r}"));
                         let at =
                             e.updated_at.as_str().map_or_else(String::new, |t| format!("  {t}"));
-                        format!("{}{revision}{at}  {}", e.name, e.policy.label())
+                        let label = if vault_name_ok(&e.name) {
+                            e.policy.label()
+                        } else {
+                            format!(
+                                "not delivered: a base URL would reroute agents (cmux machine vault rm {})",
+                                e.name
+                            )
+                        };
+                        format!("{}{revision}{at}  {label}", e.name)
                     })
                     .collect::<Vec<_>>()
                     .join("\n")
@@ -355,13 +383,17 @@ pub(super) fn run(
             let value: Vec<Value> = rows
                 .iter()
                 .map(|e| {
-                    json!({
+                    let mut row = json!({
                         "name": e.name,
                         "revision": e.revision,
                         "updatedAt": e.updated_at,
                         "delivery": e.policy.delivery.wire(),
                         "allowedHosts": e.policy.allowed_hosts,
-                    })
+                    });
+                    if !vault_name_ok(&e.name) {
+                        row["delivered"] = false.into();
+                    }
+                    row
                 })
                 .collect();
             (human, json!({ "entries": value }))
