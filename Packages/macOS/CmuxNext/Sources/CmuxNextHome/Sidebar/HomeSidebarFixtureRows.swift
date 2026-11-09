@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxHomeCore
+public import CmuxNextHomeModel
 public import Foundation
 
 /// DEBUG ONLY: fixture inbox rows for the Home list (`debug.home.sidebar_fixture`), built through
