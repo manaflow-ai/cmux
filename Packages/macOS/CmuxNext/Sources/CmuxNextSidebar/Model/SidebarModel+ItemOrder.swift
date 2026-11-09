@@ -1,3 +1,5 @@
+public import CmuxNextDesign
+
 extension SidebarModel {
     /// This sidebar's destinations in shown order (``SidebarItemOrder``): the
     /// top region's visible items (hidden, missing and suppressed apps' items
