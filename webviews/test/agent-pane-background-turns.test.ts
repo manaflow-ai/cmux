@@ -930,6 +930,43 @@ test("a background reaction survives the call's later updates and a newer prompt
   }
 });
 
+// Leo, 2026-11-09 20:33Z: "your response was weirdly folded into the rende?". A quiet failure's
+// short reply is the agent's own words too: the failure keeps its named line, its reply draws under
+// it as a message, never only inside the line's fold.
+test("a quiet failure's short reply draws under its named line, never folded inside it", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Run the suite", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      shellCall("sh5"),
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      weighed("bg-fq", {
+        kind: "shell",
+        status: "failed",
+        weight: "failure",
+        origin: "sh5",
+        summary: "Background command failed (exit code 1)",
+      }),
+      say("The suite failed on one flaky test; rerunning it."),
+      ended("bg-fq", true),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const view = drawn(rows());
+    const at = view.findIndex((row) => row.kind === BACKGROUND_TURN);
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(lineHtml(view[at]!)).toContain("Background command failed (exit code 1)");
+    expect(lineHtml(view[at]!)).not.toContain("aria-expanded");
+    expect(view[at + 1]).toMatchObject({
+      kind: "assistant",
+      text: "The suite failed on one flaky test; rerunning it.",
+    });
+  } finally {
+    client.close();
+  }
+});
+
 // #33319: a failure that ended with something to say keeps its named line over its rows, so a long
 // reply never hides what failed. The line heads rows that already show, so it opens nothing.
 test("a failure with a long reply keeps its named line over the reply", async () => {
