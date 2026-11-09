@@ -11,6 +11,7 @@ import {
   nextDocHref,
   nextDocPage,
   nextDocPublicPath,
+  repoSourceHref,
   type DocBlock,
   type NextDocPage,
 } from "@/data/next-docs/pages";
