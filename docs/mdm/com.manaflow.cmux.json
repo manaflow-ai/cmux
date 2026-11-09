@@ -4132,6 +4132,18 @@
       "title" : "Resume Agents After Restart",
       "type" : "boolean"
     },
+    "sessions.sleepHandoff.enabled" : {
+      "default" : false,
+      "description" : "When this Mac goes to sleep, chats with a running turn move to the machine below and keep going there. A chat whose uncommitted changes can't all go with it stays here and says why.",
+      "title" : "Keep Chats Running When This Mac Sleeps",
+      "type" : "boolean"
+    },
+    "sessions.sleepHandoff.machine" : {
+      "default" : "auto",
+      "description" : "The name of a machine you connected under Machines, or auto to pick one that's on and not in use.",
+      "title" : "Move Chats To",
+      "type" : "string"
+    },
     "shortcuts.showModifierHoldHints" : {
       "default" : true,
       "description" : "Hold Command or Control for 0.30 seconds to show shortcut hints.",

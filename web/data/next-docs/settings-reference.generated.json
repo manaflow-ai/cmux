@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 619,
+  "count": 621,
   "sections": [
     {
       "id": "general",
@@ -1254,6 +1254,22 @@
           "group": "Agent Sessions"
         },
         {
+          "key": "sessions.sleepHandoff.enabled",
+          "title": "Keep Chats Running When This Mac Sleeps",
+          "help": "When this Mac goes to sleep, chats with a running turn move to the machine below and keep going there. A chat whose uncommitted changes can't all go with it stays here and says why.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Sessions"
+        },
+        {
+          "key": "sessions.sleepHandoff.machine",
+          "title": "Move Chats To",
+          "help": "The name of a machine you connected under Machines, or auto to pick one that's on and not in use.",
+          "kind": "text",
+          "default": "auto",
+          "group": "Agent Sessions"
+        },
+        {
           "key": "sidebar.groupByComputer",
           "title": "Group Workspaces by Computer",
           "help": "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
@@ -1621,8 +1637,8 @@
         },
         {
           "key": "updates.liveWebReload",
-          "title": "Live Web Reload",
-          "help": "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
+          "title": "cmux Live",
+          "help": "The switch that lets cmux live start and Edit cmux Live… show your own checkout's web UI in this app: each saved edit shows at once, with no build and no relaunch. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. cmux live start --swift is the Swift path (Labs > Live Code).",
           "kind": "toggle",
           "default": true,
           "group": "Updates"

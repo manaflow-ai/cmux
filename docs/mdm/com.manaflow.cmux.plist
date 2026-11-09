@@ -975,6 +975,30 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>When this Mac goes to sleep, chats with a running turn move to the machine below and keep going there. A chat whose uncommitted changes can't all go with it stays here and says why.</string>
+			<key>pfm_name</key>
+			<string>sessions.sleepHandoff.enabled</string>
+			<key>pfm_title</key>
+			<string>Keep Chats Running When This Mac Sleeps</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>The name of a machine you connected under Machines, or auto to pick one that's on and not in use.</string>
+			<key>pfm_name</key>
+			<string>sessions.sleepHandoff.machine</string>
+			<key>pfm_title</key>
+			<string>Move Chats To</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Terminal agents reopen their session after a crash or restart.</string>
