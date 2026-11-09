@@ -16,7 +16,7 @@ already cancel; five path-filtered workflows had no group at all.
 
 A bare `bun install` (or `bun i`) in any workflow step waits forever on a
 registry connection that stops answering: bun has no idle limit of its own,
-so the job sits silent until its timeout cancels it (2026-11-09, Blacksmith
+so the job sits silent until its timeout cancels it (2026-11-09, hosted Linux
 runners). Every workflow installs through scripts/ci/bun-install.sh, which
 gives bun an idle limit and retries, bounds each attempt, and ends a stall
 with a named "bun install stalled" error.
