@@ -114,7 +114,11 @@ pub enum Load {
     Ledger(Ledger),
     /// A newer schema's ledger; it is left as it is.
     Newer(i64),
-    /// A ledger that does not decode; it was moved aside.
+    /// A ledger that does not decode; it was moved aside. Until a run
+    /// writes a new ledger (a manual import), or the person restores or
+    /// removes the copy moved aside, every later load says the same, so a
+    /// later launch never takes the damaged ledger for a first run and makes
+    /// every workspace again.
     Unreadable,
     /// A ledger that is there but could not be read (permissions, I/O); it
     /// is left as it is and nothing runs, so its runs are never recorded over.
@@ -163,11 +167,19 @@ impl Folder {
     }
 
     /// The ledger, if any. One that does not decode is moved aside as
-    /// `ledger.unreadable-<ms>.json`; a newer schema's is left alone.
+    /// `ledger.unreadable-<ms>.json`, which keeps the load
+    /// [`Load::Unreadable`] while no new ledger is written; a newer schema's
+    /// is left alone.
     pub fn load(&self) -> Load {
         let data = match std::fs::read(self.ledger_path()) {
             Ok(data) => data,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Load::None,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return if self.unreadable_copies().is_empty() {
+                    Load::None
+                } else {
+                    Load::Unreadable
+                };
+            }
             Err(error) => return Load::Failed(error.to_string()),
         };
         let schema = serde_json::from_slice::<serde_json::Value>(&data)
@@ -183,6 +195,21 @@ impl Folder {
         let aside = self.directory.join(format!("ledger.unreadable-{millis}.json"));
         let _ = std::fs::rename(self.ledger_path(), aside);
         Load::Unreadable
+    }
+
+    /// The damaged ledgers moved aside (`ledger.unreadable-<ms>.json`).
+    pub fn unreadable_copies(&self) -> Vec<PathBuf> {
+        std::fs::read_dir(&self.directory)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|entry| {
+                entry.file_name().to_str().is_some_and(|name| {
+                    name.starts_with("ledger.unreadable-") && name.ends_with(".json")
+                })
+            })
+            .map(|entry| entry.path())
+            .collect()
     }
 
     /// Writes `ledger` atomically.
@@ -386,6 +413,32 @@ mod tests {
             .collect();
         assert!(!names.contains(&"ledger.json".to_string()));
         assert!(names.iter().any(|name| name.starts_with("ledger.unreadable-")), "{names:?}");
+    }
+
+    /// The copy moved aside keeps every later load unreadable, so no launch
+    /// takes the damaged ledger for a first run, until a new ledger is
+    /// written (a manual import) or the copy is removed.
+    #[test]
+    fn a_damaged_ledger_stays_unreadable_until_a_new_one_is_written() {
+        let root = tempfile::tempdir().unwrap();
+        let folder = Folder::new(root.path().join("m"));
+        std::fs::create_dir_all(&folder.directory).unwrap();
+        std::fs::write(folder.ledger_path(), "{not json").unwrap();
+        assert_eq!(folder.load(), Load::Unreadable);
+        assert_eq!(folder.load(), Load::Unreadable);
+        assert_eq!(folder.load(), Load::Unreadable);
+        assert_eq!(folder.unreadable_copies().len(), 1);
+
+        let recovered = Ledger::new(State::Completed);
+        folder.save(&recovered).unwrap();
+        assert_eq!(folder.load(), Load::Ledger(recovered));
+
+        std::fs::remove_file(folder.ledger_path()).unwrap();
+        assert_eq!(folder.load(), Load::Unreadable);
+        for copy in folder.unreadable_copies() {
+            std::fs::remove_file(copy).unwrap();
+        }
+        assert_eq!(folder.load(), Load::None);
     }
 
     /// Backups copy classic's files; the originals keep their bytes and dates.

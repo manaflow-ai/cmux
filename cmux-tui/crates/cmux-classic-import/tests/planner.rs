@@ -401,3 +401,73 @@ fn the_wire_shape_is_snake_case() {
         serde_json::json!({"decision": "first_run"})
     );
 }
+
+/// A plan of `scrollbacks.len()` workspaces, each one terminal holding its scrollback.
+fn plan_with_scrollback(scrollbacks: &[String]) -> Plan {
+    let workspaces: Vec<Value> = scrollbacks
+        .iter()
+        .enumerate()
+        .map(|(index, text)| {
+            serde_json::json!({
+                "stableId": format!("w{index}"), "currentDirectory": "/tmp",
+                "panels": [{"id": format!("{index:08x}-0000-4000-8000-000000000000"),
+                            "type": "terminal", "terminal": {"scrollback": text}}],
+            })
+        })
+        .collect();
+    let session =
+        serde_json::json!({"version": 1, "windows": [{"tabManager": {"workspaces": workspaces}}]});
+    let snapshot =
+        decode::decode(&serde_json::to_vec(&session).unwrap(), None, "/Users/me").unwrap();
+    plan::plan(&snapshot, None, &BTreeSet::new(), &BTreeSet::new(), Mode::Automatic)
+}
+
+fn scrollbacks(plan: &Plan) -> Vec<Option<String>> {
+    plan.workspaces()
+        .flat_map(|workspace| workspace.layout.tabs())
+        .map(|tab| tab.scrollback.clone())
+        .collect()
+}
+
+/// A plan over its reply budget keeps every small terminal's scrollback whole
+/// and cuts the big ones to their newest lines; the JSON then fits, counting
+/// escapes (a color sequence's escape byte takes six bytes in JSON).
+#[test]
+fn a_plan_fits_its_reply_by_cutting_the_biggest_scrollback_to_its_newest_lines() {
+    let line = "\u{1b}[32mok\u{1b}[0m build line\n";
+    let big = line.repeat(400_000 / line.len());
+    let small = "just this\n".to_string();
+    let mut texts = vec![big.clone(); 6];
+    texts.push(small.clone());
+    let mut made = plan_with_scrollback(&texts);
+    let whole = serde_json::to_vec(&made).unwrap().len();
+    let budget = 1024 * 1024;
+    assert!(whole > budget * 2, "{whole}");
+
+    made.fit(budget).unwrap();
+    assert!(serde_json::to_vec(&made).unwrap().len() <= budget);
+    assert_eq!(made.scrollback_trimmed, 6);
+    let kept = scrollbacks(&made);
+    assert_eq!(kept.last().unwrap().as_deref(), Some(small.as_str()));
+    for text in &kept[..6] {
+        let text = text.as_deref().unwrap();
+        assert!(big.ends_with(text) && text.starts_with('\u{1b}'), "{:?}", &text[..20]);
+        assert!(text.len() > 100_000, "{}", text.len());
+    }
+
+    // A plan that already fits is left whole.
+    let mut fitting = plan_with_scrollback(std::slice::from_ref(&small));
+    let before = fitting.clone();
+    fitting.fit(budget).unwrap();
+    assert_eq!(fitting, before);
+}
+
+/// With no room for the plan itself, fitting refuses and says why.
+#[test]
+fn a_plan_too_large_without_scrollback_is_refused() {
+    let mut made = plan_with_scrollback(&vec!["x\n".to_string(); 3]);
+    let error = made.fit(64).unwrap_err();
+    assert_eq!(error.budget, 64);
+    assert!(error.needed > 64);
+    assert!(error.to_string().contains("too large to import"), "{error}");
+}
