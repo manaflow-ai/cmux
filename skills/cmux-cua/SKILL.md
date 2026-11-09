@@ -1,6 +1,6 @@
 ---
 name: cmux-cua
-description: "cmux Computer Use. Read it before the first step of any request, in a cmux chat, to do something in an app on the person's Mac (Calculator, Notes, Finder, Mail, any desktop app) or to look at their screen. Its tools are the cua_* tools (inside cmux_exec, or listed as mcp__cmux__cua_* or mcp__cmux-cua__*). Use them, not another app's computer-use skill (anthropic-skills:computer-use), and never osascript, AppleScript or System Events keystrokes, which macOS blocks and which skip cmux's setup card. Covers setup, blocked apps and the steps that wait for the person."
+description: "cmux Computer Use. Read this skill before the first step of any request, in a cmux chat, to do something in an app on the person's Mac (Calculator, Notes, Finder, Mail, Preview, any desktop app) or to look at their screen. In a cmux chat this is the computer use tool: the cua_* tools inside cmux_exec (listed directly: mcp__cmux__cua_*, or mcp__cmux-cua__* as its own server), attached by cmux in local chats when computer use is available. Use it, not another app's computer-use skill or tools (for example anthropic-skills:computer-use, whose tools a cmux chat does not have), and never osascript, AppleScript or System Events keystrokes, which macOS blocks and which skip cmux's setup card and blocked-app check. Covers setup, blocked apps and the steps that still wait for the person."
 ---
 
 # cmux-cua

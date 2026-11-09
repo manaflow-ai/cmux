@@ -100,13 +100,14 @@ Changed here:
 
 - **A skill for a server the chat lacks is not listed** (`agent_tools::SKILL_SERVERS`,
   `AgentTools::fit_skills`): `cmux-cua` needs the `cmux-cua` server, `cmux-sudo` needs
-  `cmux-secrets` (`request_elevation`). A Linux, Cloud or lane chat, or a Mac chat before
-  computer use is set up, drops 301 tokens of listings every turn (910 to 535 with the shorter
-  descriptions below), and is no longer sent to read a 6,000-token computer use skill for tools
+  `cmux-secrets` (`request_elevation`). A chat without them (Linux, Cloud and lane
+  machines, a Mac without the helper) drops 301 tokens of listings every turn (910 to 609), and is no longer sent to read a 6,000-token computer use skill for tools
   it does not have. The fitted plugin is its own content-hashed folder; the chat's tool rows and
   Context viewer sources list the same skills.
-- **The two longest descriptions are shorter**: `cmux-cua` 203 to 148 tokens, `cmux-live` 202 to
-  128, with the same triggers (the phrases `tests/agent_tools.rs` checks stay).
+- **Shorter descriptions** for five of the skills are #39113, from the same ask: Claude Code fits
+  skill descriptions into a fixed listing budget and cuts the last ones to a bare name when a
+  person has many skills, which is how `cmux-chat` went unread. Fewer listings leave more of that
+  budget too.
 
 Found, not changed here (each changes what an agent does, so each wants a run of
 `tests/tool-evals/prompt-behavior.mjs` before and after):
