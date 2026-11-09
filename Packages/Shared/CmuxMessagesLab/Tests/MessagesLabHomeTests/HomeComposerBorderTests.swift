@@ -92,12 +92,15 @@ import UniformTypeIdentifiers
         let chrome = FieldChrome(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
         chrome.setFrameNow(NSRect(x: 0, y: 80, width: 240, height: 30))
         chrome.applyTheme(light: false, symbol: .white, edge: .black, restingEdge: .red, windowIsKey: false)
-        #expect((chrome.field.layer?.borderWidth ?? 0) == 0)
+        #expect(try #require(chrome.field.layer).borderWidth == 0)
         #expect(chrome.edge.borderWidth == 1)
         #expect(chrome.edge.bounds.height == 30)
+        // The edge's view is not flipped: a field 80 pt from the top of a 120 pt chrome sits 10 pt from its bottom.
+        #expect(chrome.edge.frame.minY == 10)
         #expect(chrome.edge.cornerRadius == chrome.field.cornerRadius)
         chrome.setFrameNow(NSRect(x: 0, y: 20, width: 240, height: 90))
         #expect(chrome.edge.bounds.height == 90)
+        #expect(chrome.edge.frame.minY == 10)
         #expect(chrome.fieldOverlayLayers.contains { $0 === chrome.edge })
     }
 
