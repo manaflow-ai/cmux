@@ -94,13 +94,14 @@ public nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// `cmux link seed push`: seeds `local` at `remote` from its GitHub remote plus one bundle, else copies it.
-    public func seedPush(socket: String, local: String, remote: String) async throws -> Answer {
-        try await run(["verb": "seed-push", "socket": socket, "local": local, "remote": remote]).answer
+    /// `stderrLine` gets its progress lines (``SeedProgress/feed(_:each:)``).
+    public func seedPush(socket: String, local: String, remote: String, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> Answer {
+        try await run(["verb": "seed-push", "socket": socket, "local": local, "remote": remote], stderrLine: stderrLine).answer
     }
 
-    /// `cmux link seed pull --or-copy` (Bring Back Local).
-    public func bringBackPull(socket: String, local: String, remote: String) async throws -> Answer {
-        try await run(["verb": "bring-back-pull", "socket": socket, "local": local, "remote": remote]).answer
+    /// `cmux link seed pull --or-copy` (Bring Back Local); `stderrLine` as ``seedPush(socket:local:remote:stderrLine:)``'s.
+    public func bringBackPull(socket: String, local: String, remote: String, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> Answer {
+        try await run(["verb": "bring-back-pull", "socket": socket, "local": local, "remote": remote], stderrLine: stderrLine).answer
     }
 
     /// `cmux link agent move`: moves the chat of tab `surface` of the daemon at `from` to the machine daemon at `to`,

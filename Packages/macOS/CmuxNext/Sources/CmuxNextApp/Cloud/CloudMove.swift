@@ -61,7 +61,7 @@ struct CloudMove {
         if let machineID = left?.machineID, services.cloud.hasLoadedCurrentMachines, services.machines.session(machineID) == nil { left = nil }
         if tab.agentSession == nil { left = nil }
         if left != retries[tab.id] { retries[tab.id] = left }
-        if case .show(let shown) = left { return perform(tab: tab, invocation: invocation) { try await reshow(shown, tab: tab, invocation: invocation) } }
+        if case .show(let shown) = left { return perform(tab: tab, invocation: invocation) { try await reshow(shown, tab: tab, invocation: invocation, progress: $0) } }
         guard let record = tab.agentSession else { throw ActionFailure(message: CloudMoveStrings.notAChat) }
         let tabs = services.agentTabs
         guard services.machines.daemon(forTab: tab).isLocal, !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix),
@@ -80,9 +80,9 @@ struct CloudMove {
         // An unresolved move finishes on the machine it started on.
         if let machineID = left?.machineID, invocation["machine"] == nil { invocation.arguments["machine"] = .string(machineID) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        perform(tab: tab, invocation: invocation) { [invocation] in
+        perform(tab: tab, invocation: invocation) { [invocation] progress in
             try await Self.updatingFirst(invocation) { invocation in
-                try await run(tab: tab, in: pane, record: record, session: session, cli: cli, invocation: invocation)
+                try await run(tab: tab, in: pane, record: record, session: session, cli: cli, invocation: invocation, progress: progress)
             }
         }
     }
@@ -105,9 +105,9 @@ struct CloudMove {
         }
     }
 
-    /// Runs `body` (which returns the machine's name) behind the toasts. A stop
-    /// records its retry for `tab` and offers it; success clears it.
-    private func perform(tab: TabModel, invocation: ActionInvocation, _ body: @escaping @MainActor () async throws -> String) {
+    /// Runs `body` (which returns the machine's name) behind the toasts, the working one saying the step and
+    /// about how long is left (``CloudMoveProgress``). A stop records its retry for `tab` and offers it; success clears it.
+    private func perform(tab: TabModel, invocation: ActionInvocation, _ body: @escaping @MainActor (CloudMoveProgress) async throws -> String) {
         let toastID = "cloud-move-" + tab.id
         let tabID = tab.id
         let retries = services.cloud.moveRetries
@@ -119,9 +119,11 @@ struct CloudMove {
         // A failure toast an earlier move without a card left up (with its Retry) goes too.
         if carded { CmuxToastCenter.shared.close(id: toastID) } else { toast(toastID, CloudMoveStrings.moving, duration: Self.working) }
         asks.moveStarted(tabID, services: services)
+        let progress = CloudMoveProgress(.move) { [services] in if !carded { Self.toast(services, toastID, CloudMoveStrings.moving + "\n" + $0, duration: Self.working) } }
         let work: ActionWork = Task { @MainActor in
+            defer { progress.end() }
             do {
-                let machine = try await body()
+                let machine = try await body(progress)
                 retries[tabID] = nil
                 toast(toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
                 asks.moveEnded(tabID, failure: nil, services: services)
@@ -163,12 +165,12 @@ struct CloudMove {
 
     /// The move, after the synchronous checks. Returns the machine's name.
     private func run(tab: TabModel, in pane: PaneModel, record: AgentSessionRef, session: String, cli: CloudMoveCLI,
-                     invocation: ActionInvocation) async throws -> String {
+                     invocation: ActionInvocation, progress: CloudMoveProgress) async throws -> String {
         let workspace = services.machines.local.store.workspace(containing: pane.handle)
         guard let chat = try await chatFolder(tab: tab, workspace: workspace, session: session, invocation: invocation),
               let folder = CloudMoveFolder(chat: chat) else { throw Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw Failure(message: CloudMoveStrings.homeFolder) }
-        let machine = try await self.machine(invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
+        let machine = try await self.machine(invocation, progress: progress) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         // From here the chat may move to this machine: a quit or a crash before the move ends
         // leaves Retry pinned to it, and the relaunched app finishes the move there.
@@ -182,14 +184,17 @@ struct CloudMove {
         if CloudMachineUpdate.requested(invocation) {
             // The chat's card says the move (``perform``): then no update toast, and any toast up goes.
             let carded = services.cloud.moveAsks.hasCard(tab.id)
+            progress.hold()
             try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: carded ? nil : "cloud-move-" + tab.id,
                                              retry: .update(machineID: machine.machineID))
             if carded { CmuxToastCenter.shared.close(id: "cloud-move-" + tab.id) } else {
                 toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: Self.working)
             }
         }
-        let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again)
+        progress.enter(.copy, name: name)
+        let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again, progress: progress)
         let owner = await Self.ownerAnswer(machine)
+        progress.enter(.agent, name: name)
         let moved: CloudMoveCLI.Answer
         do {
             // A running turn goes on on the machine, with what it wrote since the sync above.
@@ -215,12 +220,12 @@ struct CloudMove {
                                            name: workspace?.name, key: moved.transferID ?? movedSession)
         // A quit or a crash before the tab opens leaves the relaunched app only opening it.
         services.cloud.moveRetries[tab.id] = .show(shown)
-        try await finish(shown, on: machine, tab: tab)
+        try await finish(shown, on: machine, tab: tab, progress: progress)
         return name
     }
 
     /// A Retry of a move that committed: opens the chat's tab on its machine, nothing else.
-    private func reshow(_ shown: CloudMoveRetries.Shown, tab: TabModel, invocation: ActionInvocation) async throws -> String {
+    private func reshow(_ shown: CloudMoveRetries.Shown, tab: TabModel, invocation: ActionInvocation, progress: CloudMoveProgress) async throws -> String {
         let retry = CloudMoveRetries.Retry.show(shown)
         guard let session = services.machines.session(shown.machineID) else {
             // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
@@ -233,12 +238,13 @@ struct CloudMove {
         } catch let failure as Failure {
             throw Failure(message: failure.message, retry: retry)
         }
-        try await finish(shown, on: machine, tab: tab)
+        try await finish(shown, on: machine, tab: tab, progress: progress)
         return machine.machine.title
     }
 
     /// Opens the moved chat's tab on `machine`, then closes this Mac's tab, whose chat closed with the move.
-    private func finish(_ shown: CloudMoveRetries.Shown, on machine: CloudMachineSession, tab: TabModel) async throws {
+    private func finish(_ shown: CloudMoveRetries.Shown, on machine: CloudMachineSession, tab: TabModel, progress: CloudMoveProgress) async throws {
+        progress.enter(.tab, name: machine.machine.title)
         do {
             try await show(shown.session, harness: shown.harness, on: machine, in: shown.folder, name: shown.name, key: shown.key)
         } catch {
@@ -254,12 +260,14 @@ struct CloudMove {
 
     /// Syncs `folder` under the first of the machine's work roots it can write.
     private func sync(_ folder: CloudMoveFolder, to socket: String, machine: String, cli: CloudMoveCLI,
-                      retry: CloudMoveRetries.Retry) async throws -> (folder: String, chat: String) {
+                      retry: CloudMoveRetries.Retry, progress: CloudMoveProgress) async throws -> (folder: String, chat: String) {
         var last = CloudMoveCLI.Answer(ok: false)
         for root in services.cloud.move.workRoots {
             let remote = folder.remote(under: root)
             do {
-                last = try await cli.seedPush(socket: socket, local: folder.root, remote: remote.folder)
+                last = try await SeedProgress.feed({ [root = folder.root, to = remote.folder] in
+                    try await cli.seedPush(socket: socket, local: root, remote: to, stderrLine: $0)
+                }, each: { progress.copied($0) })
             } catch {
                 // Timed out or didn't launch: nothing moved yet, so Retry runs the move again on this machine.
                 throw Failure(message: CloudMoveStrings.syncFailed(machine, CloudStrings.errorText(error)), retry: retry)
@@ -295,18 +303,21 @@ struct CloudMove {
         return (chats + tabs).lazy.compactMap(\.cwd).first { $0.hasPrefix("/") }
     }
 
-    /// The machine the chat moves to, connected; a new one is sized for the chat (`pick`).
-    func machine(_ invocation: ActionInvocation, pick: () async -> CloudWorkPick?) async throws -> CloudMachineSession {
+    /// The machine the chat moves to, connected; a new one is sized for the chat (`pick`). `progress` says which it reaches.
+    func machine(_ invocation: ActionInvocation, progress: CloudMoveProgress? = nil, pick: () async -> CloudWorkPick?) async throws -> CloudMachineSession {
         let machines = services.machines
         let named = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue
         if let named {
             let id = named.hasPrefix("machine:") ? String(named.dropFirst("machine:".count)) : named
             guard let session = machines.session(id) else { throw Failure(message: CloudMoveStrings.noSuchMachine(id), retry: .move(machineID: id)) }
+            progress?.reaching(session.machine)
             return try await Self.connected(session, invocation)
         }
         if let live = machines.cloud.first(where: { $0.daemon.connection != nil }) ?? machines.cloud.first {
+            progress?.reaching(live.machine)
             return try await Self.connected(live, invocation)
         }
+        progress?.reaching(nil)
         let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
                                                              request: CloudChatPick.request(sizedFor: await pick()))
         return try await Self.connected(created, invocation)

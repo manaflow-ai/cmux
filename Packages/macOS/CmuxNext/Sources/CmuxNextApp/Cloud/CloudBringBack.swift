@@ -47,7 +47,7 @@ struct CloudBringBack {
     func start(_ invocation: ActionInvocation, context: AppActionContext) throws {
         guard let (tab, _) = context.daemonTab(invocation) else { return }
         if case .show(let shown) = services.cloud.bringBackRetries[tab.id] {
-            return perform(tab: tab) { try await reshow(shown, tab: tab) }
+            return perform(tab: tab) { try await reshow(shown, tab: tab, progress: $0) }
         }
         guard let record = tab.agentSession, record.host.hasPrefix(MachineRegistry.registryHostPrefix),
               let session = record.session ?? services.agentTabs.sessions[services.agentTabs.tabKey(of: tab)],
@@ -56,7 +56,7 @@ struct CloudBringBack {
         }
         // The move back committed before (this run or one before a relaunch): only open the tab.
         if let back = entry.broughtBack {
-            return perform(tab: tab) { try await reshow(entry.shown(back), tab: tab) }
+            return perform(tab: tab) { try await reshow(entry.shown(back), tab: tab, progress: $0) }
         }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
@@ -65,24 +65,26 @@ struct CloudBringBack {
         // Only the person's "Update Machine" updates the machine first (``CloudMachineUpdate``).
         let update = CloudMachineUpdate.requested(invocation)
         // The person's Bring Back updates a machine too old for it first (``CloudMove/updatingFirst(_:_:)``).
-        perform(tab: tab) {
+        perform(tab: tab) { progress in
             try await CloudMove.updatingFirst(invocation) { invocation in
                 try await run(tab: tab, entry: entry, cli: cli, askFirst: askFirst, update: update || CloudMachineUpdate.requested(invocation),
-                              invocation: invocation)
+                              invocation: invocation, progress: progress)
             }
         }
     }
 
-    /// Runs `body` (which returns the machine's name) behind the toasts. A stop records its retry
-    /// for `tab` and offers it; success clears it.
-    private func perform(tab: TabModel, _ body: @escaping @MainActor () async throws -> String) {
+    /// Runs `body` (which returns the machine's name) behind the toasts, the working one saying the step and about
+    /// how long is left (``CloudMoveProgress``). A stop records its retry for `tab` and offers it; success clears it.
+    private func perform(tab: TabModel, _ body: @escaping @MainActor (CloudMoveProgress) async throws -> String) {
         let toastID = "cloud-bring-back-" + tab.id
         let tabID = tab.id
         let retries = services.cloud.bringBackRetries
         CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: CloudMove.working)
+        let progress = CloudMoveProgress(.bringBack) { [services] in CloudMove.toast(services, toastID, CloudBringBackStrings.bringing + "\n" + $0, duration: CloudMove.working) }
         let work: ActionWork = Task { @MainActor in
+            defer { progress.end() }
             do {
-                _ = try await body()
+                _ = try await body(progress)
                 retries[tabID] = nil
                 CloudMove.toast(services, toastID, CloudBringBackStrings.broughtBack, duration: .seconds(6))
                 return nil
@@ -126,7 +128,8 @@ struct CloudBringBack {
 
     /// The bring back, after the synchronous checks. Returns the machine's name. `askFirst` narrows
     /// the machine's chat to an asking policy and mode before it moves.
-    private func run(tab: TabModel, entry: CloudMovedChats.Entry, cli: CloudMoveCLI, askFirst: Bool, update: Bool, invocation: ActionInvocation) async throws -> String {
+    private func run(tab: TabModel, entry: CloudMovedChats.Entry, cli: CloudMoveCLI, askFirst: Bool, update: Bool, invocation: ActionInvocation,
+                     progress: CloudMoveProgress) async throws -> String {
         let again = CloudMoveRetries.Retry.move(machineID: entry.machineID)
         guard let machine = services.machines.session(entry.machineID) else {
             // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
@@ -135,6 +138,7 @@ struct CloudBringBack {
         }
         let name = machine.machine.title
         guard FileManager.default.fileExists(atPath: entry.localRoot) else { throw Failure(message: CloudBringBackStrings.noFolder(entry.localRoot)) }
+        progress.reaching(machine.machine)
         _ = try await CloudMove.connected(machine, invocation)
         guard let machineSocket = await machine.daemon.connection?.endpoint?.socketPath,
               let localSocket = await services.daemon.connection?.endpoint?.socketPath else {
@@ -142,12 +146,16 @@ struct CloudBringBack {
         }
         if update {
             let toastID = "cloud-bring-back-" + tab.id
+            progress.hold()
             try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: toastID, retry: again.updating)
             CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: CloudMove.working)
         }
+        progress.enter(.copy, name: name)
         let pulled: CloudMoveCLI.Answer
         do {
-            pulled = try await cli.bringBackPull(socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
+            pulled = try await SeedProgress.feed({ [root = entry.localRoot, remote = entry.remoteFolder] in
+                try await cli.bringBackPull(socket: machineSocket, local: root, remote: remote, stderrLine: $0)
+            }, each: { progress.copied($0) })
         } catch {
             // Timed out or didn't launch: nothing moved, so Retry runs it again on this machine.
             throw Failure(message: CloudBringBackStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
@@ -158,6 +166,7 @@ struct CloudBringBack {
             if pulled.errorCode == CloudMoveStrings.outdatedCode { throw Failure(message: CloudBringBackStrings.outdatedMachine(name), retry: again.updating) }
             throw Failure(message: CloudBringBackStrings.syncFailed(name, pulled.error ?? pulled.errorCode ?? ""), retry: again)
         }
+        progress.enter(.agent, name: name)
         let moved: CloudMoveCLI.Answer
         do {
             // A running turn goes on here, with what it wrote on the machine since the pull above.
@@ -179,18 +188,19 @@ struct CloudBringBack {
         services.cloud.movedChats.record(committed)
         // The chat is back: its grants on the machine end (never failing the bring back).
         services.cloud.accessAsks.chatBroughtBack(machineID: entry.machineID, session: entry.session, services: services)
-        try await finish(committed.shown(back), tab: tab)
+        try await finish(committed.shown(back), tab: tab, progress: progress)
         return name
     }
 
     /// A Retry of a bring back that committed: opens the chat's tab here, nothing else.
-    private func reshow(_ shown: CloudMoveRetries.Shown, tab: TabModel) async throws -> String {
-        try await finish(shown, tab: tab)
+    private func reshow(_ shown: CloudMoveRetries.Shown, tab: TabModel, progress: CloudMoveProgress) async throws -> String {
+        try await finish(shown, tab: tab, progress: progress)
         return services.machines.machineName(shown.machineID) ?? shown.machineID
     }
 
     /// Opens the chat's tab on this Mac, then closes the machine's tab, whose chat closed with the move.
-    private func finish(_ shown: CloudMoveRetries.Shown, tab: TabModel) async throws {
+    private func finish(_ shown: CloudMoveRetries.Shown, tab: TabModel, progress: CloudMoveProgress) async throws {
+        progress.enter(.tab)
         do {
             try await show(shown)
         } catch {

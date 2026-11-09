@@ -207,3 +207,23 @@ fn the_rest_answer_in_the_shapes_the_app_reads() {
     assert_eq!(legacy["lastLine"], "started");
     assert_eq!(legacy["answer"]["errorCode"], "machine_update_failed");
 }
+
+#[test]
+fn a_move_says_its_step_and_about_how_long_is_left() {
+    let copying = ok(
+        c"cloud_move_progress",
+        json!({"direction": "move", "stage": "copy", "name": "dev", "stageMs": 10_000,
+               "copy": {"phase": "copy", "filesDone": 301, "filesTotal": 1_204}}),
+    );
+    assert_eq!(copying["text"], "2 of 4 · Copying the folder (1,204 files) · about 45 s left");
+    assert_eq!((copying["step"].clone(), copying["steps"].clone()), (json!(2), json!(4)));
+    assert_eq!(copying["etaMs"], 43_000);
+    assert_eq!(copying["refreshMs"], 1_000);
+    let back = ok(
+        c"cloud_move_progress",
+        json!({"direction": "bringBack", "stage": "machine", "machine": "paused", "name": "dev"}),
+    );
+    assert_eq!(back["text"], "1 of 4 · Resuming dev · about 1 min left");
+    let (code, _) = call(c"cloud_move_progress", &json!({"stage": "teleport"}));
+    assert_eq!(code, ERR_INVALID);
+}
