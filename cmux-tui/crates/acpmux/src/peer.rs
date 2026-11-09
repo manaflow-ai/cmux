@@ -1226,6 +1226,16 @@ impl Peer {
         attached
     }
 
+    /// Chat `sid` was attached again without history on link `link` ([`REATTACHED_NOTICE`]).
+    async fn tell_reattached(&self, sid: &str, link: u64) {
+        let notice = PeerNotice::Notification {
+            method: REATTACHED_NOTICE.to_owned(),
+            params: json!({"sessionId": sid}),
+            link,
+        };
+        let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
+    }
+
     /// Advance the reconnect cursor from a page returned by `_acpmux/attach`.
     /// The page's `lastSeq` includes records filtered out by `kinds`, so only
     /// the records actually delivered to the client may advance the cursor.
@@ -2161,10 +2171,14 @@ impl Peer {
                 let replayed = |sid: &String| cursors.get(sid).is_some_and(|c| *c > 0);
                 marks.keys().filter(|sid| !replayed(sid)).cloned().collect()
             };
-            let link = &me;
+            // Each starts its stream anew at the peer's present, so what the peer sent since the
+            // last link is a hole: its clients are told they lagged, and read it themselves.
+            let (peer, epoch) = (&me, link);
             futures::stream::iter(attached.iter())
                 .for_each_concurrent(REATTACHES_AT_ONCE, |sid| async move {
-                    let _ = link.attach_hidden(sid).await;
+                    if peer.attach_hidden(sid).await.is_ok() && peer.link_epoch() == epoch {
+                        peer.tell_reattached(sid, epoch).await;
+                    }
                 })
                 .await;
             me.refresh_health();
@@ -2543,6 +2557,10 @@ impl Peer {
                                 if merged == dual::Merged::Closed {
                                     break Ok(LinkEnd::Stopped);
                                 }
+                                continue;
+                            }
+                            // Only the link itself says a chat was attached again.
+                            if m == REATTACHED_NOTICE {
                                 continue;
                             }
                             let notice = if m == method::MUX_SESSION_CHANGED {

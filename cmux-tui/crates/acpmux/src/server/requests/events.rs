@@ -24,6 +24,10 @@ pub(super) fn handle(
         .omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()))
         // One subagent's own records, for its pane (`EventFilter::of_subagent`).
         .of_subagent(str_param(params, "subagent"));
+    // After a hard stop the log runs ahead of the saved session until the chat's log loads: a
+    // client reading the records it missed (its own cursor, a lag's resync) asks past the saved
+    // `lastSeq`, and was refused as `cursor_future`, so its hole stayed.
+    hub.catch_up_tail(&s);
     let (last, created) = {
         let meta = s.meta();
         (meta.last_seq, meta.created_at)
