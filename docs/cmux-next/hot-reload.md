@@ -117,6 +117,16 @@ While a dev server serves, the Content Security Policy is looser. Pages also all
 server's own policy, which allows inline scripts and loopback WebSockets and frames on any port.
 An overlay keeps the shipped policy.
 
+When the server stops or restarts under a page, the page never stays blank. A page drawn from the
+server shows a small note, "the dev server stopped", and reloads when it is back. A page whose code
+stops loading mid-load loads again: it gets the server's files if the server answers, else the
+shipped ones. It tries four times in about 8 seconds, then keeps a note that points at
+`cmux live status`. When the server exits on its own, its watch clears `server` from
+`web-dev.json`, so every page goes back to the shipped web UI, and writes the time to
+`dev-server.exit` in the state folder. `server --local` keeps each module's React Compiler output
+in that folder (`transforms`, about 50 MB per tree, entries older than 14 days are removed). So
+from the second start on, the agent pane is ready in about 6 s, not 35 s.
+
 ### A projection window
 
 ```sh
@@ -517,7 +527,8 @@ Built bundles carry none of this. The code is `webviews/src/devkit/perfBudgets.t
 | Symptom | Check |
 |---|---|
 | Nothing changes after `server --local` | `web-overlay.sh status` lists the dev server. `curl -sI http://127.0.0.1:4200/agent-pane/index.html` answers 200, and with `-H 'X-Cmux-Dev-Nonce: 1'` it adds an `X-Cmux-Dev-Proof` (none: the server is older than this change, or `web-dev.json` has no `token`). The app's commit includes #22664 (above). |
-| A page loads, then stops updating | The dev server stopped. The page falls back to the overlay, then the bundle. Run `server --local` again. |
+| A page loads, then stops updating | The dev server stopped: the page says so in its corner, and if the server exited, `dev-server.exit` in the state folder says when. Pages go back to the shipped web UI. Run `server --local` again. |
+| A page is blank, or a script "has a MIME type of text/html" | The server is older than #(this change): it answered files it lacks with its index page. Pull the checkout and start it again. |
 | `the dev server did not start` | Another process holds the port (the server won't move to another one). Use `--port N`; the app follows `web-dev.json`. |
 | You see another tree's edits | A dev server that `web-overlay.sh` didn't start already answers on the port, and `server --local` reuses it. Stop it where it was started, or use `--port N` for a free port. |
 | You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`, or turn **Live Web Reload** off (`cmux settings set updates.liveWebReload false`). |

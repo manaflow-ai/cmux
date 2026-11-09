@@ -245,10 +245,21 @@ start_local() {
   [[ -d "$tree/webviews/node_modules" ]] || (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null)
   # The generated string tables are gitignored; the dev server imports them.
   (cd "$tree/webviews" && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1)
-  # Its own process group (set -m), so `server off` stops bun and its children together.
-  # Every descriptor goes to the log, so the caller's pipe closes when this script exits.
+  # Each module's React Compiler output, kept across starts (webviews/reactCompiler.mjs keys it by
+  # the file's text, path and bun.lock), so a second start serves the agent pane in seconds, not
+  # half a minute. About 50 MB per tree; entries older than 14 days go at each start.
+  local transforms="${CMUX_VITE_TRANSFORM_CACHE:-$state/transforms}"
+  [[ -d "$transforms" ]] && find "$transforms" -type f -mtime +14 -delete 2>/dev/null
+  rm -f "$state/dev-server.exit"
+  # Its own process group (set -m), so `server off` stops bun and its children together, and the
+  # exit watch with them. Every descriptor goes to the log, so the caller's pipe closes when this
+  # script exits.
   ( set -m
-    ( cd "$tree/webviews" && CMUX_WEBVIEWS_DEV_PORT="$port" exec nohup bun run dev ) </dev/null >"$state/dev-server.log" 2>&1 &
+    ( cd "$tree/webviews"
+      self="$(exec sh -c 'echo $PPID')"
+      watch_exit "$self" "$port" &
+      CMUX_WEBVIEWS_DEV_PORT="$port" CMUX_VITE_TRANSFORM_CACHE="$transforms" exec nohup bun run dev
+    ) </dev/null >"$state/dev-server.log" 2>&1 &
     echo $! >"$state/dev-server.pid" )
   echo "$tree:$port" >"$state/dev-server.tree"
   # A server that another process holds the port for answers too; only ours, still running, counts.
@@ -256,6 +267,21 @@ start_local() {
     echo "the dev server did not start; see $state/dev-server.log" >&2; exit 1
   fi
   echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
+}
+
+# Waits beside the dev server (pid $1, port $2), in its process group: `stop_started` ends both.
+# When the server exits on its own (a crash, a kill of bun alone), the app goes back to its shipped
+# web UI at once (web-dev.json loses `server`, and the app reloads every page), and
+# `$state/dev-server.exit` says when and why for `cmux live status`. Ends when the server does.
+watch_exit() {
+  local pid="$1" port="$2"
+  trap '' HUP
+  while kill -0 "$pid" 2>/dev/null; do sleep 2; done
+  # A server this script started since (another port or checkout) is not this one's to clear.
+  [[ "$(cat "$state/dev-server.pid" 2>/dev/null)" == "$pid" ]] || return 0
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the dev server on port $port stopped on its own; the app shows the web UI it shipped with (log: $state/dev-server.log)" >"$state/dev-server.exit"
+  rm -f "$state/dev-server.pid"
+  set_key server null >/dev/null
 }
 
 # A fresh token for web-dev.json on every `server`: the app sends each request a random nonce and
