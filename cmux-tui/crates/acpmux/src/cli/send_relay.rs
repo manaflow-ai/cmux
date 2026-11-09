@@ -194,19 +194,45 @@ pub(crate) const FROM_LABEL_ENV: &str = "ACPMUX_FROM_LABEL";
 const LABEL_NAME_BYTES: usize = 64;
 
 /// A character the label leaves out of a sender's name: a control character (Unicode class Cc),
-/// a line or paragraph separator (Zl, Zp: U+2028, U+2029), or a format character (Cf): the bidi
-/// controls and marks, zero-width characters, the soft hyphen, the byte order mark and the tag
-/// characters (U+E0000-U+E007F), which can carry text a person does not see but an agent reads.
+/// a line or paragraph separator (Zl, Zp: U+2028, U+2029), a format character (Cf: the bidi
+/// controls and marks, zero-width characters, the soft hyphen, the byte order mark, the tag
+/// characters), or a default-ignorable code point ([`DEFAULT_IGNORABLE`]: variation selectors,
+/// Hangul fillers, reserved ranges). Each can carry text a person does not see but an agent reads.
 fn hidden_in_a_label(c: char) -> bool {
     use unicode_general_category::{GeneralCategory, get_general_category};
+    let code = u32::from(c);
     matches!(
         get_general_category(c),
         GeneralCategory::Control
             | GeneralCategory::Format
             | GeneralCategory::LineSeparator
             | GeneralCategory::ParagraphSeparator
-    )
+    ) || DEFAULT_IGNORABLE.iter().any(|&(first, last)| (first..=last).contains(&code))
 }
+
+/// Unicode's `Default_Ignorable_Code_Point` property, as inclusive ranges: every line of
+/// DerivedCoreProperties.txt of Unicode 16.0.0 that names it, ranges next to each other joined.
+/// It includes reserved ranges (U+2065, U+FFF0-U+FFF8, U+E0000-U+E0FFF), so a later version's
+/// additions there are covered too.
+const DEFAULT_IGNORABLE: &[(u32, u32)] = &[
+    (0x00AD, 0x00AD),
+    (0x034F, 0x034F),
+    (0x061C, 0x061C),
+    (0x115F, 0x1160),
+    (0x17B4, 0x17B5),
+    (0x180B, 0x180F),
+    (0x200B, 0x200F),
+    (0x202A, 0x202E),
+    (0x2060, 0x206F),
+    (0x3164, 0x3164),
+    (0xFE00, 0xFE0F),
+    (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0),
+    (0xFFF0, 0xFFF8),
+    (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+];
 
 /// Who a relayed send is from: `name`, the relay's `ACPMUX_FROM` (the sender's session, where
 /// the far side's answer goes), and the Claude Code subagent of that session that sent it, if
