@@ -214,7 +214,10 @@ export default componentEntry<Props>({
     "drill-several": {
       props: { kind: "several", look: "drill", open: true },
       note: "Gallery version (theme inboxThreadLook drill): opened, as the Background tasks panel drills in, a back control and the thread's name over a row per message (sender, age, first line).",
-      play: read,
+      // The rows are first lines, not Markdown: the state is ready once each message has its row.
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-inbox__row").length === 3);
+      },
     },
     "drill-message": {
       props: { kind: "several", look: "drill", open: true },
