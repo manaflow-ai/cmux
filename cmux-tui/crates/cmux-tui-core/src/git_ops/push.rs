@@ -155,7 +155,7 @@ fn push(
     // upstream intact, push back to that published branch so GitHub keeps the same head
     // identity. Explicit `set_upstream` retains the opt-in behavior of retargeting to the
     // local branch name.
-    let destination_branch = if tracked && !set_upstream {
+    let destination_branch = if tracked && !set_upstream && upstream_remote.as_deref() == Some(remote.as_str()) {
         upstream_merge
             .as_deref()
             .and_then(|merge| merge.strip_prefix("refs/heads/"))
