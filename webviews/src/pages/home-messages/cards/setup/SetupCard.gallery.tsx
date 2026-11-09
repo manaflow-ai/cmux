@@ -9,7 +9,7 @@ import type { SetupState } from "./setupModel";
 
 const strings = cardStrings();
 
-type Fixture = "fresh" | "classic" | "mostlyDone" | "installing";
+type Fixture = "fresh" | "classic" | "mostlyDone" | "installing" | "unverified";
 
 const FIXTURES: Record<Fixture, SetupState> = {
   fresh: {
@@ -47,6 +47,15 @@ const FIXTURES: Record<Fixture, SetupState> = {
     ],
     account: { signedIn: false },
     cli: "missing",
+    classic: null,
+  },
+  unverified: {
+    agents: [
+      { id: "claude", name: "Claude Code", state: "unverified" },
+      { id: "codex", name: "Codex", state: "missing" },
+    ],
+    account: { signedIn: true, email: "you@example.com" },
+    cli: "installed",
     classic: null,
   },
 };
@@ -106,6 +115,10 @@ export default componentEntry<Props>({
     "next-installing": {
       note: "An install runs: the spinner takes the button's slot, nothing moves.",
       props: { look: "next", fixture: "installing" },
+    },
+    "rows-unverified": {
+      note: "Claude Code's login opened, but its Keychain sign-in cannot be read: the person confirms it or signs in again.",
+      props: { look: "rows", fixture: "unverified" },
     },
     ...variants("rows", {
       fresh:

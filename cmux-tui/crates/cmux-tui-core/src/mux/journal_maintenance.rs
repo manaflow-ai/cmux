@@ -233,7 +233,7 @@ impl Mux {
         Ok(())
     }
 
-    pub(super) fn stop_journal_maintenance(&self) {
+    pub(crate) fn stop_journal_maintenance(&self) {
         let maintenance =
             self.journal_maintenance.lock().unwrap_or_else(PoisonError::into_inner).take();
         if let Some(maintenance) = maintenance {
@@ -794,6 +794,10 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::workspace_registry::JournalSegmentSealCommit> {
+        // One sealer at a time: a seal that waits here plans its segment
+        // from the boundary the one before it left. The registry lock is not
+        // held while a segment compresses, so this lock orders the sealers.
+        let _seal = self.journal_seal.lock().unwrap_or_else(PoisonError::into_inner);
         let database_path = self
             .workspace_registry
             .lock()

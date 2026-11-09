@@ -63,6 +63,7 @@ pub mod daemon;
 mod default_harness;
 pub mod deliver;
 pub mod deps;
+pub mod desktop_bridge;
 pub mod folder_instructions;
 pub mod forum;
 pub mod forum_mcp;

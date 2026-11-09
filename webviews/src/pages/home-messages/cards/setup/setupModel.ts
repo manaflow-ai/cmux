@@ -11,7 +11,7 @@ export interface SetupAgent {
   id: string;
   /** The product's own name ("Claude Code", "Codex"): never translated. */
   name: string;
-  state: "missing" | "installing" | "failed" | "signedOut" | "signedIn";
+  state: "missing" | "installing" | "failed" | "signedOut" | "unverified" | "signedIn";
 }
 
 export interface SetupState {
@@ -34,6 +34,7 @@ export type SetupStepID = "agents" | "history" | "account" | "cli" | "classic";
 export type SetupAction =
   | { kind: "installAgent"; id: string }
   | { kind: "signInAgent"; id: string }
+  | { kind: "confirmAgent"; id: string }
   | { kind: "signInAccount" }
   | { kind: "installCLI" }
   | { kind: "importHistory" }
@@ -48,16 +49,24 @@ export interface SetupStep {
   detail: string;
   /** The row's one button; absent once done (the slot keeps its room). */
   action?: { label: string; run: SetupAction };
-  /** A quieter second button (classic's Not Now). */
-  secondary?: { label: string; run: SetupAction };
+  /** A quieter second button (classic's Not Now, the next agent); it stays while the row is busy, greyed
+   * (`disabled`) when it waits on the run in flight. */
+  secondary?: { label: string; run: SetupAction; disabled?: boolean };
   /** An action is running (an install): the slot shows a spinner. */
   busy?: boolean;
 }
 
 /** The agent a person is closest to talking to: signed in, else signed out, else the first. */
 function leadAgent(agents: readonly SetupAgent[]): SetupAgent | undefined {
-  const rank = { signedIn: 0, signedOut: 1, installing: 2, failed: 3, missing: 4 } as const;
+  const rank = { signedIn: 0, unverified: 1, signedOut: 2, installing: 3, failed: 4, missing: 5 } as const;
   return [...agents].sort((a, b) => rank[a.state] - rank[b.state])[0];
+}
+
+/** An agent's button: sign in once installed, else install. */
+function agentAction(agent: SetupAgent, { format }: Strings): { label: string; run: SetupAction } {
+  return agent.state === "signedOut" || agent.state === "unverified"
+    ? { label: format("home.setup.signInTo", agent.name), run: { kind: "signInAgent", id: agent.id } }
+    : { label: format("home.setup.installAgent", agent.name), run: { kind: "installAgent", id: agent.id } };
 }
 
 /** The rows in their order: classic first when found (its answer decides what Home holds), then
@@ -86,29 +95,40 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
   const names = state.agents.map((agent) => agent.name).join(", ");
   const lead = leadAgent(state.agents);
   const ready = state.agents.find((agent) => agent.state === "signedIn");
+  // Every agent stays one click away: the lead gets the row's button, the next one a quieter one,
+  // so a failed or slow install of one never hides the other. Installs run one at a time, so while
+  // one runs the next agent's Install waits, greyed, with the row saying so.
+  const other =
+    ready === undefined ? state.agents.find((agent) => agent !== lead && agent.state !== "installing") : undefined;
+  const installing = state.agents.find((agent) => agent.state === "installing");
+  const waits = installing !== undefined && other !== undefined && other.state !== "signedOut";
+  // A login opened here whose sign-in cannot be read (Claude Code's Keychain login reads as unknown until a
+  // session proves it): the person says when it is done, or signs in again. Opening the login is no proof.
+  const unverified = ready === undefined && lead?.state === "unverified" ? lead : undefined;
   steps.push({
     id: "agents",
     done: ready !== undefined,
     title: t("home.setup.agents"),
     detail: ready
       ? format("home.setup.agents.ready", ready.name)
-      : lead?.state === "failed"
-        ? format("home.setup.agents.failed", lead.name)
-        : names,
+      : unverified
+        ? format("home.setup.agents.unverified", unverified.name)
+        : waits
+          ? format("home.setup.agents.after", other.name, installing.name)
+          : lead?.state === "failed"
+            ? format("home.setup.agents.failed", lead.name)
+            : names,
     busy: lead?.state === "installing",
     ...(ready === undefined &&
-      lead !== undefined && {
-        action:
-          lead.state === "signedOut"
-            ? {
-                label: format("home.setup.signInTo", lead.name),
-                run: { kind: "signInAgent", id: lead.id } as const,
-              }
-            : {
-                label: format("home.setup.installAgent", lead.name),
-                run: { kind: "installAgent", id: lead.id } as const,
-              },
-      }),
+      lead !== undefined &&
+      lead.state !== "installing" &&
+      !unverified && { action: agentAction(lead, strings) }),
+    ...(unverified
+      ? {
+          action: { label: t("home.setup.confirmSignedIn"), run: { kind: "confirmAgent", id: unverified.id } as const },
+          secondary: { label: t("home.setup.signInAgain"), run: { kind: "signInAgent", id: unverified.id } as const },
+        }
+      : other !== undefined && { secondary: { ...agentAction(other, strings), ...(waits && { disabled: true }) } }),
   });
   if (state.history) {
     const { done } = state.history;
