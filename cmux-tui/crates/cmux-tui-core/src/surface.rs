@@ -1478,6 +1478,11 @@ enum ReaperShutdownTestStep {
 #[cfg(test)]
 type ReaperShutdownTestHook = Arc<dyn Fn(ReaperShutdownTestStep) + Send + Sync>;
 
+/// Test seam: runs on the hosted surface reader before it applies each Output
+/// transition, so a test can hold the reader with output still queued.
+#[cfg(test)]
+type HostedOutputTestHook = Arc<dyn Fn() + Send + Sync>;
+
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     terminal: Arc<PtyTerminalRuntime>,
@@ -1735,6 +1740,8 @@ pub struct PtyTerminalRuntime {
     deferred_cell_pixel_ack_test_hook: Mutex<Option<DeferredCellPixelAckTestHook>>,
     #[cfg(test)]
     reaper_shutdown_test_hook: Mutex<Option<ReaperShutdownTestHook>>,
+    #[cfg(test)]
+    hosted_output_test_hook: Mutex<Option<HostedOutputTestHook>>,
     #[cfg(test)]
     test_master_control: Option<Arc<TestMasterPtyControl>>,
     #[cfg(test)]
@@ -2662,6 +2669,8 @@ impl Surface {
                 #[cfg(test)]
                 reaper_shutdown_test_hook: Mutex::new(None),
                 #[cfg(test)]
+                hosted_output_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
@@ -3189,6 +3198,8 @@ impl Surface {
                 #[cfg(test)]
                 reaper_shutdown_test_hook: Mutex::new(None),
                 #[cfg(test)]
+                hosted_output_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
@@ -3322,6 +3333,12 @@ impl Surface {
                                     }
                                     _ => unreachable!(),
                                 };
+                                #[cfg(test)]
+                                if let Some(hook) =
+                                    pty.hosted_output_test_hook.lock().unwrap().clone()
+                                {
+                                    hook();
+                                }
                                 let mut scroll_changed = None;
                                 let mut title_update = None;
                                 let defaults = mux
@@ -4285,6 +4302,8 @@ impl Surface {
                 #[cfg(test)]
                 reaper_shutdown_test_hook: Mutex::new(None),
                 #[cfg(test)]
+                hosted_output_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
@@ -4521,6 +4540,7 @@ impl Surface {
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
                 #[cfg(test)]
                 reaper_shutdown_test_hook: Mutex::new(None),
+                hosted_output_test_hook: Mutex::new(None),
                 test_master_control: Some(test_master_control),
                 vt_replay_builds: AtomicUsize::new(0),
                 mux,
@@ -9388,6 +9408,90 @@ mod tests {
             crate::terminal_host_protocol::write_frame(&mut host, &first_ack).unwrap();
             first.join().unwrap().unwrap();
         });
+    }
+
+    /// A receipted write resolves when the host's InputAck arrives, even
+    /// when output the host sent before the ack still waits to be applied.
+    /// The hook holds the surface reader inside the first Output until the
+    /// write returned, so the ack can only reach its waiter on arrival
+    /// (issue #39510).
+    #[cfg(unix)]
+    #[test]
+    fn hosted_input_ack_is_not_delayed_behind_queued_output() {
+        let mux = Mux::new_for_test("hosted-input-ack-behind-output", SurfaceOptions::default());
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+        let terminal_id = attachment.record.terminal_id.clone();
+        attachment.record.workspace_key = workspace.key.clone();
+        mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+
+        let surface = Surface::spawn_hosted(
+            1,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: false,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: None,
+                resource_identity: None,
+            },
+        )
+        .unwrap();
+
+        // The first Output parks the surface reader until `release` is
+        // dropped (after the write returned), bounded at 30 s.
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (release, release_rx) = sync_channel::<()>(1);
+        let release_rx = Mutex::new(release_rx);
+        let held = AtomicBool::new(false);
+        *surface.as_pty().unwrap().hosted_output_test_hook.lock().unwrap() =
+            Some(Arc::new(move || {
+                if held.swap(true, Ordering::AcqRel) {
+                    return;
+                }
+                let _ = entered_tx.send(());
+                let _ = release_rx.lock().unwrap().recv_timeout(Duration::from_secs(30));
+            }));
+
+        host.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        host.set_write_timeout(Some(Duration::from_secs(10))).unwrap();
+        let output = |sequence: u64| {
+            let mut frame = Frame::new(MessageKind::Output, b"queued output\r\n".to_vec());
+            frame.sequence = sequence;
+            frame
+        };
+        crate::terminal_host_protocol::write_frame(&mut host, &output(1)).unwrap();
+        entered_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the surface reader starts applying the first Output");
+
+        let result = std::thread::scope(|scope| {
+            let write = scope.spawn(|| surface.write_bytes_confirmed(b"typed"));
+            let input = crate::terminal_host_protocol::read_frame(
+                &mut host,
+                crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+            )
+            .expect("observe the receipted input")
+            .expect("hosted connection stays open while the input waits for its ACK");
+            assert_eq!(input.kind, MessageKind::Input);
+            assert_eq!(input.payload, b"typed");
+            assert_ne!(input.request_id, 0);
+            // More output is queued ahead of the acknowledgement.
+            crate::terminal_host_protocol::write_frame(&mut host, &output(2)).unwrap();
+            let mut ack = Frame::new(MessageKind::InputAck, Vec::new());
+            ack.request_id = input.request_id;
+            crate::terminal_host_protocol::write_frame(&mut host, &ack).unwrap();
+            write.join().unwrap()
+        });
+        drop(release);
+        assert!(
+            result.is_ok(),
+            "a receipted write must resolve when its InputAck arrives, not after the \
+             output queued ahead of it: {result:?}"
+        );
     }
 
     #[cfg(unix)]
