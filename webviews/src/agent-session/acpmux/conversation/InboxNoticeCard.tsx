@@ -285,8 +285,8 @@ function InboxThreadLine({
   const heads = (messages?.length ?? 0) > 1;
   // The newest message: read whole, else the notice's preview until it is.
   // acpmux's preview is a cut first line (hub/inbox.rs): never draw a cut span (#39100).
-  const preview = thread.preview?.endsWith("…") ? shownOfCut(thread.preview) : thread.preview;
-  const newestText = newest?.text ?? thread.newest ?? preview;
+  const wholePreview = thread.preview?.endsWith("…") ? shownOfCut(thread.preview) : thread.preview;
+  const newestText = newest?.text ?? thread.newest ?? wholePreview;
   const label = thread.label && thread.label !== name ? thread.label : undefined;
   const earlier = messages ? Math.max(0, messages.length - shown) : 0;
   // Where the newest message says it came from (`sender_claim`), under it as under an opened one.
