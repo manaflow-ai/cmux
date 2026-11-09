@@ -339,6 +339,18 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(self.remote_head(), before)
         self.assertIn("README.md, which is not in INPUTS", output)
 
+        # Review of #39859: with CMUX_NEXT_CHECKS_SKIP_REASON set, the refusal named the UI font's `Font-order:`
+        # trailer, which cannot fix a broken check, and called the stop a violation this push adds.
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="a check fails in files this push does not touch")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("README.md, which is not in INPUTS", output)
+        self.assertNotIn("Font-order", output, "a Font-order trailer does not fix a check that cannot run")
+        self.assertNotIn("this push adds violations", output, "the push did not add the check's defect")
+        self.assertIn("add the path to INPUTS in scripts/cmux-next/check-ui-font.py", output)
+
     def test_the_ui_font_check_runs_only_on_a_push_that_changes_what_it_reads(self):
         # 2026-11-09 (push-reliability): check-ui-font.py reads every webviews/src and Native/OptChat source at the
         # base and again at the head (4268 files on feat-cmux-next). On a push that changed one Python file it took
@@ -732,6 +744,55 @@ class PrePushGateTests(unittest.TestCase):
         script.write_text(f'#!/bin/sh\nprintf "%s|%s|%s\\n" "$1" "$2" "$PWD" > {record}\ncat >> {record}\nexit {status}\n')
         script.chmod(0o755)
         return script, record
+
+    def test_a_signal_to_the_hook_alone_stops_the_running_check(self):
+        # Review of #39859: bash runs a trap only after the foreground command ends, so `kill <hook pid>` left the hook
+        # waiting on its check for as long as the check ran (a clone-local extra has no limit). The extra writes the
+        # hook's pid and its own into a FIFO and then blocks on a second FIFO; only the hook gets the signal.
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+        before = self.remote_head()
+        pid_fifo, never = self.root / "pids", self.root / "never"
+        os.mkfifo(pid_fifo)
+        os.mkfifo(never)
+        extra = self.root / "blocks"
+        extra.write_text(f'#!/bin/sh\necho "$PPID $$" > {pid_fifo}\nexec cat {never}\n')
+        extra.chmod(0o755)
+        self.git("config", "--add", "cmux.prePushExtra", str(extra))
+
+        def release_extra():
+            # Writing nothing and closing ends the extra's `cat` (end of file); the open fails when it has gone.
+            try:
+                os.close(os.open(never, os.O_WRONLY | os.O_NONBLOCK))
+            except OSError:
+                pass
+
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=signum.name):
+                push = subprocess.Popen(["git", "-C", str(self.repo), "push", "origin", "feat-cmux-next"],
+                                        env=self.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                got: list[str] = []
+                reader = threading.Thread(target=lambda: got.append(pid_fifo.read_text()), daemon=True)
+                reader.start()
+                reader.join(timeout=120)
+                if not got:
+                    push.kill()
+                    self.fail("the hook never reached the clone-local extra:\n" + "".join(push.communicate()))
+                hook = int(got[0].split()[0])
+                os.kill(hook, signum)
+                try:
+                    out, err = push.communicate(timeout=60)
+                except subprocess.TimeoutExpired:
+                    release_extra()
+                    out, err = push.communicate(timeout=60)
+                    self.fail("the hook waited for its running check after a signal to the hook alone:\n" + out + err)
+                finally:
+                    release_extra()
+
+                self.assertNotEqual(push.returncode, 0, out + err)
+                self.assertEqual(self.remote_head(), before)
+                self.assertNotIn("pre-push: passed", err)
+                self.assertIn("pre-push: refused in extras", err)
 
     def test_a_hook_stopped_by_a_signal_during_a_check_never_says_it_passed(self):
         # Review of #39787: bash runs the EXIT trap when SIGTERM or SIGINT kills it, but $? there is the last
