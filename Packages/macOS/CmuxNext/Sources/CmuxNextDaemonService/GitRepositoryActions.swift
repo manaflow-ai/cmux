@@ -75,7 +75,7 @@ public struct GitRepositoryActions {
     /// another folder is refused, and the folder git runs in is still the tab's own.
     public static let pinnedPathName = "pinnedPath"
 
-    static let actionIDs: [ActionID] =["git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.checkpoint.create"]
+    static let actionIDs: [ActionID] = ["git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.checkpoint.create"]
 
     private let place: @MainActor (ActionInvocation) -> Place?
     private let announce: @MainActor (String) -> Void
