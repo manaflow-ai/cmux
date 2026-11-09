@@ -170,11 +170,17 @@ def test_a_filter_that_one_host_runs_passes_and_one_that_no_host_runs_fails() ->
     The Linux and macOS jobs run in parallel and each reports its count as a job
     output; hosted verification, which needs both, gives the verdict.
     """
-    for linux, macos, want in (("0", "3", 0), ("2", "0", 0), ("1", "1", 0), ("", "0", 0), ("0", "0", 1)):
+    for linux, macos, want in (("0", "3", 0), ("2", "0", 0), ("1", "1", 0), ("0", "0", 1)):
         code, output = _run_gate(LINUX_FOCUSED_SELECTED=linux, MACOS_FOCUSED_SELECTED=macos)
         assert code == want, (linux, macos, output)
+        # The gate prints both counts, so a run log shows what each host ran.
+        assert f"focused tests selected: linux={linux} macos={macos}" in output, output
         if want:
             assert "selected no Rust tests on Linux or macOS" in output, output
+        else:
+            for name, count in (("Linux", linux), ("macOS", macos)):
+                warned = f"::warning::test_filter 'some_test' selected no Rust test on {name}" in output
+                assert warned == (count == "0"), (name, output)
     # Full mode has no filter: the counts do not apply.
     code, output = _run_gate(MODE="full", TEST_FILTER="", LINUX_FOCUSED_SELECTED="0", MACOS_FOCUSED_SELECTED="0")
     assert code == 0, output
@@ -186,6 +192,32 @@ def test_a_filter_that_one_host_runs_passes_and_one_that_no_host_runs_fails() ->
         step = _focused_count_step(job)
         assert job["outputs"]["focused_selected"] == "${{ steps.%s.outputs.selected }}" % step["id"], job_name
         assert gate_env[variable] == "${{ needs.%s.outputs.focused_selected }}" % job_name, variable
+
+
+def test_a_green_job_must_report_its_count_unless_the_filter_is_reserved() -> None:
+    """Broken output wiring must not let a typo filter pass.
+
+    An empty count is never read as 0. So in focused mode each green host job must
+    report a count, unless the filter is a reserved selector that runs a package or
+    another job instead of a listing (chatmux_relay, chatmux-relay, optchat_chief).
+    A red host job is already a failure, so its missing count adds nothing.
+    """
+    for linux, macos in (("", "3"), ("2", ""), ("", "")):
+        code, output = _run_gate(LINUX_FOCUSED_SELECTED=linux, MACOS_FOCUSED_SELECTED=macos)
+        assert code == 1, (linux, macos, output)
+        assert "reported no focused test count" in output, output
+    for reserved in ("chatmux_relay", "chatmux-relay", "optchat_chief"):
+        code, output = _run_gate(TEST_FILTER=reserved, LINUX_FOCUSED_SELECTED="", MACOS_FOCUSED_SELECTED="")
+        assert code == 0, (reserved, output)
+    code, output = _run_gate(MACOS_RESULT="failure", LINUX_FOCUSED_SELECTED="2", MACOS_FOCUSED_SELECTED="")
+    assert code == 1 and "reported no focused test count" not in output, output
+
+
+def test_the_linux_test_job_keeps_one_matrix_row() -> None:
+    """The test job's outputs hold one count: a second matrix row would overwrite it."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    rows = workflow["jobs"]["test"]["strategy"]["matrix"]["include"]
+    assert [row["os"] for row in rows] == ["linux"], rows
 
 
 def test_focused_script_runs_the_selected_tests_with_extra_args() -> None:
