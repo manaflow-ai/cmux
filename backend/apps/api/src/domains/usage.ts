@@ -64,6 +64,12 @@ export const MONEY_METERS: ReadonlySet<Meter> = new Set(["model.spend_usd", "clo
 export const BILLABLE_METERS: ReadonlyArray<Meter> = [...MONEY_METERS]
 /** `meter IN (...)` over BILLABLE_METERS for SQL (literal meter names, so the (meter, ...) indexes stay usable). */
 export const BILLABLE_METERS_SQL = `(${BILLABLE_METERS.map((m) => `'${m}'`).join(", ")})`
+/**
+ * The meters a bill reads: model spend, plus Cloud machine time only where the price set in force pools it
+ * (billing-catalog.ts poolsMachineTime: v2, development and staging). Production's v1 bills model spend only,
+ * as before, until Leo's go. Retention keeps every BILLABLE_METERS fact either way.
+ */
+export const billedMetersSql = (machineTime: boolean) => (machineTime ? BILLABLE_METERS_SQL : `('model.spend_usd')`)
 
 /**
  * Money is never summed as floats. Count meters (steps, CPU ms, invocations, workers,

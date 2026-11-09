@@ -37,9 +37,10 @@ describe("Cloud machine time joins the team pool (cloud.machine_usd)", () => {
     expect(again).toMatchObject({ recorded: 0, duplicates: 1 })
     expect(await ledger(team, "cloud.machine_usd")).toEqual([{ key, user, quantity: 1.25, source: "cloud" }])
 
-    const level = await meter.level(team, from, Date.now() + 1)
+    // Price set v2 (Team) pools machine time: callers pass poolsMachineTime(set).
+    const level = await meter.level(team, from, Date.now() + 1, true)
     expect(level).toMatchObject({ micros: 3_250_000, facts: 2 })
-    const usage = await meter.teamUsage(team)
+    const usage = await meter.teamUsage(team, "per_team", true)
     expect(usage.month_spent_usd).toBe(3.25)
     expect((await meter.userSpends(team, [user]))[user]).toBe(1.25)
   })
@@ -56,11 +57,11 @@ describe("Cloud machine time joins the team pool (cloud.machine_usd)", () => {
       m.ctx.storage.sql.exec(`INSERT INTO usage_billable (subscription, period_end, seen_at, period_start, mode, seats, included_usd) VALUES ('sub_cloud_pool', ?, ?, ?, 'per_seat', 3, 25)`, Math.floor((Date.now() - 3 * 3600_000) / 1000), Date.now() - 3 * 3600_000, Math.floor((Date.now() - 30 * 86_400_000) / 1000))
     })
     const included = 25_000_000
-    expect(await meter.reserveUser(team, caller, "pool-call-1", 4_000_000, 200_000_000, included, "per_seat")).toEqual({ ok: true })
+    expect(await meter.reserveUser(team, caller, "pool-call-1", 4_000_000, 200_000_000, included, "per_seat", true)).toEqual({ ok: true })
     await meter.settleCall(team, "pool-call-1", null)
     // Without machine time this call would pass (40 + 6 <= 75).
-    expect(await meter.reserveUser(team, caller, "pool-call-2", 6_000_000, 200_000_000, included, "per_seat")).toMatchObject({ ok: false, included: true, spent_usd: 70, limit_usd: 75 })
-    expect((await meter.teamUsage(team, "per_seat")).month_spent_usd).toBe(70)
+    expect(await meter.reserveUser(team, caller, "pool-call-2", 6_000_000, 200_000_000, included, "per_seat", true)).toMatchObject({ ok: false, included: true, spent_usd: 70, limit_usd: 75 })
+    expect((await meter.teamUsage(team, "per_seat", true)).month_spent_usd).toBe(70)
   })
 
   it("machine time counts against its creator's monthly limit", async () => {
@@ -106,5 +107,23 @@ describe("Cloud machine time joins the team pool (cloud.machine_usd)", () => {
     ])
     expect(r).toMatchObject({ recorded: 0, invalid: 3 })
     expect(await meter.level(team, 0, Date.now() + 1)).toMatchObject({ micros: 0, facts: 0 })
+  })
+
+  it("production's price set v1 bills model spend only: machine time stays out of the level, the spend view and the included stop", async () => {
+    const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, "c1a0d0e0-0000-4000-8000-000000000006")
+    const creator = userIdFor(testEnv.STACK_PROJECT_ID, "cloud-v1-creator")
+    const caller = userIdFor(testEnv.STACK_PROJECT_ID, "cloud-v1-caller")
+    const meter = stub(team)
+    const from = Date.now()
+    await meter.record(team, [modelFact(40), machineFact("cloud:machine_v1:1:2026-11:30000000", 30, creator)])
+    expect(await meter.level(team, from, Date.now() + 1)).toMatchObject({ micros: 40_000_000, facts: 1 })
+    expect((await meter.teamUsage(team, "per_seat")).month_spent_usd).toBe(40)
+    await inDO(meter, async (m) => {
+      m.ctx.storage.sql.exec(`INSERT INTO usage_billable (subscription, period_end, seen_at, period_start, mode, seats, included_usd) VALUES ('sub_cloud_v1', ?, ?, ?, 'per_seat', 3, 25)`, Math.floor((Date.now() - 3 * 3600_000) / 1000), Date.now() - 3 * 3600_000, Math.floor((Date.now() - 30 * 86_400_000) / 1000))
+    })
+    // 40 + 6 <= 75 passes when machine time is not pooled.
+    expect(await meter.reserveUser(team, caller, "v1-call-1", 6_000_000, 200_000_000, 25_000_000, "per_seat")).toEqual({ ok: true })
+    // The member limit still counts the creator's machine time.
+    expect((await meter.userSpends(team, [creator]))[creator]).toBe(30)
   })
 })
