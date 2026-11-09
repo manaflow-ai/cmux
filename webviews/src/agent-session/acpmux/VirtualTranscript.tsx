@@ -1926,9 +1926,11 @@ function TranscriptView({
     // An empty chat draws no transcript: it mounts with the first prompt the reader just sent (and
     // its thinking line), and those rows enter on the send's clock as every later prompt's do
     // (conversation.css SEND-ENTRANCE). A transcript mounted again over an older chat does not.
+    // A prompt drawn while its chat still starts (startingSends.ts, harnessSwitch.ts: pending, `queued`) is
+    // this pane's send too, drawn before the send that counts it (`sends`) goes, once the chat started.
     if (
       mounting &&
-      sends > 0 &&
+      (sends > 0 || rows.some((row) => row.kind === "user" && row.pending === true && row.queued !== undefined)) &&
       coldOpen === undefined &&
       rows.length <= LIVE_ROWS_PER_UPDATE &&
       rows.some((row) => row.kind === "user" && Date.now() - row.at < FIRST_SEND_FRESH_MS) &&
