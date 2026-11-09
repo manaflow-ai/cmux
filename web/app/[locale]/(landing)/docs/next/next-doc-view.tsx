@@ -9,6 +9,7 @@ import type { CliReference, PaletteReference, SettingsReference } from "@/script
 import {
   headingId,
   nextDocHref,
+  repoSourceHref,
   nextDocPage,
   nextDocPublicPath,
   type DocBlock,
@@ -18,6 +19,7 @@ import { baseDocsLocales } from "@/app/[locale]/components/docs-nav-items";
 import { docsChannel } from "@/app/lib/docs-channel";
 import { buildAlternates } from "@/i18n/seo";
 import { DocsSchema } from "../docs-schema";
+import { ArchitectureDiagram } from "./architecture-diagram";
 
 /** Where this docs channel serves a cmux-next page: the nightly zone's public path, else /docs/next. */
 function nextDocChannelPath(slug: string): string {
@@ -43,6 +45,24 @@ function Block({ block }: { block: DocBlock }) {
   if ("p" in block) return <p>{block.p}</p>;
   if ("ul" in block) return <ul>{block.ul.map((item) => <li key={item}>{item}</li>)}</ul>;
   if ("code" in block) return <CodeBlock lang={block.lang ?? "bash"}>{block.code}</CodeBlock>;
+  if ("diagram" in block) return <ArchitectureDiagram caption={block.caption} />;
+  if ("files" in block) {
+    return (
+      <table>
+        <thead>
+          <tr><th>Where</th><th>What</th></tr>
+        </thead>
+        <tbody>
+          {block.files.map((file) => (
+            <tr key={file.path}>
+              <td><a href={repoSourceHref(file.path)}><code>{file.path}</code></a></td>
+              <td>{file.what}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
   return <Callout type="info">{block.note}</Callout>;
 }
 

@@ -1,0 +1,33 @@
+# cmux NEXT guide
+
+> How cmux NEXT works and how to use it, one Markdown file per page. Generated from web/data/next-docs/pages.ts by `bun web/scripts/export-next-docs.ts`; do not edit. In a cmux terminal, `cmux docs guide` lists these pages and `cmux docs guide SLUG` prints one.
+
+## Pages
+
+- [Getting started with cmux-next](getting-started.md): What cmux-next is, how to install it, and how to update it.
+- [How cmux NEXT fits together](architecture.md): The app, the daemons that run your terminals and agents, your machines, and cmux Cloud: what each part does and where its code is.
+- [Install, update, and nightly](updates.md): How cmux-next updates and how to check your build.
+- [Home and Chief](home-and-chief.md): The Home screen, Chief, and group chats.
+- [Agents and subagents](agents.md): Run Claude Code, Codex, and other agents as chats.
+- [acpmux, the agent daemon](acpmux.md): How cmux keeps agents running: sessions, harnesses, machines, and the daemon.
+- [Run agents on your own API keys](own-keys.md): Use your own API key, your cloud provider, or your own model endpoint for Claude Code, Codex, and other agents in cmux.
+- [Audit agent spend](agent-spend.md): See what every agent turn on this Mac cost, by session, workspace, repository, pull request, day, person, provider, or model.
+- [Open-weight models](open-models.md): Run coding agents in cmux on open-weight models: on this Mac, on your own GPU machine, or on a server your team runs.
+- [Workspaces, panes, tabs, and groups](workspaces.md): How cmux-next lays out your work.
+- [Spaces and columns](spaces.md): Group windows and workspaces into spaces, and dock columns to the window.
+- [Command palette](command-palette.md): Every command in the palette, with its default shortcut and CLI command.
+- [Browser](browser.md): Browser tabs, profiles, and automation.
+- [Markdown and files](markdown.md): View and edit Markdown and other files in a pane.
+- [Cloud machines](cloud.md): Run workspaces on cloud machines.
+- [Secrets and the vault](vault.md): Where cmux keeps API keys and other secrets, and how agents use a key without seeing it.
+- [Machines](machines.md): This Mac, computers you add, and Cloud machines: what runs on each, and how they join.
+- [Remote machines and Tailscale](remote.md): Run workspaces and agents on your own machines over SSH or Tailscale.
+- [Plans and credits](plans.md): What is free, what costs money, and how cmux credits work.
+- [Keyboard shortcuts](keyboard-shortcuts.md): Default keyboard shortcuts in cmux-next.
+- [CLI and MCP reference](cli.md): Every cmux CLI command and which are also MCP tools.
+- [MCP server](mcp.md): Give Claude Code, Codex, or any MCP client control of cmux.
+- [Settings reference](settings.md): Every setting, its key, and its default.
+
+## Everything in one file
+
+- [llms-full.txt](llms-full.txt)

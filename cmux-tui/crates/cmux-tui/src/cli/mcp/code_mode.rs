@@ -467,6 +467,11 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
     if !guides.is_empty() {
         answer.set("guides", json!(guides));
     }
+    // The cmux NEXT guide pages that answer it, read in a terminal with `cmux docs guide SLUG`.
+    let pages = super::super::docs::guide_pages(query);
+    if !pages.is_empty() {
+        answer.set("pages", json!(pages));
+    }
     answer
 }
 
