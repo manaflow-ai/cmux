@@ -42,10 +42,28 @@
       "reason": "keep: a move from Swift to Rust: CloudAPIClient.swift's classic /api/vm machine calls, which the app moves onto through the daemon's cloud.vm.* operations (#37350); goes when cmux-platform's machine API replaces them"
     },
     {
+      "file": "cmux-tui/crates/cmux-cloud-api/src/classic.rs",
+      "pattern": "segments:/api/vm",
+      "count": 14,
+      "reason": "debt: newly counted, not a new call: the daemon cloud.vm.* ops' classic /api/vm paths, built as path-part arrays, the guard missed while it read only \"/api/vm\" strings; goes when they move to cmux-platform"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-api/src/machine.rs",
+      "pattern": "segments:/api/vm",
+      "count": 7,
+      "reason": "debt: newly counted, not a new call: the daemon cloud.machine.io's classic /api/vm/{id}/exec and /fs/* paths (stack auth), built as path-part arrays, the guard missed while it read only \"/api/vm\" strings; goes when they move to cmux-platform"
+    },
+    {
       "file": "cmux-tui/crates/cmux-cloud-api/src/runs.rs",
       "pattern": "route:/api/runs",
       "count": 4,
       "reason": "keep: a move from Swift to Rust: CloudAPIClient.swift's sandboxed-run calls on classic /api/runs, behind the daemon's cloud.runs.* operations (#37350); goes when they move to cmux-platform hand-offs"
+    },
+    {
+      "file": "cmux-tui/crates/cmux-cloud-api/src/runs.rs",
+      "pattern": "segments:/api/runs",
+      "count": 3,
+      "reason": "debt: newly counted, not a new call: the daemon cloud.runs.* ops' classic /api/runs paths, built as path-part arrays, the guard missed while it read only \"/api/runs\" strings; goes when they move to cmux-platform"
     },
     {
       "file": "cmux-tui/crates/cmux-cloud-tasks/src/follower.rs",
