@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42560251461",
+  "recorded_at": "2026-11-09T04:24:40Z",
+  "reason": "cmux-tui c66abbaf367b changes the image's cmux-tui (pinned 34dd21dafa1f)",
+  "dry_run": false,
+  "cmux_tui": "c66abbaf367be11c4f54773f21471e317c7508ae",
+  "fixes": [
+    {
+      "sha": "c66abbaf367be11c4f54773f21471e317c7508ae",
+      "mergedAt": "2026-11-08T19:55:16-08:00",
+      "subject": "acpmux: steer chats to the send tool, not acpmux send in Bash (#39155)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T04:24:40Z",
+    "snapshot_id": "sh-c26011ea764f4b8680d01539c950977e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42560251461): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ad1c05ff5af8eb1045cc578cf1caed12cc83d00c",
+    "image": "cloud-native-auto-c66abbaf-42560251461-1",
+    "revision": "ci-42560251461-1",
+    "at": "2026-11-09T04:24:40Z"
+  },
+  "rolled_back": false
+}
