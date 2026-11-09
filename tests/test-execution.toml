@@ -2272,3 +2272,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_rust_cache_runner_cargo_home.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_asset_mirror.py"
+lane = "linux-guard"

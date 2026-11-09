@@ -53,7 +53,17 @@ download() {
 }
 
 rm -f "$archive" "$binary"
-if ! download "$release_url"; then
+# The release asset mirror first (scripts/ci/release_asset_mirror.py): it waits
+# out a busy upstream instead of failing, trying the asset API endpoint in every
+# round (--also), within 120 s so the guard jobs that call this keep their time
+# for the steps after it. CMUX_RELEASE_MIRROR=off, a missing
+# python3, or a failure leaves the two pinned endpoints below as they were.
+mirror_script="$(dirname "$0")/release_asset_mirror.py"
+if [[ "${CMUX_RELEASE_MIRROR:-}" != off && -f "$mirror_script" ]] && command -v python3 >/dev/null 2>&1 &&
+  python3 -I "$mirror_script" fetch "$release_url" --sha256 "$ACTIONLINT_SHA256" --out "$archive" \
+    --also "$api_url" --deadline "${ACTIONLINT_FETCH_DEADLINE:-120}"; then
+  :
+elif ! download "$release_url"; then
   echo "actionlint release download failed; trying immutable asset API endpoint" >&2
   rm -f "$archive"
   if ! download "$api_url" --header 'Accept: application/octet-stream'; then

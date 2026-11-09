@@ -1032,6 +1032,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_r2_cache_prune.py
 
+      - name: Validate the release asset mirror
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_release_asset_mirror.py
+
       - name: Validate the R2 binaries pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cmux_binaries_prune.py

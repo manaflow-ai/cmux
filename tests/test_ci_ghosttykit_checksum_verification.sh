@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Regression test for the pinned GhosttyKit artifact verification helper.
 set -euo pipefail
+# These cases drive the script's own download path with fake tools; the release
+# asset mirror in front of it (scripts/ci/release_asset_mirror.py) would reach
+# the network, so it is off here.
+export CMUX_RELEASE_MIRROR=off
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/download-prebuilt-ghosttykit.sh"

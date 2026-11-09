@@ -27,6 +27,7 @@ pinned by `tests/test_release_homebrew_gate.py` and is not repeated here.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -86,6 +87,28 @@ IDENTITY_CHECKED = (
     ".github/workflows/merge-group-fail-fast.yml",
 )
 
+# Producers that live only on another branch, declared as `BRANCH:PATH` in
+# SOURCE_WORKFLOW_PATHS, with the display name they carry there. A workflow_run
+# consumer on main still fires for their runs on that branch. The name is read
+# from `origin/BRANCH` when this checkout has it, so a rename there fails here;
+# a shallow checkout without that branch checks the recorded name only.
+OTHER_BRANCH_SOURCES = {
+    # mirror-release-assets.yml mirrors each FFI release minutes after it publishes.
+    "feat-cmux-next:.github/workflows/app-ffi-release.yml": "app FFI release",
+}
+
+
+def other_branch_name(source: str) -> str | None:
+    branch, _, path = source.partition(":")
+    shown = subprocess.run(["git", "-C", str(ROOT), "show", f"origin/{branch}:{path}"],
+                           capture_output=True, text=True)
+    if shown.returncode != 0:
+        return OTHER_BRANCH_SOURCES[source]
+    document = yaml.safe_load(shown.stdout)
+    name = document.get("name") if isinstance(document, dict) else None
+    return str(name) if name is not None else path
+
+
 # `repos/:owner/:repo/actions/workflows/<file>/runs` is the identity-based way
 # to find another workflow's runs. The file still has to exist.
 RUNS_BY_PATH = re.compile(r"actions/workflows/([A-Za-z0-9._-]+\.ya?ml)/runs")
@@ -136,6 +159,21 @@ def check_workflow_run_sources(documents: dict[Path, dict], failures: list[str])
 
         produced: list[str] = []
         for source in declared:
+            if ":" in source:
+                if source not in OTHER_BRANCH_SOURCES:
+                    failures.append(
+                        f"{relative}: {DECLARATION} names {source}, which is not "
+                        "listed in OTHER_BRANCH_SOURCES"
+                    )
+                    continue
+                name = other_branch_name(source)
+                if name != OTHER_BRANCH_SOURCES[source]:
+                    failures.append(
+                        f"{relative}: {source} is now named {name!r}, not "
+                        f"{OTHER_BRANCH_SOURCES[source]!r}"
+                    )
+                produced.append(name)
+                continue
             source_path = ROOT / source
             if source_path not in documents:
                 failures.append(
