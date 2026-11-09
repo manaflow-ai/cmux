@@ -482,6 +482,12 @@ impl Mux {
                         .with(|gate| gate.borrow_mut().take());
             }
             mux.continue_agent_roster_replay(replay);
+            #[cfg(test)]
+            if let Some(seam) = agent_roster_restore::AFTER_REPLAY_SCHEDULED_FOR_TEST
+                .with(|seam| seam.borrow_mut().take())
+            {
+                seam(&mux);
+            }
         }
         // A stale roster (a reducer version bump) is served now and rebuilt
         // from the whole journal in the owner while the daemon serves.

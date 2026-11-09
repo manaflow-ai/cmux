@@ -713,7 +713,12 @@ impl Mux {
         };
         let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
         let kinds = crate::journal_reducers::AgentRoster::folds_kind;
+        #[cfg(test)]
+        let injected = rebuild_faults::take_failing_reconcile_read(&self.session);
+        #[cfg(not(test))]
+        let injected = false;
         let newer = match reader {
+            _ if injected => Err(anyhow::anyhow!("an injected reconcile read failure")),
             Some(reader) => reader
                 .head()
                 .and_then(|head| reader.kinds_after(cursor, head.max(cursor), kinds, 1)),

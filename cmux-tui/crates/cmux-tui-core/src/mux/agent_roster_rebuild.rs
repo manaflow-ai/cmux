@@ -298,6 +298,7 @@ pub(in crate::mux) mod rebuild_faults {
         held: bool,
         failing_reads: u32,
         failing_replay_reads: u32,
+        failing_reconcile_reads: u32,
     }
 
     static FAULTS: Mutex<BTreeMap<String, Faults>> = Mutex::new(BTreeMap::new());
@@ -328,6 +329,19 @@ pub(in crate::mux) mod rebuild_faults {
         with(session, |faults| {
             let failing = faults.failing_replay_reads > 0;
             faults.failing_replay_reads = faults.failing_replay_reads.saturating_sub(1);
+            failing
+        })
+    }
+
+    /// The reconcile a background replay owes fails its next `reads` checks.
+    pub(in crate::mux) fn fail_reconcile_reads(session: &str, reads: u32) {
+        with(session, |faults| faults.failing_reconcile_reads = reads);
+    }
+
+    pub(in crate::mux) fn take_failing_reconcile_read(session: &str) -> bool {
+        with(session, |faults| {
+            let failing = faults.failing_reconcile_reads > 0;
+            faults.failing_reconcile_reads = faults.failing_reconcile_reads.saturating_sub(1);
             failing
         })
     }

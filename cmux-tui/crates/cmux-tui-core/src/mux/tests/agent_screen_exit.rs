@@ -340,3 +340,65 @@ fn the_starts_reconcile_waits_for_the_reconcile_the_replay_owes() {
     let agents = public_agents(&mux);
     assert_eq!(agents[0]["source"], "hook", "{agents:?}");
 }
+
+/// #39096 follow-up F1 (router-review): the reconcile a background replay
+/// owes cleared its pending flag before its projection writes, so a guarded
+/// `send` (`expect_agent`) saw the roster settled while the writes were still
+/// to come, and could type into an agent a hook had just made busy. The flag
+/// is cleared after the writes, under the same lock.
+#[test]
+fn a_guarded_send_waits_for_the_replays_reconcile_writes() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    let settling = Arc::new(Mutex::new(None));
+    let (seam_mux, seen) = (Arc::clone(&mux), Arc::clone(&settling));
+    *mux.agent_roster_worker.reconcile_seam.lock().unwrap() = Some(Box::new(move || {
+        *seen.lock().unwrap() = Some(seam_mux.agent_roster_settling());
+    }));
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    drop((entered, release));
+    mux.restart_agent_roster_replay_for_test(1, (entered_tx, release_rx));
+    for _ in 0..100 {
+        if settling.lock().unwrap().is_some() {
+            break;
+        }
+        assert!(mux.settle_agent_roster_for_test());
+    }
+    assert_eq!(
+        *settling.lock().unwrap(),
+        Some(true),
+        "a guarded send saw the roster settled before the reconcile's writes"
+    );
+    assert!(mux.settle_agent_roster_for_test());
+    assert!(!mux.agent_roster_settling(), "the reconcile finished");
+}
+
+/// #39096 follow-up F3 (router-review): a journal read that failed in the
+/// reconcile a background replay owes returned with no retry, so the
+/// reconcile stayed pending and guarded sends stayed refused until an
+/// unrelated request. It is retried after the roster's read backoff.
+#[test]
+fn a_failed_reconcile_read_is_retried_without_another_request() {
+    use crate::mux::agent_roster_fold::rebuild_faults;
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
+    rebuild_faults::fail_reconcile_reads(&mux.session, 1);
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    drop((entered, release));
+    mux.restart_agent_roster_replay_for_test(1, (entered_tx, release_rx));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while mux.agent_roster_settling() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let settled = !mux.agent_roster_settling();
+    rebuild_faults::fail_reconcile_reads(&mux.session, 0);
+    assert!(settled, "the reconcile stayed pending after its failed read");
+}
