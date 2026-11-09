@@ -253,8 +253,9 @@ person's or another agent's card shows what the sender attached, else the
 domain, and never fetches by itself (no request to a URL they chose, and the
 receiver's address never reaches the sender's server). A web link inside an
 agent's sentence (the Chief's prose and Markdown links) also gets a card,
-after its bubble, at most three per message (`Cmux/HomeMapping+InlineCards`);
-a person's bubbles keep Messages' rule, cards only of URL-only lines. Every fetch goes
+after its bubble, at most three per message (`Cmux/HomeMapping+InlineCards`),
+when its card can show more than the domain (a GitHub CI run or compare link,
+never fetched, stays text); a person's bubbles keep Messages' rule, cards only of URL-only lines. Every fetch goes
 through MessagesLab's LinkGuard: http(s) on the default port, every resolved
 address public (no loopback, private, CGNAT/Tailscale, link-local, ULA;
 mapped and NAT64 IPv6 as IPv4), the connected address re-checked, at most 5

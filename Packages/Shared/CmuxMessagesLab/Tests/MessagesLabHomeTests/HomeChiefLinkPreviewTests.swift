@@ -83,10 +83,11 @@ import Testing
         // A person's bubbles keep Messages' rule: my sentence's link is no card, my URL-only line is one.
         #expect(cardURLs(parts(pane, 3)) == [Self.sole])
         // A file name the detector reads as a domain ("README.md") is no card; a GitHub pull request's
-        // card is titled from its URL (a private repository's page needs sign-in, so it is never fetched).
+        // card is titled from its URL (a private repository's page needs sign-in, so it is never fetched);
+        // a GitHub CI run's card could only say "github.com", so its link stays text.
         let five = parts(pane, 5)
-        #expect(cardURLs(five) == [Self.gitHubPR, Self.gitHubRun])
-        if case let .link(_, title, site, _, _)? = five.dropLast().last { #expect(title == "manaflow-ai/cmux#38178" && site == "github.com") }
+        #expect(cardURLs(five) == [Self.gitHubPR])
+        if case let .link(_, title, site, _, _)? = five.last { #expect(title == "manaflow-ai/cmux#38178" && site == "github.com") }
         withExtendedLifetime(pane.window) {}
     }
 

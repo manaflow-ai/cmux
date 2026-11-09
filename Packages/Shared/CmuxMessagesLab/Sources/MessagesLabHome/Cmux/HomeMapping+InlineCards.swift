@@ -6,7 +6,8 @@ import Foundation
 /// rule (`TextParts.parts`) makes a card only of a line that is a URL alone; the Chief writes its
 /// links in prose and Markdown, which Messages never has, so its replies showed none. In an agent's
 /// reply each bubble's web links (http and https that the link policy allows) get a card right after
-/// the bubble, in the order they appear, at most ``maxInlineCards`` per message; the text keeps its
+/// the bubble, in the order they appear, at most ``maxInlineCards`` per message, only for a link whose
+/// card shows more than its domain (``showsMoreThanItsDomain(_:)``); the text keeps its
 /// links. A URL that already has a card in the message (a URL-only line, a sender's `link_preview`
 /// part) gets no second one. A person's bubbles keep Messages' rule exactly (LabFixtureParityTests:
 /// Home lays out the Messages demo as Messages does), so a person's send and its stored message
@@ -31,7 +32,7 @@ extension HomeMapping {
             outParts.append(part)
             outOwners.append(owner)
             guard case let .text(text, runs) = part else { continue }
-            for url in inlineCardURLs(runs, in: text) where added < maxInlineCards && seen.insert(url).inserted {
+            for url in inlineCardURLs(runs, in: text) where added < maxInlineCards && showsMoreThanItsDomain(url) && seen.insert(url).inserted {
                 outParts.append(card(url, links: links))
                 outOwners.append(owner)
                 added += 1
@@ -58,6 +59,15 @@ extension HomeMapping {
             }
             return link
         }
+    }
+
+    /// Whether `url`'s inline card can show more than its domain: a page this Mac may fetch, or a
+    /// GitHub pull request, issue or commit (titled from its URL). Another GitHub page (a CI run, a
+    /// compare view) is never fetched (it needs sign-in), so its card would only repeat "github.com"
+    /// under the link: the link stays text. Each card is a transcript row, so a card that says
+    /// nothing also costs every frame that lays out the transcript.
+    static func showsMoreThanItsDomain(_ url: String) -> Bool {
+        !HomeProjection.needsSignIn(url) || gitHubReference(url) != nil
     }
 
     /// A GitHub pull request, issue or commit link's card title, from its URL alone (`owner/repo#12`,
