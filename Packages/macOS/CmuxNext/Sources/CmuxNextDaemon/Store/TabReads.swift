@@ -48,6 +48,9 @@ import Foundation
                 guard current() else { return refused(CancellationError()) }
                 do {
                     let reply = try await attempt()
+                    // An answer from a daemon that is gone by now (torn down, or another generation that may number
+                    // the record anew) settles nothing here: the read rolls back and the new record shows.
+                    guard current() else { return stands() ? refused(CancellationError()) : () }
                     return answered(reply)
                 } catch where PersonalWriteLedger.isUnanswered(error) {
                     await pause(&backoff)
