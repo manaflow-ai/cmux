@@ -76,6 +76,43 @@
    "shot": false
   },
   {
+   "title": "Mark the agent tab unread (its tab dot and the workspace row's dot)",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.toggleTabUnread"
+    }
+   },
+   "record": true,
+   "wait": 1.5,
+   "optional": "marks the focused tab; the showcase may focus another"
+  },
+  {
+   "title": "Click into the composer, as a person does",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-composer-prompt"
+    }
+   },
+   "record": true,
+   "wait": 0.4,
+   "shot": false
+  },
+  {
+   "title": "Composer text before typing",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "readiness"
+    }
+   },
+   "record": true,
+   "wait": 0.2,
+   "shot": false
+  },
+  {
    "title": "Type 'c' (1/20)",
    "key": "c",
    "modifiers": [],
@@ -285,6 +322,19 @@
    "shot": false
   },
   {
+   "title": "Click into the composer under the hat",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-composer-prompt"
+    }
+   },
+   "record": true,
+   "wait": 0.4,
+   "shot": false
+  },
+  {
    "title": "Type ' ' (1/13) under the hat",
    "key": "space",
    "modifiers": [],
@@ -385,6 +435,18 @@
    "key": "y",
    "modifiers": [],
    "pane": "{pane}",
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Composer text after the second typing",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "readiness"
+    }
+   },
+   "record": true,
    "wait": 0.2,
    "shot": false
   },
