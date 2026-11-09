@@ -2610,6 +2610,12 @@ public struct ConnectOptions: Equatable, Hashable {
      * rides RTP inside the tunnel (the "WireGuard only" comparison).
      */
     public var noWebrtcMedia: Bool
+    /**
+     * WireGuard: the person's "Ultra mode on cellular" setting. On, a dial
+     * made while the network is cellular (`set_cellular_path`) sends
+     * repair data, about 2-3x the bytes, so a lossy network costs no time.
+     */
+    public var ultraOnCellular: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2632,11 +2638,17 @@ public struct ConnectOptions: Equatable, Hashable {
         /**
          * WireGuard: no WebRTC media session beside the link, so browser video
          * rides RTP inside the tunnel (the "WireGuard only" comparison).
-         */noWebrtcMedia: Bool = false) {
+         */noWebrtcMedia: Bool = false, 
+        /**
+         * WireGuard: the person's "Ultra mode on cellular" setting. On, a dial
+         * made while the network is cellular (`set_cellular_path`) sends
+         * repair data, about 2-3x the bytes, so a lossy network costs no time.
+         */ultraOnCellular: Bool = false) {
         self.relayOnly = relayOnly
         self.blockUdp = blockUdp
         self.noVideoLane = noVideoLane
         self.noWebrtcMedia = noWebrtcMedia
+        self.ultraOnCellular = ultraOnCellular
     }
 
     
@@ -2658,7 +2670,8 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
                 relayOnly: FfiConverterBool.read(from: &buf), 
                 blockUdp: FfiConverterBool.read(from: &buf), 
                 noVideoLane: FfiConverterBool.read(from: &buf), 
-                noWebrtcMedia: FfiConverterBool.read(from: &buf)
+                noWebrtcMedia: FfiConverterBool.read(from: &buf), 
+                ultraOnCellular: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -2667,6 +2680,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
         FfiConverterBool.write(value.blockUdp, into: &buf)
         FfiConverterBool.write(value.noVideoLane, into: &buf)
         FfiConverterBool.write(value.noWebrtcMedia, into: &buf)
+        FfiConverterBool.write(value.ultraOnCellular, into: &buf)
     }
 }
 
@@ -3821,6 +3835,19 @@ public func resetWarmState()async   {
             
         )
 }
+/**
+ * The device's network is cellular now, or not (iOS `NWPathMonitor`,
+ * `NWPath.usesInterfaceType(.cellular)`; every path update, the first one
+ * too). WireGuard dials made from now on turn ultra mode on when this is
+ * true and their `ConnectOptions::ultra_on_cellular` is set; a live link
+ * keeps its mode until it redials.
+ */
+public func setCellularPath(cellular: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_cellular_path(
+        FfiConverterBool.lower(cellular),$0
+    )
+}
+}
 
 private enum InitializationResult {
     case ok
@@ -3853,6 +3880,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 25219) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 64638) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {

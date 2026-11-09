@@ -1,5 +1,6 @@
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -66,7 +67,7 @@ import Testing
     /// stamped the workspace and JSON-encoded every stamp into UserDefaults on the main thread.
     /// Stamps are kept in memory and written once after the walk settles.
     @Test func walkingTheSelectionDoesNotWriteDefaultsPerStep() {
-        let defaults = CountingDefaults(suiteName: "SidebarSinceLookedTests.\(UUID().uuidString)")!
+        let defaults = CountingDefaults(suiteName: TestDefaults.removeAtExit("SidebarSinceLookedTests.\(UUID().uuidString)"))!
         let store = SidebarLookedStore(defaults: defaults)
         for index in 0..<50 {
             store.stamp(WorkspaceID("ws-\(index)"), now: Date(timeIntervalSince1970: TimeInterval(index)))

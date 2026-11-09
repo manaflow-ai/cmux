@@ -1102,8 +1102,10 @@ fn materialize(state_dir: &Path, chat_skill: bool) -> anyhow::Result<PathBuf> {
     }
 }
 
-/// The plugin's `hooks/hooks.json`: `bg_hook.rs` before and after every `Bash` call and as a
-/// subagent stops (the notices left for a subagent, `subagent_notice.rs`), run by this binary
+/// The plugin's `hooks/hooks.json`: `bg_hook.rs` before every `Bash` call, and for a subagent's
+/// calls only ([`subagent_hook_command`]) after its `Bash` calls, around its acpmux MCP calls
+/// (`bg_hook::MCP_CALLS`, `subagent_call.rs`) and as it stops (the notices left for a subagent,
+/// `subagent_notice.rs`), run by this binary
 /// with this daemon's home as its argument: the harness's env carries no `ACPMUX_HOME`
 /// (`agent::harness_command` removes every `ACPMUX_` name it inherits), so a tagged build or a
 /// daemon with its own home still finds its chats' MCP configs. The plugin's folder is named by
@@ -1116,10 +1118,15 @@ fn bg_hooks() -> String {
     let home = crate::config::home().to_string_lossy().into_owned();
     words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
     let hook = json!([{"type": "command", "command": hook_command(&words), "timeout": 10}]);
+    // Only a subagent's call has work there: the lead's never starts this binary.
+    let subagent =
+        json!([{"type": "command", "command": subagent_hook_command(&words), "timeout": 10}]);
+    let mcp = crate::bg_hook::mcp_matcher();
     json!({"hooks": {
-        "PreToolUse": [{"matcher": "Bash", "hooks": hook}],
-        "PostToolUse": [{"matcher": "Bash", "hooks": hook}],
-        "SubagentStop": [{"hooks": hook}],
+        "PreToolUse": [{"matcher": "Bash", "hooks": hook}, {"matcher": mcp, "hooks": subagent}],
+        "PostToolUse": [{"matcher": format!("Bash|{mcp}"), "hooks": subagent}],
+        "PostToolUseFailure": [{"matcher": mcp, "hooks": subagent}],
+        "SubagentStop": [{"hooks": subagent}],
     }})
     .to_string()
 }
@@ -1131,9 +1138,25 @@ fn bg_hooks() -> String {
 /// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02:
 /// `unknown resource scope "__bg-hook"` on each call).
 pub(crate) fn hook_command(words: &[String]) -> String {
+    format!("{} || true", quoted(words))
+}
+
+/// [`hook_command`] that starts `words` only for a subagent's call: Claude Code's hook input
+/// names `agent_id` only for one. The shell reads the input first and passes it on, so the
+/// lead's `PostToolUse` and MCP calls do not start this binary to find nothing to do. A false
+/// match (a quoted `"agent_id"` in a call's own input) only starts it, and it answers nothing.
+pub(crate) fn subagent_hook_command(words: &[String]) -> String {
+    format!(
+        "input=$(cat); case \"$input\" in *'\"agent_id\"'*) printf '%s' \"$input\" | {} ;; esac; true",
+        quoted(words)
+    )
+}
+
+/// `words` as single-quoted shell words.
+fn quoted(words: &[String]) -> String {
     let quoted: Vec<String> =
         words.iter().map(|w| format!("'{}'", w.replace('\'', "'\\''"))).collect();
-    format!("{} || true", quoted.join(" "))
+    quoted.join(" ")
 }
 
 /// The signed helper's own `cmux-cua` (`<app>/Contents/Library/cmux Computer

@@ -10,6 +10,7 @@ use tokio::time::Instant;
 use super::Driver;
 use crate::probing;
 use crate::timers::SESSION_FRESH;
+use crate::ultra_hello;
 use crate::underlay::Underlay as _;
 
 /// Waits before each repeat of the shutdown resets: 0.2, 0.4, 0.8 and 1.6 s
@@ -102,6 +103,36 @@ impl Driver {
             self.underlay.send(packet);
         }
         self.schedule.on_activity(Instant::now());
+    }
+
+    /// Send this side's ultra hello when one is due and a session exists
+    /// (see `crate::ultra_hello`). A hello never starts a session.
+    pub(super) fn run_ultra_hello(&mut self) {
+        let now = Instant::now();
+        let Some(hello) = self.negotiation.due(now) else { return };
+        let Some((local, remote)) = self.probe_route else { return };
+        if self.tunn.time_since_last_handshake().is_none() {
+            return;
+        }
+        let packet = ultra_hello::packet(local, remote, hello);
+        if let TunnResult::WriteToNetwork(encrypted) =
+            self.tunn.encapsulate(&packet, &mut self.scratch)
+        {
+            self.underlay.send(encrypted);
+        }
+        self.negotiation.sent(now);
+    }
+
+    /// When the loop must wake for the next hello retry. Only while a
+    /// session exists: with none, `run_ultra_hello` sends nothing, so an
+    /// overdue retry would wake the loop at once, forever. The datagram
+    /// that forms the next session wakes the loop, which resumes the
+    /// retries.
+    pub(super) fn hello_deadline(&self) -> Option<Instant> {
+        if self.probe_route.is_none() || self.tunn.time_since_last_handshake().is_none() {
+            return None;
+        }
+        self.negotiation.deadline()
     }
 
     /// Send due path probes while the session carries traffic; an idle

@@ -8,11 +8,13 @@
 // bold title over a muted reason, a quiet details band, then Deny (esc) and the filled Allow once
 // (⌘↩) at the trailing edge with their keycaps. scopeStyle and rowStyle draw gallery-only
 // alternatives over the shipped card.
-import type { ComponentProps } from "react";
+import { type ComponentProps, useRef } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
+import type { ChatUiFont } from "./chatUiFont";
 import type { AcpmuxPermission } from "./model";
 import { PermissionCard } from "./PermissionCard";
+import { CardFontCaption, fontMeasured, PAIRED_UI_FONTS, useCardFont } from "./permissions/cardFontGallery";
 import { SHORTCUT_ACTIONS, ShortcutsContext } from "./shortcuts";
 
 type ScopeStyle = "under" | "labelled" | "front";
@@ -28,6 +30,9 @@ type Props = Pick<ComponentProps<typeof PermissionCard>, "permission" | "harness
   scopeStyle?: ScopeStyle;
   rowStyle?: RowStyle;
   oneTimeStyle?: OneTimeStyle;
+  /// The chat's Interface Font for the card (chatUiFont.ts), with a caption of the row estimator's
+  /// first height for it (permissions/cardHeight.ts) beside the height the card draws.
+  uiFont?: ChatUiFont;
 };
 
 const oneTimeStyles: Record<Exclude<OneTimeStyle, "line">, string> = {
@@ -218,7 +223,10 @@ function GalleryPermissionCard({
   rowStyle,
   oneTimeStyle,
   letterStyle,
+  uiFont,
 }: Props) {
+  const stack = useRef<HTMLDivElement>(null);
+  const font = useCardFont(uiFont, permission, stack);
   return (
     <div
       className="acpmux-shell"
@@ -226,14 +234,14 @@ function GalleryPermissionCard({
       data-row-style={rowStyle}
       data-one-time-style={oneTimeStyle}
       data-letter-style={letterStyle}
-      style={{ paddingTop: 12 }}
+      style={{ paddingTop: 12, ...font.style }}
     >
       {scopeStyle && scopeStyle !== "under" && <style>{scopeStyles[scopeStyle]}</style>}
       {rowStyle && rowStyle !== "light" && <style>{rowStyles[rowStyle]}</style>}
       {oneTimeStyle && oneTimeStyle !== "line" && <style>{oneTimeStyles[oneTimeStyle]}</style>}
       {letterStyle && letterStyle !== "slash" && <style>{letterStyles[letterStyle]}</style>}
       <div className="acpmux-main">
-        <div className="acpmux-permission acpmux-asks-stack">
+        <div className="acpmux-permission acpmux-asks-stack" ref={stack}>
           <ShortcutsContext value={labels}>
             <PermissionCard
               permission={permission}
@@ -244,6 +252,7 @@ function GalleryPermissionCard({
             />
           </ShortcutsContext>
         </div>
+        <CardFontCaption caption={font.caption} />
       </div>
     </div>
   );
@@ -297,6 +306,18 @@ export default componentEntry<Props>({
       note: "Grid measurement: pending permission without a play that answers it.",
       props: { permission: shortRule, harness: "claude" },
     },
+    // cmux#38886 review: System UI and System UI, tight share a stack, as Inter and cmux Inter do,
+    // but not their letter-spacing: the card's first estimate measures each font's tracking.
+    ...Object.fromEntries(
+      PAIRED_UI_FONTS.map((font) => [
+        `font-${font}`,
+        {
+          note: `The four-option transcript card (no key hints) in the ${font} Interface Font, with the row estimator's first height beside the drawn one.`,
+          props: { permission: fourOptions, harness: "codex" as const, shortcuts: false, uiFont: font },
+          play: fontMeasured,
+        },
+      ]),
+    ),
     "long-rule": {
       note: 'Leo 2026-11-05, on Claude desktop\'s "Allow Claude to use …?" card: "The whole, like, allow whatever to use, allow for this session, or deny. And then it shows the hotkeys." A bold title and a muted reason, a quiet details band with the command and the long rule on one muted line (cut, whole on hover), then the answers at the trailing edge: Deny with its esc keycap, Always allow with ⌥⌘2, and the filled Allow once with ⌘↩.',
       props: { permission: longRule, harness: "claude" },
