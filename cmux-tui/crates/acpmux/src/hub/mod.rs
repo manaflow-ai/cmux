@@ -2675,3 +2675,8 @@ impl Drop for LogsReady<'_> {
         self.0.send_replace(true);
     }
 }
+
+// What one small update costs at 100, 1,000 and 3,000 sessions (manual, `--ignored`).
+#[cfg(test)]
+#[path = "update_cost_bench.rs"]
+mod update_cost_bench;

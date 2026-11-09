@@ -1056,6 +1056,76 @@ mod tests {
         cached_rows_equal_uncached(&hub);
     }
 
+    /// A one-chat change rebuilds that chat's closed row, never every closed row: each status,
+    /// turn or metadata commit of one chat rebuilt all ~3,000 closed rows on the next list. What
+    /// other rows read of a chat still reaches them: a closed parent's open-children count when
+    /// its child closes, a child's fold when its parent is archived.
+    #[tokio::test]
+    async fn a_one_chat_change_rebuilds_only_its_own_closed_row() {
+        const CLOSED: u64 = 100;
+        let cfg: crate::config::Config =
+            serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+        let hub = Hub::new(
+            cfg.clone(),
+            crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap(),
+        );
+        let meta = |id: String, status: &str| -> crate::store::SessionMeta {
+            serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+                "harness": "claude", "family": "claude", "cwd": "/w", "status": status,
+                "createdAt": 1, "updatedAt": 1,
+            }))
+            .unwrap()
+        };
+        for n in 0..CLOSED {
+            hub.insert_test_session(meta(format!("closed-{n}"), "closed"));
+        }
+        let one = hub.sessions().into_iter().find(|s| s.id == "closed-7").unwrap();
+        hub.visit_session_summaries(false, |_| {});
+        let builds = || hub.closed_summary_builds.load(Ordering::SeqCst);
+
+        let before = builds();
+        one.meta.lock().unwrap().title = Some("renamed".into());
+        hub.save_meta_answered(&one).unwrap();
+        hub.append(&one, "mux", "turn_end", json!({}));
+        hub.attach_count(&one, 1, true);
+        hub.attach_count(&one, -1, true);
+        hub.visit_session_summaries(false, |_| {});
+        assert_eq!(builds() - before, 1, "one chat's changes rebuilt other closed rows");
+        cached_rows_equal_uncached(&hub);
+
+        // A closed parent's `children` follows its child's status.
+        let parent = hub.sessions().into_iter().find(|s| s.id == "closed-3").unwrap();
+        let mut child = meta("child".into(), "ready");
+        child.subsession = Some(
+            serde_json::from_value(
+                json!({"startedBy": "closed-3", "shortName": "child", "depth": 1}),
+            )
+            .unwrap(),
+        );
+        let child = hub.insert_test_session(child);
+        hub.subsessions.note_status(&parent.id, &child.id, SessionStatus::Ready);
+        cached_rows_equal_uncached(&hub);
+        hub.set_status(&child, SessionStatus::Closed);
+        cached_rows_equal_uncached(&hub);
+
+        // Archiving a parent folds its children no more: their rows change with its tags.
+        let mut folded = meta("folded".into(), "closed");
+        folded.tags.insert(
+            "spawnedBy".into(),
+            crate::store::Tag { value: "closed-5".into(), expires_at: None },
+        );
+        hub.insert_test_session(folded);
+        cached_rows_equal_uncached(&hub);
+        let five = hub.sessions().into_iter().find(|s| s.id == "closed-5").unwrap();
+        five.meta.lock().unwrap().tags.insert(
+            "archived".into(),
+            crate::store::Tag { value: "true".into(), expires_at: None },
+        );
+        hub.save_meta_answered(&five).unwrap();
+        cached_rows_equal_uncached(&hub);
+    }
+
     #[test]
     fn streamed_rows_preserve_all_fields_and_stable_ties() {
         let mut rows = vec![

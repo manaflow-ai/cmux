@@ -175,7 +175,7 @@ impl Hub {
     }
 
     /// When the first live child's idle period ends, on the hub clock.
-    fn next_idle_deadline(&self) -> Option<std::time::Duration> {
+    pub(super) fn next_idle_deadline(&self) -> Option<std::time::Duration> {
         let idle = (*self.idle_child.lock().unwrap())?;
         self.sessions()
             .iter()

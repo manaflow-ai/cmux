@@ -736,3 +736,8 @@ impl crate::hub::Hub {
         self.chats.get()
     }
 }
+
+// What one activity change costs a chat window at 100, 1,000 and 3,000 chats (manual).
+#[cfg(test)]
+#[path = "update_cost_bench.rs"]
+mod update_cost_bench;

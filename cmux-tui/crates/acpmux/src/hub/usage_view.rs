@@ -42,6 +42,26 @@ pub(crate) struct UsageCache {
     dirty: AtomicBool,
 }
 
+/// Drops the trackers and stats of chats not in `sources` (a whole pass's chats): closed a day
+/// ago or purged. A chat still listed keeps what the last pass found until a pass finds more.
+/// Returns the chats whose stats went.
+pub(super) fn prune_unlisted<T, S>(
+    trackers: &mut HashMap<String, T>,
+    stats: &mut HashMap<String, S>,
+    sources: &[(String, Source)],
+) -> Vec<String> {
+    trackers.retain(|id, _| sources.iter().any(|(s, _)| s == id));
+    let mut gone = Vec::new();
+    stats.retain(|id, _| {
+        let keep = sources.iter().any(|(s, _)| s == id);
+        if !keep {
+            gone.push(id.clone());
+        }
+        keep
+    });
+    gone
+}
+
 impl Hub {
     /// Reads every chat's usage, after the pass that runs if one does, unless one started in
     /// the last few seconds and no turn ended since.
@@ -131,11 +151,7 @@ impl Hub {
                 .collect();
             let mut gone = false;
             if whole {
-                trackers.retain(|id, _| sources.iter().any(|(s, _)| s == id));
-                let before = stats.len();
-                // A chat still listed keeps what the last pass found until a pass finds more.
-                stats.retain(|id, _| sources.iter().any(|(s, _)| s == id));
-                gone = stats.len() != before;
+                gone = !prune_unlisted(&mut *trackers, &mut *stats, &sources).is_empty();
             }
             // A turn's own read announces its chat's whether or not a list's pass read the
             // turn first, so every turn's end is followed by its usage.
