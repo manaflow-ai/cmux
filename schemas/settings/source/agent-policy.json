@@ -71,7 +71,8 @@
       "agent": "settable",
       "why": "Sidebar control visibility (looks only)",
       "keys": [
-        "sidebar.controlsOnHover"
+        "sidebar.controlsOnHover",
+        "sidebar.floatOnHover"
       ]
     },
     {
