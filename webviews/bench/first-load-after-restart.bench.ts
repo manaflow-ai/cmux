@@ -431,10 +431,7 @@ try {
   // links none of them again after the page's own sheet (the app's bundle links none): a sheet linked
   // late wins rules the page sheet's order lost them (a 48 px quiet composer row instead of 28).
   const placeholders = sheets.map((sheet) => `<link rel="stylesheet" media="not all" href="/${sheet}">`).join("\n");
-  index = index.replace(
-    "</head>",
-    () => `<style id="${PAGE_STYLE_ID}">\n${css}\n</style>\n${placeholders}\n</head>`,
-  );
+  index = index.replace("</head>", () => `<style id="${PAGE_STYLE_ID}">\n${css}\n</style>\n${placeholders}\n</head>`);
   const ROOT = /<main id="root"><\/main>/;
   if (!ROOT.test(index)) throw new Error('the pane build has no <main id="root"></main>');
   index = index.replace(
@@ -480,21 +477,21 @@ try {
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
 
-/// TRACE=1: the boxes in the page's bottom band (from the composer's top down), by class, so a composer
-/// that sits elsewhere in the copy than on the live page names what stands under or over it.
-const bottomBand = () => {
-  const composer = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
-  if (!composer) return ["no composer"];
-  const from = composer.top - 40;
-  return [...document.querySelectorAll("#root *")]
-    .map((element) => ({ element, box: element.getBoundingClientRect() }))
-    .filter(({ box }) => box.height > 0 && box.bottom > from && box.height < 200)
-    .slice(0, 60)
-    .map(
-      ({ element, box }) =>
-        `${element.tagName.toLowerCase()}.${String(element.className).split(" ").slice(0, 2).join(".")} ${box.top.toFixed(0)}+${box.height.toFixed(0)}`,
-    );
-};
+  /// TRACE=1: the boxes in the page's bottom band (from the composer's top down), by class, so a composer
+  /// that sits elsewhere in the copy than on the live page names what stands under or over it.
+  const bottomBand = () => {
+    const composer = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
+    if (!composer) return ["no composer"];
+    const from = composer.top - 40;
+    return [...document.querySelectorAll("#root *")]
+      .map((element) => ({ element, box: element.getBoundingClientRect() }))
+      .filter(({ box }) => box.height > 0 && box.bottom > from && box.height < 200)
+      .slice(0, 60)
+      .map(
+        ({ element, box }) =>
+          `${element.tagName.toLowerCase()}.${String(element.className).split(" ").slice(0, 2).join(".")} ${box.top.toFixed(0)}+${box.height.toFixed(0)}`,
+      );
+  };
 
   /// The load before the restart: acpmux up, the chat opened and settled, then its copy written as the
   /// page writes it (chatSnapshot/live.ts `watchChatSnapshot`).
@@ -659,7 +656,8 @@ const bottomBand = () => {
     for (const r of rounds) if (r.copyShownMs === null) console.log(`  warning: a round drew no copy (${r.copyMiss})`);
     // A round that never handed over to the live chat proves nothing: a copy held over the whole
     // recording paints no blank and no shift.
-    for (const r of rounds) if (r.liveLatestMs === null) console.log("  failed: the live chat never showed the newest answer");
+    for (const r of rounds)
+      if (r.liveLatestMs === null) console.log("  failed: the live chat never showed the newest answer");
     const bad = rounds.filter(
       (r) => r.metrics.blankAfterContent > 0 || r.metrics.shiftFrames > 0 || r.liveLatestMs === null,
     );
