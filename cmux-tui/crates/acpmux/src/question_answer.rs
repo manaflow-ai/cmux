@@ -352,4 +352,30 @@ mod tests {
             assert_eq!(app_allow_note(&info, "api-work"), None, "{info}");
         }
     }
+
+    /// W5-S, bench round 4 friction 6 (2026-11-08): `policy ask` (the daemon default) with mode
+    /// `bypassPermissions` from the harness's settings asked nothing, and the note said the
+    /// session "asks before some tools run". A daemon default that is not the chat's own does not
+    /// change a mode that runs tools unasked (chats start in full access, `hub/policy_gate.rs`):
+    /// the note says that, and how to hold the policy.
+    #[test]
+    fn w5s_the_note_says_when_the_mode_runs_tools_unasked() {
+        let modes = |id: &str| json!({"currentModeId": id, "availableModes": []});
+        let default_ask = json!({"policy": null, "enforcement": {"policy": "ask"},
+                                 "modes": modes("bypassPermissions")});
+        let note = app_allow_note(&default_ask, "alpha").expect("a note");
+        assert!(!note.contains("asks before some tools run"), "{note}");
+        assert!(note.contains("bypassPermissions"), "{note}");
+        assert!(note.contains("acpmux session set alpha policy=ask"), "{note}");
+        // The chat's own policy holds whatever mode it started in (`policy_mode.rs`).
+        let own = json!({"policy": "ask", "enforcement": {"policy": "ask"},
+                         "modes": modes("bypassPermissions")});
+        let note = app_allow_note(&own, "alpha").expect("a note");
+        assert!(note.contains("asks before some tools run"), "{note}");
+        // A mode that asks keeps the note as it was.
+        let asking = json!({"policy": null, "enforcement": {"policy": "ask"},
+                            "modes": modes("default")});
+        let note = app_allow_note(&asking, "alpha").expect("a note");
+        assert!(note.contains("asks before some tools run"), "{note}");
+    }
 }
