@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """The check-path gate gh-merge-green applies to pull requests into feat-cmux-next.
 
-    merge_check_paths.py OWNER/REPO NUMBER SHA [--base feat-cmux-next] [--timeout SECONDS] [--interval SECONDS]
-        [--check-only]
+    merge_check_paths.py OWNER/REPO NUMBER SHA [--base feat-cmux-next] [--timeout SECONDS] [--budget SECONDS]
+        [--interval SECONDS] [--check-only]
 
 A pull request's CI judges it against the base it ran on. When a check path changed on the base after that, the
 result is stale though no file of the pull request changed: on 2026-10-21 #22967, #22975 and #23094 merged after
@@ -15,9 +15,13 @@ The gate passes when that base is the tip, or an ancestor of it whose newer comm
 (the status names no base, or its base is not an ancestor, too far behind, or a check path changed since) it
 dispatches cmux-next-fast-gates.yml for the pull request, which merges the head into the current tip and runs the
 cheap gates and the webviews checks there, and waits for that run's status: a success whose base is fresh again
-passes; a red, a run that never reports within --timeout, or a base that changed a check path again during the
-wait refuses. Not strict up-to-date protection or a merge queue: only a stale pull request gets one cheap Linux run,
-and nothing is rebased.
+passes; a red, or a run that never reports within --timeout, refuses. When the base changed a check path again
+during the run (feat-cmux-next lands often: on 2026-11-09 this race refused #39632, #39631 twice and #39705), the
+success proves nothing for the new tip, so it dispatches again there and waits again, while --budget lasts
+(gh-merge-green passes what its --wait left; the default is --timeout). The first run always gets its full
+--timeout; a rerun starts only inside the budget and stops at its end, and a budget that runs out refuses with the
+last check path that changed. Not strict up-to-date protection or a merge queue: only a stale pull request gets
+cheap Linux runs, and nothing is rebased.
 
 --check-only (gh-merge-green --dry-run) says whether it would dispatch and dispatches nothing. Before the file
 is on the base (its read answers 404) the gate passes with a note. Each poll is one REST read of
@@ -162,9 +166,15 @@ def stale(api: Api, status: dict | None, tip: str, pats: list[str]) -> str:
 
 def gate(api: Api, number: str, sha: str, branch: str, timeout: float, interval: float,
          clock: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep,
-         check_only: bool = False) -> tuple[str, float]:
-    """(what was checked, seconds waited), or Refused."""
+         check_only: bool = False, budget: float | None = None) -> tuple[str, float]:
+    """(what was checked, seconds waited), or Refused.
+
+    timeout bounds each dispatched run (no result within it refuses); budget (default: timeout) bounds the whole
+    loop. The first run always gets its full timeout; a rerun is dispatched only while the budget lasts, and waits
+    no longer than the budget's end.
+    """
     started = clock()
+    budget = timeout if budget is None else max(budget, 0.0)
     text = api.check_paths(branch)
     if text is None:
         print(f"note: {CHECK_PATHS} is not on {branch}; the check-path gate is skipped", file=sys.stderr)
@@ -179,7 +189,44 @@ def gate(api: Api, number: str, sha: str, branch: str, timeout: float, interval:
               file=sys.stderr)
         return "check paths stale (check only: nothing dispatched)", 0.0
     print(f"note: {why}; dispatching {WORKFLOW} for #{number} against the current tip", file=sys.stderr)
-    api.dispatch(number, branch)
+    runs = 0
+    while True:
+        runs += 1
+        run_started = clock()
+        # The first run keeps its own timeout (a slow fast gate may have spent the budget before it); a rerun
+        # also stops at the end of the budget.
+        by_budget = runs > 1 and started + budget < run_started + timeout
+        limit = started + budget if by_budget else run_started + timeout
+        api.dispatch(number, branch)
+        status = _result(api, sha, before, limit, interval, clock, sleep)
+        if status is None and by_budget:
+            raise Refused(f"{why}; the wait budget of {int(budget)}s (what gh-merge-green --wait left) ran out "
+                          f"before dispatched run {runs} of {WORKFLOW} posted its result; retry once it reports, "
+                          "or pass --wait with more seconds")
+        if status is None:
+            raise Refused(f"{why}; the dispatched {WORKFLOW} posted no result within {int(timeout)}s; "
+                          "retry once it reports")
+        if status.get("state") != "success":
+            raise Refused(f"{CONTEXT} is {status.get('state')} on the pull request merged with the current tip "
+                          f"({status.get('target_url') or 'no run link'}): a check that landed since fails it")
+        tip = api.tip(branch)
+        again = stale(api, status, tip, pats)
+        if not again:
+            return "check paths (fast gates rerun on the current tip)", clock() - started
+        # A check path changed during the run: its success proves nothing for the new tip, so run it there.
+        if clock() - started >= budget:
+            raise Refused(f"after {runs} dispatched run(s) of {WORKFLOW}, the wait budget of {int(budget)}s "
+                          f"(what gh-merge-green --wait left) ran out: {again}; retry, or pass --wait with more "
+                          "seconds")
+        print(f"note: after dispatched run {runs}, {again}; dispatching {WORKFLOW} for #{number} again against "
+              f"the new tip {tip[:12]} ({int(started + budget - clock())}s of the {int(budget)}s wait budget left)",
+              file=sys.stderr)
+        before, why = status, again
+
+
+def _result(api: Api, sha: str, before: dict | None, limit: float, interval: float, clock: Callable[[], float],
+            sleep: Callable[[float], None]) -> dict | None:
+    """The dispatched run's status on SHA (the first non-pending one other than BEFORE), or None after LIMIT."""
     # The run's post job writes only its final state; a status other than the one read before the dispatch is it.
     seen = (before or {}).get("updated_at"), (before or {}).get("description")
     while True:
@@ -187,18 +234,9 @@ def gate(api: Api, number: str, sha: str, branch: str, timeout: float, interval:
         status = api.status(sha)
         if status and (status.get("updated_at"), status.get("description")) != seen \
                 and (status.get("state") or "") != "pending":
-            break
-        if clock() - started > timeout:
-            raise Refused(f"{why}; the dispatched {WORKFLOW} posted no result within {int(timeout)}s; "
-                          "retry once it reports")
-    waited = clock() - started
-    if status.get("state") != "success":
-        raise Refused(f"{CONTEXT} is {status.get('state')} on the pull request merged with the current tip "
-                      f"({status.get('target_url') or 'no run link'}): a check that landed since fails it")
-    again = stale(api, status, api.tip(branch), pats)
-    if again:
-        raise Refused(f"after the dispatched run, {again}; retry")
-    return "check paths (fast gates rerun on the current tip)", waited
+            return status
+        if clock() > limit:
+            return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -208,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("sha")
     parser.add_argument("--base", default=BRANCH)
     parser.add_argument("--timeout", type=float, default=900)
+    parser.add_argument("--budget", type=float, default=None)
     parser.add_argument("--interval", type=float, default=20)
     parser.add_argument("--check-only", action="store_true")
     args = parser.parse_args(argv)
@@ -219,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         checked, waited = gate(Api(args.repo), args.number, args.sha, args.base, args.timeout, args.interval,
-                               check_only=args.check_only)
+                               check_only=args.check_only, budget=args.budget)
     except RateLimited as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3
