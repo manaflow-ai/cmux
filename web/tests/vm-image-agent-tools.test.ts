@@ -425,7 +425,7 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       expect(RD_PEER_UID).toBe(DEVBOX_WORK_UID);
       // ExecStart is the start script, which execs exactly this host command (rdStartScript).
       expect(unit).toContain(`\nExecStart=${RD_START_SCRIPT}\n`);
-      expect(rdStartScript(hostBin)).toContain(`exec '${hostBin}' host --listen-systemd --peer-uid ${DEVBOX_WORK_UID} --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264\n`);
+      expect(rdStartScript(hostBin)).toContain(`exec '${hostBin}' host --listen-systemd --peer-uid ${DEVBOX_WORK_UID} --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264 --link-stun stun.cloudflare.com:3478\n`);
       // The cookie copy lives in the host's own runtime dir, not in the socket dir the work user can traverse.
       expect(RD_HOST_DIR).toBe("/run/cmux-rd-host");
       expect(RD_XAUTHORITY).toBe("/run/cmux-rd-host/Xauthority-99");
@@ -521,7 +521,7 @@ print(json.dumps({"status": p.returncode, "pid": p.pid, "stderr": err.strip(), "
       expect(pid).toBe(String(r.pid));
       expect(listenPid).toBe(String(r.pid));
       expect(listenFds).toBe("1");
-      expect(argv.join(" ")).toBe(`host --listen-systemd --peer-uid ${DEVBOX_WORK_UID} --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264`);
+      expect(argv.join(" ")).toBe(`host --listen-systemd --peer-uid ${DEVBOX_WORK_UID} --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264 --link-stun stun.cloudflare.com:3478`);
       // The stub never accepted: the connection is still open (the real host would serve it).
       expect(r.clients).toEqual(["open"]);
     });

@@ -565,7 +565,7 @@ export function rdStartScript(
     `[ -S ${sq(x11)} ] || drain "display ${AGENT_DISPLAY} is not running"`,
     `[ -s ${sq(xauthority)} ] || drain "no copy of the display cookie at ${xauthority}"`,
     `[ -e ${sq(marker)} ] || drain "OpenH264 is not installed (${RD_OPENH264_UNIT} failed; the next connection tries again)"`,
-    `exec ${sq(hostBin)} host --listen-systemd --peer-uid ${RD_PEER_UID} --display ${AGENT_DISPLAY} --xauthority ${RD_XAUTHORITY} --codec openh264`,
+    `exec ${sq(hostBin)} host --listen-systemd --peer-uid ${RD_PEER_UID} --display ${AGENT_DISPLAY} --xauthority ${RD_XAUTHORITY} --codec openh264 --link-stun stun.cloudflare.com:3478`,
     "",
   ].join("\n");
 }
