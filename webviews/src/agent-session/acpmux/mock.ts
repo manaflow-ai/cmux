@@ -234,6 +234,17 @@ export function mockTurn(prompt: string, turn: number): Step[] {
 /// tool call (a log or an edit) after every `toolEvery` deltas.
 export type LoadStreamOptions = { seconds: number; chunkChars: number; chunkMs: number; toolEvery: number };
 
+/// Whether `event` is subagent `id`'s own record (hub/paging.rs `subagent_owns`): an agent update
+/// acpmux tagged with it (`_meta.acpmux.subagent`) or one that starts or changes it (`subagents[].id`).
+function subagentOwns(event: EventRecord, id: string): boolean {
+  if (event.dir !== "in" || event.msg?.method !== "session/update") return false;
+  const mux = event.msg.params?._meta?.acpmux;
+  return (
+    mux?.subagent === id ||
+    (Array.isArray(mux?.subagents) && mux.subagents.some((change: { id?: unknown }) => change?.id === id))
+  );
+}
+
 /// An in-page acpmux daemon behind the WebSocket interface the client uses.
 export class MockAcpmuxSocket {
   /// The mock daemon the page connected to last, for `debug.agent_pane load_seed` (loadDebug.ts).
@@ -379,6 +390,14 @@ export class MockAcpmuxSocket {
     this.sessions.push(created);
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
     return id;
+  }
+
+  /// Records `updates` into `target`'s log in place of subagent `id`'s own records there, without
+  /// delivery: `_acpmux/events {subagent}` reads them as acpmux's log would (`debug.agent_pane
+  /// seed_rows` `subagent-report`, whose capped report card's Show more reads that subagent's reply).
+  seedSubagentLog(target: string, id: string, updates: { update: Update; meta: Record<string, unknown> }[]): void {
+    this.events = this.events.filter((event) => event.sessionId !== target || !subagentOwns(event, id));
+    for (const step of updates) this.record(target, step);
   }
 
   /// Streams one turn into `target` as fast as `options` say, as a busy agent does: text deltas
@@ -1093,19 +1112,22 @@ export class MockAcpmuxSocket {
   /// A page of a session's events, as acpmux's `_acpmux/events` and `_acpmux/attach` return it
   /// (hub/paging.rs): after `afterSeq` oldest first, or (`beforeSeq`, or an attach without
   /// `afterSeq`) the newest `limit` before `beforeSeq`; a page also ends before its records pass
-  /// `maxBytes` and always holds one. `kinds` keeps the commands, other exact kinds, or the transcript.
+  /// `maxBytes` and always holds one. `kinds` keeps the commands, other exact kinds, or the transcript;
+  /// `subagent` only that subagent's own records (`EventFilter::of_subagent`).
   private page(
     target: string,
     params: Record<string, any>,
     attach = false,
   ): { events: EventRecord[]; hasMore: boolean } {
     const kinds: string[] = Array.isArray(params.kinds) ? params.kinds : [];
+    const subagent = typeof params.subagent === "string" && params.subagent ? params.subagent : undefined;
     const wanted = (event: EventRecord) =>
-      kinds.length === 0 ||
-      kinds.includes(event.kind) ||
-      (event.kind !== "available_commands_update" &&
-        event.kind !== "prompt_suggestion" &&
-        kinds.includes("transcript"));
+      (subagent === undefined || subagentOwns(event, subagent)) &&
+      (kinds.length === 0 ||
+        kinds.includes(event.kind) ||
+        (event.kind !== "available_commands_update" &&
+          event.kind !== "prompt_suggestion" &&
+          kinds.includes("transcript")));
     const after = Number(params.afterSeq ?? 0);
     const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
     const newest = params.beforeSeq !== undefined || (attach && params.afterSeq === undefined);
