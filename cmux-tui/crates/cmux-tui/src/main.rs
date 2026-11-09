@@ -56,6 +56,8 @@ mod page_listener;
 mod private_mode;
 mod screen_detection_status;
 #[cfg(unix)]
+mod session_udp;
+#[cfg(unix)]
 mod share_room;
 #[cfg(unix)]
 mod signal_sender;

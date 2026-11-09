@@ -160,6 +160,8 @@ cmux-build-identity.workspace = true
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
+# `session-udp-v1` (session_udp.rs): the UDP link the session's route rides.
+cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
 cmux-link.workspace = true
 cmux-agent-pane-policy.workspace = true
 cmux-unix-socket.workspace = true

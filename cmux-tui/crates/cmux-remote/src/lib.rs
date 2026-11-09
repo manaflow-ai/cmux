@@ -30,6 +30,7 @@ pub mod secure_directory;
 pub mod service;
 pub mod services;
 pub mod session;
+pub mod session_udp;
 mod ssh_args;
 pub use ssh_artifacts::{
     LinuxPin, PinnedPayload, SSH_PAYLOAD_DOWNLOAD_CAPABILITY,

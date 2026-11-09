@@ -43,10 +43,11 @@ pub use rpc::{
     ProcessTerminalCursorStyle, ProcessTerminalRow, ProcessTerminalSize, ProcessTerminalSnapshot,
     ProcessTerminalStyledRun, ProcessTerminalUnderline, PtyEofPolicy, RemoteCapability, RequestId,
     RouteId, RoutePolicy, RpcError, RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse,
-    SealedSecret, SearchMatch, Service, ServiceControl, StructuredDiffHunkV1,
-    StructuredDiffLineKind, StructuredDiffLineV1, StructuredDiffV1, StructuredFileDiffV1,
-    TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
-    WorkspaceId, WorkspaceRequest, WorkspaceResponse,
+    SealedSecret, SearchMatch, Service, ServiceControl, SessionUdpAnswer, SessionUdpOffer,
+    StructuredDiffHunkV1, StructuredDiffLineKind, StructuredDiffLineV1, StructuredDiffV1,
+    StructuredFileDiffV1, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY,
+    TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED, WorkspaceId, WorkspaceRequest,
+    WorkspaceResponse,
 };
 
 /// Maximum serialized server-to-client message accepted by remote session

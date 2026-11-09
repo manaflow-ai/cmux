@@ -76,6 +76,8 @@ pub(super) struct Dialed {
     pub mux: OpenedMuxControl,
     /// The grant's `vmk`, when it has one.
     pub vmk: Option<super::contract::Vmk>,
+    /// The platform's `session_udp` flag from the answer this dial used.
+    pub session_udp: Option<crate::session_udp::SessionUdpFlag>,
 }
 
 /// What one dial needs.
@@ -93,6 +95,10 @@ pub(super) struct DialPlan {
     pub phases: Arc<dyn Fn(String) + Send + Sync>,
     /// The dial's fresh sessions, shared with the caller's own retries.
     pub fresh_sessions: FreshSessions,
+    /// Whether the session may move onto a `session-udp-v1` route when the
+    /// answer's `session_udp` flag allows (a long-lived terminal session;
+    /// never a one-shot request or the desktop's stream).
+    pub session_udp: bool,
 }
 
 /// A failure of the connection step: a provider error is the relay's (or,
@@ -450,7 +456,24 @@ impl RouteAttempt<'_> {
             }
         };
         step.mark(|marks| marks.mux_open = Some(Instant::now()));
-        Ok(Dialed { connection, multiplexer, mux, vmk: self.answer.vmk })
+        if plan.session_udp
+            && let Some(flag) = self.answer.session_udp.clone()
+        {
+            // Ends with the session; its lines go to the connect log only.
+            drop(crate::session_udp::spawn_upgrade(
+                connection.clone(),
+                multiplexer.clone(),
+                flag,
+                plan.phases.clone(),
+            ));
+        }
+        Ok(Dialed {
+            connection,
+            multiplexer,
+            mux,
+            vmk: self.answer.vmk,
+            session_udp: self.answer.session_udp.clone(),
+        })
     }
 }
 

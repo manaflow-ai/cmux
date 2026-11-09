@@ -63,11 +63,26 @@ pub use websocket::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CarrierEvidence {
     None,
-    LocalPeer { uid: Option<u32>, pid: Option<u32> },
-    Ssh { destination: String },
-    Tls { server_name: String },
-    Relay { provider: String },
-    Iroh { endpoint_id: String },
+    LocalPeer {
+        uid: Option<u32>,
+        pid: Option<u32>,
+    },
+    Ssh {
+        destination: String,
+    },
+    Tls {
+        server_name: String,
+    },
+    Relay {
+        provider: String,
+    },
+    Iroh {
+        endpoint_id: String,
+    },
+    /// A `session-udp-v1` route (cmux-remote `session_udp`), named by its id.
+    Udp {
+        route: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -180,6 +180,11 @@ pub enum RemoteCapability {
     /// `secrets-v1`: the daemon opens [`SealedSecret`]s sealed to its static
     /// key and writes them (`replace-machine-secrets`).
     SecretsV1,
+    /// `session-udp-v1`: the daemon opens a UDP route for this session
+    /// ([`WorkspaceRequest::SessionUdpOffer`]): the session's own Noise
+    /// links, carried by a reliable stream over a secure UDP link, next to
+    /// the carrier.
+    SessionUdpV1,
     /// A capability introduced by a newer peer.
     ///
     /// Capabilities are versioned wire strings, so clients must be able to
@@ -416,6 +421,52 @@ pub enum WorkspaceRequest {
     ReplaceMachineSecrets {
         items: Vec<SealedSecret>,
     },
+    /// `session-udp-v1`: open a UDP route to this daemon. Sent only to a
+    /// daemon that lists [`RemoteCapability::SessionUdpV1`].
+    SessionUdpOffer {
+        offer: SessionUdpOffer,
+    },
+    /// `session-udp-v1`: the client's own candidates for route `route`, once
+    /// it knows them (after the answer: its link needs the daemon's key).
+    SessionUdpCandidates {
+        route: String,
+        candidates: Vec<String>,
+    },
+}
+
+/// A client's ask for a UDP route ([`WorkspaceRequest::SessionUdpOffer`]).
+/// The keys cross the session's authenticated stream, so the route trusts
+/// what the session trusts. Every value is checked by the daemon.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionUdpOffer {
+    /// The client's cmux-rd-link static key, 64 hex characters.
+    pub link_key: String,
+    /// The client's WireGuard public key inside the link, 64 hex characters.
+    pub wg_key: String,
+    /// STUN servers (`host:port`) the daemon may ask for its reflexive
+    /// candidate.
+    #[serde(default)]
+    pub stun: Vec<String>,
+    /// The repair mode both ends send in (a `cmux_wg::UltraMode` text such
+    /// as `dup` or `fec:8:2`); `None` sends none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair: Option<String>,
+}
+
+/// The daemon's half of a UDP route ([`WorkspaceResponse::SessionUdpAnswer`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionUdpAnswer {
+    /// The route's id, for [`WorkspaceRequest::SessionUdpCandidates`] and
+    /// the link's Noise prologue.
+    pub route: String,
+    /// The daemon's cmux-rd-link static key for this route, 64 hex characters.
+    pub link_key: String,
+    /// The daemon's WireGuard public key, 64 hex characters.
+    pub wg_key: String,
+    /// The daemon's candidates (`cmux_rd_link::net::Candidate` wire text).
+    pub candidates: Vec<String>,
+    /// The daemon's address and port inside the tunnel.
+    pub tunnel_addr: String,
 }
 
 /// One value sealed to a daemon's static X25519 key with HPKE (RFC 9180 base
@@ -582,6 +633,10 @@ pub enum WorkspaceResponse {
     MachineSecretsReplaced {
         count: u32,
     },
+    SessionUdpAnswer {
+        answer: SessionUdpAnswer,
+    },
+    SessionUdpCandidatesAdded,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

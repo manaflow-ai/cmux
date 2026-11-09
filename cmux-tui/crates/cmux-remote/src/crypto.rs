@@ -148,6 +148,9 @@ pub enum NetworkPeer {
     Tls,
     Relay,
     Iroh,
+    /// A `session-udp-v1` route: a reliable stream over a UDP link the
+    /// session itself negotiated.
+    Udp,
 }
 
 /// Kernel credentials verified to belong to the daemon's effective user.

@@ -46,6 +46,8 @@ struct WorkspaceServiceInner {
     computer_capabilities: Vec<ComputerUseCapability>,
     /// `secrets-v1`, on a daemon that knows its machine id.
     secrets: Option<Arc<crate::secrets::MachineSecrets>>,
+    /// `session-udp-v1`, once the daemon installed it ([`WorkspaceService::set_session_udp`]).
+    session_udp: std::sync::OnceLock<Arc<dyn crate::session_udp::SessionUdpHandler>>,
     request_control: StdMutex<RequestControlState>,
     activity_changed: Notify,
 }
@@ -214,10 +216,17 @@ impl WorkspaceService {
                 routes: RouteManager::default(),
                 computer_capabilities,
                 secrets,
+                session_udp: std::sync::OnceLock::new(),
                 request_control: StdMutex::new(RequestControlState::default()),
                 activity_changed: Notify::new(),
             }),
         }
+    }
+
+    /// Answer `session-udp-v1` with `handler` from now on, and list the
+    /// capability. Set once; a second handler is ignored.
+    pub fn set_session_udp(&self, handler: Arc<dyn crate::session_udp::SessionUdpHandler>) {
+        let _ = self.inner.session_udp.set(handler);
     }
 
     pub(crate) async fn run_codec<T, F>(
@@ -480,6 +489,9 @@ impl WorkspaceService {
                 if self.inner.secrets.is_some() {
                     capabilities.push(RemoteCapability::SecretsV1);
                 }
+                if self.inner.session_udp.get().is_some() {
+                    capabilities.push(RemoteCapability::SessionUdpV1);
+                }
                 Ok(WorkspaceResponse::Capabilities { capabilities })
             }
             WorkspaceRequest::OpenWorkspace { root } => self.open_workspace(scope, &root).await,
@@ -660,7 +672,23 @@ impl WorkspaceService {
                     .await
                     .map(|count| WorkspaceResponse::MachineSecretsReplaced { count })
             }
+            WorkspaceRequest::SessionUdpOffer { offer } => {
+                let answer = self.session_udp()?.offer(offer).await?;
+                Ok(WorkspaceResponse::SessionUdpAnswer { answer })
+            }
+            WorkspaceRequest::SessionUdpCandidates { route, candidates } => {
+                self.session_udp()?.candidates(&route, candidates).await?;
+                Ok(WorkspaceResponse::SessionUdpCandidatesAdded)
+            }
         }
+    }
+
+    fn session_udp(&self) -> Result<Arc<dyn crate::session_udp::SessionUdpHandler>, RpcError> {
+        self.inner
+            .session_udp
+            .get()
+            .cloned()
+            .ok_or_else(|| RpcError::new("unsupported", "this daemon has no session-udp-v1"))
     }
 
     fn secrets(&self) -> Result<Arc<crate::secrets::MachineSecrets>, RpcError> {

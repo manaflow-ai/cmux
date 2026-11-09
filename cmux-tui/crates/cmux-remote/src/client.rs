@@ -678,7 +678,9 @@ fn rpc_traffic_class(request: &WorkspaceRequest) -> RpcTrafficClass {
         | WorkspaceRequest::ComputerUseCapabilitiesV1
         | WorkspaceRequest::InvokeComputerUse { .. }
         | WorkspaceRequest::CancelComputerUse { .. }
-        | WorkspaceRequest::ReplaceMachineSecrets { .. } => RpcTrafficClass::Control,
+        | WorkspaceRequest::ReplaceMachineSecrets { .. }
+        | WorkspaceRequest::SessionUdpOffer { .. }
+        | WorkspaceRequest::SessionUdpCandidates { .. } => RpcTrafficClass::Control,
         WorkspaceRequest::CancelRequest { .. } => RpcTrafficClass::Cancellation,
     }
 }

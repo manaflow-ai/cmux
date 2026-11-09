@@ -482,6 +482,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 }
             }),
             fresh_sessions: contract::FreshSessions::default(),
+            session_udp: !matches!(args.service, DialService::Desktop),
         };
         // The desktop opens its stream before the reply, so a refusal (not
         // the owner, no desktop on the machine) is the dial's answer. The

@@ -216,6 +216,7 @@ pub(super) fn run(args: &[String]) -> i32 {
             }),
             phases: Arc::new(|_| {}),
             fresh_sessions: Default::default(),
+            session_udp: false,
         };
         let dialed = match client::dial(&plan, |ceiling| {
             cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)

@@ -50,6 +50,10 @@ pub(super) struct CarrierAnswer {
     /// The grant's `vmk` claim, `None` when the grant has none (or none
     /// that is `owner` or `team`).
     pub vmk: Option<Vmk>,
+    /// The platform's `session_udp` flag: the session may move onto a UDP
+    /// route (crate `session_udp`). `None` keeps it on the carrier, as does
+    /// `CMUX_SESSION_UDP=0`.
+    pub session_udp: Option<crate::session_udp::SessionUdpFlag>,
 }
 
 impl std::fmt::Debug for CarrierAnswer {
@@ -60,6 +64,7 @@ impl std::fmt::Debug for CarrierAnswer {
             .field("grant", &self.grant.is_some())
             .field("daemon_key", &self.daemon_key.is_some())
             .field("vmk", &self.vmk)
+            .field("session_udp", &self.session_udp.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -154,7 +159,18 @@ pub(super) fn parse_answer(value: &Value) -> Result<CarrierAnswer, String> {
     };
     let daemon_key = value.get("daemon_key").and_then(Value::as_str).and_then(key_bytes);
     let vmk = grant.as_deref().and_then(|g| grant_vmk(g));
-    Ok(CarrierAnswer { relay, slot: slot.to_owned(), ticket, expires_at, grant, daemon_key, vmk })
+    let session_udp = crate::session_udp::SessionUdpFlag::parse(value.get("session_udp"))
+        .filter(|_| crate::session_udp::enabled());
+    Ok(CarrierAnswer {
+        relay,
+        slot: slot.to_owned(),
+        ticket,
+        expires_at,
+        grant,
+        daemon_key,
+        vmk,
+        session_udp,
+    })
 }
 
 /// Reads one HTTP answer: `{ok: true, value}` is the carrier; anything else

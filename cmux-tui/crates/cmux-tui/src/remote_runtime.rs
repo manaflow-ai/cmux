@@ -1876,6 +1876,24 @@ async fn run_daemon(
         );
         #[cfg(not(unix))]
         let workspace = cmux_remote::workspace::WorkspaceService::new();
+        // `session-udp-v1` only where a relay carries the session (a Cloud
+        // machine): the route is a faster path next to that carrier.
+        #[cfg(unix)]
+        if !options.relays.is_empty() && crate::session_udp::enabled() {
+            let accept_daemon = daemon.clone();
+            workspace.set_session_udp(crate::session_udp::DaemonRoutes::new(Arc::new(
+                move |link| {
+                    let daemon = accept_daemon.clone();
+                    tokio::spawn(async move {
+                        let inbound = cmux_remote::daemon::InboundLink::network(
+                            link,
+                            cmux_remote::crypto::NetworkPeer::Udp,
+                        );
+                        let _ = daemon.accept(inbound).await;
+                    });
+                },
+            )));
+        }
         // The admin proof and service forwarding must use the same resolved
         // destination, including when the configured path is a symlink.
         let mux_binding = MuxBinding::new(&mux_socket, &link_socket)?;

@@ -69,6 +69,9 @@ const INPUT_INTERVAL: Duration = Duration::from_millis(20);
 const LATE: Duration = Duration::from_millis(100);
 const KIND_FRAME: u8 = 0;
 const KIND_INPUT: u8 = 1;
+const KIND_KEY: u8 = 2;
+const KIND_ECHO: u8 = 3;
+const KIND_OUTPUT: u8 = 4;
 /// kind, seq, sent_us, echo_us.
 const HEADER: usize = 1 + 4 + 8 + 8;
 
@@ -93,6 +96,13 @@ struct Args {
     /// `--peer LABEL=ADDR`, the viewer's paths in a two-host run.
     peers: Vec<(String, SocketAddr)>,
     seed: u64,
+    /// `--workload desktop|terminal`.
+    workload: String,
+    /// Terminal workload: a keystroke every this many ms.
+    key_interval_ms: u64,
+    /// Terminal workload: host output (a build log, a TUI redraw) in bytes
+    /// per second, on the same stream as the echoes.
+    output_bytes_per_s: usize,
 }
 
 fn args() -> Args {
@@ -111,6 +121,9 @@ fn args() -> Args {
         listen: None,
         peers: Vec::new(),
         seed: 1,
+        workload: "desktop".into(),
+        key_interval_ms: 50,
+        output_bytes_per_s: 0,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(flag) = iter.next() {
@@ -141,6 +154,9 @@ fn args() -> Args {
                 }
             }
             "--seed" => parsed.seed = number(),
+            "--workload" => parsed.workload = value.clone(),
+            "--key-interval-ms" => parsed.key_interval_ms = number().max(1),
+            "--output-bytes-per-s" => parsed.output_bytes_per_s = number() as usize,
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
@@ -177,6 +193,11 @@ struct Record {
     longest_frame_gap_us: u64,
     /// The label of the path that carried the stream at its end.
     final_path: Option<String>,
+    /// Terminal workload: each keystroke's send time, by seq.
+    key_sent_us: Vec<u64>,
+    /// Terminal workload: (seq, arrival) of each echo, in arrival order.
+    echo_at_us: Vec<(u32, u64)>,
+    output_bytes_received: u64,
 }
 
 type Shared = Arc<Mutex<Record>>;
@@ -239,6 +260,186 @@ where
     let host = host_half(host, args, clock.clone(), record.clone(), end);
     let viewer = viewer_half(viewer, args, clock, record, end);
     tokio::join!(host, viewer);
+}
+
+/// [`stream_session`] or [`terminal_session`], by `--workload`.
+async fn session<H, V>(host: H, viewer: V, args: &Args, clock: Arc<Clock>, record: Shared)
+where
+    H: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    V: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    if args.workload == "terminal" {
+        terminal_session(host, viewer, args, clock, record).await;
+    } else {
+        stream_session(host, viewer, args, clock, record).await;
+    }
+}
+
+/// A remote terminal over one ordered byte stream: the viewer types a key
+/// every `--key-interval-ms`, the host's shell echoes each at once, and
+/// `--output-bytes-per-s` of other output shares the stream (the echo queues
+/// behind it, as a pty's bytes do). Frames are length + header + payload.
+async fn terminal_session<H, V>(host: H, viewer: V, args: &Args, clock: Arc<Clock>, record: Shared)
+where
+    H: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    V: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let end = Instant::now() + Duration::from_secs(args.seconds);
+    let (mut host_rx, mut host_tx) = tokio::io::split(host);
+    let (mut viewer_rx, mut viewer_tx) = tokio::io::split(viewer);
+    let frame = |kind: u8, seq: u32, sent: u64, echo: u64, payload: usize| {
+        let mut out = Vec::with_capacity(4 + HEADER + payload);
+        out.extend_from_slice(&u32::try_from(HEADER + payload).unwrap_or(0).to_be_bytes());
+        out.extend_from_slice(&header(kind, seq, sent, echo));
+        out.resize(4 + HEADER + payload, 0x61);
+        out
+    };
+    // The host: one writer, fed by the echo reader and the output source.
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    let host_writer = tokio::spawn(async move {
+        while let Some(first) = out_rx.recv().await {
+            let mut batch = first;
+            while let Ok(more) = out_rx.try_recv() {
+                batch.extend_from_slice(&more);
+            }
+            if host_tx.write_all(&batch).await.is_err() {
+                break;
+            }
+        }
+        let _ = host_tx.shutdown().await;
+    });
+    let host_reader = {
+        let (clock, out_tx) = (clock.clone(), out_tx.clone());
+        tokio::spawn(async move {
+            let mut buf = [0u8; 4 + HEADER + 1];
+            while host_rx.read_exact(&mut buf).await.is_ok() {
+                let (_, seq, sent, _) = parse_header(&buf[4..]);
+                // A shell's echo of one key: the byte and a little redraw.
+                if out_tx.send(frame(KIND_ECHO, seq, clock.us(), sent, 8)).is_err() {
+                    break;
+                }
+            }
+        })
+    };
+    let output = {
+        let (clock, out_tx, rate) = (clock.clone(), out_tx.clone(), args.output_bytes_per_s);
+        tokio::spawn(async move {
+            if rate == 0 {
+                return;
+            }
+            let interval = Duration::from_millis(20);
+            let chunk = (rate / 50).max(1);
+            let mut next = Instant::now();
+            while next < end {
+                if out_tx.send(frame(KIND_OUTPUT, 0, clock.us(), 0, chunk)).is_err() {
+                    break;
+                }
+                next = next_tick(next, interval);
+                sleep_until(next).await;
+            }
+        })
+    };
+    drop(out_tx);
+    let viewer_writer = {
+        let (clock, record) = (clock.clone(), record.clone());
+        let interval = Duration::from_millis(args.key_interval_ms);
+        tokio::spawn(async move {
+            let mut seq = 0u32;
+            let mut next = Instant::now() + interval;
+            while next < end {
+                sleep_until(next).await;
+                let mut key = Vec::with_capacity(4 + HEADER + 1);
+                key.extend_from_slice(&u32::try_from(HEADER + 1).unwrap_or(0).to_be_bytes());
+                let sent = clock.us();
+                key.extend_from_slice(&header(KIND_KEY, seq, sent, 0));
+                key.push(b'k');
+                lock(&record).key_sent_us.push(sent);
+                if viewer_tx.write_all(&key).await.is_err() {
+                    break;
+                }
+                seq += 1;
+                next += interval;
+            }
+            viewer_tx
+        })
+    };
+    let viewer_reader = {
+        let (clock, record) = (clock.clone(), record.clone());
+        let max = HEADER + (args.output_bytes_per_s / 50).max(64);
+        tokio::spawn(async move {
+            let mut len = [0u8; 4];
+            let mut body = Vec::new();
+            while viewer_rx.read_exact(&mut len).await.is_ok() {
+                let len = u32::from_be_bytes(len) as usize;
+                if !(HEADER..=max).contains(&len) {
+                    break;
+                }
+                body.resize(len, 0);
+                if viewer_rx.read_exact(&mut body).await.is_err() {
+                    break;
+                }
+                let now = clock.us();
+                let (kind, seq, _, _) = parse_header(&body);
+                let mut record = lock(&record);
+                match kind {
+                    KIND_ECHO => record.echo_at_us.push((seq, now)),
+                    _ => record.output_bytes_received += len as u64,
+                }
+            }
+        })
+    };
+    // Keys stop at `end`; echoes still in flight get the drain.
+    let tx = viewer_writer.await.ok();
+    let drain = end + Duration::from_secs(5).max(Duration::from_millis(args.rtt_ms * 20));
+    let _ = timeout_at(drain, async {
+        loop {
+            let (sent, echoed) = {
+                let record = lock(&record);
+                (record.key_sent_us.len(), record.echo_at_us.len())
+            };
+            if echoed >= sent {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    output.abort();
+    host_reader.abort();
+    viewer_reader.abort();
+    host_writer.abort();
+    if let Some(mut tx) = tx {
+        let _ = tx.shutdown().await;
+    }
+}
+
+/// Echo latency per keystroke, and the longest stall: the longest a key
+/// waited with nothing at all echoed meanwhile (each echo's wait since its
+/// key was sent or since the echo before it, whichever is later). A key with
+/// no echo by the drain counts to the end of the drain.
+fn terminal_stats(record: &Record, end_us: u64) -> (Vec<u64>, u64, usize) {
+    let mut latencies = Vec::new();
+    let mut longest = 0u64;
+    let mut last_echo = 0u64;
+    let mut echoed = vec![false; record.key_sent_us.len()];
+    for &(seq, at) in &record.echo_at_us {
+        let Some(&sent) = record.key_sent_us.get(seq as usize) else { continue };
+        if let Some(flag) = echoed.get_mut(seq as usize) {
+            *flag = true;
+        }
+        latencies.push(at.saturating_sub(sent));
+        longest = longest.max(at.saturating_sub(sent.max(last_echo)));
+        last_echo = at;
+    }
+    let mut missing = 0;
+    for (index, done) in echoed.iter().enumerate() {
+        if !done {
+            missing += 1;
+            let sent = record.key_sent_us[index];
+            longest = longest.max(end_us.saturating_sub(sent.max(last_echo)));
+        }
+    }
+    (latencies, longest, missing)
 }
 
 /// The host's end: frames at the target rate, each stamped with the input it
@@ -376,6 +577,9 @@ where
     H: AsyncWrite + Unpin + Send + 'static,
     V: AsyncRead + Unpin,
 {
+    if bytes == 0 {
+        return None;
+    }
     let started = Instant::now();
     let writer = tokio::spawn(async move {
         let chunk = vec![0xa5u8; 64 * 1024];
@@ -411,10 +615,132 @@ async fn run_tcp(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<(
     let (viewer, (host, _)) = (viewer?, accepted?);
     viewer.set_nodelay(true)?;
     host.set_nodelay(true)?;
-    stream_session(host, viewer, args, clock, record.clone()).await;
+    session(host, viewer, args, clock, record.clone()).await;
     let (viewer, accepted) = tokio::join!(TcpStream::connect(target), listener.accept());
     let (viewer, (host, _)) = (viewer?, accepted?);
     lock(&record).bulk_mbit_s = bulk(host, viewer, args.bulk_bytes).await;
+    Ok(())
+}
+
+/// Kernel TCP through a lossy, delayed link: the stand-in for today's
+/// carrier, whose every hop is kernel TCP (SACK, RACK, tail loss probes),
+/// which smoltcp in `wg-tcp` is not. Linux only, and it needs CAP_NET_ADMIN
+/// in its network namespace: run it under `unshare -rn` (the bench scripts
+/// do). See [`tun_link`].
+#[cfg(target_os = "linux")]
+async fn run_tcp_tun(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<()> {
+    tun_link(args.rtt_ms, args.loss_pct)?;
+    let listener = TcpListener::bind((tun::HOST, 0)).await?;
+    let port = listener.local_addr()?.port();
+    let socket = tokio::net::TcpSocket::new_v4()?;
+    socket.bind(SocketAddr::new(tun::VIEWER.into(), 0))?;
+    let (viewer, accepted) =
+        tokio::join!(socket.connect(SocketAddr::new(tun::HOST_SEEN.into(), port)), listener.accept());
+    let (viewer, (host, _)) = (viewer?, accepted?);
+    viewer.set_nodelay(true)?;
+    host.set_nodelay(true)?;
+    session(host, viewer, args, clock, record.clone()).await;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+mod tun {
+    use std::net::Ipv4Addr;
+
+    /// Both ends' real addresses, on the tun device.
+    pub const VIEWER: Ipv4Addr = Ipv4Addr::new(10, 77, 0, 1);
+    pub const HOST: Ipv4Addr = Ipv4Addr::new(10, 77, 0, 2);
+    /// The addresses each end dials or sees the other at. Each is routed out
+    /// the tun device, so every packet crosses the link, and swapping the
+    /// third octet keeps the IP and TCP checksums valid with no rewrite.
+    pub const HOST_SEEN: Ipv4Addr = Ipv4Addr::new(10, 77, 1, 2);
+    pub const VIEWER_SEEN: Ipv4Addr = Ipv4Addr::new(10, 77, 1, 1);
+}
+
+/// Open a tun device, address and route it, and run the link on two
+/// threads: each packet the kernel sends from one end to the other's seen
+/// address is lost with `loss_pct`, held half of `rtt_ms`, then written back
+/// rewritten to look like it came from the sender's seen address to the
+/// receiver's real one.
+#[cfg(target_os = "linux")]
+fn tun_link(rtt_ms: u64, loss_pct: f64) -> io::Result<()> {
+    use std::os::fd::FromRawFd;
+    const NAME: &str = "cmuxb0";
+    // SAFETY: open(2) on a constant NUL-terminated path.
+    let fd = unsafe { libc::open(c"/dev/net/tun".as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: fd was just opened and is owned here.
+    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    let mut request = [0u8; 40];
+    request[..NAME.len()].copy_from_slice(NAME.as_bytes());
+    let flags = (libc::IFF_TUN | libc::IFF_NO_PI) as u16;
+    request[16..18].copy_from_slice(&flags.to_ne_bytes());
+    // SAFETY: TUNSETIFF reads an ifreq (40 bytes) from the pointer.
+    if unsafe { libc::ioctl(fd, libc::TUNSETIFF as _, request.as_mut_ptr()) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let ip = |args: &[&str]| -> io::Result<()> {
+        let status = std::process::Command::new("ip").args(args).status()?;
+        if status.success() { Ok(()) } else { Err(io::Error::other(format!("ip {args:?} failed"))) }
+    };
+    ip(&["link", "set", "lo", "up"])?;
+    ip(&["link", "set", NAME, "up"])?;
+    ip(&["addr", "add", &format!("{}/32", tun::VIEWER), "dev", NAME])?;
+    ip(&["addr", "add", &format!("{}/32", tun::HOST), "dev", NAME])?;
+    ip(&["route", "add", "10.77.1.0/24", "dev", NAME])?;
+    for key in ["all", NAME] {
+        let _ = std::fs::write(format!("/proc/sys/net/ipv4/conf/{key}/rp_filter"), "0");
+    }
+    let mut reader = file.try_clone()?;
+    let mut writer = file;
+    let delay = Duration::from_micros(rtt_ms * 500);
+    let (line_tx, line_rx) = std::sync::mpsc::channel::<(std::time::Instant, Vec<u8>)>();
+    std::thread::spawn(move || {
+        use std::io::Read;
+        let mut buf = vec![0u8; 65_536];
+        let mut rngs = [Rng(0x9e37_79b9_7f4a_7c15), Rng(0xd1b5_4a32_d192_ed03)];
+        loop {
+            let Ok(n) = reader.read(&mut buf) else { break };
+            let Some(packet) = buf.get(..n) else { continue };
+            if packet.len() < 20 || packet[0] >> 4 != 4 {
+                continue;
+            }
+            let (src, dst) = (&packet[12..16], &packet[16..20]);
+            let toward_host = src == tun::VIEWER.octets() && dst == tun::HOST_SEEN.octets();
+            let toward_viewer = src == tun::HOST.octets() && dst == tun::VIEWER_SEEN.octets();
+            if !(toward_host || toward_viewer) {
+                continue;
+            }
+            if rngs[usize::from(toward_viewer)].chance(loss_pct) {
+                continue;
+            }
+            let mut packet = packet.to_vec();
+            let (new_src, new_dst) = if toward_host {
+                (tun::VIEWER_SEEN, tun::HOST)
+            } else {
+                (tun::HOST_SEEN, tun::VIEWER)
+            };
+            packet[12..16].copy_from_slice(&new_src.octets());
+            packet[16..20].copy_from_slice(&new_dst.octets());
+            if line_tx.send((std::time::Instant::now() + delay, packet)).is_err() {
+                break;
+            }
+        }
+    });
+    std::thread::spawn(move || {
+        use std::io::Write;
+        while let Ok((due, packet)) = line_rx.recv() {
+            let now = std::time::Instant::now();
+            if due > now {
+                std::thread::sleep(due - now);
+            }
+            if writer.write_all(&packet).is_err() {
+                break;
+            }
+        }
+    });
     Ok(())
 }
 
@@ -594,7 +920,7 @@ async fn run_wg_paths(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
     let mut listener = host_net.listen(STREAM_PORT).await.map_err(err)?;
     let viewer = viewer_net.connect(target).await.map_err(err)?;
     let host = listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
-    stream_session(host, viewer, args, clock, record.clone()).await;
+    session(host, viewer, args, clock, record.clone()).await;
     lock(&record).final_path = Some(path_label(&control, &labels));
     viewer_net.shutdown().await;
     host_net.shutdown().await;
@@ -709,7 +1035,7 @@ async fn run_wg_tcp(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Resul
     let mut listener = host_net.listen(STREAM_PORT).await.map_err(err)?;
     let viewer = viewer_net.connect(target).await.map_err(err)?;
     let host = listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
-    stream_session(host, viewer, args, clock, record.clone()).await;
+    session(host, viewer, args, clock, record.clone()).await;
     lock(&record).note = ultra_note(&viewer_net, &host_net);
     viewer_net.shutdown().await;
     host_net.shutdown().await;
@@ -888,10 +1214,14 @@ async fn main() -> io::Result<()> {
     let record: Shared = Arc::default();
     match (args.role.as_str(), args.path.as_str()) {
         ("host", _) => return run_remote_host(&args, clock, record.clone()).await,
-        ("viewer", _) => run_remote_viewer(&args, clock, record.clone()).await?,
-        (_, path) => run_one_process(&args, path, clock, record.clone()).await?,
+        ("viewer", _) => run_remote_viewer(&args, clock.clone(), record.clone()).await?,
+        (_, path) => run_one_process(&args, path, clock.clone(), record.clone()).await?,
     }
-    print_record(&args, &record);
+    if args.workload == "terminal" {
+        print_terminal(&args, &record, clock.us());
+    } else {
+        print_record(&args, &record);
+    }
     Ok(())
 }
 
@@ -907,6 +1237,8 @@ async fn run_one_process(
             return Err(io::Error::other("--rtt-ms and --loss-pct shape only the WireGuard paths"));
         }
         "tcp" => run_tcp(&args, clock, record.clone()).await?,
+        #[cfg(target_os = "linux")]
+        "tcp-tun" => run_tcp_tun(&args, clock, record.clone()).await?,
         "wg-tcp" => run_wg_tcp(&args, clock, record.clone()).await?,
         "wg-dgram" => run_wg_dgram(&args, clock, record.clone()).await?,
         other => return Err(io::Error::other(format!("unknown path {other}"))),
@@ -961,6 +1293,30 @@ fn print_record(args: &Args, record: &Shared) {
                 .join(",")
         },
         args.drop_at.map(|(at, index)| format!("{at}:{index}")).unwrap_or_default(),
+        note,
+    );
+}
+
+fn print_terminal(args: &Args, record: &Shared, end_us: u64) {
+    let mut record = lock(record);
+    let (mut echo, longest, missing) = terminal_stats(&record, end_us);
+    let note = std::mem::take(&mut record.note);
+    println!(
+        "{{\"workload\":\"terminal\",\"path\":\"{}\",\"rtt_ms\":{},\"loss_pct\":{},\"seconds\":{},\
+         \"key_interval_ms\":{},\"output_bytes_per_s\":{},\"keys_sent\":{},\"keys_echoed\":{},\
+         \"keys_missing\":{},\"echo_ms\":{},\"longest_stall_ms\":{:.1},\"output_kbit_s\":{:.1},\"note\":\"{}\"}}",
+        args.path,
+        args.rtt_ms,
+        args.loss_pct,
+        args.seconds,
+        args.key_interval_ms,
+        args.output_bytes_per_s,
+        record.key_sent_us.len(),
+        echo.len(),
+        missing,
+        percentiles(&mut echo),
+        longest as f64 / 1000.0,
+        record.output_bytes_received as f64 * 8.0 / args.seconds.max(1) as f64 / 1000.0,
         note,
     );
 }
