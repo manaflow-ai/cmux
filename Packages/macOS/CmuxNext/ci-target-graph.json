@@ -700,21 +700,8 @@
     "CmuxNextCLIInstall": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall",
-      "targets": [
-        "CmuxNextCompat"
-      ],
+      "targets": [],
       "packages": []
-    },
-    "CmuxNextCLIInstallTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCLIInstallTests",
-      "targets": [
-        "CmuxNextCLIInstall"
-      ],
-      "packages": [],
-      "reads": [
-        "Resources/bin/"
-      ]
     },
     "CmuxNextChecklist": {
       "kind": "regular",
