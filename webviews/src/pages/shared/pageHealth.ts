@@ -57,9 +57,10 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   if (!view || installed.has(doc)) return;
   installed.add(doc);
   installScrollingMarks(doc);
-  // A field's text before the person first edits it: typing needs focus, so the first focus sees it.
+  // A field's text right before the person's first edit (a page's own prefill fires no beforeinput,
+  // so it stays the base however late it comes).
   doc.addEventListener(
-    "focusin",
+    "beforeinput",
     (event) => {
       const field = draftField(event.target as Element | null);
       if (field && isTextArea(field) && !loadedText.has(field)) loadedText.set(field, field.value);
@@ -171,12 +172,13 @@ export function captureState(doc: Document): KeptState {
   if (field) {
     const path = elementPath(field);
     const text = isTextArea(field) ? field.value : (field.textContent ?? "");
-    if (path && text.trim()) {
+    const base = isTextArea(field) ? (loadedText.get(field) ?? field.defaultValue) : "";
+    // A cleared prefilled field is an edit too: kept when it differs from what the page loaded.
+    if (path && (text.trim() || (base && text !== base))) {
       state.draft = { path, text };
       if (isTextArea(field)) {
         state.draft.start = field.selectionStart;
         state.draft.end = field.selectionEnd;
-        const base = loadedText.get(field) ?? field.defaultValue;
         if (base) state.draft.base = base;
       }
     }

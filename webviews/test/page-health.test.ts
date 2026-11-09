@@ -129,6 +129,7 @@ test("an edit to a React field, whose default value follows its value, still com
   installPageHealth(first.client, first.dom.window.document);
   const field = first.dom.window.document.querySelector("textarea")!;
   field.focus();
+  field.dispatchEvent(new first.dom.window.InputEvent("beforeinput", { bubbles: true }));
   field.value = "edited";
   // React keeps the default value equal to the value it renders.
   field.defaultValue = "edited";
@@ -145,6 +146,20 @@ test("an edit to a React field, whose default value follows its value, still com
   back.defaultValue = "edited";
   expect(captureState(second.dom.window.document).draft).toMatchObject({ base: "original" });
   second.dom.window.close();
+});
+
+test("a page's late prefill is the base, and clearing it is an edit that comes back", () => {
+  const first = page(`<textarea id="note" data-cmux-restore-draft></textarea>`);
+  installPageHealth(first.client, first.dom.window.document);
+  const field = first.dom.window.document.querySelector("textarea")!;
+  field.focus();
+  // The page fills the field after the focus; the person then clears it.
+  field.value = "original";
+  field.dispatchEvent(new first.dom.window.InputEvent("beforeinput", { bubbles: true }));
+  field.value = "";
+  const kept = captureState(first.dom.window.document);
+  expect(kept.draft).toMatchObject({ text: "", base: "original" });
+  first.dom.window.close();
 });
 
 test("a field that did not opt in is never captured or restored (a document editor saves what it is given)", () => {
