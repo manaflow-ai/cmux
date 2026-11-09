@@ -29,6 +29,10 @@ import { type TakeBack } from "./turnActions";
 /// "why are ALL of these send now???? aren't these steers???"). Undefined (one waits): its own.
 export const NewestSteerContext = createContext<string | undefined>(undefined);
 
+/// The chat the rows belong to (snapshot `sessionId`): the page switches chats in place, so what a
+/// Send now covered is kept per chat (cmux#32846). Empty where one chat is drawn.
+export const SteerChatContext = createContext("");
+
 /// The prompts whose Send now worked, by promptId, so a row drawn again while acpmux still says the
 /// steer waits (scrolled away and back) shows no controls. One id per click, for the page's life.
 /// `coveredAt`: the time of the newest steer whose Send now worked while several waited. Send now
