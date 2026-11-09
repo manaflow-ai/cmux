@@ -369,7 +369,7 @@ export default agentPaneEntry({
   ],
   variants: {
     "goal-active": {
-      note: "A running Codex goal is pinned directly above the composer; its elapsed time and pause, delete and disclosure controls stay in one row.",
+      note: "A running Codex goal heads the composer hat; its elapsed time and chevron stay in one row, and pause, edit and delete fade in over the cut objective on hover.",
       snapshot: goalChat("running"),
       play: (ctx) => look(ctx, "claude"),
     },
@@ -389,11 +389,11 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "claude"),
     },
     "claude-loop-steps": {
-      note: "Claude's /loop is projected into the same goal row, with an expandable checklist for step-by-step plans.",
+      note: "Claude's /loop is projected into the same goal row; opening it in place shows its checklist for step-by-step plans.",
       snapshot: goalChat("running", "claude"),
       play: async (ctx) => {
         await look(ctx, "claude");
-        await ctx.click({ selector: ".acpmux-goal-action[aria-expanded]" });
+        await ctx.click({ selector: ".acpmux-goal-toggle" });
       },
     },
     "loop-wakeup": {
