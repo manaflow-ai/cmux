@@ -515,67 +515,6 @@ fn render_toml(path: &Path, text: &str, change: &impl Fn(&mut toml_edit::Table))
     Ok(doc.to_string())
 }
 
-/// How many times an edit is done again on a file another writer changed under it.
-const EDIT_TRIES: usize = 3;
-
-/// Read `path` (none: empty), `render` its new text, and write it whole through a temp file and a
-/// rename, so the app never reads half a file. `lock` is held from the read to the rename: a
-/// writer that takes it too never has its change replaced by a stale read. A writer outside it
-/// (the app itself, a person's editor) is caught by reading the file again just before the
-/// rename: changed, the edit is done again on its new text, and refused after [`EDIT_TRIES`].
-fn edit_file(
-    path: &Path,
-    lock: Option<&Path>,
-    render: impl Fn(&str) -> Result<String>,
-) -> Result<()> {
-    edit_file_raced(path, lock, render, &mut || {})
-}
-
-/// [`edit_file`], running `before_rename` after the temp file is written and before the file is
-/// read again: the tests' other writer.
-fn edit_file_raced(
-    path: &Path,
-    lock: Option<&Path>,
-    render: impl Fn(&str) -> Result<String>,
-    before_rename: &mut dyn FnMut(),
-) -> Result<()> {
-    let dir = path.parent().ok_or_else(|| anyhow!("{} has no folder", path.display()))?;
-    std::fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
-    let _lock = lock.and_then(cmux_tui_platform::codex_config_lock::lock);
-    for _ in 0..EDIT_TRIES {
-        let text = read_text(path)?;
-        let tmp = temp_beside(path, &render(&text)?)?;
-        before_rename();
-        if read_text(path)? != text {
-            continue;
-        }
-        tmp.persist(path).map_err(|e| anyhow!("replacing {}: {}", path.display(), e.error))?;
-        return Ok(());
-    }
-    bail!("{} kept changing while it was edited; run it again", path.display())
-}
-
-fn read_text(path: &Path) -> Result<String> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(text),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-        Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
-    }
-}
-
-/// `text` in a temp file beside `path`, with its mode (a person may have made it 0600).
-fn temp_beside(path: &Path, text: &str) -> Result<tempfile::NamedTempFile> {
-    let dir = path.parent().ok_or_else(|| anyhow!("{} has no folder", path.display()))?;
-    let mut tmp = tempfile::NamedTempFile::new_in(dir)
-        .with_context(|| format!("writing beside {}", path.display()))?;
-    std::io::Write::write_all(&mut tmp, text.as_bytes())?;
-    #[cfg(unix)]
-    if let Ok(meta) = std::fs::metadata(path) {
-        let _ = std::fs::set_permissions(tmp.path(), meta.permissions());
-    }
-    Ok(tmp)
-}
-
 /// Run the `claude` CLI with `args`, bounded; its last stderr line is the error.
 fn claude_cli(env: &Env, args: &[&str]) -> Result<()> {
     let Some(cli) = &env.claude_cli else {
@@ -619,6 +558,11 @@ pub fn apps(named: Option<&str>) -> Result<Vec<App>> {
         }),
     }
 }
+
+// Every edit of an app's config goes through it (`desktop_link_write.rs`).
+#[path = "desktop_link_write.rs"]
+mod write;
+use write::edit_file;
 
 #[cfg(test)]
 #[path = "desktop_link_tests.rs"]

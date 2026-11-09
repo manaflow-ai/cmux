@@ -236,42 +236,92 @@ fn a_codex_link_waits_for_the_config_lock_and_keeps_the_other_writers_change() {
     assert_eq!(doc["mcp_servers"]["cmux"]["env"][GUEST_ENV].as_str(), Some("codex"));
 }
 
-/// Review (#39320): a writer outside the lock (Codex itself) that changes config.toml between
-/// the read and the rename is not replaced: the edit is done again on its text, and a file that
-/// keeps changing is refused and left as that writer wrote it.
+/// The edit `ours` adds to a config.toml, counting its renders.
+fn ours_into<'a>(
+    path: &'a Path,
+    renders: &'a std::cell::Cell<u32>,
+) -> impl Fn(&str) -> Result<String> + 'a {
+    move |text: &str| {
+        renders.set(renders.get().saturating_add(1));
+        render_toml(path, text, &|servers: &mut toml_edit::Table| {
+            servers.insert(SERVER_KEY, toml_edit::value("ours"));
+        })
+    }
+}
+
+/// Another writer's file renamed over `path`, as an app that writes through a temp file does.
+fn rename_over(path: &Path, text: &str) {
+    let theirs = path.with_extension("theirs");
+    std::fs::write(&theirs, text).unwrap();
+    std::fs::rename(&theirs, path).unwrap();
+}
+
+/// Review (#39320): a writer outside the lock (Codex itself) that writes into config.toml in place
+/// after the last compare, before the new text goes in, is not lost: the edit is done again on
+/// its text.
 #[test]
-fn an_edit_from_outside_the_lock_between_read_and_rename_is_kept() {
+fn a_write_in_place_between_the_compare_and_the_swap_is_kept() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     std::fs::write(&path, "model = \"a\"\n").unwrap();
     let renders = std::cell::Cell::new(0);
-    let render = |text: &str| {
-        renders.set(renders.get() + 1);
-        render_toml(&path, text, &|servers: &mut toml_edit::Table| {
-            servers.insert(SERVER_KEY, toml_edit::value("ours"));
-        })
-    };
     let mut first = true;
     let mut codex = || {
         if std::mem::take(&mut first) {
             std::fs::write(&path, "model = \"a\"\ntrusted = true\n").unwrap();
         }
     };
-    edit_file_raced(&path, None, render, &mut codex).unwrap();
+    write::edit_file_raced(&path, None, ours_into(&path, &renders), &mut codex).unwrap();
     assert_eq!(renders.get(), 2);
     let doc: toml::Table = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(doc["trusted"].as_bool(), Some(true));
     assert_eq!(doc["mcp_servers"][SERVER_KEY].as_str(), Some("ours"));
+}
 
-    let mut n = 0;
-    let mut always = || {
-        n += 1;
-        std::fs::write(&path, format!("edit = {n}\n")).unwrap();
+/// The same for a writer that renames its own file in at that moment: the swap brings out its
+/// file, and the edit is done again on it.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn a_rename_over_the_file_between_the_compare_and_the_swap_is_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    std::fs::write(&path, "model = \"a\"\n").unwrap();
+    let renders = std::cell::Cell::new(0);
+    let mut first = true;
+    let mut codex = || {
+        if std::mem::take(&mut first) {
+            rename_over(&path, "model = \"b\"\n");
+        }
     };
-    let render = |text: &str| render_toml(&path, text, &|_: &mut toml_edit::Table| {});
-    let e = edit_file_raced(&path, None, render, &mut always).unwrap_err();
-    assert!(e.to_string().contains("kept changing"), "{e}");
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), format!("edit = {EDIT_TRIES}\n"));
+    write::edit_file_raced(&path, None, ours_into(&path, &renders), &mut codex).unwrap();
+    assert_eq!(renders.get(), 2);
+    let doc: toml::Table = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(doc["model"].as_str(), Some("b"));
+    assert_eq!(doc["mcp_servers"][SERVER_KEY].as_str(), Some("ours"));
+}
+
+/// A writer that races every round, in place or by a rename, ends the edit refused, with its own
+/// last text in the file.
+#[test]
+fn a_writer_that_keeps_racing_is_refused_with_its_text_kept() {
+    let renames = cfg!(any(target_os = "linux", target_os = "macos"));
+    for swap in [false, true].into_iter().filter(|r| !r || renames) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "edit = 0\n").unwrap();
+        let renders = std::cell::Cell::new(0);
+        let mut n = 0;
+        let mut always = || {
+            n += 1;
+            let text = format!("edit = {n}\n");
+            if swap { rename_over(&path, &text) } else { std::fs::write(&path, text).unwrap() }
+        };
+        let e = write::edit_file_raced(&path, None, ours_into(&path, &renders), &mut always)
+            .unwrap_err();
+        assert!(e.to_string().contains("kept changing"), "{e}");
+        let last = format!("edit = {}\n", write::EDIT_TRIES);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), last, "by rename: {swap}");
+    }
 }
 
 #[test]
