@@ -202,18 +202,33 @@ test("a comment not sent yet stays with its row when the person opens another ro
 test("a send that fails late never overwrites a newer draft on its row", async () => {
   const sent: { fail(): void }[] = [];
   const send = () => new Promise((_resolve, reject) => sent.push({ fail: () => reject(new Error("down")) }));
-  const { doc, list, key, type } = mount(sessions, { send });
+  // A's folder gains a line after its first read, so its row comes back with a new change.
+  const reads = new Map<string, number>();
+  const grow = async (cwd: string) => {
+    const count = (reads.get(cwd) ?? 0) + 1;
+    reads.set(cwd, count);
+    const diff = await readDiff();
+    return cwd === "/work/a" && count > 1 ? { ...diff, additions: 3, files: [{ ...diff.files[0]!, additions: 3 }] } : diff;
+  };
+  const view = mount(sessions, { send, readDiff: grow });
   await flush();
-  key(list(), "r");
-  key(type("first words"), "Enter");
-  // The row is back (its chat did more): the person writes again, then moves to B.
-  key(list(), "r");
-  type("second thoughts");
-  key(list(), "j");
-  key(list(), "r");
+  view.key(view.list(), "r");
+  view.key(view.type("first words"), "Enter");
+  await flush();
+
+  // A's chat does more: its row is back, the person writes again there, then opens B's comment.
+  view.render([chat("a", NOW - 10_000), chat("b", NOW - 120_000)]);
+  await flush();
+  view.key(view.list(), "k");
+  view.key(view.list(), "r");
+  view.type("second thoughts");
+  view.key(view.list(), "j");
+  view.key(view.list(), "r");
+
+  // The first send fails now: A keeps the newer words.
   await act(async () => sent[0]!.fail());
   await flush();
-  key(list(), "k");
-  key(list(), "r");
-  expect(doc.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("second thoughts");
+  view.key(view.list(), "k");
+  view.key(view.list(), "r");
+  expect(view.doc.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("second thoughts");
 });
