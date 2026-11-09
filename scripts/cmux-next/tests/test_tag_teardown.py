@@ -146,14 +146,14 @@ class MatchTests(unittest.TestCase):
         reads = []
         def read(pid):
             reads.append(pid)
-            return ([], {"CMUX_TUI_STATE_DIR": f"/Users/me/Library/Application Support/cmux/tags/sweep{pid}/tui"})
+            return ([], {"CMUX_TUI_STATE_DIR": f"/Users/me/Library/Application Support/cmux-next/tags/sweep{pid}/tui"})
         rows = table((10, 1, f"{APP}/Contents/MacOS/cmux DEV"), (11, 1, f"{APP}{TUI}"), (70, 1, f"{OTHER}{TUI}"))
         teardown.learn_state_roots(rows, read)
         teardown.learn_state_roots(rows, read)
         self.assertEqual(reads, [11])
         teardown.learn_state_roots(table((12, 1, f"{APP}{TUI}")), read)
-        self.assertEqual(teardown.state_roots, {"/Users/me/Library/Application Support/cmux/tags/sweep11/tui",
-                                                "/Users/me/Library/Application Support/cmux/tags/sweep12/tui"})
+        self.assertEqual(teardown.state_roots, {"/Users/me/Library/Application Support/cmux-next/tags/sweep11/tui",
+                                                "/Users/me/Library/Application Support/cmux-next/tags/sweep12/tui"})
 
     def test_procargs_reads_an_environment_value_with_spaces(self):
         child = subprocess.Popen([sys.executable, "-I", "-c", "import sys; print('ready', flush=True); sys.stdin.read()"],

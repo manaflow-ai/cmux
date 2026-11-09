@@ -219,14 +219,17 @@ app_cli_bundle() {
   printf '%s\\n' "\$bundle_path"
 }
 
-APP_CLI_FILE="\${HOME:-}/Library/Application Support/cmux/last-app-cli"
-APP_CLI_OWNER="\$(stat -c '%u' "\$APP_CLI_FILE" 2>/dev/null || stat -f '%u' "\$APP_CLI_FILE" 2>/dev/null || echo -1)"
-if [[ "\$HAS_EXPLICIT_SOCKET" == "0" && -n "\${HOME:-}" && -f "\$APP_CLI_FILE" && -r "\$APP_CLI_FILE" ]] && [[ ! -L "\$APP_CLI_FILE" ]] && [[ "\$APP_CLI_OWNER" == "\$(id -u)" ]]; then
-  APP_CLI_PATH="\$(LC_ALL=C head -c 4097 "\$APP_CLI_FILE" 2>/dev/null | head -n 1 || true)"
-  if app_cli_bundle "\$APP_CLI_PATH" >/dev/null; then
-    exec "\$APP_CLI_PATH" "\$@"
+# NEXT's own folder holds the pointer; a build from before it wrote classic's.
+for APP_CLI_FILE in "\${HOME:-}/Library/Application Support/cmux-next/last-app-cli" \\
+    "\${HOME:-}/Library/Application Support/cmux/last-app-cli"; do
+  APP_CLI_OWNER="\$(stat -c '%u' "\$APP_CLI_FILE" 2>/dev/null || stat -f '%u' "\$APP_CLI_FILE" 2>/dev/null || echo -1)"
+  if [[ "\$HAS_EXPLICIT_SOCKET" == "0" && -n "\${HOME:-}" && -f "\$APP_CLI_FILE" && -r "\$APP_CLI_FILE" ]] && [[ ! -L "\$APP_CLI_FILE" ]] && [[ "\$APP_CLI_OWNER" == "\$(id -u)" ]]; then
+    APP_CLI_PATH="\$(LC_ALL=C head -c 4097 "\$APP_CLI_FILE" 2>/dev/null | head -n 1 || true)"
+    if app_cli_bundle "\$APP_CLI_PATH" >/dev/null; then
+      exec "\$APP_CLI_PATH" "\$@"
+    fi
   fi
-fi
+done
 
 CLI_PATH_OWNER="\$(stat -c '%u' "\$CLI_PATH_FILE" 2>/dev/null || stat -f '%u' "\$CLI_PATH_FILE" 2>/dev/null || echo -1)"
 if [[ "\$HAS_EXPLICIT_SOCKET" == "0" && -r "\$CLI_PATH_FILE" ]] && [[ ! -L "\$CLI_PATH_FILE" ]] && [[ "\$CLI_PATH_OWNER" == "\$(id -u)" ]]; then

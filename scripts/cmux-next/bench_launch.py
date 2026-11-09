@@ -200,12 +200,24 @@ def is_shipped_state_tag(tag):
     return (tag or "").lower() in SHIPPED_STATE_TAGS
 
 
+def tag_state_roots(tag):
+    """Where the tag's saved state can be: NEXT's own `~/Library/Application Support/cmux-next/tags/<tag>`
+    (BuildIdentity daemonStateDirectory's parent; its `tui` holds the daemon's saved sessions and their workspaces),
+    then `~/Library/Application Support/cmux/tags/<tag>` of a build from before that folder (a newer build moves it to
+    NEXT's folder at its first launch and leaves a symlink). BENCH_LAUNCH_STATE_BASE replaces both with
+    `<base>/tags/<tag>` (tests)."""
+    base = os.environ.get("BENCH_LAUNCH_STATE_BASE")
+    if base:
+        return [os.path.join(base, "tags", tag)]
+    support = os.path.join(account_home(), "Library/Application Support")
+    return [os.path.join(support, "cmux-next/tags", tag), os.path.join(support, "cmux/tags", tag)]
+
+
 def tag_state_root(tag):
-    """The tag's saved state: `~/Library/Application Support/cmux/tags/<tag>` (BuildIdentity
-    daemonStateDirectory's parent; its `tui` holds the daemon's saved sessions and their workspaces).
-    BENCH_LAUNCH_STATE_BASE replaces `~/Library/Application Support/cmux` (tests)."""
-    base = os.environ.get("BENCH_LAUNCH_STATE_BASE") or os.path.join(account_home(), "Library/Application Support/cmux")
-    return os.path.join(base, "tags", tag)
+    """The tag's saved state (``tag_state_roots``): the first that exists, else NEXT's own folder. A bench may run a
+    base build from before NEXT's folder, which still keeps its state in the old one."""
+    roots = tag_state_roots(tag)
+    return next((root for root in roots if os.path.lexists(root)), roots[0])
 
 
 def start_fresh_state(tag):
@@ -219,20 +231,22 @@ def start_fresh_state(tag):
     if is_shipped_state_tag(tag):
         note(f"bench-launch: {tag} is a shipped channel's state: it stays (no empty session for this run)")
         return
-    root = tag_state_root(tag)
-    if not os.path.lexists(root):
-        return
-    prev = root + ".bench-prev"
-    if os.path.lexists(prev):
-        shutil.rmtree(prev, ignore_errors=True)
-    os.rename(root, prev)
-    # The build's Debug Settings file lives beside the saved session (DebugSettingsService.fileURL): keep it, so an
-    # override a harness set for this run (cef-layer-ab.py's layerHosting) still applies.
-    tunables = os.path.join(prev, "debug-tunables.json")
-    if os.path.isfile(tunables):
-        os.makedirs(root, exist_ok=True)
-        shutil.copy2(tunables, os.path.join(root, "debug-tunables.json"))
-    note(f"bench-launch: {tag} starts from an empty saved session (earlier state moved to {prev})")
+    roots = tag_state_roots(tag)
+    for root in roots:
+        # The old folder's symlink to NEXT's folder: that one moves itself.
+        if not os.path.lexists(root) or (root != roots[0] and os.path.islink(root)):
+            continue
+        prev = root + ".bench-prev"
+        if os.path.lexists(prev):
+            shutil.rmtree(prev, ignore_errors=True)
+        os.rename(root, prev)
+        # The build's Debug Settings file lives beside the saved session (DebugSettingsService.fileURL): keep it, so
+        # an override a harness set for this run (cef-layer-ab.py's layerHosting) still applies.
+        tunables = os.path.join(prev, "debug-tunables.json")
+        if os.path.isfile(tunables):
+            os.makedirs(root, exist_ok=True)
+            shutil.copy2(tunables, os.path.join(root, "debug-tunables.json"))
+        note(f"bench-launch: {tag} starts from an empty saved session (earlier state moved to {prev})")
 
 
 def bundle_pids(app, inside="Contents/"):

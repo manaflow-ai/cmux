@@ -265,9 +265,21 @@ impl BuildIdentity {
     /// Where an untagged NIGHTLY, RC or staging app records that it adopted
     /// the old shared `cmux-app` daemon session (CmuxNext
     /// `LegacyChannelSession.marker`: beside its daemon state directory
-    /// `Application Support/cmux/tags/<channel>/tui`). `None` for every other
-    /// build, which never adopts it.
+    /// `Application Support/cmux-next/tags/<channel>/tui`). `None` for every
+    /// other build, which never adopts it. Builds before CmuxNext
+    /// `StateFolderMove` kept it in classic's `Application Support/cmux`
+    /// ([`Self::legacy_session_marker_before_move`]).
     pub fn legacy_session_marker(&self, user_home: &Path) -> Option<PathBuf> {
+        self.legacy_session_marker_in(user_home, "cmux-next")
+    }
+
+    /// [`Self::legacy_session_marker`] where builds before CmuxNext
+    /// `StateFolderMove` kept it: under classic's `Application Support/cmux`.
+    pub fn legacy_session_marker_before_move(&self, user_home: &Path) -> Option<PathBuf> {
+        self.legacy_session_marker_in(user_home, "cmux")
+    }
+
+    fn legacy_session_marker_in(&self, user_home: &Path, folder: &str) -> Option<PathBuf> {
         let tag = match &self.kept {
             Some(KeptNames { session_tag: Some(tag), .. }) => tag,
             _ => return None,
@@ -281,7 +293,7 @@ impl BuildIdentity {
             user_home
                 .join("Library")
                 .join("Application Support")
-                .join("cmux")
+                .join(folder)
                 .join("tags")
                 .join(tag)
                 .join("legacy-session-adopted"),

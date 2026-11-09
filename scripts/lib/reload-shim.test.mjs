@@ -509,11 +509,12 @@ test("reload shim keeps an explicit --socket pinned even when the pointer target
 });
 
 // version-skew.md step 1: the app writes the "last opened app" pointer at
-// launch (~/Library/Application Support/cmux/last-app-cli). A fleet build
-// opened through the Tag Opener never runs reload.sh, so the shim must read
-// the app's pointer before reload.sh's /tmp pointer.
-function writeAppPointer(home, cliPath, mode = 0o600) {
-  const dir = path.join(home, "Library", "Application Support", "cmux");
+// launch (~/Library/Application Support/cmux-next/last-app-cli; a build from
+// before NEXT's own folder wrote cmux/last-app-cli). A fleet build opened
+// through the Tag Opener never runs reload.sh, so the shim must read the
+// app's pointer before reload.sh's /tmp pointer.
+function writeAppPointer(home, cliPath, mode = 0o600, folder = "cmux-next") {
+  const dir = path.join(home, "Library", "Application Support", folder);
   fs.mkdirSync(dir, { recursive: true });
   const pointer = path.join(dir, "last-app-cli");
   fs.writeFileSync(pointer, `${cliPath}\n`, { mode });
@@ -585,6 +586,30 @@ test("reload shim runs a release app's CLI that the app pointer names", () => {
   }
 });
 
+test("reload shim reads NEXT's app pointer first, then classic's from an older build", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-shim-app-old-"));
+  try {
+    const shim = path.join(root, "cmux");
+    const fallback = path.join(root, "stable-cmux");
+    writeExecutable(fallback, "#!/bin/sh\nprintf 'stable\\n'\n");
+    const oldCLI = makeBundle(root, "cmux NIGHTLY", "old");
+    writeAppPointer(root, oldCLI, 0o600, "cmux");
+    generateShim(shim, fallback, path.join(root, "no-such-pointer"));
+
+    let result = runShim(shim, cleanEnvironment(root));
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "old");
+
+    const newCLI = makeBundle(root, "cmux NEXT", "new");
+    writeAppPointer(root, newCLI);
+    result = runShim(shim, cleanEnvironment(root));
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "new");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("reload shim ignores an app pointer that is a symlink, or that names no app CLI", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-shim-app-bad-"));
   try {
@@ -602,7 +627,7 @@ test("reload shim ignores an app pointer that is a symlink, or that names no app
 
     // A symlink in place of the pointer file.
     const nightlyCLI = makeBundle(root, "cmux NIGHTLY", "nightly");
-    const dir = path.join(root, "Library", "Application Support", "cmux");
+    const dir = path.join(root, "Library", "Application Support", "cmux-next");
     const target = path.join(root, "elsewhere");
     fs.writeFileSync(target, `${nightlyCLI}\n`, { mode: 0o600 });
     fs.rmSync(path.join(dir, "last-app-cli"));

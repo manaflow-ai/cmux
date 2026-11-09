@@ -2,7 +2,7 @@ import Darwin
 public import Foundation
 
 /// The "last opened app" pointer: the absolute path of the `cmux` CLI of the
-/// app the user opened last, in `~/Library/Application Support/cmux/last-app-cli`.
+/// app the user opened last, in `~/Library/Application Support/cmux-next/last-app-cli`.
 ///
 /// A `cmux` shim outside the app's terminals (the `reload.sh` dev shim) reads
 /// it to run the CLI that matches the app, not an older installed one
@@ -12,11 +12,17 @@ public import Foundation
 /// and a symlink put in its place is replaced, never followed. An isolated
 /// agent launch (`CMUX_NEXT_NO_ACTIVATE=1`) never writes it: a test build
 /// must not take over the user's `cmux`.
+///
+/// Builds before goals/next-store-out-of-classic wrote it in classic cmux's
+/// `Application Support/cmux` (``legacyFile``); a publish removes that one,
+/// so NEXT leaves nothing in classic's folder and no reader finds a stale app.
 public struct LastAppCLIPointer: Sendable, Equatable {
     public let file: URL
+    public let legacyFile: URL
 
     public init(userHome: URL = FileManager.default.homeDirectoryForCurrentUser) {
-        file = userHome.appendingPathComponent("Library/Application Support/cmux/last-app-cli")
+        file = userHome.appendingPathComponent("Library/Application Support/cmux-next/last-app-cli")
+        legacyFile = userHome.appendingPathComponent("Library/Application Support/cmux/last-app-cli")
     }
 
     /// Whether a launch with `environment` is the user's own.
@@ -61,6 +67,7 @@ public struct LastAppCLIPointer: Sendable, Equatable {
             unlink(temporary.path)
             return false
         }
+        unlink(legacyFile.path)
         return true
     }
 }

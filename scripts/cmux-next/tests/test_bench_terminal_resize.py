@@ -97,6 +97,28 @@ class FreshState(unittest.TestCase):
     def test_the_bench_app_uses_the_same_root(self):
         self.assertEqual(bl.tag_state_root("split-spring"), str(self.base / "tags/split-spring"))
 
+    def test_without_a_base_next_s_folder_comes_first_and_an_older_builds_folder_is_found(self):
+        from unittest import mock
+        support = self.base / "Library/Application Support"
+        new, old = support / "cmux-next/tags/split-spring", support / "cmux/tags/split-spring"
+        with mock.patch.dict(os.environ), mock.patch.object(bl, "account_home", lambda: str(self.base)):
+            del os.environ["BENCH_LAUNCH_STATE_BASE"]
+            self.assertEqual(bl.tag_state_root("split-spring"), str(new))  # nothing yet: NEXT's own folder
+            write(old / "tui/run-old")  # a base build from before NEXT's folder
+            self.assertEqual(bl.tag_state_root("split-spring"), str(old))
+            write(new / "tui/run-new")
+            self.assertEqual(bl.tag_state_root("split-spring"), str(new))
+            bl.start_fresh_state("split-spring")  # both go aside, or the new build would adopt the old one
+            self.assertFalse(new.exists() or old.exists())
+            self.assertTrue((support / "cmux-next/tags/split-spring.bench-prev/tui/run-new").exists())
+            self.assertTrue((support / "cmux/tags/split-spring.bench-prev/tui/run-old").exists())
+            # A new build's link at the old path is left; NEXT's folder it names moves.
+            write(new / "tui/run-2")
+            old.symlink_to(new)
+            bl.start_fresh_state("split-spring")
+            self.assertTrue(old.is_symlink())
+            self.assertTrue((support / "cmux-next/tags/split-spring.bench-prev/tui/run-2").exists())
+
 
 def followed(held=0, frames=120, lagging=0, key="tab-1", first=None):
     """One terminal's pane check, as TerminalPaneFollowProbe reports it."""
