@@ -78,6 +78,23 @@ const MAX_KEPT_RECORDS: u64 = 1_000_000;
 /// Staging file size past which the cleanup is abandoned.
 const MAX_STAGED_BYTES: u64 = 2 << 30;
 
+#[cfg(test)]
+thread_local! {
+    /// [`MAX_STAGED_BYTES`] for a test on this thread: a test reaches the
+    /// bound without writing 2 GiB.
+    static STAGED_BYTES_LIMIT: std::cell::Cell<u64> = const { std::cell::Cell::new(MAX_STAGED_BYTES) };
+}
+
+#[cfg(test)]
+fn max_staged_bytes() -> u64 {
+    STAGED_BYTES_LIMIT.with(std::cell::Cell::get)
+}
+
+#[cfg(not(test))]
+fn max_staged_bytes() -> u64 {
+    MAX_STAGED_BYTES
+}
+
 pub(crate) fn staging_path(db_path: &Path) -> PathBuf {
     sidecar_path(db_path, STAGING_SUFFIX)
 }
@@ -170,7 +187,7 @@ fn kept_refusal(kept: u64, total: u64) -> Option<String> {
 
 /// `Some(reason)` when the staging database is over [`MAX_STAGED_BYTES`].
 fn staged_bytes_refusal(staging: &Connection) -> anyhow::Result<Option<String>> {
-    staged_bytes_over(staging, MAX_STAGED_BYTES)
+    staged_bytes_over(staging, max_staged_bytes())
 }
 
 /// The staging database's logical size (its pages, read through

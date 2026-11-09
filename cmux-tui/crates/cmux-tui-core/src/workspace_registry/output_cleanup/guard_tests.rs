@@ -167,17 +167,11 @@ mod followups {
     #[test]
     fn phase_a_does_not_complete_with_a_staging_file_over_its_size_bound() {
         // Fewer segments than one periodic check: only the check at the end
-        // sees the file. A sparse tail past the bound stands in for staged
-        // records (SQLite reads the size in the file's header).
+        // sees the file. The bound is lowered under the new staging file's
+        // own pages, which stand in for staged records.
         let dir = temp_dir("staged-bytes");
         let db_path = registry(&dir, 100, 1);
-        drop(open_staging(&db_path, "registry-guard").unwrap());
-        fs::OpenOptions::new()
-            .write(true)
-            .open(staging_path(&db_path))
-            .unwrap()
-            .set_len((2 << 30) + 4096)
-            .unwrap();
+        STAGED_BYTES_LIMIT.with(|limit| limit.set(4096));
         // SAFETY: nextest runs each test in its own process. Under a shared
         // process the value only lowers the cleanup's free-space margin.
         unsafe { std::env::set_var("CMUX_TUI_TEST_OUTPUT_CLEANUP_MARGIN_BYTES", "0") };
