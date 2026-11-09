@@ -468,6 +468,7 @@
               "appearance.density",
               "appearance.customDensity",
               "appearance.customDensities",
+              "appearance.metrics.chromeFontSize",
               "appearance.borders",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
@@ -486,7 +487,6 @@
             "key" : "appearance.2",
             "rows" : [
               "app.uiScale",
-              "appearance.metrics.chromeFontSize",
               "appearance.metrics.sidebarWidth",
               "appearance.metrics.columnGap",
               "appearance.metrics.dividerThickness",
@@ -30183,8 +30183,8 @@
         },
         {
           "title" : {
-            "key" : "settings.choice.cozy",
-            "text" : "Cozy"
+            "key" : "settings.choice.default",
+            "text" : "Default"
           },
           "value" : "cozy"
         },
@@ -30206,7 +30206,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "compact",
+      "default" : "cozy",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -30214,7 +30214,7 @@
       },
       "help" : {
         "key" : "settings.appearance.density.help",
-        "text" : "Row height, padding, corners, icons and text size together. Compact is the default."
+        "text" : "Row height, padding, corners, icons and text size together."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.density",
@@ -30224,6 +30224,8 @@
         "compact",
         "comfortable",
         "cozy",
+        "default",
+        "normal",
         "spacious",
         "dense",
         "font"
@@ -30635,7 +30637,10 @@
         "key" : "settings.group.densityMotion",
         "text" : "Density and Motion"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.uiScale.help",
+        "text" : "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app."
+      },
       "kept_on_reset_all" : false,
       "key" : "app.uiScale",
       "keywords" : [
@@ -30645,7 +30650,8 @@
         "chrome",
         "web",
         "bigger",
-        "smaller"
+        "smaller",
+        "interface scale"
       ],
       "kind" : "number",
       "page_hidden" : false,
@@ -30755,7 +30761,7 @@
       },
       "title" : {
         "key" : "settings.appearance.uiScale",
-        "text" : "Interface Scale"
+        "text" : "App Zoom"
       },
       "validation" : "portable"
     },
@@ -30780,8 +30786,8 @@
         "text" : "Density and Motion"
       },
       "help" : {
-        "key" : "settings.appearance.interfaceSize.help",
-        "text" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+        "key" : "settings.appearance.textSize.help",
+        "text" : "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.metrics.chromeFontSize",
@@ -30789,6 +30795,8 @@
         "font",
         "text",
         "size",
+        "density",
+        "interface size",
         "chromeFontSize"
       ],
       "kind" : "number",
@@ -30899,8 +30907,8 @@
         }
       },
       "title" : {
-        "key" : "settings.appearance.interfaceSize",
-        "text" : "Interface Size"
+        "key" : "settings.appearance.textSize",
+        "text" : "Text Size"
       },
       "validation" : "portable"
     },

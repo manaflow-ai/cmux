@@ -34,6 +34,7 @@ use crate::{EndpointEvent, Event, KeyPair, Role};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::os::fd::RawFd;
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 /// The largest rd datagram the link carries: one 1280-byte IPv6 minimum MTU
 /// path with headroom for a relay's framing (as the host's `LINK_MAX_DATAGRAM`).
@@ -158,8 +159,29 @@ pub struct ViewerOffer {
     /// The STUN servers and the TURN relays, each resolved on its own thread so a
     /// slow resolver never holds the stream or the other list; a link that starts
     /// before a list resolves goes without it.
-    stun: mpsc::Receiver<Vec<SocketAddr>>,
-    turn: mpsc::Receiver<Vec<TurnServer>>,
+    stun: Resolving<SocketAddr>,
+    turn: Resolving<TurnServer>,
+}
+
+/// A list on its resolver thread, kept once it arrives.
+struct Resolving<T> {
+    rx: mpsc::Receiver<Vec<T>>,
+    done: Option<Vec<T>>,
+}
+
+impl<T> Resolving<T> {
+    /// Waits up to `timeout` for the list; true once it is here.
+    fn wait(&mut self, timeout: Duration) -> bool {
+        if self.done.is_none() {
+            self.done = self.rx.recv_timeout(timeout).ok();
+        }
+        self.done.is_some()
+    }
+
+    /// The list if it is here now, else none.
+    fn take(mut self) -> Vec<T> {
+        self.done.take().or_else(|| self.rx.try_recv().ok()).unwrap_or_default()
+    }
 }
 
 impl ViewerOffer {
@@ -168,9 +190,17 @@ impl ViewerOffer {
         let keys = KeyPair::generate().map_err(|e| e.to_string())?;
         let id_seed = KeyPair::generate().map_err(|e| e.to_string())?.public;
         let session = hex(&id_seed[..16]);
-        let stun = resolved("rd-link-stun", stun, stun_servers)?;
-        let turn = resolved("rd-link-turn", turn, turn_servers)?;
+        let stun = Resolving { rx: resolved("rd-link-stun", stun, stun_servers)?, done: None };
+        let turn = Resolving { rx: resolved("rd-link-turn", turn, turn_servers)?, done: None };
         Ok(Self { keys, session, stun, turn })
+    }
+
+    /// Waits up to `timeout` for both lists to resolve; true once both are here.
+    /// `start` never waits; this is for a caller that can afford to.
+    pub fn wait_resolved(&mut self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        self.stun.wait(timeout)
+            && self.turn.wait(deadline.saturating_duration_since(Instant::now()))
     }
 
     /// The Noise prologue, for `link_offer`'s `session`.
@@ -187,8 +217,8 @@ impl ViewerOffer {
     /// initiates the handshake.
     pub fn start(self, host_key: &str, bind: SocketAddr) -> Result<DatagramLink, String> {
         let remote = unhex::<32>(host_key).ok_or("the host's link key is not 64 hex")?;
-        let stun = self.stun.try_recv().unwrap_or_default();
-        let turn = self.turn.try_recv().unwrap_or_default();
+        let stun = self.stun.take();
+        let turn = self.turn.take();
         let net = Net::start(NetConfig {
             role: Role::Initiator,
             session: self.session.into_bytes(),
@@ -309,7 +339,6 @@ impl DatagramLink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, Instant};
 
     /// Every interface: the host routes are this machine's non-loopback addresses.
     fn any() -> SocketAddr {
