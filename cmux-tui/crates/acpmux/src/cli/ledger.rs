@@ -85,11 +85,14 @@ const CSV_FIELDS: &[&str] = &[
     "sessions",
 ];
 
-/// A CSV field: quoted when it holds a comma, quote or line break, and never read by a
-/// spreadsheet as a formula (a leading `=`, `+`, `-` or `@` gets a `'`).
+/// A CSV field: one line with no tab (a paste splits cells on both, and a split cell would
+/// dodge the next rule), never read by a spreadsheet as a formula (a leading `=`, `+`, `-` or
+/// `@` gets a `'`), and quoted when it holds a comma or quote.
 fn csv_field(v: &str) -> String {
-    let v = if v.starts_with(['=', '+', '-', '@']) { format!("'{v}") } else { v.to_owned() };
-    if v.contains([',', '"', '\n', '\r']) { format!("\"{}\"", v.replace('"', "\"\"")) } else { v }
+    let v: String =
+        v.chars().map(|c| if matches!(c, '\t' | '\n' | '\r') { ' ' } else { c }).collect();
+    let v = if v.starts_with(['=', '+', '-', '@']) { format!("'{v}") } else { v };
+    if v.contains([',', '"']) { format!("\"{}\"", v.replace('"', "\"\"")) } else { v }
 }
 
 fn csv(args: &LedgerArgs, answer: &Value) -> String {
@@ -170,5 +173,7 @@ mod tests {
         assert!(lines[1].starts_with("\"team, api key\",\"team, api key\",2.5,"), "{out}");
         assert!(lines[1].contains(",1.25,3,"), "{out}");
         assert!(lines[2].starts_with("\"'=HYPERLINK(\"\"x\"\")\""), "{out}");
+        // A tab or line break would split the cell on paste and leave `=1+1` a cell of its own.
+        assert_eq!(csv_field("audit\t=1+1\nend"), "audit =1+1 end");
     }
 }

@@ -545,6 +545,20 @@ fn a_tombstone_in_the_file_drops_what_came_before_it() {
 }
 
 #[test]
+fn a_line_from_before_cache_savings_gets_them_on_fold() {
+    let dir = scratch("cache-saved-backfill");
+    std::fs::create_dir_all(&dir).unwrap();
+    let line = format!(
+        r#"{{"t":"u","sid":"x","at":{D0},"model":"claude-opus-5-5","pv":"v","costUsd":1.0,"cacheReadTokens":1000000,"turns":1}}"#
+    );
+    std::fs::write(dir.join(store::FILE), format!("{line}\n")).unwrap();
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    let saved = l.query(&all(D0, D0)).totals.cache_saved_usd;
+    assert!((saved - 3.8).abs() < 1e-9, "{saved}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_torn_last_line_is_cut_so_later_turns_survive_restarts() {
     let dir = scratch("torn");
     let path = dir.join(store::FILE);

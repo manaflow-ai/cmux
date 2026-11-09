@@ -192,5 +192,12 @@ test("Copy CSV: the rows shown, ranked as shown, spreadsheet-safe", () => {
     rows: [],
     rollups: { account: [{ ...totals({ costUsd: 1 }), key: '=cmd|"x", y' }] },
   });
+  // A tab or line break would split the cell on paste and leave `=1+1` a cell of its own.
+  const tabbed = readLedger({
+    totals: totals(),
+    rows: [],
+    rollups: { account: [{ ...totals(), key: "audit\t=1+1\nend" }] },
+  });
+  expect(ledgerCsv(tabbed, "account").split("\n")[1]!.startsWith("audit =1+1 end,audit =1+1 end,")).toBe(true);
   expect(ledgerCsv(tricky, "account").split("\n")[1]!.startsWith(`"'=cmd|""x"", y","'=cmd|""x"", y",1,`)).toBe(true);
 });

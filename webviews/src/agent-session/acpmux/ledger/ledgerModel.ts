@@ -316,11 +316,13 @@ const CSV_FIELDS = [
   "sessions",
 ] as const satisfies readonly (keyof LedgerTotals)[];
 
-/// A CSV field: quoted when it holds a comma, quote or line break, and never read by a spreadsheet
-/// as a formula (a leading `=`, `+`, `-` or `@` gets a `'`).
+/// A CSV field: one line with no tab (a paste splits cells on both, and a split cell would dodge
+/// the next rule), never read by a spreadsheet as a formula (a leading `=`, `+`, `-` or `@` gets a
+/// `'`), and quoted when it holds a comma or quote.
 function csvField(value: string): string {
-  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
-  return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
+  const flat = value.replace(/[\t\r\n]/g, " ");
+  const safe = /^[=+\-@]/.test(flat) ? `'${flat}` : flat;
+  return /[",]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
 }
 
 /// The rows `group` shows as CSV with a header, in the order they show: a session row adds its

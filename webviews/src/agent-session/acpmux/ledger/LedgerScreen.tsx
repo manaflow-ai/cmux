@@ -100,8 +100,9 @@ export function LedgerScreen({
     const kept = cache?.view()?.reply;
     return kept ? { phase: "loading", reply: kept } : { phase: "loading" };
   });
-  // What the last Copy CSV did, for the rows it copied; a new range or grouping clears it.
-  const [copied, setCopied] = useState<{ ok: boolean; of: string } | undefined>();
+  // What the last Copy CSV did, for the answer and grouping it copied: a new read or grouping
+  // clears it.
+  const [copied, setCopied] = useState<{ ok: boolean; of: LedgerReply; group: LedgerGroup } | undefined>();
   const request = useRef(0);
   const loadRef = useRef(load);
   loadRef.current = load;
@@ -146,17 +147,18 @@ export function LedgerScreen({
     cache?.keep({ range, group, ...(reply ? { reply } : {}) });
   }, [cache, range, group, reply]);
   const lines = reply ? ledgerLines(reply, group) : [];
-  const shown = `${range}:${group}`;
+  // Only the answer for the range shown: while the next range loads, the last one is still on
+  // screen, and copying it would export the wrong window.
   const copyCsv =
-    copy && reply && lines.length > 0
+    copy && state.phase === "ready" && reply && lines.length > 0
       ? () => {
           copy(ledgerCsv(reply, group)).then(
-            (ok) => setCopied({ ok, of: shown }),
-            () => setCopied({ ok: false, of: shown }),
+            (ok) => setCopied({ ok, of: reply, group }),
+            () => setCopied({ ok: false, of: reply, group }),
           );
         }
       : undefined;
-  const copyNotice = copied?.of === shown ? copied : undefined;
+  const copyNotice = copied && copied.of === reply && copied.group === group ? copied : undefined;
   const fromCache = reply ? cacheShare(reply.totals) : undefined;
   // acpmux returns at most LEDGER_ROW_LIMIT sessions, the most recent; the totals count them all.
   const moreSessions =
