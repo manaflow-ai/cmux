@@ -58,6 +58,7 @@
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
 pub mod prompt_sources;
+pub mod skill_index;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -65,7 +66,10 @@ use std::path::{Path, PathBuf};
 use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
+pub mod claude_plugin_dirs;
 mod cua_helper;
+
+pub use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};
 
 /// Directory that overrides where the cmux binaries are looked up.
 pub const BIN_DIR_ENV: &str = "CMUX_AGENT_TOOLS_BIN_DIR";
@@ -1102,7 +1106,10 @@ fn materialize(state_dir: &Path, chat_skill: bool) -> anyhow::Result<PathBuf> {
     }
 }
 
-/// The plugin's `hooks/hooks.json`: `bg_hook.rs` before every `Bash` call, run by this binary
+/// The plugin's `hooks/hooks.json`: `bg_hook.rs` before every `Bash` call, and for a subagent's
+/// calls only ([`hook_command`]) after its `Bash` calls, around its acpmux MCP calls
+/// (`bg_hook::MCP_CALLS`, `subagent_call.rs`) and as it stops (the notices left for a subagent,
+/// `subagent_notice.rs`), run by this binary
 /// with this daemon's home as its argument: the harness's env carries no `ACPMUX_HOME`
 /// (`agent::harness_command` removes every `ACPMUX_` name it inherits), so a tagged build or a
 /// daemon with its own home still finds its chats' MCP configs. The plugin's folder is named by
@@ -1114,21 +1121,38 @@ fn bg_hooks() -> String {
     let mut words = vec![this.exe.to_string_lossy().into_owned()];
     let home = crate::config::home().to_string_lossy().into_owned();
     words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
-    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
-        "hooks": [{"type": "command", "command": hook_command(&words), "timeout": 10}]}]}})
+    let bash = hook_command(&words, &crate::bg_hook::bash_patterns());
+    let hook = json!([{"type": "command", "command": bash, "timeout": 10}]);
+    // Only a subagent's call has work there: the lead's never starts this binary.
+    let sub = hook_command(&words, &[crate::bg_hook::SUBAGENT_PATTERN.to_owned()]);
+    let subagent = json!([{"type": "command", "command": sub, "timeout": 10}]);
+    let mcp = crate::bg_hook::mcp_matcher();
+    json!({"hooks": {
+        "PreToolUse": [{"matcher": "Bash", "hooks": hook}, {"matcher": mcp, "hooks": subagent}],
+        "PostToolUse": [{"matcher": format!("Bash|{mcp}"), "hooks": subagent}],
+        "PostToolUseFailure": [{"matcher": mcp, "hooks": subagent}],
+        "SubagentStop": [{"hooks": subagent}],
+    }})
     .to_string()
 }
 
-/// The hook's shell command: `words` quoted, then `|| true`. Claude Code blocks the tool call
-/// when a PreToolUse hook exits 2, and the hook only ever turns a call away through the JSON it
-/// prints on success, so a failure (a binary that is gone, or one that does not know
-/// `__bg-hook`, such as the cmux CLI, whose usage errors exit 2) lets the call run instead of
-/// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02:
-/// `unknown resource scope "__bg-hook"` on each call).
-pub(crate) fn hook_command(words: &[String]) -> String {
+/// A hook's shell command: the shell reads Claude Code's input and starts `words` with it only when
+/// it matches one of `patterns` (shell `case` patterns), so a call the binary has nothing to say
+/// about starts no process (`bg_hook::bash_patterns`; a subagent's call names `agent_id`). It ends
+/// `true`: Claude Code blocks the call when a PreToolUse hook exits 2, and the hook turns a call
+/// away only through the JSON it prints, so a failure (a binary that is gone, or one that does not
+/// know `__bg-hook`, such as the cmux CLI, whose usage errors exit 2) lets the call run instead of
+/// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02).
+pub(crate) fn hook_command(words: &[String], patterns: &[String]) -> String {
+    let (read, when, run) = ("input=$(cat); case \"$input\" in", patterns.join("|"), quoted(words));
+    format!("{read} {when}) printf '%s' \"$input\" | {run} ;; esac; true")
+}
+
+/// `words` as single-quoted shell words.
+fn quoted(words: &[String]) -> String {
     let quoted: Vec<String> =
         words.iter().map(|w| format!("'{}'", w.replace('\'', "'\\''"))).collect();
-    format!("{} || true", quoted.join(" "))
+    quoted.join(" ")
 }
 
 /// The signed helper's own `cmux-cua` (`<app>/Contents/Library/cmux Computer

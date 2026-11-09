@@ -350,6 +350,8 @@ html[data-cmux-page="github"],
 .gh-md ul,
 .gh-md ol { padding-inline-start: var(--ds-space-5); }
 .gh-md li[data-task] { list-style: none; }
+/* The box sits on its text's line: a list item's text comes as a paragraph. */
+.gh-md li[data-task] > .gh-md-task + p { display: inline; }
 .gh-md-task {
   display: inline-block;
   width: 12px;
@@ -479,3 +481,98 @@ html[data-cmux-page="github"],
   line-height: var(--text-caption--line-height);
   white-space: pre;
 }
+
+/* Merge readiness: one line saying Ready or Blocked (with the SHIP that counts), then each gate that
+   refuses the merge; a gate with a detail (the receipt, the failing job, the hold) opens in place. */
+.gh-ready {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding-block: var(--ds-space-3);
+  border-bottom: 1px solid var(--page-separator);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.gh-ready-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-1) var(--ds-space-2); min-width: 0; }
+.gh-ready-glyph { display: inline-flex; }
+.gh-ready-word { font-weight: 600; }
+.gh-ready[data-state=blocked] .gh-ready-word { color: var(--agent-status-failure); }
+.gh-ready[data-state=ready] .gh-ready-word { color: var(--agent-status-success); }
+.gh-ready-ship { color: var(--page-text-2); font-size: var(--text-caption); }
+.gh-ready-ship .gh-row-link { flex: none; color: inherit; }
+.gh-ready-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.gh-ready-item { border-radius: 6px; }
+.gh-ready-blocker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: var(--page-text);
+  background: none;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.gh-ready-list .gh-ready-blocker { width: 100%; padding: var(--ds-space-1) var(--ds-space-2); border-radius: 6px; }
+.gh-ready-list span.gh-ready-blocker { padding-inline-start: calc(var(--ds-space-2) + 12px + var(--ds-space-1)); }
+.gh-ready-list button.gh-ready-blocker:hover { background: var(--page-hover); }
+.gh-ready-chips,
+.gh-ready-inline { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); }
+.gh-ready-chips .gh-ready-blocker,
+.gh-ready-inline .gh-ready-blocker {
+  padding: 0 var(--ds-space-2);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--page-separator);
+  font-size: var(--text-caption);
+  line-height: var(--text-body--line-height);
+}
+.gh-ready-chips button.gh-ready-blocker:hover,
+.gh-ready-inline button.gh-ready-blocker:hover,
+.gh-ready-blocker[aria-expanded=true] { background: var(--page-hover); }
+.gh-ready-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  margin: 0;
+  padding: 0 var(--ds-space-2) var(--ds-space-2) var(--ds-space-6);
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  list-style: none;
+}
+.gh-ready-detail p { margin: 0; }
+.gh-ready-detail .gh-row-link { flex: none; color: var(--cmux-accent); }
+.gh-ready-quote { font-family: var(--font-mono, ui-monospace, monospace); }
+.gh-ready-job { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ds-space-2); min-width: 0; }
+.gh-ready-job-name { overflow: hidden; color: var(--page-text); text-overflow: ellipsis; white-space: nowrap; }
+.gh-ready-excerpt {
+  max-block-size: 200px;
+  margin: 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--page-hover);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  white-space: pre-wrap;
+}
+
+/* The conversation's filters (All, Unresolved, Mine) as one segmented control, its order beside it. */
+.gh-conversation-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ds-space-2); margin-bottom: var(--ds-space-2); }
+.gh-segments { display: inline-flex; min-width: 0; margin: 0; padding: 0; border: 0; border-radius: var(--ds-radius-md); background: var(--page-hover); box-shadow: inset 0 0 0 2px var(--page-hover); }
+.gh-segment {
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  color: var(--page-text-2);
+  background: none;
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: var(--text-body--line-height);
+  cursor: default;
+}
+.gh-segment[aria-pressed=true] { color: var(--page-text); background: var(--page-elevated); box-shadow: 0 0 0 1px var(--page-separator); }
+.gh-segment-count { color: var(--page-text-3); font-variant-numeric: tabular-nums; }
+.gh-conversation-order { width: auto; color: var(--page-text-2); font-size: var(--text-caption); }

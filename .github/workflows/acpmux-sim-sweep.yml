@@ -90,6 +90,8 @@ jobs:
           SIM_SEED_BASE: ${{ github.run_number }}0000
           SIM_FAULTS: ${{ github.event_name == 'workflow_dispatch' && inputs.faults || matrix.faults }}
           SIM_RESEND: ${{ matrix.resend }}
+          # Only a known-gap leg counts a seed that fails by a known gap instead of failing.
+          SIM_KNOWN_GAPS: ${{ matrix.known_gap && '1' || '0' }}
         run: |
           set -o pipefail
           status=0

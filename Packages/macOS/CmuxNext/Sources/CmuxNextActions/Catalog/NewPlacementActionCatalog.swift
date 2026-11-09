@@ -124,7 +124,7 @@ nonisolated enum NewPlacementActionCatalog: ActionCatalogGroup {
         case ("browser", "columnLeft"): String(localized: "action.new.browser.columnLeft", defaultValue: "New Browser to New Column Left", bundle: .module)
         case ("browser", "row"): String(localized: "action.new.browser.row", defaultValue: "New Browser to New Row", bundle: .module)
         case ("browser", "tab"): String(localized: "action.new.browser.tab", defaultValue: "New Browser to New Tab", bundle: .module)
-        case ("browser", "workspace"): String(localized: "action.new.browser.workspace", defaultValue: "New Browser to New Workspace", bundle: .module)
+        case ("browser", "workspace"): String(localized: "action.new.browser.toWorkspace", defaultValue: "New Browser to New Workspace", bundle: .module)
         case ("browser", "window"): String(localized: "action.new.browser.window", defaultValue: "New Browser to New Window", bundle: .module)
         case ("agentChat", "right"): String(localized: "action.new.agentChat.right", defaultValue: "New Agent Chat to the Right", bundle: .module)
         case ("agentChat", "left"): String(localized: "action.new.agentChat.left", defaultValue: "New Agent Chat to the Left", bundle: .module)

@@ -136,7 +136,10 @@ An agent sets it when the person must act in that tab (confirm, log in,
 approve, pick); `cmux attention request --tab <tab_…> --reason <text>` and
 `cmux attention clear --tab <tab_…>` send it. It never moves focus. Viewing
 the tab keeps it; the agent's clear, a browser tab's navigation to another
-URL, or the tab's close clears it.
+URL, or the tab's close clears it. The raw tree (`workspaces`) carries the same
+mark as the tab's `attention: {reason, at_ms}`, so a TUI client draws it and
+its `next-attention` key visits it; `cmux attention next|list` read the queue
+from `session.snapshot` with no new wire op.
 
 `tab-attention-request-id-v1` adds `extra.attention.request_id`: an opaque
 32-byte lowercase hexadecimal string issued by the owning daemon for each
@@ -379,7 +382,11 @@ so a restart can delay a close but never make it early.
 When `identify` advertises `terminal-reap-v1`, the owner also ends a terminal
 that has had no tab placement for the reap grace period and emits
 `terminal-reaped`, but only when the owner was started with
-`--terminal-reap-grace-seconds` (reaping is opt-in). Mark a
+`--terminal-reap-grace-seconds` (`identify` then also advertises
+`terminal-reaper-active-v1`). Every owner a local client starts (`cmux`,
+`cmux-tui`, `cmux daemon ensure`) gets the option, 30 seconds unless the
+client names another; a daemon started directly with `--headless` and no
+option does not reap. Mark a
 terminal that must outlive its tabs with
 `{"cmd":"set-terminal-keep","terminal_id":"term_...","keep":true}` or pass
 `"keep":true` to `new-tab`, `split`, or `create-terminal`. A close commits and

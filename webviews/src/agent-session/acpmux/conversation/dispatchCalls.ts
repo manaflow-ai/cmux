@@ -40,14 +40,28 @@ export function dispatchDestination(call: DispatchCall): string | undefined {
   return target && call.host && target !== call.host ? `${target} · ${call.host}` : target;
 }
 
+/// Each call's reading, by its tool object. A row's tool is a new object when it changes (direct.ts
+/// `OrderedRows` keeps an unchanged row's objects), and every pass over the transcript (toolGroups,
+/// row heights, Find) asks again for every call of every turn: read once, the cost of a pass no
+/// longer grows with the history's calls. null: an ordinary call.
+const readCalls = new WeakMap<Tool, DispatchCall | null>();
+
 /// The dispatch operation represented by one ACP activity, or undefined for ordinary MCP calls.
 export function dispatchCall(item: AcpmuxActivity): DispatchCall | undefined {
   const tool = item.tool;
   if (!tool) return undefined;
-  const operation = operationName(tool);
-  if (!operation) return undefined;
+  const known = readCalls.get(tool);
+  if (known !== undefined) return known ?? undefined;
+  const call = readDispatchCall(tool);
+  readCalls.set(tool, call ?? null);
+  return call;
+}
+
+function readDispatchCall(tool: Tool): DispatchCall | undefined {
   const args = parseJSON(tool.inputSummary);
   const output = parseJSON(tool.output);
+  const operation = operationName(tool, args, output);
+  if (!operation) return undefined;
   const values = [args, output, ...records(args), ...records(output)];
   const call: DispatchCall = {
     kind: operation,
@@ -86,9 +100,9 @@ export function dispatchCall(item: AcpmuxActivity): DispatchCall | undefined {
   return call;
 }
 
-function operationName(tool: Tool): DispatchKind | undefined {
+function operationName(tool: Tool, args: unknown, output: unknown): DispatchKind | undefined {
   const title = tool.title.trim();
-  const input = parseJSON(tool.inputSummary);
+  const input = args;
   if (isRecord(input) && typeof input.server === "string" && typeof input.tool === "string" && "arguments" in input) {
     const server = input.server.toLowerCase();
     if (!["acpmux", "cmux", "codex_apps", "agent_dispatch"].includes(server)) return undefined;
@@ -105,8 +119,6 @@ function operationName(tool: Tool): DispatchKind | undefined {
   }
   const explicit =
     EXPLICIT_TOOL.exec(title) ?? CLI_TITLE.exec(title) ?? (tool.command && CLI_ACTION.exec(tool.command));
-  const args = parseJSON(tool.inputSummary);
-  const output = parseJSON(tool.output);
   const event = [args, output].find((value) => {
     const kind = isRecord(value) && isRecord(value.event) ? value.event.kind : undefined;
     return typeof kind === "string" && EVENT_KIND.test(kind);
@@ -139,8 +151,11 @@ function outputSummary(value: string | undefined): string | undefined {
   return text;
 }
 
+/// An object or an array, else undefined: every reader here wants fields, and a call's plain output
+/// (a file read, a command's text) is never parsed, so it throws nothing.
 function parseJSON(value: string | undefined): unknown {
-  if (!value?.trim()) return undefined;
+  const start = value?.trimStart()[0];
+  if (value === undefined || (start !== "{" && start !== "[")) return undefined;
   try {
     return JSON.parse(value);
   } catch {

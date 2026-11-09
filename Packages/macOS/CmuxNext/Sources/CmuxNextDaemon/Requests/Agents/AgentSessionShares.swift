@@ -27,9 +27,12 @@ public struct AgentSessionShareCreateRequest: DaemonRequest {
     /// What the link's guests may do (`view` or `talk`); nil leaves the daemon's default and is left
     /// out of the frame, since a daemon older than link roles refuses an unknown field.
     public var role: String?
+    /// What a guest signed in to cmux may do on the link (`view` or `talk`; the daemon's default is
+    /// `talk`); nil is left out of the frame, like `role`.
+    public var signedInRole: String?
 
     public init(surface: UInt64, session: String? = nil, createId: String? = nil, ttlSecs: UInt64? = nil, uses: UInt32? = nil,
-                ownerToken: String? = nil, role: String? = nil) {
+                ownerToken: String? = nil, role: String? = nil, signedInRole: String? = nil) {
         self.surface = surface
         self.session = session
         self.createId = createId
@@ -37,6 +40,7 @@ public struct AgentSessionShareCreateRequest: DaemonRequest {
         self.uses = uses
         self.ownerToken = ownerToken
         self.role = role
+        self.signedInRole = signedInRole
     }
 }
 

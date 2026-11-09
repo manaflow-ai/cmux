@@ -344,6 +344,11 @@ fn read_piece(file: &LocalFile, piece: &Piece) -> anyhow::Result<Vec<u8>> {
             opened.seek(SeekFrom::Start(piece.offset))?;
             opened.read_exact(&mut bytes)?;
         }
+        Source::Checked(checked) => {
+            let mut opened = super::place::open_beneath(&checked.root, &checked.relative)?.0;
+            opened.seek(SeekFrom::Start(piece.offset))?;
+            opened.read_exact(&mut bytes)?;
+        }
         Source::Bytes(source) => {
             let start = usize::try_from(piece.offset)?;
             let end = start + bytes.len();

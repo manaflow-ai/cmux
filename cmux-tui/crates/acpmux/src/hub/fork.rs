@@ -34,6 +34,33 @@ enum Made {
 }
 
 impl Hub {
+    /// A fork's own turns: the turn results in its log after its `forked` record (the ones
+    /// before it are the parent's, copied); its meta's `turn_count` starts at the parent's. None
+    /// for a chat that is not a fork. Read once, at a first start that seeds the cost ledger
+    /// (`hub/ledger` `seed`), parsing only those two kinds.
+    pub(super) fn fork_own_turns(&self, meta: &SessionMeta) -> Option<u64> {
+        meta.parent_id.as_ref()?;
+        let (mut forked, mut turns) = (false, 0u64);
+        let kinds = ["forked", "turn_result"];
+        let scanned = self.store.scan_kinds(&meta.id, &kinds, &mut |e: EventRecord| {
+            match e.kind.as_str() {
+                "forked" => {
+                    forked = true;
+                    turns = 0;
+                }
+                _ => turns += u64::from(forked && e.dir == "mux"),
+            }
+            true
+        });
+        match scanned {
+            Ok(()) => Some(turns),
+            Err(e) => {
+                tracing::debug!(session = %meta.id, "ledger seed: fork log: {e}");
+                Some(0)
+            }
+        }
+    }
+
     /// Whether the session runs Claude Code, and its profile env plus its
     /// preset's (`agent_tools::left_out`, where Claude keeps its store).
     pub(super) async fn harness_env(
@@ -311,13 +338,33 @@ impl Hub {
         // A fork through a turn copies through its `turn_result`, before which the log holds
         // nothing back. A fork of now copies the tool output the log holds back too
         // (`store/deferred.rs`), read with the seq it copies through.
-        let (fork_seq, held_output) = match cut {
-            Some(cut) => (cut, Vec::new()),
-            None => {
-                let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
-                let held = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).pending();
-                (session.seq.load(Ordering::SeqCst), held)
-            }
+        // The fork shows the chat's history by reference: none of it is copied, so a fork costs
+        // the same however long the chat (`store/fork_view.rs`). A fork before a prompt keeps its
+        // copy and its durable journal (`fork_before.rs`); a store that cannot write a fork's
+        // history later copies it too.
+        let referenced = !empty && before.is_none() && self.store.writes_history();
+        let (fork_seq, held_output, reserved) = {
+            let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+            let (fork_seq, held) = match cut {
+                Some(cut) => (cut, Vec::new()),
+                None => (
+                    session.seq.load(Ordering::SeqCst),
+                    session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).pending(),
+                ),
+            };
+            // Named the chat's fork now, under the lock its records are appended under: a delete
+            // or compaction of the chat from here on writes the history into the fork first.
+            let reserved = if referenced {
+                let reference =
+                    crate::store::HistoryRef { session: session.id.clone(), through_seq: fork_seq };
+                self.store
+                    .reserve_reference(&id, &reference)
+                    .map_err(|e| RpcError::internal(e.to_string()))?;
+                Some(Reserved { store: &*self.store, fork: Some(id.clone()) })
+            } else {
+                None
+            };
+            (fork_seq, held, reserved)
         };
         let name_given = name.is_some();
         let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));
@@ -334,7 +381,8 @@ impl Hub {
         {
             let cfg = self.config.read().await;
             let family = crate::context_inventory::family_for_folder(&cfg, &parent_meta.harness);
-            let parts = crate::context_inventory::snapshot_for(&cfg, &cwd, &parent_meta.harness);
+            let parts =
+                crate::context_inventory::snapshot_for(&cfg, &cwd, &parent_meta.harness, false);
             // A native fork's agent keeps the parent's transcript, the old folder's
             // instructions in it: the new ones say those no longer apply.
             if moved && matches!(made, Made::Agent(..) | Made::ClaudeResume) {
@@ -373,11 +421,17 @@ impl Hub {
             status: SessionStatus::Idle,
             created_at: now,
             updated_at: now,
-            last_seq: 0,
-            transcript_seq: 0,
+            // A referencing fork's own records follow the history it shows.
+            last_seq: if referenced { fork_seq } else { 0 },
+            transcript_seq: if referenced { fork_seq } else { 0 },
             parent_id: Some(session.id.clone()),
             fork_seq: if empty { None } else { Some(fork_seq) },
             fork_before: before.as_ref().map(|(_, b)| b.clone()),
+            history_from: referenced.then(|| crate::store::HistoryRef {
+                session: session.id.clone(),
+                through_seq: fork_seq,
+            }),
+            history_kept_through: None,
             fork_requests: Default::default(),
             fork_parent_verified: Some(true),
             agent_info: parent_meta.agent_info.clone(),
@@ -428,6 +482,9 @@ impl Hub {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            seen_seq: None,
+            unread_turns: 0,
+            last_return: None,
             claude_unstored: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
             wait_start: false,
@@ -438,6 +495,7 @@ impl Hub {
             last_turn: None,
             auth_change: None,
             harness_failures: Default::default(),
+            harness_sandbox: Default::default(),
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
             vm_boundary: parent_meta.vm_boundary,
@@ -452,8 +510,13 @@ impl Hub {
             composer_draft: None,
             // It runs the parent's mode: a spawn from other preset contents leaves it too.
             preset_mode_approval: parent_meta.preset_mode_approval.clone(),
-            // Filled below with the fork's own seqs of the marked prompts it copies.
-            bookmarks: Default::default(),
+            // The chat's marks on the history the fork shows by reference, under their own seqs;
+            // a copy fills them below with the fork's seqs of the marked prompts it copies.
+            bookmarks: if referenced {
+                parent_meta.bookmarks.iter().copied().filter(|seq| *seq <= fork_seq).collect()
+            } else {
+                Default::default()
+            },
             // The fork keeps the chat's tools off (`hub/tools.rs`); its spawn lists them again.
             tools: crate::store::ToolInventory {
                 off: parent_meta.tools.off.clone(),
@@ -467,6 +530,7 @@ impl Hub {
             // whole-chat fork; a fork through an earlier turn has no known baseline.
             totals: None,
             pull_requests: vec![],
+            pull_request_times: Default::default(),
             touched_files: vec![],
             harness_cost_usd: if matches!(made, Made::ClaudeResume) {
                 parent_meta.harness_cost_usd
@@ -477,6 +541,8 @@ impl Hub {
             // an agent started of its own chat is that chat's sub-session (`sub`).
             subsession,
             subsession_limits: Default::default(),
+            races: Default::default(),
+            plan_builds: Default::default(),
             // A fork is the person's branch of the chat, never a spawn (`lineage.rs`), unless
             // its agent started it (`sub`).
             created_by,
@@ -522,6 +588,10 @@ impl Hub {
         // Indexed again once published (`transfer.rs` `import_into`).
         self.child_tags.note(&new);
         let creation_guard = super::lifecycle::CreationGuard::new(self.clone(), new.clone(), 0);
+        // From here a failed fork is purged, and its reference with it.
+        if let Some(reserved) = reserved {
+            reserved.disarm();
+        }
         // Copy the transcript-relevant history so attach replays it.
         // Read one record at a time; only these kinds are parsed. The copies are stored under one
         // hold of the fork's append lock and sent to no client one by one: nothing is attached
@@ -529,23 +599,30 @@ impl Hub {
         // summary per record, the app's whole list lagging past 8192). Watchers hear of the
         // fork once, from its `forked` record; an attach replays the copy from the log. Each
         // record's paths were made canonical when its chat stored it.
-        const COPIED: &[&str] = &[
-            "user_message",
-            "agent_message_chunk",
-            "agent_thought_chunk",
-            "tool_call",
-            "tool_call_update",
-            "plan",
-            "turn_started",
-            "turn_result",
-            "turn_end",
-        ];
+        const COPIED: &[&str] = crate::store::HISTORY_KINDS;
         // The running turn's tool calls not settled yet, and its start's seq in the fork.
         let mut open_tools: Vec<(String, String)> = Vec::new();
         let mut running_turn_seq: Option<u64> = None;
         // Cancel stops the copy where it is; the fork is then discarded whole (`fork_cancel.rs`).
         let mut cancelled = false;
-        {
+        if referenced {
+            // Only the running turn is read, from its start: which of its tool calls still run.
+            if let Some(turn) = &running {
+                running_turn_seq = Some(turn.turn_seq);
+                self.store
+                    .scan(&session.id, turn.turn_seq.saturating_sub(1), &mut |e: EventRecord| {
+                        if e.seq > fork_seq {
+                            return false;
+                        }
+                        note_open_tool(&mut open_tools, &e);
+                        true
+                    })
+                    .map_err(|e| RpcError::internal(e.to_string()))?;
+            }
+        } else {
+            // The copies are the parent's turns: they count in the parent's cost, not here, until
+            // the fork's own `forked` record below.
+            self.ledger.suppress(&new.id);
             let order = new.append_lock.lock().unwrap_or_else(|e| e.into_inner());
             self.catch_up_locked(&new);
             let copied = self.store.scan_kinds(&session.id, COPIED, &mut |e: EventRecord| {
@@ -557,21 +634,7 @@ impl Hub {
                     return false;
                 }
                 if running.is_some() {
-                    let update = e.msg.pointer("/params/update");
-                    let call = update.and_then(|u| u.get("toolCallId")).and_then(Value::as_str);
-                    let settled = update
-                        .and_then(|u| u.get("status"))
-                        .and_then(Value::as_str)
-                        .is_some_and(|s| matches!(s, "completed" | "failed"));
-                    match (e.kind.as_str(), call) {
-                        ("tool_call", Some(call)) if !settled => {
-                            open_tools.push((call.to_owned(), e.dir.clone()));
-                        }
-                        ("tool_call" | "tool_call_update", Some(call)) if settled => {
-                            open_tools.retain(|(c, _)| c != call);
-                        }
-                        _ => {}
-                    }
+                    note_open_tool(&mut open_tools, &e);
                 }
                 let starts_running = e.kind == "turn_started"
                     && running.as_ref().is_some_and(|t| t.turn_seq == e.seq);
@@ -613,16 +676,19 @@ impl Hub {
             });
             drop(order);
             if cancelled {
+                self.ledger.unsuppress(&new.id);
                 return Err(super::fork_cancel::cancelled_refusal());
             }
-            if before.is_some() {
-                copied
-                    .map_err(|e| super::fork_before::refused("fork.incomplete", &e.to_string()))?;
+            if before.is_some()
+                && let Err(e) = copied
+            {
+                self.ledger.unsuppress(&new.id);
+                return Err(super::fork_before::refused("fork.incomplete", &e.to_string()));
             }
         }
+        // These too go to no watcher: the `forked` record below is the first one heard.
         for output in held_output {
-            let at = Some(now_ms());
-            let _ = self.append_at(&new, "in", "tool_call_update", output, None, at);
+            self.append_quiet(&new, "in", "tool_call_update", output);
         }
         // The fork's copy of the running turn ends now: its tool calls still running did not
         // finish here, and the turn is cancelled, so the fork is idle and its partial reply
@@ -631,16 +697,18 @@ impl Hub {
             for (call, dir) in &open_tools {
                 let update = json!({"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "failed", "_meta": {"acpmux": {"forkCut": true}}});
                 let msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": update}});
-                self.append(&new, dir, "tool_call_update", msg);
+                self.append_quiet(&new, dir, "tool_call_update", msg);
             }
             let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "forked", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": running_turn_seq});
-            self.append(&new, "mux", "turn_result", result);
+            self.append_quiet(&new, "mux", "turn_result", result);
         }
         // The copied turn results are the parent's attempts, not the fork's: it starts unstuck,
         // and a restore scans only past them.
         {
             let mut m = new.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.harness_failures = crate::session_liveness::HarnessFailures::after(m.last_seq);
+            // Its own harness: a refusal the parent's records carry is not the fork's.
+            m.harness_sandbox = Default::default();
         }
         let mut forked = json!({"parentId": session.id, "forkSeq": new.meta().fork_seq});
         if let Some((_, b)) = &before {
@@ -655,6 +723,7 @@ impl Hub {
             forked.set("from", json!("transcript"));
             forked.set("harness", json!(parent_meta.harness));
         }
+        self.ledger.unsuppress(&new.id);
         self.append(&new, "mux", "forked", forked);
         if before.is_none() {
             self.append(session, "mux", "fork_child", json!({"childId": id}));
@@ -704,6 +773,10 @@ impl Hub {
             tokio::spawn(async move {
                 if let Err(e) = hub.child_for(&fork).await {
                     tracing::warn!(session = %fork.id, "fork child start failed: {e}");
+                    // In the fork too, not only the log: a fork whose agent never started looked
+                    // like a fork that worked (Leo's, 2026-11-06, agent session "-"). Its first
+                    // prompt starts the agent again.
+                    hub.append(&fork, "mux", "fork_start_failed", json!({"error": e.message}));
                 }
             });
         } else if let Err(e) = self.child_for(&new).await {
@@ -721,6 +794,24 @@ pub(super) struct SubsessionFork<'a> {
     pub checked: &'a super::subsession_guard::CheckedFolder,
 }
 
+/// A tool call `e` starts that has not settled, or one it settles: the running turn's calls
+/// still open when the fork cuts it.
+fn note_open_tool(open_tools: &mut Vec<(String, String)>, e: &EventRecord) {
+    let update = e.msg.pointer("/params/update");
+    let call = update.and_then(|u| u.get("toolCallId")).and_then(Value::as_str);
+    let settled = update
+        .and_then(|u| u.get("status"))
+        .and_then(Value::as_str)
+        .is_some_and(|s| matches!(s, "completed" | "failed"));
+    match (e.kind.as_str(), call) {
+        ("tool_call", Some(call)) if !settled => open_tools.push((call.to_owned(), e.dir.clone())),
+        ("tool_call" | "tool_call_update", Some(call)) if settled => {
+            open_tools.retain(|(c, _)| c != call);
+        }
+        _ => {}
+    }
+}
+
 /// Whether an ACP agent's `initialize` capabilities offer `session/fork`. Capabilities
 /// not known yet (the agent never started) count as offered: the agent then answers.
 pub(crate) fn offers_fork(caps: Option<&Value>) -> bool {
@@ -733,6 +824,28 @@ fn same_folder(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
+    }
+}
+
+/// A fork's reservation of its chat's history ([`Store::reserve_reference`]), taken back if the
+/// fork is not made before its creation guard takes over.
+struct Reserved<'a> {
+    store: &'a dyn crate::store::Store,
+    /// None once disarmed.
+    fork: Option<String>,
+}
+
+impl Reserved<'_> {
+    fn disarm(mut self) {
+        self.fork = None;
+    }
+}
+
+impl Drop for Reserved<'_> {
+    fn drop(&mut self) {
+        if let Some(fork) = &self.fork {
+            self.store.forget_reference(fork);
+        }
     }
 }
 

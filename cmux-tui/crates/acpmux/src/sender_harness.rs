@@ -123,20 +123,39 @@ pub fn detect(
     env: &impl Fn(&str) -> Option<String>,
     walk: impl FnOnce() -> Chain,
 ) -> Option<Value> {
-    let set = |key: &str| env(key).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
-    if set("ACPMUX_SESSION_ID").is_some() && set(crate::hub::person::CALLER_TOKEN_ENV).is_some() {
+    if in_session(env) {
         return None;
     }
-    let (claude, codex) = (claude_code(env), codex(env));
-    match (claude, codex) {
+    let mut walk = once(walk);
+    of_env(env, &mut walk).or_else(|| ai_agent(env)).or_else(|| from_chain(&walk()))
+}
+
+/// In an acpmux session, whose caller token proves where a send came from.
+fn in_session(env: &impl Fn(&str) -> Option<String>) -> bool {
+    let set = |key: &str| env(key).is_some_and(|v| !v.trim().is_empty());
+    set("ACPMUX_SESSION_ID") && set(crate::hub::person::CALLER_TOKEN_ENV)
+}
+
+/// Claude Code's or Codex's markers. With both (a Codex run from a Claude shell inherits
+/// `CLAUDECODE`), the harness nearer in the process chain, else Codex.
+fn of_env(
+    env: &impl Fn(&str) -> Option<String>,
+    walk: &mut impl FnMut() -> Chain,
+) -> Option<Value> {
+    match (claude_code(env), codex(env)) {
         (Some(claude), Some(codex)) => {
-            let walked = walk();
-            let nearer = walked.harness.as_ref().map(|(h, _)| h.as_str());
-            Some(if nearer == Some("claude-code") { claude } else { codex })
+            let nearer = walk().harness.map(|(h, _)| h);
+            Some(if nearer.as_deref() == Some("claude-code") { claude } else { codex })
         }
         (Some(found), None) | (None, Some(found)) => Some(found),
-        (None, None) => ai_agent(env).or_else(|| from_chain(&walk())),
+        (None, None) => None,
     }
+}
+
+/// `walk`, read at most once.
+fn once(walk: impl FnOnce() -> Chain) -> impl FnMut() -> Chain {
+    let mut walk = Some(walk);
+    move || walk.take().map(|walk| walk()).unwrap_or_default()
 }
 
 /// Claude Code's own markers: `CLAUDECODE=1` or an entrypoint.
@@ -235,12 +254,19 @@ pub fn note_mcp_client(params: &Value) {
 /// The claim an MCP tool's send makes: the environment's, else the MCP client's.
 pub fn of_this_mcp_server() -> Option<Value> {
     let env = |key: &str| std::env::var(key).ok();
-    if env("ACPMUX_SESSION_ID").is_some_and(|v| !v.trim().is_empty())
-        && env(crate::hub::person::CALLER_TOKEN_ENV).is_some_and(|v| !v.trim().is_empty())
-    {
+    of_mcp(&env, || chain(lookup, std::process::id()), MCP_CLIENT.get())
+}
+
+/// [`of_this_mcp_server`] over `env`, with `walk` read only when needed.
+pub fn of_mcp(
+    env: &impl Fn(&str) -> Option<String>,
+    walk: impl FnOnce() -> Chain,
+    client: Option<&Value>,
+) -> Option<Value> {
+    if in_session(env) {
         return None;
     }
-    claude_code(&env).or_else(|| codex(&env)).or_else(|| MCP_CLIENT.get().and_then(from_mcp_client))
+    of_env(env, &mut once(walk)).or_else(|| client.and_then(from_mcp_client))
 }
 
 /// A claim as the daemon keeps it: the known fields, each one line of at most
@@ -318,6 +344,24 @@ pub fn record(prompt_id: &str, claimed: Option<Value>, checked: Option<Value>) -
         put(&mut record, "checked", checked);
     }
     Some(record)
+}
+
+/// A prompt's acceptance callback that also writes its `sender_claim` with `write`, once the
+/// prompt is kept (queued, started or steered in): a duplicate writes nothing, and a refused
+/// prompt never calls its acceptance, so no claim names a prompt the chat does not hold.
+pub fn on_kept(
+    claim: Value,
+    write: impl FnOnce(Value) + Send + 'static,
+    next: Option<Box<dyn FnOnce(Value) + Send>>,
+) -> Option<Box<dyn FnOnce(Value) + Send>> {
+    Some(Box::new(move |accepted: Value| {
+        if accepted.pointer("/duplicate").and_then(Value::as_bool) != Some(true) {
+            write(claim);
+        }
+        if let Some(next) = next {
+            next(accepted);
+        }
+    }))
 }
 
 /// What the daemon knows of a connection's other end, for [`check_trust`].
@@ -409,11 +453,12 @@ pub fn chain(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Chain {
     let mut at = pid;
     for _ in 0..MAX_HOPS {
         let Some(p) = lookup(at) else { break };
-        if found.app.is_none() {
+        let name = p.exe.rsplit('/').next().unwrap_or(p.exe.as_str());
+        // acpmux itself may be the copy an app ships (cmux.app's): that bundle is not the sender.
+        if found.app.is_none() && name != "acpmux" {
             found.app = app_bundle(&p.exe);
         }
         if found.harness.is_none() {
-            let name = p.exe.rsplit('/').next().unwrap_or(p.exe.as_str());
             found.harness = HARNESS_BINARIES
                 .iter()
                 .find(|(binary, _)| *binary == name)

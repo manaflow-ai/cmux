@@ -869,6 +869,52 @@ fn daemon_shutdown_is_local_fenced_and_queues_ack_first() {
     assert_eq!(shutdown["event"], DAEMON_SHUTDOWN_EVENT);
 }
 
+/// `restart` on `shutdown-daemon` reaches every client that negotiated
+/// `daemon-shutdown-restart-v1` on the shutdown notice, so an attached TUI
+/// reconnects after `server restart` and exits after `server stop`. A client
+/// without the capability (a strict older SDK) gets the bare event, and a
+/// requester that does not say leaves it out.
+#[test]
+fn daemon_reconnect_shutdown_notice_carries_restart() {
+    for (restart, expected) in
+        [(Some(true), json!(true)), (Some(false), json!(false)), (None, Value::Null)]
+    {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let (tui_writer, tui_outbound) = captured_writer();
+        let tui = mux.control_clients.register(ClientTransport::Unix, tui_writer);
+        let capabilities = Some(vec![DAEMON_SHUTDOWN_RESTART_CAPABILITY.to_string()]);
+        mux.control_clients.set_info(tui, None, Some("tui".into()), capabilities).unwrap();
+        let (sdk_writer, sdk_outbound) = captured_writer();
+        let sdk = mux.control_clients.register(ClientTransport::Unix, sdk_writer);
+        let (_, generation) = mux.registry_identity();
+        let mut request = json!({
+            "id": 95,
+            "cmd": "shutdown-daemon",
+            "pid": std::process::id(),
+            "generation": generation,
+        });
+        if let Some(restart) = restart {
+            request["restart"] = json!(restart);
+        }
+        assert!(handle_message(&mux, requester, &request.to_string(), &writer));
+        assert!(mux.daemon_shutdown_requested(), "{restart:?}");
+        assert!(!mux.control_clients.contains(tui));
+        assert!(!mux.control_clients.contains(sdk));
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        let requester_notice = pop_json(&outbound);
+        assert_eq!(requester_notice, json!({"event": DAEMON_SHUTDOWN_EVENT}));
+        let notice = pop_json(&tui_outbound);
+        assert_eq!(notice["event"], DAEMON_SHUTDOWN_EVENT);
+        assert_eq!(notice["restart"], expected, "{notice}");
+        assert_eq!(pop_json(&sdk_outbound), json!({"event": DAEMON_SHUTDOWN_EVENT}));
+    }
+}
+
 #[test]
 fn daemon_shutdown_waits_for_ack_flush_before_disconnecting_the_owner() {
     let mux = test_mux();
@@ -1184,6 +1230,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             force: false,
             end_terminals: false,
             keep_layout: false,
+            restart: None,
         },
         &requester_writer,
     )
@@ -1207,6 +1254,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             force: false,
             end_terminals: false,
             keep_layout: false,
+            restart: None,
         },
         &requester_writer,
     )
@@ -1344,4 +1392,24 @@ fn pane_and_screen_close_detach_views_without_closing_terminal_hosts() {
         mux.close_terminal(TERMINAL, INCARNATION).unwrap();
         assert!(mux.surface(surface).is_none());
     }
+}
+
+/// A requester that leaves while its reservation is pending takes its
+/// `restart` along: a later handoff that names none (session.shutdown, the
+/// orphan stop) must not announce the old one.
+#[test]
+fn daemon_reconnect_restart_does_not_outlive_its_reservation() {
+    let mux = test_mux();
+    mux.mark_server_lifecycle_ready();
+    let (writer, _outbound) = captured_writer();
+    let first = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    mux.begin_daemon_handoff(first, DaemonHandoffRequest::unfenced(false)).unwrap();
+    mux.control_clients.set_daemon_handoff_restart(first, Some(true));
+    assert_eq!(mux.control_clients.daemon_handoff_restart(), Some(true));
+    mux.control_clients.remove(first);
+    assert_eq!(mux.control_clients.daemon_handoff_restart(), None);
+
+    let second = mux.control_clients.register(ClientTransport::Unix, writer);
+    mux.begin_daemon_handoff(second, DaemonHandoffRequest::unfenced(false)).unwrap();
+    assert_eq!(mux.control_clients.daemon_handoff_restart(), None);
 }

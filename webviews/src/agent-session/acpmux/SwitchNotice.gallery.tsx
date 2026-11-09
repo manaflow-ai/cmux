@@ -82,5 +82,20 @@ export default componentEntry<Props>({
       props: { error: "build-box did not start the agent in time. Try again." },
       note: "A refusal with no way out but trying again: Retry only, as before.",
     },
+    "not-installed": {
+      props: { error: "spawn claude-agent-acp: No such file or directory (os error 2)" },
+      note: "The agent is not on the machine: says so in plain words, Install runs its installer in a terminal tab, and the spawn error waits under Details.",
+    },
+    unreachable: {
+      props: { error: "acpmux: connect ECONNREFUSED 127.0.0.1:443 (os error 61)" },
+      note: "A start that could not reach the model's server reads as a failed turn does, never the socket error.",
+    },
+    "unknown-details-open": {
+      props: { error: "acp handshake: unexpected frame 0x1f in initialize (expected jsonrpc 2.0)" },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-switch-failed summary" });
+      },
+      note: "An unknown start failure: a plain sentence, and Details open on the raw words with Copy error.",
+    },
   },
 });

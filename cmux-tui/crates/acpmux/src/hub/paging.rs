@@ -23,6 +23,8 @@ const LIVE_TRANSCRIPT_UPDATES: &[&str] = &["prompt_suggestion"];
 /// out because every turn also records `turn_result`.
 pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "_acpmux/message",
+    // A fork whose agent did not start says so in its transcript (`fork.rs` `start_later`).
+    "fork_start_failed",
     "user_message",
     "queued",
     "dequeued",
@@ -57,6 +59,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // (`silent_turn.rs`).
     "turn_silent",
     "turn_heard",
+    // A bounded tool-call loop started or made progress (`loop_detector.rs`).
+    "loop_detected",
+    "loop_cleared",
     // The harness retries the turn's failed model request (`turn_retry.rs`).
     "turn_retrying",
     "turn_result",
@@ -89,6 +94,11 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "reopened",
     "host_started",
     "host_ended",
+    // A plan built in new worktrees, and the build kept (`plan_build.rs`): the chat's card.
+    "plan_build",
+    // A model race snapshot updates the parent's compare view and must travel with transcript
+    // subscriptions, including reconnect paging.
+    "race",
 ];
 
 /// Which records a page or a live event stream carries. `kinds` entries are

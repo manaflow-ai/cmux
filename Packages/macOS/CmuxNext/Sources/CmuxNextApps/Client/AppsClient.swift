@@ -198,6 +198,7 @@ public final class AppsClient {
             guard let reply = try? await transport.list(), !Task.isCancelled else { return }
             self?.projection.applyList(reply.apps, revision: reply.revision, request: request)
             self?.hasList = true
+            self?.remountListedFailures()
         }
     }
 
