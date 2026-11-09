@@ -252,6 +252,15 @@ impl Mux {
         self.journal_ingress.enabled().then(|| self.journal_ingress.stats().snapshot())
     }
 
+    /// The `server-stats` `disk` section, `None` for an in-memory registry.
+    /// Reads on its own read-only connection, never under the registry lock
+    /// (cost: `diagnostics/disk_usage.rs`).
+    pub fn disk_usage_stats(&self) -> Option<crate::diagnostics::DiskUsageSnapshot> {
+        let database_path = self.journal_kernel.database_path()?;
+        let mut cache = self.disk_usage.lock().unwrap_or_else(PoisonError::into_inner);
+        Some(crate::diagnostics::read_disk_usage(database_path, &mut cache))
+    }
+
     /// Resource projection and commit spans, see
     /// [`crate::diagnostics::ResourceProjectionStats`].
     pub fn resource_projection_stats(&self) -> crate::diagnostics::ResourceProjectionSnapshot {
