@@ -625,7 +625,8 @@
    "27.0.1": true
   },
   "NSSwitch call:performClick/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.7": true
   },
   "NSTableCellView call:layout/0": {
    "26.5.2": true,
@@ -1375,6 +1376,9 @@
    "26.7": true,
    "27.0": true,
    "27.0.1": true
+  },
+  "WKWebView call:otherMouseUp/1": {
+   "26.7": true
   },
   "WKWebView call:performDragOperation/1": {
    "26.5.2": true,
