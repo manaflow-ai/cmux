@@ -131,8 +131,8 @@ public final class SidebarDocStore {
     /// Whether the daemon can use the document at all.
     public var isSupported: Bool { remote?.isAvailable ?? false }
 
-    /// The document shown is the launch snapshot's (`loadProvisional`), not yet the daemon's: the first
-    /// `sidebar.get` replaces it.
+    /// The document shown is the launch snapshot's (`loadProvisional`), or the last load of a daemon that went away,
+    /// not the connected daemon's: the next `sidebar.get` replaces it.
     public private(set) var isProvisional = false
 
     /// Shows the document the daemon's launch snapshot saved (`sidebar_doc`) before the daemon answers, so
@@ -169,7 +169,18 @@ public final class SidebarDocStore {
         if loading { refetchAgain = true; return }
         guard isSupported, let remote else {
             // The launch snapshot's document stays until the daemon is up (`dropProvisional` if it never serves one).
-            if isActive, !isSupported, !isProvisional { isActive = false; shown = nil; bump() }
+            // So does a loaded one while the daemon is away (a restart, a restore past the launcher's bound): it turns
+            // provisional and keeps its order until the next load, instead of the older path's order drawing meanwhile
+            // (Leo 2026-11-09: "the sidebar kinda reshuffled"). Only a connected daemon without the document drops it.
+            guard isActive, !isSupported else { return }
+            if remote?.isConnected ?? false {
+                isProvisional = false
+                isActive = false
+                shown = nil
+                bump()
+            } else if !isProvisional {
+                isProvisional = true
+            }
             return
         }
         loading = true

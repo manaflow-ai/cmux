@@ -11,6 +11,8 @@ public nonisolated struct SidebarDocUnsettled: Error, Hashable, Sendable {
 public protocol SidebarDocRemote: AnyObject {
     /// The home daemon is connected and serves `sidebar-doc-v1`.
     var isAvailable: Bool { get }
+    /// The home daemon is connected, whether or not it serves the document: false while it starts or restarts.
+    var isConnected: Bool { get }
     /// `sidebar.get`, as JSON.
     func get() async throws -> Data
     func move(_ items: [String], to target: SidebarDocTarget, key: String) async throws -> SidebarDocReply
@@ -19,6 +21,11 @@ public protocol SidebarDocRemote: AnyObject {
     func adopt(_ refs: [SidebarDocWorkspaceRef], key: String) async throws -> SidebarDocReply
     /// `sidebar.apply {ops}`; `ops` is a JSON array.
     func apply(ops: Data, key: String) async throws -> SidebarDocReply
+}
+
+extension SidebarDocRemote {
+    /// A remote that cannot tell a missing connection from a missing capability reads unavailable as not connected.
+    public var isConnected: Bool { isAvailable }
 }
 
 /// A mutation's reply: the revision after it and its inverse ops (a JSON array).

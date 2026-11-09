@@ -19,6 +19,8 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
 
     public var isAvailable: Bool { connection() != nil && serves() }
 
+    public var isConnected: Bool { connection() != nil }
+
     private func client() throws -> SidebarDocClient {
         guard let connection = connection() else { throw DaemonError.notConnected }
         return SidebarDocClient(connection: connection)
