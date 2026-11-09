@@ -25,6 +25,7 @@ pub struct LinkCfg {
 
 /// How far resolving `--link-stun` got.
 #[derive(Debug, Default)]
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
 enum Stun {
     /// No session negotiated `link.udp` yet.
     #[default]
@@ -77,7 +78,7 @@ impl LinkCfg {
     }
 
     /// The STUN servers resolved so far (none while they are still resolving).
-    #[cfg(test)]
+    #[cfg(all(test, feature = "link"))]
     pub fn stun(&self) -> Vec<SocketAddr> {
         match self.resolved.lock().as_deref() {
             Ok(Stun::Resolved(found)) => found.clone(),
