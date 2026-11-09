@@ -110,7 +110,17 @@ impl HeadFirst {
 
     /// The subpath's folders, each relative to the root (`a`, `a/b`).
     pub fn folders(&self) -> Vec<String> {
-        (1..=self.subpath.len()).map(|depth| self.subpath[..depth].join("/")).collect()
+        let mut at = String::new();
+        self.subpath
+            .iter()
+            .map(|part| {
+                if !at.is_empty() {
+                    at.push('/');
+                }
+                at.push_str(part);
+                at.clone()
+            })
+            .collect()
     }
 }
 
