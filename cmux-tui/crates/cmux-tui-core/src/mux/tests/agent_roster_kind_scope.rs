@@ -19,7 +19,7 @@ use crate::journal_reducers::{
     AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
 };
 use crate::mux::agent_roster_restore::restore_agent_roster;
-use crate::workspace_registry::session_journal::kind_read::TestJournalRecord;
+use crate::workspace_registry::session_journal::kind_read_tests::TestJournalRecord;
 use crate::workspace_registry::{SessionJournalReader, SessionJournalRecord, WorkspaceRegistry};
 use crate::{JournalProducer, JournalSubject, Mux};
 

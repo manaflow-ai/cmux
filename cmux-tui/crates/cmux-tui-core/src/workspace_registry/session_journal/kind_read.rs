@@ -91,8 +91,13 @@ pub(crate) fn query_session_journal_kinds_after(
             return Ok((records, reached));
         }
     }
-    let (active, reached) =
-        active_kinds_after(connection, reached, through, kinds, limit - records.len())?;
+    let (active, reached) = active_kinds_after(
+        connection,
+        reached,
+        through,
+        kinds,
+        limit.saturating_sub(records.len()),
+    )?;
     records.extend(active);
     Ok((records, reached))
 }
@@ -150,7 +155,9 @@ fn active_kinds_after(
         if sequences.len() >= limit {
             sequences.sort_unstable();
             sequences.truncate(limit);
-            until = sequences[limit - 1];
+            if let Some(&last) = sequences.last() {
+                until = last;
+            }
         }
     }
     sequences.sort_unstable();
@@ -207,20 +214,19 @@ fn archived_kinds_after(
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    if segments.is_empty() {
-        return Ok(None);
-    }
+    let Some(first) = segments.first() else { return Ok(None) };
     anyhow::ensure!(
-        segments[0].1 <= i64::try_from(sequence.saturating_add(1))?,
+        first.1 <= i64::try_from(sequence.saturating_add(1))?,
         "journal segments contain a gap before sequence {}",
-        segments[0].1
+        first.1
     );
-    for pair in segments.windows(2) {
+    let mut previous_end = first.1.saturating_sub(1);
+    for (_, start, end) in &segments {
         anyhow::ensure!(
-            pair[1].1 == pair[0].2 + 1,
-            "journal segments contain a gap before sequence {}",
-            pair[1].1
+            *start == previous_end.saturating_add(1),
+            "journal segments contain a gap before sequence {start}"
         );
+        previous_end = *end;
     }
     let mut segment_kinds =
         connection.prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1")?;
@@ -247,80 +253,4 @@ fn archived_kinds_after(
         }
     }
     Ok(Some((records, reached)))
-}
-
-/// One record a test appends as its writer would.
-#[cfg(test)]
-#[derive(Clone)]
-pub(crate) struct TestJournalRecord {
-    pub(crate) kind: String,
-    pub(crate) producer: JournalProducer,
-    pub(crate) subjects: Vec<JournalSubject>,
-    pub(crate) payload: Value,
-}
-
-#[cfg(test)]
-impl WorkspaceRegistry {
-    /// Test seam: append `records` to the active journal in one transaction,
-    /// as their writers would. Returns their sequences.
-    pub(crate) fn append_journal_records_for_test(
-        &self,
-        records: &[TestJournalRecord],
-    ) -> Vec<u64> {
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction().unwrap();
-        let sequences = records
-            .iter()
-            .map(|record| {
-                let event_id = format!("event_test_{}", new_uuid_v4().replace('-', ""));
-                append_journal_record(
-                    &tx,
-                    &JournalAppend {
-                        event_id: &event_id,
-                        schema_version: 1,
-                        kind: &record.kind,
-                        class: JournalClass::Observation,
-                        replay: JournalReplayPolicy::Advisory,
-                        occurred_at_ms: 1,
-                        producer: &record.producer,
-                        authority: None,
-                        causation_id: None,
-                        correlation_id: None,
-                        causation_depth: 0,
-                        subjects: &record.subjects,
-                        sensitivity: JournalSensitivity::Metadata,
-                        payload: &record.payload,
-                        content: None,
-                        resource_revision: None,
-                        previous_resource_revision: None,
-                        actor: None,
-                    },
-                )
-                .unwrap()
-            })
-            .collect();
-        tx.commit().unwrap();
-        sequences
-    }
-
-    /// SQLite VM steps `run` takes on the registry connection, counted in
-    /// batches of 16 (deterministic, unlike wall time; see open_cost_tests.rs).
-    /// `run` takes the connection itself, through the registry.
-    pub(crate) fn vm_steps_for_test(&self, run: impl FnOnce()) -> u64 {
-        let steps = Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let counter = Arc::clone(&steps);
-        self.connection
-            .get()
-            .progress_handler(
-                16,
-                Some(move || {
-                    counter.fetch_add(16, std::sync::atomic::Ordering::Relaxed);
-                    false
-                }),
-            )
-            .unwrap();
-        run();
-        self.connection.get().progress_handler(0, None::<fn() -> bool>).unwrap();
-        steps.load(std::sync::atomic::Ordering::Relaxed)
-    }
 }
