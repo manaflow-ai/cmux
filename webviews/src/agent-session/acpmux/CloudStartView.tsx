@@ -157,7 +157,9 @@ function PlanTeamRefusal({
     </span>
   );
   const title = <strong className="acpmux-cloud-plan-team__title">{t("cloudStart.planTeam.title")}</strong>;
-  const team = <span className="acpmux-cloud-plan-team__team">{t("cloudStart.planTeam.selected", { team: refusal.team })}</span>;
+  const team = (
+    <span className="acpmux-cloud-plan-team__team">{t("cloudStart.planTeam.selected", { team: refusal.team })}</span>
+  );
   return (
     <div className="acpmux-cloud-plan-team" data-look={look} role="alert">
       {look === "banner" ? (

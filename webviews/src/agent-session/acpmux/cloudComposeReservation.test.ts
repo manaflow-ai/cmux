@@ -242,7 +242,10 @@ test("a reserve the platform refuses for the team's plan never holds the Send: i
   h.reservation.selected();
   await settle();
   const key = h.reservation.handoff();
-  const answer = h.start({ task: "fix it", ...(key ? { reservationKey: key } : {}) }, "6f1c3a52-6c5e-4c38-9b3e-6b1d2a3c4d5e");
+  const answer = h.start(
+    { task: "fix it", ...(key ? { reservationKey: key } : {}) },
+    "6f1c3a52-6c5e-4c38-9b3e-6b1d2a3c4d5e",
+  );
   await settle();
   // No timer had to run: the refusal answered, so the start went without waiting out the bound.
   const sent = h.calls.find(([method]) => method === "cloud.startChat");

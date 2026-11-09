@@ -31,7 +31,11 @@ test("a refusal in a team names it and offers the person's own team", () => {
   ).toEqual({ team: "cmux", switchTo: { id: "t-me", name: "Moonbase" } });
   // Several teams and none named for them: the team is named, nothing is guessed.
   expect(
-    cloudPlanTeamRefusal({ team: "t-cmux", teams: [teams[0], teams[2], { id: "t-b", name: "Beta" }], canSwitch: true }),
+    cloudPlanTeamRefusal({
+      team: "t-cmux",
+      teams: [teams[0], teams[2], { id: "t-b", name: "Beta" }],
+      canSwitch: true,
+    }),
   ).toEqual({ team: "cmux" });
   // A device kept to one team cannot switch.
   expect(cloudPlanTeamRefusal({ team: "t-cmux", teams, canSwitch: false, ...leo })).toEqual({ team: "cmux" });

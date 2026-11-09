@@ -170,7 +170,8 @@ const CLOUD_START_ERRORS: ErgoState[] = HOST_ANSWERS.map((answer) => ({
   id: `cloud-start.${answer.id}`,
   type: "error",
   surface: "cloud-start",
-  region: ".acpmux-cloud-start__failure, .acpmux-cloud-ask__actions, .acpmux-cloud-start__card, .acpmux-cloud-plan-team",
+  region:
+    ".acpmux-cloud-start__failure, .acpmux-cloud-ask__actions, .acpmux-cloud-start__card, .acpmux-cloud-plan-team",
   render: (record) => <CloudStartView start={hostFailure(answer)} {...cloudStartHandlers(record)} />,
 }));
 
