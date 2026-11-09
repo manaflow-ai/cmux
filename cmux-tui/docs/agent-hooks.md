@@ -15,7 +15,10 @@ cmux agent hook status
 `status` reports each provider on its own row. A provider whose config cannot
 be read gets `state: unavailable`, `reason: unreadable` and the cause in
 `detail`; the other providers still answer and the command exits 0. A failed
-install or uninstall names each cause in its message.
+install or uninstall names each cause in its message. In a cmux-tui terminal, `helper` is the
+helper that terminal's agents run (`CMUX_TUI_HOOK`, the session's own build)
+and `installed_helper` is the shared one that `install` writes; outside a
+terminal, `helper` is the shared one.
 
 Hook reports outrank the screen-detection plugin for 30 s, with one
 exception: a blocked state ends when the screen proves the dialog gone, after

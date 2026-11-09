@@ -12,7 +12,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// The hook helper an agent started in this pane runs: the `CMUX_TUI_HOOK`
 /// the pane carries (its daemon's own build). Outside a cmux pane there is
@@ -23,21 +23,25 @@ pub(super) fn pane_helper() -> Option<PathBuf> {
 
 /// [`pane_helper`] for the `CMUX_TUI_HOOK` value `inherited`. It only reads:
 /// a status call never writes a launcher file.
-fn pane_helper_from(_inherited: Option<OsString>) -> Option<PathBuf> {
-    None
+fn pane_helper_from(inherited: Option<OsString>) -> Option<PathBuf> {
+    crate::own_build_helpers::inherited_hook_helper(inherited)
 }
 
 /// The status `value` with `helper` naming `pane_helper` and the shared
 /// helper `agent hook install` writes as `installed_helper`. Without a pane
 /// helper the value is as it is.
-pub(super) fn with_pane_helper(value: Value, _pane_helper: Option<PathBuf>) -> Value {
+pub(super) fn with_pane_helper(mut value: Value, pane_helper: Option<PathBuf>) -> Value {
+    let Some(pane) = pane_helper else { return value };
+    if let Some(object) = value.as_object_mut() {
+        let installed = object.remove("helper").unwrap_or(Value::Null);
+        object.insert("helper".into(), json!(pane));
+        object.insert("installed_helper".into(), installed);
+    }
     value
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
 
     /// W5-Q (bench r4 #10): `agent hook status` named the shared helper that

@@ -2,13 +2,17 @@
 //! agent status vocabulary of the TUI sidebar (`working`, `blocked`, `done`,
 //! `idle`, `unknown`; `cmux_tui_core::AgentStatus`). `done` is a finished
 //! turn nobody has viewed: an idle agent whose terminal has an unread
-//! notification. The daemon's own `state` keeps `done` for a session that
-//! ended; such a row has `status: null` and `--state ended` selects it.
+//! notification. The daemon's own `state` says `done` for a session that
+//! ended; such a row has `status: "ended"` and `--state ended` selects it.
+//! The printed `state` is a deprecated alias of `status`, so a row has one
+//! word (W5-Q).
 //!
-//! The daemon's fields are unchanged; only the CLI adds `status`, from one
-//! `notification.list` read after `agent.list`, and the place of each
-//! agent's terminal (`name`, `tab_id`, `tab_name`, `pane_id`), from one
-//! `session.snapshot` read (W3-H).
+//! The CLI adds `status`, from one `notification.list` read after
+//! `agent.list`, and the place of each agent's terminal (`name`, `tab_id`,
+//! `tab_name`, `pane_id`), from one `session.snapshot` read (W3-H). An ended
+//! agent of a terminal that closed (the snapshot has no such terminal) is
+//! left out unless `--state ended` asks for it; the human output then says
+//! how many it left out. The JSON output stays a bare array.
 
 use std::collections::HashSet;
 
@@ -35,7 +39,7 @@ pub(super) struct AgentListPlan {
 pub(super) const STATUS_WORDS: [&str; 6] =
     ["working", "blocked", "done", "idle", "unknown", "ended"];
 
-/// The status word of a row whose session ended (`status: null`).
+/// The status word of a row whose session ended.
 const ENDED: &str = "ended";
 
 /// `notification.list`'s largest `limit`: a session keeps at most this many.
@@ -81,8 +85,9 @@ pub(super) fn run(global: GlobalArgs, plan: AgentListPlan) -> i32 {
 
 /// The text line after the human table for the `hidden` ended agents of
 /// closed terminals [`shape`] left out; `None` when it left none out.
-fn hidden_ended_line(_hidden: usize, _catalog: &crate::localization::Catalog) -> Option<String> {
-    None
+fn hidden_ended_line(hidden: usize, catalog: &crate::localization::Catalog) -> Option<String> {
+    (hidden > 0)
+        .then(|| catalog.pane_cli.agent_list_hidden_ended.replace("{count}", &hidden.to_string()))
 }
 
 /// The CLI exit code for a failed request: 2 for a usage error, 3 when the
@@ -182,34 +187,57 @@ fn unseen_terminals(notifications: &[Value]) -> HashSet<&str> {
         .collect()
 }
 
-/// The printed rows: each daemon row with `status` (its terminal is in
-/// `unseen` when it has an unread notification), only the rows with status
-/// word `wanted` when given. Anything but an array prints as it came.
+/// The printed rows and how many ended rows it left out. Each daemon row
+/// gets `status` (`ended` for a session that ended; its terminal is in
+/// `unseen` when it has an unread notification), and its `state` becomes
+/// the same word. With `wanted`, only the rows with that status word stay.
+/// Without it, an ended agent of a terminal not in `terminals` (the
+/// snapshot's) is left out and counted; with no terminals read (a refused
+/// snapshot) nothing is left out. Anything but an array prints as it came.
 fn shape(
     rows: Value,
     unseen: &HashSet<&str>,
     wanted: Option<&str>,
-    _terminals: &[Value],
+    terminals: &[Value],
 ) -> (Value, usize) {
     let mut agents = match rows {
         Value::Array(rows) => rows,
         other => return (other, 0),
     };
     for agent in &mut agents {
-        let status = status_of(agent, unseen).map(AgentStatus::as_str);
+        let status = status_of(agent, unseen).map_or(ENDED, AgentStatus::as_str);
         if let Some(object) = agent.as_object_mut() {
             object.insert("status".into(), json!(status));
+            // `state` is a deprecated alias of `status`: one word per agent.
+            object.insert("state".into(), json!(status));
         }
     }
+    let listed = agents.len();
     if let Some(wanted) = wanted {
         agents.retain(|agent| status_word(agent) == wanted);
+        return (Value::Array(agents), 0);
     }
-    (Value::Array(agents), 0)
+    if !terminals.is_empty() {
+        // An ended agent of a closed terminal is history, not an agent:
+        // `--state ended` still lists it.
+        let open: HashSet<&str> =
+            terminals.iter().filter_map(|terminal| terminal["id"].as_str()).collect();
+        agents.retain(|agent| {
+            status_word(agent) != ENDED
+                || agent
+                    .get("terminal_id")
+                    .and_then(Value::as_str)
+                    .is_none_or(|terminal| open.contains(terminal))
+        });
+    }
+    let hidden = listed.saturating_sub(agents.len());
+    (Value::Array(agents), hidden)
 }
 
 /// The shared status of a listed agent: from the daemon's `state`, `done`
 /// for an idle agent whose terminal is in `unseen`. `None` for a session
-/// that ended; a state the CLI does not know is `unknown`.
+/// that ended ([`shape`] says `ended`); a state the CLI does not know is
+/// `unknown`.
 fn status_of(agent: &Value, unseen: &HashSet<&str>) -> Option<AgentStatus> {
     let state = agent.get("state").and_then(Value::as_str).unwrap_or_default();
     let unseen = agent
@@ -219,7 +247,7 @@ fn status_of(agent: &Value, unseen: &HashSet<&str>) -> Option<AgentStatus> {
     AgentStatus::from_state_str(state, unseen)
 }
 
-/// The row's status word ([`shape`] set it): `ended` for `status: null`.
+/// The row's status word ([`shape`] set it).
 fn status_word(agent: &Value) -> &str {
     agent.get("status").and_then(Value::as_str).unwrap_or(ENDED)
 }
@@ -261,8 +289,8 @@ mod tests {
     }
 
     /// `done` is idle with an unread notification, as the TUI shows it; the
-    /// daemon's `done` (a session that ended) is `status: null`; the
-    /// daemon's `state` stays.
+    /// daemon's `done` (a session that ended) is `ended`; `state` says the
+    /// same word (W5-Q).
     #[test]
     fn w4j_agent_list_rows_carry_the_shared_status() {
         let notifications = notifications();
@@ -272,12 +300,12 @@ mod tests {
             vec![
                 (IDLE_SEEN.to_owned(), json!("idle")),
                 (IDLE_UNSEEN.to_owned(), json!("done")),
-                (ENDED_TERMINAL.to_owned(), Value::Null),
+                (ENDED_TERMINAL.to_owned(), json!("ended")),
                 (WORKING.to_owned(), json!("working")),
             ]
         );
-        assert_eq!(shaped[1]["state"], "idle");
-        assert_eq!(shaped[2]["state"], "done");
+        assert_eq!(shaped[1]["state"], "done");
+        assert_eq!(shaped[2]["state"], "ended");
     }
 
     #[test]
@@ -330,7 +358,7 @@ mod tests {
         // A terminal the snapshot does not show, or no snapshot: nulls.
         assert_eq!(fields(3), [Value::Null, Value::Null, Value::Null, Value::Null]);
         assert_eq!(with_places(rows(), &Value::Null)[0]["tab_id"], Value::Null);
-        // The daemon's fields stay.
+        // The rows' other fields stay.
         assert_eq!(placed[0]["state"], "idle");
     }
 

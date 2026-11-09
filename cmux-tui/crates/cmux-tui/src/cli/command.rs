@@ -69,7 +69,18 @@ pub(super) enum ResponseView {
 impl ResponseView {
     /// The `result` this view prints.
     pub(super) fn project(&self, result: Value) -> Value {
-        result
+        match self {
+            Self::Full | Self::ScreenText => result,
+            Self::AgentReport => {
+                let mut result = result;
+                if let Some(state) = result.pointer_mut("/value/state")
+                    && *state == "done"
+                {
+                    *state = Value::from("ended");
+                }
+                result
+            }
+        }
     }
 }
 
@@ -1848,6 +1859,9 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
                 &state,
                 &["working", "blocked", "idle", "ended", "done", "unknown"],
             )?;
+            // The CLI says `ended` for a session that ended; the daemon's
+            // word for it is `done` (`--state done` stays as an old alias).
+            let state = if state == "ended" { "done".to_owned() } else { state };
             let source = flags.required("source")?;
             validate_one_of("--source", &source, &["hook", "socket"])?;
             let mut params = Map::new();

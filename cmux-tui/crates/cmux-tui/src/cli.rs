@@ -12,6 +12,7 @@ mod agent_start;
 mod agent_vocabulary;
 mod attention;
 mod command;
+mod keys_help;
 mod lifecycle;
 mod pane_identify;
 mod pane_move;
@@ -331,7 +332,7 @@ fn parse_command(
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
             Some(scope)
-                if matches!(scope.as_str(), "start" | "shorthands")
+                if matches!(scope.as_str(), "start" | "shorthands" | "keys")
                     || LOCAL_COMMANDS.contains(&scope.as_str()) =>
             {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
@@ -607,7 +608,7 @@ fn scope_help_for(
 fn scope_help_with_keys(
     scope: &str,
     catalog: &'static crate::localization::Catalog,
-    _keys: impl FnOnce() -> crate::config::Keys,
+    keys: impl FnOnce() -> crate::config::Keys,
 ) -> Cow<'static, str> {
     if let Some(path) = scope.strip_prefix(ACTION_TOPIC)
         && let Some(help) = command::action_help(path, "cmux")
@@ -616,6 +617,7 @@ fn scope_help_with_keys(
     }
     let help = match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
+        "keys" => Cow::Owned(keys_help::help(&keys(), catalog)),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
@@ -899,8 +901,10 @@ USAGE
   cmux agent list [--state working|blocked|done|idle|unknown|ended]
                   [--terminal <id>]
                   (done: idle with an unread notification; ended: the session
-                  ended, which --state done selected before)
-  cmux agent report --terminal <selector> --state <value> --source <value>
+                  ended, which --state done selected before; state is a
+                  deprecated alias of status; an ended agent of a closed
+                  terminal is listed only with --state ended)
+  cmux agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
   cmux agent plugin list

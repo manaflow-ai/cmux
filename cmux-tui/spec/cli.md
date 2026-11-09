@@ -357,7 +357,7 @@ session <selector> window title set|clear
 session <selector> terminal defaults set
 
 agent list [--state working|blocked|done|idle|unknown|ended] [--terminal <id>]
-agent report --terminal <selector> --state <state> --source <source>
+agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
 
@@ -485,9 +485,17 @@ tabs with `tab move`.
 `agent list` is one `agent.list` read and one `notification.list` read; the
 daemon's rows are unchanged except that the CLI adds `status`, the word the
 TUI sidebar shows: `blocked`, `done` (idle with an unread notification on its
-terminal), `working`, `idle` or `unknown`, and `null` for an agent whose
-session ended. The daemon's `state` field (`working`, `blocked`, `idle`,
-`done` = ended, `unknown`) stays as it was. `--state` takes the status words
+terminal), `working`, `idle` or `unknown`, and `ended` for an agent whose
+session ended (before, `null`). The CLI writes the row's `state` over with
+the same word, as a deprecated alias of `status`. The daemon's wire does not
+change: `agent.list` still says `state: done` for an ended session, and the
+CLI says `ended` for it in `agent list` and `agent report`. In the CLI, `done`
+means only a finished turn that nobody viewed yet. `agent report --state
+ended` reports a session that ended (`--state done` is an old alias of it),
+and its record says `ended`. Without `--state`, the CLI leaves out the ended
+agents of terminals that closed (the snapshot has no such terminal); the human
+output ends with a line that says how many, and `--state ended` shows them.
+`--json` stays a bare array. `--state` takes the status words
 and `ended` and asks the daemon for its state: `done` and `idle` ask for
 `idle` (the CLI then keeps the rows with that status), `ended` asks for the
 daemon's `done`, the others for themselves. `--state done` used to select the
@@ -498,9 +506,14 @@ older daemon) leaves every idle agent `idle`.
 row's terminal: `tab_id`, `tab_name` and `pane_id` of the tab that shows it,
 and `name`, the tab's name when it is an agent name (`cmux agent start NAME`),
 else `null`. A terminal the snapshot does not show, or a refused snapshot
-read, gives `null` for all four.
+read, gives `null` for all four. A refused snapshot read leaves no ended row
+out.
 
-`agent hook status` reports each provider on its own row. A provider whose
+`agent hook status` reports each provider on its own row. In a cmux pane
+(`CMUX_TUI_HOOK` names this daemon build's own helper), `helper` is that
+pane helper, the one the pane's agents run, and `installed_helper` is the
+shared per-user helper `agent hook install` writes; outside a pane `helper`
+is the shared one, as before. A provider whose
 config cannot be read is `state: unavailable`, `reason: unreadable`, with the
 cause in `detail`; the other providers still answer and the command exits 0.
 A failed `agent hook install|uninstall` names each cause in its message

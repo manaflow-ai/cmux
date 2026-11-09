@@ -278,6 +278,9 @@ pub(crate) struct ShortcutMessages {
     pub title: &'static str,
     pub close_button: &'static str,
     pub footer: &'static str,
+    /// First line of `cmux help keys`: `{prefix}` is the prefix chord and
+    /// `{show}` the key that shows the list inside the TUI.
+    pub cli_intro: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1291,6 +1294,9 @@ pub(crate) struct PaneCliMessages {
     /// What `cmux agent|sidebar plugin list` prints when no plugin is
     /// installed; `{command}` is `cmux agent plugin` or `cmux sidebar plugin`.
     pub no_plugins_installed: &'static str,
+    /// The line after `agent list` for the ended agents of closed terminals
+    /// it left out; `{count}` is how many.
+    pub agent_list_hidden_ended: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1381,6 +1387,7 @@ rules, recipes, waits, errors, scopes and the terminal, pane and tab paths.
 Pass --json for {name, version, markdown}.
 ",
         no_plugins_installed: "No plugins are installed. {command} install <git-url> installs one.",
+        agent_list_hidden_ended: "ended agents of closed terminals not shown: {count} (--state ended shows them)",
     },
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
@@ -1634,6 +1641,9 @@ edits shell files. Authenticate with the configured host before retrying.
         title: "Keyboard shortcuts",
         close_button: "Esc close",
         footer: "↑/↓ or wheel scroll · Esc or ? close",
+        cli_intro: "Key bindings of the cmux-tui TUI. The prefix is {prefix}: press it, then the \
+                    key after it. Inside the TUI, {show} shows this list. The keys section of the \
+                    cmux-tui config changes them.",
     },
     browser: BrowserMessages {
         failed_prefix: "browser failed: ",
@@ -2174,6 +2184,7 @@ cmux-tui ターミナルの外では caller.found が false になります。--
 --json で {name, version, markdown} を表示します。
 ",
         no_plugins_installed: "インストール済みのプラグインはありません。{command} install <git-url> でインストールできます。",
+        agent_list_hidden_ended: "表示していない、閉じたターミナルの終了したエージェント: {count} 件 (--state ended で表示します)",
     },
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
@@ -2427,6 +2438,9 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         title: "キーボードショートカット",
         close_button: "Esc 閉じる",
         footer: "↑/↓ またはホイールでスクロール · Esc または ? で閉じる",
+        cli_intro: "cmux-tui の TUI のキー割り当てです。プレフィックスは {prefix} です。これを押してから、\
+                    続くキーを押します。TUI 内では {show} でこの一覧を表示します。cmux-tui の設定の \
+                    keys セクションで変更できます。",
     },
     browser: BrowserMessages {
         failed_prefix: "ブラウザでエラーが発生しました: ",
