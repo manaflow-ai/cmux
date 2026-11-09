@@ -935,6 +935,7 @@ jobs:
         run: |
           python3 tests/test_cla_guard_git_reads.py
           python3 tests/test_cla_guard_api_reads.py
+          python3 tests/test_cla_guard_merged_pull_request.py
 
       - name: Validate who may approve a CLA guard change
         if: ${{ matrix.group == 'ci' }}
