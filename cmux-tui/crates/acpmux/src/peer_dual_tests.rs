@@ -118,6 +118,11 @@ async fn delivered(
 }
 
 async fn rig() -> Rig {
+    rig_with(true).await
+}
+
+/// [`rig`], with the Url path presenting the peer token (`url_token`) or not.
+async fn rig_with(url_token: bool) -> Rig {
     let (tx, notices) = mpsc::channel(1024);
     let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
     // The link's own pings stay out of the way: its path's doubt is set by hand.
@@ -130,6 +135,8 @@ async fn rig() -> Rig {
     paths.pong(Via::Url, 10 * MS, now);
     *peer.paths.lock().unwrap() = Some(paths);
     peer.features.lock().unwrap().push(crate::server::dual_requests::FEATURE.to_owned());
+    peer.note_token_path(Via::Link, true);
+    peer.note_token_path(Via::Url, url_token);
     peer.mark_attached("s1");
     peer.cursors.lock().unwrap().insert("s1".to_owned(), 5);
 
@@ -538,4 +545,53 @@ async fn a_chat_longer_than_one_page_is_attached_again_until_the_shadow_streams_
     assert_eq!(delivered(&mut rig.notices, 3).await, vec![6, 7, 8]);
     send(&mut rig.shadow, event(9)).await;
     assert_eq!(delivered(&mut rig.notices, 1).await, vec![9], "live on the shadow");
+}
+
+/// Link presents the peer token, and a ws:// URL to a host that is not loopback withholds it:
+/// that path is served as the Web there, so it never becomes the shadow, and a prompt goes on
+/// the link alone and succeeds.
+#[tokio::test]
+async fn a_path_that_withholds_the_peer_token_is_never_the_shadow() {
+    let (tx, _notices) = mpsc::channel(4);
+    let far = Peer::new("p", "ws://10.0.0.5:9", None, Some("peer-token".into()), tx.clone());
+    assert!(!far.url_presents_token(), "plain ws:// off loopback withholds it");
+    let near = Peer::new("p", "ws://127.0.0.1:9", None, Some("peer-token".into()), tx);
+    assert!(near.url_presents_token());
+
+    let mut rig = rig_with(false).await;
+    assert_eq!(reads_text_within(&mut rig.shadow, Duration::from_millis(1_500)).await, None);
+    assert_eq!(rig.peer.dual_via(), None);
+    let params = json!({"sessionId": "s1", "prompt": [], "_meta": {"acpmux": {"promptId": "a1"}}});
+    let peer = rig.peer.clone();
+    let asking = tokio::spawn(async move { peer.request(method::SESSION_PROMPT, params).await });
+    let on_link = next_text(&mut rig.primary).await;
+    assert_eq!(on_link.pointer("/params/_meta/acpmux/dualId"), None, "{on_link}");
+    assert_eq!(reads_text_within(&mut rig.shadow, Duration::from_millis(300)).await, None);
+    let done = json!({"jsonrpc": "2.0", "id": on_link["id"], "result": {"stopReason": "end_turn"}});
+    send(&mut rig.primary, done).await;
+    let answer = tokio::time::timeout(WAIT, asking).await.unwrap().unwrap().unwrap();
+    assert_eq!(answer["stopReason"], "end_turn");
+}
+
+/// An error from the shadow never settles a call sent on both paths: the caller keeps waiting,
+/// and the link's later success is its answer.
+#[tokio::test]
+async fn an_error_from_the_shadow_leaves_the_caller_to_the_links_answer() {
+    let mut rig = rig().await;
+    answer_shadow_attach(&mut rig, &[]).await;
+    let peer = rig.peer.clone();
+    let asking = tokio::spawn(async move { peer.request(method::MUX_STATS, json!({})).await });
+    let on_link = next_text(&mut rig.primary).await;
+    let on_shadow = next_text(&mut rig.shadow).await;
+    assert_eq!(on_link, on_shadow);
+    let id = on_link["id"].clone();
+    let refused = json!({"jsonrpc": "2.0", "id": id,
+        "error": {"code": -32602, "message": "refused", "data": {"reason": "author.origin_refused"}}});
+    send(&mut rig.shadow, refused).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(rig.peer.pending.lock().await.contains_key(&id.to_string()), "still waiting");
+    assert!(!asking.is_finished());
+    send(&mut rig.primary, json!({"jsonrpc": "2.0", "id": id, "result": {"from": "link"}})).await;
+    let answer = tokio::time::timeout(WAIT, asking).await.unwrap().unwrap().unwrap();
+    assert_eq!(answer, json!({"from": "link"}));
 }

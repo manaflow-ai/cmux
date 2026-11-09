@@ -658,12 +658,28 @@ impl Peer {
         via: Via,
         ssh_tokens: Option<(tokens::Tokens, bool)>,
     ) -> Result<Opened, String> {
-        match via {
+        let opened = match via {
             Via::Ssh => self.open_ssh(ssh_tokens).await,
             Via::Url => self.open_url().await,
             Via::Wireguard | Via::Link => self.open_direct(via, ssh_tokens.as_ref()).await,
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
-        }
+        }?;
+        let presents = match via {
+            Via::Url => self.url_presents_token(),
+            _ => opened.presented.is_some(),
+        };
+        self.note_token_path(via, presents);
+        Ok(opened)
+    }
+
+    /// Whether `open_url` sends the peer token: one is known, and the URL may carry it.
+    fn url_presents_token(&self) -> bool {
+        self.peer_token.is_some() && super::carries_peer_token(&self.url)
+    }
+
+    /// Path `via` opened, presenting the peer token or not (`token_paths`).
+    pub(super) fn note_token_path(&self, via: Via, presents: bool) {
+        self.token_paths.lock_or_recover().insert(via, presents);
     }
 
     /// Keep every path of this peer that does not carry the link open and measured: once per
@@ -817,8 +833,16 @@ impl Peer {
     /// reads tokens over ssh: the link's connect did), and its ssh process for an ssh path.
     async fn open_probe(&self, via: Via) -> Result<(OpenedWs, Option<ProbeTunnel>), String> {
         match via {
-            Via::Wireguard | Via::Link => Ok((self.open_direct(via, None).await?.ws, None)),
-            Via::Url => Ok((self.open_url().await?.ws, None)),
+            Via::Wireguard | Via::Link => {
+                let opened = self.open_direct(via, None).await?;
+                self.note_token_path(via, opened.presented.is_some());
+                Ok((opened.ws, None))
+            }
+            Via::Url => {
+                let ws = self.open_url().await?.ws;
+                self.note_token_path(via, self.url_presents_token());
+                Ok((ws, None))
+            }
             Via::Ssh => {
                 let (token, peer_token) = self
                     .direct_credentials(None)
@@ -837,6 +861,7 @@ impl Peer {
                 )
                 .await
                 .map_err(|e| e.to_string())?;
+                self.note_token_path(via, peer_token.is_some());
                 Ok((OpenedWs::Boxed(Box::new(ws)), Some((child, errors))))
             }
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),

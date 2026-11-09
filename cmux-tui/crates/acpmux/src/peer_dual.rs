@@ -241,11 +241,17 @@ impl Peer {
     /// peer runs a doubled request once.
     pub(super) fn dual_wanted(&self, via: Via) -> bool {
         let Some(serving) = self.serving() else { return false };
+        // Both paths must be the daemon's one peer principal (`dual_requests::PEER_LINK`): each
+        // presented the peer token when it opened. A path that withholds it is served as the
+        // Web there, held to other rules, and its dual ids are ignored.
+        let principal = |via| self.token_paths.lock_or_recover().get(&via).copied() == Some(true);
         serving != via
             && self.connected.load(Ordering::SeqCst)
             && self.takes_dual()
-            && self.with_paths(|paths| paths.dual_partner(serving, crate::store::now_ms()))
-                == Some(via)
+            && principal(serving)
+            && self.with_paths(|paths| {
+                paths.dual_partner_among(serving, crate::store::now_ms(), principal)
+            }) == Some(via)
     }
 
     /// The path that carries copies now, if any.
@@ -608,15 +614,19 @@ impl Peer {
                     };
                     return self.shadow_page(run, &sid, after, seen, &page).await;
                 }
+                // Only a success from the shadow settles a call: an error there may be the
+                // shadow connection's own (a rule it is held to that the link is not), so the
+                // link's answer, or its end, settles the caller instead.
                 let key = id.to_string();
+                if let Some(e) = error {
+                    tracing::debug!(peer = %self.name, key = %key, "the shadow's copy failed; waiting on the link: {}", e.message);
+                    return Vec::new();
+                }
                 let tx = self.pending.lock().await.remove(&key);
                 self.on_wire.lock_or_recover().remove(&key);
                 self.dual_keys.lock_or_recover().remove(&key);
                 if let Some(tx) = tx {
-                    let _ = tx.send(match error {
-                        Some(e) => Err(e),
-                        None => Ok(result.unwrap_or(Value::Null)),
-                    });
+                    let _ = tx.send(Ok(result.unwrap_or(Value::Null)));
                 }
                 Vec::new()
             }

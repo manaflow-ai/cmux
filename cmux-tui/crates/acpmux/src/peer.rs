@@ -196,6 +196,9 @@ pub struct Peer {
     dual_sessions: StdMutex<HashSet<String>>,
     /// The one merger both paths' chat events go through (`peer_dual.rs`).
     dual_merge: Mutex<dual::Merger>,
+    /// Whether each path presented the peer token when it last opened: only such paths are the
+    /// peer's one principal there, and only they carry dual send (`Peer::dual_wanted`).
+    token_paths: StdMutex<HashMap<crate::peer_paths::Via, bool>>,
     /// Chats a load, resume or attach is replaying now, with how many are in flight
     /// (`Peer::replay_start`): read and set under `dual_merge`.
     replaying: StdMutex<HashMap<String, u32>>,
@@ -461,6 +464,7 @@ impl Peer {
             shadow: StdMutex::new(None),
             dual_sessions: StdMutex::new(HashSet::new()),
             dual_merge: Mutex::new(dual::Merger::default()),
+            token_paths: StdMutex::new(HashMap::new()),
             replaying: StdMutex::new(HashMap::new()),
             switch_retry: StdMutex::new(HashMap::new()),
             switched: AtomicBool::new(false),
