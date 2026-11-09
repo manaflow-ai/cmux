@@ -15,7 +15,7 @@ import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableAct
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
 import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
-import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
+import { cloudStartLook, cloudStartQuietLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
@@ -125,6 +125,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   selectionReplyWrap,
   backgroundReactionLook,
   cloudStartLook,
+  cloudStartQuietLook,
   cloudProgressLook,
   cloudStartAskLook,
   agentStartLook,

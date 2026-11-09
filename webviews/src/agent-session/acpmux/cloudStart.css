@@ -220,3 +220,15 @@
 /* `banner`: the title and the buttons on one line, the body under it. */
 .acpmux-cloud-ask__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .acpmux-cloud-ask[data-look="banner"] .acpmux-cloud-ask__actions { margin-top: 0; }
+/* The quiet start's stage line (CloudStartView.tsx StageLine): the live line's look, then the usual
+   wait in its dim ink. `stacked` puts the wait on its own line under the words; `hint` draws one thin
+   segment per stage under the line, the current one in the accent. */
+.acpmux-cloud-start__stage { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.acpmux-cloud-start__stage .cv-worked { min-width: 0; }
+.acpmux-cloud-start__eta { min-width: 0; }
+.acpmux-cloud-start__eta > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-cloud-start__eta-line { color: var(--cv-text-dim, var(--agent-muted)); }
+.acpmux-cloud-start__hint { display: flex; gap: 4px; width: 120px; }
+.acpmux-cloud-start__hint > span { flex: 1; height: 0; border-top: 2px solid color-mix(in srgb, var(--agent-muted) 30%, transparent); transition: border-color var(--cmux-motion-quick) var(--cmux-ease-out); }
+.acpmux-cloud-start__hint > span[data-step="done"] { border-top-color: color-mix(in srgb, var(--agent-muted) 70%, transparent); }
+.acpmux-cloud-start__hint > span[data-step="current"] { border-top-color: var(--agent-accent, #4ade80); }
