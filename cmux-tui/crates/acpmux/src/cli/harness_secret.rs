@@ -212,9 +212,6 @@ pub enum FileChange {
     Unchanged(PathBuf),
     /// The line could not be written here; add it by hand.
     Manual { path: Option<String>, reason: String },
-    /// An endpoint profile: written again naming `item`, a new item of its own that holds the
-    /// value (never the one an earlier profile of this id, or a backup, reads).
-    Endpoint { path: PathBuf, item: String },
 }
 
 /// Store the secret and point the profile at it. `store` runs a
@@ -249,16 +246,6 @@ pub fn secret_set_in(
     }
     // Before the store: a typo must not leave a secret store item behind.
     let folder_file = known_harness(cfg, id, cwd)?;
-    // An endpoint profile's key goes to a new item of that profile only (a key reaches only the
-    // URL it was stored with): `harness_admin::rekey_endpoint`.
-    if let Some(meta) = cfg.profile_meta.get(id).filter(|m| m.source == ProfileSource::UserFile) {
-        let path = PathBuf::from(&meta.source_path);
-        if let Some(item) = crate::harness_admin::rekey_endpoint(&path, id, key, value, store)
-            .map_err(|e| anyhow::anyhow!("{e}"))?
-        {
-            return Ok(FileChange::Endpoint { path, item });
-        }
-    }
     store(&store_command(std::env::consts::OS, id, key, value)?)?;
     Ok(match cfg.profile_meta.get(id) {
         Some(meta) if meta.source == ProfileSource::UserFile => {
@@ -284,7 +271,17 @@ pub fn secret_set_in(
 /// profile file of `cwd` or a folder above it (Some(its path)); else the
 /// "unknown harness" error.
 pub fn known_harness(cfg: &Config, id: &str, cwd: Option<&Path>) -> Result<Option<PathBuf>> {
-    if cfg.profile(id).is_some() {
+    if let Some(profile) = cfg.profile(id) {
+        // An endpoint's key comes only with its add, which stores it in an item of that one
+        // profile (a key reaches only the URL it was stored with): nothing here writes it.
+        if let Some(kind) = crate::byo_endpoint::Kind::of_env(&profile.env) {
+            bail!(
+                "{id} is an endpoint harness: give it a new key by adding it again, `cmux harness \
+                 add {id} --example {} --base-url URL --model MODEL --key --force` (or from \
+                 Settings > Agents)",
+                kind.example()
+            );
+        }
         return Ok(None);
     }
     let file = cwd.and_then(|cwd| {
@@ -444,13 +441,8 @@ pub async fn set_cmd(id: &str, key: &str) -> Result<()> {
     let change =
         secret_set_in(id, key, value.as_str(), &cfg, cwd.as_deref(), &|cmd| run_store(cmd))?;
     drop(value);
-    let item = match &change {
-        FileChange::Endpoint { item, .. } => item.clone(),
-        _ => reference(id, key),
-    };
-    println!("stored {key} for {id} in the secret store ({item})");
+    println!("stored {key} for {id} in the secret store ({})", reference(id, key));
     match change {
-        FileChange::Endpoint { path, .. } => println!("wrote {} to name it", path.display()),
         FileChange::Written(path) => println!("wrote the reference into {}", path.display()),
         FileChange::Unchanged(path) => println!("{} already refers to it", path.display()),
         FileChange::Manual { path, reason } => {
