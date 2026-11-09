@@ -704,3 +704,72 @@ fn w5t_a_started_agent_is_ready_after_reads_the_busy_session_did_not_answer() {
     .expect_err("refused");
     assert_eq!(failure.error["code"], "terminal.not_found");
 }
+
+/// The agent records `agent.list` gives after `hook_at` reads: a screen
+/// (`plugin`) idle record before it, the agent's own hook idle record from it.
+fn screen_then_hook(count: usize, hook_at: usize) -> Value {
+    if count >= hook_at {
+        json!([{"terminal_id": NEW, "state": "idle", "source": "hook", "updated_at_ms": "2000"}])
+    } else {
+        json!([{"terminal_id": NEW, "state": "idle", "source": "plugin", "updated_at_ms": "1500"}])
+    }
+}
+
+fn start_on_composer(cmd: &str, hook_at: usize) -> (Value, i32, usize) {
+    let snapshot = snapshot();
+    let daemon = Fake::new(|operation, _params, count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "pane.split" => created(
+            "pane_33333333333333333333333333333333",
+            "tab_50505050505050505050505050505050",
+            "term_5e115e115e115e115e115e115e115e11",
+        ),
+        "pane.run" => created(
+            "pane_33333333333333333333333333333333",
+            "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
+            NEW,
+        ),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": COMPOSER}),
+        "agent.list" => screen_then_hook(count, hook_at),
+        _ => json!({}),
+    });
+    let options = Options {
+        cmd: Some(cmd.into()),
+        focus: false,
+        timeout: Duration::from_secs(20),
+        ..Options::default()
+    };
+    let (report, exit) =
+        run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
+    (report, exit, daemon.sent("agent.list").len())
+}
+
+/// Real-build check: `agent start` said ready on Claude Code's input box and
+/// a screen (plugin) idle record about 9 s before its SessionStart hook, and
+/// the prompt sent then was lost. A harness whose hooks report a session
+/// start is ready only on its own idle report; one with no such hook stays
+/// ready on its input box.
+#[test]
+fn w5t_start_of_a_harness_that_reports_its_session_start_waits_for_that_report() {
+    // The hook comes on the 12th look: ready then, never on the screen before.
+    let (report, exit, looks) = start_on_composer("sr2 claude", 12);
+    assert_eq!(exit, 0, "{report}");
+    assert_eq!(report["state"], "ready");
+    assert!(looks > 12, "ready before the SessionStart hook came: {looks} looks");
+
+    // No hook within the timeout: a timeout that names the missing report.
+    let (report, exit, _) = start_on_composer("sr2 claude", usize::MAX);
+    assert_eq!(exit, 124, "{report}");
+    assert_eq!(report["state"], "timeout");
+    assert!(
+        report["reason"].as_str().is_some_and(|reason| reason.contains("SessionStart")),
+        "{report}"
+    );
+
+    // amp has no cmux hooks: its input box is enough.
+    let (report, exit, looks) = start_on_composer("amp", usize::MAX);
+    assert_eq!(exit, 0, "{report}");
+    assert_eq!(report["state"], "ready");
+    assert!(looks < 12, "{looks}");
+}

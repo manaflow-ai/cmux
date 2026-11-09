@@ -215,3 +215,42 @@ fn w5t_a_wait_wakes_on_an_event_and_reads_again() {
     assert_eq!(seen[named].terminal, terminal(2));
     assert_eq!(seen[named].status, "blocked");
 }
+
+/// One claude (or `harness`) agent on terminal 1, idle by `source`, and the
+/// harness session id its hooks left on the terminal, if any.
+fn one_agent(harness: &str, source: &str, session_id: Option<&str>) -> Value {
+    let mut record = json!({"id": terminal(1), "tab_id": "tab_0", "lifecycle": "running"});
+    if let Some(session_id) = session_id {
+        record["extra"] = json!({"agent_session_id": session_id, "agent": harness});
+    }
+    json!({
+        "terminals": [record],
+        "tabs": [],
+        "agents": [{"terminal_id": terminal(1), "state": "idle", "source": source,
+                    "updated_at_ms": "1000", "extra": {"agent": harness}}],
+        "notifications": [],
+    })
+}
+
+/// Real-build check: the screen said a just-started Claude Code was idle
+/// about 9 s before its SessionStart hook, and a prompt sent then was lost.
+/// For a harness whose hooks report a session start, a screen idle counts
+/// only once a hook of that agent came (its session id is on the terminal).
+#[test]
+fn w5t_a_screen_idle_counts_only_after_the_agent_reported_its_session() {
+    let idle = request(Mode::Any, &[Until::Idle], 1);
+    let seen = observe(&one_agent("claude", "plugin", None), &[terminal(1)]);
+    assert_eq!(seen[0].status, "starting");
+    assert_eq!(evaluate(&idle, &seen), Outcome::Pending);
+
+    let seen = observe(&one_agent("claude", "plugin", Some("s-1")), &[terminal(1)]);
+    assert_eq!(seen[0].status, "idle");
+    assert_eq!(evaluate(&idle, &seen), Outcome::Holds { terminal: 0 });
+
+    let seen = observe(&one_agent("claude", "hook", None), &[terminal(1)]);
+    assert_eq!(seen[0].status, "idle");
+
+    // amp has no cmux hooks: the screen is all there is.
+    let seen = observe(&one_agent("amp", "plugin", None), &[terminal(1)]);
+    assert_eq!(seen[0].status, "idle");
+}
