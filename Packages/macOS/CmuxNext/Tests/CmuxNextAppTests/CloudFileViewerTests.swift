@@ -168,10 +168,12 @@ struct CloudFileViewerTests {
         provider.close()
     }
 
-    /// App health never reloads a page over unsaved edits (#39247): the page reports edits in batches,
-    /// so a save that finishes may already be behind an edit still waiting in the page (reviews at
-    /// c2384d5 and 5bcbe91). An edited file tab, on this Mac or another machine, stays held.
-    @Test func aCloudTabHoldsItsUnsavedEditsEvenAfterASave() async throws {
+    /// App health never reloads a page over unsaved edits (#39247): an edited file tab, on this Mac or
+    /// another machine, is held until a save covers its reported edits. Codex's review at f02e048 (F2):
+    /// the hold lasted for the tab's life, so one edit refused every later repair. A save clears it
+    /// when no report came while it ran; an edit still waiting in the page's next report is held by the
+    /// page's own mark (`[data-cmux-unsaved-edits]`, PageHeartbeatTests).
+    @Test func aCloudTabHoldsItsUnsavedEditsUntilASaveCoversThem() async throws {
         let path = "/home/cmux/notes.md"
         let machine = MachineFiles()
         machine.set(path, "one\n")
@@ -182,9 +184,10 @@ struct CloudFileViewerTests {
         #expect(!provider.holdsReportedEdits)
         _ = try await Self.call(provider, "edited", ["path": .string(path), "text": "two\n", "baseHash": .string(base)])
         #expect(provider.holdsReportedEdits)
-        // The save of "two" finishes while "three" may still wait in the page's next report.
-        _ = try await Self.call(provider, "save", ["path": .string(path), "text": "two\n", "baseHash": .string(base)])
-        #expect(provider.holdsReportedEdits)
+        let saved = try await Self.call(provider, "save", ["path": .string(path), "text": "two\n", "baseHash": .string(base)])
+        #expect(!provider.holdsReportedEdits, "a save with no report while it ran covers the edits")
+        _ = try await Self.call(provider, "edited", ["path": .string(path), "text": "three\n", "baseHash": saved["hash"] ?? .null])
+        #expect(provider.holdsReportedEdits, "a later edit holds the tab again")
         provider.close()
     }
 
