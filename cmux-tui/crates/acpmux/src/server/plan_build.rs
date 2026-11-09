@@ -328,11 +328,21 @@ async fn handle(
                     others.clone()
                 };
                 // Read before they go: once removed, Compare shows what it read here.
+                // A run whose change was not saved keeps its worktree: a retry saves and removes it.
+                let mut unsaved = Vec::new();
                 if !left.is_empty() {
                     let before = hub.plan_compare(&session, build_id).await?;
-                    hub.plan_keep_changes(&left, &before);
+                    unsaved = hub.plan_keep_changes(&left, &before);
                 }
-                let mut removed = hub.plan_discard(&left).await;
+                let go: Vec<_> = left
+                    .iter()
+                    .filter(|s| !unsaved.iter().any(|(id, _)| *id == s.id))
+                    .cloned()
+                    .collect();
+                let mut removed = hub.plan_discard(&go).await;
+                for (id, why) in unsaved {
+                    removed.push(json!({"sessionId": id, "removed": false, "error": why}));
+                }
                 // Every run's outcome, by its id: a retry's answer and record also name the runs
                 // an earlier Keep removed, so none is lost and no earlier error stays on a run
                 // that is gone now.

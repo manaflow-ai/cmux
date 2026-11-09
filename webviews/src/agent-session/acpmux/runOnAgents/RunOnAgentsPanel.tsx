@@ -44,6 +44,16 @@ const DEFAULT = "";
 export function RunOnAgentsPanel({ catalog, prompt, onRun, onClose, initial, runRef }: RunOnAgentsPanelProps) {
   const t = useT();
   const [variants, setVariants] = useState<RunVariant[]>(() => initial ?? defaultVariants(catalog));
+  // Opened before the harness catalog came, it had no agent to start with: the defaults come with
+  // the catalog, once, and never over rows the person already has.
+  const [seeded, setSeeded] = useState(() => variants.length > 0);
+  if (!seeded && catalog) {
+    const defaults = defaultVariants(catalog);
+    if (defaults.length > 0) {
+      setSeeded(true);
+      setVariants((current) => (current.length > 0 ? current : defaults));
+    }
+  }
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string>();
   const harnesses = runHarnesses(catalog);

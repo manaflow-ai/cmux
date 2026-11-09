@@ -1530,7 +1530,11 @@ function ComposerFrame({
     if (owned?.action === "runOn" && runOnAgents) {
       // A run's prompt is text alone (sendMenuModel.ts): staged files stay here for a send.
       if (attachments.length > 0 || pending.length > 0) return false;
-      const rest = ownedArgs?.trim() ?? "";
+      // The field holds markdown: the command comes off the draft as written, so the prompt left
+      // reads as typed. The args are agent text, and loaded back as markdown, a typed `\[x\]`
+      // became `[x]`.
+      const written = draftText.trimStart();
+      const rest = written.startsWith("/") ? written.replace(/^\/\S+\s*/, "").trim() : (ownedArgs?.trim() ?? "");
       edit(rest, rest.length);
       setRunningOn(true);
       return true;

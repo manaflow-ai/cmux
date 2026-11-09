@@ -646,9 +646,16 @@ impl Hub {
 
     /// Saves in each of `runs`' lineage its change from `compare` (a `plan_compare` reply read
     /// before a Keep removes their worktrees), so Compare still shows it once they are gone. A run
-    /// whose read failed keeps what it had.
-    pub(crate) fn plan_keep_changes(&self, runs: &[Arc<Session>], compare: &Value) {
+    /// whose read failed keeps what it had. Each save is durable before this returns, behind any
+    /// write of the run still in flight (the winner's barrier); answers the runs whose save failed,
+    /// with why: their worktrees stay, since once removed Compare could only read a missing folder.
+    pub(crate) fn plan_keep_changes(
+        &self,
+        runs: &[Arc<Session>],
+        compare: &Value,
+    ) -> Vec<(String, String)> {
         let rows = compare.get("builds").and_then(Value::as_array);
+        let mut unsaved = Vec::new();
         for run in runs {
             let Some(row) = rows
                 .and_then(|r| r.iter().find(|b| b["sessionId"] == run.id.as_str()))
@@ -667,8 +674,11 @@ impl Hub {
             {
                 link.plan_build_change = Some(change);
             }
-            self.save_meta(run);
+            if let Err(e) = self.meta_barrier(run).and_then(|()| self.save_meta_answered(run)) {
+                unsaved.push((run.id.clone(), e.message));
+            }
         }
+        unsaved
     }
 
     /// The builds a Keep let go, gone now: each chat closes, then worktree care archives its

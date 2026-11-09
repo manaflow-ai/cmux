@@ -131,6 +131,23 @@ test("Run on 3 agents: Claude Opus, Codex and Claude Sonnet, started with one pr
   act(() => root.unmount());
 });
 
+test("opened before the catalog came, the panel starts with the defaults once it comes (cmux#38503 review, F2)", async () => {
+  const panel = (c: PickerCatalog | undefined) => (
+    <RunOnAgentsPanel
+      catalog={c}
+      prompt="Fix the flaky upload test"
+      onRun={async () => undefined}
+      onClose={() => undefined}
+    />
+  );
+  const { host, root } = await mount(panel(undefined));
+  expect(host.querySelectorAll(".acpmux-run-on-row").length).toBe(0);
+  await act(async () => root.render(panel(catalog)));
+  expect(host.querySelectorAll(".acpmux-run-on-row").length).toBe(3);
+  expect(host.querySelector<HTMLButtonElement>(".acpmux-run-on-run")!.disabled).toBe(false);
+  act(() => root.unmount());
+});
+
 test("at most four agents and at least two; an empty prompt runs nothing", async () => {
   const runs: RunVariant[][] = [];
   const { host, root } = await mount(

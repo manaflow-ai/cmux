@@ -234,3 +234,62 @@ fn one_build_call_holds_an_approval_at_a_time() {
     drop(first);
     assert!(claim("s-claim", "p1").is_ok(), "released when the call ends");
 }
+
+/// A store whose saves of a chat holding a Compare change fail (a full disk, say).
+struct FailsChanges(crate::store::MemoryStore);
+
+impl crate::store::Store for FailsChanges {
+    fn list(&self) -> anyhow::Result<Vec<crate::store::SessionMeta>> {
+        self.0.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<crate::store::SessionMeta>> {
+        self.0.load(id)
+    }
+    fn save(&self, meta: &crate::store::SessionMeta) -> anyhow::Result<()> {
+        if meta.subsession.as_ref().is_some_and(|l| l.plan_build_change.is_some()) {
+            anyhow::bail!("disk full");
+        }
+        self.0.save(meta)
+    }
+    fn append(&self, id: &str, event: &crate::store::EventRecord) -> anyhow::Result<()> {
+        self.0.append(id, event)
+    }
+    fn events(
+        &self,
+        id: &str,
+        after: u64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<crate::store::EventRecord>> {
+        self.0.events(id, after, limit)
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.0.delete(id)
+    }
+}
+
+/// Keep removes a run's worktree only once its change from Compare is durably saved: a run whose
+/// save failed is answered back, so its worktree stays (cmux#38503 review). Before, the save was
+/// queued and a failure only logged, and the worktree went anyway.
+#[test]
+fn a_run_whose_compare_change_was_not_saved_is_answered_back() {
+    let config = serde_json::from_value(json!({})).unwrap_or_else(|e| panic!("config: {e}"));
+    let hub = Hub::new(config, Box::new(FailsChanges(crate::store::MemoryStore::default())));
+    let run = |id: &str| {
+        let meta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+            "subsession": {"startedBy": "parent", "shortName": id, "depth": 1},
+        }))
+        .unwrap_or_else(|e| panic!("meta: {e}"));
+        hub.insert_test_session(meta)
+    };
+    let (read, unread) = (run("read"), run("unread"));
+    let compare = json!({"builds": [
+        {"sessionId": "read", "added": 1, "removed": 0, "files": [{"path": "NOTICE"}], "moreFiles": 0},
+        {"sessionId": "unread", "error": "no worktree"},
+    ]});
+    let unsaved = hub.plan_keep_changes(&[read, unread], &compare);
+    assert_eq!(unsaved.len(), 1, "{unsaved:?}");
+    assert_eq!(unsaved[0].0, "read");
+    assert!(unsaved[0].1.contains("not saved"), "{unsaved:?}");
+}

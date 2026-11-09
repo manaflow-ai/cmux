@@ -251,3 +251,19 @@ test("with a file staged, the / menu does not offer /run-on: a run carries text 
   await until(() => slashRows().length > 0, "the / menu");
   expect(slashRows().some((row) => row.includes("run-on"))).toBe(false);
 });
+
+test("/run-on leaves its prompt as typed: a typed backslash stays (cmux#38503 review, F1)", async () => {
+  const { mergedCommands } = await import("../src/agent-session/acpmux/cmuxCommands");
+  const ran: string[] = [];
+  await render(async (text) => void ran.push(text), undefined, mergedCommands(undefined, new Set(["runOn", "model"])));
+  await type("/run-on Match \\[x\\] literally");
+  const editor = host.querySelector<HTMLElement>(".acpmux-md")!;
+  await act(async () => {
+    editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  await until(() => !!dom.window.document.querySelector(".acpmux-run-on-run"), "the panel");
+  const run = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-run-on-run")!;
+  await act(async () => run.click());
+  await until(() => ran.length === 1, "the run");
+  expect(ran).toEqual(["Match \\[x\\] literally"]);
+});
