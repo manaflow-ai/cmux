@@ -2421,6 +2421,20 @@ class GitHub:
     def branch_head(self, branch: str) -> str:
         return str(((self.request("GET", f"/branches/{branch}") or {}).get("commit") or {}).get("sha") or "")
 
+    def branch_exists(self, branch: str) -> bool:
+        """Whether the run's ref still exists as a branch or a tag (a dispatch on a tag names the tag as its
+        head_branch). False only when both answer 404; other errors raise, so read() retries them."""
+        name = urllib.parse.quote(branch, safe='')
+        for path in (f"/branches/{name}", f"/git/ref/tags/{name}"):
+            try:
+                self.request("GET", path)
+            except urllib.error.HTTPError as error:
+                if error.code == 404:
+                    continue
+                raise
+            return True
+        return False
+
     def cancel(self, run_id: int, before_send: Callable[[], None] | None = None) -> None:
         """`before_send` runs right before the cancel is sent, after any token mint, and before every re-send
         after a rate-limit wait or a token refresh; it raises to drop the cancel (rescue(before_cancel=...))."""
@@ -4530,6 +4544,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     run = read(lambda: api.run(target.run_id), sleep, log)
     if int(run.get("run_attempt") or 0) != target.attempt:
         return "not rescued: someone else already re-ran the run"
+    gone = deleted_branch(api, target, run, sleep, log)
+    if gone:
+        return f"not rescued: {gone}; left as it is"
     failover = ""
     plan: PlacementRerun | None = None
     only_job: int | None = None
@@ -4631,6 +4648,25 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     return result
 
 
+def deleted_branch(api: GitHub, target: Target, run: Mapping[str, Any], sleep: Callable[[float], None],
+                   log: Callable[[str], None]) -> str:
+    """Why a dispatched run cannot be re-run, or "": its branch was deleted.
+
+    A re-run reads the workflow's local reusable workflows (`uses: ./.github/workflows/...`) from the run's
+    branch, so once the branch is gone every re-run ends in startup_failure at once. Run 42502885663
+    (cmux-tui.yml, dispatched on tui-main-registry-repair-tabs): its pull request merged and the branch was
+    deleted at 17:21:34Z on 2026-11-08; this rescue cancelled attempt 1 and its re-run, attempt 2, failed
+    to start ("error parsing called workflow ... workflow was not found"). Such a run is left as it is,
+    queued or running, never cancelled. Only dispatched runs with no pull request, main or push branch
+    are read here: those rules already cover the others."""
+    if target.pr_number or target.main or target.nightly or target.push_branch:
+        return ""
+    branch = str(run.get("head_branch") or "")
+    if not branch or read(lambda: api.branch_exists(branch), sleep, log):
+        return ""
+    return f"its branch {branch} was deleted, so a re-run could not load its workflow (startup_failure)"
+
+
 # The (run id, attempt) pairs this process logged CANCEL_SETTLED for. Its own log is unreadable until its job
 # ends (rescue_jobs() skips the reader's own run), so a later watch in the same sweeper reads this instead.
 SETTLED_HERE: set[tuple[int, int]] = set()
@@ -4704,6 +4740,10 @@ def settle_and_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.dateti
     moved = "" if keep_main else pull_moved(api, target, sleep, log)
     if moved:
         return f"cancelled but not re-run: {moved}"
+    # The branch can go while the cancel settles, or before a resumed CANCEL_SENT: a re-run would only fail to start.
+    gone = deleted_branch(api, target, run, sleep, log)
+    if gone:
+        return f"cancelled but not re-run: {gone}"
     if failed_only and only_job is not None:
         try:
             api.rerun_job(target.run_id, only_job, target.attempt + 1)

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298.
+// cmux-tui mux protocol 12, IR 93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -7,6 +7,15 @@ use super::types as T;
 use crate::{CmuxClient, CmuxStream, Nullable, Optional, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AckTabNotificationsRequest {
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type AckTabNotificationsResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1489,6 +1498,10 @@ pub struct ZoomPaneRequest {
 
 #[rustfmt::skip]
 impl CmuxClient {
+    pub fn ack_tab_notifications(&mut self, request: AckTabNotificationsRequest) -> Result<AckTabNotificationsResult> {
+        self.execute(&ACK_TAB_NOTIFICATIONS_METADATA, &request)
+    }
+
     pub fn apply_layout(&mut self, request: ApplyLayoutRequest) -> Result<T::ApplyLayoutResult> {
         self.execute(&APPLY_LAYOUT_METADATA, &request)
     }
