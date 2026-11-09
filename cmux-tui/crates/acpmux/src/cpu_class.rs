@@ -77,18 +77,24 @@ pub enum CpuClass {
 /// The class a session runs at when nothing names one, and its harness is no launcher.
 pub const DEFAULT: CpuClass = CpuClass::Background;
 
+/// Where Claude Code's installers keep its files (as `harness_health/channel.rs` lists them). A
+/// path into one of them is Claude Code under another name: the native installer's `claude` is a
+/// symlink to `versions/<version>`, and a remote chain's `argv[0]` is the resolved file.
+const CLAUDE_INSTALLS: &[&str] =
+    &["/.local/share/claude/", "/.claude/local/", "/@anthropic-ai/claude-code/"];
+
 /// The class a harness runs at when nothing names one (module docs, item 2). What the profile
 /// says decides, never what another process is named. A Claude Code profile whose `argv` does not
 /// start with Claude Code is a launcher. A wrapper that execs Claude Code reads as one too, and
 /// then it and its tools run at normal class; its profile can still ask for `background`.
 /// It reads the profile's `argv`, not the spawned program: a remote chain spawns `sandbox-exec`
-/// around a resolved path whatever the profile runs. An empty `argv` runs `claude`
-/// (`claude_stdio::spawn_plan`).
+/// whatever the profile runs. An empty `argv` runs `claude` (`claude_stdio::spawn_plan`).
 pub fn default_for(kind: crate::config::HarnessKind, argv: &[String]) -> CpuClass {
     let launcher = kind == crate::config::HarnessKind::ClaudeStdio
         && argv.first().is_some_and(|program| {
             let name = std::path::Path::new(program).file_name().and_then(|name| name.to_str());
             !matches!(name, Some("claude" | "claude.exe"))
+                && !CLAUDE_INSTALLS.iter().any(|install| program.contains(install))
         });
     if launcher { CpuClass::Normal } else { DEFAULT }
 }
@@ -564,7 +570,14 @@ mod tests {
         for launcher in ["/Users/me/.local/bin/claude-sr2", "/Users/me/bin/sr", "sr2", "python3"] {
             assert_eq!(default(HarnessKind::ClaudeStdio, launcher), CpuClass::Normal, "{launcher}");
         }
-        for agent in ["claude", "/opt/homebrew/bin/claude", "/x/bin/claude.exe"] {
+        for agent in [
+            "claude",
+            "/opt/homebrew/bin/claude",
+            "/x/bin/claude.exe",
+            "/Users/me/.local/share/claude/versions/2.1.34",
+            "/Users/me/.claude/local/node_modules/.bin/cli",
+            "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+        ] {
             assert_eq!(default(HarnessKind::ClaudeStdio, agent), DEFAULT, "{agent}");
         }
         // An empty argv runs `claude`.
