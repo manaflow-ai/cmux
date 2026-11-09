@@ -54,16 +54,15 @@ test("the look comes from the nearest attribute, else the shipped fade", () => {
   expect(turnEndLook({ closest: () => ({ getAttribute: () => "spin" }) } as unknown as Element)).toBe("fade");
 });
 
-test("a capture from another chat plays nothing, and the kept rows' move is read from the capture", async () => {
+test("a capture from another chat plays nothing and draws nothing of it", async () => {
   const { JSDOM } = await import("jsdom");
-  const { keptRowMove, playTurnEnd } = await import("./turnEndFold");
+  const { playTurnEnd } = await import("./turnEndFold");
   const dom = new JSDOM("<!doctype html><div id=thread></div>", { pretendToBeVisual: true });
   const thread = dom.window.document.getElementById("thread")!;
   const reply = dom.window.document.createElement("div");
   reply.className = "acpmux-row";
   reply.dataset.rowId = "answer";
   thread.append(reply);
-  // jsdom lays nothing out: the reply is drawn at 0 now; it was drawn 40 px lower at the capture.
   const copy = dom.window.document.createElement("div");
   const capture = {
     rows: [
@@ -73,12 +72,9 @@ test("a capture from another chat plays nothing, and the kept rows' move is read
     scrollTop: 0,
     sessionId: "chat-a",
   };
-  // Another chat shown in its place: nothing of chat A is drawn over it.
+  // Another chat shown in its place: nothing of chat A is drawn over it, and nothing plays.
   expect(playTurnEnd(thread, capture, "chat-b")).toBeUndefined();
   expect(thread.contains(copy)).toBe(false);
-  // The rows the swap kept moved up by 40 px, less what the follow motion already draws them by.
-  expect(keptRowMove(thread, capture)).toBe(-40);
-  expect(keptRowMove(thread, capture, -10)).toBe(-30);
-  expect(keptRowMove(thread, { ...capture, rows: [{ id: "gone", top: 0 }] })).toBeUndefined();
+  expect(thread.hasAttribute("data-turn-end-folding")).toBe(false);
   dom.window.close();
 });
