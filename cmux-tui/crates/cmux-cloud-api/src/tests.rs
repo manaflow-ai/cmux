@@ -266,7 +266,14 @@ fn networks(origin: &str, auth: Auth) -> Result<Value, Failure> {
 #[test]
 fn the_network_list_is_the_platforms_network_target_as_the_install() {
     let (origin, seen) = fake(|_| ok(TARGET));
-    let network = json!({ "id": MESH, "cidr": "10.128.16.0/20", "cidrV6": null, "scope": "team" });
+    // The id is the team's, so `cloud network-list` output feeds `vm.tunnel_attach` as it is.
+    let network = json!({
+        "id": "team_1",
+        "meshId": MESH,
+        "cidr": "10.128.16.0/20",
+        "cidrV6": null,
+        "scope": "team",
+    });
     assert_eq!(networks(&origin, Auth::Worker).unwrap(), json!([network]));
     let seen = seen.lock().unwrap();
     assert_eq!(seen.len(), 1);

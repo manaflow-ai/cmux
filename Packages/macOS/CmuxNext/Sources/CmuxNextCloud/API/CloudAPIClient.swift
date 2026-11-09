@@ -110,15 +110,16 @@ public struct CloudAPIClient: Sendable {
 
     /// The team's Cloud network: cmux-platform's `GET /v1/host/network/target` on a Worker machines
     /// client, sent as this Mac's install (`installToken`; the route refuses a Stack session), never
-    /// classic Cloud. A team has one mesh; one with none yet (404) has no network.
+    /// classic Cloud. A team has one network, named by its team id (what tunnel attach takes), with
+    /// its provider mesh as `meshId`; a team with no mesh yet (404) has none.
     public func listNetworks() async throws -> [CloudNetwork] {
         guard !sendsStackSession, let installToken else { throw CloudAPIError.transport("the Cloud network list is a cmux API Worker route") }
-        struct Target: Decodable { var mesh: String; var ipv4_cidr: String }
+        struct Target: Decodable { var team: String; var mesh: String; var ipv4_cidr: String }
         var install = self
         install.tokens = { (try await installToken(), "") }
         do {
             let target = try await install.send("GET", "/v1/host/network/target", as: Target.self)
-            return [CloudNetwork(id: target.mesh, cidr: target.ipv4_cidr, cidrV6: nil, scope: "team")]
+            return [CloudNetwork(id: target.team, meshId: target.mesh, cidr: target.ipv4_cidr, cidrV6: nil, scope: "team")]
         } catch CloudAPIError.http(status: 404, code: _, message: _, action: _, traceId: _) {
             return []
         }

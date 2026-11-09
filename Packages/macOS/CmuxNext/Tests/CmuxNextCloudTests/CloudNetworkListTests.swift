@@ -4,7 +4,7 @@ import Testing
 
 /// The Cloud network list is cmux-platform's `GET /v1/host/network/target` on the Worker machines
 /// client, sent as this Mac's install (the route refuses a Stack session), never classic
-/// `/api/vm/network`: the team's one mesh, or none before it has one (404).
+/// `/api/vm/network`: the team's one network (its team id, its mesh as `meshId`), or none before it has a mesh (404).
 @Suite(.serialized)
 struct CloudNetworkListTests {
     nonisolated final class NetworkAPI: URLProtocol {
@@ -43,7 +43,9 @@ struct CloudNetworkListTests {
 
     @Test func theTeamsMeshIsItsNetworkReadAsTheInstall() async throws {
         let networks = try await worker(status: 200).listNetworks()
-        #expect(networks == [CloudNetwork(id: "mesh_0123456789abcdefghjkmnpqrs", cidr: "10.128.16.0/20", cidrV6: nil, scope: "team")])
+        // The id is the team's, so `cloud network-list` output feeds `cloud tunnel attach` as it is.
+        #expect(networks == [CloudNetwork(id: "team_aaaaaaaaaaaaaaaaaaaa", meshId: "mesh_0123456789abcdefghjkmnpqrs",
+                                          cidr: "10.128.16.0/20", cidrV6: nil, scope: "team")])
         let request = try #require(NetworkAPI.requests.first)
         #expect(NetworkAPI.requests.count == 1)
         #expect(request.httpMethod == "GET")
