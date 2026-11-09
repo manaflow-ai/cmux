@@ -198,6 +198,6 @@ test("a card the setting collapses shows its pictures only once opened", async (
     await renderCard(edit(true), reader({ before: PAGE_BEFORE, after: PAGE_AFTER }));
     expect(host.querySelector(".acpmux-turn-shots")).toBeNull();
   } finally {
-    setEditedFilesSettings({ show: "always" });
+    act(() => setEditedFilesSettings({ show: "always" }));
   }
 });

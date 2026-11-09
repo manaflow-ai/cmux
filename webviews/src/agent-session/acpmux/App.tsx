@@ -10064,7 +10064,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                 topInset={soloUnder ? tabRow.height : 0}
                                                                 rows={transcriptRows}
                                                                 streams={!childRows}
-                                                                earlier={!childRows ? snapshot.earlierPrompts : undefined}
+                                                                earlier={
+                                                                  !childRows ? snapshot.earlierPrompts : undefined
+                                                                }
                                                                 promptCount={
                                                                   !childRows ? snapshot.promptCount : undefined
                                                                 }
@@ -10089,7 +10091,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                 working={snapshot.isWorking}
                                                                 // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
                                                                 jumpButton={!quick}
-                                                                onJumpShownChange={quick ? undefined : setJumpLatestShown}
+                                                                onJumpShownChange={
+                                                                  quick ? undefined : setJumpLatestShown
+                                                                }
                                                                 needsYou={needsYou.pill}
                                                                 focusComposer={() => composerHandle.current?.focus()}
                                                                 // Quick Chat's panel stacks its composer below the transcript.
@@ -10145,7 +10149,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                 onAnchor={
                                                                   quick || childRows || !shownSessionId
                                                                     ? undefined
-                                                                    : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                                                    : (anchor) =>
+                                                                        postScrollAnchor(shownSessionId, anchor)
                                                                 }
                                                                 expanded={folds}
                                                                 showMinimap={minimapVisible}
@@ -10175,7 +10180,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                           : null,
                                                                       )
                                                                 }
-                                                                registry={readOnlySubagent ? noDismissRegistry : registry}
+                                                                registry={
+                                                                  readOnlySubagent ? noDismissRegistry : registry
+                                                                }
                                                                 githubRepository={githubRepository}
                                                                 fallbackRepository={
                                                                   pullRequestRef(headerPullRequest?.url ?? "")?.repo
