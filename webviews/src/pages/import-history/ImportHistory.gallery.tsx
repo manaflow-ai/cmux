@@ -52,6 +52,10 @@ export default componentEntry<Props>({
     done: { props: { phase: "done" } },
     error: { props: { phase: "error" } },
     "paste-summary": { props: { paste: true } },
+    "paste-summary-open": {
+      note: "A source's paste box open under its row: help, Copy, label and text box start at the title's edge, as the path does.",
+      props: { paste: true, open: true },
+    },
     autodetected: {
       note: "Archives found in the usual export folders are checked inline; manual pick remains available on each archive row.",
       props: { autodetected: true, open: true },
