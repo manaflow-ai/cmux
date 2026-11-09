@@ -335,12 +335,12 @@ fn a_version_bump_without_a_migratable_snapshot_serves_live_events_and_rebuilds(
 /// Waits until `mux`'s roster rebuild is over, at most 10 s, with no
 /// request that would give the roster's owner another pass.
 fn rebuild_ends_on_its_own(mux: &Mux) -> bool {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(10);
     while mux.agent_roster_rebuilding() {
-        if std::time::Instant::now() >= deadline {
+        if Instant::now() >= deadline {
             return false;
         }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(10));
     }
     true
 }
