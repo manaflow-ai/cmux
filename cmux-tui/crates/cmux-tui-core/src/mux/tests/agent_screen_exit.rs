@@ -501,7 +501,7 @@ fn a_direct_report_stamped_before_the_entry_keeps_its_row_through_the_reconcile(
     let surface = mux.new_workspace(None, None).unwrap();
     let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
     screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
-    let (stamp_mux, stamp_terminal) = (Arc::clone(&mux), terminal_id.clone());
+    let (stamp_mux, stamp_terminal) = (Arc::clone(&mux), terminal_id);
     direct_report_during_a_replay(&mux, surface.id, AgentState::Idle, move || {
         set_projection_updated_at(&stamp_mux, &stamp_terminal, 1);
     });
@@ -542,7 +542,7 @@ fn a_direct_report_whose_echo_failed_keeps_its_row_through_the_reconcile() {
     let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
     screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
     rebuild_faults::fail_report_echoes(&mux.session, 1);
-    let (stamp_mux, stamp_terminal) = (Arc::clone(&mux), terminal_id.clone());
+    let (stamp_mux, stamp_terminal) = (Arc::clone(&mux), terminal_id);
     direct_report_during_a_replay(&mux, surface.id, AgentState::Idle, move || {
         set_projection_updated_at(&stamp_mux, &stamp_terminal, 1);
     });

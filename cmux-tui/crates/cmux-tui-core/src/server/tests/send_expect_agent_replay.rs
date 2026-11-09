@@ -110,8 +110,13 @@ fn an_expect_agent_send_waits_for_a_direct_reports_echo_after_the_replay() {
         let mux = Arc::clone(&mux);
         let surface = surface.id;
         std::thread::spawn(move || {
-            mux.report_agent(surface, crate::AgentState::Working, crate::AgentSource::Hook, None)
-                .unwrap();
+            mux.report_agent(
+                surface,
+                crate::AgentState::Working,
+                crate::AgentSource::Hook,
+                Some("replay-session".into()),
+            )
+            .unwrap();
         })
     };
     committed.recv_timeout(Duration::from_secs(30)).expect("the report committed");

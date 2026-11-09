@@ -189,7 +189,7 @@ impl RosterControl {
 ///   session, and a guarded send would read it.
 #[derive(Default)]
 pub(in crate::mux) struct ReplayReports {
-    pub(in crate::mux) written: std::collections::HashSet<TerminalPublicId>,
+    pub(in crate::mux) written: HashSet<TerminalPublicId>,
     pub(in crate::mux) echoes_pending: usize,
 }
 
