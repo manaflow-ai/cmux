@@ -148,7 +148,9 @@ test("a worktree asked for and passed over stays, with why, through the read aft
   // The read after counts it as kept; its row stays where the person looks.
   const after = storageRows(
     parseStorageReport({
-      report: { items: [item("/w/b", { stale: false, verdict: { action: "keep", reason: "session lane is open in it" } })] },
+      report: {
+        items: [item("/w/b", { stale: false, verdict: { action: "keep", reason: "session lane is open in it" } })],
+      },
     })!,
   );
   const shown = withRefused(after, done.stale, done.failed);

@@ -318,9 +318,7 @@ export function StorageSection({
             onChange={() => actions.onToggle(item.path)}
           />
           <span className="acpmux-session-info-task__command">{item.name}</span>
-          {detail && (
-            <span className="acpmux-session-info-storage__detail">{detail}</span>
-          )}
+          {detail && <span className="acpmux-session-info-storage__detail">{detail}</span>}
           <span
             className="acpmux-session-info-task__time"
             title={item.bytes === undefined ? t("sessionInfo.storage.notMeasured") : undefined}

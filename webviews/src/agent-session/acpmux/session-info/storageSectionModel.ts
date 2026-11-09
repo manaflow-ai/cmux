@@ -242,7 +242,11 @@ export function afterClean(
 
 /// A read's rows with the worktrees a clean just refused kept in place: the read may now count them
 /// as kept, and their row is where the person looks for why.
-export function withRefused(rows: StorageRows, previous: readonly StaleRow[], refused: ReadonlyMap<string, string>): StorageRows {
+export function withRefused(
+  rows: StorageRows,
+  previous: readonly StaleRow[],
+  refused: ReadonlyMap<string, string>,
+): StorageRows {
   if (refused.size === 0) return rows;
   const listed = new Set(rows.stale.map((row) => row.path));
   const carried = previous.filter((row) => refused.has(row.path) && !listed.has(row.path));
