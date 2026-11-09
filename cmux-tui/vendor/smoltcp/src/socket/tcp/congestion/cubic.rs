@@ -5,6 +5,9 @@ use super::Controller;
 // Constants for the Cubic congestion control algorithm.
 // See RFC 9438.
 const BETA_CUBIC: f64 = 0.7;
+/// cmux patch: the decrease for a loss the sender judged random rather than
+/// congestion (an isolated loss with no queue building), half of CUBIC's.
+const BETA_RANDOM_LOSS: f64 = 0.85;
 const C: f64 = 0.4;
 // RFC 9438 §4.3: α_cubic = 3(1-β)/(1+β). ~0.5294 for β=0.7.
 const ALPHA_CUBIC: f64 = 3.0 * (1.0 - BETA_CUBIC) / (1.0 + BETA_CUBIC);
@@ -65,9 +68,51 @@ impl Cubic {
 
     // K = cbrt(w_max * (1 - beta) / C) ^ 1/3
     fn recompute_k(&mut self) {
+        self.recompute_k_for(BETA_CUBIC);
+    }
+
+    fn recompute_k_for(&mut self, beta: f64) {
         let c_as_bytes = C * self.mss as f64;
-        let k3 = (self.w_max as f64) * (1.0 - BETA_CUBIC) / c_as_bytes;
+        let k3 = (self.w_max as f64) * (1.0 - beta) / c_as_bytes;
         self.k = cube_root(k3);
+    }
+
+    /// The multiplicative decrease of fast recovery, by `beta`, with the
+    /// window inflated by three segments for duplicate-ACK recovery
+    /// (`inflate`) or not (SACK recovery, whose pipe accounts for them).
+    fn cut(&mut self, now: Instant, in_flight: usize, beta: f64, inflate: bool) {
+        self.idle_start = None;
+        self.initial = false;
+        // Only cut window size on first entrance to fast recovery.
+        if !self.in_fast_recovery {
+            // RFC 9438 §4.3: remember the cwnd at this congestion event so W_est can
+            // detect when it has recovered and switch α_cubic to 1.
+            self.cwnd_prior = self.cwnd;
+
+            // TODO: Make this optional?
+            // RFC recommends (SHOULD) disabling if only a single CUBIC flow is on a network.
+            //
+            // RFC 9483.4.7: Fast Convergence
+            // If loss happened at a smaller cwnd than before, it indicates a new flow.
+            // Reduce the cubic plateau more than usual to create headroom.
+            self.w_max = if self.cwnd < self.w_max {
+                ((self.cwnd as f64) * (1.0 + beta) / 2.0) as usize
+            } else {
+                self.cwnd
+            };
+
+            self.ssthresh = ((in_flight as f64 * beta) as usize).max(2 * self.mss);
+            let inflation = if inflate { 3 * self.mss } else { 0 };
+            self.cwnd = self
+                .ssthresh
+                .min(self.rwnd)
+                .saturating_add(inflation)
+                .max(self.mss);
+
+            self.recovery_start = Some(now);
+            self.in_fast_recovery = true;
+            self.recompute_k_for(beta);
+        }
     }
 
     // RFC 9438 §4.2: subtract the most recent idle period from t by sliding
@@ -195,41 +240,15 @@ impl Controller for Cubic {
     }
 
     fn on_loss(&mut self, now: Instant, in_flight: usize) {
-        self.idle_start = None;
-        self.initial = false;
-        // Only cut window size on first entrance to fast recovery.
-        if !self.in_fast_recovery {
-            // RFC 9438 §4.3: remember the cwnd at this congestion event so W_est can
-            // detect when it has recovered and switch α_cubic to 1.
-            self.cwnd_prior = self.cwnd;
-
-            // TODO: Make this optional?
-            // RFC recommends (SHOULD) disabling if only a single CUBIC flow is on a network.
-            //
-            // RFC 9483.4.7: Fast Convergence
-            // If loss happened at a smaller cwnd than before, it indicates a new flow.
-            // Reduce the cubic plateau more than usual to create headroom.
-            self.w_max = if self.cwnd < self.w_max {
-                ((self.cwnd as f64) * (1.0 + BETA_CUBIC) / 2.0) as usize
-            } else {
-                self.cwnd
-            };
-
-            self.ssthresh = ((in_flight as f64 * BETA_CUBIC) as usize).max(2 * self.mss);
-            self.cwnd = self.ssthresh.min(self.rwnd).saturating_add(3 * self.mss);
-
-            self.recovery_start = Some(now);
-            self.in_fast_recovery = true;
-            self.recompute_k();
-        }
+        self.cut(now, in_flight, BETA_CUBIC, true);
     }
 
     fn on_sack_loss(&mut self, now: Instant, in_flight: usize) {
-        let entering = !self.in_fast_recovery;
-        self.on_loss(now, in_flight);
-        if entering {
-            self.cwnd = self.ssthresh.min(self.rwnd).max(self.mss);
-        }
+        self.cut(now, in_flight, BETA_CUBIC, false);
+    }
+
+    fn on_random_loss(&mut self, now: Instant, in_flight: usize) {
+        self.cut(now, in_flight, BETA_RANDOM_LOSS, false);
     }
 
     fn on_rto(&mut self, _now: Instant, in_flight: usize) {
@@ -354,6 +373,23 @@ mod test {
         // A second report in the same recovery changes nothing.
         cubic.on_sack_loss(Instant::from_millis(1), in_flight);
         assert_eq!(cubic.cwnd, ssthresh);
+    }
+
+    #[test]
+    fn test_random_loss_cuts_less_than_congestion() {
+        let cut = |random: bool| {
+            let mut cubic = Cubic::new();
+            cubic.set_mss(MSS);
+            cubic.set_remote_window(usize::MAX);
+            if random {
+                cubic.on_random_loss(Instant::from_millis(0), 40 * MSS);
+            } else {
+                cubic.on_sack_loss(Instant::from_millis(0), 40 * MSS);
+            }
+            cubic.window()
+        };
+        assert_eq!(cut(false), (40.0 * MSS as f64 * BETA_CUBIC) as usize);
+        assert_eq!(cut(true), (40.0 * MSS as f64 * BETA_RANDOM_LOSS) as usize);
     }
 
     fn ack(cubic: &mut Cubic, len: usize, now: Instant) {

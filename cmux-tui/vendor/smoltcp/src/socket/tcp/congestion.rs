@@ -37,6 +37,13 @@ pub(super) trait Controller {
         self.on_loss(now, in_flight)
     }
 
+    /// cmux patch: like [`Controller::on_sack_loss`], for a loss the sender
+    /// judged random rather than congestion: isolated, with the RTT at its
+    /// floor. A controller may cut less; by default it cuts the same.
+    fn on_random_loss(&mut self, now: Instant, in_flight: usize) {
+        self.on_sack_loss(now, in_flight)
+    }
+
     fn pre_transmit(&mut self, now: Instant) {}
 
     fn post_transmit(&mut self, now: Instant, len: usize) {}

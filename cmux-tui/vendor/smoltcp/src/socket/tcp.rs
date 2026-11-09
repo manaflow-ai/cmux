@@ -182,6 +182,10 @@ struct RttEstimator {
     timestamp: Option<(Instant, TcpSeqNumber)>,
     max_seq_sent: Option<TcpSeqNumber>,
     rto_count: u8,
+    /// cmux patch: the lowest RTT sample, in ms (`u32::MAX` before the first),
+    /// and the latest one: their gap is the queue the path is building.
+    min_rtt: u32,
+    last_rtt: u32,
 }
 
 impl Default for RttEstimator {
@@ -196,6 +200,8 @@ impl Default for RttEstimator {
             timestamp: None,
             max_seq_sent: None,
             rto_count: 0,
+            min_rtt: u32::MAX,
+            last_rtt: 0,
         }
     }
 }
@@ -220,7 +226,18 @@ impl RttEstimator {
         if self.have_measurement { self.srtt } else { 0 }
     }
 
+    /// cmux patch: whether the latest RTT sample sits at the path's floor, so
+    /// no queue is building: within a quarter of the lowest sample, and at
+    /// least 2 ms. False before any sample.
+    fn queue_free(&self) -> bool {
+        self.have_measurement
+            && self.min_rtt != u32::MAX
+            && self.last_rtt <= self.min_rtt + (self.min_rtt / 4).max(2)
+    }
+
     fn sample(&mut self, new_rtt: u32) {
+        self.min_rtt = self.min_rtt.min(new_rtt);
+        self.last_rtt = new_rtt;
         if self.have_measurement {
             // RFC 6298 (2.3) When a subsequent RTT measurement R' is made, a host MUST set (...)
             let diff = (self.srtt as i32 - new_rtt as i32).unsigned_abs();
@@ -348,6 +365,26 @@ const SACK_SCOREBOARD_LEN: usize = 16;
 /// cmux patch: RFC 6675's DupThresh. A hole is lost once this many segments'
 /// worth of data, or this many separate ranges, were SACKed above it.
 const SACK_DUP_THRESH: usize = 3;
+
+/// cmux patch: how SACK recovery answers a loss that looks random (one
+/// segment lost, the RTT at its floor): 0 cuts as for congestion, 1 skips the
+/// cut when no other loss came in the last SACK_QUIET_RTTS round trips, 2
+/// cuts gently, 3 skips when quiet and cuts gently otherwise.
+const SACK_RANDOM_POLICY: u8 = 3;
+/// cmux patch: round trips with no other loss for a random loss to go uncut.
+const SACK_QUIET_RTTS: u32 = 4;
+
+/// cmux patch: the window response SACK recovery picked for an episode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SackCut {
+    /// The loss looks like congestion: cut by CUBIC's beta.
+    Full,
+    /// The loss looks random: cut less.
+    Gentle,
+    /// The loss looks random and the path was quiet: no cut, as the
+    /// tail-loss probe repaired such losses before SACK.
+    Waive,
+}
 
 /// cmux patch: what the peer's SACK blocks (RFC 2018) say it holds above the
 /// cumulative ACK: sorted, disjoint, non-adjacent `[start, end)` ranges.
@@ -718,6 +755,11 @@ pub struct Socket<'a> {
     /// less headers), learned at the handshake. SACK recovery counts and
     /// admits repairs in min(this, remote MSS), the segments actually sent.
     local_mss: usize,
+    /// cmux patch: segments resent in this recovery episode, in bytes.
+    sack_episode_resent: usize,
+    /// cmux patch: when this recovery episode began, and the previous one.
+    sack_episode_at: Option<Instant>,
+    sack_previous_episode_at: Option<Instant>,
     /// cmux patch: the path under the connection changed; the next RTO
     /// branch resends without backing off ([path_changed](#method.path_changed)).
     path_change_retransmit: bool,
@@ -820,6 +862,9 @@ impl<'a> Socket<'a> {
             sack_high_rxt: TcpSeqNumber::default(),
             sack_window_cut: false,
             local_mss: usize::MAX,
+            sack_episode_resent: 0,
+            sack_episode_at: None,
+            sack_previous_episode_at: None,
             path_change_retransmit: false,
             ack_delay: Some(ACK_DELAY_DEFAULT),
             ack_delay_timer: AckDelayTimer::Idle,
@@ -1331,15 +1376,52 @@ impl<'a> Socket<'a> {
             self.sack_recovery_point = Some(self.remote_last_seq);
             self.sack_high_rxt = self.local_seq_no;
             self.sack_window_cut = false;
+            self.sack_episode_resent = 0;
+            self.sack_previous_episode_at = self.sack_episode_at;
+            self.sack_episode_at = Some(cx.now());
         }
         // One window cut for the whole episode, however many holes it has,
-        // and only once the duplicate threshold shows a loss.
+        // and only once the duplicate threshold shows a loss. The response is
+        // decided again on each ACK until a cut is made, so an episode that
+        // looked random and grows a second loss still gets its cut.
         if self.sack_recovery_point.is_some() && scan.congestion && !self.sack_window_cut {
-            self.sack_window_cut = true;
             let in_flight = self.flight_size();
-            self.congestion_controller
-                .inner_mut()
-                .on_sack_loss(cx.now(), in_flight);
+            match self.sack_loss_response(cx.now(), &scan) {
+                SackCut::Waive => {}
+                SackCut::Gentle => {
+                    self.sack_window_cut = true;
+                    self.congestion_controller
+                        .inner_mut()
+                        .on_random_loss(cx.now(), in_flight);
+                }
+                SackCut::Full => {
+                    self.sack_window_cut = true;
+                    self.congestion_controller
+                        .inner_mut()
+                        .on_sack_loss(cx.now(), in_flight);
+                }
+            }
+        }
+    }
+
+    /// cmux patch: the window response to this recovery episode's loss. A
+    /// loss looks random, not like congestion, when the episode has lost one
+    /// segment and the RTT sits at its floor (no queue building). A congested
+    /// bottleneck either queues (the RTT rises) or drops in bursts (more than
+    /// one segment), and either gets the full cut.
+    fn sack_loss_response(&self, now: Instant, scan: &SackScan) -> SackCut {
+        let isolated = scan.lost_bytes + self.sack_episode_resent <= self.sack_segment();
+        if SACK_RANDOM_POLICY == 0 || !isolated || !self.rtte.queue_free() {
+            return SackCut::Full;
+        }
+        let quiet_for = Duration::from_millis(self.rtte.srtt as u64) * SACK_QUIET_RTTS;
+        let quiet = self
+            .sack_previous_episode_at
+            .is_none_or(|at| now - at >= quiet_for);
+        match (SACK_RANDOM_POLICY, quiet) {
+            (1 | 3, true) => SackCut::Waive,
+            (1, false) => SackCut::Full,
+            _ => SackCut::Gentle,
         }
     }
 
@@ -1489,6 +1571,9 @@ impl<'a> Socket<'a> {
         self.sack_high_rxt = TcpSeqNumber::default();
         self.sack_window_cut = false;
         self.local_mss = usize::MAX;
+        self.sack_episode_resent = 0;
+        self.sack_episode_at = None;
+        self.sack_previous_episode_at = None;
         self.path_change_retransmit = false;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
@@ -3498,6 +3583,7 @@ impl<'a> Socket<'a> {
 
         if is_sack_retransmit {
             self.sack_high_rxt = self.sack_high_rxt.max(repr.seq_number + repr.payload.len());
+            self.sack_episode_resent += repr.payload.len();
             // Karn: no RTT sample from a retransmitted segment.
             self.rtte.on_retransmit();
             // Resending the head restarts the retransmit timer, probe
@@ -11186,6 +11272,8 @@ mod test {
     fn test_sack_threshold_loss_cuts_the_window() {
         let mut s = socket_sacking_with(CongestionControl::Cubic, 36);
         let before = s.congestion_controller.inner().window();
+        // A queue is building: the latest RTT is well above the floor.
+        s.rtte.min_rtt = 20;
         send!(s, time 50, sack_ack(6, [sack_block(12, 36), None, None]));
         assert!(s.congestion_controller.inner().window() < before);
         assert!(s.sack_window_cut);
@@ -11204,6 +11292,80 @@ mod test {
         send!(s, time 50, sack_ack(6, [sack_block(12, 36), None, None]));
         assert!(s.sack_window_cut);
         recv!(s, time 50, sack_resent(6));
+    }
+
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_sack_random_loss_on_a_quiet_path_keeps_the_window() {
+        // One segment lost, the RTT at its floor, no earlier loss: it looks
+        // random, and is repaired with no cut, as the probe did before SACK.
+        let mut s = socket_sacking_with(CongestionControl::Cubic, 36);
+        let before = s.congestion_controller.inner().window();
+        send!(s, time 50, sack_ack(6, [sack_block(12, 36), None, None]));
+        assert!(s.rtte.queue_free());
+        recv!(s, time 50, sack_resent(6));
+        assert!(!s.sack_window_cut);
+        assert!(s.congestion_controller.inner().window() >= before);
+    }
+
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_sack_second_loss_in_an_episode_gets_the_cut() {
+        // The episode looked random until a second segment was lost.
+        let mut s = socket_sacking_with(CongestionControl::Cubic, 36);
+        let before = s.congestion_controller.inner().window();
+        send!(s, time 50, sack_ack(6, [sack_block(12, 36), None, None]));
+        recv!(s, time 50, sack_resent(6));
+        assert!(!s.sack_window_cut);
+        // Another segment of the episode had to be resent (as a second hole
+        // would be): two lost, so the next ACK makes the cut.
+        s.sack_episode_resent += 6;
+        send!(s, time 51, sack_ack(6, [sack_block(12, 36), None, None]));
+        assert!(s.sack_window_cut);
+        assert!(s.congestion_controller.inner().window() < before);
+    }
+
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_sack_burst_loss_gets_the_full_cut() {
+        // Two segments lost at once: congestion, whatever the RTT says.
+        let mut s = socket_sacking_with(CongestionControl::Cubic, 36);
+        let before = s.congestion_controller.inner().window();
+        send!(s, time 50, sack_ack(6, [sack_block(18, 36), None, None]));
+        assert!(s.sack_window_cut);
+        assert!(s.congestion_controller.inner().window() < before);
+    }
+
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_sack_random_losses_close_together_cut_gently() {
+        // A second random-looking loss within a few round trips of the last
+        // is cut (by CUBIC's gentler random-loss beta), not waived.
+        let mut s = socket_sacking_with(CongestionControl::Cubic, 36);
+        s.sack_episode_at = Some(Instant::from_millis(40));
+        send!(s, time 50, sack_ack(6, [sack_block(12, 36), None, None]));
+        assert!(s.rtte.queue_free());
+        assert!(s.sack_window_cut);
+        let scan = s.sack_scan();
+        assert_eq!(
+            s.sack_loss_response(Instant::from_millis(50), &scan),
+            SackCut::Gentle
+        );
+    }
+
+    #[test]
+    fn test_rtt_floor_tracks_the_lowest_sample() {
+        let mut r = RttEstimator::default();
+        assert!(!r.queue_free());
+        r.sample(100);
+        assert!(r.queue_free());
+        r.sample(120);
+        assert!(r.queue_free());
+        r.sample(130);
+        assert!(!r.queue_free());
+        r.sample(90);
+        assert_eq!(r.min_rtt, 90);
+        assert!(r.queue_free());
     }
 
     #[cfg(feature = "socket-tcp-cubic")]
