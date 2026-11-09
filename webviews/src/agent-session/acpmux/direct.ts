@@ -5056,11 +5056,11 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/worktree/report", { staleOnly: true });
   }
 
-  /// Frees the stale worktrees at `paths` (`_acpmux/worktree/clean {only, staleOnly: true}`): the
+  /// Frees the stale worktrees at `paths` (`_acpmux/worktree/free_stale {only}`): the
   /// pass's report, each item's `outcome` saying what happened to it. acpmux checks each one again and
   /// keeps any that changed since the scan.
   cleanWorktrees(paths: readonly string[]): Promise<unknown> {
-    return this.request("_acpmux/worktree/clean", { only: [...paths], staleOnly: true });
+    return this.request("_acpmux/worktree/free_stale", { only: [...paths] });
   }
 
   /// Each `_acpmux/process_update` for the attached chat; returns the listener's removal.

@@ -47,7 +47,7 @@ export const MEASURING_DELAY_MS = 300;
 export type StorageSource = {
   /// `_acpmux/worktree/report {staleOnly: true}`.
   report(): Promise<unknown>;
-  /// `_acpmux/worktree/clean {only, staleOnly: true}`. The host takes it only under the person's
+  /// `_acpmux/worktree/free_stale {only}`. The host takes it only under the person's
   /// gesture, so `onFree` calls it straight from the click or the key, with nothing awaited first.
   clean(paths: readonly string[]): Promise<unknown>;
 };

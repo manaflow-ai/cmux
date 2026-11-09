@@ -76,7 +76,7 @@ function itemOf(value: unknown): StorageItem | undefined {
   };
 }
 
-/// A report from a `worktree/report` reply (`{report, last}`) or a `worktree/clean` reply (the report
+/// A report from a `worktree/report` reply (`{report, last}`) or a `worktree/free_stale` reply (the report
 /// itself); undefined for anything else.
 export function parseStorageReport(reply: unknown): StorageReport | undefined {
   const outer = (reply ?? undefined) as Record<string, unknown> | undefined;

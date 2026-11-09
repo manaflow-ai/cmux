@@ -191,7 +191,7 @@ impl Hub {
         }
     }
 
-    /// `_acpmux/worktree/report` and `_acpmux/worktree/clean`: a pass now,
+    /// `_acpmux/worktree/report`, `clean` and `free_stale`: a pass now,
     /// acting with `apply`. A report-only pass measures what would be freed.
     /// With `stale_only` (the Storage panel) it acts on and measures only
     /// stale worktrees (`policy::stale`), measuring for at most

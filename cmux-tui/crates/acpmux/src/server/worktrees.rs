@@ -1,9 +1,10 @@
 //! The worktree cleanup methods (`hub/worktree_care.rs`):
 //! `_acpmux/worktree/report {staleOnly?}` (a pass that only decides and
 //! measures, and the last pass's report), `_acpmux/worktree/clean {only?,
-//! staleOnly?}` (the machine view's Clean up now: a pass that acts; with
-//! `staleOnly`, Session Info's Storage section, which frees only clean,
-//! finished worktrees nothing live uses) and
+//! staleOnly?}` (the machine view's Clean up now: a pass that acts),
+//! `_acpmux/worktree/free_stale {only}` (Session Info's Storage section: it
+//! frees only the named folders, and only clean, finished worktrees nothing
+//! live uses) and
 //! `_acpmux/worktree/restore {key, path?}` (a reclaimed worktree back, by
 //! its folder, branch or archive id).
 //!
@@ -26,7 +27,10 @@ pub(super) async fn dispatch(
 ) -> Option<Result<Value, RpcError>> {
     if !matches!(
         m,
-        method::MUX_WORKTREE_REPORT | method::MUX_WORKTREE_CLEAN | method::MUX_WORKTREE_RESTORE
+        method::MUX_WORKTREE_REPORT
+            | method::MUX_WORKTREE_CLEAN
+            | method::MUX_WORKTREE_FREE_STALE
+            | method::MUX_WORKTREE_RESTORE
     ) {
         return None;
     }
@@ -36,7 +40,7 @@ pub(super) async fn dispatch(
         ))));
     }
     if conn.origin == Origin::LocalApp
-        && let Err(error) = pane_scope(m, params)
+        && let Err(error) = pane_scope(m)
     {
         return Some(Err(error));
     }
@@ -44,27 +48,26 @@ pub(super) async fn dispatch(
 }
 
 /// The app's agent pane (`Origin::LocalApp`) frees only what Session
-/// Info's Storage offers: `clean` must say `staleOnly: true` and name the
-/// folders, so a page that went wrong cannot run an unrestricted pass, and
-/// it never restores. The Unix socket (the CLI, the app's machine view)
-/// keeps every form.
-fn pane_scope(m: &str, params: &Value) -> Result<(), RpcError> {
+/// Info's Storage offers, through `free_stale`, and never cleans unscoped or
+/// restores. The Unix socket (the CLI, the app's machine view) keeps every
+/// form.
+fn pane_scope(m: &str) -> Result<(), RpcError> {
     match m {
-        method::MUX_WORKTREE_REPORT => Ok(()),
-        method::MUX_WORKTREE_CLEAN => {
-            let named = params
-                .get("only")
-                .and_then(Value::as_array)
-                .is_some_and(|paths| !paths.is_empty());
-            if stale_only(params) && named {
-                Ok(())
-            } else {
-                Err(RpcError::invalid_params(
-                    "the agent pane frees only named stale worktrees (staleOnly: true, only: [...])",
-                ))
-            }
-        }
+        method::MUX_WORKTREE_REPORT | method::MUX_WORKTREE_FREE_STALE => Ok(()),
         _ => Err(RpcError::method_not_found(&format!("{m} (not served to the agent pane)"))),
+    }
+}
+
+/// `only`: the folders a pass acts on; empty for all of them.
+fn only(params: &Value) -> Result<Vec<PathBuf>, RpcError> {
+    match params.get("only") {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(paths)) => paths
+            .iter()
+            .map(|p| p.as_str().map(PathBuf::from))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| RpcError::invalid_params("only must be a list of folders")),
+        Some(_) => Err(RpcError::invalid_params("only must be a list of folders")),
     }
 }
 
@@ -114,17 +117,15 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
             let report = hub.care_pass(false, Vec::new(), stale_only(params)).await?;
             Ok(json!({"report": report, "last": hub.care_last_report()}))
         }
-        method::MUX_WORKTREE_CLEAN => {
-            let only = match params.get("only") {
-                None | Some(Value::Null) => Vec::new(),
-                Some(Value::Array(paths)) => paths
-                    .iter()
-                    .map(|p| p.as_str().map(PathBuf::from))
-                    .collect::<Option<Vec<_>>>()
-                    .ok_or_else(|| RpcError::invalid_params("only must be a list of folders"))?,
-                Some(_) => return Err(RpcError::invalid_params("only must be a list of folders")),
-            };
-            hub.care_pass(true, only, stale_only(params)).await
+        method::MUX_WORKTREE_CLEAN => hub.care_pass(true, only(params)?, stale_only(params)).await,
+        method::MUX_WORKTREE_FREE_STALE => {
+            let only = only(params)?;
+            if only.is_empty() {
+                return Err(RpcError::invalid_params(
+                    "free_stale names the folders to free (only: [...])",
+                ));
+            }
+            hub.care_pass(true, only, true).await
         }
         _ => {
             let key = str_param(params, "key")
@@ -145,15 +146,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_pane_frees_only_named_stale_worktrees() {
-        let clean = method::MUX_WORKTREE_CLEAN;
-        assert!(pane_scope(clean, &json!({"only": ["/w/a"], "staleOnly": true})).is_ok());
-        assert!(pane_scope(clean, &json!({})).is_err(), "an unrestricted pass");
-        assert!(pane_scope(clean, &json!({"staleOnly": true})).is_err(), "every stale worktree");
-        assert!(pane_scope(clean, &json!({"only": [], "staleOnly": true})).is_err());
-        assert!(pane_scope(clean, &json!({"only": ["/w/a"]})).is_err(), "not stale-only");
-        assert!(pane_scope(clean, &json!({"only": ["/w/a"], "staleOnly": false})).is_err());
-        assert!(pane_scope(method::MUX_WORKTREE_REPORT, &json!({})).is_ok());
-        assert!(pane_scope(method::MUX_WORKTREE_RESTORE, &json!({"key": "x"})).is_err());
+    fn the_pane_frees_only_through_free_stale() {
+        assert!(pane_scope(method::MUX_WORKTREE_FREE_STALE).is_ok());
+        assert!(pane_scope(method::MUX_WORKTREE_REPORT).is_ok());
+        assert!(pane_scope(method::MUX_WORKTREE_CLEAN).is_err(), "an unscoped pass");
+        assert!(pane_scope(method::MUX_WORKTREE_RESTORE).is_err());
+    }
+
+    #[test]
+    fn free_stale_names_its_folders() {
+        assert_eq!(only(&json!({"only": ["/w/a"]})).unwrap(), vec![PathBuf::from("/w/a")]);
+        assert!(only(&json!({})).unwrap().is_empty(), "free_stale refuses this before any pass");
+        assert!(only(&json!({"only": [1]})).is_err());
     }
 }
