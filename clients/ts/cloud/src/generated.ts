@@ -934,7 +934,7 @@ export type ManagedDevice = {
 
 export type MessageId = string
 
-export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
+export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd" | "cloud.machine_usd"
 
 export type MovedAutomation = {
   readonly id: AutomationId

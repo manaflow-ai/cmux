@@ -30,7 +30,9 @@ export const COST_USD_PER_UNIT: Readonly<Record<Meter, number>> = {
   "automation.dynamic_workers": 0.002,
   // Subrequests are not billed by Cloudflare; egress is metered for limits and reports.
   "egress.requests": 0,
-  "model.spend_usd": 1
+  "model.spend_usd": 1,
+  // Cloud machine time, priced by CloudDO at list price (Leo 2026-11-09): the record is already USD.
+  "cloud.machine_usd": 1
 }
 
 export const METERS = Object.keys(COST_USD_PER_UNIT) as ReadonlyArray<Meter>
@@ -53,7 +55,15 @@ export const ceilingUsd = (raw: string | undefined): number => {
 export const effectiveCap = (state: UsageState, ceiling: number) => (state.team_cap_usd === null ? ceiling : Math.min(state.team_cap_usd, ceiling))
 
 /** Meters whose quantity is money: recorded as USD, summed as integer micro-dollars. */
-export const MONEY_METERS: ReadonlySet<Meter> = new Set(["model.spend_usd"])
+export const MONEY_METERS: ReadonlySet<Meter> = new Set(["model.spend_usd", "cloud.machine_usd"])
+
+/**
+ * The billable money meters, the one list every bill read and the billable-fact retention use
+ * (Team plan, Leo 2026-11-09: the included amount pools model spend and Cloud machine time).
+ */
+export const BILLABLE_METERS: ReadonlyArray<Meter> = [...MONEY_METERS]
+/** `meter IN (...)` over BILLABLE_METERS for SQL (literal meter names, so the (meter, ...) indexes stay usable). */
+export const BILLABLE_METERS_SQL = `(${BILLABLE_METERS.map((m) => `'${m}'`).join(", ")})`
 
 /**
  * Money is never summed as floats. Count meters (steps, CPU ms, invocations, workers,

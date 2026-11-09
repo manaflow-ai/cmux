@@ -19,6 +19,10 @@ Bead: cx-y79zh (P1). Base read: origin/feat-cmux-next at bc24e6885fff.
   are. This is price set `v2` (`cmux-ai-usage-team-seat25-v2`); v1 is not edited. Under v2 a Team
   team with no operator setting is per seat. Only development and staging use v2, and only with
   `BILLING_USAGE_PRICE_SET=v2`. Production stays on v1 until Leo gives a separate go.
+- 2026-11-09, Leo: Cloud machine time joins the pool as `cloud.machine_usd` facts (source `cloud`) that
+  CloudDO records at list price, naming the machine's creator; the level, the team spend, the included
+  stop and billable retention read every money meter (`BILLABLE_METERS`). Test mode only; production
+  billing still waits for Leo's go.
 
 S1 landed on feat-cmux-next: `UsageMeterDO.settleCall` (`backend/apps/api/src/usage-user.ts`) writes
 the call's fact and every counter in one transaction, on the charged path too; the proof is

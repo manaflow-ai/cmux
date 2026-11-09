@@ -1,4 +1,4 @@
-import { COST_USD_PER_UNIT, MONEY_METERS } from "./domains/usage.ts"
+import { BILLABLE_METERS_SQL, COST_USD_PER_UNIT, MONEY_METERS } from "./domains/usage.ts"
 import type { Meter } from "@cmux/protocol"
 import { lastSeenSeats, teamModeAt } from "./usage-billing-store.ts"
 import type { IncludedMode } from "./billing-catalog.ts"
@@ -46,7 +46,8 @@ export const BILLABLE_GRACE_MS = 2 * 3600_000
 
 /**
  * The included-amount stop inside the reservation's transaction (S5 review P2: two calls cannot both
- * pass it): a team with a fresh billable mark passes; any other team's settled model spend plus open
+ * pass it): a team with a fresh billable mark passes; any other team's settled billable spend (BILLABLE_METERS:
+ * models and Cloud machine time) plus open
  * reservations plus this call's maximum must stay within `includedMicros` this UTC month. A team the
  * operator set per seat (in force at the month's start) gets the amount times its last billable seats;
  * with no setting, `fallback` decides (the plan's default in the price set in force, per seat for Team in v2).
@@ -55,7 +56,7 @@ const includedRefusal = (sql: SqlStorage, month: string, perTeamMicros: number, 
   const fresh = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM usage_billable WHERE period_end * 1000 + ? > ? AND seen_at > ?`, BILLABLE_GRACE_MS, now, now - BILLABLE_GRACE_MS).one().n
   if (Number(fresh) > 0) return null
   const includedMicros = teamModeAt(sql, Date.parse(`${month}-01T00:00:00Z`), fallback) === "per_seat" ? perTeamMicros * lastSeenSeats(sql, now) : perTeamMicros
-  const spent = Number(sql.exec<{ m: number | null }>(`SELECT usd_micros AS m FROM usage_month WHERE month = ? AND meter = 'model.spend_usd'`, month).toArray()[0]?.m ?? 0)
+  const spent = Number(sql.exec<{ m: number | null }>(`SELECT SUM(usd_micros) AS m FROM usage_month WHERE month = ? AND meter IN ${BILLABLE_METERS_SQL}`, month).toArray()[0]?.m ?? 0)
   const open = Number(sql.exec<{ m: number | null }>(`SELECT SUM(micros) AS m FROM user_reservation WHERE month = ?`, month).toArray()[0]?.m ?? 0)
   return spent + open + maxMicros <= includedMicros ? null : { ok: false, included: true, spent_usd: Math.round(spent + open) / 1_000_000, limit_usd: includedMicros / 1_000_000 }
 }
