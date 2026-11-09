@@ -583,6 +583,35 @@ def test_bash_prompt_history_keeps_starship_timer() -> None:
             f"Full PTY output:\n{text}"
         )
 
+    # Real starship sets PROMPT_COMMAND=starship_precmd and evaluates the hooks
+    # it found earlier from STARSHIP_PROMPT_COMMAND inside starship_precmd,
+    # before it re-arms its timer; cmux's entry ends up ahead of it.
+    real_starship = (
+        " starship_precmd() { local s=$?; (exit $s); "
+        'if [[ -n "${STARSHIP_PROMPT_COMMAND-}" ]]; then eval "$STARSHIP_PROMPT_COMMAND"; fi; '
+        "STARSHIP_PREEXEC_READY=true; }; "
+        "trap '[[ \"${STARSHIP_PREEXEC_READY:-}\" == true ]] && { STARSHIP_PREEXEC_READY=false; "
+        "printf \"%s\\n\" \"$BASH_COMMAND\" >> \"$PREEXEC_LOG\"; }' DEBUG; "
+        'STARSHIP_PROMPT_COMMAND="history -a; history -n"; '
+        'PROMPT_COMMAND="_cmux_prompt_command;starship_precmd"'
+    )
+    payloads, preexec, text = _run_prompt_history_session(
+        [real_starship, "true"],
+        ["echo a", "echo b", "gh pr merge 4", "other:gh pr merge", "echo c", "",
+         "gh pr merge 5", "echo d"],
+    )
+    if "_cmux_bash_pr_history_mark" in preexec or "echo d" not in preexec:
+        raise AssertionError(
+            "cmux's mark must not fire starship's command timer when starship keeps "
+            f"the other hooks in STARSHIP_PROMPT_COMMAND.\n\nTimer started on:\n{preexec}"
+            f"\n\nFull PTY output:\n{text}"
+        )
+    if payloads != _merge_payloads("4", "5"):
+        raise AssertionError(
+            "with starship's STARSHIP_PROMPT_COMMAND layout, only this terminal's gh "
+            f"commands may be reported.\n\nObserved:\n{payloads}\n\nFull PTY output:\n{text}"
+        )
+
 
 if __name__ == "__main__":
     test_bash_integration_does_not_emit_done_notifications()
