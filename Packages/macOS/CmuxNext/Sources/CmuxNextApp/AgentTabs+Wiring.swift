@@ -129,27 +129,9 @@ extension AgentTabStore {
             guard let services else { return AgentPaneReply.failure(code: "unavailable", message: "unavailable") }
             return await services.imessage.respond(action, view: view)
         }
-        tabs.machineTargets = { [weak services] in
-            // Only the machines of the account signed in now, from a list loaded for it (as the
-            // Cloud machine picker, AgentPaneCloudMachines+App.swift): never a previous account's or
-            // a stale inventory's. The dispatch checks the id against this same list again.
-            guard let services, AgentPaneMoveTarget.offered(signedIn: services.cloud.isSignedIn,
-                                                       loadedCurrent: services.cloud.hasLoadedCurrentMachines) else { return [] }
-            // CloudMove can route only to a Cloud session. Paused machines remain eligible because
-            // the existing transfer path resumes them; failed and destroyed records are omitted.
-            return services.machines.cloud.compactMap { machine in
-                // The app-server link is a single app-owned socket. CloudMove's transfer path
-                // requires a second CLI daemon connection and explicitly rejects app-linked targets.
-                guard machine.appLink == nil else { return nil }
-                switch machine.machine.status {
-                case .running, .provisioning, .paused:
-                    return AgentPaneMoveTarget(id: machine.machineID, label: machine.machine.title,
-                                               status: machine.machine.status.rawValue)
-                case .pausing, .starting, .deleting, .failed, .destroyed, .unknown:
-                    return nil
-                }
-            }
-        }
+        // `tabs.machineTargets` keeps its default (no target): every Cloud machine's session has the app
+        // link, a single app-owned carrier socket, and CloudMove's transfer path needs a second CLI daemon
+        // connection, so it rejects an app-linked target. Offering targets again starts with that path.
         tabs.moveAgentToMachine = { [weak tabs] tab, machine in
             guard let tabs, let registry = tabs.actionRegistry else { return false }
             let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key),
@@ -213,7 +195,7 @@ extension AgentTabStore {
         tabs.chiefKeepsSession = { session in AcpmuxChiefSessionRouter.keeps(session: session, home: home.acpmuxHome) }
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services, weak tabs] key in
-            guard let services, let tabs, let (tab, pane) = services.locateTab(tabs.tabKey(key).key, onMachine: tabs.tabKey(key).machine), let controller = services.paneController(for: pane) else { return nil }
+            guard let services, let (tab, pane) = services.locateTab(key.key, onMachine: key.machine), let controller = services.paneController(for: pane) else { return nil }
             // A chat tab has no daemon folder: its own exact folder (a shell block's Open in Terminal, cx-zld).
             let cwd = tab.cwd ?? NewTerminalStart.folder(of: tab, services: services)
             return NewTabPage.handler(services, cwd: cwd) { [weak controller, weak tabs] key, request in
@@ -419,7 +401,7 @@ extension AgentTabStore {
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, hostID: record.host, endpoint: endpoint, reconnect: reconnect, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             host.linksHost = AgentTabStore.registryHost(of: daemon)
-            host.servesLogin = daemon.supports(DaemonCapability.agentSessionLogin.rawValue)
+            (host.servesLogin, host.servesSide) = (daemon.supports(DaemonCapability.agentSessionLogin.rawValue), daemon.supports(DaemonCapability.agentSessionSide.rawValue))
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             host.cloudAccount = host.cloudMachineID == nil ? nil : services.cloud.account
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil && AgentTabStore.cloudCredentialTransferIsAvailable(isSignedIn: services.cloud.auth.isSignedIn)
@@ -469,7 +451,7 @@ extension AgentTabStore {
                     guard let services, let link else { return false }
                     return await services.ssh.restartWithApprovalsIfIdle(link, preparation)
                 })
-            } else if let cloud = services.machines.session(daemon.machineID), cloud.appLink != nil {
+            } else if let cloud = services.machines.session(daemon.machineID) {
                 // cx-kvmz: a Cloud machine on the Cloud app server link, through the API Worker with the person's session.
                 host.approvals = AgentPaneRemoteApprovals(machineID: cloud.machineID, label: cloud.machine.title, restart: { [weak services, weak cloud] in guard let services, let cloud else { return .failed("") }; return await services.cloud.restartWithApprovals(cloud) }, prepare: { [weak services, weak cloud] preparation in guard let services, let cloud else { return false }; return await services.cloud.restartWithApprovalsIfIdle(cloud, preparation) })
             }

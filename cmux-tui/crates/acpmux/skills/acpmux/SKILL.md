@@ -1,6 +1,6 @@
 ---
 name: acpmux
-description: "Drive coding agents through acpmux, a daemon that keeps ACP agent sessions (Claude Code, Codex, OpenCode, pi, Gemini) alive as named sessions on this machine and on other machines you added. Use when a task says to run, prompt, wait on, or inspect an acpmux session, when ACPMUX_ENV=1, or when you need a second agent (a Claude, a Codex, an open model) for a subtask. Every command has --json."
+description: "Drive coding agents through acpmux, which keeps Claude Code, Codex, OpenCode, pi and Gemini sessions alive by name on this machine and others: run, prompt, wait on or inspect a session, or start a second agent for a subtask (also when ACPMUX_ENV=1). Every command has --json."
 ---
 
 # acpmux guide
@@ -150,6 +150,12 @@ output says `queued behind …`.
 
 ### Messages between agents
 
+In a chat with acpmux's MCP tools, message with the `send` tool
+(`mcp__acpmux__send`; `cmux.acpmux_send` in a cmux_exec script), not
+`acpmux send` in Bash: one call, or `messages` for several, with `file`,
+`attach`, `class`, `pr`, `notice` and `supersede`, through the same outbox as
+`send --no-wait`. The CLI is for shells and scripts.
+
 From inside a session (`ACPMUX_ENV=1`) your send is your session's message, not
 the person's prompt. What the receiver gets depends on who you are to it:
 
@@ -190,8 +196,8 @@ the person's prompt. What the receiver gets depends on who you are to it:
   daemon keeps digests of its caller tokens, so `no proven session` after a
   restart is a bug, not a step to fix by hand.
 - An inbox notice ends with how to reply. Answer in your turn, with
-  `inbox_reply`, or with `acpmux send NAME`; never with your harness's own
-  SendMessage, which reaches no acpmux session.
+  `inbox_reply` or the `send` tool (`acpmux send NAME` without them); never
+  with your harness's own SendMessage, which reaches no acpmux session.
 - `wait` right after `send --no-wait` waits for the turn the message brings;
   it never answers with the idle state from before the message.
 

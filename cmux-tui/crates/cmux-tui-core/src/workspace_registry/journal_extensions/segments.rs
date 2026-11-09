@@ -191,7 +191,7 @@ impl WorkspaceRegistry {
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
                    uncompressed_bytes, sha256, sealed_at_ms, actors_json
-                 ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, ?8, ?9)",
+                 ) VALUES(?1, ?2, ?3, ?4, ?10, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     segment.metadata.segment_id,
                     i64::try_from(segment.metadata.start_sequence)?,
@@ -206,6 +206,7 @@ impl WorkspaceRegistry {
                         segment.metadata.start_sequence,
                         segment.metadata.end_sequence,
                     )?,
+                    segment.metadata.codec,
                 ],
             )?;
             for kind in kinds {
@@ -357,10 +358,7 @@ impl JournalSegmentSealPlan {
                 start_sequence.context("journal segment range contains no records")?;
             let digest: [u8; 32] = Sha256::digest(&uncompressed).into();
             let digest_hex = encode_hex(&digest);
-            let mut encoder =
-                flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
-            encoder.write_all(&uncompressed)?;
-            let compressed = encoder.finish()?;
+            let compressed = segment_codec::encode(&uncompressed)?;
             let segment_id = format!("segment_{start_sequence}_{cursor}_{digest_hex}");
             segments.push(PreparedJournalSegment {
                 metadata: JournalSegment {
@@ -368,7 +366,7 @@ impl JournalSegmentSealPlan {
                     start_sequence,
                     end_sequence: cursor,
                     record_count,
-                    codec: "gzip-json-v1".into(),
+                    codec: segment_codec::SEAL_CODEC.into(),
                     uncompressed_bytes: u64::try_from(uncompressed.len())?,
                     sha256: digest_hex,
                     sealed_at_ms,
@@ -401,7 +399,7 @@ fn validate_prepared_journal_segments(
             "prepared journal segment record count is invalid"
         );
         anyhow::ensure!(
-            metadata.codec == "gzip-json-v1"
+            metadata.codec == segment_codec::SEAL_CODEC
                 && metadata.sha256 == encode_hex(&segment.digest)
                 && metadata.uncompressed_bytes
                     <= u64::try_from(MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES)?,

@@ -24,11 +24,27 @@ public struct LastAppCLIPointer: Sendable, Equatable {
         environment["CMUX_NEXT_NO_ACTIVATE"] != "1"
     }
 
+    /// At launch: points the pointer at this app's CLI, off the main thread, unless the launch is an agent's.
+    public static func publishAtLaunch(environment: [String: String] = ProcessInfo.processInfo.environment, bundle: Bundle = .main) {
+        guard shouldPublish(environment: environment), let cli = bundle.resourceURL?.appendingPathComponent("bin/cmux").path else { return }
+        // task-owner: one small write at launch; it ends on its own and nothing waits on it
+        Task.detached(priority: .utility) { LastAppCLIPointer().publish(cliPath: cli) }
+    }
+
+    /// Whether `path` is in a copy that is gone at the next restart or eject: App Translocation's randomized
+    /// mirror (an app opened from Downloads without being moved) or a read-only volume (the disk image).
+    public static func isPassing(_ path: String) -> Bool {
+        if path.contains("/AppTranslocation/") { return true }
+        var stats = statfs()
+        return statfs(path, &stats) == 0 && stats.f_flags & UInt32(bitPattern: MNT_RDONLY) != 0
+    }
+
     /// Points the pointer at `cliPath`. False, and nothing written, when the
-    /// path is not absolute or not an executable file.
+    /// path is not absolute, not an executable file, or in a passing copy
+    /// (``isPassing(_:)``): a pointer there runs nothing after a restart.
     @discardableResult
     public func publish(cliPath: String) -> Bool {
-        guard cliPath.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: cliPath) else { return false }
+        guard cliPath.hasPrefix("/"), !Self.isPassing(cliPath), FileManager.default.isExecutableFile(atPath: cliPath) else { return false }
         let directory = file.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

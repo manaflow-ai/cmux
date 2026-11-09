@@ -1,9 +1,11 @@
-//! Classic cmux.com's `/api/vm` routes the NEXT app still calls (tunnel, firewall, SCP, domains
-//! and publications): none has a NEXT route yet, so each is sent as it was, with the same body,
-//! deadline and answer. A machine's resize, snapshots, restore and fork are the Cloud app server's
-//! `cloud.machine.resize` and `cloud.snapshot.*` ops, on cmux-platform.
+//! Classic cmux.com's `/api/vm` routes the NEXT app still calls (tunnel, firewall): none has a
+//! NEXT route yet, so each is sent as it was, with the same body, deadline and answer. A machine's
+//! resize, snapshots, restore and fork are the Cloud app server's `cloud.machine.resize` and
+//! `cloud.snapshot.*` ops, its SCP route is cmux-platform's (`vm.scp_endpoint`,
+//! [`crate::machine::scp_endpoint`]), and domains, publications and their API keys are
+//! cmux-platform's previews (`crate::previews::publications`).
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use cmux_json::JsonSet as _;
 use reqwest::Method;
@@ -21,27 +23,6 @@ pub(crate) async fn run(
 ) -> Result<Value, Failure> {
     let secs = Duration::from_secs;
     match call {
-        "vm.scp_endpoint" => {
-            let id = text(args, "id")?;
-            let body = json!({ "publicKey": text(args, "publicKey")? });
-            let endpoint = http
-                .classic(
-                    Method::POST,
-                    &["api", "vm", id, "scp-endpoint"],
-                    &[],
-                    Some(body),
-                    None,
-                    secs(100),
-                )
-                .await?;
-            if safe_scp_endpoint(&endpoint, now_secs()) {
-                Ok(endpoint)
-            } else {
-                Err(Failure::Decoding(format!(
-                    "/api/vm/{id}/scp-endpoint returned an unsafe endpoint"
-                )))
-            }
-        }
         "vm.tunnel_enroll" => {
             let body = args.get("body").cloned().unwrap_or_else(|| json!({}));
             http.classic(Method::POST, &["api", "vm", "tunnel"], &[], Some(body), None, secs(60))
@@ -120,46 +101,6 @@ pub(crate) async fn run(
                 .await?;
             field(list, "networks", "/api/vm/network")
         }
-        "vm.domains" => {
-            let list = http
-                .classic(Method::GET, &["api", "vm", "domains"], &[], None, None, DEFAULT)
-                .await?;
-            field(list, "domains", "/api/vm/domains")
-        }
-        "vm.publications" => {
-            let list = http
-                .classic(Method::GET, &["api", "vm", "publications"], &[], None, None, DEFAULT)
-                .await?;
-            field(list, "publications", "/api/vm/publications")
-        }
-        "vm.provision_api" => {
-            let mut body = pick(args, &["vmId", "port", "accessMode"]);
-            if let Some(name) = optional_text(args, "keyName") {
-                body.set("name", json!(name));
-            }
-            http.classic(Method::POST, &["api", "vm", "apis"], &[], Some(body), None, secs(120))
-                .await
-        }
-        "vm.publication_api_keys" => {
-            let publication = text(args, "publication")?;
-            let list = http
-                .classic(
-                    Method::GET,
-                    &["api", "vm", "publications", publication, "api-keys"],
-                    &[],
-                    None,
-                    None,
-                    DEFAULT,
-                )
-                .await?;
-            field(list, "apiKeys", "/api/vm/publications/api-keys")
-        }
-        "vm.revoke_publication_api_key" => {
-            let (publication, key_id) = (text(args, "publication")?, text(args, "keyId")?);
-            let segments = ["api", "vm", "publications", publication, "api-keys", key_id];
-            let revoked = http.classic(Method::DELETE, &segments, &[], None, None, DEFAULT).await?;
-            field(revoked, "apiKey", "/api/vm/publications/api-keys")
-        }
         other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
     }
 }
@@ -171,24 +112,4 @@ pub(crate) fn field(mut value: Value, name: &str, path: &str) -> Result<Value, F
         .map(Value::take)
         .filter(|v| !v.is_null())
         .ok_or_else(|| Failure::Decoding(format!("{path}: no {name}")))
-}
-
-/// A private SCP route the app may hand to `scp`: port 22, user `cmux`, an ed25519 host key,
-/// and not expired.
-pub(crate) fn safe_scp_endpoint(endpoint: &Value, now: i64) -> bool {
-    let either = |a: &str, b: &str| endpoint.get(a).or_else(|| endpoint.get(b));
-    endpoint.get("port").and_then(Value::as_i64) == Some(22)
-        && endpoint.get("username").and_then(Value::as_str) == Some("cmux")
-        && either("hostPublicKey", "host_public_key")
-            .and_then(Value::as_str)
-            .is_some_and(|k| k.starts_with("ssh-ed25519 "))
-        && either("expiresAtUnix", "expires_at_unix")
-            .and_then(Value::as_i64)
-            .is_some_and(|t| t > now)
-}
-
-fn now_secs() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }

@@ -29,6 +29,11 @@ sim = []
 # Dev only: the sign-in output parser from a WebAssembly module that a debug daemon swaps live
 # when ACPMUX_HOT_MODULE's file changes (crates/acpmux-hot). Never in a shipped build.
 hot-modules = ["dep:acpmux-hot"]
+# The hub carrier (src/hub_carrier.rs): the live acpmux stream between two of one person's own
+# machines through the Cloud carrier's relay, Noise end to end (cmux-remote's relay client and
+# handshake). Opt-in because cmux-remote builds libghostty-vt with zig; the shipping build turns it
+# on (scripts/ci/acpmux-build-features.sh).
+hub-carrier = ["dep:cmux-remote", "dep:cmux-remote-protocol", "dep:async-trait", "dep:url"]
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-registry = "1.4"
@@ -130,6 +135,11 @@ cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = 
 cmux-host.workspace = true
 # The vault egress proxy (src/vault/egress.rs): agents get placeholders.
 cmux-vault-egress.workspace = true
+# The hub carrier (feature `hub-carrier`).
+cmux-remote = { workspace = true, optional = true }
+cmux-remote-protocol = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
 
 # Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 # same-user checks); the detached start (CreateProcess with a handle list),
@@ -162,9 +172,20 @@ cmux-unix-socket = { workspace = true, features = ["test-support"] }
 # The deterministic simulation's runtime (tests/sim.rs): hosts on one thread with simulated
 # time, a simulated network, crash and restart.
 turmoil = "0.7.2"
+# The native relay the hub carrier's integration test runs in process (tests/hub_carrier.rs).
+cmux-relay = { path = "../cmux-relay" }
+axum.workspace = true
+# WireGuard's construction hash, which the hub carrier's Noise hash must equal (tests/hub_carrier.rs).
+blake2 = "0.10"
 
 # The deterministic simulation of the daemon (HQ#6740): `cargo test --features sim --test sim`.
 [[test]]
 name = "sim"
 path = "tests/sim.rs"
 required-features = ["sim"]
+
+# The hub carrier end to end: `cargo test -p acpmux --features hub-carrier --test hub_carrier`.
+[[test]]
+name = "hub_carrier"
+path = "tests/hub_carrier.rs"
+required-features = ["hub-carrier"]
