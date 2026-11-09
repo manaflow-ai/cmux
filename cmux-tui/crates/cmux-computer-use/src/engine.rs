@@ -5,13 +5,20 @@
 //! 2. The target app is resolved from the desktop (never from the agent's
 //!    words), then [`crate::policy::decide`]; an `Ask` goes to the
 //!    [`Approver`] and its answer is saved before the call goes on.
-//! 3. Acting calls wait while the person is using the mouse or keyboard
-//!    ([`PersonActivity`]) and fail with `person_in_control` if they keep on.
+//! 3. Acting calls that could meet the person's own input (foreground
+//!    delivery, or the window the person is using) wait while the person is
+//!    using the mouse or keyboard ([`PersonActivity`]) and fail with
+//!    `person_in_control` if they keep on. Background calls to other windows
+//!    never wait: they cannot collide with the person.
 //! 4. The agent cursor glides to the target, the desktop acts, the cursor
 //!    shows the click or the typing.
 //! 5. Screenshots go through [`crate::frame`]; accessibility frames come back
 //!    in the pixels of the agent's latest screenshot of that window.
-//! 6. One audit line per call.
+//! 6. An acting call returns the window as it is after acting: a fixed wait
+//!    ([`Settle::floor`]), then screenshots until the pixels differ from what
+//!    the agent last saw, up to [`Settle::ceiling`], plus its tree. One round
+//!    trip per step; `observe: false` skips it.
+//! 7. One audit line per call.
 
 use std::collections::HashMap;
 use std::io::Write as _;
@@ -154,6 +161,28 @@ impl PersonActivity for NoTakeover {
 /// How long an acting call waits for the person to stop.
 pub const TAKEOVER_WAIT: Duration = Duration::from_secs(15);
 
+/// How an acting call waits before it reports the window's new state: a
+/// fixed `floor` first (most apps redraw within it), then a screenshot every
+/// `step` until the pixels differ from what the agent last saw, never past
+/// `ceiling`. A fixed delay with change detection, not "until quiet": an app
+/// that keeps animating never holds the reply past the ceiling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Settle {
+    pub floor: Duration,
+    pub step: Duration,
+    pub ceiling: Duration,
+}
+
+impl Default for Settle {
+    fn default() -> Self {
+        Self {
+            floor: Duration::from_millis(120),
+            step: Duration::from_millis(100),
+            ceiling: Duration::from_millis(1000),
+        }
+    }
+}
+
 pub struct EngineParts {
     pub desktop: Arc<dyn Desktop>,
     pub config: PolicyConfig,
@@ -162,6 +191,9 @@ pub struct EngineParts {
     pub approver: Arc<dyn Approver>,
     pub takeover: Arc<dyn PersonActivity>,
     pub machine_name: String,
+    pub settle: Settle,
+    /// The settle wait's sleep (tests pass one that returns at once).
+    pub sleep: Arc<dyn Fn(Duration) + Send + Sync>,
 }
 
 impl EngineParts {
@@ -174,6 +206,8 @@ impl EngineParts {
             approver: Arc::new(NoApprover),
             takeover: Arc::new(NoTakeover),
             machine_name: String::new(),
+            settle: Settle::default(),
+            sleep: Arc::new(std::thread::sleep),
         }
     }
 }
@@ -191,6 +225,8 @@ pub struct Engine {
     last_display: Mutex<HashMap<String, String>>,
     audit: Option<PathBuf>,
     machine_name: String,
+    settle: Settle,
+    sleep: Arc<dyn Fn(Duration) + Send + Sync>,
 }
 
 fn args_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
@@ -246,6 +282,8 @@ impl Engine {
             last_display: Mutex::new(HashMap::new()),
             audit,
             machine_name: parts.machine_name,
+            settle: parts.settle,
+            sleep: parts.sleep,
         }
     }
 
@@ -312,12 +350,21 @@ impl Engine {
             self.sessions.begin(&ctx.session, call_id);
         }
         let args = if args.is_object() { args.clone() } else { json!({}) };
-        let (out, app) = match self.dispatch(tool, ctx, &args) {
+        let (mut out, app) = match self.dispatch(tool, ctx, &args) {
             Ok((out, app)) => (out, app),
             Err(out) => (out, None),
         };
         if let Some(call_id) = acting_id {
             self.sessions.remember(&ctx.session, call_id, out.to_json().to_string());
+        }
+        // After the record: a retry returns the action's result, and the agent
+        // takes a fresh screenshot for the state then.
+        if !out.is_error
+            && tools::OBSERVES.contains(&name)
+            && args.get("observe").and_then(Value::as_bool) != Some(false)
+            && let Some(window_id) = args_str(&args, "window_id")
+        {
+            self.attach_state(&self.config(), ctx, window_id, &mut out);
         }
         self.write_audit(ctx, name, app.as_ref(), &out);
         out
@@ -680,7 +727,10 @@ impl Engine {
     ) -> Result<TargetApp, ToolOutput> {
         let app = self.target_of(window, &self.app_names());
         self.authorize(config, ctx, Access::Act, Some(&app), delivery == Delivery::Foreground)?;
-        if config.pause_on_takeover && !self.takeover.wait_idle(TAKEOVER_WAIT) {
+        // Background input to a window the person is not using cannot meet
+        // theirs; foreground input, or the person's own window, can.
+        let could_collide = delivery == Delivery::Foreground || window.focused;
+        if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(TAKEOVER_WAIT) {
             return Err(ToolOutput::error(
                 "person_in_control",
                 "The person is using the mouse or keyboard; the agent paused and will not act until they stop. Try again shortly.",
@@ -825,6 +875,73 @@ impl Engine {
         ctx: &CallContext,
         args: &Value,
     ) -> Result<(ToolOutput, Option<TargetApp>), ToolOutput> {
+        self.capture_for(config, ctx, args, true)
+    }
+
+    /// Waits for the window to settle after an acting call ([`Settle`]) and
+    /// adds its screenshot and tree to `out` as `state`. A window that closed
+    /// or cannot be read leaves the action's result as it is, with the reason.
+    fn attach_state(
+        &self,
+        config: &PolicyConfig,
+        ctx: &CallContext,
+        window_id: &str,
+        out: &mut ToolOutput,
+    ) {
+        let s = self.settle;
+        (self.sleep)(s.floor);
+        let mut waited = s.floor;
+        let args = json!({"window_id": window_id});
+        let shot = loop {
+            match self.capture_for(config, ctx, &args, false) {
+                Ok((shot, _)) => {
+                    let changed = shot.body["unchanged"] != json!(true);
+                    if changed || waited >= s.ceiling {
+                        break Ok(shot);
+                    }
+                }
+                Err(e) => break Err(e),
+            }
+            let step = s.step.min(s.ceiling.saturating_sub(waited));
+            (self.sleep)(step);
+            waited += step;
+        };
+        let shot = match shot {
+            Ok(shot) => shot,
+            Err(e) => {
+                out.body["state"] = json!({
+                    "available": false,
+                    "reason": e.body.get("message").cloned().unwrap_or(json!(e.code)),
+                    "next": "call list_windows, then screenshot the window you need",
+                });
+                return;
+            }
+        };
+        let mut state = shot.body.clone();
+        state["waited_ms"] = json!(waited.as_millis() as u64);
+        if let Ok(mut tree) = self.desktop.ui_tree(window_id, TreeOptions::default()) {
+            // The capture just recorded this window's geometry for the session.
+            let seen = lock(&self.seen)
+                .get(&(ctx.session.clone(), format!("w:{window_id}")))
+                .map(|(g, _)| *g);
+            if let Some(geometry) = seen {
+                rewrite_frames(&mut tree.root, &geometry);
+            }
+            state["frames_in"] = json!("screenshot pixels");
+            state["truncated"] = json!(tree.truncated);
+            state["root"] = serde_json::to_value(&tree.root).unwrap_or(Value::Null);
+        }
+        out.body["state"] = state;
+        out.png_base64 = shot.png_base64;
+    }
+
+    fn capture_for(
+        &self,
+        config: &PolicyConfig,
+        ctx: &CallContext,
+        args: &Value,
+        look: bool,
+    ) -> Result<(ToolOutput, Option<TargetApp>), ToolOutput> {
         let force = args.get("force").and_then(Value::as_bool).unwrap_or(false);
         let windows = self.windows()?;
         let names = self.app_names();
@@ -849,11 +966,13 @@ impl Engine {
                 (CaptureTarget::Display(display), key, None, None)
             }
         };
-        self.cursor.show(CursorEvent::Look {
-            session: ctx.session.clone(),
-            label: ctx.label.clone(),
-            at: focus,
-        });
+        if look {
+            self.cursor.show(CursorEvent::Look {
+                session: ctx.session.clone(),
+                label: ctx.label.clone(),
+                at: focus,
+            });
+        }
         // Denied, protected and Never apps never reach an agent's screenshot.
         // Where the display capture can leave whole processes out (macOS:
         // ScreenCaptureKit's application filter), the compositor leaves out
@@ -912,9 +1031,9 @@ impl Engine {
             Some(frame) => frame,
             None => self.desktop.capture(&target).map_err(|e| ToolOutput::desktop(&e))?,
         };
-        let after = self.windows()?;
         let mut redact: Vec<Rect> = Vec::new();
         if !isolated {
+            let after = self.windows()?;
             for w in windows.iter().chain(after.iter()) {
                 let skip = !w.on_screen
                     || w.minimized

@@ -11,6 +11,10 @@ pub const SERVER_NAME: &str = "cmux-computer-use";
 /// Tool names are prefixed with this in the folded `cmux` server (`cu_click`).
 pub const TOOL_PREFIX: &str = "cu";
 
+/// The acting tools whose result carries the window's state after acting.
+pub const OBSERVES: &[&str] =
+    &["click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action"];
+
 /// One tool.
 pub struct Tool {
     pub name: &'static str,
@@ -23,6 +27,12 @@ impl Tool {
     pub fn schema(&self) -> Value {
         let mut schema = (self.schema)();
         if let Some(props) = schema.get_mut("properties").and_then(Value::as_object_mut) {
+            if OBSERVES.contains(&self.name) {
+                props.insert(
+                    "observe".into(),
+                    json!({"type": "boolean", "description": "Default true: the result carries the window after acting (state: a screenshot once it changed or ~1 s passed, and its tree with element ids), so you need no screenshot after. false: skip it."}),
+                );
+            }
             props.insert(
                 "machine".into(),
                 json!({"type": "string", "description": "Run on another of your machines (a name or id from list_machines). Omit for this machine."}),
@@ -239,7 +249,7 @@ pub fn mcp_list() -> Value {
 }
 
 /// The instructions an agent gets with the server (MCP `instructions`).
-pub const INSTRUCTIONS: &str = "cmux Computer Use is built into cmux: use these tools to see and use apps on this computer (and on your other machines with `machine`). There is nothing to install and no other computer-use driver is needed. Work in the background: list_windows, then screenshot or get_ui_tree a window, then act on element ids (best) or screenshot pixels. Your actions never take the person's focus or pointer; a blue cmux cursor shows them where you act. If a call is refused, call status and tell the person which setting in Settings > Computer Use would allow it; never try to change Computer Use settings yourself.";
+pub const INSTRUCTIONS: &str = "cmux Computer Use is built into cmux: use these tools to see and use apps on this computer (and on your other machines with `machine`). There is nothing to install and no other computer-use driver is needed. Work in the background: list_windows, then screenshot or get_ui_tree a window, then act on element ids (best) or screenshot pixels. Every action returns the window after acting (state: screenshot and tree), so do not take another screenshot to check. Your actions never take the person's focus or pointer; a blue cmux cursor shows them where you act. If a call is refused, call status and tell the person which setting in Settings > Computer Use would allow it; never try to change Computer Use settings yourself.";
 
 #[cfg(test)]
 mod tests {
@@ -251,6 +261,12 @@ mod tests {
             let s = t.schema();
             assert_eq!(s["type"], "object", "{}", t.name);
             assert!(s["properties"]["machine"].is_object(), "{}", t.name);
+            assert_eq!(
+                s["properties"]["observe"].is_object(),
+                OBSERVES.contains(&t.name),
+                "{}",
+                t.name
+            );
         }
         let names: std::collections::HashSet<_> = TOOLS.iter().map(|t| t.name).collect();
         assert_eq!(names.len(), TOOLS.len(), "duplicate tool names");

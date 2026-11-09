@@ -37,7 +37,9 @@ fn ctx(call: Option<&str>) -> CallContext {
 
 fn engine(desktop: Arc<FakeDesktop>, config: PolicyConfig) -> Engine {
     let mut parts = EngineParts::new(desktop);
+    parts.sleep = Arc::new(|_| {});
     parts.config = config;
+    parts.sleep = Arc::new(|_| {});
     Engine::new(parts)
 }
 
@@ -89,6 +91,7 @@ fn approved_apps_asks_and_saves_always() {
     let d = Arc::new(FakeDesktop::standard());
     let approver = Arc::new(Scripted(Mutex::new(vec![Answer::AlwaysAllow]), Mutex::new(vec![])));
     let mut parts = EngineParts::new(d);
+    parts.sleep = Arc::new(|_| {});
     parts.config = PolicyConfig { mode: Mode::ApprovedApps, ..PolicyConfig::default() };
     parts.approver = approver.clone();
     let e = Engine::new(parts);
@@ -113,13 +116,113 @@ fn nobody_to_ask_fails_closed() {
 
 #[test]
 fn takeover_pauses_acting_but_not_looking() {
-    let d = Arc::new(FakeDesktop::standard());
+    let mut fake = FakeDesktop::standard();
+    fake.windows[1].focused = true; // Safari is the window the person is using.
+    let d = Arc::new(fake);
     let mut parts = EngineParts::new(d);
+    parts.sleep = Arc::new(|_| {});
     parts.takeover = Arc::new(Busy);
+    parts.sleep = Arc::new(|_| {});
     let e = Engine::new(parts);
     let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "hi"}));
     assert_eq!(out.code.as_deref(), Some("person_in_control"));
     assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+}
+
+#[test]
+fn takeover_never_holds_background_input_to_a_window_the_person_is_not_using() {
+    let d = Arc::new(FakeDesktop::standard());
+    let mut parts = EngineParts::new(d.clone());
+    parts.sleep = Arc::new(|_| {});
+    parts.takeover = Arc::new(Busy);
+    parts.sleep = Arc::new(|_| {});
+    parts.config.allow_foreground = true;
+    let e = Engine::new(parts);
+    let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "hi"}));
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(d.events().len(), 1);
+    // Foreground input is system-wide: it still waits for the person.
+    let out = e.call(
+        &ctx(None),
+        "type_text",
+        &json!({"window_id": "1", "text": "hi", "delivery": "foreground"}),
+    );
+    assert_eq!(out.code.as_deref(), Some("person_in_control"));
+}
+
+struct Slept(Mutex<Vec<Duration>>);
+
+fn settling_engine(d: Arc<FakeDesktop>) -> (Engine, Arc<Slept>) {
+    let slept = Arc::new(Slept(Mutex::new(vec![])));
+    let mut parts = EngineParts::new(d);
+    parts.sleep = Arc::new(|_| {});
+    let rec = slept.clone();
+    parts.sleep = Arc::new(move |t| rec.0.lock().unwrap().push(t));
+    (Engine::new(parts), slept)
+}
+
+#[test]
+fn an_action_returns_the_window_after_it_in_one_reply() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, slept) = settling_engine(d.clone());
+    let out = e.call(&ctx(Some("c1")), "click", &json!({"window_id": "1", "element_id": "e1"}));
+    assert!(!out.is_error, "{:?}", out.body);
+    let state = &out.body["state"];
+    // Nothing seen before: the first capture after the floor is new.
+    assert_eq!(state["unchanged"], false);
+    assert_eq!(state["waited_ms"], 120);
+    assert_eq!(state["width"], 1456);
+    assert_eq!(state["root"]["children"][0]["id"], "e1");
+    assert!(out.png_base64.is_some());
+    assert_eq!(*slept.0.lock().unwrap(), vec![Duration::from_millis(120)]);
+    // The action is recorded without the state: a retry returns it as it was.
+    let again = e.call(&ctx(Some("c1")), "click", &json!({"window_id": "1", "element_id": "e1"}));
+    assert!(again.body.get("state").is_none() && again.png_base64.is_none());
+    assert_eq!(d.events().len(), 1);
+}
+
+#[test]
+fn the_settle_wait_stops_at_the_first_change() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, slept) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    // The app redraws on the third capture after the agent's screenshot.
+    *d.repaint_from.lock().unwrap() = Some((4, 77));
+    let out = e.call(&ctx(None), "press_key", &json!({"window_id": "1", "keys": "Return"}));
+    let state = &out.body["state"];
+    assert_eq!(state["unchanged"], false, "{state}");
+    assert_eq!(state["waited_ms"], 320);
+    assert_eq!(*d.captures.lock().unwrap(), 4);
+    assert_eq!(slept.0.lock().unwrap().len(), 3);
+    assert!(out.png_base64.is_some());
+}
+
+#[test]
+fn the_settle_wait_never_passes_the_ceiling() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, _) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "x"}));
+    let state = &out.body["state"];
+    // Nothing redraws: unchanged at the ceiling, no image (the agent has it).
+    assert_eq!(state["unchanged"], true);
+    assert_eq!(state["waited_ms"], 1000);
+    assert!(out.png_base64.is_none());
+    assert_eq!(*d.captures.lock().unwrap(), 1 + 10);
+}
+
+#[test]
+fn observe_false_skips_the_state() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, slept) = settling_engine(d.clone());
+    let out = e.call(
+        &ctx(None),
+        "click",
+        &json!({"window_id": "1", "element_id": "e1", "observe": false}),
+    );
+    assert!(out.body.get("state").is_none() && out.png_base64.is_none());
+    assert!(slept.0.lock().unwrap().is_empty());
+    assert_eq!(*d.captures.lock().unwrap(), 0);
 }
 
 #[test]
@@ -141,6 +244,7 @@ fn cursor_glides_then_clicks() {
     let d = Arc::new(FakeDesktop::standard());
     let rec = Arc::new(Recorder(Mutex::new(vec![])));
     let mut parts = EngineParts::new(d);
+    parts.sleep = Arc::new(|_| {});
     parts.cursor = rec.clone();
     let e = Engine::new(parts);
     e.call(&ctx(None), "click", &json!({"window_id": "1", "x": 10, "y": 10}));
@@ -237,6 +341,7 @@ fn a_call_cut_off_by_a_restart_is_not_run_again() {
     Sessions::open(Some(&dir)).begin("s1", "cut");
     let d = Arc::new(FakeDesktop::standard());
     let mut parts = EngineParts::new(d.clone());
+    parts.sleep = Arc::new(|_| {});
     parts.state_dir = Some(dir.clone());
     let e = Engine::new(parts);
     let out = e.call(&ctx(Some("cut")), "click", &json!({"window_id": "1", "element_id": "e1"}));
@@ -253,6 +358,7 @@ fn labels_shown_to_the_person_are_bounded() {
     assert_eq!(safe_label(&long).chars().count(), LABEL_MAX_CHARS);
     let rec = Arc::new(Recorder(Mutex::new(vec![])));
     let mut parts = EngineParts::new(Arc::new(FakeDesktop::standard()));
+    parts.sleep = Arc::new(|_| {});
     parts.cursor = rec.clone();
     let e = Engine::new(parts);
     let mut c = ctx(None);

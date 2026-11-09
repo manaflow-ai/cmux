@@ -34,6 +34,11 @@ pub struct FakeDesktop {
     pub events: Mutex<Vec<Event>>,
     /// Bumped to change the pixels the next capture returns.
     pub paint: Mutex<u8>,
+    /// Captures taken so far.
+    pub captures: Mutex<u32>,
+    /// From capture number `.0` on, the pixels are `.1` (an app that
+    /// redraws a little after an action).
+    pub repaint_from: Mutex<Option<(u32, u8)>>,
 }
 
 impl FakeDesktop {
@@ -84,6 +89,8 @@ impl FakeDesktop {
             scale: 2.0,
             events: Mutex::new(vec![]),
             paint: Mutex::new(200),
+            captures: Mutex::new(0),
+            repaint_from: Mutex::new(None),
         }
     }
 
@@ -163,6 +170,17 @@ impl Desktop for FakeDesktop {
             }
         };
         let (w, h) = ((frame.width * self.scale) as u32, (frame.height * self.scale) as u32);
+        let n = {
+            let mut c = self.captures.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            *c += 1;
+            *c
+        };
+        if let Some((from, p)) =
+            *self.repaint_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+            && n >= from
+        {
+            *self.paint.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = p;
+        }
         let paint = *self.paint.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         Ok(RawFrame {
             width: w,
