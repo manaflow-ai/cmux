@@ -65,7 +65,7 @@ extension MotionGate {
         text.filters = nil
     }
 
-, named so `filters.blur.inputRadius` animates it.
+    /// A Gaussian blur at radius 0, named so `filters.blur.inputRadius` animates it.
     private static func blur() -> [CIFilter] {
         guard let filter = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 0]) else { return [] }
         filter.name = "blur"
