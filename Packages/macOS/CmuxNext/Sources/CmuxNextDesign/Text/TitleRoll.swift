@@ -49,7 +49,7 @@ extension MotionGate {
         // The blur's radius is no model key (KVC would throw), so it only animates.
         out.add(scheduledFade(.fadeIn, Self.blurPath, from: CGFloat(0), to: CGFloat(2), after: 0, on: out), forKey: Self.blurPath)
         // The new words land on the model values the owner gave them.
-        let shown = text.opacity, rest = (text.value(forKeyPath: "transform.translation.y") as? CGFloat) ?? 0
+        let shown = text.opacity, rest = text.transform.m42 // the transform's y translation
         set(text, "opacity", to: shown, fade: .fadeIn, from: Float(0))
         set(text, "transform.translation.y", to: rest, fade: .fadeIn, from: rest - rise)
         text.add(scheduledFade(.fadeIn, Self.blurPath, from: CGFloat(2), to: CGFloat(0), after: 0, on: text), forKey: Self.blurPath)
