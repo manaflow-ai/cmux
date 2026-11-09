@@ -67,3 +67,15 @@ for (const [name, tail] of Object.entries(tails))
     expect(after.layout.tops[done.length - 1]).toBe(during.layout.tops[live.length - 1]);
     expect(after.end).toBe(during.end);
   });
+
+// A stretch that failed or stopped keeps its summary under the line: its error, recovery or Continue
+// is what the person reads there, never a footer of buttons the line may stand in for.
+for (const status of ["failed", "error", "cancelled"])
+  test(`a self-started turn that ended ${status} keeps its summary while the chat works`, () => {
+    const tail = tails["a self-started turn's summary"]!.map((each) =>
+      each.kind === "turnSummary" ? { ...each, status, error: "the model went away" } : each,
+    );
+    const live = turnView([...prompted, ...tail], new Set(), { now: 60_000, agentFamily: "claude", working: true });
+    expect(live.at(-1)!.below).toBe(true);
+    expect(live.some((each) => each.id === "woken-end")).toBe(true);
+  });

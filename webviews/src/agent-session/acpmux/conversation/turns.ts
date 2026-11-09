@@ -2089,6 +2089,11 @@ function shapeLiveTurn(
   return shaped;
 }
 
+/// A turn's footer that holds only its buttons (copy, fork, pin, read aloud, its time): no failure,
+/// no stop, nothing to resume or continue.
+const isButtonFooter = (row: AcpmuxRow | undefined): row is AcpmuxRow =>
+  row?.kind === "turnSummary" && !isFailed(row) && !isStopped(row) && !row.resumable && !row.continuable;
+
 /// A running turn as the Codex app draws it: each finished run folded into its summary line between the paragraphs
 /// (codexRuns), and at the bottom the turn's one live block, a line that each step replaces in place
 /// (Leo 2026-10-20: "Thinking (shimmer) -> Running <short label> -> Thinking"): "Thinking 18s"
@@ -2113,7 +2118,9 @@ function codexLiveTurn(
   // comes back in it when the work ends, so neither stacks under the other and nothing moves (Leo,
   // 2026-11-08: "the bottom buttons appear and then there's thinking then thinking disappears then
   // there's a jolt. but the thinking should essentially take the same spot as the bottom buttons").
-  let rows = runs.at(-1)?.kind === "turnSummary" ? runs.slice(0, -1) : runs;
+  // Only a footer of buttons: a failed or stopped stretch's summary carries its error, its recovery
+  // or its Continue, which stay in sight under the line.
+  let rows = isButtonFooter(runs.at(-1)) ? runs.slice(0, -1) : runs;
   // The one live block sits at the turn's bottom, as the ChatGPT and Codex apps draw it: no
   // "Working for" over the turn (with steers it stood above all of them, far from the line; Leo,
   // 2026-10-21). Between steps it reads "Thinking 18s", timed from the prompt.
