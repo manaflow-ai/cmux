@@ -45,18 +45,20 @@ export type SwitchPort = {
   /// A turn is running in the session the pane shows.
   turnRunning(): boolean;
   /// The shown session: its id, its harness, whether it has nothing in it yet, its folder when a
-  /// new chat can start there, and the config options it names (once attached).
+  /// new chat can start there, its mode and the config options it names (once attached).
   shown():
     | {
         sessionId: string;
         harness?: string;
         model?: string;
+        modeId?: string;
         empty: boolean;
         cwd?: string;
         configOptions?: readonly {
           id: string;
           name?: string | null;
           category?: string | null;
+          currentValue?: string | null;
           options?: readonly { value: string }[];
         }[];
       }
@@ -650,9 +652,15 @@ export class HarnessSwitch {
     this.left = undefined;
     this.handlers.opened?.(opened);
     // What was picked while acpmux started the harness, one request at a time, in pick order of kind.
+    // A pick the opened session already has is not sent: the first prompt waits on every pick, and
+    // each is a round trip to the agent, seconds apiece on a busy Mac (Leo, 2026-11-05, on a new
+    // chat: "it thinks so so long..."). A model switch can reset the options the session reported,
+    // so with one in flight every option pick still goes.
     const { model, mode, options } = intent.config;
+    const live = port.shown();
+    const switchesModel = model !== undefined && model !== live?.model;
     const applied: Promise<void>[] = [];
-    if (model) applied.push(port.setModel(model).catch((error) => this.refused(model, error)));
+    if (model && switchesModel) applied.push(port.setModel(model).catch((error) => this.refused(model, error)));
     // A pick the host refuses (a transport refusal) says so; any other refusal stays quiet, as before.
     const pickRefused = (error: unknown) => {
       if (isHostRefusal(error)) this.handlers.notice?.(errorMessage(error));
@@ -663,10 +671,10 @@ export class HarnessSwitch {
     // not sent, and a session that reports an empty list takes none. A session whose attach carried
     // no list at all (an older acpmux, a port that cannot read it) has said nothing to resolve the
     // picks against: they go as they were held, as before, and the agent answers for them.
-    const offered = port.shown()?.configOptions;
+    const offered = live?.configOptions;
     // A held mode the agent refuses always says so: a company-managed Mac's Claude Code settings can
     // disable a mode, and the chat would otherwise run on another one with no reason given.
-    if (mode)
+    if (mode && mode !== live?.modeId)
       applied.push(
         ticket("mode")
           .then((t) => port.setMode(mode, t))
@@ -675,6 +683,8 @@ export class HarnessSwitch {
     for (const [configId, value] of Object.entries(options)) {
       const pick = offered ? heldOptionPick(configId, value, offered) : { configId, value };
       if (!pick) continue;
+      if (!switchesModel && offered?.find((option) => option.id === pick.configId)?.currentValue === pick.value)
+        continue;
       // The ticket is bound to this config pick. `heldOptionPick` may rename an effort or Fast
       // option to the id the opened harness reports; the native relay accepts those aliases.
       applied.push(
