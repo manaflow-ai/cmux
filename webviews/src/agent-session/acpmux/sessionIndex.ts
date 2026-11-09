@@ -134,6 +134,9 @@ export function replacedSince<T>(from: readonly T[] | undefined, to: readonly T[
   return replacedFrom(to, (list) => list === from)?.at;
 }
 
+/// `at` with each position once, in its first order.
+const once = (at: number[]): number[] => (at.length < 2 ? at : [...new Set(at)]);
+
 /// The nearest list `to` was made from in place (`noteReplaced`, up to `STEPS` back) that `known`
 /// accepts, with the positions replaced since: O(steps), no entry read. Undefined when none is.
 export function replacedFrom<T>(
@@ -148,7 +151,8 @@ export function replacedFrom<T>(
     at.push(...step.at);
     list = step.from as readonly T[];
   }
-  return { from: list, at };
+  // A session changed twice since is one position.
+  return { from: list, at: once(at) };
 }
 
 const indexes = new WeakMap<readonly AcpmuxSessionEntry[], SessionIndex>();

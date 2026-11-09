@@ -136,7 +136,6 @@ test("a session added or removed is still seen", () => {
   expect(by.of(moved)).toBe(moved);
 });
 
-<<<<<<< HEAD
 test("Waiting on you reads only the changed session", () => {
   expect(growth(() => (sessions) => needsYouItems({ sessions, asks: [] }))).toBeLessThan(2);
 });
@@ -226,7 +225,7 @@ test("the picker's worked profiles follow a recorded change at that chat alone, 
     list = next;
   }
   expect(workedProfiles(list)).toEqual(["codex", "gemini", "claude"]);
-=======
+});
 test("a page that lists one session twice in place of another drops the one it left out", () => {
   const a = counted(1, { startedBy: "s0" });
   const b = counted(2, { startedBy: "s0" });
@@ -241,5 +240,4 @@ test("a page that lists one session twice in place of another drops the one it l
   expect(hover.get("s2")).toBeUndefined();
   expect(subsessions.get("s2")).toBeUndefined();
   expect(subsessions.has("s2")).toBe(false);
->>>>>>> origin/lane/session-list-flat-cost
 });
