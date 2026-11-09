@@ -141,8 +141,15 @@ import Testing
     }
 
     /// a590's review: at Larger, the narrowest sidebar (``SidebarModel/minimumWidth``, about 181 pt since a875)
-    /// still shows a short title whole, and a long one keeps a readable run of text before its fade.
-    @Test func largerStaysReadableAtTheNarrowestSidebar() throws {
+    /// still shows a short title whole, and a long one keeps a readable run of text before its fade. Larger is the
+    /// density's text size plus 2 pt: ChatGPT's 14 pt at Compact, 15 pt at Default (13 pt text, the fresh-install
+    /// density since #37274, where Text Size joins Density).
+    @Test(arguments: zip([DensityPreset.compact, .cozy], [CGFloat(14), 15]))
+    func largerStaysReadableAtTheNarrowestSidebar(preset: DensityPreset, points: CGFloat) throws {
+        try DensityTokens.$scoped.withValue(preset.tokens) { try Self.largerStaysReadable(points: points) }
+    }
+
+    private static func largerStaysReadable(points: CGFloat) throws {
         try Self.withTextSize(.larger) {
             // The window sets the titlebar part of the minimum (~181 pt); a bare model knows only the 160 pt tunable.
             let narrowest = max(181, SidebarModel(sections: []).minimumWidth)
@@ -154,9 +161,9 @@ import Testing
             let natural = ceil(("Work on cmux" as NSString).size(withAttributes: [.font: font]).width)
             let room = short.title.frame.width
             print("TEXTSIZE|narrow \(narrowest)|short room \(room) natural \(natural)|long room \(long.title.frame.width)")
-            #expect(font.pointSize == 14)
+            #expect(font.pointSize == points)
             #expect(room >= natural, "\(narrowest) pt: \"Work on cmux\" needs \(natural) pt, has \(room)")
-            // About ten 14 pt characters before the fade: enough to tell rows apart.
+            // About ten Larger characters before the fade: enough to tell rows apart.
             #expect(long.title.frame.width >= 80, "\(narrowest) pt: a long title has only \(long.title.frame.width) pt")
         }
     }

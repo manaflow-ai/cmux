@@ -52,16 +52,27 @@ import Testing
         return (sidebar, window)
     }
 
-    /// Leo's numbers: a 2 pt line, a 6 pt cut; `inside` sets it 2 pt in from the header's left edge, the 4 pt item
-    /// corner (99d72e1: the default corner is the omnibar's 8 pt, items nest two levels inside it) less the line.
+    /// Leo's numbers, at Compact, where he measured them: a 2 pt line, a 6 pt cut; `inside` sets it 2 pt in from the
+    /// header's left edge, the 4 pt item corner (99d72e1: the default corner is the omnibar's 8 pt, items nest two
+    /// levels inside it) less the line. The item corner nests by the tab gap, which grows with the density: at Default
+    /// (the fresh-install density since #37274) the gap is 2.5 pt and the corner 3 pt, so the line sits 1 pt in. At
+    /// both densities the line's right edge is off the item corner arc's end.
     @Test func theShapeIsChromesMeasuredOne() {
         #expect(SidebarGroupLineLayout.tunable.defaultValue == .edge, "the line at the header bar's left edge is the default")
-        #expect(SidebarStyle.groupBarWidth == 2)
-        #expect(SidebarStyle.groupLineCut == 6)
-        let inset = SidebarStyle.groupLineCornerInset
-        #expect(Metrics.itemCornerRadius == 4, "the default item corner, two levels inside the 8 pt pane corner")
-        #expect(inset == 2, "2 pt inside the header: \(inset)")
-        #expect(inset + SidebarStyle.groupBarWidth == Metrics.itemCornerRadius, "the line's right edge is off the item corner arc's end")
+        DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
+            #expect(SidebarStyle.groupBarWidth == 2)
+            #expect(SidebarStyle.groupLineCut == 6)
+            let inset = SidebarStyle.groupLineCornerInset
+            #expect(Metrics.itemCornerRadius == 4, "the Compact item corner, two levels inside the 8 pt pane corner")
+            #expect(inset == 2, "2 pt inside the header: \(inset)")
+        }
+        for preset in [DensityPreset.compact, .cozy] {
+            DensityTokens.$scoped.withValue(preset.tokens) {
+                let inset = SidebarStyle.groupLineCornerInset
+                #expect(inset + SidebarStyle.groupBarWidth == Metrics.itemCornerRadius,
+                        "\(preset): the line's right edge is off the item corner arc's end (\(inset) + \(SidebarStyle.groupBarWidth))")
+            }
+        }
     }
 
     /// Lawrence msg 19775: the rail is one capsule, every corner rounded by half its width (SidebarGroupRailCapsuleTests
