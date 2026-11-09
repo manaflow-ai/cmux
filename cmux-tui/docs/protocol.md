@@ -36,7 +36,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":12,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","shared-sizing-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","machine-listening-tcp-v1","server-stats-v1","terminal-idle-close-v1","clear-history-key-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":12,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","shared-sizing-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","machine-listening-tcp-v1","server-stats-v1","terminal-idle-close-v1","terminal-read-unwrap-v1","terminal-wait-new-v1","terminal-exit-status-v1","clear-history-key-v1"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape. The second example is a failed `clear-history` request:
@@ -156,6 +156,17 @@ closed for idleness). The owner closes the terminal, through the same path as
 `close-terminal`, once it has had no attach stream on any of its views for
 that long. The idle clock restarts at every attach and when the owner restarts,
 so a restart can delay a close but never make it early.
+
+When `identify` advertises `terminal-reaper-active-v1`, the owner was started
+with `--terminal-reap-grace-seconds <n>` and ends a terminal that has had no
+tab placement for `n` seconds, through the same path as `close-terminal`
+(capability absent: a terminal whose last tab closed runs until
+`close-terminal` or the end of the session). The owner keeps the time it
+first saw each terminal without a tab in the workspace registry, so the grace
+goes on across owner restarts. A placement restored within the grace cancels
+the reap, a terminal with an attach stream is tried again one grace later, and
+at most 16 closed terminals wait out the grace (past that, the longest-closed
+ends at once).
 
 Then it sends ordered stream frames:
 

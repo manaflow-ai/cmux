@@ -235,11 +235,36 @@ class FastGate(unittest.TestCase):
 
     def test_a_skipped_fast_tier_has_no_verdict(self):
         """cmux-next.yml skips the fast tier on a PR when push-head-preflight is not current
-        (a runner failure or its timeout): that is no verdict, not a pass."""
+        (a runner failure or its timeout), and then its cargo half too: that is no verdict, not a pass."""
         rollup = [c for c in GREEN if c["name"] != "cmux-next fast tier"] + [check("cmux-next fast tier", conclusion="SKIPPED")]
         with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
             run(Reader(rollup))
         self.assertEqual(run(Reader(rollup, files=("docs/README.md",)), covered=False)[2], [])
+
+    def test_a_fast_tier_skipped_by_path_routing_passes(self):
+        """PR #38743 (a cmux-tui Rust change, 2026-11-08): path routing sends no Swift work to the Mac
+        fast tier (path_route fast_tier=false), so cmux-next.yml skips it by design while its cargo half
+        runs. The cargo half has the same conditions minus the path ones, so a cargo verdict proves
+        push-head-preflight was current: the skip is the route's, not a missing verdict."""
+        base = [c for c in GREEN if c["name"] != "cmux-next fast tier"] + [check("cmux-next fast tier", conclusion="SKIPPED")]
+        waited, seen, reds = run(Reader(base + [check("cmux-next fast tier (cargo)")]))
+        self.assertNotIn("cmux-next fast tier", seen)
+        self.assertIn("cmux-next fast tier (cargo)", seen)
+        self.assertEqual(reds, [])
+        # A skipped cargo half too: push-head-preflight was not current, so neither tier has a verdict.
+        with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+            run(Reader(base + [check("cmux-next fast tier (cargo)", conclusion="SKIPPED")]))
+        # A cancelled run skips the Mac tier too: the cargo half may have passed before the cancel.
+        with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+            run(Reader(base + [check("cmux-next fast tier (cargo)"), check("cmux-next guards", conclusion="CANCELLED")]))
+        # Path routing did not pass: its outputs are not a route.
+        no_route = [c for c in base if c["name"] != "cmux-next path routing"]
+        with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+            run(Reader(no_route + [check("cmux-next path routing", conclusion="FAILURE"), check("cmux-next fast tier (cargo)")]))
+        # A change to the route itself cannot excuse its own skip.
+        for path in gate.ROUTE_FILES:
+            with self.subTest(path=path), self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+                run(Reader(base + [check("cmux-next fast tier (cargo)")], files=(path,)))
 
     def test_the_callers_full_file_list_routes_web(self):
         """gh pr view --json files stops at 100 files; the helper passes its paginated list,

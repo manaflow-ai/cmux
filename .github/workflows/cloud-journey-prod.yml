@@ -56,6 +56,8 @@ jobs:
     permissions:
       contents: read
       issues: write
+      # The red-journey step lists recent cmux VM production deploys (gh run list / view).
+      actions: read
     env:
       # This leg runs on the hourly tick (stub), the six-hourly tick (real), a dispatch (its input).
       SELECTED: ${{ (github.event_name == 'schedule' && (github.event.schedule == '17 * * * *') == (matrix.model == 'stub')) || (github.event_name == 'workflow_dispatch' && inputs.model == matrix.model) }}
@@ -120,10 +122,45 @@ jobs:
             if [ -n "$open" ]; then gh issue close "$open" --comment "Green again: a production chat reply was read back ([run]($RUN_URL))."; fi
             exit 0
           fi
+          # A red right after a rollout warns, naming it (no rollback: Leo, 2026-11-08, "well idk bout roll back but
+          # certainly a warning at least would still be useful today"). A rollout is a cmux VM production deploy
+          # (cmux-vm.yml on feat-cmux-next whose deploy-production job ran; an image roll commit is one too) in the
+          # last 6 hours, the real model's interval. A failed lookup only drops the section.
+          since="$(date -u -d '-6 hours' +%Y-%m-%dT%H:%M:%SZ)"
+          rollouts=""
+          if runs="$(gh run list --workflow cmux-vm.yml --branch feat-cmux-next --limit 40 \
+              --json databaseId,displayTitle,createdAt,event,url \
+              --jq "map(select(.createdAt >= \"$since\" and (.event == \"push\" or .event == \"workflow_dispatch\"))) | .[] | [.databaseId, .createdAt, .url, .displayTitle] | @tsv")"; then
+            while IFS=$'\t' read -r id created url subject; do
+              [ -n "$id" ] || continue
+              deploy="$(gh run view "$id" --json jobs --jq '[.jobs[] | select(.name == "deploy-production")][0].conclusion // ""' || true)"
+              # Skipped or absent: this run deployed nothing to production.
+              [ -n "$deploy" ] && [ "$deploy" != skipped ] || continue
+              rollouts+="- ${created:0:16}Z [${subject//[\[\]]/}]($url) (deploy-production: $deploy)"$'\n'
+            done <<< "$runs"
+          else
+            echo "::warning::could not list cmux VM production deploys; the issue names no rollout"
+          fi
+          section=""
+          if [ -n "$rollouts" ]; then
+            section="$(printf '\n**Warning: production rolled out in the 6 hours before this red.** A rollout is the first suspect (a changed connection protocol or image the shipped app does not speak yet):\n\n%s\nNot listed: cmux-platform deploys, which this job cannot read.\n' "$rollouts")"$'\n'
+            echo "::warning title=Red after a rollout::the production Cloud journey ($MODEL model) is red within 6 h of a cmux VM production deploy"
+            { echo; echo "### Rolled out in the 6 hours before this red"; echo; printf '%s' "$rollouts"; } >> "$GITHUB_STEP_SUMMARY"
+          fi
           # shellcheck disable=SC2016 # backticks are Markdown, not a command
-          body="$(printf 'The production Cloud journey (`.github/workflows/cloud-journey-prod.yml`, %s model) failed.\n\nLatest red run: %s (its summary has the step table; `probe.json` in its artifact names the failed step).\n\nUpdated %s. The next green run closes this issue.\n' "$MODEL" "$RUN_URL" "$(date -u +%Y-%m-%dT%H:%MZ)")"
+          body="$(printf 'The production Cloud journey (`.github/workflows/cloud-journey-prod.yml`, %s model) failed.\n\nLatest red run: %s (its summary has the step table; `probe.json` in its artifact names the failed step).\n%s\nUpdated %s. The next green run closes this issue.\n' "$MODEL" "$RUN_URL" "$section" "$(date -u +%Y-%m-%dT%H:%MZ)")"
           if [ -n "$open" ]; then
+            # A body edit notifies no one, so a rollout this issue has not named yet also gets one comment.
+            seen="$(gh issue view "$open" --json body,comments --jq '[.body, .comments[].body] | join("\n")' || true)"
+            fresh=""
+            while IFS= read -r line; do
+              url="$(sed -n 's/.*](\(https:[^)]*\)).*/\1/p' <<< "$line")"
+              [ -n "$url" ] && ! grep -qF "$url" <<< "$seen" && fresh+="$line"$'\n'
+            done <<< "$rollouts"
             gh issue edit "$open" --body "$body"
+            if [ -n "$fresh" ]; then
+              gh issue comment "$open" --body "$(printf '**Warning:** still red ([run](%s)) after a new production rollout:\n\n%s' "$RUN_URL" "$fresh")"
+            fi
           else
             gh issue create --title "$title" --body "$body"
           fi

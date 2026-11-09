@@ -87,6 +87,11 @@ EVENTS = frozenset({"pull_request"})
 IN_FLIGHT = ("queued", "in_progress")
 # Workflows a pass never touches, whatever runners.json declares: the nightly picks its own routes.
 EXCLUDED_WORKFLOWS = frozenset({"nightly.yml"})
+# Discovery URLs use a rounded lower window reused for a short interval. Fresh runs that fall
+# above the stall bound remain in ScanState and are checked again as they age; a cached page never authorizes a rescue.
+DISCOVERY_CACHE_SECONDS = 75.0
+DISCOVERY_STEP_SECONDS = 30 * 60
+FORBIDDEN_COOLDOWN_SECONDS = 60.0
 
 
 def iso(moment: dt.datetime) -> str:
@@ -120,6 +125,106 @@ def declared_workflows(runners: Mapping[str, Any]) -> list[str]:
     return sorted(name for name in files if name.endswith((".yml", ".yaml")) and name not in EXCLUDED_WORKFLOWS)
 
 
+def _trigger_scope(text: str) -> set[str] | None:
+    """Return top-level trigger names, or None when the workflow cannot be parsed conservatively."""
+    lines = text.splitlines()
+    start = next((index for index, line in enumerate(lines)
+                  if re.match(r"^\s*on\s*:", line) and not line.lstrip().startswith("#")), None)
+    if start is None:
+        return None
+    line = lines[start]
+    value = line.split(":", 1)[1].strip()
+    if value:
+        if value.startswith("[") and value.endswith("]"):
+            return {item.strip().strip("'\"") for item in value[1:-1].split(",") if item.strip()}
+        if re.fullmatch(r"['\"]?[A-Za-z0-9_-]+['\"]?", value):
+            return {value.strip("'\"")}
+        return None
+    indent = len(line) - len(line.lstrip())
+    names: set[str] = set()
+    known = {"pull_request", "pull_request_target", "workflow_call", "workflow_dispatch", "schedule",
+             "push", "workflow_run", "repository_dispatch", "issues", "issue_comment", "release",
+             "deployment", "deployment_status", "branch_protection_rule", "check_run", "check_suite",
+             "create", "delete", "discussion", "discussion_comment", "fork", "gollum", "label", "merge_group",
+             "page_build", "project", "project_card", "project_column", "public", "status", "watch"}
+    child_indent: int | None = None
+    for candidate in lines[start + 1:]:
+        if not candidate.strip() or candidate.lstrip().startswith("#"):
+            continue
+        candidate_indent = len(candidate) - len(candidate.lstrip())
+        if candidate_indent <= indent:
+            break
+        if child_indent is None:
+            child_indent = candidate_indent
+        if candidate_indent != child_indent:
+            # Nested inputs/outputs/configuration belong to the trigger above and are not trigger names.
+            continue
+        match = re.match(r"^\s*([A-Za-z0-9_-]+)\s*:", candidate)
+        if not match:
+            return None
+        name = match.group(1)
+        if name not in known:
+            return None
+        names.add(name)
+    return names or None
+
+
+def _has_pull_request_trigger(text: str) -> bool | None:
+    scope = _trigger_scope(text)
+    if scope is None:
+        return None
+    return bool(scope & {"pull_request", "pull_request_target"})
+
+
+class GitHubHTTPError(RuntimeError):
+    """A bounded GitHub API error whose status remains machine-readable."""
+
+    def __init__(self, message: str, *, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+        self.code = status  # GitHub.request() moves a refused primary read to the fallback by `code`
+
+
+def _forbidden_diagnostic(error: urllib.error.HTTPError) -> str:
+    """Classify a 403 without putting arbitrary response data in logs."""
+    raw = b""
+    try:
+        raw = error.read(4096)
+    except Exception:  # noqa: BLE001 - diagnostics must never mask the API refusal
+        pass
+    message = ""
+    resource = ""
+    try:
+        payload = json.loads(raw.decode("utf-8", "replace")) if raw else {}
+        if isinstance(payload, Mapping):
+            message = str(payload.get("message") or "")[:240]
+            resource = str(payload.get("resource") or "")[:40]
+    except (UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    headers = getattr(error, "headers", None) or {}
+    normalized = {str(key).lower(): str(value).strip() for key, value in headers.items()}
+    resource = resource or normalized.get("x-ratelimit-resource", "")
+    lowered = message.lower()
+    remaining = normalized.get("x-ratelimit-remaining", "")
+    if "secondary rate limit" in lowered or "abuse detection" in lowered:
+        kind = "secondary-limit"
+    elif remaining == "0" or "rate limit" in lowered or normalized.get("retry-after"):
+        kind = "quota"
+    elif "resource not accessible" in lowered or "permission" in lowered or "forbidden" in lowered:
+        kind = "permission"
+    else:
+        kind = "forbidden"
+    fields = []
+    for name, header in (("remaining", "x-ratelimit-remaining"), ("limit", "x-ratelimit-limit"),
+                         ("reset", "x-ratelimit-reset"), ("retry-after", "retry-after")):
+        value = normalized.get(header, "")
+        if value and re.fullmatch(r"\d+(?:\.\d+)?", value):
+            fields.append(f"{name}={value}")
+    if resource in {"core", "search", "graphql", "integration_manifest", "code_search", "source_import"}:
+        fields.append(f"resource={resource}")
+    return kind + (" (" + ", ".join(fields) + ")" if fields else "")
+
+
 def with_callers(workflows: Sequence[str], directory: Path | None) -> list[str]:
     """`workflows` plus every workflow in `directory` that calls one of them (transitively).
 
@@ -140,7 +245,10 @@ def with_callers(workflows: Sequence[str], directory: Path | None) -> list[str]:
             re.search(rf"uses:\s*['\"]?\./\.github/workflows/{re.escape(callee)}['\"]?\s*$", text, re.MULTILINE)
             for callee in found)}
         if not callers:
-            return sorted(found)
+            # A reusable workflow has no run of its own. Drop only files whose trigger block proves that fact;
+            # unreadable or unfamiliar syntax stays included so a new trigger cannot silently disappear.
+            return sorted(name for name in found
+                          if name not in texts or _has_pull_request_trigger(texts[name]) is not False)
         found |= callers
 
 
@@ -175,6 +283,9 @@ class GitHub:
 
         self.etags: dict[str, tuple[str, Any]] = {}
         self.history: Any = None
+        # pool -> (clock time the GET pause ends, the quota refusal it repeats)
+        self.forbidden_cooldowns: dict[str, tuple[float, GitHubHTTPError]] = {}
+
     @property
     def remaining(self) -> int | None:
         """The pool reads use now (for the pass's log line)."""
@@ -230,7 +341,8 @@ class GitHub:
             self.history.own_run = int(os.environ.get("GITHUB_RUN_ID") or 0)
             self.history.no_rate_limit_waits()
         states: dict[tuple[int, int], str] = {}
-        for job_id in self.history.rescue_jobs(now - WINDOW):
+        for job_id in self.history.rescue_jobs(
+                now - WINDOW, events=("schedule", "workflow_dispatch"), titles=("owned-pool-sweeper",)):
             marks = self.history.job_marks(job_id)
             if marks is None:
                 raise RuntimeError(f"rescue job {job_id}'s recovery journal could not be read whole")
@@ -243,6 +355,9 @@ class GitHub:
         if method != "GET":
             return self._send(method, path, payload, self.write_token, "fallback" if self.fallback else "primary")
         pool, token = self.read_token()
+        cooldown = self.forbidden_cooldowns.get(pool)
+        if cooldown is not None and self.clock() < cooldown[0]:
+            raise cooldown[1]  # a quota refusal pauses this pool's GETs instead of spending more of it
         try:
             return self._send(method, path, payload, token, pool)
         except RuntimeError as error:
@@ -278,6 +393,12 @@ class GitHub:
             self.note_limit(error.headers, pool)
             if error.code == 304 and cached:
                 return cached[1]
+            if error.code == 403:
+                diagnostic = _forbidden_diagnostic(error)
+                refusal: RuntimeError = GitHubHTTPError(f"{method} {path}: {diagnostic}: HTTP 403", status=403)
+                if method == "GET" and diagnostic.startswith(("quota", "secondary-limit")):
+                    self.forbidden_cooldowns[pool] = (self.clock() + FORBIDDEN_COOLDOWN_SECONDS, refusal)
+                raise refusal from error
             refusal = RuntimeError(f"{method} {path}: HTTP {error.code}")
             refusal.code = error.code  # type: ignore[attr-defined]
             raise refusal from error
@@ -286,8 +407,10 @@ class GitHub:
              page: int = 1) -> list[dict[str, Any]]:
         """One page of in-flight pull request runs: of one workflow file, or of the whole repository (None)."""
         # Filtered to pull_request runs server-side, so push and dispatch runs never fill the one page.
+        # The upper stall bound is applied locally: retaining fresh metadata lets it age into eligibility while a
+        # discovery page is cached, and keeps the URL stable for conditional requests after the short cache TTL.
         query = urllib.parse.urlencode({"status": status, "event": "pull_request", "per_page": 100, "page": page,
-                                        "created": f"{iso(start)}..{iso(end)}"})
+                                        "created": f">={iso(start)}"})
         where = "/actions/runs" if workflow is None else f"/actions/workflows/{workflow}/runs"
         return list(self.request("GET", f"{where}?{query}").get("workflow_runs") or [])
 
@@ -442,6 +565,13 @@ class ScanState:
     recovery_cursor: int | None = None
     pages: dict[tuple[str, str], int] = field(default_factory=dict)
     candidates: dict[int, Mapping[str, Any]] = field(default_factory=dict)
+    # (REPOSITORY, status, page) -> (monotonic read time, page rows).
+    discovery_pages: dict[tuple[str, str, int], tuple[float, list[Mapping[str, Any]]]] = field(
+        default_factory=dict)
+    # A cached non-stalled jobs answer is safe only until its oldest queued job reaches the stall bound. Stalled
+    # verdicts are never cached, so a rescue always gets a fresh authoritative read.
+    jobs_cache: dict[int, tuple[float, dt.datetime, list[Mapping[str, Any]]]] = field(default_factory=dict)
+    fresh_candidates: dict[int, Mapping[str, Any]] = field(default_factory=dict)
 
 
 def scan_slice(runs: Sequence[Mapping[str, Any]], cursor: tuple[str, int] | None) -> tuple[
@@ -479,6 +609,15 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
     started = clock()
     deadline = started + SETTLE_BUDGET_S
     recovery_deadline = started + SETTLE_BUDGET_S / 2
+    # Keep bounded process-local caches from retaining completed/expired candidates forever.
+    state.discovery_pages = {
+        key: value for key, value in state.discovery_pages.items()
+        if clock() - value[0] < DISCOVERY_CACHE_SECONDS
+    }
+    state.jobs_cache = {
+        run_id: value for run_id, value in state.jobs_cache.items()
+        if clock() - value[0] < DISCOVERY_CACHE_SECONDS and now < value[1]
+    }
     # A broken receipt must not consume every slot every minute. Rotate owned recovery IDs and reserve
     # half the mutation and settle budgets for fresh stalled work, even while old reads keep failing.
     ordered = sorted(recovering)
@@ -501,16 +640,35 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
                      f"no listing or job read until its reset at {iso(dt.datetime.fromtimestamp(client.reset, UTC))}")
         return lines
-    start, end = now - WINDOW, now - dt.timedelta(seconds=STALL_SECONDS)
+    # Round the server query lower bound so the same URL remains cacheable for a short interval. The exact upper
+    # bound is always enforced locally; a retained fresh candidate therefore becomes eligible as
+    # soon as its timestamp ages into the stall window, even while the listing page is cached.
+    def floor(moment: dt.datetime) -> dt.datetime:
+        stamp = int(moment.astimezone(UTC).timestamp())
+        return dt.datetime.fromtimestamp(stamp - stamp % DISCOVERY_STEP_SECONDS, UTC)
+
+    exact_start, exact_end = now - WINDOW, now - dt.timedelta(seconds=STALL_SECONDS)
+    start, end = floor(exact_start), exact_end
     # Overflow pages rotate independently of the job-read cursor. Retain the discovered union so a page
     # disappearing from the next listing cannot discard candidates before their turn. Metadata never
     # authorizes a mutation: the run, PR head and jobs are still re-read immediately before cancellation.
     listed = state.candidates
     for run_id, run in list(listed.items()):
         created = parse_time(run.get("created_at"))
-        if (created is None or not start <= created <= end or run.get("_workflow") not in workflows
+        if created is not None and created > exact_end:
+            state.fresh_candidates[run_id] = run
+            del listed[run_id]
+            continue
+        if (created is None or created < exact_start or run.get("_workflow") not in workflows
                 or run_id in recovering):
             del listed[run_id]
+    for run_id, run in list(state.fresh_candidates.items()):
+        created = parse_time(run.get("created_at"))
+        if created is None or created < exact_start or run.get("_workflow") not in workflows or run_id in recovering:
+            del state.fresh_candidates[run_id]
+        elif created <= exact_end:
+            listed[run_id] = run
+            del state.fresh_candidates[run_id]
     declared = set(workflows)
     for status in IN_FLIGHT:
         # One repository-wide listing per status; a run is kept when its workflow file is declared. A reusable
@@ -525,7 +683,15 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
             if not previous_full:
                 break  # the pages so far hold every run: a later page would come back empty
             try:
-                page = client.runs(None, status, start, end, page=listing_page)
+                # Keep the cache key independent of the moving time window. The local exact-window filter below
+                # drops aged rows, while the short TTL keeps newly-created rows boundedly fresh.
+                cache_key = (REPOSITORY, status, listing_page)
+                cached = state.discovery_pages.get(cache_key)
+                if cached is not None and clock() - cached[0] < DISCOVERY_CACHE_SECONDS:
+                    page = cached[1]
+                else:
+                    page = client.runs(None, status, start, end, page=listing_page)
+                    state.discovery_pages[cache_key] = (clock(), list(page))
             except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
                 lines.append(f"could not list {status} pull request runs ({error})")
                 break
@@ -536,13 +702,20 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
                 workflow = workflow_file(run)
                 if (workflow in declared and isinstance(run.get("id"), int) and candidate(run)
                         and run["id"] not in recovering
-                        and (created := parse_time(run.get("created_at"))) is not None and start <= created <= end):
-                    listed[run["id"]] = {**run, "_workflow": workflow}
+                        and (created := parse_time(run.get("created_at"))) is not None
+                        and created >= exact_start):
+                    item = {**run, "_workflow": workflow}
+                    if created > exact_end:
+                        state.fresh_candidates[run["id"]] = item
+                    else:
+                        listed[run["id"]] = item
         if full_overflow:
             state.pages[key] = 3 if overflow >= MAX_RUN_LIST_PAGES else overflow + 1
         else:
             state.pages[key] = 3
     runs = sorted(listed.values(), key=run_key)
+    live_ids = set(listed) | set(state.fresh_candidates)
+    state.jobs_cache = {run_id: value for run_id, value in state.jobs_cache.items() if run_id in live_ids}
     candidate_count = len(runs)
     runs, state.cursor = scan_slice(runs, state.cursor)
     if candidate_count > MAX_RUNS:
@@ -552,8 +725,31 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
             lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
                          f"{len(runs) - read} job reads left to a later pass")
             break
+        created = parse_time(run.get("created_at"))
+        if created is None or created > exact_end:
+            # Retained fresh metadata is kept for the next pass, but it cannot spend a job read until it enters the
+            # local stall window. This is what lets an eligible run age into service while discovery is cached.
+            continue
         try:
-            jobs = client.jobs(run["id"])
+            cached_jobs = state.jobs_cache.get(run["id"])
+            if cached_jobs is not None:
+                checked_at, expires_at, jobs = cached_jobs
+                if clock() - checked_at >= DISCOVERY_CACHE_SECONDS or now >= expires_at:
+                    cached_jobs = None
+            if cached_jobs is None:
+                jobs = client.jobs(run["id"])
+                # Cache only a clearly non-stalled result, and expire when its oldest queued job can age into the
+                # rescue window. A read failure is never cached as absence.
+                queued_times = [parse_time(job.get("created_at")) for job in jobs
+                                if job.get("status") == "queued" and parse_time(job.get("created_at")) is not None]
+                expires_at = min((created + dt.timedelta(seconds=STALL_SECONDS) for created in queued_times),
+                                 default=now + dt.timedelta(seconds=DISCOVERY_CACHE_SECONDS))
+                complete = bool(jobs) and all(
+                    str(job.get("name") or "") != "(jobs past the first page)"
+                    and job.get("status") in {"queued", "in_progress", "completed"}
+                    for job in jobs)
+                if complete and verdict(jobs, now)[0] == "none":
+                    state.jobs_cache[run["id"]] = (clock(), expires_at, list(jobs))
         except Exception as error:  # noqa: BLE001
             lines.append(f"run {run['id']}: could not read jobs ({error})")
             continue

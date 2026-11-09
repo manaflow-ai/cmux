@@ -246,7 +246,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`).
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-reaper-active-v1` is listed while the owner's unplaced-terminal reaper runs, and from the bind of the socket of an owner started with `--terminal-reap-grace-seconds <n>` (it starts the reaper just after the bind), until the reaper stops or fails to start: it ends a terminal that has had no tab placement for `n` seconds, counted across owner restarts, through the same path as `close-terminal`. `terminal-read-unwrap-v1` advertises the `unwrap` and `lines` fields of `terminal.screen.read` and `unwrap` of `terminal.copy`. `terminal-wait-new-v1` advertises the `new` field of `terminal.wait`. `terminal-exit-status-v1` advertises `extra.last_command` on terminal records (see `cli.md`). `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`).
 
 Errors:
 
@@ -2254,7 +2254,9 @@ Example:
 
 Explicitly tombstones a workspace and removes every screen, pane, and tab
 placement in it. PTY terminal resources remain session-owned with zero or more
-views; only `terminal.close` ends them. Single-view browser runtimes close.
+views; `terminal.close` ends them at once, and an owner that advertises
+`terminal-reaper-active-v1` also ends them after its reap grace. Single-view
+browser runtimes close.
 Terminal or pane exit alone never invokes this operation. The active
 workspace selection is adjusted to keep a remaining workspace active when
 possible. The workspace may be selected by stable key or numeric id, and the
@@ -3965,12 +3967,22 @@ object{
   agents: array<object{
     surface: Id,
     state: "working"|"blocked"|"idle"|"done"|"unknown",
+    status?: "working"|"blocked"|"done"|"idle"|"unknown"|null,
     source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
     updated_at_ms: uint64
   }>
 }
 ```
+
+`state` is the roster state; `done` there is an agent session that ended.
+`status` is the one status vocabulary every client shows: `blocked`, `done`
+(the agent finished a turn and no client has shown its tab since: `state` is
+`idle` and the terminal still carries its unread marker), `working`, `idle`
+and `unknown`, ranked for attention in that order; null for an ended session.
+`list-agents` is a read and never clears `done`; `ack-tab-notifications`, which
+a frontend sends when it shows the tab to the person, makes it `idle`. Older
+daemons omit `status`; use `state` there.
 
 Errors:
 
@@ -3996,6 +4008,37 @@ Example:
 {"id":107,"cmd":"list-agents","state":"blocked"}
 {"id":107,"ok":true,"data":{"agents":[{"surface":1,"state":"blocked","source":"hook","session":"abc","updated_at_ms":1710000000000}]}}
 ```
+
+### ack-tab-notifications
+
+| Field | Value |
+| --- | --- |
+| name | `ack-tab-notifications` |
+| status | implemented |
+| since | protocol 12 additive extension |
+
+Clears a tab's unread marker without selecting or focusing it (all views of
+one terminal share the marker). Frontends keep focus client-local and call
+this when the person has seen the tab: the TUI sends it when a finished agent
+turn (`list-agents` `status` `done`) is in the tab it shows while its host
+terminal has focus. Emits `tree-changed` when a marker cleared. Acknowledging a
+tab with no marker succeeds with `cleared:false`. The clear is in memory, as
+with `select-tab`: a daemon restart restores the marker of a notification
+that is still unread in the journal.
+
+Params: `surface` (`Id`, required).
+
+Result:
+
+```text
+object{surface:Id, cleared:bool}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown surface <id>` | The tab does not exist |
 
 ### report-agent
 
