@@ -29,7 +29,7 @@ final class IndicatorRollbackBudget {
         guard times.count > limit, warned.insert(kind).inserted else { return }
         let line = "[cmux perf budget] indicator-rollback: \(kind) on tab \(tab) rolled back \(times.count) times in 2 s. "
             + "An optimistic indicator write sent per input against an owner that refuses it blinks the dot; "
-            + "send it once per state (TabModel.takeKeystrokeRead)."
+            + "hold the next one off after a rollback (TabModel.keyMayRead)."
         warnings.append(line)
         logger.warning("\(line, privacy: .public)")
     }

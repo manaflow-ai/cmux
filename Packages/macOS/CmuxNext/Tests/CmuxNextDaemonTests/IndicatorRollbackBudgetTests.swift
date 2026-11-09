@@ -12,7 +12,7 @@ struct IndicatorRollbackBudgetTests {
         let start = ContinuousClock.now
         for key in 0..<20 { budget.rolledBack("notification-read", tab: "t1", at: start + .milliseconds(150 * key)) }
         #expect(budget.warnings.count == 1)
-        #expect(budget.warnings.first?.contains("send it once per state") == true)
+        #expect(budget.warnings.first?.contains("hold the next one off after a rollback") == true)
     }
 
     @Test func aRareRollbackDoesNotWarn() {

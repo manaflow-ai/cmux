@@ -14,20 +14,25 @@ import Testing
 /// and the workspace row's dot (both read ``TabModel/showsUnread``) blinked once per key, 88 and 40
 /// times in the 15 s recording.
 ///
-/// Keys read a marker once: the first key's read shows at once (a key goes into the tab, as a click
-/// does), and a read the daemon refused or kept is never sent again by the next key, so the dot
-/// changes at most twice for one marker, however many keys come.
+/// A key's read still shows at once (a key goes into the tab, as a click does), but a rollback holds
+/// key reads off for 2 s, doubling to 30 s, until the daemon's record changes the dot: typing at any
+/// speed against a refusing daemon blinks the dot a few times, not once per key.
 @MainActor
 struct TypingKeepsUnreadDotTests {
     static let keys = 20
+    /// The time between keys, about the recording's typing speed.
+    static let keyGap: Duration = .milliseconds(150)
 
-    static func unreadTab() throws -> (NotificationCenterService, TabModel, DaemonStore) {
+    /// An unread tab whose key reads are timed by a clock the test moves (`advance`).
+    static func unreadTab() throws -> (NotificationCenterService, TabModel, DaemonStore, (Duration) -> Void) {
         _ = NSApplication.shared
         let store = DaemonStore()
         store.apply(snapshot: tree(unread: true))
         let tab = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
         #expect(tab.showsUnread, "the fixture's tab shows its unread dot")
-        return (NotificationCenterService(), tab, store)
+        var now = ContinuousClock.now
+        tab.keyReadClock = { now }
+        return (NotificationCenterService(), tab, store, { now += $0 })
     }
 
     static func tree(unread: Bool, notification: UInt64 = 4) -> DaemonTree {
@@ -37,9 +42,10 @@ struct TypingKeepsUnreadDotTests {
         return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])])
     }
 
-    /// Types `keys` keys into `tab`, running `answer` after each as the daemon's answer to whatever
-    /// the key sent, and counts the times the dot changed and the acks the keys sent.
-    static func type(_ service: NotificationCenterService, _ tab: TabModel, answer: () -> Void) -> (changes: Int, acks: Int) {
+    /// Types `keys` keys into `tab`, `keyGap` apart, running `answer` after each as the daemon's
+    /// answer to whatever the key sent, and counts the dot's changes and the acks the keys sent.
+    static func type(_ service: NotificationCenterService, _ tab: TabModel, advance: (Duration) -> Void,
+                     answer: () -> Void) -> (changes: Int, acks: Int) {
         var shown = tab.showsUnread
         var changes = 0
         let note = { if tab.showsUnread != shown { changes += 1; shown = tab.showsUnread } }
@@ -48,75 +54,73 @@ struct TypingKeepsUnreadDotTests {
             note()
             answer()
             note()
+            advance(keyGap)
         }
         let acks = service.log.filter { $0 == "ack \(tab.id)" }.count
         print("TYPING-UNREAD-DOT keys=\(keys) changes=\(changes) acks=\(acks)")
         return (changes, acks)
     }
 
-    /// The daemon refuses each ack (the owner's onFailure rolls the read back): the first key's read
-    /// shows and rolls back, and no later key sends (and blinks) it again.
+    /// The daemon refuses each ack (the recording: `ack-tab-notifications: not connected`; the
+    /// owner's onFailure rolls the read back). Over 3 s of typing the dot blinks twice (at the first
+    /// key and once the 2 s hold ends), not once per key, and stays under the rollback budget.
     @Test func aRefusedReadNeverBlinksTheDotPerKey() throws {
-        let (service, tab, _) = try Self.unreadTab()
-        let run = Self.type(service, tab) { tab.dropExpectedNotificationRead() }
-        #expect(run.changes <= 2, "the dot changed \(run.changes) times in \(Self.keys) keys")
-        #expect(run.acks == 1, "\(run.acks) acks for one marker")
+        let (service, tab, _, advance) = try Self.unreadTab()
+        let run = Self.type(service, tab, advance: advance) { tab.dropExpectedNotificationRead() }
+        #expect(run.changes <= 4, "the dot changed \(run.changes) times in \(Self.keys) keys")
+        #expect(run.acks <= 2, "\(run.acks) acks in \(Self.keys) keys")
         #expect(tab.showsUnread)
-        // Under the native indicator budget: it warns at more than 3 rollbacks of one tab in 2 s.
         #expect(tab.rollbacks.warnings.isEmpty)
     }
 
     /// The daemon keeps the marker unread and its echo restates it (an item another owner holds
-    /// keeps the ring): the keys send one ack.
+    /// keeps the ring): one ack, and the dot changes once.
     @Test func aKeptMarkerNeverBlinksTheDotPerKey() throws {
-        let (service, tab, store) = try Self.unreadTab()
-        let run = Self.type(service, tab) { store.apply(snapshot: Self.tree(unread: true)) }
-        #expect(run.changes <= 2, "the dot changed \(run.changes) times in \(Self.keys) keys")
+        let (service, tab, store, advance) = try Self.unreadTab()
+        let run = Self.type(service, tab, advance: advance) { store.apply(snapshot: Self.tree(unread: true)) }
+        #expect(run.changes <= 1, "the dot changed \(run.changes) times in \(Self.keys) keys")
         #expect(run.acks == 1, "\(run.acks) acks for one marker")
     }
 
     /// The daemon reads the marker: the dot goes once.
     @Test func anAcceptedReadClearsTheDotOnce() throws {
-        let (service, tab, store) = try Self.unreadTab()
-        let run = Self.type(service, tab) { store.apply(snapshot: Self.tree(unread: false)) }
+        let (service, tab, store, advance) = try Self.unreadTab()
+        let run = Self.type(service, tab, advance: advance) { store.apply(snapshot: Self.tree(unread: false)) }
         #expect(run.changes == 1)
         #expect(!tab.showsUnread)
     }
 
-    /// A new notification on the tab is a new marker: the next key reads it (once).
-    @Test func aNewMarkerIsReadByTheNextKey() throws {
-        let (service, tab, store) = try Self.unreadTab()
+    /// After refusals, the daemon comes back: once the hold ends the next key reads, and the dot goes.
+    /// No connection state and no notification id is cached, so a reconnect or a daemon restart that
+    /// numbers notifications from 1 again never leaves a notification keys cannot read.
+    @Test func aKeyReadsAgainOnceTheDaemonIsBack() throws {
+        let (service, tab, store, advance) = try Self.unreadTab()
         service.interacted(.keystroke, tab: tab)
-        store.apply(snapshot: Self.tree(unread: true, notification: 5))
+        tab.dropExpectedNotificationRead()
+        #expect(tab.showsUnread)
         service.interacted(.keystroke, tab: tab)
+        #expect(tab.showsUnread, "a key inside the hold blinked the dot")
+        advance(.seconds(2))
         service.interacted(.keystroke, tab: tab)
-        #expect(service.log.filter { $0 == "ack \(tab.id)" }.count == 2)
+        #expect(!tab.showsUnread, "the key after the hold did not read")
+        store.apply(snapshot: Self.tree(unread: false))
+        #expect(!tab.showsUnread)
+        // A restarted daemon's new notification reuses id 4: the next key reads it at once.
+        store.apply(snapshot: Self.tree(unread: true))
+        service.interacted(.keystroke, tab: tab)
+        #expect(!tab.showsUnread, "a reused notification id stayed unread under typing")
     }
 
-    /// A key's read that failed with the daemon not connected waits for the connection: keys while
-    /// it is down read nothing (no blink), and the first key after the reconnect reads the marker.
-    @Test func aReadRefusedOfflineReadsAgainAfterTheReconnect() throws {
-        let (_, tab, _) = try Self.unreadTab()
-        #expect(tab.takeKeystrokeRead(connected: true))
-        tab.keystrokeReadAwaitsConnection()
-        #expect(!tab.takeKeystrokeRead(connected: false), "a key read again while the daemon is down")
-        #expect(!tab.takeKeystrokeRead(connected: false))
-        #expect(tab.takeKeystrokeRead(connected: true), "the reconnect left the marker unreadable by keys")
-        #expect(!tab.takeKeystrokeRead(connected: true))
-    }
-
-    /// A refused Mark as Unread clear rolls back to the same mark, not a new one: the keys never
-    /// clear it again, once per key.
-    @Test func aRefusedMarkClearIsNotANewMark() throws {
-        let (_, tab, _) = try Self.unreadTab()
+    /// A refused Mark as Unread clear holds key reads off the same way.
+    @Test func aRefusedMarkClearHoldsKeyReadsOff() throws {
+        let (_, tab, _, advance) = try Self.unreadTab()
         tab.applyState(SessionStateMirror.TabRecord(markedUnread: true), progress: nil)
+        #expect(tab.markedUnread && tab.keyMayRead())
+        tab.expectMarkedUnread(false)
+        tab.dropExpectedMarkedUnread(false)
         #expect(tab.markedUnread)
-        #expect(tab.takeKeystrokeMarkRead())
-        for _ in 0..<Self.keys {
-            tab.expectMarkedUnread(false)
-            tab.dropExpectedMarkedUnread(false)
-            #expect(!tab.takeKeystrokeMarkRead(), "a rolled-back clear let the next key clear the mark again")
-        }
-        #expect(tab.markedUnread)
+        #expect(!tab.keyMayRead(), "a rolled-back clear let the next key clear the mark again")
+        advance(.seconds(2))
+        #expect(tab.keyMayRead(), "the hold never ended")
     }
 }

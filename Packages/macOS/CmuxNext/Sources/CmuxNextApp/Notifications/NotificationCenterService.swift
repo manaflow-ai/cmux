@@ -410,7 +410,7 @@ final class NotificationCenterService {
         }
         readMark(trigger, tab: tab, owner: owner)
         guard tab.hasUnread else { return }
-        guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)), trigger != .keystroke || tab.takeKeystrokeRead(connected: owner.map { $0.connection != nil } ?? true) else { return }
+        guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)), trigger != .keystroke || tab.keyMayRead() else { return }
         if let owner, !local, !owner.supports(DaemonCapability.notificationAck.rawValue) {
             return note("\(trigger.rawValue) cannot read \(tab.id) on \(owner.machineID): no notification-ack-v1")
         }
@@ -434,7 +434,7 @@ final class NotificationCenterService {
     /// while viewed stays marked until it is viewed again, ``clearTabMarks(entering:)``).
     private func readMark(_ trigger: NotificationTrigger, tab: TabModel, owner: DaemonService?) {
         dismissAttention(trigger, tab: tab)
-        guard tab.markedUnread, trigger == .click || trigger == .keystroke && tab.takeKeystrokeMarkRead(), let daemon = owner ?? services?.daemon else { return }
+        guard tab.markedUnread, trigger == .click || trigger == .keystroke && tab.keyMayRead(), let daemon = owner ?? services?.daemon else { return }
         note("\(trigger.rawValue) read mark \(tab.id)")
         if DesignSettings.shared.attention.flashesOnEntry(trigger) { entryReads.insert(tab.id) }
         try? TabUnreadMark.set(false, tab: tab, daemon: daemon)
@@ -470,7 +470,7 @@ final class NotificationCenterService {
         let driver = remote == nil ? feedDriver : nil
         // Read now (dots, badges, Cmd-Opt-U); the tree's echo settles it, a failed ack rolls it back.
         tab.expectNotificationRead()
-        (remote ?? services?.daemon)?.send("ack-tab-notifications", onFailure: { tab.dropExpectedNotificationRead(); if $0.cause == .connection { tab.keystrokeReadAwaitsConnection() } }) { connection in
+        (remote ?? services?.daemon)?.send("ack-tab-notifications", onFailure: { _ in tab.dropExpectedNotificationRead() }) { connection in
             let reply = try await connection.acknowledgeNotifications(of: surface)
             // Items that already moved are read in the cloud (B5).
             if let refused = reply.refused, !refused.isEmpty { await driver?.acknowledged(refused) }
