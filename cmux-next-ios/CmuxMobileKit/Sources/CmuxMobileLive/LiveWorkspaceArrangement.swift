@@ -63,7 +63,7 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
                 var params: [String: Any] = ["marked_unread": false]
                 Self.address(workspace, into: &params)
                 try WorkspaceSync.check(await client.request("set-workspace-metadata", params: params, deadline: Self.readDeadline))
-                try await acknowledge(Self.stillUnread(tabs, in: sync.tree), client: client)
+                try await acknowledge(Self.stillUnread(tabs, in: currentTree()), client: client)
             }
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
@@ -80,6 +80,16 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
         guard readMarks[workspace.id] == mark, link.target?.macID == workspace.macID else { return false }
         guard settles, let tree = sync.tree, sync.macID == workspace.macID else { return true }
         return tree.workspaces.first { $0.id == workspace.id }?.hasUnread == true
+    }
+
+    /// The Mac's tree as this try's connection lists it: one from before a reconnect may not show
+    /// a notification that came meanwhile. A list that fails leaves the read unanswered.
+    private func currentTree() async throws -> DaemonTree {
+        do {
+            return try await sync.listNow()
+        } catch {
+            throw LinkError(code: "no-tree", message: "The Mac's workspaces are not listed yet")
+        }
     }
 
     /// `ack-tab-notifications` for each of `surfaces`. A tab the Mac refuses (closed meanwhile)
@@ -241,7 +251,8 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
             do {
                 _ = try await reads.send(stands: { self?.markAllStands(marks, on: macID) == true }) {
                     guard let self else { throw CancellationError() }
-                    try await self.acknowledgeAll(Self.stillUnread(marks, in: self.sync.tree), client: self.daemonClient(macID))
+                    let client = try self.daemonClient(macID)
+                    try await self.acknowledgeAll(Self.stillUnread(marks, in: self.currentTree()), client: client)
                 }
             } catch {
                 creationLog.error("Mark All Notifications as Read refused: \(String(describing: error), privacy: .public)")

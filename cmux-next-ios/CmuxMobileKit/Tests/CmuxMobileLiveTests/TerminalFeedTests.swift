@@ -285,6 +285,27 @@ import Testing
         #expect(store.item(id: "term-mac-ntf_2")?.isRead == false)
     }
 
+    /// Review finding: a read that stopped unsent (marked unread while the Mac was down) does not
+    /// keep a later read of the same event from going.
+    @Test func aReadAgainAfterAnUnsentOneGoes() async {
+        let daemon = FakeDaemon()
+        daemon.rows = [Self.row("ntf_1", "Codex finished", surface: 1, at: 1_000_000)]
+        let (store, feed) = Self.make(daemon)
+        feed.reads.pause = { _ in await Task.yield() }
+        feed.treeChanged(Self.tree(), macID: "mac", connection: Self.connection)
+        await Self.settle { store.items.count == 1 }
+
+        daemon.down = true
+        store.markRead("term-mac-ntf_1")
+        await Self.settle { daemon.unanswered >= 2 }
+        store.markUnread("term-mac-ntf_1")
+        await Self.settle { false }
+        daemon.down = false
+        store.markRead("term-mac-ntf_1")
+        await Self.settle { !daemon.acks.isEmpty }
+        #expect(daemon.acks == [1])
+    }
+
     @Test func waitingTerminalResolvesWhenItMovesOn() async {
         let daemon = FakeDaemon()
         daemon.rows = [

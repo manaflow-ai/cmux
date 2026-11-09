@@ -351,8 +351,15 @@ public final class TerminalFeed {
                     let surface = self.entries.first { $0.id == entry.id }?.surface ?? surface
                     return try WorkspaceSync.check(try await request("ack-tab-notifications", ["surface": surface], connection))
                 }
-                // Answered on a newer connection, which starts with no acks: this one counts there.
-                if answered != nil, let self, self.macID == macID { self.acked[surface] = max(self.acked[surface] ?? .distantPast, entry.createdAt) }
+                if let self, self.macID == macID {
+                    if answered != nil {
+                        // Answered on a newer connection, which starts with no acks: this one counts there.
+                        self.acked[surface] = max(self.acked[surface] ?? .distantPast, entry.createdAt)
+                    } else if self.acked[surface] == entry.createdAt {
+                        // It stopped unsent (marked unread meanwhile): a later read of it goes again.
+                        self.acked[surface] = nil
+                    }
+                }
             } catch {
                 log.error("ack-tab-notifications \(surface, privacy: .public) refused: \(String(describing: error), privacy: .public)")
             }
