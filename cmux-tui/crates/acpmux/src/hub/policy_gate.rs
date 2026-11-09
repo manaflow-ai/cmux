@@ -124,7 +124,7 @@ fn deny_reason(policy: PermissionPolicy, by_rule: bool) -> String {
             "review allows reads, searches and read-only shell commands only"
         }
         PermissionPolicy::DenyAll => {
-            "deny-all allows file reads and searches only, no shell command"
+            "deny-all allows the file read and search tools only (Read, Grep, Glob) and denies every shell command, a read-only one too"
         }
         _ => "the policy refuses it",
     };
@@ -317,5 +317,8 @@ mod tests {
         let reason = deny_reason(PermissionPolicy::Review, false);
         assert!(reason.contains("review") && reason.contains("Do not retry"), "{reason}");
         assert!(deny_reason(PermissionPolicy::DenyAll, true).contains("rule"));
+        // The real build's agent read "searches" as `rg` in a shell: deny-all names its tools.
+        let reason = deny_reason(PermissionPolicy::DenyAll, false);
+        assert!(reason.contains("Read, Grep, Glob") && reason.contains("every shell"), "{reason}");
     }
 }
