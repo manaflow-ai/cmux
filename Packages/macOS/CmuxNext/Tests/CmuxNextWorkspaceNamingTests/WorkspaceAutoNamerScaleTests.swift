@@ -54,8 +54,7 @@ struct WorkspaceAutoNamerScaleTests {
                     guard let self else { return [] }
                     return workspaces.map { workspace in
                         .init(machineID: DaemonCommandScope.localMachine, workspace: workspace,
-                              supportsNameSource: true, daemonGeneration: nil,
-                              nameSource: workspace.nameSource, nameRevision: workspace.nameRevision)
+                              supportsNameSource: true, daemonGeneration: nil)
                     }
                 },
                 selection: { [weak self] _, _ in
