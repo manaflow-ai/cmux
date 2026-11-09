@@ -51,12 +51,16 @@ public nonisolated enum SidebarWorkspaceTitleMotionVariant: String, Sendable, Ca
     case instant
     case crossfade
     case lift
+    /// The agent chat's tool-call roll (`MotionGate.rollTitle`): the old name rises and fades out
+    /// above as the new one rises in from below, softening as it goes.
+    case roll
 
     public var tunableTitle: String {
         switch self {
         case .instant: "Instant"
         case .crossfade: "Crossfade"
         case .lift: "Lift"
+        case .roll: "Roll (as a chat's tool calls)"
         }
     }
 }
@@ -199,11 +203,13 @@ public nonisolated enum SidebarTunables {
         default: .slide, code: "SidebarTunables.collapseMotion")
 
     /// The transition used when a workspace row receives its generated or
-    /// agent-derived title after creation. Crossfade is the shipped default (#21242).
+    /// agent-derived title after creation, or is renamed. Roll is the shipped default (Leo,
+    /// 2026-11-08: "i feel like when workspaces get renamed (esp by agents) it should have that
+    /// same fade in animation that the tool call situation has...").
     public static let workspaceTitleMotion = Tunable<SidebarWorkspaceTitleMotionVariant>.choice(
         "sidebar.workspaceTitleMotion", .sidebar, "Workspace title motion",
-        help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",
-        default: .instant, code: "SidebarTunables.workspaceTitleMotion")
+        help: "A late or renamed workspace or agent-chat title: instant, crossfade, a short upward lift in the existing title slot, or the chat's tool-call roll.",
+        default: .roll, code: "SidebarTunables.workspaceTitleMotion")
 
     /// Where a hovered workspace row's ✕ sits (`SidebarRowCloseSpot`); at the row's end by default.
     public static let rowCloseSpot = Tunable<SidebarRowCloseSpot>.choice(

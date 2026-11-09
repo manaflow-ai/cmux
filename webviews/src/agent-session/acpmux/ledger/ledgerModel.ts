@@ -2,7 +2,8 @@
 // (an index folded at each turn, so a read never scans a log). One totals strip, a range, a
 // group-by, and rows ranked by cost with a bar each. Every cost says where it came from: the agent
 // reported it, it was priced from acpmux's price table (whose version the page shows), or no price
-// was known for the model.
+// was known for the model. Beside the cost: what cache reads saved and how much of the input they
+// were, and a CSV of the rows shown, for an audit or a spreadsheet.
 
 export const LEDGER_METHOD = "_acpmux/ledger";
 
@@ -10,7 +11,19 @@ export const LEDGER_RANGES = ["24h", "7d", "30d", "all"] as const;
 export type LedgerRange = (typeof LEDGER_RANGES)[number];
 
 /// What rows group by: a session each, or one of acpmux's rollups.
-export const LEDGER_GROUPS = ["session", "workspace", "repo", "pr", "day", "person", "vendor", "model"] as const;
+/// `account`: the sign-in a chat ran on (its Claude profile or preset), so spend on an API key and
+/// on a subscription read apart.
+export const LEDGER_GROUPS = [
+  "session",
+  "workspace",
+  "repo",
+  "pr",
+  "day",
+  "person",
+  "vendor",
+  "model",
+  "account",
+] as const;
 export type LedgerGroup = (typeof LEDGER_GROUPS)[number];
 export type LedgerRollupDim = Exclude<LedgerGroup, "session">;
 
@@ -35,6 +48,8 @@ export type LedgerTotals = {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  /// What cache reads saved against the input price, at acpmux's price table.
+  cacheSavedUsd: number;
   turns: number;
   toolCalls: number;
   wallMs: number;
@@ -45,6 +60,12 @@ export type LedgerTotals = {
 /// Cache reads are the same context sent again; counted in, a long chat's input reads as many
 /// times what it is.
 export const tokensIn = (totals: LedgerTotals) => totals.inputTokens + totals.cacheWriteTokens;
+
+/// The share of all input, 0 to 1, that was read from cache; undefined with no input at all.
+export function cacheShare(totals: LedgerTotals): number | undefined {
+  const all = totals.inputTokens + totals.cacheReadTokens + totals.cacheWriteTokens;
+  return all > 0 ? totals.cacheReadTokens / all : undefined;
+}
 
 export type LedgerSession = LedgerTotals & {
   sessionId: string;
@@ -99,6 +120,7 @@ function readTotals(value: unknown): LedgerTotals {
     outputTokens: num(body.outputTokens),
     cacheReadTokens: num(body.cacheReadTokens),
     cacheWriteTokens: num(body.cacheWriteTokens),
+    cacheSavedUsd: num(body.cacheSavedUsd),
     turns: num(body.turns),
     toolCalls: num(body.toolCalls),
     wallMs: num(body.wallMs),
@@ -275,4 +297,47 @@ export function groupLabel(group: LedgerGroup, line: LedgerLine, locale?: string
   return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", weekday: "short", timeZone: "UTC" }).format(
     date,
   );
+}
+
+/// The CSV columns after the group and its label, as acpmux names them (`acpmux ledger --csv`).
+const CSV_FIELDS = [
+  "costUsd",
+  "harnessCostUsd",
+  "tableCostUsd",
+  "unpricedTurns",
+  "inputTokens",
+  "outputTokens",
+  "cacheReadTokens",
+  "cacheWriteTokens",
+  "cacheSavedUsd",
+  "turns",
+  "toolCalls",
+  "wallMs",
+  "sessions",
+] as const satisfies readonly (keyof LedgerTotals)[];
+
+/// A CSV field: one line with no tab (a paste splits cells on both, and a split cell would dodge
+/// the next rule), never read by a spreadsheet as a formula (a leading `=`, `+`, `-` or `@` gets a
+/// `'`), and quoted when it holds a comma or quote.
+function csvField(value: string): string {
+  const flat = value.replace(/[\t\r\n]/g, " ");
+  const safe = /^[=+\-@]/.test(flat) ? `'${flat}` : flat;
+  return /[",]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
+}
+
+/// The rows `group` shows as CSV with a header, in the order they show: a session row adds its
+/// harness, repository, branch and models.
+export function ledgerCsv(reply: LedgerReply, group: LedgerGroup): string {
+  const session = group === "session";
+  const head = [group, "label", ...(session ? ["harness", "repo", "branch", "models"] : []), ...CSV_FIELDS];
+  const rows = new Map(reply.rows.map((row) => [row.sessionId, row]));
+  const lines = ledgerLines(reply, group).map((line) => {
+    const row = session ? rows.get(line.key) : undefined;
+    const extra = session ? [row?.harness ?? "", row?.repo ?? "", row?.branch ?? "", row?.models.join(" ") ?? ""] : [];
+    return [line.key, line.label, ...extra]
+      .map(csvField)
+      .concat(CSV_FIELDS.map((field) => String(line.totals[field])))
+      .join(",");
+  });
+  return `${[head.join(","), ...lines].join("\n")}\n`;
 }
