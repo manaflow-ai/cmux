@@ -144,6 +144,23 @@ import Testing
         #expect(AgentAttachment(kind: .file, name: "a.txt").picture == nil)
     }
 
+    /// A note whose length would overflow (a person's own text that reads like one) never traps the
+    /// record decoder: its video stays the link it was, a chip that opens the same file.
+    @Test func sentVideoWithAnOverflowingLengthStaysItsChip() {
+        let lines = [
+            "Frames from the video clip.mov (9223372036854775807:00, 640×360), in order, at: 0:00.0.",
+            "Frames from the video big.mov (99999999999999999999:00, 640×360), in order, at: 0:00.0.",
+            "Frames from the video wide.mov (0:05, 99999999999999999999×360), in order, at: 0:00.0.",
+        ]
+        let links: [AgentVideo.SentLink] = [.init(name: "clip.mov", path: "/w/clip.mov"), .init(name: "big.mov", path: "/w/big.mov"),
+                                            .init(name: "wide.mov", path: "/w/wide.mov")]
+        let videos = AgentVideo.sentVideos(lines: lines, links: links, images: [])
+        #expect(videos.map(\.name) == ["clip.mov", "big.mov", "wide.mov"])
+        #expect(videos.allSatisfy { $0.video == nil && $0.macPath != nil })
+        #expect(AgentVideo.lengthMs("9223372036854775807:00") == nil)
+        #expect(AgentVideo.lengthMs("1:02:03") == 3_723_000)
+    }
+
     @Test func sentBubbleLeavesTheFramesTextOut() {
         let names: [String?] = ["clip.mov frame at 0:02.0", "clip.mov frame at 0:06.0"]
         let text = "Look at this\nFrames from the video clip.mov (0:16, 1920×1080), in order, at: 0:02.0, 0:06.0.\nclip.mov frame at 0:02.0\nclip.mov frame at 0:06.0"
