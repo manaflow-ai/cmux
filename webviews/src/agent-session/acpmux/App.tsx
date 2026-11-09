@@ -254,7 +254,7 @@ import {
   useSessionInfoOpen,
   sessionInfoPaneKey,
 } from "./session-info/sessionInfoState";
-import { openCommand, opensProcessTerminal } from "./processTerminal";
+import { chatProcessesHere, openCommand, opensProcessTerminal } from "./processTerminal";
 import {
   descendants,
   subagentChangesFolder,
@@ -5358,7 +5358,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     showToolRow,
     previewChips,
   ]);
-  // A tray command opens its terminal beside the chat; where none opens (a peer's or Cloud chat, or
+  // A tray command opens its terminal beside the chat; where none opens (a peer's chat, or
   // a command only the transcript knows), the Bash call that started it in the transcript; with no
   // call loaded either, the summary card, which lists it, or, while the Inspector takes the card's
   // place, its section that lists it (Background tasks, a dev server's included).
@@ -5568,7 +5568,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onOpenCommand={openTrayCommand}
             canOpenTerminal={opensProcessTerminal(snapshot.summary)}
             canReadTail={
-              opensProcessTerminal(snapshot.summary) &&
+              chatProcessesHere(snapshot.summary) &&
               clientEpoch > 0 &&
               directClient.current !== undefined &&
               backgroundTaskOutput !== undefined
@@ -12027,7 +12027,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               <BackgroundTasksPanel
                 groups={backgroundList}
                 readsOutput={
-                  opensProcessTerminal(snapshot.summary) &&
+                  chatProcessesHere(snapshot.summary) &&
                   clientEpoch > 0 &&
                   directClient.current !== undefined &&
                   backgroundTaskOutput !== undefined
