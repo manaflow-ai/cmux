@@ -4,6 +4,7 @@ import AppKit
 import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -29,7 +30,7 @@ struct FirstRunPageAppShortcutsTests {
 
     private static func showFirstRunPage(_ services: AppServices, _ controller: WindowController) throws {
         let suite = "cmux-first-run-keys-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         services.pages.register(FirstRunPage())
         services.onboarding.showHistoryAtFirstRun(isFirstRun: true, defaults: defaults)

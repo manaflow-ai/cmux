@@ -297,7 +297,7 @@ async fn connection(
     };
     let plan = &plan;
     let outcome = tokio::select! {
-        outcome = shared.session.stream(deadline, move || client::dial(plan, super::jitter)) => outcome,
+        outcome = shared.session.stream(deadline, move || client::dial(plan)) => outcome,
         _ = stopped.wait_for(|stopped| *stopped) => return,
     };
     let held::Stream { mux, vmk, lease, dialed, opened } = match outcome {
