@@ -21,6 +21,8 @@ import {
   MARKDOWN_FLUSH_OP,
   MARKDOWN_LIST_FILES_OP,
   MARKDOWN_RESOLVE_LINKS_OP,
+  MARKDOWN_RUN_ALL_OP,
+  MARKDOWN_RUN_BLOCK_OP,
   MARKDOWN_SELECTION_OP,
   MARKDOWN_SET_TABLE_WIDTHS_OP,
   resolveImageURL,
@@ -35,6 +37,8 @@ import { MarkdownStore } from "./store";
 import type { ReadingSettingsActions } from "./ReadingSettings";
 import { MARKDOWN_READING, bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { MarkdownFontZoom, isMarkdownZoomCommand } from "./fontZoom";
+import type { RunLabel } from "./runButtons";
+import { runbookPrompt } from "./runbook";
 import { EditorFind } from "../editor/editorFind";
 import { markdownFindTarget } from "./markdownFind";
 import { L } from "./strings";
@@ -58,6 +62,27 @@ const LABELS: Record<EditorLabel, string> = {
   comment: L.comment,
   deleteComment: L.deleteComment,
 };
+
+const RUN_LABELS: Record<RunLabel, string> = {
+  run: L.run,
+  runTitle: L.runTitle,
+  runAsk: L.runAsk,
+  runAskLines: L.runAskLines,
+  runConfirm: L.runConfirm,
+  runCancel: L.runCancel,
+  runSent: L.runSent,
+};
+
+/** Run all: the runbook's steps and the prompt contract to an agent chat in the file's repository. */
+function runAll(store: MarkdownStore, client: PageClient | null, editor: MarkdownEditor | null): void {
+  const path = store.getState().config?.path;
+  if (!client || !path || !editor) return;
+  const steps = editor.runbookSteps();
+  if (!steps.length) return;
+  void client.call(MARKDOWN_RUN_ALL_OP, { path, prompt: runbookPrompt(path, steps) }).catch((error: unknown) => {
+    console.warn("cmux markdown run all", error);
+  });
+}
 
 /** The editor's host: links, images, code colors and diagrams, from the page config. */
 const LINK_LABELS: Record<LinkLabel, string> = {
@@ -158,6 +183,17 @@ function editorHost(
       renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed));
     },
     label: (key) => strings.t(LABELS[key]),
+    // A Run button's click sends its block to a new terminal in the file's repository.
+    run: client
+      ? {
+          runBlock: async (command) => {
+            const path = config()?.path;
+            if (!path) throw new Error("no file");
+            await client.call(MARKDOWN_RUN_BLOCK_OP, { path, command });
+          },
+          label: (key) => strings.t(RUN_LABELS[key]),
+        }
+      : undefined,
     htmlPreview: (html) => htmlPreview(html, imageURL, blockedImage),
     setCodeThemes(themes) {
       return highlighter?.setThemes(themes);
@@ -274,6 +310,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
       overlays,
       readOnly: store.getState().readOnly,
       onUserEdit: () => store.edited(),
+      onRunnable: (runnable) => store.setRunnable(runnable),
     });
     editor = next;
     void next.create().then(() => {
@@ -361,6 +398,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         onBack={() => void router.go(-1)}
         onForward={() => void router.go(1)}
         reading={readingActions(store, zoom)}
+        onRunAll={client ? () => runAll(store, client, editor) : undefined}
         find={find}
       />
     </UiProvider>,

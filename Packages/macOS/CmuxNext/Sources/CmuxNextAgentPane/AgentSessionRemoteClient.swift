@@ -30,6 +30,9 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func children() async throws -> Data
     /// Reads one image from the attached chat's host, as `{mimeType, data}` with base64 bytes.
     func media(path: String) async throws -> Data
+    /// Reads one byte range of a video on the attached chat's host, as
+    /// `{offset, size, identity, data, mimeType?, handle?}` (``AgentPaneRemoteMedia``).
+    func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data
     /// The person starts or stops typing in the chat (`agent-session-presence-v1`).
     func typing(_ on: Bool) async throws
     /// Whether the person's window shows the chat now (`agent-session-presence-v1`).
@@ -103,6 +106,10 @@ extension AgentSessionRemoteClient {
     /// Older daemons have no host media command; callers turn this into a refused image.
     public func media(path: String) async throws -> Data {
         throw AgentSessionRemoteError(code: "agent_session.media_unsupported", message: "the daemon does not serve agent session media")
+    }
+    /// Older daemons read no video ranges; the pane then says the video can't play here.
+    public func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        throw AgentSessionRemoteError(code: "agent_session.media_unsupported", message: "the daemon does not serve video ranges")
     }
 }
 

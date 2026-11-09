@@ -494,6 +494,31 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
     assert_eq!(*count.borrow(), 2);
 }
 
+/// A seed that answered at the chat's head is the send's copy: the chat opens in that
+/// folder while the machine fills the rest, so a retry never pushes a second seed over it.
+#[test]
+fn a_seed_answered_at_its_head_is_the_sends_copy_and_says_filling() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "app/web");
+    let count = RefCell::new(0);
+    let push = |_: &Path, _: &Path, _: &str| {
+        *count.borrow_mut() += 1;
+        Ok(super::pushed_fields(&json!({
+            "ok": true, "mode": "seed", "unchanged": false, "bundle_bytes": 10,
+            "head": null, "work": "w", "skipped_files": [], "filling": true,
+        })))
+    };
+    let first = copy.run(&path, &push);
+    assert_eq!(first["copied"], json!(true), "{first}");
+    assert_eq!(first["filling"], json!(true), "{first}");
+    assert_eq!(first["mode"], json!("seed"));
+    let retry = copy.run(&path, &push);
+    assert_eq!(*count.borrow(), 1, "a retry never seeds over a filling folder");
+    assert_eq!(retry["copied"], json!(false));
+    assert_eq!(retry["chat"], first["chat"]);
+}
+
 #[test]
 fn a_finished_copy_keeps_its_original_folder_when_retry_arguments_change() {
     let dir = scratch();

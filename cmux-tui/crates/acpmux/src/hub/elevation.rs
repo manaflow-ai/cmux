@@ -49,6 +49,7 @@ const TERM_GRACE: Duration = Duration::from_secs(5);
 const KILL_SETTLE: Duration = Duration::from_secs(2);
 /// How long sudo may take to print its prompt before stdin closes with no password: past it,
 /// sudo asked for none (or is stuck), and an empty stdin is what the command gets.
+// timeout: sudo prints its prompt at once; past this it asked for none, so stdin closes empty.
 const PROMPT_WAIT: Duration = Duration::from_secs(if cfg!(test) { 10 } else { 20 });
 const MAX_ARGS: usize = 256;
 const MAX_ARG_BYTES: usize = 4096;

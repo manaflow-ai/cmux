@@ -19,7 +19,7 @@ quick 80 ms (hover and pressed fills, focus rings, anything leaving), micro
 is a step or 0, and every spring ends visibly (within 0.5%,
 `perceivedDuration`) by 240 ms; entering eases out, and nothing delays input. A web fold, Show more or panel that
 grows or shrinks to a new height rides the settle (`--cmux-ease-settle`,
-`cubic-bezier(0.16, 1, 0.3, 1)`, over `--cmux-motion-settle`, 265 ms; TypeScript
+`cubic-bezier(0.16, 1, 0.3, 1)`, over `--cmux-motion-settle`, 180 ms; TypeScript
 `MOTION_SETTLE` and `MOTION_SETTLE_MS`): a strong ease-out that starts at full
 speed and decelerates into its end on a long soft tail, never past it (Leo
 2026-11-07: "they dont overshoot but they decelerate at the end. i think that
@@ -27,12 +27,14 @@ might be the key"). split-motion-sweep measured it on a reference panel's folds:
 a first-order exponential, 1 - e^(-t/38 ms) (about 53% of the travel in the first
 frame, within 0.5 pt of rest by about 225 ms, fold and unfold alike; a critically
 damped spring fit it to 2.2-4.7% rms, the exponential to 0.1-1.1%). The
-cubic-bezier is within 1.1% of it at every point; the exact `linear()` copy is not
-the value because WebKit before Safari 17.2 (macOS 14.0 and 14.1) has no
-`linear()` easing. It is measured, so it is the one length off the step list;
-it is visibly at rest by the 240 ms ceiling. Native: the same
-CAMediaTimingFunction over 0.265 s, or for an interruptible spring an overdamped
-one (mass 1, stiffness 20800, damping 826). Reduce Motion and the pane's
+cubic-bezier over 265 ms is within 1.1% of it at every point; the exact `linear()`
+copy is not the value because WebKit before Safari 17.2 (macOS 14.0 and 14.1) has
+no `linear()` easing. It runs the standard step's 180 ms instead, the same curve
+compressed, so a fold is at rest 85 ms sooner (Leo 2026-11-09: "there's some sort
+of 'settling' and like ok maybe but the animations end to end need to just resolve
+faster"). Native: the same
+CAMediaTimingFunction over 0.18 s, or for an interruptible spring an overdamped
+one (mass 1, stiffness 45100, damping 1216). Reduce Motion and the pane's
 animations off make it one step. Session Info's section folds and Show more
 lists use it first.
 Off-scale fades went to the nearest step that is not longer (focus and

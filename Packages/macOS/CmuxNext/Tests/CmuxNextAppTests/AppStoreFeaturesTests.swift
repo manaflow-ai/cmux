@@ -211,9 +211,11 @@ import Testing
         if id == "appearance.cozy" && wasOn {
             try await bridge.set(feature, on: false)
             #expect(bridge.isOn(feature))
-            // Removing the key would re-enable the default and contradict the requested off
-            // press, so the settings bridge records the default explicitly to keep the card on.
-            #expect(settings.fileRoot.value(at: feature.path) == .string("cozy"))
+            // A write of the default stores nothing (#38119, Leo 2026-11-08: "if I'm on the defaults and
+            // the defaults get changed, that should reflect into stuff"), so the card stays on with no
+            // density key in the file, and the person keeps following the default.
+            #expect(settings.fileRoot.value(at: feature.path) == nil)
+            #expect(Self.leafKeys(settings.fileRoot).isEmpty, "\(id) left \(Self.leafKeys(settings.fileRoot)) in the file")
             return
         }
         try await bridge.set(feature, on: !wasOn)

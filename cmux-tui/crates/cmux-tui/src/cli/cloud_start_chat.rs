@@ -52,7 +52,7 @@ const NOT_STARTED_PAUSE: Duration = Duration::from_secs(2);
 const GUEST_CMUX: &str = "cmux-tui";
 /// An exec may run without a login profile: the work user's home holds the acpmux socket
 /// (`~/.acpmux/acpmux.sock`).
-const GUEST_PRELUDE: &str = "export HOME=\"${HOME:-/home/cmux}\"; c=cmux-tui; \
+pub(super) const GUEST_PRELUDE: &str = "export HOME=\"${HOME:-/home/cmux}\"; c=cmux-tui; \
     [ -x \"$HOME/.cmux/bin/cmux-tui\" ] && c=\"$HOME/.cmux/bin/cmux-tui\"; ";
 
 /// The most of a prompt that goes inside the send's own command, quoted. Longer prompts go to a
@@ -439,6 +439,11 @@ pub(super) trait Runner {
 
 struct SelfRunner {
     globals: Vec<String>,
+}
+
+/// This binary as the runner of another command's steps (`cmux chat cd`, chat_cd.rs), reaching the same app.
+pub(super) fn self_runner(global: &GlobalArgs) -> impl Runner {
+    SelfRunner { globals: forwarded_globals(global) }
 }
 
 impl Runner for SelfRunner {
@@ -936,7 +941,8 @@ fn steps(
 ) -> Outcome {
     let began = runner.now();
     // 1. Signed in, and the machine names in use.
-    let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
+    let mut listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
+    {
         Ok(listed) => listed,
         Err(error) => return app_failure(error),
     };
@@ -949,6 +955,44 @@ fn steps(
         );
     }
     // 2. The chat's machine: one made in --environment first, else the one asked for.
+    // A `--cwd` on a machine that already exists may be a repository its bootstrap is still cloning
+    // (`cloud new-machine --repo`): wait for the clone rather than fail "cwd is not a directory" (clone_wait.rs).
+    let existing = match &request.machine {
+        Machine::Target(id) => Some(id.clone()),
+        Machine::Named(name) => at(&listed, "machines")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| at(row, "title").as_str() == Some(name.as_str()))
+            .and_then(|row| at(row, "machine_id").as_str().map(str::to_owned)),
+        Machine::New => None,
+    };
+    // `--environment` always makes a new machine (in_environment refuses an existing name first), so it has
+    // no folder of an earlier bootstrap to wait for. A `--name` still being made is waited on until it is
+    // listed, then checked like any machine.
+    if request.environment.is_none()
+        && let Some(cwd) = &request.cwd
+    {
+        let machine = match (existing, &request.machine) {
+            (Some(id), _) => Some(id),
+            (None, Machine::Named(name)) => {
+                match clone_wait::created(runner, request, name, deadline, &mut listed, began) {
+                    Ok(id) => id,
+                    Err(outcome) => return outcome,
+                }
+            }
+            (None, _) => None,
+        };
+        if let Some(machine) = machine {
+            // A wait that answers past the deadline is `run`'s late answer: it names the machine waited on.
+            progress.machine = Some(Machine::Target(machine.clone()));
+            if let Some(outcome) =
+                clone_wait::wait(runner, request, &machine, cwd, deadline, &listed, began)
+            {
+                return outcome;
+            }
+        }
+    }
     let mut wanted = request.machine.clone();
     if request.environment.is_some() && deadline.passed(runner) {
         return out_of_time(request, &request.machine, Value::Null);
@@ -1566,7 +1610,7 @@ fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcom
 }
 
 /// The commands that go on with this chat.
-fn follow_ups(machine: &str, session: &str) -> Value {
+pub(super) fn follow_ups(machine: &str, session: &str) -> Value {
     let on = |command: String| {
         format!("cmux cloud exec --target machine:{machine} --command {}", shell_quote(&command))
     };
@@ -1589,7 +1633,7 @@ fn remove_prompt_file(runner: &mut dyn Runner, machine: &str, file: &str, deadli
     let _ = exec(runner, machine, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
 }
 
-fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Result<String, Value> {
+pub(super) fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Result<String, Value> {
     let args = vec![
         "cloud".to_owned(),
         "exec".to_owned(),
@@ -1814,11 +1858,14 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
 }
 
 mod cap;
+mod clone_wait;
 mod fault;
 mod folder;
 use folder::local_folder;
 mod support;
-use support::{at, last_turn, reply, sections, words};
+use support::{at, last_turn, reply, words};
+// `cmux chat cd` reads the same guest script sections.
+pub(in crate::cli) use support::sections;
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;

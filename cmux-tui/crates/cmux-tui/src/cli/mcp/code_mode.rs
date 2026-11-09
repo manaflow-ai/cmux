@@ -303,9 +303,12 @@ fn families(tools: &[Value]) -> BTreeMap<String, Vec<String>> {
 }
 
 /// How a docs answer's tools answer. 8 of 1,100 sampled `cmux_exec` calls failed with "not a
-/// function" from calling an array method on a list's `{items}` answer (2026-11-09 audit).
-const RESULTS_NOTE: &str = "A list answers {items: [...]}, not an array: (await \
-    cmux.tab_list({pane})).items.map((t) => t.id). A change answers {value: {...}}.";
+/// function" from calling an array method on a list's `{items}` answer (2026-11-09 audit). A
+/// folded server's tool keeps its own shape (`acpmux_ls` answers `{sessions, more}`), so the
+/// note names cmux's own tools only (#39279 review F1).
+const RESULTS_NOTE: &str = "cmux's own list tools answer {items: [...]}, not an array: (await \
+    cmux.tab_list({pane})).items.map((t) => t.id); its changes answer {value: {...}}. A tool of \
+    another server (acpmux_*, cua_*, sessions_*) answers in its own shape: read its description.";
 
 /// `cmux_docs`: tools that match, with schemas, and [`RESULTS_NOTE`]; or every name by family.
 pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Value, String> {
@@ -803,7 +806,7 @@ const PRELUDE: &str = r#"
   // The usual cause: an array method on a list's answer, which is {items: [...]} (8 of 1,100
   // sampled cmux_exec calls, 2026-11-09 audit). QuickJS's message names no method.
   const notAFunction = (message) => /not a function/.test(message)
-    ? `${message} (a cmux list answers {items: [...]}, not an array: use .items.map(...))`
+    ? `${message} (an answer is an object, not an array: cmux's lists are {items: [...]}, so use .items.map(...); another server's tool names its own fields)`
     : message;
   // `({cmux}) => {...}` takes the object a function script is called with: cmux itself.
   base.cmux = globalThis.cmux;

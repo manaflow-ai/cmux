@@ -39,6 +39,14 @@ test("search finds rows by keyword across sections, highlighted and editable", a
   ).not.toBeNull();
 });
 
+test("search finds Keep Mac Awake under the words people use for it", async () => {
+  page = await renderPage();
+  for (const query of ["keep awake", "sleep", "prevent sleep", "caffeinate", "stay awake"]) {
+    await changeValue(search(page), query);
+    expect(resultKeys(page)).toContain("sessions.keepAwake");
+  }
+});
+
 test("search finds rows by current value", async () => {
   page = await renderPage({
     mock: { values: { "browser.newTabPage": "https://start.cmux.dev", "appearance.backgroundBlur": "glass-clear" } },
