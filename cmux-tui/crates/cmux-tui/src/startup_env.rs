@@ -141,11 +141,16 @@ pub(crate) const AGENT_CALLER_ENV: [&str; 7] = [
 /// (`CMUX_AGENT_SESSION`). `ACPMUX_HOME` and `ACPMUX_SOCKET` stay: they name
 /// which acpmux a build uses (per-build isolation), not a session.
 const ACPMUX_SESSION_PREFIX: &str = "ACPMUX_SESSION_";
-const ACPMUX_SESSION_ENV: [&str; 2] = ["ACPMUX_HOST_NONCE", "CMUX_AGENT_SESSION"];
+/// `ACPMUX_CALLER_SUBAGENT` is the subagent mark acpmux puts in a background
+/// task's env, so `acpmux` calls in it are named as that subagent.
+const ACPMUX_SESSION_ENV: [&str; 3] =
+    ["ACPMUX_HOST_NONCE", "CMUX_AGENT_SESSION", "ACPMUX_CALLER_SUBAGENT"];
 
 /// The environment keys of the agent that started an owner, from the names
 /// in `env` (W5-R, bench round 4 A6): [`AGENT_CALLER_ENV`], the acpmux
-/// session's own variables, the starter's turn values acpmux never passes on
+/// session's own variables, a Chief turn's messaging credential
+/// (`acpmux::config::CHIEF_CREDENTIAL_ENV`: `MUX_AGENT_TOKEN_FILE`,
+/// `OPTCHAT_CHIEF_PARTICIPANT`), the starter's turn values acpmux never passes on
 /// (`acpmux::config::is_caller_scoped_key`), and, when the starter runs inside
 /// a Claude Code session (`CLAUDECODE`), what that session plants for its
 /// children (`acpmux::config::is_nested_claude_key`: `CLAUDE*`, its
@@ -167,6 +172,7 @@ where
             AGENT_CALLER_ENV.contains(&key)
                 || ACPMUX_SESSION_ENV.contains(&key)
                 || key.starts_with(ACPMUX_SESSION_PREFIX)
+                || acpmux::config::CHIEF_CREDENTIAL_ENV.contains(&key)
                 || acpmux::config::is_caller_scoped_key(key)
                 || (inside_claude && acpmux::config::is_nested_claude_key(key))
         })
