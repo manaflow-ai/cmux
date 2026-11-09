@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42547458916",
+  "recorded_at": "2026-11-09T02:01:17Z",
+  "reason": "cmux-tui 16c0818dd39e changes the image's cmux-tui (pinned 2fe255259469)",
+  "dry_run": false,
+  "cmux_tui": "16c0818dd39eba2737853aa49d92f4e283417991",
+  "fixes": [
+    {
+      "sha": "16c0818dd39eba2737853aa49d92f4e283417991",
+      "mergedAt": "2026-11-08T17:33:11-08:00",
+      "subject": "cmux-wg: a mode taken up from the peer caps each group's bytes at 4x, not its datagrams (#39063)"
+    },
+    {
+      "sha": "deb9ca0c7cbe998526a6a5bd24aaf4dbce0d1fac",
+      "mergedAt": "2026-11-08T17:32:13-08:00",
+      "subject": "cmux-wg: the ultra hello rides the control port 4102, not remote desktop's 4103 (#39058)"
+    },
+    {
+      "sha": "e5b7c867c5a3f6e787ef59013c1f24b6701d1712",
+      "mergedAt": "2026-11-08T17:28:21-08:00",
+      "subject": "cmux-host updater: a claimed spare's pause and resume start the connect hold (#39035)"
+    },
+    {
+      "sha": "0582395b76ded31a5637e5a4e38e2bc1a845f46b",
+      "mergedAt": "2026-11-08T17:28:10-08:00",
+      "subject": "Cloud: the daemon's SCP route comes from cmux-platform, not classic /api/vm (#39002)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T02:01:17Z",
+    "snapshot_id": "sh-d4091d42cca149edb6c73ec1f95f9413",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42547458916): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8be26d46f0112d76729bfdfa25a62e503fe09212",
+    "image": "cloud-native-auto-16c0818d-42547458916-1",
+    "revision": "ci-42547458916-1",
+    "at": "2026-11-09T02:01:17Z"
+  },
+  "rolled_back": false
+}
