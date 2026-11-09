@@ -2309,6 +2309,20 @@ fn durable_sync(file: &fs::File) -> std::io::Result<()> {
 
 /// Replaces `path` through a synced temporary file and rename, with an optional Unix mode.
 pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
+    replace_file(path, bytes, mode, true)
+}
+
+/// [`atomic_write`] for a file its writer checks and rewrites when it differs (a build's
+/// launchers, shims and plugin, written at every start): replaced through a rename, so a
+/// reader sees the old or the new file, but not synced. A crash can leave it empty or old,
+/// and the next start rewrites it. A durable sync is a full fsync of the drive on macOS,
+/// which waits for every other write the drive has queued: one took 2.2 s of a 2.3 s
+/// first start on a fleet Mac (2026-11-09).
+pub fn replace_rewritable_file(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
+    replace_file(path, bytes, mode, false)
+}
+
+fn replace_file(path: &Path, bytes: &[u8], mode: Option<u32>, durable: bool) -> anyhow::Result<()> {
     ensure_replaceable_target(path)?;
     let parent = path.parent().context("installation path has no parent")?;
     fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -2328,7 +2342,9 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Res
         let mut file =
             options.open(&temporary).with_context(|| format!("create {}", temporary.display()))?;
         file.write_all(bytes)?;
-        durable_sync(&file)?;
+        if durable {
+            durable_sync(&file)?;
+        }
         drop(file);
         #[cfg(unix)]
         if let Some(mode) = mode {
@@ -2336,9 +2352,11 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Res
             fs::set_permissions(&temporary, fs::Permissions::from_mode(mode))?;
         }
         fs::rename(&temporary, path).with_context(|| format!("replace {}", path.display()))?;
-        fs::File::open(parent)
-            .and_then(|directory| durable_sync(&directory))
-            .with_context(|| format!("sync {}", parent.display()))?;
+        if durable {
+            fs::File::open(parent)
+                .and_then(|directory| durable_sync(&directory))
+                .with_context(|| format!("sync {}", parent.display()))?;
+        }
         Ok(())
     })();
     if result.is_err() {

@@ -77,7 +77,8 @@ fn hook_launcher(build: &Path, executable: &Path) -> Option<PathBuf> {
         && fs::read(&launcher).is_ok_and(|existing| existing == script.as_bytes());
     if !current {
         fs::create_dir_all(launcher.parent()?).ok()?;
-        agent_hook_install::atomic_write(&launcher, script.as_bytes(), Some(0o755)).ok()?;
+        agent_hook_install::replace_rewritable_file(&launcher, script.as_bytes(), Some(0o755))
+            .ok()?;
     }
     Some(launcher)
 }
