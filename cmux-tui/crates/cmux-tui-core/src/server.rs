@@ -14667,6 +14667,24 @@ fn subscription_overflow_json() -> Value {
     })
 }
 
+#[cfg(test)]
+impl ClientRegistry {
+    /// Tests outside `server`: a new local client with an attach stream on
+    /// `surface`. Returns the client id.
+    pub(crate) fn attach_test_stream(&self, surface: SurfaceId) -> u64 {
+        let writer = MessageWriter::new(QueuedSink {
+            outbound: Arc::new(BoundedOutbound::default()),
+            control: None,
+        });
+        let client = self.register(ClientTransport::Unix, writer.clone());
+        let stream = writer
+            .start_stream(&attach_overflow_json(surface))
+            .expect("start the test attach stream");
+        self.attach_surface(client, surface, stream).expect("attach the test stream");
+        client
+    }
+}
+
 fn attach_overflow_json(surface: SurfaceId) -> Value {
     json!({
         "event": "overflow",
