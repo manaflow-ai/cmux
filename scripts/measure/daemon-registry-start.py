@@ -192,31 +192,45 @@ def main():
     # The first exec of a binary just linked pays for macOS's check of it, before main and
     # without opening a registry. Two `--version` execs before the timed starts pay it and
     # show it (the first against the second), so the starts time only the owner.
-    # A registry written or cloned seconds ago leaves the volume a large flush to finish: the
-    # first full fsync (or create) anywhere on it waits for that, about 2 s on a fleet Mac,
-    # wherever in the start it falls (2026-11-09: the owner's first atomic write, and a
-    # thread's open beside it). Let the volume settle first: a timed full fsync of a scratch
-    # file each second, until three in a row take under 100 ms (at most 120 s).
-    settle_started = time.monotonic()
-    full_fsync = getattr(fcntl, "F_FULLFSYNC", None)
-    flushes, fast = [], 0
-    while fast < 3 and time.monotonic() - settle_started < 120:
-        flush_started = time.monotonic()
-        probe = os.path.join(args.home, f".drs-settle-{len(flushes)}")
-        with open(probe, "wb") as handle:
-            handle.write(b"settle")
-            handle.flush()
-            if full_fsync is not None:
-                fcntl.fcntl(handle.fileno(), full_fsync)
-            else:
-                os.fsync(handle.fileno())
-        os.unlink(probe)
-        took = round((time.monotonic() - flush_started) * 1000, 1)
-        flushes.append(took)
-        fast = fast + 1 if took < 100 else 0
-        time.sleep(1)
-    sync_ms = round((time.monotonic() - settle_started) * 1000, 1)
-    print("DRS-SYNC " + json.dumps({"settle_ms": sync_ms, "flush_ms": flushes}), flush=True)
+    # A freshly built binary's first start pays a one-time wait on its first full fsync and the
+    # file creations beside it (2026-11-09: 0.8-2.3 s on fleet Macs, anywhere in the start),
+    # which later starts of the same binary never pay. warm_start: one headless start of the
+    # binary, timed, on an empty state under its own HOME and data home (so the timed starts
+    # still write their own build helpers), before the timed starts.
+    warm_root = Path(args.home).parent / "warm"
+    warm_env = dict(os.environ)
+    warm_env.update({
+        "HOME": str(warm_root / "home"),
+        "XDG_DATA_HOME": str(warm_root / "home" / ".local" / "share"),
+        "CMUX_TUI_STATE_DIR": str(warm_root / "state"),
+        "CMUX_TUI_CONFIG": str(warm_root / "home" / "config.json"),
+        "CMUX_TUI_LOG_FILE": str(warm_root / "home" / "client.log"),
+    })
+    warm_env.pop("CMUX_TUI_SOCKET", None)
+    for folder in ("home", "state"):
+        (warm_root / folder).mkdir(parents=True, exist_ok=True, mode=0o700)
+    warm_socket = str(Path(args.socket).with_name("warm.sock"))
+    warm_started = time.monotonic()
+    warm = subprocess.Popen([args.bin, "--headless", "--session", "drs-warm", "--socket", warm_socket],
+                            env=warm_env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    warm_ready = None
+    while time.monotonic() - warm_started < 120 and warm.poll() is None:
+        reply = identify(warm_socket, 2.0) if os.path.exists(warm_socket) else None
+        if reply is not None and (reply.get("data") or {}).get("lifecycle_ready") is True:
+            warm_ready = round((time.monotonic() - warm_started) * 1000, 1)
+            break
+        time.sleep(0.01)
+    subprocess.run([args.bin, "server", "stop", "--session", "drs-warm", "--end-terminals", "--socket", warm_socket],
+                   env=warm_env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                   stderr=subprocess.DEVNULL, timeout=600, check=False)
+    try:
+        warm.wait(timeout=600)
+    except subprocess.TimeoutExpired:
+        warm.kill()
+        warm.wait()
+    print("DRS-WARM " + json.dumps({"warm_ready_ms": warm_ready,
+                                    "xdg_data_home_set": bool(os.environ.get("XDG_DATA_HOME"))}), flush=True)
     execs = []
     for _ in range(2):
         exec_started = time.monotonic()
@@ -232,7 +246,7 @@ def main():
             bump_roster(registry)
         starts.append(start(args, f"bumped-{index}" if bumped else f"plain-{index}", bumped))
     starts.append(start(args, "after", False))
-    report = {"generate": generated, "first_exec_ms": execs[0], "second_exec_ms": execs[1], "sync_ms": sync_ms, "starts": starts}
+    report = {"generate": generated, "first_exec_ms": execs[0], "second_exec_ms": execs[1], "warm_ready_ms": warm_ready, "starts": starts}
     Path(args.report).write_text(json.dumps(report, indent=2))
     return 0 if all(item["ready_ms"] is not None for item in starts) else 1
 
