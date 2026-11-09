@@ -82,6 +82,18 @@ new [syntax-check] findings when it is on PATH), for a push to any branch, main 
 CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: GitHub runs no job of a workflow it cannot load (dd8b867f,
 2026-11-06: no nightly for 3.5 hours). CI's "Lint every workflow" step is the backstop.
 
+Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
+ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
+test code), judged per crate over the files the push changes: a crate whose count rises in those files is refused
+(2026-11-08: #39304's first head added two non-test `.lock().unwrap()`, passed the hook and CI refused it, because
+the crate's count in the gate's small trees never reached its crash-safety-baseline.json row). The ratchet code is
+CI's own, never a copy of its rules: the installed reviewed copy for the hook. A row the push raises with a reviewed
+Crash-allow-OK commit, and a hit that moved from another crate, are allowed. A main-based push (its tree has no
+CmuxNext app entry, or it left origin/main after feat-cmux-next did) runs main's own crash rule instead of
+check-crash-safety.sh, which reads that feat-only file: origin/main's crash_ratchet.py when main has one, else
+the installed one (main's CI has none today); a reviewed `// crash-allow: <reason>` passes there, as main keeps
+no baseline to record it in.
+
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
 refuses NEW unjustified @unchecked Sendable / nonisolated(unsafe) (the crash ratchet's class and escape, which
@@ -274,6 +286,19 @@ RATCHET_BASELINES = {
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
 }
 CRASH_ALLOW_CHECK = "Crash allowlist review (Crash-allow-OK trailer)"
+# check-crash-safety.sh reads the CmuxNext app entry, a file only feat-cmux-next's tree has: a main-based push skips
+# that scanner and runs main's crash rule, the crash ratchet (crash_ratchet_findings).
+CRASH_SAFETY_CHECK = "Crash safety"
+APP_ENTRY = PKG + "/Sources/CmuxNextApp/CmuxNextApp.swift"
+MAIN_REF = "origin/main"
+CRASH_RATCHET_CHECK = "Crash ratchet (crash_ratchet.py: no crate gains a Rust unwrap, expect, panic or exit)"
+CRASH_RATCHET = "crash_ratchet.py"
+RUST_CRATES = "cmux-tui/crates/"
+CRASH_RATCHET_HINT = ("Crash ratchet: handle the failure instead (a poisoned lock: "
+                      "`.lock().unwrap_or_else(PoisonError::into_inner)`); test code is not counted. On "
+                      "feat-cmux-next a reviewed `// crash-allow: <reason>` is a waived hit whose row needs recording "
+                      "(crash_ratchet.py --record-waivers) in a commit with a `Crash-allow-OK: <reviewer>` trailer; "
+                      "on a main-based push the reviewed comment alone passes.")
 FREEZE_CHECK = "Coordinator path freeze (WINDOW FREEZE lines)"
 # The coordinator's WINDOW (`FREEZE: <path prefix> token=<token>` lines; a `# LIFTED ...` line is not one). It
 # exists on the coordinator's Mac only; elsewhere the check finds no file and checks nothing.
@@ -1077,6 +1102,142 @@ def crash_allow_unreviewed(repo: Path, base: str, head: str) -> list[str]:
 STALE_INSTALL = "the installed hook is older than the checks this push needs: rerun scripts/install-git-hooks.sh"
 
 
+def main_based(repo: Path, head: str, head_tree: Path) -> bool:
+    """True for a push cut from main: HEAD's tree has no CmuxNext app entry, or the commit where HEAD left origin/main
+    is not on origin/feat-cmux-next (HEAD_TREE holds HEAD's copy of the entry when HEAD has one)."""
+    if not (head_tree / APP_ENTRY).is_file():
+        return True
+    feat = DEFAULT_BASE_REFS[0]
+    if not (rev_ok(repo, MAIN_REF) and rev_ok(repo, feat)):
+        return False
+    fork = git(repo, "merge-base", head, MAIN_REF, check=False).decode().strip()
+    return bool(fork) and subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", fork, feat],
+                                         capture_output=True).returncode == 1
+
+
+def load_crash_ratchet(repo: Path, head_tree: Path, trusted_scripts: Path | None, on_main: bool, work: Path):
+    """CI's crash ratchet (crash_ratchet.py) as a module, never the pushed copy on a hook run: origin/main's for a
+    main-based push when main has one, else the installed reviewed copy (HEAD_TREE's scripts on a hook run; the head's,
+    else this checkout's, on a plain run). A hook install without it refuses."""
+    candidates: list[Path] = []
+    if on_main:
+        source = blob_at(repo, MAIN_REF, f"{SCRIPTS}/{CRASH_RATCHET}")
+        if source is not None:
+            folder = work / "main-crash-ratchet"
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / CRASH_RATCHET).write_bytes(source)
+            allowlist = blob_at(repo, MAIN_REF, f"{SCRIPTS}/crash-allowlist.json")
+            if allowlist is not None:
+                (folder / "crash-allowlist.json").write_bytes(allowlist)
+            candidates.append(folder / CRASH_RATCHET)
+    candidates.append(head_tree / SCRIPTS / CRASH_RATCHET)
+    if trusted_scripts is None:
+        candidates.append(Path(__file__).with_name(CRASH_RATCHET))
+    for script in candidates:
+        if not script.is_file():
+            continue
+        name = "cmux_crash_ratchet_" + hashlib.sha256(str(script).encode()).hexdigest()[:12]
+        spec = importlib.util.spec_from_file_location(name, script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if all(hasattr(module, attr) for attr in ("Scan", "scan_rust", "scan_rows", "baseline_rows", "load_baseline",
+                                                  "proven_moves", "WAIVED")):
+            return module
+        log(f"prepush-gate: {script} has no crash ratchet this gate can call; trying the next copy")
+    raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no {CRASH_RATCHET}).")
+
+
+def rust_owner_files(path: str) -> list[str]:
+    """The files that can declare PATH's module or a folder above it (`#[cfg(test)] mod name;` makes PATH test code):
+    for cmux-tui/crates/C/src/a/b.rs, src/a.rs and src/a/mod.rs, then src/lib.rs and src/main.rs."""
+    crate, sep, rest = path.partition("/src/")
+    if not sep:
+        return []
+    folders = rest.split("/")[:-1]
+    owners = [f"{crate}/src/lib.rs", f"{crate}/src/main.rs"]
+    for depth in range(1, len(folders) + 1):
+        above = "/".join([crate, "src", *folders[:depth - 1]])
+        owners += [f"{above}/{folders[depth - 1]}.rs", f"{above}/{folders[depth - 1]}/mod.rs"]
+    return [p for p in owners if p != path]
+
+
+def add_blobs(repo: Path, tree: Path, rev: str, paths: list[str]) -> None:
+    """Write each of PATHS that TREE lacks and REV has into TREE (one `git cat-file --batch`)."""
+    wanted = [p for p in paths if not (tree / p).exists()]
+    try:
+        blobs = git_batch.cat_file(repo, [f"{rev}:{p}" for p in wanted])
+    except git_batch.GitError as error:
+        raise SystemExit(f"prepush-gate: {error}")
+    for path in wanted:
+        blob = blobs[f"{rev}:{path}"]
+        if blob is not None:
+            (tree / path).parent.mkdir(parents=True, exist_ok=True)
+            (tree / path).write_bytes(blob)
+
+
+def prepare_crash_ratchet(repo: Path, base: str, head: str, head_tree: Path, trusted_scripts: Path | None,
+                          work: Path) -> tuple[bool, object, list[str], float]:
+    """(main-based, the ratchet module, the crate files the push deletes, seconds taken): the git reads of crash_ratchet_findings,
+    which touch no tree, so gate() runs them next to the scanners (the merge-base reads take about a second)."""
+    started = time.monotonic()
+    on_main = main_based(repo, head, head_tree)
+    ratchet = load_crash_ratchet(repo, head_tree, trusted_scripts, on_main, work)
+    deleted = [p for p in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head, "--",
+                               RUST_CRATES).decode().split("\0") if p.endswith(".rs")]
+    return on_main, ratchet, deleted, time.monotonic() - started
+
+
+def crash_ratchet_findings(repo: Path, base: str, head: str, base_tree: Path, head_tree: Path, crates: list[str],
+                           prepared: tuple[bool, object, list[str], float]) -> list["Finding"]:
+    """The Rust crash ratchet over what the push adds: per crate and class (and waived hits apart), CI's crash
+    ratchet code counts the hits in the changed crate files at BASE and at HEAD, and a count that rises is refused,
+    less the rows the head's baseline raises over the base's (a reviewed raise, the same rows CI reads) and the hits
+    that moved in from another crate. The trees also get the files that declare each changed file's module (test code
+    is told by a `#[cfg(test)] mod name;` line) and, on the base side, the crate files the push deletes (a file moved
+    within its crate is no new hit). One finding per added hit line, at its place in HEAD. PREPARED is
+    prepare_crash_ratchet's answer."""
+    on_main, ratchet, deleted, _ = prepared
+    owners = sorted({o for p in crates + deleted for o in rust_owner_files(p)})
+    add_blobs(repo, base_tree, base, owners + deleted)
+    add_blobs(repo, head_tree, head, owners)
+    scans = []
+    for tree in (base_tree, head_tree):
+        scan = ratchet.Scan()
+        ratchet.scan_rust(str(tree), scan, True)
+        scans.append(scan)
+    old, new = scans
+    old_rows, new_rows = ratchet.scan_rows(old), ratchet.scan_rows(new)
+
+    def baseline(tree: Path) -> dict:
+        data = ratchet.load_baseline(str(tree / SCRIPTS / "crash-safety-baseline.json"))
+        return ratchet.baseline_rows(data) if data else {}
+    base_rows, head_rows = baseline(base_tree), baseline(head_tree)
+    allowance = {row: n - base_rows.get(row, 0) for row, n in head_rows.items() if n > base_rows.get(row, 0)}
+    for (section, lang, kind, _source, target), hits in ratchet.proven_moves(old, new).items():
+        row = (section, lang, kind, target)
+        allowance[row] = allowance.get(row, 0) + hits
+    findings = []
+    for row, count in sorted(new_rows.items()):
+        section, lang, kind, crate = row
+        if lang != "rust" or (on_main and section == ratchet.WAIVED):
+            continue
+        if count - old_rows.get(row, 0) - allowance.get(row, 0) <= 0:
+            continue
+        label = f"{kind}{'.waived' if section == ratchet.WAIVED else ''}"
+        added = [key[4] for key, hits in new.lines.items()
+                 if key[:4] == row and hits > old.lines.get(key, 0)]
+        for text in sorted(added):
+            places = [f"{p}:{i + 1}" for p in crates if p.split("/")[2] == crate and (head_tree / p).is_file()
+                      for i, line in enumerate((head_tree / p).read_text(encoding="utf-8", errors="replace")
+                                               .split("\n")) if line.strip() == text]
+            where = places[0] if places else f"{RUST_CRATES}{crate}"
+            # Keyed without line numbers or counts, so gate_own matches it across a merge's runs.
+            findings.append(Finding(f"{where}: [crash-ratchet] rust {crate}: a new non-test {label} hit "
+                                    f"({old_rows.get(row, 0)} -> {count} in the files this push changes): {text}",
+                                    f"{where.split(':')[0]}: [crash-ratchet] rust {crate} {label}: {text}"))
+    return findings
+
+
 def blob_at(repo: Path, rev: str, path: str) -> bytes | None:
     """PATH's content in commit REV, or None when REV has no such file."""
     result = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True)
@@ -1609,7 +1770,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if missing:
             reserved.append((PICTURES_CHECK, missing))
     # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
-    if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint", "rustfmt"}:
+    if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint", "rustfmt", "crash-ratchet"}:
         return reserved
     changed = sorted(set(changed_files(repo, base, head)) | set(ratchet_row_files(repo, base, head)))
     deleted = deleted_package_swift(repo, base, head) if only is None or "scanners" in only else []
@@ -1641,6 +1802,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             script = next(Path(c) for c in fill(cmd, head_tree) if c.startswith(str(head_tree / SCRIPTS)))
             if not script.is_file():
                 continue  # a commit older than this check
+            if name == CRASH_SAFETY_CHECK and not (head_tree / APP_ENTRY).is_file():
+                continue  # a main-based push: its crash rule is the crash ratchet below
             if any(p.startswith(prefixes) for p in changed) and (only is None or "scanners" in only):
                 jobs[name] = ("cmd", cmd)
         if (dropped or deleted) and DEPS_CHECK not in jobs:
@@ -1681,10 +1844,14 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 code = 1 if out else 0
             return code, out, time.monotonic() - t0
 
+        crates = [p for p in changed if p.startswith(RUST_CRATES) and p.endswith(".rs")]
+        crash_layer = bool(crates) and (highlights_layer if only is None else "crash-ratchet" in only)
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4))) as pool:
             futures = {(name, i): pool.submit(side, job, tree)
                        for name, job in jobs.items()
                        for i, tree in enumerate(trees_for.get(name, (base_tree, head_tree)))}
+            prepared = (pool.submit(prepare_crash_ratchet, repo, base, head, head_tree, trusted_scripts, Path(tmp))
+                        if crash_layer else None)
             for name in jobs:
                 name_base, name_head = trees_for.get(name, (base_tree, head_tree))
                 _, base_out, base_s = futures[(name, 0)].result()
@@ -1705,6 +1872,17 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 fresh = new_records(base_out, head_out, name_base, name_head)
                 if fresh:
                     found.append((name, fresh))
+        # Its scan after the scanners: it adds files to the trees (the modules that declare a changed file, deleted
+        # files). Its git reads ran next to them.
+        if prepared is not None:
+            ready = prepared.result()
+            t0 = time.monotonic()
+            fresh = crash_ratchet_findings(repo, base, head, base_tree, head_tree, crates, ready)
+            if timings:
+                log(f"  {time.monotonic() - t0:5.2f}s  {CRASH_RATCHET_CHECK} (after the scanners; its git reads, "
+                    f"{ready[3]:.2f}s, ran next to them)")
+            if fresh:
+                found.append((CRASH_RATCHET_CHECK, fresh))
     if timings:
         log(f"prepush-gate: {len(changed)} changed file(s), {time.monotonic() - started:.1f}s")
     return found
@@ -2021,7 +2199,7 @@ def main(argv: list[str] | None = None) -> int:
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
-                                       "cargo-lock,sidebar,crash-allow,freeze,highlights,pictures,workflows")
+                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     args = parser.parse_args(argv)
@@ -2170,6 +2348,8 @@ def main(argv: list[str] | None = None) -> int:
             print(PICTURES_BEFORE_HINT)
     if any(name == CARGO_LOCK_CHECK for name, _ in found_any):
         print(CARGO_HINT)
+    if any(name == CRASH_RATCHET_CHECK for name, _ in found_any):
+        print(CRASH_RATCHET_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):
         print(WORKFLOW_HINT)
     print(HOW_TO_FIX)
