@@ -216,6 +216,17 @@ pub struct SessionSummary {
     pub tags: Value,
     pub state_seq: u64,
     pub unread: bool,
+    /// Turns that ended while no client showed the chat, since a person last showed it
+    /// (`hub/seen.rs`): the sidebar's count. Absent from a peer on an older acpmux.
+    #[serde(default)]
+    pub unread_turns: u64,
+    /// The log seq the person had seen when they last stopped showing the chat: a client
+    /// opening it while `unreadTurns` is above 0 draws "New since you looked" after it.
+    pub seen_seq: Option<u64>,
+    /// The person's return to the chat while they stay on it (`hub/seen.rs`): `since` and the
+    /// `turns` that ended unseen. A client opening the chat then draws "New since you looked" at
+    /// `since`, also when its attach answers before its list read.
+    pub last_return: Option<crate::store::LastReturn>,
     #[schemars(with = "Option<LastTurn>")]
     pub last_turn: Option<Value>,
     /// The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null

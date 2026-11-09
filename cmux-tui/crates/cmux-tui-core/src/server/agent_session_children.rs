@@ -155,6 +155,12 @@ impl Attachment {
         }
     }
 
+    /// True when `params` name a descendant the attachment already follows.
+    pub(super) fn follows_session(&self, params: &Value) -> bool {
+        let Some(id) = params.get("sessionId").and_then(Value::as_str) else { return false };
+        self.children.lock().unwrap_or_else(|e| e.into_inner()).contains(id)
+    }
+
     /// True when a `session_changed` (its `params`) is about a descendant the
     /// attachment follows; a change naming a followed parent (or the
     /// attached session) adds its session first.

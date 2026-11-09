@@ -31,6 +31,8 @@ mod agent_session_trust;
 mod context;
 #[path = "agent_session_inventory_socket.rs"]
 mod inventory_socket;
+#[path = "agent_session_side.rs"]
+mod side;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
@@ -56,6 +58,9 @@ pub const AGENT_SESSION_CONTENT_CAPABILITY: &str = "agent-session-content-v1";
 pub const CLOUD_MOBILE_CHAT_CAPABILITY: &str = "cloud-mobile-chat-v1";
 /// `agent-session-fork`: fork the attached chat through its latest completed turn.
 pub const AGENT_SESSION_FORK_CAPABILITY: &str = "agent-session-fork-v1";
+/// `agent-session-side`: New side chat and `/side [prompt]` of the attached chat, on this machine
+/// (`agent_session_side.rs`).
+pub const AGENT_SESSION_SIDE_CAPABILITY: &str = "agent-session-side-v1";
 /// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event: who
 /// is in the attached chat (chat multiplayer, hq#4389), through acpmux's `_acpmux/typing`,
 /// `_acpmux/view` and `_acpmux/presence`. The event goes only to a connection that echoed the
@@ -406,6 +411,7 @@ enum AgentSessionCommand {
     Detach(SurfaceParams),
     Children(SurfaceParams),
     Fork(ForkParams),
+    Side(side::Params),
     Media(MediaParams),
     Typing(TypingParams),
     View(ViewParams),
@@ -431,6 +437,7 @@ impl AgentSessionCommand {
             "agent-session-detach" => Self::Detach(from_value(params).ok()?),
             "agent-session-children" => Self::Children(from_value(params).ok()?),
             "agent-session-fork" => Self::Fork(from_value(params).ok()?),
+            "agent-session-side" => Self::Side(from_value(params).ok()?),
             "agent-session-media" => Self::Media(from_value(params).ok()?),
             "agent-session-typing" => Self::Typing(from_value(params).ok()?),
             "agent-session-view" => Self::View(from_value(params).ok()?),
@@ -932,6 +939,7 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         | AgentSessionCommand::Detach(params)
         | AgentSessionCommand::Children(params) => params.surface,
         AgentSessionCommand::Fork(params) => params.surface,
+        AgentSessionCommand::Side(params) => params.surface,
         AgentSessionCommand::Media(params) => params.surface,
         AgentSessionCommand::Typing(params) => params.surface,
         AgentSessionCommand::View(params) => params.surface,
@@ -1178,6 +1186,7 @@ fn run_on_worker(
                 | AgentSessionCommand::Permission(_)
                 | AgentSessionCommand::Typing(_)
                 | AgentSessionCommand::Fork(_)
+                | AgentSessionCommand::Side(_)
                 | AgentSessionCommand::SetModel(_)
                 | AgentSessionCommand::SetMode(_)
                 | AgentSessionCommand::SetConfig(_)
@@ -1398,6 +1407,9 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             Ok(forked)
         }
+        // A side chat is a new chat on the owner's machine, as a fork is: the owner's only.
+        AgentSessionCommand::Side(_) if attachment.author.is_some() => Err(Refusal::NotTrusted),
+        AgentSessionCommand::Side(params) => side::call(attachment, params),
         AgentSessionCommand::Media(MediaParams { path, .. }) => media(attachment, path),
         // The session is the tab's own; acpmux bounds typing (2 a second, `typing.rate_limited`).
         // acpmux's rate refusal is the attachment's bound (`agent_session.limit`): the pane says
@@ -1510,6 +1522,18 @@ fn prompt(
     if attachment.author.is_some() && blocks.iter().any(|block| block["type"] != "text") {
         return Err(Refusal::NotTrusted);
     }
+    submit_prompt(attachment, &attachment.session, blocks, prompt_id)
+}
+
+/// Sends `blocks` to `session` (the attached chat, or a side chat it opened) as prompt
+/// `prompt_id` and answers once acpmux accepted it (`_acpmux/prompt_accepted`), or refuses: a
+/// prompt acpmux never took is never reported sent.
+fn submit_prompt(
+    attachment: &Attachment,
+    session: &str,
+    blocks: Vec<Value>,
+    prompt_id: String,
+) -> Result<Value, Refusal> {
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     {
         let mut prompts = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner());
@@ -1519,7 +1543,7 @@ fn prompt(
         prompts.insert(prompt_id.clone(), sender);
     }
     let mut params = json!({
-        "sessionId": attachment.session,
+        "sessionId": session,
         "prompt": blocks,
         "_meta": {"acpmux": {"promptId": prompt_id}},
     });
