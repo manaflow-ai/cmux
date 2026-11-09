@@ -1800,6 +1800,18 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"web-lint: mem: total={gb('MemTotal'):.1f}G avail={gb('MemAvailable'):.1f}G "
                       f"swapfree={gb('SwapFree'):.1f}G/{gb('SwapTotal'):.1f}G load={os.getloadavg()[0]:.1f}",
                       file=sys.stderr, flush=True)
+                for proc in Path("/proc").iterdir():
+                    try:
+                        comm = (proc / "comm").read_text().strip()
+                        if not any(word in comm for word in ("vp", "node", "tsgo", "oxlint", "bun")):
+                            continue
+                        state = (proc / "stat").read_text().rsplit(")", 1)[1].split()[0]
+                        wchan = (proc / "wchan").read_text().strip()
+                        threads = len(list((proc / "task").iterdir()))
+                        print(f"web-lint: proc: {proc.name} {comm} state={state} wchan={wchan} threads={threads}",
+                              file=sys.stderr, flush=True)
+                    except (OSError, IndexError):
+                        continue
                 time.sleep(15)
         import threading as _t
         _t.Thread(target=sample, daemon=True).start()
