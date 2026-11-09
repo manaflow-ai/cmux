@@ -137,7 +137,7 @@ await requireBrowserLane("agent-pane-find-glass.test.ts", async () => {
         const alpha = /\/\s*([\d.]+)\s*\)$/.exec(color)?.[1] ?? /rgba\([^)]*,\s*([\d.]+)\)$/.exec(color)?.[1] ?? "1";
         const ink = (selector: string) => getComputedStyle(node.querySelector(selector) as Element).color;
         return {
-          backdrop: style.backdropFilter || style.webkitBackdropFilter,
+          backdrop: style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter"),
           shadow: style.boxShadow,
           alpha: Number(alpha),
           color: style.color,
