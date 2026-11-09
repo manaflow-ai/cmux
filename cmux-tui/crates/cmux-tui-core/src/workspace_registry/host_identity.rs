@@ -577,6 +577,53 @@ mod tests {
         }
     }
 
+    /// A journal hook whose id happens to be the registry id, with a
+    /// delivery: the rehome leaves the deliveries (journal history) alone,
+    /// so it must leave the hook too, or the delivery's foreign key names a
+    /// hook that is gone and the copied registry does not open.
+    #[test]
+    fn a_hook_named_like_the_registry_keeps_its_deliveries_after_a_rehome() {
+        let root = temp_root("rehome-hook");
+        as_machine(Some("0123456789abcdef0123456789abcdef"));
+        let copied = ids(&root).0;
+        {
+            let connection = Connection::open(registry_file(&root)).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO journal_hooks(
+                       hook_id, manifest_version, manifest_json, enabled, cursor_sequence,
+                       installed_at_ms
+                     ) VALUES(?1, 1, json_object('id', ?1), 0, 0, 1)",
+                    [&copied],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO journal_hook_deliveries(
+                       hook_id, manifest_version, event_id, event_sequence, attempt, state,
+                       next_attempt_at_ms, scheduled_at_ms
+                     ) VALUES(?1, 1, 'event_hooked', 1, 1, 'completed', 0, 1)",
+                    [&copied],
+                )
+                .unwrap();
+        }
+        as_machine(Some("fedcba9876543210fedcba9876543210"));
+        let rehomed = ids(&root).0;
+        assert_ne!(rehomed, copied, "rehomed");
+        let connection = Connection::open(registry_file(&root)).unwrap();
+        let hook: String = connection
+            .query_row(
+                "SELECT hooks.hook_id FROM journal_hook_deliveries AS deliveries
+                 JOIN journal_hooks AS hooks USING(hook_id, manifest_version)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(hook, copied, "the hook keeps the id its deliveries name");
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     /// SQLite VM steps the rehome of a registry with `records` journal
     /// records takes, after a copy to another machine.
     fn rehome_steps(records: usize) -> u64 {
