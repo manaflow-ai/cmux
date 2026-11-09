@@ -562,6 +562,7 @@ public final class DaemonService {
         startupDeadlineTimer = timer
         timer.schedule(after: startupDeadline) { @MainActor [weak self] in
             guard let self, self.startup == .connecting else { return }
+            if self.recovery.isRestoring { return self.armStartupDeadline() } // a restore that reports progress has not failed
             if let error = self.lastStartupError { self.store.markFailed(error.description) }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
             self.resumeConnectionWaiters()

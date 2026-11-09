@@ -1821,6 +1821,15 @@ An empty group now keeps only its header at rest. The header's existing + appear
   CmuxNextAgentLanes); a question, several prompts or another machine's chat keeps the old row. Tests:
   `SidebarApprovalAnswerTests`.
 
+## The sidebar says when this Mac's sessions are restoring (2026-11-08, #39186)
+
+- Leo 2026-11-08 (softened): "me trying to click into any other chat in the sidebar doesn't work"; a 30-minute
+  restore after an app restart said only that the background service isn't connected.
+- While `server ensure` reports restore progress, the sidebar's notice card shows "Restoring sessions… 4m 12s"
+  (`SidebarNoticeCard.restoring`): the update status's look (text at the card's padding, the bar's sweep), no
+  leading spinner, no button and no x. The App shows it until the sessions connect. No row, group or rail changes.
+  Tests: `DaemonRestoreProgressTests`.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:

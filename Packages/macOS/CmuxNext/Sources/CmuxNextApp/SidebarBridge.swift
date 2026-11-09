@@ -313,7 +313,7 @@ final class SidebarBridge {
     /// The window's live sidebar, whether the app is still launching (its
     /// saved rows stand in until then), and the Cloud machines whose first
     /// connection gave up (their launch placeholders end). Rows from the
-    /// daemon's launch snapshot are `.stale` until the live tree replaces them.
+    /// daemon's launch snapshot, or the last live tree while the session owner restores again, are `.stale` until it answers.
     static func liveSections(_ machines: MachineRegistry, doc: SidebarDocument, registry: WindowRegistryStore,
                              window: WindowState, creations: CloudCreations? = nil, hidesHome: Bool = true,
                              newTabPages: Set<String> = [], rowNewTabPages: AgentTabStore? = nil, muted: Set<String> = [],
@@ -329,7 +329,7 @@ final class SidebarBridge {
         // cmux.json `workspaceGroups.byCwd`: a configured group's color and icon.
         sections = WorkspaceGroupConfigLook(config: groupConfig, machines: machines).applying(to: sections)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
-        if machines.local.store.isProvisional { sections = SidebarRowSection.stale(sections) }
+        if machines.local.store.isProvisional || machines.local.recovery.isRestoring { sections = SidebarRowSection.stale(sections) }
         // Debug Settings: sample rows to compare the row badges and the row names.
         sections += SidebarRowSection.debugPreviews()
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
