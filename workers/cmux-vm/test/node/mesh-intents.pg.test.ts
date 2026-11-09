@@ -214,6 +214,22 @@ describe("mesh device intents", () => {
     expect(await sweepable([])).toEqual([]);
   });
 
+  it("releases a revoked intent's claim only once its attempt is resolved (its deletion confirmed)", async () => {
+    const meshId = newMeshId();
+    const device = newDeviceId();
+    await claim(meshId, "i-17", device, at);
+    await run(store.commitDeviceIntent(A, "i-17", deviceRow(meshId, device), later(1)));
+    await run(store.revokeIntentOfDevice(A, device, later(2)));
+    const stateOf = async () => (await run(store.findDeviceIntent(A, meshId, "i-17"))).pipe(Option.map((row) => [row.committedAt === null, row.deviceId]));
+    // The tunnel's delete is not confirmed yet: the revoked row keeps its commit, so a revoke still deletes the device.
+    await run(store.releaseDeviceIntent(keyOf(meshId, "i-17", device)));
+    expect(await stateOf()).toEqual(Option.some([false, device]));
+    await run(store.resolveAttempt(keyOf(meshId, "i-17", device), later(3)));
+    await run(store.releaseDeviceIntent(keyOf(meshId, "i-17", device)));
+    expect(await stateOf()).toEqual(Option.some([true, null]));
+    expect(await claim(meshId, "i-17", newDeviceId(), later(INTENT_TOMBSTONE_MS + 3))).toBe(true);
+  });
+
   it("keeps a tombstone 7 days, written before any enroll or by a device's delete", async () => {
     const meshId = newMeshId();
     await revokeAs(meshId, "i-5", at);

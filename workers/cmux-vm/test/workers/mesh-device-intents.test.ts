@@ -509,6 +509,35 @@ it("releases the commit in the revoke's reconcile when the device delete failed 
   expect(h.mesh.store.deviceIntentAttempts().filter((attempt) => attempt.intentId === "release-fault" && attempt.resolvedAt === null)).toHaveLength(0);
 });
 
+it("gives a revoked intent's commit back once a failed ACL apply's rollback deleted the tunnel, so the intent is usable again", async () => {
+  const { admin, mesh } = await setup();
+  // The create commits, a revoke tombstones the intent at once, then the ACL apply fails and the rollback deletes the tunnel.
+  h.mesh.revokeAndFailAclAfterNextCommit();
+  expect((await enroll(admin, mesh, "acl-fault")).status).toBeGreaterThanOrEqual(500);
+  expect(liveTunnels()).toBe(0);
+  expect(await listed(admin, mesh)).toEqual([]);
+  const row = h.mesh.store.deviceIntents().find((intent) => intent.intentId === "acl-fault");
+  expect([row?.committedAt, row?.deviceId, row?.revokedAt === null]).toEqual([null, null, false]);
+  expect(h.mesh.store.deviceIntentAttempts().filter((attempt) => attempt.intentId === "acl-fault" && attempt.resolvedAt === null)).toHaveLength(0);
+  // Once the tombstone's 7 days are over, the intent enrolls again.
+  if (row !== undefined) row.revokedAt = new Date(Date.now() - 7 * 24 * 3_600_000 - 1_000);
+  expect((await enroll(admin, mesh, "acl-fault")).status).toBe(201);
+});
+
+it("settles at once a create whose endpoint did not resolve and whose rollback deleted the tunnel, so the resend enrolls", async () => {
+  const { admin, mesh } = await setup();
+  h.mesh.failEndpointDns(true);
+  const body = { ...(await enrollBody(install, mesh, { name: "mac", wgPublicKey: KEY_1 })), intentId: "dns-intent" };
+  const send = () => h.request(`/v1/meshes/${mesh}/devices`, bearer(admin), { method: "POST", body });
+  expect((await send()).status).toBe(503);
+  expect(liveTunnels()).toBe(0);
+  h.mesh.failEndpointDns(false);
+  // The platform resends the same signed body within its 120 s: the provider answered, so nothing waits 15 minutes.
+  expect((await send()).status).toBe(201);
+  expect(liveTunnels()).toBe(1);
+  expect(await listed(admin, mesh)).toHaveLength(1);
+});
+
 it("refuses a malformed intentId", async () => {
   const { admin, mesh } = await setup();
   expect((await enroll(admin, mesh, "has space")).status).toBe(400);
