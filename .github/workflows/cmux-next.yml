@@ -2419,11 +2419,13 @@ jobs:
       #
       # On a pull request the base's copy of the check and of its pin reader
       # (the merge commit's first parent), extracted outside the checkout,
-      # judges the pull request's tree (--tree), with only PATH=/usr/bin:/bin
-      # and HOME in its environment. The steps above ran the pull request's
-      # code, which could rewrite the checkout's copy on disk or change PATH,
-      # and base_red_excuse.py trusts this verdict for a pull request whose
-      # diff leaves the check alone. BASH_ENV is empty here, so the checkout's
+      # judges a fresh worktree of the merge commit (--tree), with only
+      # PATH=/usr/bin:/bin, HOME and the git switches below in its
+      # environment. The steps above ran the pull request's code, which could
+      # rewrite the checkout's files on disk (the check, its reader, the
+      # manifest, a Cargo.toml) or change PATH and the environment, and
+      # base_red_excuse.py trusts this verdict for a pull request whose diff
+      # leaves the check alone. BASH_ENV is empty here, so the checkout's
       # scripts/ci/api_call_log/env.sh is not sourced either.
       - name: Check the app FFI pin
         id: app-ffi-pin
@@ -2436,19 +2438,26 @@ jobs:
           if [[ "$EVENT_NAME" != pull_request ]]; then
             exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release
           fi
-          export PATH=/usr/bin:/bin
-          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] \
-            || { echo "error: the checkout's HEAD is not the merge commit $GITHUB_SHA" >&2; exit 1; }
-          base="$(git rev-parse --verify "$GITHUB_SHA^1^{commit}")"
-          code="$(mktemp -d "${RUNNER_TEMP:-/tmp}/app-ffi-pin-base.XXXXXX")"
-          git archive "$base" scripts/cmux-next/check-app-ffi-pin.sh scripts/ci/app_ffi_pin.py | tar -x -C "$code"
-          if ! grep -q -e '--tree)' "$code/scripts/cmux-next/check-app-ffi-pin.sh"; then
-            # Only while the base predates --tree (the pull request that adds it).
-            echo "note: the base's check has no --tree; this tree's copy runs"
-            exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release --base "$base"
-          fi
-          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" \
-            bash "$code/scripts/cmux-next/check-app-ffi-pin.sh" --verify-release --base "$base" --tree "$PWD"
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$HOME" GIT_NO_REPLACE_OBJECTS=1 GIT_LFS_SKIP_SMUDGE=1 \
+            MERGE="$GITHUB_SHA" WORK="${RUNNER_TEMP:-/tmp}" CHECKOUT="$PWD" /bin/bash -euo pipefail -c '
+            cd "$CHECKOUT"
+            [[ "$(git rev-parse HEAD)" == "$MERGE" ]] \
+              || { echo "error: the checkout HEAD is not the merge commit $MERGE" >&2; exit 1; }
+            base="$(git rev-parse --verify "$MERGE^1^{commit}")"
+            code="$(mktemp -d "$WORK/app-ffi-pin-base.XXXXXX")"
+            git archive "$base" scripts/cmux-next/check-app-ffi-pin.sh scripts/ci/app_ffi_pin.py | tar -x -C "$code"
+            if ! grep -q -e "--tree)" "$code/scripts/cmux-next/check-app-ffi-pin.sh"; then
+              # Only while the base predates --tree (the pull request that adds it).
+              echo "note: the base check has no --tree; the checkout copy runs"
+              exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release --base "$base"
+            fi
+            tree="$code/tree"
+            git worktree add --quiet --detach "$tree" "$MERGE"
+            status=0
+            bash "$code/scripts/cmux-next/check-app-ffi-pin.sh" --verify-release --base "$base" --tree "$tree" || status=$?
+            git worktree remove --force "$tree" || true
+            exit "$status"
+          '
 
       # plans/cmux-next/daemon-capabilities.json against the lists in
       # DaemonEndpoint.swift, without a build: check-daemon-capabilities.sh
