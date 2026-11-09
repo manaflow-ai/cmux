@@ -21,6 +21,7 @@ import {
   EARN_WINDOW_MS,
   FOCUS_MODALITY_ATTRIBUTE,
   FOCUS_RING_GATE,
+  earnFocusRing,
   focusModality,
   installFocusModality,
 } from "../src/ui/focusModality";
@@ -141,6 +142,16 @@ describe("the focus-ring owner", () => {
     expect(p.mode()).toBe("keyboard");
   });
 
+  test("a gallery's staged focus earns the ring as a key would, and the pointer still takes it", () => {
+    const p = page();
+    p.el("field").focus();
+    earnFocusRing(p.doc);
+    expect(p.mode()).toBe("keyboard");
+    p.pointer("pointermove", 0, 0);
+    p.pointer("pointermove", 40, 0);
+    expect(p.mode()).toBe("pointer");
+  });
+
   test("a stop leaves the page with no attribute (rings as before)", () => {
     const p = page();
     p.stop();
@@ -165,7 +176,9 @@ describe("the build gate", () => {
     // An alternative that is not focus keeps its own meaning (hover still lights the button).
     expect(gateFocusVisible(".p:is(:hover, :focus-visible)")).toBe(`.p:is(:hover, :focus-visible${FOCUS_RING_GATE})`);
     expect(gateFocusVisible(".r:not(:has(:focus-visible))")).toBe(`.r:not(:has(:focus-visible${FOCUS_RING_GATE}))`);
-    expect(gateFocusVisible('.x[data-a=")"]:has(:focus-visible)')).toBe(`.x[data-a=")"]:has(:focus-visible)${FOCUS_RING_GATE}`);
+    expect(gateFocusVisible('.x[data-a=")"]:has(:focus-visible)')).toBe(
+      `.x[data-a=")"]:has(:focus-visible)${FOCUS_RING_GATE}`,
+    );
     const once = gateFocusVisible(".b:focus-visible");
     expect(gateFocusVisible(once)).toBe(once);
     expect(gateFocusVisible(".b:focus-within")).toBe(".b:focus-within");
