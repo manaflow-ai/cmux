@@ -190,7 +190,14 @@ where
                 let (tx, session, params, call) =
                     (tx.clone(), session.clone(), message["params"].clone(), call.clone());
                 tokio::spawn(async move {
-                    let result = match crate::daemon::connect(false).await {
+                    // A server in no acpmux chat (the guest) never carries a caller token,
+                    // even one left in its env: the daemon takes it for no session.
+                    let daemon = if session.is_empty() {
+                        crate::daemon::connect_without_caller(false).await
+                    } else {
+                        crate::daemon::connect(false).await
+                    };
+                    let result = match daemon {
                         Ok(daemon) => call(daemon, session, params).await,
                         Err(e) => error_result(format!("{e:#}")),
                     };

@@ -66,6 +66,36 @@ fn claude_desktop_gets_the_entry_beside_the_persons_own_servers() {
 }
 
 #[test]
+fn claude_desktop_keeps_the_persons_key_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    let path = env.config_path(App::ClaudeDesktop);
+    std::fs::write(
+        &path,
+        r#"{"zoom": 1, "mcpServers": {"zeta": {"command": "z"}, "files": {"command": "f"}}, "alpha": true}"#,
+    )
+    .unwrap();
+    let at = |text: &str, key: &str| text.find(&format!("\"{key}\"")).unwrap();
+    assert_eq!(link(&env, App::ClaudeDesktop, false).state, State::Linked);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(at(&text, "zoom") < at(&text, "mcpServers"), "{text}");
+    assert!(at(&text, "mcpServers") < at(&text, "alpha"), "{text}");
+    assert!(at(&text, "zeta") < at(&text, "files"), "{text}");
+    assert!(at(&text, "files") < at(&text, "cmux"), "{text}");
+
+    assert_eq!(unlink(&env, App::ClaudeDesktop, false).state, State::NotLinked);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("\"cmux\""), "{text}");
+    assert!(at(&text, "zoom") < at(&text, "mcpServers"), "{text}");
+    assert!(at(&text, "zeta") < at(&text, "files"), "{text}");
+    let doc: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        doc,
+        json!({"zoom": 1, "mcpServers": {"zeta": {"command": "z"}, "files": {"command": "f"}}, "alpha": true})
+    );
+}
+
+#[test]
 fn the_cmux_binary_runs_the_server_under_its_acp_prefix() {
     let dir = tempfile::tempdir().unwrap();
     let mut env = env(dir.path(), None);
@@ -156,6 +186,8 @@ fn codex_gets_a_table_and_keeps_the_persons_comments_and_order() {
     let doc: toml::Table = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert!(doc["mcp_servers"].get("cmux").is_none());
     assert_eq!(doc["mcp_servers"]["docs"]["command"].as_str(), Some("docs-mcp"));
+    // Unlink takes back exactly what link wrote.
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
 }
 
 #[test]

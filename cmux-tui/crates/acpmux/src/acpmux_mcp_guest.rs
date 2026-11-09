@@ -247,6 +247,8 @@ async fn run_cli(argv: &[String], wait: Duration) -> Result<String, CliError> {
         // Never as a session: a guest is none.
         .env_remove(SESSION_ENV)
         .env_remove(crate::desktop_link::GUEST_ENV)
+        .env_remove(crate::hub::person::CALLER_TOKEN_ENV)
+        .env_remove(crate::hub::person::CALLER_SOCKET_ENV)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

@@ -295,7 +295,8 @@ pub fn link(env: &Env, app: App, dry_run: bool) -> Row {
 pub fn unlink(env: &Env, app: App, dry_run: bool) -> Row {
     let mut row = status(env, app);
     row.note = match row.state {
-        State::NotInstalled | State::NotLinked => None,
+        // A config it could not read keeps the reason `status` gave.
+        State::NotInstalled | State::NotLinked => row.note.take(),
         State::Foreign => {
             Some(format!("a server named {SERVER_KEY} that cmux did not write; left alone"))
         }
@@ -326,7 +327,7 @@ fn read_entry(env: &Env, app: App) -> Result<Option<Value>> {
             }
             let doc: Value = serde_json::from_str(&text)
                 .with_context(|| format!("{} is not JSON", path.display()))?;
-            Ok(doc.pointer(&format!("/mcpServers/{SERVER_KEY}")).cloned())
+            Ok(doc.pointer(&format!("/{SERVERS_KEY}/{SERVER_KEY}")).cloned())
         }
         App::Codex => {
             let doc: toml::Table =
@@ -344,9 +345,7 @@ fn write_entry(env: &Env, app: App, replace: bool) -> Result<()> {
     match app {
         App::ClaudeDesktop => {
             let path = env.config_path(app);
-            edit_json(&path, |servers| {
-                servers.insert(SERVER_KEY.to_owned(), env.entry_json(app));
-            })
+            edit_json(&path, |servers| servers.insert(SERVER_KEY, env.entry_json(app)))
         }
         App::ClaudeCode => {
             if replace {
@@ -378,9 +377,9 @@ fn write_entry(env: &Env, app: App, replace: bool) -> Result<()> {
 
 fn remove_entry(env: &Env, app: App) -> Result<()> {
     match app {
-        App::ClaudeDesktop => edit_json(&env.config_path(app), |servers| {
-            servers.remove(SERVER_KEY);
-        }),
+        App::ClaudeDesktop => {
+            edit_json(&env.config_path(app), |servers| servers.remove(SERVER_KEY))
+        }
         App::ClaudeCode => claude_cli(env, &["mcp", "remove", "--scope", "user", SERVER_KEY]),
         App::Codex => edit_toml(&env.config_path(app), |servers| {
             servers.remove(SERVER_KEY);
@@ -389,29 +388,105 @@ fn remove_entry(env: &Env, app: App) -> Result<()> {
 }
 
 /// Read `path` as JSON (none or empty: `{}`), change its `mcpServers`, and write it back whole
-/// through a temp file and a rename, so the app never reads half a file.
-fn edit_json(path: &Path, change: impl FnOnce(&mut serde_json::Map<String, Value>)) -> Result<()> {
+/// through a temp file and a rename, so the app never reads half a file. The top level and
+/// `mcpServers` keep the person's key order (serde_json's own map would sort them).
+fn edit_json(path: &Path, change: impl FnOnce(&mut Ordered<Value>)) -> Result<()> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
-    let mut doc: Value = if text.trim().is_empty() {
-        json!({})
-    } else {
-        serde_json::from_str(&text).with_context(|| format!("{} is not JSON", path.display()))?
-    };
-    let Some(top) = doc.as_object_mut() else {
+    let text = if text.trim().is_empty() { "{}" } else { text.as_str() };
+    let doc: Value =
+        serde_json::from_str(text).with_context(|| format!("{} is not JSON", path.display()))?;
+    let Some(top) = doc.as_object() else {
         bail!("{} is not a JSON object", path.display());
     };
-    let servers = top.entry("mcpServers").or_insert_with(|| json!({}));
-    let Some(servers) = servers.as_object_mut() else {
-        bail!("mcpServers in {} is not an object", path.display());
-    };
-    change(servers);
-    let mut out = serde_json::to_string_pretty(&doc)?;
+    if top.get(SERVERS_KEY).is_some_and(|s| !s.is_object()) {
+        bail!("{SERVERS_KEY} in {} is not an object", path.display());
+    }
+    let top: Ordered<Value> = serde_json::from_str(text)?;
+    #[derive(serde::Deserialize)]
+    struct Servers {
+        #[serde(rename = "mcpServers")]
+        servers: Option<Ordered<Value>>,
+    }
+    let mut servers =
+        serde_json::from_str::<Servers>(text)?.servers.unwrap_or(Ordered(Vec::new()));
+    change(&mut servers);
+    #[derive(serde::Serialize)]
+    #[serde(untagged)]
+    enum Node {
+        Plain(Value),
+        Servers(Ordered<Value>),
+    }
+    let mut servers = Some(servers);
+    let mut out: Vec<(String, Node)> = top
+        .0
+        .into_iter()
+        .map(|(k, v)| {
+            let node = match servers.take_if(|_| k == SERVERS_KEY) {
+                Some(s) => Node::Servers(s),
+                None => Node::Plain(v),
+            };
+            (k, node)
+        })
+        .collect();
+    if let Some(s) = servers {
+        out.push((SERVERS_KEY.to_owned(), Node::Servers(s)));
+    }
+    let mut out = serde_json::to_string_pretty(&Ordered(out))?;
     out.push('\n');
     write_atomic(path, &out)
+}
+
+/// The key of Claude's MCP servers.
+const SERVERS_KEY: &str = "mcpServers";
+
+/// A JSON object read and written in its own key order.
+struct Ordered<T>(Vec<(String, T)>);
+
+impl<T> Ordered<T> {
+    /// Set `key` to `value`, in its place when it is there, else last.
+    fn insert(&mut self, key: &str, value: T) {
+        match self.0.iter_mut().find(|(k, _)| k == key) {
+            Some((_, v)) => *v = value,
+            None => self.0.push((key.to_owned(), value)),
+        }
+    }
+
+    fn remove(&mut self, key: &str) {
+        self.0.retain(|(k, _)| k != key);
+    }
+}
+
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for Ordered<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct Visit<T>(std::marker::PhantomData<T>);
+        impl<'de, T: serde::Deserialize<'de>> serde::de::Visitor<'de> for Visit<T> {
+            type Value = Ordered<T>;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a JSON object")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Ordered<T>, A::Error> {
+                let mut out = Vec::new();
+                while let Some(entry) = map.next_entry()? {
+                    out.push(entry);
+                }
+                Ok(Ordered(out))
+            }
+        }
+        d.deserialize_map(Visit(std::marker::PhantomData))
+    }
+}
+
+impl<T: serde::Serialize> serde::Serialize for Ordered<T> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_map(self.0.iter().map(|(k, v)| (k, v)))
+    }
 }
 
 /// The same for Codex's TOML, through `toml_edit` so the person's comments and order stay.

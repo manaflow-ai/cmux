@@ -1951,6 +1951,31 @@ pub(super) fn decode_journal_segment(
     connection: &Connection,
     row: JournalSegmentRow,
 ) -> anyhow::Result<DecodedJournalSegment> {
+    check_segment_gaps(connection, inflate_journal_segment(row, None)?)
+}
+
+/// A sealed segment inflated and checked on its own (codec, size, digest,
+/// record count and range), before [`check_segment_gaps`], the one check
+/// that reads the registry. It needs no connection, so segments can be
+/// inflated on other threads (`kind_read`).
+pub(super) struct InflatedJournalSegment {
+    segment_id: String,
+    start_sequence: u64,
+    end_sequence: u64,
+    /// Every record's sequence, the ones `keep` dropped included.
+    sequences: Vec<u64>,
+    records: Vec<SessionJournalRecord>,
+}
+
+/// Inflates a segment and checks it whole. With `keep`, only the records of
+/// the kinds it accepts are kept and validated: the others are dropped
+/// unread, which skips a base64 decode and a SHA-256 for each terminal
+/// output record a reader would only drop. The segment digest still covers
+/// their bytes, so a damaged segment fails the same way.
+pub(super) fn inflate_journal_segment(
+    row: JournalSegmentRow,
+    keep: Option<kind_read::JournalKinds>,
+) -> anyhow::Result<InflatedJournalSegment> {
     let (
         segment_id,
         start_sequence,
@@ -2000,10 +2025,6 @@ pub(super) fn decode_journal_segment(
         serde_json::from_slice::<Vec<SessionJournalRecord>>(&json)
             .with_context(|| format!("decode journal segment {segment_id}"))?
     };
-    for record in &mut records {
-        normalize_terminal_output(record, None)
-            .with_context(|| format!("validate journal segment {segment_id}"))?;
-    }
     anyhow::ensure!(
         records.len() == record_count,
         "journal segment {segment_id} record count is invalid"
@@ -2013,12 +2034,31 @@ pub(super) fn decode_journal_segment(
             && records.last().is_some_and(|record| record.sequence <= end_sequence),
         "journal segment {segment_id} sequence range is invalid"
     );
+    let sequences = records.iter().map(|record| record.sequence).collect::<Vec<_>>();
+    if let Some(keep) = keep {
+        records.retain(|record| keep(&record.kind));
+    }
+    for record in &mut records {
+        normalize_terminal_output(record, None)
+            .with_context(|| format!("validate journal segment {segment_id}"))?;
+    }
+    Ok(InflatedJournalSegment { segment_id, start_sequence, end_sequence, sequences, records })
+}
+
+/// The gap check of an inflated segment: a segment with fewer records than
+/// its range is valid only where output cleanup pruned the missing runs.
+pub(super) fn check_segment_gaps(
+    connection: &Connection,
+    segment: InflatedJournalSegment,
+) -> anyhow::Result<DecodedJournalSegment> {
+    let InflatedJournalSegment { segment_id, start_sequence, end_sequence, sequences, records } =
+        segment;
     // A whole segment checks no pruned range; one with fewer records than
     // its range checks each missing run once.
     anyhow::ensure!(start_sequence > 0, "journal segment {segment_id} sequence range is invalid");
     let mut previous = start_sequence - 1;
     let after_end = end_sequence.saturating_add(1);
-    for sequence in records.iter().map(|record| record.sequence).chain([after_end]) {
+    for sequence in sequences.into_iter().chain([after_end]) {
         anyhow::ensure!(
             sequence == previous.saturating_add(1)
                 || (sequence > previous.saturating_add(1)
@@ -2627,16 +2667,28 @@ impl RegistryConnection {
         cursor: u64,
         snapshot: &str,
     ) -> anyhow::Result<()> {
-        let value = serde_json::json!({
-            "version": version,
-            "cursor": cursor.to_string(),
-            "snapshot": snapshot,
-        });
-        self.get().execute(
-            "INSERT INTO meta(key, value) VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![format!("journal_reducer.{reducer_id}"), value.to_string()],
-        )?;
-        Ok(())
+        write_journal_reducer_state(&self.get(), reducer_id, version, cursor, snapshot)
     }
+}
+
+/// The `meta` row of a reducer's fold position and snapshot, written on
+/// `connection` (the registry's own, or the synthetic registry writer's).
+pub(crate) fn write_journal_reducer_state(
+    connection: &Connection,
+    reducer_id: &str,
+    version: u32,
+    cursor: u64,
+    snapshot: &str,
+) -> anyhow::Result<()> {
+    let value = serde_json::json!({
+        "version": version,
+        "cursor": cursor.to_string(),
+        "snapshot": snapshot,
+    });
+    connection.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![format!("journal_reducer.{reducer_id}"), value.to_string()],
+    )?;
+    Ok(())
 }
