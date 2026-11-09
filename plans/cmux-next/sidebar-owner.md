@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: the workspace hover card fits what it shows. Leo, verbatim: "the hover previews are a bit too big for
+  their min width ... the show and hide details, um, that can probably also be a little bit more ... animated ... I
+  don't want it to disappear as quickly as other ones would ... if the inner tab is the exact same name as the
+  workspace, I feel like there's something that is kind of sort of redundant there". The narrowest card's text column
+  is 10 titles (was 14); Show and Hide details refit on the panel's morph (`HoverCardCoordinator.refit(_:animated:)`);
+  the card lingers for the leave grace (`sidebar.hoverCards.workspaceLeave`, takes back Lawrence 2026-10-19's hide at
+  once, kept as a choice); the name row hides when the one tab repeats it (`sidebar.hoverCards.workspaceTitle`:
+  unless repeated, always, only with details). Regression: `WorkspaceHoverCardFitTests`.
 - 2026-11-08: a renamed workspace's name rolls as the agent chat's live line rolls a new tool call. Leo, verbatim: "i
   feel like when workspaces get renamed (esp by agents) it should have that same fade in animation that the tool call
   situation has...". `sidebar.workspaceTitleMotion` gains `roll`, its default: the old name rises 0.6 em, blurs and
