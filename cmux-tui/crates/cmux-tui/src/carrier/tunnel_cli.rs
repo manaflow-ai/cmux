@@ -38,6 +38,7 @@ use zeroize::Zeroizing;
 
 use super::answer::{Credential, HttpSource};
 use super::tunnel::{self, TunnelIdentity, TunnelPlan, TunnelStatus};
+use tokio::signal::unix::{SignalKind, signal};
 
 const PLATFORM_ENV: &str = "CMUX_PLATFORM_URL";
 const VM_API_ENV: &str = "CMUX_VM_API_URL";
@@ -259,6 +260,15 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Err(_) => return usage("no async runtime"),
     };
     runtime.block_on(async move {
+        // Tokio's own signal streams, in place before anything starts: the
+        // carrier verbs run before `main` installs its shutdown handlers, so
+        // its shutdown waiter has nothing to wait on here (as `carrier serve`).
+        let (Ok(mut terminate), Ok(mut interrupt)) =
+            (signal(SignalKind::terminate()), signal(SignalKind::interrupt()))
+        else {
+            emit(&json!({"event": "tunnel-failed", "detail": "no signal handlers"}));
+            return 1;
+        };
         let handle = match tunnel::start(plan) {
             Ok(handle) => handle,
             Err(tunnel::StartError::Held { socket }) => {
@@ -272,8 +282,6 @@ pub(crate) fn run(args: &[String]) -> i32 {
         };
         emit(&json!({"event": "tunnel-starting", "socket": handle.socket().display().to_string()}));
         let mut status = handle.status();
-        let signal = crate::wait_for_shutdown_signal_async();
-        tokio::pin!(signal);
         let last = loop {
             tokio::select! {
                 changed = status.changed() => {
@@ -283,7 +291,8 @@ pub(crate) fn run(args: &[String]) -> i32 {
                     }
                     emit(&status_line(&now));
                 }
-                _ = &mut signal => break handle.stop().await,
+                _ = terminate.recv() => break handle.stop().await,
+                _ = interrupt.recv() => break handle.stop().await,
             }
         };
         emit(&status_line(&last));

@@ -3835,6 +3835,9 @@ mod tab_group_hex;
 #[path = "cli/terminal_paste.rs"]
 mod terminal_paste;
 #[cfg(unix)]
+#[path = "cli/carrier_tunnel.rs"]
+mod carrier_tunnel;
+#[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
 #[cfg(unix)]

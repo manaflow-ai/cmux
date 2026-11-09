@@ -544,3 +544,61 @@ async fn the_refresh_goes_to_the_vm_api_origin_attach_names() {
     answer["vm_api_origin"] = json!("http://vm.example");
     assert_eq!(DeviceTunnel::from_attach(&answer).unwrap().vm_api_origin, None);
 }
+
+#[tokio::test]
+async fn reads_failing_up_to_the_bound_are_final_and_never_loop_through_attach() {
+    let mut timing = quick();
+    timing.refresh_every = Duration::from_millis(20);
+    let mut rig = rig("readbound", timing).await;
+    rig.platform.answer("/attach", vec![mesh_only(), enrolled(&rig.wg_public, "gw.example:51820")]);
+    rig.vm.answer("/signed/tunnel", vec![(503, json!({"code": "unavailable"}))]);
+    let handle = start(rig.plan.take().unwrap()).unwrap();
+    let last = tokio::time::timeout(Duration::from_secs(10), handle.finished()).await.unwrap();
+    assert!(matches!(last, TunnelStatus::Failed(_)), "{last:?}");
+    assert_eq!(rig.platform.requests("/attach").len(), 2, "no re-attach loop");
+    assert_eq!(rig.vm.requests("/signed/tunnel").len(), quick().max_failures as usize);
+    assert_eq!(*rig.hubs.stopped.lock().unwrap(), 1);
+}
+
+#[tokio::test]
+async fn a_read_that_works_again_after_a_failure_is_ready_again() {
+    let mut timing = quick();
+    timing.refresh_every = Duration::from_millis(20);
+    let mut rig = rig("recover", timing).await;
+    rig.platform.answer("/attach", vec![mesh_only(), enrolled(&rig.wg_public, "gw.example:51820")]);
+    rig.vm.answer(
+        "/signed/tunnel",
+        vec![(503, json!({"code": "unavailable"})), tunnel_read("gw.example")],
+    );
+    let handle = start(rig.plan.take().unwrap()).unwrap();
+    // The failed read published Retrying; once the next read is in, the
+    // status must come back to Ready.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while rig.vm.requests("/signed/tunnel").len() < 2 {
+        assert!(tokio::time::Instant::now() < deadline, "a second read in time");
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    wait_status(&handle, |s| matches!(s, TunnelStatus::Ready { .. })).await;
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    assert!(matches!(*handle.status().borrow(), TunnelStatus::Ready { .. }), "stays ready");
+    assert_eq!(rig.hubs.configs.lock().unwrap().len(), 1, "the same hub serves on");
+    handle.stop().await;
+}
+
+#[tokio::test]
+async fn the_supervisor_lock_is_its_own_private_file_not_the_hubs_socket_lock() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut rig = rig("lockfile", quick()).await;
+    rig.platform.answer("/attach", vec![mesh_only(), enrolled(&rig.wg_public, "gw.example:51820")]);
+    let socket = rig.plan.as_ref().unwrap().socket.clone();
+    let handle = start(rig.plan.take().unwrap()).unwrap();
+    let lock = lock_path(&socket);
+    assert!(lock.to_string_lossy().ends_with("hub.sock.tunnel-lock"));
+    assert_eq!(std::fs::metadata(&lock).unwrap().permissions().mode() & 0o777, 0o600);
+    // The hub's own `<socket>.lock` stays free for its bind.
+    let mut hub_lock = socket.into_os_string();
+    hub_lock.push(".lock");
+    let file = std::fs::File::create(&hub_lock).unwrap();
+    assert!(file.try_lock().is_ok(), "the supervisor must not hold the hub's lock");
+    handle.stop().await;
+}

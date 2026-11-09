@@ -2,7 +2,7 @@
 //! the ssh backup carrier reach `<VM mesh ip>:22` with
 //! `ssh -o ProxyCommand='cmux wg dial --hub S %h %p'`.
 //!
-//! One supervisor per Mac (an flock on `<socket>.lock`; a second one gets
+//! One supervisor per Mac (an flock on `<socket>.tunnel-lock`, 0600; a second one gets
 //! [`StartError::Held`] and uses the first one's socket):
 //!
 //! 1. **Attach.** `POST /v1/mesh/nodes/{machineId}/attach` with the person's
@@ -398,15 +398,32 @@ pub(crate) fn start(plan: TunnelPlan) -> Result<TunnelHandle, StartError> {
 }
 
 /// The one-per-Mac lock beside the socket.
-fn hold(socket: &Path) -> Result<File, StartError> {
+/// The supervisor's own lock: `<socket>.tunnel-lock`, owner-only (0600) and
+/// never followed through a symlink. Never `<socket>.lock`: that one is the
+/// hub's (`OwnedUnixListener::bind` leases it), and holding it here would
+/// keep the hub from binding.
+pub(crate) fn lock_path(socket: &Path) -> PathBuf {
     let mut path = socket.as_os_str().to_owned();
-    path.push(".lock");
+    path.push(".tunnel-lock");
+    PathBuf::from(path)
+}
+
+fn hold(socket: &Path) -> Result<File, StartError> {
+    use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
+    let io = |e: std::io::Error| StartError::Io(format!("{:?}", e.kind()));
+    // The hub secures (and checks) the socket's directory; it must exist
+    // first for the lock beside the socket, owner-only like the hub makes it.
+    if let Some(parent) = socket.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent).map_err(io)?;
+    }
     let file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(PathBuf::from(path))
-        .map_err(|e| StartError::Io(format!("{:?}", e.kind())))?;
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(lock_path(socket))
+        .map_err(io)?;
     match file.try_lock() {
         Ok(()) => Ok(file),
         Err(std::fs::TryLockError::WouldBlock) => {
@@ -501,21 +518,32 @@ impl Supervisor {
 
     /// Counts a failure and waits out its delay; `Some` when the supervisor
     /// should end (out of attempts, or stopped while it waited).
+    /// The wait before retry number `failures` (1-based): the floor doubling
+    /// per failure up to the ceiling, full jitter, never under half the floor.
+    fn retry_delay(&self, failures: u32) -> Duration {
+        let timing = &self.plan.timing;
+        let exponent = failures.saturating_sub(1).min(16);
+        let ceiling = timing.retry_floor.saturating_mul(1 << exponent).min(timing.retry_ceiling);
+        (self.plan.jitter)(ceiling).max(timing.retry_floor.checked_div(2).unwrap_or_default())
+    }
+
+    fn ready(&self, tunnel: &DeviceTunnel) {
+        self.status.send_replace(TunnelStatus::Ready {
+            socket: self.plan.socket.clone(),
+            tunnel_id: tunnel.tunnel_id.clone(),
+            device_id: tunnel.device_id.clone(),
+            mesh_id: tunnel.mesh_id.clone(),
+            address_v4: tunnel.address_v4.clone(),
+        });
+    }
+
     async fn failed(&mut self, failures: &mut u32, why: String) -> Option<TunnelStatus> {
         *failures = failures.saturating_add(1);
         if *failures >= self.plan.timing.max_failures {
             return Some(TunnelStatus::Failed(format!("{why} ({failures} attempts)")));
         }
         self.status.send_replace(TunnelStatus::Retrying(why));
-        let exponent = failures.saturating_sub(1).min(16);
-        let ceiling = self
-            .plan
-            .timing
-            .retry_floor
-            .saturating_mul(1 << exponent)
-            .min(self.plan.timing.retry_ceiling);
-        let delay = (self.plan.jitter)(ceiling)
-            .max(self.plan.timing.retry_floor.checked_div(2).unwrap_or_default());
+        let delay = self.retry_delay(*failures);
         tokio::select! {
             _ = tokio::time::sleep(delay) => None,
             _ = self.stop.wait_for(|stop| *stop) => Some(TunnelStatus::Stopped),
@@ -610,17 +638,17 @@ impl Supervisor {
                     continue;
                 }
             };
-            self.status.send_replace(TunnelStatus::Ready {
-                socket: self.plan.socket.clone(),
-                tunnel_id: tunnel.tunnel_id.clone(),
-                device_id: tunnel.device_id.clone(),
-                mesh_id: tunnel.mesh_id.clone(),
-                address_v4: tunnel.address_v4.clone(),
-            });
+            self.ready(&tunnel);
             // The hub runs until it ends, the config changes, or the device
             // must attach again.
             let next = loop {
-                let tick = tokio::time::sleep(self.plan.timing.refresh_every);
+                // After a failed read the next one comes on the retry
+                // backoff, never later than the usual refresh.
+                let wait = match failures {
+                    0 => self.plan.timing.refresh_every,
+                    n => self.retry_delay(n).min(self.plan.timing.refresh_every),
+                };
+                let tick = tokio::time::sleep(wait);
                 // `None` is the refresh tick.
                 let event = tokio::select! {
                     _ = self.stop.wait_for(|stop| *stop) => Some(None),
@@ -655,7 +683,14 @@ impl Supervisor {
                     }
                 }
                 match self.refresh(&client, &identity, &tunnel).await {
-                    Ok(fresh) if fresh == tunnel => failures = 0,
+                    Ok(fresh) if fresh == tunnel => {
+                        // A read that works again after a failure: the
+                        // tunnel the hub serves is current, so it is ready.
+                        if failures > 0 {
+                            failures = 0;
+                            self.ready(&tunnel);
+                        }
+                    }
                     Ok(fresh) => break Some(fresh),
                     Err(Miss::Reattach(_) | Miss::NoMesh(_)) => {
                         hub.stop().await;
@@ -665,12 +700,16 @@ impl Supervisor {
                         hub.stop().await;
                         return HubEnd::Final(TunnelStatus::Failed(why));
                     }
-                    // The hub keeps serving the config it has.
+                    // The hub keeps serving the config it has until the
+                    // reads have failed `max_failures` times in a row, which
+                    // is final: a re-attach would reset the count and an
+                    // unreachable VM API would loop for good.
                     Err(Miss::Retry(why)) => {
                         failures = failures.saturating_add(1);
                         if failures >= self.plan.timing.max_failures {
                             hub.stop().await;
-                            return HubEnd::Reattach;
+                            let why = format!("{why} ({failures} attempts)");
+                            return HubEnd::Final(TunnelStatus::Failed(why));
                         }
                         self.status.send_replace(TunnelStatus::Retrying(why));
                     }
