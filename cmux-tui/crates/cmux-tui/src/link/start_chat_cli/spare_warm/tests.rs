@@ -537,7 +537,10 @@ fn a_second_compose_in_the_gap_warms_the_next_spare_not_the_claimed_one() {
     assert!(call(&claimed(MACHINE), 1_010_000).get("copy").is_none());
     // A second compose within the gap: M is taken, so the warm asks again and copies onto the next spare.
     let second = warm(1_020_000);
-    assert_eq!((second["fresh"].clone(), second["copy"]["machine"].clone()), (json!(true), json!(OTHER)));
+    assert_eq!(
+        (second["fresh"].clone(), second["copy"]["machine"].clone()),
+        (json!(true), json!(OTHER))
+    );
     assert_eq!(calls.get(), 2);
     // Within the gap again, the unclaimed record answers as before.
     assert_eq!(warm(1_030_000)["fresh"], json!(false));

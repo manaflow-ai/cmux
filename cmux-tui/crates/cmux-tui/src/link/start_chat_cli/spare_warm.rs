@@ -346,10 +346,9 @@ fn claim(
     let in_flight = file.copies.iter().any(|copy| {
         copy.account == account && copy.team == team && copy.machine.as_deref() == Some(machine)
     });
-    let given = file
-        .warms
-        .iter()
-        .any(|record| ours(&record.account, record.team.as_deref(), &record.machine) && record.copy_given);
+    let given = file.warms.iter().any(|record| {
+        ours(&record.account, record.team.as_deref(), &record.machine) && record.copy_given
+    });
     let warm_until = now_ms.saturating_add(COPY_BUDGET_MS);
     if let Some(record) = file
         .warms
