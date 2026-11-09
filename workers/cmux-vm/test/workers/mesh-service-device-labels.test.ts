@@ -12,7 +12,7 @@ import { enrollBody, makeInstallKey, rotateBody } from "../support/mesh-signing.
 const SERVICE = "cloud-platform-dev";
 const TEAM = "team_personal_new";
 const LABELS = { role: "cloud" };
-const Enrolled = Schema.Struct({ device: Schema.Struct({ id: Schema.String }), tunnel: Schema.Struct({ tunnelId: Schema.String }) });
+const Enrolled = Schema.Struct({ device: Schema.Struct({ id: Schema.String, tunnelId: Schema.String }) });
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
 let h: Harness | undefined;
 afterEach(async () => { await h?.dispose(); h = undefined; });
@@ -43,7 +43,7 @@ const enroll = async (harness: Harness, mesh: string, headers: Record<string, st
   });
   expect(reply.status).toBe(201);
   const body = Schema.decodeUnknownSync(Enrolled)(await reply.json());
-  return { install, deviceId: body.device.id, tunnelId: body.tunnel.tunnelId };
+  return { install, deviceId: body.device.id, tunnelId: body.device.tunnelId };
 };
 
 const tunnelDeletes = (harness: Harness) => harness.upstream.callsTo("DELETE", /^\/v5\/tunnels\/[^/]+$/u).length;
