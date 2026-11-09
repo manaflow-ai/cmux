@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42722458545",
+  "recorded_at": "2026-11-09T23:51:12Z",
+  "reason": "cmux-tui b2ff7aaff8ec changes the image's cmux-tui (pinned 6c8ba0bb2a04)",
+  "dry_run": false,
+  "cmux_tui": "b2ff7aaff8ec803887ec1463ee746339ea3006b6",
+  "fixes": [
+    {
+      "sha": "b2ff7aaff8ec803887ec1463ee746339ea3006b6",
+      "mergedAt": "2026-11-09T23:26:47Z",
+      "subject": "History › Team: the team's agent spend, behind the team-audit experiment (#39345)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T23:51:12Z",
+    "snapshot_id": "sh-66191d57a3c4419aa1dc62afd6b766b2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42722458545): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "12a8f32c7ece8c73b71e022d2752da279892a9cb",
+    "image": "cloud-native-auto-b2ff7aaf-42722458545-1",
+    "revision": "ci-42722458545-1",
+    "at": "2026-11-09T23:51:12Z"
+  },
+  "rolled_back": false
+}
