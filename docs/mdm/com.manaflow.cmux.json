@@ -4188,10 +4188,11 @@
       "type" : "boolean"
     },
     "sidebar.density" : {
-      "default" : "compact",
-      "description" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
+      "default" : "normal",
+      "description" : "Normal rows match the Codex app's sidebar. Compact rows are smaller and closer together. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
       "enum" : [
         "compact",
+        "normal",
         "comfortable",
         "expanded"
       ],
@@ -4203,6 +4204,13 @@
       "description" : "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you.",
       "title" : "Detailed Status Icons",
       "type" : "boolean"
+    },
+    "sidebar.detailSize" : {
+      "description" : "The size of the lines under workspace names and of listed tabs, in points. Empty follows the density and text size.",
+      "maximum" : 20,
+      "minimum" : 8,
+      "title" : "Sidebar Detail Size",
+      "type" : "number"
     },
     "sidebar.floatOnHover" : {
       "default" : true,
@@ -4475,6 +4483,20 @@
       "title" : "Show Priority View",
       "type" : "boolean"
     },
+    "sidebar.rowHeight" : {
+      "description" : "The height of a one-line sidebar row, in points. Rows sit 2 points apart. Empty follows the density and text size.",
+      "maximum" : 56,
+      "minimum" : 16,
+      "title" : "Sidebar Row Height",
+      "type" : "number"
+    },
+    "sidebar.rowPadding" : {
+      "description" : "The space at the left and right of sidebar rows, in points. Empty follows the density.",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Sidebar Row Padding",
+      "type" : "number"
+    },
     "sidebar.sectionLook" : {
       "default" : "quiet",
       "description" : "How the sections above and below the workspace list draw.",
@@ -4611,15 +4633,22 @@
       "type" : "string"
     },
     "sidebar.textSize" : {
-      "default" : "default",
-      "description" : "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar.",
+      "default" : "small",
+      "description" : "Sizes the sidebar's names, headers, icons and rows together. Small, the default, matches the Codex app's sidebar; Medium matches the ChatGPT app's.",
       "enum" : [
-        "default",
-        "large",
-        "larger"
+        "small",
+        "medium",
+        "large"
       ],
       "title" : "Sidebar Text Size",
       "type" : "string"
+    },
+    "sidebar.titleSize" : {
+      "description" : "The size of workspace names in the sidebar, in points. Empty follows the density and text size.",
+      "maximum" : 24,
+      "minimum" : 9,
+      "title" : "Sidebar Title Size",
+      "type" : "number"
     },
     "sidebar.topBandMaxShare" : {
       "default" : 0.3333333333333333,
