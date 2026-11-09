@@ -22,6 +22,40 @@ public struct SSHPaths: Sendable {
     public var clientState: URL { root.appendingPathComponent("link-state", isDirectory: true) }
     public var downloads: URL { root.appendingPathComponent("downloads", isDirectory: true) }
 
+    /// Builds of one artifact the download cache keeps: the one in use and the last two used.
+    public static let downloadsKept = 3
+
+    /// Marks `file` (a download-cache build, `<artifact>-<commit12>`) used now and removes the
+    /// same artifact's other builds past the `kept` most recently used, and their `.partial`
+    /// fetches older than a day. Each build is ~97 MB and every nightly or DEV build fetches its
+    /// own, so the never-pruned cache grew ~1.9 GB a day (11.9 GB, 198 builds on one Mac).
+    public func pruneDownloads(using file: URL, kept: Int = SSHPaths.downloadsKept, now: Date = Date()) {
+        let fm = FileManager.checked
+        try? fm.setAttributes([.modificationDate: now], ofItemAtPath: file.path)
+        let name = file.lastPathComponent
+        guard let dash = name.lastIndex(of: "-"), Self.isCommitPrefix(name[name.index(after: dash)...]) else { return }
+        let artifact = name[...dash]
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        guard let entries = try? fm.contentsOfDirectory(at: downloads, includingPropertiesForKeys: keys) else { return }
+        var builds: [(url: URL, used: Date)] = []
+        for entry in entries where entry.lastPathComponent != name && entry.lastPathComponent.hasPrefix(artifact) {
+            let rest = entry.lastPathComponent.dropFirst(artifact.count)
+            let used = (try? entry.blockingResourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
+            if rest.hasSuffix(".partial"), Self.isCommitPrefix(rest.dropLast(".partial".count)) {
+                if now.timeIntervalSince(used) > 86_400 { try? fm.removeItem(at: entry) }
+            } else if Self.isCommitPrefix(rest) {
+                builds.append((entry, used))
+            }
+        }
+        for stale in builds.sorted(by: { $0.used > $1.used }).dropFirst(max(kept - 1, 0)) {
+            try? fm.removeItem(at: stale.url)
+        }
+    }
+
+    private static func isCommitPrefix(_ text: Substring) -> Bool {
+        text.count == 12 && text.allSatisfy(\.isHexDigit)
+    }
+
     /// The link's local v12 socket, short enough for `sun_path`.
     public func linkSocket(machineID: String) -> String {
         let hash = SHA256.hash(data: Data((root.path + machineID).utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
