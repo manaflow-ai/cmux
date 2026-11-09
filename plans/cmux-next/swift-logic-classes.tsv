@@ -6863,8 +6863,6 @@ CmuxNextDesign	protocol	ThemedMenuItemView	0	PLATFORM	0	0	Packages/macOS/CmuxNex
 CmuxNextDesign	class	ThemedPickerTarget	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedPicker+SwiftUI.swift	from struct ThemedPicker:8: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	ThemedPicker	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedPicker+SwiftUI.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	ThemedPopUpButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedPopUpButton.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	class	ThemedSegmentedCell	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedSegmentedControl.swift	from class ThemedSegmentedControl:9: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	class	ThemedSegmentedControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedSegmentedControl.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	ThemedSecureTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedTextField.swift	from class ThemedTextField:9: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	ThemedTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedTextField.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	NSTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedTextField.swift	from class ThemedTextField:9: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -9587,8 +9585,6 @@ CmuxNextRemoteViewSessions	struct	RemoteViewDebugRdHost	0	PLATFORM	0	0	Packages/
 CmuxNextRemoteViewSessions	class	RemoteViewPageSession	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewPageSession.swift	from class RemoteViewPageSession:16: Remote view/VNC frame sources, sessions and Keychain credentials
 CmuxNextRemoteViewSessions	struct	CloudDesktopByteStream	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewPageSession.swift	from class RemoteViewPageSession:16: Remote view/VNC frame sources, sessions and Keychain credentials
 CmuxNextRemoteViewSessions	class	RemoteViewPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewPageTab.swift	from class RemoteViewPageTab:22: Remote view/VNC frame sources, sessions and Keychain credentials
-CmuxNextRemoteViewSessions	class	CloudDesktopFrames	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/CloudDesktopFrames.swift	view-only RFB session lifecycle over the Swift CmuxVNC client (#31795); Rust has cmux-vnc; F14
-CmuxNextRemoteViewSessions	let	framesLogger	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/CloudDesktopFrames.swift	os.Logger
 CmuxNextResources	class	MockResourceSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/MockResourceSource.swift	from class MockResourceSource:6: process/OS plumbing or view
 CmuxNextResources	struct	ProcessKey	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ProcessSample.swift	process identity key (host + pid) and parsing
 CmuxNextResources	struct	ProcessSample	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ProcessSample.swift	from struct ProcessKey:5: process identity key (host + pid) and parsing
@@ -9600,7 +9596,6 @@ CmuxNextResources	class	ResourceCardSampler	0	LOGIC	100	0	Packages/macOS/CmuxNex
 CmuxNextResources	protocol	ResourceSampleSource	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ResourceCardSampler.swift	resource sample source protocol and card sampler ordering
 CmuxNextResources	enum	Strings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ResourceFormat.swift	from struct ResourceFormat:6: Activity Monitor style CPU/memory formatter
 CmuxNextResources	struct	ResourceFormat	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ResourceFormat.swift	Activity Monitor style CPU/memory formatter
-CmuxNextResources	class	ResourceSummaryView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ResourceSummaryView.swift	process/OS plumbing or view
 CmuxNextResources	enum	SharedRole	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/SharedProcess.swift	why a process is shared (role enum)
 CmuxNextResources	struct	ResourceSampleSet	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/SharedProcess.swift	from enum SharedRole:5: why a process is shared (role enum)
 CmuxNextResources	struct	SharedProcess	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/SharedProcess.swift	from enum SharedRole:5: why a process is shared (role enum)
