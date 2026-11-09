@@ -17,6 +17,9 @@ Never point it at a live session folder: it starts and stops a daemon there.
 
     registry-migrate-copy.py --bin PATH/cmux-tui --state-dir COPY/tui \
         --session cmux-app-nightly-1d6bc9a9bb32a162 --out report.json
+
+`--session` is the folder; the daemon is started with the session name the
+registry stores (`meta.session_name`), from which it finds that folder.
 """
 
 import argparse
@@ -44,6 +47,24 @@ def sizes(folder):
         elif entry.is_dir():
             result[entry.name + "/"] = sum(p.stat().st_size for p in entry.rglob("*") if p.is_file())
     return result
+
+
+def storage_component(session):
+    """The folder cmux-tui keeps `session` in (workspace_registry.rs
+    `session_storage_component`): a readable prefix and an FNV-1a hash."""
+    readable, hash_ = "", 0xCBF29CE484222325
+    for byte in session.encode():
+        hash_ = ((hash_ ^ byte) * 0x100000001B3) % (1 << 64)
+        if len(readable) < 48:
+            readable += chr(byte) if chr(byte).isascii() and (chr(byte).isalnum() or chr(byte) in "-_") else "_"
+    return f"{readable or 'session'}-{hash_:016x}"
+
+
+def session_name(registry):
+    """The session name the registry was made for (`meta.session_name`)."""
+    with sqlite3.connect(f"file:{registry}?mode=ro", uri=True) as connection:
+        row = connection.execute("SELECT value FROM meta WHERE key = 'session_name'").fetchone()
+    return row[0] if row else None
 
 
 def isolate_terminal_hosts(state_dir, work):
@@ -102,7 +123,7 @@ class Daemon:
         self.changed = threading.Condition()
         self.log = open(Path(args.work) / f"{label}.log", "w")
         self.process = subprocess.Popen(
-            [args.bin, "--headless", "--session", args.session, "--socket", str(self.socket)],
+            [args.bin, "--headless", "--session", args.name, "--socket", str(self.socket)],
             env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -163,7 +184,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--bin", required=True, help="the cmux-tui build to run")
     parser.add_argument("--state-dir", required=True, type=Path, help="the copy's sessions folder")
-    parser.add_argument("--session", required=True)
+    parser.add_argument("--session", required=True, help="the session's folder under --state-dir")
     parser.add_argument("--work", default=None, help="logs and digests (default: beside the copy)")
     parser.add_argument("--out", required=True)
     parser.add_argument("--phase-a-timeout", type=int, default=6 * 3600)
@@ -172,6 +193,10 @@ def main():
     registry = folder / REGISTRY
     if not registry.is_file():
         sys.exit(f"no {registry}")
+    # The daemon takes the session's name and finds its folder from it.
+    args.name = session_name(registry)
+    if not args.name or storage_component(args.name) != args.session:
+        sys.exit(f"{folder} is not the folder of its session {args.name!r} ({storage_component(args.name or '')})")
     args.work = Path(args.work or args.state_dir.parent / "migrate-work")
     args.work.mkdir(parents=True, exist_ok=True)
     report = {"bin": args.bin, "session": args.session, "before": {"files": sizes(folder)}}
