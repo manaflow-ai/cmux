@@ -27,7 +27,9 @@ use std::time::Duration;
 use base64::Engine;
 use bytes::Bytes;
 use cmux_transport::PathId;
-use cmux_wg::{DueProbes, InterfaceAddress, IpNetwork, Origin, Received, UltraMode, Underlay, WgConfig, WgNet};
+use cmux_wg::{
+    DueProbes, InterfaceAddress, IpNetwork, Origin, Received, UltraMode, Underlay, WgConfig, WgNet,
+};
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -605,6 +607,8 @@ struct HybridUnderlay {
     /// announcement named (a peer-reflexive NAT mapping), newest last: paths
     /// too, so a direct route found that way can still win.
     learned: Vec<SocketAddr>,
+    /// The selector's quiet route was replayed through the relays.
+    suspect_replayed: bool,
     /// Test support (`DialOptions::impair_inbound`): received datagrams
     /// held until their delivery time, and the timer for the first.
     delayed: std::collections::VecDeque<(Instant, Vec<u8>, Origin)>,
@@ -682,6 +686,7 @@ impl HybridUnderlay {
             last_udp_source: None,
             last_turn_source: None,
             learned: Vec::new(),
+            suspect_replayed: false,
             delayed: std::collections::VecDeque::new(),
             delay_timer: None,
         };
@@ -1022,6 +1027,18 @@ impl HybridUnderlay {
             }
             self.last_replay = Some(now);
         }
+        let recent = self.replay_set(now);
+        if !recent.is_empty() {
+            tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams on the new route");
+        }
+        for (datagram, class) in recent {
+            self.transmit(&datagram, class);
+        }
+    }
+
+    /// What a replay sends: the newest datagrams that fit [`REPLAY_BYTES`],
+    /// oldest first.
+    fn replay_set(&self, now: Instant) -> Vec<(Bytes, SendClass)> {
         let mut budget = REPLAY_BYTES;
         let mut recent: Vec<(Bytes, SendClass)> = self
             .recent
@@ -1036,11 +1053,36 @@ impl HybridUnderlay {
             .map(|(_, datagram, class)| (datagram.clone(), *class))
             .collect();
         recent.reverse();
-        if !recent.is_empty() {
-            tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams on the new route");
+        recent
+    }
+
+    /// The selector's route just went quiet: what went into it lately (and
+    /// was lost if it is cut) goes again through the relays only, our TURN
+    /// allocation and the peer's relayed addresses, so the tunnel's own
+    /// retransmit timers need not wait it out. One or two routes, inside
+    /// the replay budget and [`REPLAY_GAP`]; a replay to every candidate
+    /// overflowed the peer's socket buffer before.
+    fn replay_on_relays(&mut self) {
+        let now = Instant::now();
+        if self.last_replay.is_some_and(|last| now.duration_since(last) < REPLAY_GAP) {
+            return;
         }
+        let relayed: Vec<SocketAddr> = if no_plain_udp(&self.options) {
+            Vec::new()
+        } else {
+            self.labels.peer_relayed.iter().copied().filter(|addr| !self.refused.contains(addr)).collect()
+        };
+        if relayed.is_empty() && (self.turn.is_none() || self.turn_targets.is_empty()) {
+            return;
+        }
+        self.last_replay = Some(now);
+        let recent = self.replay_set(now);
+        tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams through the relays");
         for (datagram, class) in recent {
-            self.transmit(&datagram, class);
+            for addr in &relayed {
+                let _ = self.send_udp(&datagram, *addr);
+            }
+            self.send_turn_targets(&datagram, class);
         }
     }
 
@@ -1292,6 +1334,9 @@ impl HybridUnderlay {
             // Every path died: the route it held may be dead too.
             self.demote("the path selector lost every route");
         }
+        if !self.paths.suspect() {
+            self.suspect_replayed = false;
+        }
         if let Some(route) = self.paths.current() {
             if self.direct != Some(route) {
                 tracing::debug!(?route, from = ?self.direct, "the path selector moves the route");
@@ -1324,6 +1369,10 @@ impl HybridUnderlay {
         if self.paths.suspect() {
             // The chosen route went quiet: every route until it answers or
             // another one takes over.
+            if !self.suspect_replayed {
+                self.suspect_replayed = true;
+                self.replay_on_relays();
+            }
             self.paths.sent_everywhere(now);
             self.spray(datagram, None);
             self.send_turn_targets(datagram, class);
