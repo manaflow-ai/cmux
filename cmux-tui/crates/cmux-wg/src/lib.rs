@@ -51,6 +51,7 @@ pub mod testing;
 mod timers;
 mod udp;
 mod ultra;
+mod ultra_hello;
 mod ultra_rs;
 mod underlay;
 mod watchdog;

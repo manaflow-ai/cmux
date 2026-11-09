@@ -187,7 +187,10 @@ fn read_run_worktree_close_removes_the_recorded_worktree_then_closes_the_workspa
     let request =
         parse_close("feature-x", &strings(&["--remove-worktree", "--discard"])).expect("parsed");
     let result = close(&daemon, &request, "key-3").expect("closed");
-    assert_eq!(daemon.operations(), ["workspace.get", "git.worktree.remove", "workspace.close"]);
+    assert_eq!(
+        daemon.operations(),
+        ["workspace.get", "git.worktree.remove", "session.snapshot", "workspace.close"]
+    );
     let remove = daemon.params("git.worktree.remove");
     assert_eq!(remove["path"], "/Users/me/.cmux/worktrees.noindex/repo/x");
     assert_eq!(remove["discard"], true);
@@ -222,7 +225,10 @@ fn read_run_worktree_close_without_an_agent_folder_removes_the_terminals_worktre
     ]);
     let request = parse_close("feature-x", &strings(&["--remove-worktree"])).expect("parsed");
     let result = close(&daemon, &request, "key-5").expect("closed");
-    assert_eq!(daemon.operations(), ["workspace.get", "git.worktree.remove", "workspace.close"]);
+    assert_eq!(
+        daemon.operations(),
+        ["workspace.get", "git.worktree.remove", "session.snapshot", "workspace.close"]
+    );
     let remove = daemon.params("git.worktree.remove");
     assert_eq!(remove["workspace"], WORKSPACE);
     assert!(remove.get("path").is_none(), "{remove}");
@@ -230,4 +236,51 @@ fn read_run_worktree_close_without_an_agent_folder_removes_the_terminals_worktre
     assert_eq!(result["worktree"]["root"], "/w");
     assert!(parse_close("current", &strings(&["--remove-worktree"])).is_err());
     assert!(parse_close(WORKSPACE, &strings(&["--remove-worktree", "--others"])).is_err());
+}
+
+/// W5-O (bench round 4): the close left the workspace's shells running with
+/// no tab, in the folder the removal took. Each terminal whose every tab was
+/// in the workspace ends after the close; one with a tab elsewhere, and an
+/// exited one, stay.
+#[test]
+fn w5o_worktree_close_ends_the_terminals_that_had_tabs_only_in_the_workspace() {
+    const OTHER: &str = "ws_ffffffffffffffffffffffffffffffff";
+    const HERE: &str = "term_11111111111111111111111111111111";
+    let snapshot = json!({
+        "workspaces": [{"id": WORKSPACE}, {"id": OTHER}],
+        "screens": [{"id": "screen_a", "workspace_id": WORKSPACE},
+                    {"id": "screen_b", "workspace_id": OTHER}],
+        "panes": [{"id": "pane_a", "screen_id": "screen_a"},
+                  {"id": "pane_b", "screen_id": "screen_b"}],
+        "tabs": [{"id": "tab_1", "pane_id": "pane_a"}, {"id": "tab_2", "pane_id": "pane_a"},
+                 {"id": "tab_3", "pane_id": "pane_a"}, {"id": "tab_4", "pane_id": "pane_b"},
+                 {"id": "tab_5", "pane_id": "pane_a"}],
+        "terminals": [
+            {"id": HERE, "lifecycle": "running", "tab_ids": ["tab_1", "tab_2"]},
+            {"id": "term_22222222222222222222222222222222", "lifecycle": "running", "tab_ids": ["tab_3", "tab_4"]},
+            {"id": "term_33333333333333333333333333333333", "lifecycle": "running", "tab_ids": ["tab_4"]},
+            {"id": "term_44444444444444444444444444444444", "lifecycle": "exited", "tab_ids": ["tab_5"]},
+            {"id": "term_55555555555555555555555555555555", "lifecycle": "running", "tab_ids": []},
+        ],
+    });
+    let daemon = FakeDaemon::new(vec![
+        ("workspace.get", Ok(json!({"id": WORKSPACE, "extra": {"agent_folder": "/w"}}))),
+        ("git.worktree.remove", Ok(json!({"value": {"root": "/w", "branch_deleted": true}}))),
+        ("session.snapshot", Ok(snapshot)),
+    ]);
+    let request = parse_close(WORKSPACE, &strings(&["--remove-worktree"])).expect("parsed");
+    let result = close(&daemon, &request, "key-6").expect("closed");
+    assert_eq!(
+        daemon.operations(),
+        [
+            "workspace.get",
+            "git.worktree.remove",
+            "session.snapshot",
+            "workspace.close",
+            "terminal.close"
+        ]
+    );
+    assert_eq!(daemon.params("terminal.close")["terminal"], HERE);
+    assert_eq!(result["ended_terminals"], json!([HERE]));
+    assert_eq!(result["worktree"]["root"], "/w");
 }
