@@ -552,10 +552,8 @@ impl Engine {
             }
             let wait = match removal {
                 // Gone before the settle time: read again then.
-                Removal::Gone => {
-                    Duration::from_millis(u64::try_from(settle - now).unwrap_or(0))
-                        .min(self.timing.retry_max)
-                }
+                Removal::Gone => Duration::from_millis(u64::try_from(settle - now).unwrap_or(0))
+                    .min(self.timing.retry_max),
                 Removal::Later(_) => {
                     let wait = pause;
                     pause = (pause * 2).min(self.timing.retry_max);

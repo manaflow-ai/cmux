@@ -3762,6 +3762,9 @@ mod closed_ids;
 #[cfg(unix)]
 #[path = "cli/cloud_lease_gate.rs"]
 mod cloud_lease_gate;
+#[cfg(unix)]
+#[path = "cli/cloud_runs_app_route.rs"]
+mod cloud_runs_app_route;
 #[path = "cli/command_history.rs"]
 mod command_history;
 #[cfg(unix)]
@@ -3788,9 +3791,6 @@ mod conversation_tree;
 #[cfg(unix)]
 #[path = "cli/dock_tab_placement.rs"]
 mod dock_tab_placement;
-#[cfg(unix)]
-#[path = "cli/cloud_runs_app_route.rs"]
-mod cloud_runs_app_route;
 #[cfg(unix)]
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;
