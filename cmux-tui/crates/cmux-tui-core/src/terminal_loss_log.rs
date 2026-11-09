@@ -275,6 +275,40 @@ pub(crate) fn record_terminal_respawned(
     }
 }
 
+/// Append that the owner ends the host of closed terminal `record` with
+/// SIGKILL because it did not exit after Terminate (`reason`). Written
+/// before the signal, so the line exists once the host is gone. A forced
+/// end is not a loss: the terminal was already closed.
+#[cfg(any(unix, windows))]
+pub(crate) fn record_host_close_forced(
+    record_path: &Path,
+    record: &crate::terminal_host_runtime::TerminalHostRecord,
+    reason: &str,
+) {
+    let at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or_default();
+    let line = serde_json::json!({
+        "at_ms": at_ms,
+        "event": "host_close_forced",
+        "terminal_id": record.terminal_id,
+        "incarnation": record.incarnation,
+        "host_pid": record.host_pid,
+        "signal": "SIGKILL",
+        "reason": reason,
+    });
+    eprintln!(
+        "cmux-tui: terminal {} host {} {reason}; ending it with SIGKILL",
+        record.terminal_id, record.host_pid
+    );
+    if let Some(log) =
+        record_path.parent().and_then(Path::parent).map(|dir| dir.join(LOSS_LOG_FILE))
+    {
+        append_rotating(&log, &line);
+    }
+}
+
 /// Append that this owner daemon got termination signal `signal` from
 /// `sender_pid` (cx-0tgl LA), with the sender's name and parent, so an
 /// external stop of the owner is named. `root` is the terminal-host record
