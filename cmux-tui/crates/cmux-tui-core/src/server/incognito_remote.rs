@@ -608,6 +608,21 @@ pub(super) fn recheck(mux: &Mux, line: &str) -> Option<String> {
     Some(format!("unknown {kind} {selector}"))
 }
 
+/// What a remote device's `list-workspaces` with `known` is judged against
+/// (hq#8813): None when `client` may see every change (it is not a remote
+/// device, or no workspace of this process was ever incognito), else what
+/// it must not see. The daemon's tree revision counts every change, an
+/// incognito tab's title too, so such a client gets a digest of the rows it
+/// is answered instead, and a change it cannot see never moves it.
+pub(super) fn list_view(mux: &Mux, client: u64) -> Option<Hidden> {
+    if !is_remote_device(mux, client) {
+        return None;
+    }
+    let hidden = hidden(mux);
+    (hidden.is_some() || crate::state::store::any_ephemeral_noted())
+        .then(|| hidden.unwrap_or_default())
+}
+
 /// Leave hidden rows out of a remote device's command reply.
 pub(super) fn prune_reply(mux: &Mux, client: u64, reply: &mut Value) {
     if let Some(hidden) = for_client(mux, client) {

@@ -540,3 +540,68 @@ fn a_cloud_phones_channel_is_a_remote_device_without_saying_so() {
     }
     mux.shutdown();
 }
+
+/// `list-workspaces` with `known` from `conn`: its `data`.
+fn listed_since(mux: &Arc<Mux>, conn: &Conn, known: Value) -> Value {
+    let reply = line(mux, conn, json!({"id": "since", "cmd": "list-workspaces", "known": known}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    reply["data"].clone()
+}
+
+fn known_of(data: &Value) -> Value {
+    json!({
+        "registry_id": data["registry_id"],
+        "generation": data["generation"],
+        "workspace_revision": data["workspace_revision"],
+        "pane_revision": data["pane_revision"],
+        "terminal_revision": data["terminal_revision"],
+        "tree_revision": data["tree_revision"],
+    })
+}
+
+#[test]
+fn a_remote_devices_known_never_moves_with_an_incognito_workspace() {
+    // hq#8813: the daemon's tree revision counts every change, so a phone
+    // that held it would see an incognito workspace's changes as a revision
+    // that moved while its rows did not.
+    let mux = test_mux();
+    let app = app(&mux);
+    let private = create(&mux, &app, "private-space", true);
+    let normal = create(&mux, &app, "normal-space", false);
+    let local = listed(&mux, &app);
+    let private_id = row(&local, &private).unwrap()["id"].as_u64().unwrap();
+    let normal_id = row(&local, &normal).unwrap()["id"].as_u64().unwrap();
+    let rename = |workspace: u64, name: &str| {
+        let reply = line(
+            &mux,
+            &app,
+            json!({"id": "rename", "cmd": "rename-workspace", "workspace": workspace, "name": name}),
+        );
+        assert_eq!(reply["ok"], true, "{reply}");
+    };
+
+    let phone = phone(&mux);
+    let first = listed_since(&mux, &phone, json!({}));
+    assert!(!first.to_string().contains(&private), "{first}");
+    let known = known_of(&first);
+    let again = listed_since(&mux, &phone, known.clone());
+    assert_eq!(again["unchanged"], true, "{again}");
+    assert_eq!(again["tree_revision"], known["tree_revision"]);
+
+    // The Mac renames its incognito workspace: nothing the phone may see changed.
+    let app_known = known_of(&listed_since(&mux, &app, json!({})));
+    rename(private_id, "secret-plans");
+    let app_after = listed_since(&mux, &app, app_known.clone());
+    assert!(app_after.get("unchanged").is_none(), "the app sees its own rename: {app_after}");
+    let after = listed_since(&mux, &phone, known.clone());
+    assert_eq!(after["unchanged"], true, "an incognito rename moved the phone's tree: {after}");
+    assert_eq!(after["tree_revision"], known["tree_revision"]);
+
+    // A normal rename does.
+    rename(normal_id, "visible-name");
+    let renamed = listed_since(&mux, &phone, known.clone());
+    assert!(renamed.get("unchanged").is_none(), "{renamed}");
+    assert!(renamed.to_string().contains("visible-name"), "{renamed}");
+    assert!(!renamed.to_string().contains(&private), "{renamed}");
+    assert_ne!(renamed["tree_revision"], known["tree_revision"]);
+}

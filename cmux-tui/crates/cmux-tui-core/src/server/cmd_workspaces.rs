@@ -48,11 +48,15 @@ pub(super) struct KnownTree {
 /// current. Without it, the reply is the same as before `known` existed, byte for byte.
 pub(super) fn list_workspaces(
     mux: &Arc<Mux>,
+    client: u64,
     lines_written: Option<u64>,
     known: Option<&KnownTree>,
 ) -> anyhow::Result<Value> {
     let mut reply = match known {
-        Some(known) => list_workspaces_reply_since(mux, known)?,
+        Some(known) => {
+            let view = super::incognito_remote::list_view(mux, client);
+            list_workspaces_reply_since(mux, known, view.as_ref())?
+        }
         None => list_workspaces_reply(mux)?,
     };
     if let Some(lines) = lines_written {
