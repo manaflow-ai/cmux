@@ -95,6 +95,7 @@
     "cloud.fs.read",
     "cloud.fs.stat",
     "cloud.fs.write",
+    "cloud.machine.board",
     "cloud.machine.connect",
     "cloud.machine.connect_info",
     "cloud.machine.disconnect",

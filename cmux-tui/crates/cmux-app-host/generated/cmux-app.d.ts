@@ -17,6 +17,7 @@ declare namespace Cmux {
   type AutomationSettings = { agent_run_default_seconds: number | null }
   type AutomationTeleportBegun = { automation: Cmux.Automation; epoch: number; last_slot: number | null }
   type AvatarRef = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number }
+  type BoardMember = { user: Cmux.UserId; name?: string }
   type Body = unknown
   type BrowserAttachFrame = { kind: "frame"; mime_type: "image/png" | "image/jpeg"; data_base64: string; width_px: number; height_px: number; pointer_frame_seq: string | null }
   type BrowserAttachItem = unknown
@@ -788,6 +789,8 @@ interface CmuxGlobal {
       write: CmuxOp<{ machine: string; path: string; dataBase64: string; mode?: number; baseRevision?: string | null }, { ok: true; path: string; size: number }>
     }
     machine: {
+      /** `cloud.machine.board` (read, scope `cloud:read`): The team board in one read: `machines`, `usage` and `audit` are exactly what GET /v1/machines, GET /v1/machines/usage (the last 30 days) and GET /v1/machines/audit (the newest 50 rows) answer the caller (TeamMachine[], MachineUsage, MachineAuditRow[]); `members` is the first 200 of the team's members by user id with their display names (team.members.list), or null when the caller may not read them; `self` is the caller's user id. The same access as those reads: a member of the team, or its billing role. */
+      board: CmuxOp<Record<string, never>, { machines: Array<string>; usage: string; audit: Array<string>; members: Array<Cmux.BoardMember> | null; self: Cmux.UserId }>
       /** `cloud.machine.connect` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Open the one private link (carrier) to a machine and return it. A second call while the link is up returns the same carrier and starts no new link. A paused machine is started first. Not a focus change. When the link goes down nothing reconnects by itself and nothing queues: call connect again, also with the same key: connect is never replayed from the ledger. */
       connect: CmuxOp<{ machine: string }, { machine: string; carrier: string; generation: number; state: "up"; socket: string; vm_kind: "owner" | "team" | "unknown" }>
       /** `cloud.machine.connect_info` (read, scope `cloud:read`): How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner for its creator on any team, never an agent token; every other member is team). */

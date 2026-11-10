@@ -5,6 +5,44 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes cloud.machine.list declares.
+    CloudMachineListError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Pause a running machine (memory kept): answers status pausing; cloud.machine.upsert brings paused (or running again with the error). The active slot is freed when it lands; cloud.machine.not_running {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
+    CloudMachinePauseOp {
+        name: "cloud.machine.pause",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: CloudMachinePauseParams,
+        result: CloudMachinePauseResult,
+        error: CloudMachinePauseError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachinePauseParams {
+    pub machine: MachineId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachinePauseResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
     /// The error codes cloud.machine.pause declares.
     CloudMachinePauseError {
         AuthForbidden = "auth.forbidden",
@@ -851,50 +889,4 @@ wire_errors! {
         CloudRateLimited = "cloud.rate_limited",
         ValidationInvalid = "validation.invalid",
     }
-}
-
-wire_op! {
-    /// Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
-    CloudVmStatusReportOp {
-        name: "cloud.vm.status.report",
-        class: Mutation,
-        idempotency: None,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Install],
-        params: CloudVmStatusReportParams,
-        result: CloudVmStatusReportResult,
-        error: CloudVmStatusReportError,
-    }
-}
-
-wire_enum! {
-    CloudVmStatusReportParamsState {
-        Running = "running",
-        Degraded = "degraded",
-        Stopping = "stopping",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmStatusReportParamsDaemon {
-    pub version: String,
-    pub capabilities: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmStatusReportParamsHealth {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub disk_free_mb: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub load: Option<WireNumber>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmStatusReportParamsActivity {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_user_input_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_agent_action_at: Option<i64>,
-    pub active_sessions: i64,
 }
