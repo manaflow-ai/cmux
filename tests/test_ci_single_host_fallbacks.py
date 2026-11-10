@@ -331,6 +331,36 @@ class PrepushGateLayer(unittest.TestCase):
                 self.assertEqual(len(refused), 1, refused)
                 self.assertIn("did not give a verdict", refused[0])
 
+    def test_a_missing_pyyaml_refuses_with_its_install_line(self) -> None:
+        self.checker(None)
+        self.workflow("b.yml", "${{ vars.RUNNER_POOLS }}")
+        self.commit("head")
+        with unittest.mock.patch.object(self.gate, "has_pyyaml", return_value=False), \
+                unittest.mock.patch.object(self.gate, "pyyaml_install_command", return_value="PY -m pip install X"):
+            self.assertEqual(self.layer(), ["PyYAML missing: run PY -m pip install X"])
+        # The probe asks the hook's own interpreter the way the hook runs it (-I, so no user site).
+        self.assertTrue(self.gate.has_pyyaml(sys.executable))
+        self.assertFalse(self.gate.has_pyyaml(str(Path(self.tmp.name) / "no-such-python")))
+
+    def test_the_install_line_reaches_the_interpreter_the_hook_runs(self) -> None:
+        command = self.gate.pyyaml_install_command
+        with tempfile.TemporaryDirectory() as tmp:
+            writable, stdlib = Path(tmp) / "site", Path(tmp) / "lib"
+            writable.mkdir(); stdlib.mkdir()
+            python = "/opt/py 3/bin/python3"
+            self.assertEqual(command(python, str(writable), str(stdlib), apt=False),
+                             "'/opt/py 3/bin/python3' -m pip install PyYAML==6.0.3")
+            (stdlib / "EXTERNALLY-MANAGED").write_text("", encoding="utf-8")
+            self.assertEqual(command(python, str(writable), str(stdlib), apt=False),
+                             "'/opt/py 3/bin/python3' -m pip install --break-system-packages PyYAML==6.0.3")
+            unwritable = str(Path(tmp) / "missing-site")
+            self.assertEqual(command(python, unwritable, str(stdlib), apt=True), "sudo apt-get install -y python3-yaml")
+            self.assertEqual(command(python, unwritable, str(stdlib), apt=False),
+                             "sudo '/opt/py 3/bin/python3' -m pip install PyYAML==6.0.3")
+            for line in (command(python, str(writable), str(stdlib), apt=False),
+                         command(python, unwritable, str(stdlib), apt=False)):
+                self.assertNotIn("--user", line, "-I ignores user site-packages, so a --user install never helps")
+
     def test_a_missing_install_only_warns(self) -> None:
         self.workflow("b.yml", "${{ vars.NEW_X }}")
         self.commit("head")
@@ -356,6 +386,49 @@ class PrepushGateLayer(unittest.TestCase):
         refused = self.layer()
         self.assertTrue(refused, "a null variables section passed the layer")
         self.assertTrue(any("variables must be an object" in line for line in refused), refused)
+
+    def test_an_unscanned_base_is_never_subtracted_from_the_head(self) -> None:
+        """Codex F1 on #40840: a schema fault the base already had was subtracted as old debt, so a head that added
+        vars.NEW_X passed with no scan. An incomplete scan refuses whatever the base had."""
+        self.checker(None)
+        policy = load_declaration()
+        policy["variables"] = None
+        (self.repo / ".github" / "single-host-fallbacks.json").write_text(json.dumps(policy), encoding="utf-8")
+        self.base = self.commit("an unscannable declaration on the base")
+        self.workflow("b.yml", "${{ vars.NEW_X }}")
+        self.commit("adds vars.NEW_X")
+        refused = self.layer()
+        self.assertTrue(refused, "a new runs-on variable passed because the base's scan did not run either")
+        self.assertTrue(all("did not run" in line for line in refused), refused)
+
+    def test_output_of_the_wrong_shape_refuses(self) -> None:
+        """Codex F2 on #40840: findings were str()-coerced, so `[{"key": [], "message": {}}]` was one equal finding on
+        both sides and passed. Anything but objects with a string key, a string message and a known status refuses."""
+        self.workflow("b.yml", "${{ vars.RUNNER_POOLS }}")
+        self.commit("head")
+        for listed in ([{"key": [], "message": {}}], [{"key": "k", "message": "m"}],
+                       [{"key": "k", "message": 1, "status": "found"}], [{"key": "k", "message": "m", "status": "x"}],
+                       ["vars.X"], [None]):
+            with self.subTest(listed=listed):
+                self.checker(f"print({json.dumps(json.dumps(listed))})\n")
+                refused = self.layer()
+                self.assertEqual(len(refused), 1, refused)
+                self.assertIn("did not give a verdict", refused[0])
+        # The same shape with a valid status gives a verdict, so the base's copy is subtracted.
+        self.checker(f"print({json.dumps(json.dumps([{'key': 'k', 'message': 'm', 'status': 'found'}]))})\n")
+        self.assertEqual(self.layer(), [])
+
+    def test_every_json_finding_carries_a_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".github" / "workflows").mkdir(parents=True)
+            shutil.copy(DECLARATION, root / ".github" / "single-host-fallbacks.json")
+            (root / ".github" / "workflows" / "a.yml").write_text("jobs:\n  a:\n    runs-on: ${{ vars.NEW_X }}\n",
+                                                                  encoding="utf-8")
+            (root / ".github" / "workflows" / "b.yml").write_text("jobs: [\n", encoding="utf-8")
+            found = checker.check(root)
+            self.assertEqual({f["key"].split(":")[0]: f["status"] for f in found},
+                             {"vars.NEW_X": "found", "unreadable": "incomplete"})
 
 
 if __name__ == "__main__":
