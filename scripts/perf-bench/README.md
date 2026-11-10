@@ -245,6 +245,35 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
 - `chrome_parity.py selfcheck` proves the judge on made-up frames (a frozen arm is FAIL, an input that was not
   delivered is no sample). `parity_appclock.py selfcheck` proves the same on the real app with `debug.stall`.
 
+## Load arm `oversub` (`busy_holder.py`)
+
+A developer's Mac can run all day at a load average of about 250 on 18 cores: about 14 runnable CPU-bound threads
+per core (agents, node, cargo), all at the default priority. A bench "load" arm with a host load under 15 is a
+quiet machine next to that. `busy_holder.py` is the one busy loop of the bench owners: N CPU-bound threads at the
+default priority and QoS beside the app under test, for a short time.
+
+```
+BH="/usr/bin/python3 scripts/perf-bench/busy_holder.py"
+PID=$($BH start --owner <task> --watch-pid $$ --threads 250 --procs 250 --max-seconds 120)   # prints the PID
+$BH status $PID      # threads, running, priority, CPU, load
+$BH stop $PID        # the summary: threads, processes, cores, threads per core, load at start and end
+$BH cooldown --below 8 --max-seconds 300 && $BH status    # inside the same hold; must print `live 0`
+$BH probe --label quiet    # the scheduling delay one thread of each QoS class gets (run quiet and under start)
+$BH selftest               # the safety rules with 4 threads for at most 10 s each
+```
+
+- `--procs 1` is one process with N threads; `--procs N` is N processes. macOS shares the cores between
+  processes' thread groups first, so the two are different loads; a real Mac has many processes. Write the shape
+  next to each number: threads, processes, cores, threads per core, the 1-minute load at the start and the end.
+- It is run-queue pressure only: no disk I/O, no memory pressure, no process churn, no GPU work.
+- Safety, enforced by the tool: it ends itself after `--max-seconds` (default 240, hard limit 600); it ends when
+  the process that started it is gone; it starts only where `~/perf-lead/tools/GUI-HOST` exists and
+  `~/perf-lead/gui.lock/owner` starts with `--owner` (a bench host inside the caller's own GUI lock hold; never a
+  build host, never a laptop), and it ends when that lock is gone; `stop` signals only a PID it can prove is its
+  own; it refuses to start at a changed priority.
+- The row order is quiet, oversub, oversub, quiet in one hold. A row's driver runs at user-interactive QoS so that
+  its own wait for a core is not in the number; the app's clocks are the result.
+
 ## Files
 
 - `xbench.py`: run, report (BENCH.md + results.json), gate.
@@ -253,4 +282,5 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
 - `baseline/<chip>-macos<major>.json`: the gate's reference (results.json of a run at a known sha).
 - `chrome_parity.py`, `framewatch.swift`: the Chrome parity bench (`suite=parity`).
 - `parity_appclock.py`, `parity_chrome_cdp.py`: the same rows by the app-clock method (no privacy right).
+- `busy_holder.py`: the load arm `oversub` (N busy threads at the default priority, with hard self-limits).
 - `../measure/perf-bench.sh`: the fleet entry.
