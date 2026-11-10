@@ -307,7 +307,9 @@ impl Hub {
                         )
                         .is_some()
                 };
-                if let Some(id) = bound_chat(&ancestry, &claude, &live, &listed, registered_by) {
+                if let Some(id) =
+                    bound_chat(&ancestry, &claude, &live, &listed, &registered, registered_by)
+                {
                     return Some(id);
                 }
             }
@@ -330,21 +332,28 @@ impl Hub {
 }
 
 /// The chat (of `chats`, `(chat id, Claude session id)`) whose live registry entry (`live`) has
-/// a pid in `ancestry` and an entrypoint in `listed`, or any entrypoint for a chat whose
-/// registration recorded that process (`registered_by`, `register.rs`). The nearest
+/// a pid in `ancestry` and an entrypoint in `listed`; a chat of `registered` only by the process
+/// its registration recorded (`registered_by`, `register.rs`), whatever the entrypoint. The nearest
 /// ancestor wins: a Claude Code run inside another's shell is its own sender.
 fn bound_chat(
     ancestry: &[u32],
     chats: &[(String, String)],
     live: &[Peer],
     listed: &[String],
+    registered: &[String],
     registered_by: impl Fn(&str, &Peer) -> bool,
 ) -> Option<String> {
     ancestry.iter().find_map(|pid| {
         let peer = live.iter().find(|p| p.pid == *pid)?;
         let (id, _) = chats.iter().find(|(_, sid)| *sid == peer.session_id)?;
-        (registered_by(id, peer) || peer.entrypoint.as_ref().is_some_and(|e| listed.contains(e)))
-            .then(|| id.clone())
+        // A registered chat binds only the process its registration recorded: an entrypoint the
+        // setting lists is anyone's to write, so it never stands in for that proof.
+        let bound = if registered.iter().any(|r| r == id) {
+            registered_by(id, peer)
+        } else {
+            peer.entrypoint.as_ref().is_some_and(|e| listed.contains(e))
+        };
+        bound.then(|| id.clone())
     })
 }
 
@@ -474,27 +483,35 @@ mod tests {
         let none = |_: &str, _: &Peer| false;
         // acpmux (50) under bash (45) under the desktop session's claude (42).
         assert_eq!(
-            bound_chat(&[50, 45, 42, 1], &chats, &live, &listed, none).as_deref(),
+            bound_chat(&[50, 45, 42, 1], &chats, &live, &listed, &[], none).as_deref(),
             Some("chat-1")
         );
         // Another process tree: nothing.
-        assert_eq!(bound_chat(&[50, 45, 7], &chats, &live, &listed, none), None);
+        assert_eq!(bound_chat(&[50, 45, 7], &chats, &live, &listed, &[], none), None);
         // An entrypoint the setting does not list: nothing.
-        assert_eq!(bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], none), None);
+        assert_eq!(bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], &[], none), None);
         // A live app with no chat the bridge made: nothing.
         let other = vec![("chat-2".to_owned(), "other".to_owned())];
-        assert_eq!(bound_chat(&[50, 42], &other, &live, &listed, none), None);
+        assert_eq!(bound_chat(&[50, 42], &other, &live, &listed, &[], none), None);
         // A chat its session registered is bound whatever its entrypoint, by the process its
         // registration recorded.
         let recorded = |id: &str, p: &Peer| id == "chat-1" && p.pid == 42;
+        let registered = ["chat-1".to_owned()];
         assert_eq!(
-            bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], recorded).as_deref(),
+            bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], &registered, recorded)
+                .as_deref(),
             Some("chat-1")
         );
         // Repro: another process writes an entry naming the registered chat's session id; with
         // the setting off it is not the recorded process, so its sends are not that chat's.
         let forged = |_: &str, p: &Peer| p.pid == 99;
-        assert_eq!(bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], forged), None);
+        assert_eq!(
+            bound_chat(&[50, 42], &chats, &live, &["cli".to_owned()], &registered, forged),
+            None
+        );
+        // Repro: the forged entry names the default listed entrypoint (claude-desktop, the one
+        // `listed` holds here); a registered chat still binds only its recorded process.
+        assert_eq!(bound_chat(&[50, 42], &chats, &live, &listed, &registered, forged), None);
     }
 
     #[test]
