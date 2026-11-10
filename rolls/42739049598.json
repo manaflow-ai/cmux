@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42739049598",
+  "recorded_at": "2026-11-10T02:06:21Z",
+  "reason": "cmux-tui 15e6186b148f changes the image's cmux-tui (pinned 97f938a1af8a)",
+  "dry_run": false,
+  "cmux_tui": "15e6186b148f988e38cd9f9254c44d633e19fa56",
+  "fixes": [
+    {
+      "sha": "15e6186b148f988e38cd9f9254c44d633e19fa56",
+      "mergedAt": "2026-11-09T17:35:00-08:00",
+      "subject": "Cloud carrier: adopt a legacy machine that never registers on the relay (hq#7086) (#40014)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T02:06:21Z",
+    "snapshot_id": "sh-ce9b7672cec54de18e801e19d7127b14",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42739049598): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e0df628e6b6fdcd8cb81ae304e46a8c3c29d27a3",
+    "image": "cloud-native-auto-15e6186b-42739049598-1",
+    "revision": "ci-42739049598-1",
+    "at": "2026-11-10T02:06:21Z"
+  },
+  "rolled_back": false
+}
