@@ -14,6 +14,7 @@ pub mod agent_launch;
 pub mod agent_message_prompt;
 pub mod agent_start_launch;
 mod agent_status;
+mod agent_transcript;
 pub mod agent_view;
 mod apps;
 pub mod route_table;
