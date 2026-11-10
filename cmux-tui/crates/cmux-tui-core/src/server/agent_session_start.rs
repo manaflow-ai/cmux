@@ -119,7 +119,7 @@ pub enum AgentStartHost {
 /// Starts that may run at once on one daemon.
 const MAX_STARTS: usize = 8;
 const MAX_CWD_BYTES: usize = 4096;
-/// How each acpmux call of a start waits ([`AcpmuxLink::call_while_alive`]): a harness spawning
+/// How each acpmux call of a start waits ([`AcpmuxLink::call_while_alive_until`]): a harness spawning
 /// and answering `session/new` in a big folder, or reading its catalog there, on a machine under
 /// load, takes as long as it takes while acpmux still answers beside it. Was a fixed 60 s for
 /// `session/new` and 5 s for each check, which failed the starts of a 1.9 GB and a 20,000-file

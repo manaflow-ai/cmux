@@ -177,6 +177,12 @@ fn paced(
     (link, probes, dir)
 }
 
+/// `session/new` through [`AcpmuxLink::call_while_alive_until`] with `patience`'s own ceiling.
+fn alive_call(link: &AcpmuxLink, patience: Patience) -> Result<Value, LinkError> {
+    let until = Instant::now() + patience.ceiling;
+    link.call_while_alive_until("session/new", json!({}), patience, until)
+}
+
 /// [`super::Patience`] compressed a thousandfold: a 10 ms quiet stands for the start's 10 s.
 const MS: Patience = Patience {
     quiet: Duration::from_millis(10),
@@ -191,7 +197,7 @@ const MS: Patience = Patience {
 fn a_slow_start_whose_acpmux_still_answers_waits_for_it() {
     let (link, probes, _dir) = paced("session/new", Duration::from_millis(90), true);
     let started = Instant::now();
-    let reply = link.call_while_alive("session/new", json!({}), MS).unwrap();
+    let reply = alive_call(&link, MS).unwrap();
     assert_eq!(reply, json!({"ok": true}));
     assert!(started.elapsed() >= Duration::from_millis(90));
     assert!(probes.load(Ordering::SeqCst) >= 2, "acpmux was asked whether it still answers");
@@ -206,7 +212,7 @@ fn a_slow_start_whose_acpmux_still_answers_waits_for_it() {
 fn a_silent_acpmux_fails_the_call_fast() {
     let (link, probes, _dir) = paced("session/new", Duration::from_secs(3600), false);
     let started = Instant::now();
-    let err = link.call_while_alive("session/new", json!({}), MS).unwrap_err();
+    let err = alive_call(&link, MS).unwrap_err();
     assert_eq!(err, LinkError::Timeout);
     assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
     assert_eq!(probes.load(Ordering::SeqCst), 1);
@@ -218,7 +224,7 @@ fn a_live_acpmux_that_never_answers_the_call_ends_at_the_ceiling() {
     let (link, _probes, _dir) = paced("session/new", Duration::from_secs(3600), true);
     let ceiling = Patience { ceiling: Duration::from_millis(300), ..MS };
     let started = Instant::now();
-    let err = link.call_while_alive("session/new", json!({}), ceiling).unwrap_err();
+    let err = alive_call(&link, ceiling).unwrap_err();
     assert_eq!(err, LinkError::Timeout);
     let took = started.elapsed();
     assert!(took >= Duration::from_millis(300) && took < Duration::from_secs(3), "{took:?}");
@@ -233,6 +239,6 @@ fn a_link_closed_under_the_call_fails_it_as_closed() {
         std::thread::sleep(Duration::from_millis(50));
         closer.close();
     });
-    let err = link.call_while_alive("session/new", json!({}), MS).unwrap_err();
+    let err = alive_call(&link, MS).unwrap_err();
     assert_eq!(err, LinkError::Closed);
 }

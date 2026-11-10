@@ -38,11 +38,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// The cheap request a long call asks beside itself to learn whether acpmux still answers
-/// ([`AcpmuxLink::call_while_alive`]): acpmux serves each request of a connection on its own task,
+/// ([`AcpmuxLink::call_while_alive_until`]): acpmux serves each request of a connection on its own task,
 /// so its status answers while a `session/new` is still starting a harness.
 pub(crate) const LIVENESS_PROBE: &str = "_acpmux/status";
 
-/// How a call on work of unknown length waits ([`AcpmuxLink::call_while_alive`]): it waits for its
+/// How a call on work of unknown length waits ([`AcpmuxLink::call_while_alive_until`]): it waits for its
 /// answer while acpmux keeps answering, and fails only when acpmux went silent or the whole wait
 /// passed a generous ceiling. A busy machine makes the call slower, never makes it fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -162,18 +162,9 @@ impl AcpmuxLink {
     /// fails as [`LinkError::Timeout`] (or [`LinkError::Closed`]). A fixed wall clock failed the
     /// starts of big folders on a busy machine whose acpmux was still working (cmux#40385's
     /// matrix: `agent_session.timeout` on a 20,000-file folder).
-    pub(crate) fn call_while_alive(
-        &self,
-        method: &str,
-        params: Value,
-        patience: Patience,
-    ) -> Result<Value, LinkError> {
-        let until = Instant::now() + patience.ceiling;
-        self.call_while_alive_until(method, params, patience, until)
-    }
-
-    /// [`Self::call_while_alive`] with a ceiling at `until` (the earlier of it and the
-    /// patience's own): a run of calls that shares one ceiling, such as a chat start's.
+    ///
+    /// The ceiling is the earlier of `until` and the patience's own, so a run of calls can share
+    /// one (a chat start's).
     pub(crate) fn call_while_alive_until(
         &self,
         method: &str,
