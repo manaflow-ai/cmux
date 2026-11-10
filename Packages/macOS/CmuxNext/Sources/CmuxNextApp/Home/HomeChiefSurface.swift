@@ -253,7 +253,7 @@ final class HomeChiefSurface {
         }
         if let service { view.bindPrimary(directory: service.directory, conversation: conversation) }  // the Primary Chief row
         // The card's Runs On row, on the Chief that `cmux chief move` moves.
-        teleport.follow(for: anchor, { [weak service] in service?.showsTeleport(conversation: conversation) ?? false }) { [weak view] _, card in
+        teleport.follow(for: anchor, { [weak service] in service?.showsTeleport(conversation: conversation) ?? false }) { [weak view] card in
             view?.showTeleport(card)
         }
         if let service, let row = service.homeStore.rows.first(where: { $0.summary.id == self.conversation }) {
