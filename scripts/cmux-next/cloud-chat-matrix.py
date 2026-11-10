@@ -86,6 +86,9 @@ def parse_args(argv=None):
     parser.add_argument("--grant-claude-login", action="store_true",
                         help="with --app: the launched app's own scratch cmux.json says yes to Use My Claude Login "
                              "on My Own Cloud Machines (a Release build's claude chat waits for that consent)")
+    parser.add_argument("--login", choices=("", "none", "machine", "pass"), default="",
+                        help="a Claude chat's `start-chat --login` (default: none given, so --grant-claude-login's consent "
+                             "decides; `none` is the machine's own team mode, the SR2/CodeRouter gateway)")
     parser.add_argument("--agents", default="claude", help=f"comma list of {','.join(AGENTS)}")
     parser.add_argument("--only", default="", help="comma list of workspace cells (default: all)")
     parser.add_argument("--folder", action="append", default=[], metavar="NAME=PATH",
@@ -394,6 +397,19 @@ def launch_argv(app: str, socket: str, credentials_file: str | None, backend: st
 CLAUDE_LOGIN_SETTING = ("cloud", "useMyClaudeLoginOnMyCloudMachines")
 
 
+def start_login(agent: str, login: str) -> list[str]:
+    """A Claude cell's start-chat `--login` words: none unless `--login` names one. `none` copies nothing, so Claude runs
+    on the machine's team mode (the SR2/CodeRouter gateway) and needs no consent. Codex never takes it: `none` would
+    leave it signed out (its login is the Mac's broker)."""
+    return ["--login", login] if login and agent == "claude" else []
+
+
+def list_unread(message: str) -> bool:
+    """The app's refusal when its machine list was not fresh enough to check the name (CloudStartSessionStrings
+    listUnread); the message itself says to run the same command again."""
+    return "Couldn't read your Cloud machines" in (message or "")
+
+
 def scratch_config(folder: Path, grant_claude_login: bool) -> Path:
     """The launched app's own cmux.json (0600), deleted with the run's temporary folder. With
     --grant-claude-login it holds the one-time consent a Release build's claude chat on the account's own
@@ -423,14 +439,48 @@ class Matrix:
         self.launcher = None
         self.lock = threading.Lock()
         self.machines: set[str] = set()
+        self.stopping = threading.Event()
+        # The run's live CLI children, under their own lock: stop() runs in the SIGTERM handler, which can
+        # interrupt the main thread inside `self.lock` (launch, sweep, kill), and a Lock is not reentrant.
+        # Nothing holds children_lock across a call that can be interrupted by a signal handler that then
+        # needs it: the handler only reads a snapshot (`list()` is atomic under the GIL) and never waits.
+        self.children_lock = threading.Lock()
+        self.children: set[subprocess.Popen] = set()
 
     def cmux(self, *words: str, timeout: int = 120) -> tuple[int, str, str]:
+        # Once stop() ran, a cell's thread starts nothing more; the main thread's cleanup still runs.
+        cell_thread = threading.current_thread() is not threading.main_thread()
+        if self.stopping.is_set() and cell_thread:
+            return 130, "", "stopped: the run was cancelled"
+        child = subprocess.Popen([self.cli, *words], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True)
+        with self.children_lock:
+            self.children.add(child)
+        # A stop() between the check above and this registration took a snapshot without this child: look
+        # again now that it is registered, so it is ended either by stop() or here, never neither.
+        if self.stopping.is_set() and cell_thread:
+            child.terminate()
         try:
-            done = subprocess.run([self.cli, *words], env=self.env, capture_output=True, text=True,
-                                  timeout=timeout)
-            return done.returncode, done.stdout, done.stderr
+            out, err = child.communicate(timeout=timeout)
+            return child.returncode, out, err
         except subprocess.TimeoutExpired:
+            child.kill()
+            child.communicate()
             return 124, "", f"timed out after {timeout}s"
+        finally:
+            with self.children_lock:
+                self.children.discard(child)
+
+    def stop(self) -> None:
+        """A cancelled run (SIGTERM): no cell starts another step, and the CLI calls cells are waiting on
+        (this run's own children) end now, so cleanup runs at once rather than after 900 s starts. Safe in a
+        signal handler: it takes no lock (the interrupted frame may hold one) and only reads a snapshot."""
+        self.stopping.set()
+        for child in list(self.children):
+            try:
+                child.terminate()
+            except OSError:
+                pass
 
     @staticmethod
     def parsed(text: str) -> dict:
@@ -557,6 +607,9 @@ class Matrix:
     def run_cell(self, name: str, agent: str, folder: Path | None, note: str, *, word: str, canary: str,
                  read_only: bool) -> dict:
         cell = {"workspace": name, "agent": agent, "result": "", "notes": []}
+        if self.stopping.is_set():
+            cell["result"] = "skipped: the run was cancelled"
+            return cell
         if folder is None:
             cell["result"] = note or "skipped"
             return cell
@@ -580,11 +633,21 @@ class Matrix:
         deadline = chat_started + self.args.timeout
         while True:
             code, out, err = self.cmux("cloud", "start-chat", "--from-folder", str(folder), "--prompt", prompt,
-                                       "--agent", agent, "--name", title, "--wait", "--timeout",
-                                       str(self.args.timeout), "--json", timeout=self.args.timeout + 60)
-            if code != 75 or time.monotonic() > deadline:
+                                       "--agent", agent, *start_login(agent, self.args.login), "--name", title,
+                                       "--wait", "--timeout", str(self.args.timeout), "--json",
+                                       timeout=self.args.timeout + 60)
+            if time.monotonic() > deadline:
                 break
-            time.sleep(5)
+            if code == 75:
+                time.sleep(5)
+                continue
+            if code != 0 and list_unread(self.error(out, err).get("message") or err):
+                # The app refuses a start while its machine list is stale (CloudStartSession listFresh): two
+                # prod cells failed in 0.4 s and 2.1 s that way (run 42864046223). Read the list, then ask again.
+                self.cmux("cloud", "list-machines", "--json", timeout=60)
+                time.sleep(5)
+                continue
+            break
         cell["create_to_reply_s"] = round(time.monotonic() - chat_started, 1)
         answer = self.parsed(out) if code == 0 else {}
         failure = self.error(out, err)
@@ -742,9 +805,13 @@ def main(argv=None) -> int:
     root = Path(tempfile.mkdtemp(prefix="cmux-matrix-"))
     canary = f"cmxcanary{random.token_hex(10)}"
     matrix = Matrix(args)
-    # A cancelled CI job sends SIGTERM, which skips `finally`: turn it into SystemExit so quit() still
-    # quits the app and deletes its scratch cmux.json, and the machines are swept.
-    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
+    # A cancelled CI job sends SIGTERM, which skips `finally`: stop the cells' work, then SystemExit, so
+    # `finally` sweeps the machines, quits the app and deletes its scratch cmux.json.
+    def cancelled(signum, frame):
+        matrix.stop()
+        sys.exit(128 + signum)
+    signal.signal(signal.SIGTERM, cancelled)
+    swept = False
     report = {"tag": args.tag, "agents": agents, "cells": [], "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     try:
         problem = matrix.launch()
@@ -774,7 +841,8 @@ def main(argv=None) -> int:
             folder = Path(path).expanduser()
             jobs.append((f"own:{name}", agents[0], folder if folder.is_dir() else None,
                          "" if folder.is_dir() else "skipped: not a folder", "", "", True, 0.0))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel) as pool:
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel)
+        try:
             futures = [pool.submit(matrix.run_cell, kind, agent, folder, note, word=word, canary=canary_value,
                                    read_only=read_only) for kind, agent, folder, note, word, canary_value, read_only, _
                        in jobs]
@@ -786,13 +854,19 @@ def main(argv=None) -> int:
                 cell["fixture_s"] = job[7]
                 report["cells"].append(cell)
                 print(f"[{cell['result']}] {cell['workspace']} ({cell['agent']})", flush=True)
+        finally:
+            # A `with` would wait for every queued cell: on SystemExit, drop the ones not yet started.
+            pool.shutdown(wait=True, cancel_futures=True)
         left = matrix.sweep()
+        swept = True
         report["machines_left"] = left
         failed = [cell for cell in report["cells"] if not cell["result"].startswith(("pass", "skipped"))]
         report["result"] = "pass" if not failed and not left else f"fail: {len(failed)} cells" + (
             f", {len(left)} machines left" if left else "")
         return finish(report, out, 0 if report["result"] == "pass" else 1)
     finally:
+        if not swept:
+            matrix.sweep()  # a cancelled or crashed run still deletes the machines it made
         matrix.quit()
         if not args.keep_fixtures:
             shutil.rmtree(root, ignore_errors=True)

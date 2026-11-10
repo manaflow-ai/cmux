@@ -228,6 +228,9 @@ public final class DaemonService {
         pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapability.wsListen.rawValue, identity: $1, using: $0) }
         updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
+        // The slow request log (always on): the prestart's connection records into its own; the store records rollbacks.
+        let slowLog = prestart?.slowRequestLog ?? SlowRequestLog()
+        store.slowRequestLog = slowLog
         showLaunchSnapshot(launchSnapshot, session: launcher.configuration.session)
         // The prestart's connection records into its probe; later connections record into the same one.
         let latency = prestart.map(\.requestLatency) ?? Self.newRequestLatency()
@@ -237,7 +240,7 @@ public final class DaemonService {
         let configuration = launcher.handingOffIncompatibleOwners(Self.localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
-            requestLatency: latency, health: health))
+            requestLatency: latency, slowRequestLog: slowLog, health: health))
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.

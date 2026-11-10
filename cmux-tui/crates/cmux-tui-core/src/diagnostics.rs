@@ -881,6 +881,9 @@ pub struct ServerStatsSnapshot {
     /// session keeps its registry on disk.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disk: Option<DiskUsageSnapshot>,
+    /// Present only when the request names `journal_followers` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub journal_followers: Option<crate::mux::JournalFollowersSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;
