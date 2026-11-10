@@ -70,7 +70,8 @@ pub enum MotionSpring {
     Settle,
     /// Programmatic scroll: tab strip reveal, column reveal, wheel, fling.
     Scroll,
-    /// Screen switch slide.
+    /// No consumer: the screen switch slide was removed (2026-11-10). Kept
+    /// for its place in the C ABI's spring index.
     Screen,
     /// An overlay tracking the pointer between targets: drop zones, ghost.
     Track,
