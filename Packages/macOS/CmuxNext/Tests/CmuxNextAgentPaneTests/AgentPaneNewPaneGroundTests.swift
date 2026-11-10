@@ -25,7 +25,7 @@ struct AgentPaneNewPaneGroundTests {
         var testDescription: String { "\(chromium ? "Chromium" : "WebKit") \(newTab ? "New Tab page" : "chat")" }
     }
 
-    static let cases = [false, true].flatMap { chromium in [true, false].map { Case(chromium: chromium, newTab: $0) } }
+    nonisolated static let cases = [false, true].flatMap { chromium in [true, false].map { Case(chromium: chromium, newTab: $0) } }
 
     /// The window colour the pane's area shows where nothing paints over it (the kit's FF00FF).
     private static let window = ThemeRGB(hex: 0xFF00FF)
