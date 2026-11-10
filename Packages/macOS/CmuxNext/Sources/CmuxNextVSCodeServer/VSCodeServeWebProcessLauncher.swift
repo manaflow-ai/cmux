@@ -27,15 +27,26 @@ public struct VSCodeServeWebProcessLauncher: VSCodeServeWebLaunching {
         process.standardOutput = pipe
         process.standardError = pipe
         let handle = ServeWebProcess(process: process, pipe: pipe)
+        // Not `bytes`: Foundation reads every `bytes` reader in the app one at a time, and this
+        // one waits on a quiet pipe for as long as the server lives (``FileHandle/readyChunks()``).
+        let reader = pipe.fileHandleForReading
+        let (chunks, stopReading) = reader.readyChunks()
+        process.terminationHandler = { _ in
+            // The server is gone: the reading stops and our read end closes, also when a process
+            // it left behind still holds the pipe open.
+            stopReading()
+            try? reader.close()
+        }
         do {
             try process.run()
         } catch {
+            stopReading()
             throw VSCodeServeWebError.launchFailed(error.localizedDescription)
         }
         // The first of the URL line, the output ending, the startup deadline and cancellation
         // resumes the wait once (no task group waits for a loser).
         let outcome = FirstOutcome<Result<URL, VSCodeServeWebError>>()
-        drain(pipe.fileHandleForReading, into: outcome)
+        drain(chunks, into: outcome)
         let deadline = DemandTimer(owner: "vscode-serve-web.startup")
         deadline.schedule(after: startupTimeout) { outcome.resolve(.failure(.startupTimedOut)) }
         let result = await withTaskCancellationHandler {
@@ -55,13 +66,11 @@ public struct VSCodeServeWebProcessLauncher: VSCodeServeWebLaunching {
         }
     }
 
-    /// Reads the server's output until it ends: the first Web UI URL it prints resolves
-    /// `outcome`, and the end of the output before one does resolves it as exited.
-    private func drain(_ reader: FileHandle, into outcome: FirstOutcome<Result<URL, VSCodeServeWebError>>) {
-        // Not `bytes`: Foundation reads every `bytes` reader in the app one at a time, and this
-        // one waits on a quiet pipe for as long as the server lives (``FileHandle/readyChunks()``).
-        let (chunks, _) = reader.readyChunks()
-        // task-owner: drains the server's output for the life of the process; it ends at EOF.
+    /// Reads the server's output until it ends (end of file, or the server's exit): the first Web
+    /// UI URL it prints resolves `outcome`, and the end of the output before one does resolves it
+    /// as exited.
+    private func drain(_ chunks: AsyncStream<Data>, into outcome: FirstOutcome<Result<URL, VSCodeServeWebError>>) {
+        // task-owner: drains the server's output for the life of the process; it ends when the server exits.
         Task.detached {
             var pending = Data()
             var found = false

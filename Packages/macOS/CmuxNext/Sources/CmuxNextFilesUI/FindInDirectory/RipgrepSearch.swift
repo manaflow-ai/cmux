@@ -117,9 +117,10 @@ package nonisolated struct RipgrepSearch {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
-        let exited = AsyncStream.makeStream(of: Int32.self, bufferingPolicy: .bufferingNewest(1))
+        // The exit status, and whether a signal ended rg (this code's stop, below) and not rg itself.
+        let exited = AsyncStream.makeStream(of: (Int32, Bool).self, bufferingPolicy: .bufferingNewest(1))
         process.terminationHandler = { process in
-            exited.continuation.yield(process.terminationStatus)
+            exited.continuation.yield((process.terminationStatus, process.terminationReason == .uncaughtSignal))
             exited.continuation.finish()
         }
         do {
@@ -136,7 +137,7 @@ package nonisolated struct RipgrepSearch {
         // short synchronous critical section called from the synchronous cancellation handler
         // (CLAUDE.md lock carve-out).
         let running = Mutex(process)
-        let (matches, limited) = await withTaskCancellationHandler {
+        let (matches, atLimit) = await withTaskCancellationHandler {
             var matches: [RipgrepMatch] = []
             var line: [UInt8] = []
             // Split on "\n" only: rg's JSON leaves U+2028, U+2029 and U+0085
@@ -164,7 +165,11 @@ package nonisolated struct RipgrepSearch {
         try? reader.close()
         stop(running)
         var status: Int32 = -1
-        for await code in exited.stream { status = code }
+        var signalled = false
+        for await (code, bySignal) in exited.stream { (status, signalled) = (code, bySignal) }
+        // A signal ended rg before its own end, and the caller did not cancel: the reading stopped
+        // early (the limit, or a reader that fell too far behind), so these are not all the matches.
+        let limited = atLimit || (signalled && !Task.isCancelled)
         // rg exits 0 with matches, 1 with none, 2 on an error (matches found
         // before an unreadable file still count).
         if !limited, !Task.isCancelled, status > 1, matches.isEmpty { return .failed(status: status) }
