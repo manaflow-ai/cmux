@@ -3,8 +3,7 @@ public import CmuxNextDaemon
 public import Foundation
 
 public nonisolated extension CloudCredentialRelay {
-    /// One install-bound relay shared by the app provider and private link carrier. Each op it posts carries
-    /// the signed Cloud capability the identity holds for the install token's team (cmux-platform#1126).
+    /// One install-bound relay shared by the app provider and private link carrier.
     static func live(identity: MacInstallIdentity, baseURL: URL,
                      signedIn: @escaping @Sendable () async -> Bool,
                      allowedOps: @escaping @Sendable () async -> Set<String>,
@@ -12,7 +11,7 @@ public nonisolated extension CloudCredentialRelay {
         let transport = InstallHTTPTransport(baseURL: baseURL)
         let headers = identity.requestHeaders
         return CloudCredentialRelay(
-            post: CloudCapabilityHolder.relayPost(transport: transport, headers: headers, capability: identity.capability),
+            post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: headers) },
             token: { try await identity.installToken() },
             invalidate: { await identity.invalidate() },
             session: {
