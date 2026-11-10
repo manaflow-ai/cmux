@@ -255,11 +255,17 @@ impl Cli {
         cmd.envs(&self.env);
         // Pin the same resolved homes used by store(), including login-shell-only values.
         // The generic child allowlist deliberately excludes these family-specific keys.
-        for key in ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME"] {
+        for key in ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR"] {
             if let Some(value) = self.var(key) {
                 cmd.env(key, value);
             }
         }
+        // Cursor's store follows XDG_CONFIG_HOME: the CLI gets exactly the one store() resolved,
+        // so the sign-in it writes is the one finish reads.
+        match self.var("XDG_CONFIG_HOME") {
+            Some(value) => cmd.env("XDG_CONFIG_HOME", value),
+            None => cmd.env_remove("XDG_CONFIG_HOME"),
+        };
         for key in MODEL_PLANE_ENV {
             cmd.env_remove(key);
         }

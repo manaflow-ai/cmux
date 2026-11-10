@@ -375,6 +375,8 @@ fn cursor_names_and_store() {
     let root = dir("cursor-store");
     let mut cli = Cli::default();
     cli.env.insert("HOME".into(), root.display().to_string());
+    // An empty value is unset, whatever this test process's own XDG_CONFIG_HOME says.
+    cli.env.insert("XDG_CONFIG_HOME".into(), String::new());
     assert_eq!(cli.store(Agent::Cursor), root.join(".config/cursor"));
     cli.env.insert("XDG_CONFIG_HOME".into(), root.join("xdg").display().to_string());
     assert_eq!(cli.store(Agent::Cursor), root.join("xdg/cursor"));
@@ -442,6 +444,7 @@ async fn cursor_sign_in_end_to_end_against_a_stub_cli() {
     let m = Machine { root: root.clone(), home: home.clone() };
     let mut cli = Cli { program: program.display().to_string(), ..Cli::default() };
     cli.env.insert("HOME".into(), home.display().to_string());
+    cli.env.insert("XDG_CONFIG_HOME".into(), String::new());
     cli.env.insert("CURSOR_API_KEY".into(), "team-key-must-not-reach-the-login".into());
     let started = start(&m, &cli, Agent::Cursor).await.expect("started");
     assert_eq!(started.url, "https://cursor.com/loginDeepControl?challenge=stub&uuid=1&mode=login");
@@ -456,5 +459,6 @@ async fn cursor_sign_in_end_to_end_against_a_stub_cli() {
     assert!(!env.contains("CURSOR_API_KEY"), "the login saw a Cursor key");
     assert!(env.lines().any(|l| l == "NO_OPEN_BROWSER=1"), "{env}");
     assert!(env.lines().any(|l| l == "BROWSER=true"), "{env}");
+    assert!(!env.lines().any(|l| l.starts_with("XDG_CONFIG_HOME=")), "{env}");
     let _ = std::fs::remove_dir_all(&root);
 }
