@@ -169,7 +169,8 @@ await requireBrowserLane("agent-pane-since-jump-dismiss.test.ts", async () => {
   const state = (page: Page) =>
     page.evaluate(() => {
       const pill = document.querySelector<HTMLElement>(".acpmux-since-jump")!;
-      const latest = document.querySelector<HTMLElement>(".acpmux-jump-latest");
+      // Jump to latest itself: Jump up shares its glass class and shows at the latest message by design.
+      const latest = document.querySelector<HTMLElement>(".acpmux-jump-latest:not(.acpmux-jump-up)");
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const line = document.querySelector<HTMLElement>(".cv-since");
       const box = scroller.getBoundingClientRect();
