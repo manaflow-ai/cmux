@@ -255,3 +255,51 @@ fn a_clean_stop_copies_a_small_wal_into_the_database() {
     let _ = std::fs::remove_dir_all(&dir);
     assert!(after > 1024 * 1024, "the database file is {after} bytes after the stop");
 }
+
+#[test]
+fn a_commit_under_the_mux_state_lock_never_waits_for_the_restart_checkpoint() {
+    // A thread that holds the mux state lock commits on its own connection
+    // hold (a workspace presentation update). A wait in its WAL hook would
+    // hold every reader of the state behind the syncer's checkpoint.
+    use crate::workspace_registry::registry_connection::note_state_lock;
+    let (dir, connection) = database("state-lock");
+    let path = dir.join("r.sqlite");
+    let wal = dir.join("r.sqlite-wal");
+    let durability = WalDurability::attach(&connection, &path, None, false);
+    // What `StateMutex` records when this thread takes the state lock.
+    note_state_lock(true);
+    let held_commits =
+        commit_storm(&connection, &durability, WAL_SIZE_LIMIT_BYTES + 2 * CHECKPOINT_BYTES);
+    let (held_waits, _) = durability.restart_waits();
+    note_state_lock(false);
+    let held_bytes = std::fs::metadata(&wal).unwrap().len();
+    // The next commits of a thread without the state lock do the try.
+    let mut free_commits = 0u64;
+    let after = loop {
+        free_commits += 1;
+        rewrite_the_row(&connection, &durability, held_commits + free_commits);
+        let len = std::fs::metadata(&wal).map_or(0, |meta| meta.len());
+        if len <= WAL_SIZE_LIMIT_BYTES || free_commits >= 64 {
+            break len;
+        }
+    };
+    let (waits, _) = durability.restart_waits();
+    println!(
+        "wal_state_lock: held_commits={held_commits} held_waits={held_waits} \
+         wal_file_bytes_held={held_bytes} free_commits={free_commits} waits={waits} \
+         wal_file_bytes={after}"
+    );
+    drop(connection);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        held_waits, 0,
+        "{held_waits} of {held_commits} commits waited for a restart checkpoint while their \
+         thread held the mux state lock"
+    );
+    assert!(held_bytes > WAL_SIZE_LIMIT_BYTES, "the storm did not pass the limit: {held_bytes}");
+    assert!(
+        waits >= 1 && after <= WAL_SIZE_LIMIT_BYTES,
+        "after the state lock was released, {free_commits} commits made {waits} tries and \
+         left the WAL at {after} bytes"
+    );
+}
