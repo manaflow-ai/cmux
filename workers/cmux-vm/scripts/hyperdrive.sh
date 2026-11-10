@@ -4,6 +4,14 @@
 #   hyperdrive.sh resolve <name>   prints the config id (only the id) or fails
 #   hyperdrive.sh ensure  <name>   creates <name> from CMUX_VM_DATABASE_URL, or
 #                                  updates its origin; prints name and id only
+#   hyperdrive.sh show    <name>   prints the id, origin port and origin_connection_limit
+#   hyperdrive.sh restart <name>   drains the config's connection pool (its origin connections, all the
+#                                  Worker role's) and starts a new one; the config itself is unchanged
+#
+# HYPERDRIVE_ORIGIN_CONNECTION_LIMIT (optional, for ensure): the most connections Hyperdrive opens to the
+# database (Cloudflare's paid default is 60). Staging sets it below the branch's max_connections, so the
+# Worker's pool can never take the slots the deploy gate, migrations and admins need (2026-11-09: staging
+# full, every deploy refused at the ordering gate with 53300).
 #
 # Needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (and CMUX_VM_DATABASE_URL
 # for ensure). Never prints the token, the database URL or response bodies.
@@ -59,8 +67,11 @@ case "$command" in
       if (!/^postgres(ql)?:$/.test(url.protocol)) { console.error("::error::CMUX_VM_DATABASE_URL must be a postgres URL"); process.exit(1); }
       const database = decodeURIComponent(url.pathname.replace(/^\//, ""));
       if (!url.hostname || !url.username || !url.password || !database) { console.error("::error::CMUX_VM_DATABASE_URL needs host, user, password and database"); process.exit(1); }
+      const limit = process.env.HYPERDRIVE_ORIGIN_CONNECTION_LIMIT || "";
+      if (limit && !/^[0-9]+$/.test(limit)) { console.error("::error::HYPERDRIVE_ORIGIN_CONNECTION_LIMIT must be a whole number"); process.exit(1); }
       const body = {
         name: process.env.CONFIG_NAME,
+        ...(limit ? { origin_connection_limit: Number(limit) } : {}),
         origin: {
           scheme: "postgres",
           host: url.hostname,
@@ -90,10 +101,25 @@ case "$command" in
       action=updated
     fi
     id="$(jq -r '.result.id' "$work/body")"
-    echo "Hyperdrive config $config_name $action: id $id"
+    limit="$(jq -r '.result.origin_connection_limit // "default"' "$work/body")"
+    echo "Hyperdrive config $config_name $action: id $id, origin_connection_limit $limit"
+    ;;
+  show)
+    id="$(find_id)"
+    [ -n "$id" ] || { echo "::error::Hyperdrive config $config_name does not exist" >&2; exit 1; }
+    code="$(call GET "$api/$id")"
+    [ "$code" = 200 ] || fail "reading Hyperdrive config $config_name" "$code"
+    jq -r --arg name "$config_name" '"Hyperdrive config \($name): id \(.result.id), origin port \(.result.origin.port // "?"), origin_connection_limit \(.result.origin_connection_limit // "default (60 on paid plans)"), caching \(if .result.caching.disabled then "off" else "on" end)"' "$work/body"
+    ;;
+  restart)
+    id="$(find_id)"
+    [ -n "$id" ] || { echo "::error::Hyperdrive config $config_name does not exist" >&2; exit 1; }
+    code="$(call POST "$api/$id/restart")"
+    [ "$code" = 200 ] || fail "restarting Hyperdrive config $config_name" "$code"
+    echo "Hyperdrive config $config_name: pool restarted ($(jq -r '.result.restarted_on // "?"' "$work/body"))"
     ;;
   *)
-    echo "usage: hyperdrive.sh resolve|ensure <cmux-vm-preview|cmux-vm-staging|cmux-vm-production>" >&2
+    echo "usage: hyperdrive.sh resolve|ensure|show|restart <cmux-vm-preview|cmux-vm-staging|cmux-vm-production>" >&2
     exit 2
     ;;
 esac

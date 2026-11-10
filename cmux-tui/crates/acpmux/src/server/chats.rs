@@ -65,6 +65,7 @@ mod offers;
 mod search;
 mod stats;
 mod waiting_day;
+mod team_audit;
 mod workspace_purge;
 
 use crate::no_panic::JsonExt;
@@ -197,6 +198,10 @@ pub(super) async fn route(
     // When each chat worked or waited on the person (`hub/ledger/waiting_day.rs`): as the ledger.
     if m == crate::rpc::method::MUX_WAITING_DAY {
         return waiting_day::handle(hub, conn.origin, &params);
+    }
+    // The team's spend, from cmux-platform with this daemon's sign-in: local and the app's pane.
+    if m == crate::rpc::method::MUX_TEAM_AUDIT {
+        return team_audit::handle(conn.origin, &params).await;
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {

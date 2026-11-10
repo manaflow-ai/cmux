@@ -33,3 +33,16 @@ test("a read chat and a New Tab page are first paints; a chat not read yet is no
   expect(pageShowsWhatItIs({ ...waiting, handshaken: true })).toBe(false);
   expect(pageShowsWhatItIs(waiting)).toBe(false);
 });
+
+test("over the last launch's copy only the chat itself, a said failure or a refused open is a first paint", () => {
+  // The client's connect failing quietly after the host's handshake counted as a drawn chat
+  // (`connecting:`), as did the draw hold running out: both drew placeholders over the copy.
+  const copy = { ...waiting, handshaken: true, chatDrawn: true, keepsLastFrame: true };
+  expect(pageShowsWhatItIs(copy)).toBe(false);
+  expect(pageShowsWhatItIs({ ...copy, chatRead: true })).toBe(true);
+  expect(pageShowsWhatItIs({ ...copy, openRefused: true })).toBe(true);
+  // acpmux lists no such chat (deleted, offline, paused): its unavailable state is the chat now.
+  expect(pageShowsWhatItIs({ ...copy, chatUnavailable: true })).toBe(true);
+  expect(pageShowsWhatItIs({ ...copy, hostError: true, hostErrorSaid: true })).toBe(true);
+  expect(pageShowsWhatItIs({ ...copy, handshaken: false, chatRead: true })).toBe(false);
+});

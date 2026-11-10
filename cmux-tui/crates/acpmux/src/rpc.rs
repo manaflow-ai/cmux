@@ -544,6 +544,9 @@ pub mod method {
     /// When each chat worked or waited on the person, over at most the last two days
     /// (`hub/ledger/waiting_day.rs`); the local unix socket and the local app only.
     pub const MUX_WAITING_DAY: &str = "_acpmux/waiting_day";
+    /// The team's agent spend from cmux-platform's `GET /v1/usage/audit`, read with this daemon's
+    /// cmux sign-in (`server/chats/team_audit.rs`); the local unix socket and the local app only.
+    pub const MUX_TEAM_AUDIT: &str = "_acpmux/team_audit";
     /// Stop and delete every chat of one cmux workspace, an incognito one when its window
     /// closes (`server/chats/workspace_purge.rs`); the local unix socket only.
     pub const MUX_WORKSPACE_PURGE: &str = "_acpmux/workspace_purge";
