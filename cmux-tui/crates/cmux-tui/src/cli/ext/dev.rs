@@ -329,9 +329,9 @@ fn run_bounded(
         let left = Duration::from_secs(2).saturating_sub(started.elapsed());
         let Ok((is_stdout, bytes)) = receiver.recv_timeout(left) else { break };
         if is_stdout {
-            stdout = bytes
+            stdout = bytes;
         } else {
-            stderr = bytes
+            stderr = bytes;
         }
         pending = pending.saturating_sub(1);
     }
@@ -1298,10 +1298,10 @@ pub(super) fn run_watch(
                         Some(Wake::Files) => quiet_at = Instant::now() + DEBOUNCE,
                         Some(Wake::Interrupt) => stop = Some(("stopped", exit::OK)),
                         Some(Wake::DaemonGone) => {
-                            stop = Some(("the cmux daemon went away", exit::NO_DAEMON))
+                            stop = Some(("the cmux daemon went away", exit::NO_DAEMON));
                         }
                         Some(Wake::Installed(installed)) => {
-                            super::daemon::print_installed(installed)
+                            super::daemon::print_installed(installed);
                         }
                         Some(Wake::Daemon(_)) => {}
                     }
