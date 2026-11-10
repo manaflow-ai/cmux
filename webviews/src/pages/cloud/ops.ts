@@ -31,6 +31,12 @@ export const CloudOps = {
   machineResize: "cmux.cloud.machine.resize",
   machineDelete: "cmux.cloud.machine.delete",
   machineIdlePolicySet: "cmux.cloud.machine.idle_policy.set",
+  /** Pin a machine so nothing deletes it automatically (`keep: false` unpins it). */
+  machineKeep: "cmux.cloud.machine.keep",
+  /** Archive a paused machine's disk (a snapshot with `archive_of`), then delete the machine. */
+  machineArchiveDelete: "cmux.cloud.machine.archive_delete",
+  /** The team's cleanup numbers (a team admin) and the caller's email heads-up. */
+  retentionSet: "cmux.cloud.retention.set",
   machineUpgrade: "cmux.cloud.machine.upgrade",
   machineConnect: "cmux.cloud.machine.connect",
   snapshotList: "cmux.cloud.snapshot.list",
@@ -117,12 +123,28 @@ export const PAGE_COMMAND = "cmux.page.command";
  * prove a gesture. The host answers the op's result fields at the top level, or `{confirmed: false}`
  * for a declined sheet.
  */
+/**
+ * The native actions the host runs behind its own confirmation sheet (PageDescriptor.cloud `confirmedOps`,
+ * PageProviders `runConfirmed`): their answer is `{confirmed: false}` or `{confirmed: true, value}`, the op's
+ * own answer under `value` ([`confirmedValue`](./store.ts)).
+ */
+export const CONFIRMED_ACTIONS = new Set<string>([
+  CloudOps.machineDelete,
+  CloudOps.machineArchiveDelete,
+  CloudOps.machineConnect,
+  CloudOps.snapshotRestore,
+  CloudOps.snapshotDelete,
+  AccountOps.signIn,
+  AccountOps.signOut,
+]);
+
 export const NATIVE_ACTIONS = new Set<string>([
   AccountOps.signIn,
   AccountOps.signOut,
   CloudOps.machineCreate,
   CloudOps.machineResize,
   CloudOps.machineDelete,
+  CloudOps.machineArchiveDelete,
   CloudOps.machineUpgrade,
   CloudOps.machineConnect,
   CloudOps.snapshotCreate,
@@ -342,6 +364,15 @@ export interface SnapshotResult {
 
 /** `CloudPlan`: limits and usage in one record (`cloud.usage.get` folded in). No plan logic here. */
 export type CloudPlan = Wire.CloudPlan;
+
+/** `CloudPlan.retention`: the cleanup in force, the team's own numbers and the caller's email choice. */
+export type CloudRetention = Wire.CloudRetention;
+
+/** The team's own cleanup numbers (`cloud.retention.set {settings}`), each optional. */
+export type RetentionOverrides = Wire.CloudRetentionOverrides;
+
+/** Why the platform deletes a machine at `evict_at`. */
+export type DeleteReason = Wire.CloudDeleteReason;
 
 /** `cloud.billing.checkout {plan}`: the host opens the https URL in the browser. */
 export type CheckoutResult = Result<"cloud.billing.checkout">;

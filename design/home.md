@@ -69,8 +69,19 @@ in the same PR. A seam never switches a working Swift path off before its React 
 
 The Messages view is React: the docked Home, classic Home's top page and a Home pane tab all host
 `home-messages` (`HomeMessagesPage`, one page kept and reused per host). The AppKit list, sheets and
-New Message are deleted. The native transcript (`HomeHostView`) still draws conversation tabs and the
-Chief panel until those move too.
+New Message are deleted. Conversation tabs and the Chief panel host the same page for one
+conversation (`HomeConversationPage`, `#/conversation/<id>`: no list column, no compose button), and
+the native transcript (`HomeHostView`, `NativeTranscript/`) is deleted.
+
+- **Chief.** The name pill of a Chief chat sends its box (`chief.settings {conversation, anchor}`), and
+  the app's Chief settings popover opens under it (`HomeChiefSurface`, the same popover and rows). While
+  the Chief answers, the composer's emoji button is Stop (`chief.stop {all}`; Option-click stops all its
+  agents), as the native compose bar's was.
+- **First run.** The app streams the empty Chief chat's facts (`firstRun`: intro, memory offer,
+  shortcuts, agents, switch keys, starter facts) and runs its rows (`HomeMessagesFirstRunProvider`); the
+  welcome still plays in the chat itself.
+- **Links.** On a one-conversation page every link, a conversation link too, is the app's to open, so
+  the tab never turns into another conversation.
 
 Picked list: `messages` (a neutral selection slab and hairlines between rows), over `accent` and `quiet`.
 Picked transcript: `imessage` (blue mine, grey theirs, tails on each group's last bubble), over `theme` and `outline`.

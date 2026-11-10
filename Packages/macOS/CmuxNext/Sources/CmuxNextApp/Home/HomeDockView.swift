@@ -36,6 +36,7 @@ final class HomeDockView: HomeDockSwitchView, PageWebViewContainer {
         case .messages:
             guard let view = HomeMessagesPage.make(services: services, dock: self) else { return nil }
             messages = view
+            view.host.seeThrough.onHeaderHeight = { [weak self] in self.map { HomeMessagesSeeThrough.relayout(from: $0) { $0 is ChiefPanelView } } }
             return view
         case .channels:
             guard let page = PageFactory(services: services).homeChannelsWebPage(dock: self) else { return nil }
@@ -90,5 +91,10 @@ final class HomeDockView: HomeDockSwitchView, PageWebViewContainer {
         messages?.close()
     }
 }
-/// The Messages page's shown conversation has a running Chief reply (the store's live run).
-extension HomeDockView: ChiefPanelContent { var chiefIsAnswering: Bool { mode == .messages && messages?.shown.flatMap { services?.home.homeStore.liveRun(in: $0) } != nil } }
+/// The Messages page's shown conversation has a running Chief reply (the store's live run); the see-through Chief
+/// clears the Messages page and takes its header height (``HomeMessagesSeeThrough``), as base's HomeDockView did.
+extension HomeDockView: ChiefPanelContent {
+    var chiefIsAnswering: Bool { mode == .messages && messages?.shown.flatMap { services?.home.homeStore.liveRun(in: $0) } != nil }
+    var chiefShowsThrough: Bool { get { messages?.host.seeThrough.showsThrough == true } set { messages?.host.seeThrough.showsThrough = newValue } }
+    var chiefHeaderHeight: CGFloat { messages.map { $0.host.seeThrough.headerHeight(zoom: $0.page.pageZoom) } ?? 0 }
+}
