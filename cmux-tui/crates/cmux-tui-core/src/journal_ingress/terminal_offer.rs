@@ -14,7 +14,9 @@
 //! the marker's own reason for a marker. The owed marker enters the lane
 //! ahead of the terminal's next record once the lane has room (after a full
 //! lane: once it has drained to half), ahead of a coalesced checkpoint
-//! (mux/journal_retention.rs) and ahead of the last barrier of a shutdown.
+//! (mux/journal_retention.rs) and ahead of the last barrier of a shutdown
+//! (mux/lifecycle.rs: when the lane is still full there, again after the
+//! barrier that empties it).
 //! Records refused while a marker is owed are covered by that one marker.
 
 use std::collections::BTreeMap;
@@ -89,7 +91,7 @@ impl JournalIngressSender {
             other => {
                 debug_assert!(
                     matches!(other, JournalIngressEvent::TerminalResize { .. }),
-                    "only geometry changes and gap markers are offered"
+                    "not reached: only geometry changes and gap markers are offered"
                 );
                 return TerminalOffer::Queued;
             }

@@ -188,18 +188,14 @@ impl Mux {
 
     /// A refused record, and the marker that later stands for it, move the
     /// terminal's replay boundary: the next coalesced checkpoint covers it
-    /// (and first offers the marker again, mux/journal_retention.rs).
+    /// (and first offers the marker again, mux/journal_retention.rs). No log
+    /// line here: the callers hold terminal locks and stderr can block; the
+    /// marker in the journal is the record of the refusal.
     fn note_terminal_offer(
         self: &Arc<Self>,
         terminal_id: &TerminalPublicId,
         offer: crate::journal_ingress::TerminalOffer,
     ) {
-        if offer == crate::journal_ingress::TerminalOffer::Owed {
-            eprintln!(
-                "cmux-tui: the session journal terminal lane is full: a record of terminal \
-                 {terminal_id} is not journaled, a journal_queue_full gap marker stands for it"
-            );
-        }
         if offer.needs_checkpoint() {
             self.note_terminal_host_reconnect(terminal_id.clone());
         }

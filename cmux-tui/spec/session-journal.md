@@ -360,8 +360,9 @@ that terminal generation one `terminal.output.gap` marker: reason
 marker. The owed marker enters the lane ahead of the terminal's next record
 when the lane has drained to half (a marker with its own reason: when it has
 room), ahead of the next coalesced checkpoint, or ahead of the last terminal
-barrier of a shutdown; records refused in between are covered by that one
-marker. The geometry of a terminal that owes a marker is the snapshot's, not
+barrier of a shutdown (when the lane is still full there: after the barrier
+that empties it, ahead of one more barrier); records refused in between are
+covered by that one marker. The geometry of a terminal that owes a marker is the snapshot's, not
 the journal's.
 Registries written before this change keep their output records; the readers
 below still understand them. A subscription with `kinds: ["terminal.output"]` or the
