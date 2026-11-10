@@ -452,6 +452,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             self?.notePainted()
         }
         PageTitleRowPress.install(in: webView.configuration.userContentController) { [weak self] in self?.titleRowPressed($0) }
+        // A VoiceOver press sends the view no event; its trusted click in the page counts instead (manaflow-ai/cmux#37809).
+        PageAccessibilityPress.install(on: webView) { [weak self] in self?.webView.noteAccessibilityPress() }
         bridge.install { [weak self] message in
             await self?.receive(message)
         }

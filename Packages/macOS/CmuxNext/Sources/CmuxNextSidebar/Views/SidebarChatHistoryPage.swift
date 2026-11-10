@@ -118,8 +118,9 @@ struct SidebarChatHistoryBlock: Equatable {
 /// - stream `block`: the block to draw, a new `revision` on every change; a (re)subscribing page gets the latest.
 /// - `open {revision, chat}`, `fold {revision}`, `more {revision}`, `menu {revision, chat, point}`: the person's click
 ///   on a row, Earlier's header, Show More, or a row's right click. Each needs the person's own click in the page view
-///   (``PageCallContext/userGesture``) and spends it: page script alone acts on nothing. `chat` must be a row the host
-///   sent, so a page can open or pin only the chats it was shown.
+///   (``PageCallContext/userGesture``) and spends it: page script alone acts on nothing. A VoiceOver press counts as
+///   that click while VoiceOver runs (`PageAccessibilityPress`), as the native rows' `accessibilityPerformPress()` did.
+///   `chat` must be a row the host sent, so a page can open or pin only the chats it was shown.
 /// - `ready {revision, height}`: the page drew `revision` at `height` CSS px (the host shows the page then).
 @MainActor
 final class SidebarChatHistoryProvider: PageProvider {

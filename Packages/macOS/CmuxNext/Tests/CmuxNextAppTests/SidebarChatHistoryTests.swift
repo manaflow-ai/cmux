@@ -4,12 +4,13 @@ import CmuxNextActions
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextAgentPane
 @testable import CmuxNextDesign
-import CmuxNextPages
+@testable import CmuxNextPages
 import CmuxNextSettings
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
 import Foundation
 import Testing
+import WebKit
 
 /// hq#2569 #6: with `sidebar.sessionTree` on, chats stay in the sidebar after their workspace
 /// closes: a Pinned block above the workspaces and a calm Earlier block under them, one page at a
@@ -246,6 +247,77 @@ import Testing
             _ = try await pinned.provider.call(SidebarChatHistoryProvider.prefix + "fold", params: .object([:]), context: Self.click(3))
         }
         #expect(!history.earlierFolded)
+    }
+
+    /// cmux#40314 F1 (manaflow-ai/cmux#37809): with VoiceOver running, a VoiceOver press (AXPress) on a row, Earlier's
+    /// fold or Show More acts with no mouse event before it, as the deleted native rows' `accessibilityPerformPress()`
+    /// did. WebKit makes the press a trusted click, whose post in ``PageAccessibilityPress``'s world backs the call;
+    /// a click page script makes is untrusted, posts nothing and is refused.
+    @Test func voiceOverPressesOpenFoldAndShowMoreWithNoMouseEventAndScriptClicksDoNot() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("sidebar-chats-ax-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Chats</title><button id=b>Open</button>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let history = SidebarChatHistory(defaults: try Self.defaults())
+        var opened: [String] = []
+        history.onOpen = { opened.append($0) }
+        let host = SidebarChatHistoryHost(part: .earlier) { provider in
+            PageWebView(descriptor: .sidebarChats, root: root, testRoot: true,
+                        routes: [PageRoute(prefix: SidebarChatHistoryProvider.prefix, provider: provider)], chromium: nil)
+        }
+        host.history = history
+        host.show(Self.make(Self.chats(5), limit: 3), metrics: .standard, width: 240)
+        let page = try #require(host.page)
+        defer { page.close() }
+        page.webView.isVoiceOverRunning = { true }
+        await page.waitUntilLoaded()
+        #expect(page.webView.lastUserEventUptime == nil, "no key or mouse event reached the page view")
+
+        var id = 0.0
+        func call(_ name: String, _ params: [String: CmuxNextSettings.JSONValue] = [:]) async -> CmuxNextSettings.JSONValue {
+            id += 1
+            var all = params
+            all["revision"] = .number(1)
+            return await page.router.handle(["t": "call", "id": .number(id), "op": .string(SidebarChatHistoryProvider.prefix + name),
+                                             "params": .object(all)])
+        }
+        /// The press world's post, as its listener makes it for WebKit's trusted AXPress click.
+        func press() async throws {
+            _ = try await page.webView.callAsyncJavaScript(
+                "window.webkit.messageHandlers.\(PageAccessibilityPress.handlerName).postMessage(1); return true;",
+                arguments: [:], in: nil, contentWorld: PageAccessibilityPress.world)
+        }
+        /// Page script's own click (untrusted), then a round trip in the press world so any post it made has arrived.
+        func scriptClick() async throws {
+            _ = try await page.webView.callAsyncJavaScript("document.getElementById('b').click(); return true;",
+                                                          arguments: [:], in: nil, contentWorld: .page)
+            _ = try await page.webView.callAsyncJavaScript("return true;", arguments: [:], in: nil, contentWorld: PageAccessibilityPress.world)
+        }
+
+        try await scriptClick()
+        #expect(await call("open", ["chat": .string("c0")])["t"] == "err", "a script click opens nothing")
+
+        try await press()
+        #expect(await call("open", ["chat": .string("c0")])["t"] == "ok")
+        #expect(opened == ["c0"])
+        #expect(await call("open", ["chat": .string("c1")])["t"] == "err", "one press, one action")
+
+        // Uptimes of two presses in a row may tie at the clock's grain; each press is its own moment.
+        try await Task.sleep(for: .milliseconds(5))
+        try await press()
+        #expect(await call("more")["t"] == "ok")
+        #expect(history.limit == 2 * SidebarChatHistory.pageSize)
+
+        try await Task.sleep(for: .milliseconds(5))
+        try await press()
+        #expect(await call("fold")["t"] == "ok")
+        #expect(history.earlierFolded)
+
+        try await Task.sleep(for: .milliseconds(5))
+        try await scriptClick()
+        #expect(await call("fold")["t"] == "err", "a script click folds nothing")
+        #expect(history.earlierFolded)
+        #expect(opened == ["c0"])
     }
 
     @Test func aBlockIsSentOnlyWhenItChangesAndTheReadyReportShowsThePage() async throws {
