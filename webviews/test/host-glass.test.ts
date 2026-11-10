@@ -495,7 +495,8 @@ test("a surface that opens again during its fade before the App answered still f
   // The first deadline passes while it closes, then it opens again.
   await pastDeadline();
   menu.removeAttribute("data-ending-style");
-  await frames();
+  // Reported again at once (its content was on screen): two frames are inside its new deadline.
+  await frames(2);
   expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
   await pastDeadline();
   expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
@@ -512,7 +513,8 @@ test("a surface the App had answered for, opened again during its fade, still fa
   menu.setAttribute("data-ending-style", "");
   await Promise.resolve();
   menu.removeAttribute("data-ending-style");
-  await frames();
+  // Reported again at once (its content was on screen): two frames are inside its new deadline.
+  await frames(2);
   expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
   await pastDeadline();
   expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
