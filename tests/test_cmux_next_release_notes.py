@@ -2,6 +2,7 @@
 """scripts/cmux-next/release-notes.py: highlights attach to the first build that adds them,
 commit subjects fill the history, the index keeps the newest builds, and signatures verify."""
 import base64, json, os, subprocess, sys, tempfile, unittest
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "cmux-next", "release-notes.py")
 VALIDATOR = os.path.join(os.path.dirname(SCRIPT), "..", "whats-new", "validate.py")

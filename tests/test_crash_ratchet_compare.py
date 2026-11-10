@@ -13,6 +13,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 COMPARE = os.path.join(HERE, "..", "scripts", "ci", "crash_ratchet_compare.py")

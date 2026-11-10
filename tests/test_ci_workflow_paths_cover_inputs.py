@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import workflow_paths_cover_inputs as detector  # noqa: E402
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 # (workflow, event) -> why its filter deliberately leaves out inputs of the tests it runs. Each needs a reason; an
 # entry with no gap left behind it fails.

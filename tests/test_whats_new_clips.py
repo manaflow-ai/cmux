@@ -5,6 +5,7 @@ and the fleet capture are not run here."""
 import importlib.util, io, json, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/cmux-next/media/whats-new-clips.py"
 spec = importlib.util.spec_from_file_location("whats_new_clips", SCRIPT)

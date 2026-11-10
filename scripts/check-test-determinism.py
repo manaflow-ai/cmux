@@ -38,6 +38,14 @@ Detectors (all line/regex heuristics, never an AST):
   when the runner is busy and turns a slow pass into a failure. Loops that
   already check a deadline, drain yields with no condition, or exit only on
   cancellation are allowed.
+- git-temp-repo-maintenance: a test that makes git repositories in a
+  temporary directory without turning off git's auto maintenance. Since git
+  2.47, commit, fetch and clone start `git maintenance run --auto --detach`,
+  which can still be writing into `.git` when the test removes the directory
+  ("OSError: [Errno 39] Directory not empty: '.git'"). A Python test imports
+  tests/git_fixture_env.py; a shell test sources
+  scripts/cmux-next/tests/lib/git-fixture.sh (or sets maintenance.auto=false).
+  This one is file-level and also scans GIT_FIXTURE_ONLY_ROOTS.
 
 Usage:
     check-test-determinism.py                 # scan, print findings, exit 0
@@ -71,6 +79,9 @@ DEFAULT_ROOTS: tuple[str, ...] = (
     "webviews/test",
 )
 
+# Scanned only for git-temp-repo-maintenance: the other rules were never applied there.
+GIT_FIXTURE_ONLY_ROOTS: tuple[str, ...] = ("scripts/cmux-next/tests",)
+
 DEFAULT_ALLOWLIST = ".github/test-determinism-allowlist.txt"
 
 # Only files that look like test code are scanned. Packages/ is broad, so we
@@ -93,6 +104,7 @@ RULE_LIVE_NETWORK_HOST = "live-network-host"
 RULE_FIXED_PORT_BIND = "fixed-port-bind"
 RULE_SLEEP_THEN_ASSERT = "sleep-then-assert"
 RULE_YIELD_COUNT_POLL = "yield-count-poll"
+RULE_GIT_TEMP_REPO_MAINTENANCE = "git-temp-repo-maintenance"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
@@ -100,6 +112,7 @@ ALL_RULES = (
     RULE_FIXED_PORT_BIND,
     RULE_SLEEP_THEN_ASSERT,
     RULE_YIELD_COUNT_POLL,
+    RULE_GIT_TEMP_REPO_MAINTENANCE,
 )
 
 # ---------------------------------------------------------------------------
@@ -3766,6 +3779,40 @@ def detect_yield_count_poll(lines: list[str], idx: int, path_suffix: str) -> boo
     return bool(_POLL_EXIT.search(exits))
 
 
+_GIT_WRITE_VERBS = r"(?:init|commit|clone|fetch|pull|push|am|merge|rebase|cherry-pick|stash)"
+# Python: git in an argv list plus a writing subcommand token, or a `git <verb>` shell string.
+_PY_GIT_ARGV = re.compile(r"""[\[(,]\s*['"]git['"]\s*[,\]]""")
+_PY_GIT_WRITE_TOKEN = re.compile(r"""['"]""" + _GIT_WRITE_VERBS + r"""['"]""")
+_PY_GIT_WRITE_STRING = re.compile(r"""['"]git (?:-C \S+ )?(?:-c \S+ )*""" + _GIT_WRITE_VERBS + r"\b")
+_PY_TEMP_DIR = re.compile(r"\b(?:TemporaryDirectory|mkdtemp|tmp_path)\b")
+_SH_GIT_WRITE = re.compile(r"(?:^|[\s;&|(`])(?:git|git_q)\s+(?:-C\s+\S+\s+)?(?:-c\s+\S+\s+)*" + _GIT_WRITE_VERBS + r"\b")
+_SH_TEMP_DIR = re.compile(r"\bmktemp\b")
+_GIT_MAINTENANCE_OPT_OUT = re.compile(r"git_fixture_env|git-fixture\.sh|maintenance\.auto")
+
+
+def detect_git_temp_repo_maintenance(code_lines: list[str], text: str, path_suffix: str) -> Optional[int]:
+    """0-based line of the first git write in a temp-dir test with no auto-maintenance opt-out, else None."""
+    if _GIT_MAINTENANCE_OPT_OUT.search(text):
+        return None
+    code = "\n".join(code_lines)
+    if path_suffix == ".py":
+        if not _PY_TEMP_DIR.search(code):
+            return None
+        if not (_PY_GIT_WRITE_STRING.search(code) or (_PY_GIT_ARGV.search(code) and _PY_GIT_WRITE_TOKEN.search(code))):
+            return None
+        for index, line in enumerate(code_lines):
+            if _PY_GIT_ARGV.search(line) or _PY_GIT_WRITE_STRING.search(line):
+                return index
+        return 0
+    if path_suffix == ".sh":
+        if not _SH_TEMP_DIR.search(code):
+            return None
+        for index, line in enumerate(code_lines):
+            if _SH_GIT_WRITE.search(line):
+                return index
+    return None
+
+
 # ---------------------------------------------------------------------------
 # File scanning
 # ---------------------------------------------------------------------------
@@ -3912,6 +3959,12 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         if detect_yield_count_poll(code_lines, i, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_YIELD_COUNT_POLL, snippet))
 
+    git_line = detect_git_temp_repo_maintenance(code_lines, text, suffix)
+    if git_line is not None:
+        findings.append(
+            Finding(rel_posix, git_line + 1, RULE_GIT_TEMP_REPO_MAINTENANCE, raw_lines[git_line].strip())
+        )
+    findings.sort(key=lambda f: (f.line, f.rule))
     return findings
 
 
@@ -4002,6 +4055,23 @@ def filter_allowlisted(
 def _self_test() -> int:
     # (filename, source, expected rules present, rules that must NOT be present)
     positives: list[tuple[str, str, set[str]]] = [
+        # A temp git repo with git's detached auto maintenance still on (the Errno 39 '.git' race).
+        (
+            "tests/git_temp_repo.py",
+            "import tempfile\nd = tempfile.TemporaryDirectory()\n"
+            "subprocess.run(['git', '-C', d.name, 'init', '-q'])\nsubprocess.run(['git', '-C', d.name, 'commit', '-qm', 'x'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "tests/git_temp_repo_shell_string.py",
+            "import tempfile\nd = tempfile.mkdtemp()\nsubprocess.run(f'git -C {d} init -q', shell=True)\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/cmux-next/tests/repo.test.sh",
+            'd=$(mktemp -d)\ngit -C "$d" -c user.name=t commit -qm x\n',
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
         # A measured duration read with a string key is still code's data, not an assertion message.
         (
             "tests/string_key_duration.py",
@@ -5041,6 +5111,22 @@ def _self_test() -> int:
     ]
 
     negatives: list[tuple[str, str]] = [
+        # A temp git repo whose test imports the auto-maintenance opt-out.
+        (
+            "tests/git_fixture_ok.py",
+            "import tempfile\nimport git_fixture_env  # noqa: F401\n"
+            "d = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n",
+        ),
+        # Only reads git (no repository is written) beside an unrelated temp dir.
+        (
+            "tests/git_read_only.py",
+            "import tempfile\nout = tempfile.mkdtemp()\nsubprocess.run(['git', 'rev-parse', 'HEAD'])\n",
+        ),
+        # A shell test that sources the shared fixture.
+        (
+            "scripts/cmux-next/tests/ok.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\ngit -C "$d" init -q\n',
+        ),
         # Deterministic scenario-pacing sleep with NO following assertion.
         (
             "tests/n1.py",
@@ -5788,6 +5874,12 @@ def main(argv: list[str]) -> int:
     roots = _resolve_roots(repo_root, args.roots)
 
     findings = collect_findings(repo_root, roots)
+    if args.roots is None:
+        findings += [
+            finding
+            for finding in collect_findings(repo_root, GIT_FIXTURE_ONLY_ROOTS)
+            if finding.rule == RULE_GIT_TEMP_REPO_MAINTENANCE
+        ]
 
     if args.write_allowlist:
         write_allowlist(allowlist_path, findings)

@@ -7,6 +7,7 @@
 # rebuild at the base and the products are HEAD's again afterwards. Each case is a merge commit
 # (HEAD^1 = the base tip), as a pull request's checkout is.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../judge-action-exports.sh"
 tmp="$(mktemp -d)"

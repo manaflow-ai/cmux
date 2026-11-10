@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))

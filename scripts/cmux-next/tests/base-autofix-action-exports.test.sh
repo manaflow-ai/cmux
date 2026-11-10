@@ -7,6 +7,7 @@
 # after 02:14Z on 2026-10-21 (runs 39607727081 and 39609533631; ActionSurfaceParityTests.reportIsFresh
 # red). Then three regenerations in a row raced the merges and none landed (run 39633520123).
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 push_script="$here/../base-autofix-push.sh"
 land_script="$here/../base-autofix-land.sh"

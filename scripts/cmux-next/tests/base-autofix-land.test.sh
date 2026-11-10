@@ -6,6 +6,7 @@
 # graph (any Packages/ change moves its inputs) was held on every run from 08:58 to 10:00 on
 # 2026-10-21, and the Mac settings exports never landed beside it.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-land.sh"
 tmp="$(mktemp -d)"

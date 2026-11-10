@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/cmux-next/fresh-merge.py"
 

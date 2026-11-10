@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "check-backend-migration-flow.py"
 

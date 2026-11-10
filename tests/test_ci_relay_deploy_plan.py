@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import relay_deploy_plan  # noqa: E402
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 WRANGLER = "cmux-tui/relays/cloudflare-do/wrangler.toml"
 V1 = '[[migrations]]\ntag = "v1"\nnew_sqlite_classes = ["RelaySlot"]\n'

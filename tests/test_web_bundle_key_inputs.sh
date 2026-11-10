@@ -10,6 +10,7 @@
 # Runs the key script of this checkout against a scratch repository made from
 # HEAD's files (git archive), so it never touches this checkout's git config.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 # Every relative import outside webviews/ must resolve to a file the key hashes.
 export WEB_BUNDLE_KEY_STRICT=1
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

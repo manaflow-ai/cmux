@@ -22,6 +22,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 from nightly_workflow_text import nightly_text  # noqa: E402
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 spec = importlib.util.spec_from_file_location("pr_media_privacy", ROOT / "scripts/ci/pr_media_privacy.py")
 assert spec and spec.loader
 privacy = importlib.util.module_from_spec(spec)

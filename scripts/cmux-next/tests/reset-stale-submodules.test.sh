@@ -10,6 +10,7 @@
 # No network: the CDN base is unreachable, so a fetch that gets past the dirty
 # check stops at "is not published".
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 RESET="$ROOT/scripts/ci/reset-stale-submodules.sh"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT

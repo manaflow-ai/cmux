@@ -8,6 +8,7 @@ import importlib.util
 import threading
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "cmux-next", "release-notes.py")
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64

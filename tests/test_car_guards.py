@@ -27,6 +27,7 @@ GUARDS = ROOT / "scripts/ci/car_guards.py"
 WORKFLOW = ROOT / ".github/workflows/cmux-next-car-guards.yml"
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import car_guards  # noqa: E402
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 
 def write(root: Path, files: dict[str, str]) -> None:

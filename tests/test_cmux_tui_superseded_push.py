@@ -24,6 +24,7 @@ import tempfile
 import threading
 
 import yaml
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")

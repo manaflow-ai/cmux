@@ -3,6 +3,7 @@
 media, captioned by its clip spec, ahead of the pull request's picture; a clip added to a recent
 highlight rides along with the next build so an update shows the item again with its clip."""
 import json, os, subprocess, sys, tempfile, unittest
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "cmux-next", "release-notes.py")
 SHA = "a" * 64

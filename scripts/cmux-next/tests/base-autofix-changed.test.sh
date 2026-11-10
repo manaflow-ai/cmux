@@ -6,6 +6,7 @@
 # as "not a commit between" (run 39617667536, 2026-10-21; #22740's settings export was lost). Found by
 # app-store-features-22.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-changed.sh"
 tmp="$(mktemp -d)"

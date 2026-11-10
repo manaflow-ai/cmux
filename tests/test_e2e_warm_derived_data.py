@@ -9,6 +9,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 import e2e_warm_derived_data as warm
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 BUILD_TIME_NS = 1_700_000_000_000_000_000
 

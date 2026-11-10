@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 ROOT = Path(__file__).resolve().parents[1]
 DRIVER = ROOT / "scripts" / "merge-pbxproj.py"

@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 
 import owned_spm_scratch as scratch  # noqa: E402
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 WORKFLOW = ROOT / ".github/workflows/ci-macos.yml"
 NEXT_WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"

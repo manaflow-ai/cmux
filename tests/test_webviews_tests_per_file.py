@@ -19,6 +19,7 @@ import sys
 import tempfile
 import time
 import unittest
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "scripts" / "ci" / "run-webviews-tests.sh"

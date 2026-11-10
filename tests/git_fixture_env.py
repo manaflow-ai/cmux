@@ -15,6 +15,12 @@ objects/maintenance.lock left "Directory not empty: 'objects'" behind in
 test_cmux_next_prepush_gate.py on 2026-11-03. A fixture that pushes into a
 bare repository puts CONFIG_FILE_OPT_OUT into the config file its
 GIT_CONFIG_GLOBAL names, which receive-pack does read.
+
+Every test that makes git repositories in a temporary directory uses this
+module (shell tests source scripts/cmux-next/tests/lib/git-fixture.sh).
+scripts/check-test-determinism.py's git-temp-repo-maintenance rule fails one
+that does not; on 2026-11-10 test_nightly_build_state.py lacked it and its
+cleanup failed with "Directory not empty: '.git'".
 """
 
 from __future__ import annotations

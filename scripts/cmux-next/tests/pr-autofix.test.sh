@@ -8,6 +8,7 @@
 # the same export and the operation catalogs) are an autofix repair too, and so
 # are the settings exports a CmuxNextSettings change needs. No network.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 AREAS="$ROOT_DIR/scripts/cmux-next/autofix-areas.sh"
 APPLY="$ROOT_DIR/scripts/cmux-next/pr-autofix-apply.sh"

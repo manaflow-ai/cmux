@@ -16,6 +16,7 @@ import urllib.error
 import urllib.parse
 import unittest.mock
 from pathlib import Path
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("base_red_excuse", ROOT / "scripts/ci/base_red_excuse.py")

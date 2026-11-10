@@ -5,6 +5,7 @@
 # landed (#22740's export, 2026-10-21). When a newer commit changed the settings sources, that is the next
 # run's work: a warning. The source stamp is derived from each tree, never committed.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-settings-landed.sh"
 tmp="$(mktemp -d)"

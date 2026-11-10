@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("ios_internal_notes", ROOT / "scripts/ci/ios_internal_notes.py")

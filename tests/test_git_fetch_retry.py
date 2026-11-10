@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import git_fetch_retry as retry  # noqa: E402
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 WARM_STEP = "Checkout build ref (warm nightly-next builder)"

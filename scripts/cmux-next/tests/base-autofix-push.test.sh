@@ -6,6 +6,7 @@
 # move failed, and with a push every minute or two no repair landed for hours
 # (the settings exports stayed stale from 05:27 on 2026-10-19).
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-push.sh"
 tmp="$(mktemp -d)"

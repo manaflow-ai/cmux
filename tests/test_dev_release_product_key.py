@@ -21,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import job_input_fingerprint as fingerprint  # noqa: E402
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 TOOLCHAIN = {"xcode": "Xcode 26.0 Build version 17A324", "sdk": "26.0 25A350", "arch": "arm64",
              "recipe": "dev-release-product-v1", "tui_tree": "own"}

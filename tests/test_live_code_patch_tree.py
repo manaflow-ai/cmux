@@ -10,6 +10,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))
 spec = importlib.util.spec_from_file_location("patch", os.path.join(ROOT, "scripts", "live-code", "patch.py"))

@@ -17,6 +17,7 @@ SCRIPT = ROOT / "scripts/ci/submodule_forward_only.py"
 import sys
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import submodule_forward_only  # noqa: E402
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 
 def git(*args: str, cwd: Path) -> str:

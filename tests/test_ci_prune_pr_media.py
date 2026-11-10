@@ -14,6 +14,7 @@ import unittest
 from unittest import mock
 
 import yaml
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("prune_pr_media", ROOT / "scripts/ci/prune_pr_media.py")

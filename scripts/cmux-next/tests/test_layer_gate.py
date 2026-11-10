@@ -16,6 +16,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+_git_fixture_env.loader.exec_module(importlib.util.module_from_spec(_git_fixture_env))
+
 HERE = Path(__file__).resolve().parent
 # The review fields every arch-ratchet.json exception needs (reward-hacking audit 2026-10-30): an author, an
 # owner, an independent receipt and an expiry.

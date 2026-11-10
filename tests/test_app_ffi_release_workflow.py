@@ -43,6 +43,7 @@ WORKFLOW = ROOT / ".github/workflows/app-ffi-release.yml"
 REPIN_WORKFLOW = ROOT / ".github/workflows/app-ffi-repin.yml"
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate  # noqa: E402
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 SHA = "45845b2d13d794c435d31f72ea74dc0f4a5739d0"
 TAG = f"cmux-app-ffi-{SHA}"

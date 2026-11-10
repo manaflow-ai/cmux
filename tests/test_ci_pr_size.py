@@ -32,6 +32,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 from test_ci_quota_hold_gate import DRAFT, DRAFT_SKIPPED, GATE, HOLD_GATED  # noqa: E402
 from test_ci_required_checks_are_bounded import context_of, load  # noqa: E402
 from test_ci_required_checks_have_no_path_filters import REQUIRED_CHECKS  # noqa: E402
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 SCRIPT = ROOT / "scripts/ci/pr_size.py"
 WORKFLOW = ROOT / ".github/workflows/pr-checks.yml"

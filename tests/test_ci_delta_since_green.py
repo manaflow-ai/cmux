@@ -19,6 +19,7 @@ import unittest
 from pathlib import Path
 
 import yaml
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "delta_since_green.py"

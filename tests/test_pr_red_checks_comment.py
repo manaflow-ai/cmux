@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "pr_red_checks_comment.py"
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import pr_status  # noqa: E402
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 LEGACY = "<!-- cmux-red-checks -->"
 BOT = {"login": "github-actions[bot]"}

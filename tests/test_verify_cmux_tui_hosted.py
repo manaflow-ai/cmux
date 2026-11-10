@@ -35,6 +35,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "verify-cmux-tui-hosted.sh"

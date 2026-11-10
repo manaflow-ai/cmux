@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import dev_landing_place as place  # noqa: E402
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 SIDE = "glaeda-side-std-xcode-26.6"
 ROOT_LABEL = "glaeda-root-std-xcode-26.6"

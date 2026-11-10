@@ -30,6 +30,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import nightly_publish_guard as guard  # noqa: E402
 from nightly_workflow_text import nightly_text  # noqa: E402
+import git_fixture_env  # noqa: E402,F401  (turns off git's background maintenance in temp repos)
 
 GUARD = ROOT / "scripts/ci/nightly_publish_guard.py"
 LIST = ROOT / ".github/nightly-known-bad.json"
