@@ -37,11 +37,13 @@ pub(super) const DEBOUNCE: Duration = Duration::from_millis(120);
 /// build stops with a build error instead of holding the loop.
 pub(super) const BUILD_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// How long the daemon may take to pick up a copied change.
-const PICKUP_DEADLINE: Duration = Duration::from_secs(10);
+/// How long the daemon may take to pick up a copied change: a hang breaker only, so a busy daemon's
+/// slow pickup is waited for, not reported as a failed reload.
+const PICKUP_DEADLINE: Duration = Duration::from_secs(30);
 
-/// How long the load check may take (the daemon's own trial waits 5 s).
-const PROBE_DEADLINE: Duration = Duration::from_secs(10);
+/// How long the load check may take (the daemon's own trial waits 5 s): a hang breaker only, as
+/// `PICKUP_DEADLINE`.
+const PROBE_DEADLINE: Duration = Duration::from_secs(30);
 
 /// Package files copied per reload (a runaway folder costs no more).
 const MAX_FILES: usize = 2_000;
