@@ -227,6 +227,49 @@ import Testing
         #expect(settings.snapshot.updates.downloadAutomatically)
     }
 
+    /// Writes the record an earlier build's pass left beside the file, with `dropped`.
+    func forgottenRecord(dropped: [String: JSONValue]) throws {
+        let record: JSONValue = .object(["dropped": .object(dropped), "kept": .object([:]), "before": .string("")])
+        try Data(record.prettyText().utf8).write(to: home.appending(path: "cmux-next.json.defaults-forgotten.json"))
+    }
+
+    /// A Mac whose earlier build's pass dropped Automatic Updates (`true`, then wrongly a former
+    /// default) gets it back at the next launch: Leo 2026-11-09, "that update, it wasn't just the
+    /// one-click automatic thing". A former default it dropped stays dropped.
+    @Test func aLaunchPutsBackAutomaticUpdatesThePassDropped() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "workspaces": { "newPlacement": "bottom" } }"#)
+        try forgottenRecord(dropped: ["updates.downloadAutomatically": .bool(true), "diff.layout": .string("unified")])
+
+        await settings.runLaunchMigrations(marker: try marker())
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        #expect(settings.snapshot.updates.downloadAutomatically)
+        #expect(try await settings.file.value(at: ["diff", "layout"]) == nil)
+        #expect(try await settings.file.value(at: ["workspaces", "newPlacement"]) == .string("bottom"))
+    }
+
+    /// The put-back runs once per file, and a key set since the drop keeps its value.
+    @Test func thePutBackRunsOnceAndKeepsALaterPick() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "updates": { "downloadAutomatically": false } }"#)
+        try forgottenRecord(dropped: ["updates.downloadAutomatically": .bool(true)])
+
+        #expect(try await settings.restoreWronglyForgottenDefaults() == [])
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(false))
+
+        try await settings.file.remove(UpdatesSettings.downloadAutomaticallyPath)
+        #expect(try await settings.restoreWronglyForgottenDefaults() == nil, "once per file")
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
+    }
+
+    /// With no record beside the file (the pass never dropped anything), nothing is put back.
+    @Test func noRecordNoPutBack() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        #expect(try await settings.restoreWronglyForgottenDefaults() == nil)
+        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
+    }
+
     /// A null the first builds of this change stored for a default write goes once; a set value stays.
     @Test func strayNullsGoOnce() async throws {
         defer { try? FileManager.default.removeItem(at: home) }

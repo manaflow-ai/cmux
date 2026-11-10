@@ -321,6 +321,8 @@ impl Mux {
                     .unwrap_or(0),
             ),
             #[cfg(test)]
+            host_frames_spawn_failures: AtomicU64::new(0),
+            #[cfg(test)]
             kitty_image_budget_operation: Mutex::new(None),
             cell_pixel_lifecycle: Mutex::new(()),
             next_cell_pixel_generation: AtomicU64::new(1),
@@ -345,6 +347,7 @@ impl Mux {
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             agent_hook_projection: Mutex::new(()),
+            agent_hooks_at_rest: Default::default(),
             agent_presence: Mutex::new(HashMap::new()),
             agent_hook_children: Mutex::new(HashMap::new()),
             agent_prompts: Mutex::new(agent_prompts::AgentTexts::with_sessions(
@@ -355,6 +358,8 @@ impl Mux {
             agent_message_pump: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
+            #[cfg(unix)]
+            project_chats: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
@@ -447,7 +452,7 @@ impl Mux {
             terminal_reap_grace_ms: AtomicU64::new(
                 u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
             ),
-            terminal_reaper_events: Mutex::new(None),
+            terminal_reaper: Mutex::default(),
             launch_snapshot_path: Mutex::new(None),
             settings: settings::SettingsSlot::default(),
             keybindings: keybindings::KeybindingsSlot::default(),
@@ -456,6 +461,8 @@ impl Mux {
             prelaunched_terminals: Mutex::new(HashMap::new()),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
+            #[cfg(unix)]
+            shell_runs: crate::shell_runs::ShellRuns::default(),
             history: crate::history_ops::HistoryHost::default(),
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::new(lane_on),

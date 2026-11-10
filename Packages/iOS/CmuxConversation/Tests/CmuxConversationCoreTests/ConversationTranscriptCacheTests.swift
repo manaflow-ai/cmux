@@ -189,4 +189,28 @@ import Testing
         store.useTranscriptCache(cache, key: "mac:m1")
         #expect(store.messages.isEmpty)
     }
+
+    /// Two conversations never share a kept-transcript file (CMUX-281): every character but ASCII
+    /// letters, digits and `-` became `_`, so `mac:a.b`, `mac:a/b` and `mac_a_b` read one file.
+    @Test func distinctKeysKeepDistinctFiles() async throws {
+        let keys = ["mac:a.b", "mac:a/b", "mac_a_b", "mac:a_b", "mac:a b", "mac:é", "mac:è", "", "_", "default",
+                    String(repeating: "x", count: 300), String(repeating: "x", count: 299) + "y"]
+        let names = keys.map(ConversationTranscriptCache.fileName(for:))
+        #expect(Set(names).count == keys.count, "two keys share a file: \(names)")
+        for name in names {
+            #expect(name.utf8.count <= 200)
+            #expect(name.unicodeScalars.allSatisfy { $0.isASCII && ($0.properties.isAlphabetic || ("0"..."9").contains($0) || "-_~".unicodeScalars.contains($0)) })
+        }
+        #expect(ConversationTranscriptCache.fileName(for: "mac:m1") == "mac_3Am1")
+
+        let directory = Self.directory()
+        let first = ConversationTranscriptCache(directory: directory, writeDelay: .milliseconds(0))
+        first.save("mac:a.b", info: nil, meID: "dot", messages: [])
+        first.save("mac:a/b", info: nil, meID: "slash", messages: [])
+        first.flush()
+        let relaunched = ConversationTranscriptCache(directory: directory)
+        defer { relaunched.removeAll() }
+        #expect(await relaunched.load("mac:a.b")?.meID == "dot")
+        #expect(await relaunched.load("mac:a/b")?.meID == "slash")
+    }
 }

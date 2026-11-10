@@ -162,6 +162,7 @@ CONTEXT = (
     PKG + "/Sources/CmuxNextIcons/Resources/icon-catalog.json",
     "cmux.xcodeproj/project.pbxproj",
     "cmux-next-ios/project.yml",
+    "schemas/motion-scale/motion-scale.json",  # check-motion-tokens.py reads the scale's steps
 )
 # Check code outside scripts/cmux-next: check-package-dependency-lists.py imports the masker from scripts/ (an installed
 # copy reads its own, beside it). Like the check code, it is the head's on both sides.
@@ -174,6 +175,10 @@ DATA_SUFFIXES = (".tsv", ".json")
 MANIFEST = PKG + "/Package.swift"
 MANIFEST_SOURCES = (PKG + "/Sources/", PKG + "/Tests/")
 DEPS_CHECK = "Package dependency lists sorted"
+SURFACE_MATERIALS_CHECK = "Each surface's material is one its kind allows (design/surface-materials.md)"
+# The check reads its manifest and every file it judges, not only the changed ones: it gets each side's whole set.
+SURFACE_MATERIALS_DATA = "schemas/surface-materials/"
+SURFACE_MATERIALS_SOURCES = (PKG + "/Sources/", "webviews/src/ui/", "webviews/src/agent-session/")
 # Its finding that a baseline import is gone, and the hint line it prints under any finding.
 STALE_PAIR = re.compile(r": IMPORT_BASELINE lists (.+?), which is declared or gone now")
 DEPS_HINT = "One dependency per line"
@@ -189,8 +194,11 @@ SCANNERS = (
     ("Type scale", ["python3", "-I", "{s}/check-swift-type-scale.py", "--root", "{root}",
                     "--baseline", "{s}/swift-type-scale-baseline.tsv"], (PKG + "/",)),
     ("Motion tokens", ["/bin/bash", "{s}/check-motion.sh", "{pkg}"], (PKG + "/",)),
+    ("Motion and colour tokens", ["python3", "-I", "{s}/check-motion-tokens.py", "--root", "{root}"],
+     # Only paths the gate diffs (SCOPES); CI's step reads the whole tree, the first-party apps and the Rust tokens.
+     (PKG + "/", "webviews/src/", "cmux-tui/crates/acpmux/web/")),
     ("Overlays are glass, never solid", ["python3", "-I", "{s}/check-overlay-glass.py", "{root}"], (PKG + "/",)),
-    ("Each surface's material is one its kind allows (design/surface-materials.md)",
+    (SURFACE_MATERIALS_CHECK,
      ["python3", "-I", "{s}/check-surface-materials.py", "{root}"],
      (PKG + "/", "webviews/src/", "schemas/surface-materials/", "scripts/cmux-next/check-surface-materials.py")),
     ("Scrollbars thin, one style", ["/bin/bash", "{s}/check-scrollbars.sh", "{root}"], (PKG + "/", "webviews/")),
@@ -1774,7 +1782,14 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         deleted = [p for p in deleted if p in restrict]
     # The checker lies outside SCOPES: a push that only drops IMPORT_BASELINE lines still needs the dependency check.
     dropped = dropped_baseline_pairs(repo, head, trusted_scripts) if only is None or "scanners" in only else ()
-    if not changed and not dropped and not deleted:
+    # The surface materials manifest lies outside SCOPES too: a push that only edits it, or only deletes a file the
+    # check judges (an entry then goes stale), still runs its check.
+    materials_data = [n for n in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--",
+                                     SURFACE_MATERIALS_DATA).decode().split("\0") if n]
+    materials_data += [n for n in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head,
+                                      "--", *SURFACE_MATERIALS_SOURCES).decode().split("\0")
+                       if n.endswith((".swift", ".tsx"))]
+    if not changed and not dropped and not deleted and not materials_data:
         return reserved
     swift = [p for p in changed if p.startswith(SWIFT_SCOPE) and p.endswith(".swift")]
     sources = [p for p in swift if p.startswith(PKG + "/Sources/")]
@@ -1799,7 +1814,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 continue  # a commit older than this check
             if name == CRASH_SAFETY_CHECK and not (head_tree / APP_ENTRY).is_file():
                 continue  # a main-based push: its crash rule is the crash ratchet below
-            if any(p.startswith(prefixes) for p in changed) and (only is None or "scanners" in only):
+            runs = any(p.startswith(prefixes) for p in changed) or (name == SURFACE_MATERIALS_CHECK and materials_data)
+            if runs and (only is None or "scanners" in only):
                 jobs[name] = ("cmd", cmd)
         if (dropped or deleted) and DEPS_CHECK not in jobs:
             jobs[DEPS_CHECK] = ("cmd", next(cmd for name, cmd, _ in SCANNERS if name == DEPS_CHECK))
@@ -1811,6 +1827,14 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             # Not indexed: the check reads files, never ls-files, and indexing 9,000 files twice was most of the cost.
             trees_for[DEPS_CHECK] = build_trees(repo, base, head, package, Path(tmp) / "deps", trusted_scripts,
                                                 index=False)
+        if SURFACE_MATERIALS_CHECK in jobs:
+            # Each side's manifest and every file the check judges, so a finding both sides have cancels out and an
+            # entry for an untouched file never reads as stale.
+            judged = sorted({p for rev in (base, head) for prefix in SURFACE_MATERIALS_SOURCES
+                             for p in ls_tree(repo, rev, prefix) if p.endswith((".swift", ".tsx"))}
+                            | {p for rev in (base, head) for p in ls_tree(repo, rev, SURFACE_MATERIALS_DATA)})
+            trees_for[SURFACE_MATERIALS_CHECK] = build_trees(repo, base, head, judged, Path(tmp) / "materials",
+                                                             trusted_scripts, index=False)
         if not lock.is_file():
             sources, swift = [], []  # a checkout older than the pinned tools: scanners only
         if sources and (only is None or "ast-grep" in only):

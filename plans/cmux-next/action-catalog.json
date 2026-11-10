@@ -33180,7 +33180,7 @@
         "dump",
         "messages"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -33200,8 +33200,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "record.circle",
       "targets" : [
@@ -33310,7 +33309,7 @@
         "fold",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -33330,8 +33329,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "square.stack.3d.up",
       "targets" : [
@@ -33428,7 +33426,7 @@
         "variants",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -33448,8 +33446,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "square.stack.3d.up",
       "targets" : [
@@ -33543,7 +33540,7 @@
         "variants",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -33563,8 +33560,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "rectangle.split.2x1",
       "targets" : [
@@ -33630,7 +33626,7 @@
         "variants",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -33650,8 +33646,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "location.circle",
       "targets" : [
@@ -61324,6 +61319,186 @@
     },
     {
       "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "item",
+          "suggestions" : null,
+          "title" : "Feed Item"
+        }
+      ],
+      "category" : "notifications",
+      "cliName" : "action feed-open-item",
+      "computed" : {
+        "canonical_action_id" : "feed.openItem",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "feed.openItem",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "feed",
+        "inbox",
+        "open",
+        "item"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "liveInput"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "liveInput"
+        }
+      },
+      "surfaces" : [
+        "keyboard"
+      ],
+      "symbol" : "arrow.up.forward.square",
+      "targets" : [
+
+      ],
+      "title" : "Open Feed Item",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "item",
+          "suggestions" : null,
+          "title" : "Feed Item"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "action",
+          "suggestions" : null,
+          "title" : "GitHub Action"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "comment",
+          "suggestions" : null,
+          "title" : "Comment"
+        }
+      ],
+      "category" : "notifications",
+      "cliName" : "action feed-github-action",
+      "computed" : {
+        "canonical_action_id" : "feed.githubAction",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : false,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "feed.githubAction",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "feed",
+        "inbox",
+        "github",
+        "pull request",
+        "review",
+        "approve",
+        "comment",
+        "checkout"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "liveInput"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : {
+          "exempt" : "liveInput"
+        }
+      },
+      "surfaces" : [
+        "keyboard"
+      ],
+      "symbol" : "arrow.triangle.pull",
+      "targets" : [
+
+      ],
+      "title" : "Run a Feed Item's GitHub Action",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
 
       ],
       "category" : "notifications",
@@ -65328,8 +65503,11 @@
         "agent",
         "ui",
         "pointer",
+        "point",
+        "point at element",
         "inspect",
         "inspect element",
+        "inspect ui element",
         "pick",
         "element",
         "debug"
@@ -65350,7 +65528,7 @@
             "context" : "agentChat",
             "folder" : "tools",
             "group" : "inspect",
-            "label" : "Inspect Element",
+            "label" : "Point at Element…",
             "parent" : null,
             "rank" : 1,
             "style" : "item"
@@ -65368,7 +65546,7 @@
       "targets" : [
 
       ],
-      "title" : "Inspect UI Element",
+      "title" : "Point at Element",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -67276,7 +67454,7 @@
         "palette",
         "contextMenu"
       ],
-      "symbol" : "arrow.triangle.branch",
+      "symbol" : "arrow.branch",
       "targets" : [
 
       ],
@@ -71385,7 +71563,7 @@
       "surfaces" : [
         "palette"
       ],
-      "symbol" : "link.badge.minus",
+      "symbol" : "minus.circle",
       "targets" : [
 
       ],
@@ -73887,7 +74065,7 @@
       "surfaces" : [
         "palette"
       ],
-      "symbol" : "arrow.triangle.branch",
+      "symbol" : "arrow.branch",
       "targets" : [
         "machine"
       ],
@@ -74560,6 +74738,96 @@
         "tab"
       ],
       "title" : "Bring Back Local",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "target" : "machine"
+          },
+          "name" : "machine",
+          "suggestions" : null,
+          "title" : "Machine"
+        }
+      ],
+      "category" : "cloud",
+      "cliName" : "cloud move-to-machine",
+      "computed" : {
+        "canonical_action_id" : "cloudMoveToMachine",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Moves a chat that a move from this Mac put on a Cloud machine to another Cloud machine (--machine machine:<id>, else a connected one, else any, else a new one): pulls its folder to this Mac, copies it to that machine, moves the chat there with the old machine's last changes, opens it there and closes the old machine's tab. Only a person runs it: an agent's run (MCP, or the CLI from an agent's chat) is refused.",
+      "focuses" : false,
+      "group" : "CloudActionCatalog",
+      "hint" : null,
+      "id" : "cloudMoveToMachine",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "vm",
+        "cloud",
+        "move",
+        "machine",
+        "other",
+        "another",
+        "remote",
+        "chat",
+        "agent",
+        "sync"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "agentChat",
+            "folder" : null,
+            "group" : "move",
+            "label" : null,
+            "parent" : null,
+            "rank" : 2,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "arrow.left.arrow.right",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Move to Another Machine",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -80854,7 +81122,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -80922,7 +81190,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -82495,6 +82763,7 @@
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
+        "cmux live",
         "live web reload",
         "hot reload",
         "dev server",
@@ -82565,6 +82834,7 @@
       "isGlobalHotKey" : false,
       "isPersonOnly" : false,
       "keywords" : [
+        "cmux live",
         "live web reload",
         "hot reload",
         "dev server",
@@ -84674,136 +84944,6 @@
 
       ],
       "category" : "settings",
-      "cliName" : "settings use-bouncy-animations",
-      "computed" : {
-        "canonical_action_id" : "appearance.animations.bounce.subtle",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : "animations",
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "niche"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "SettingsActionCatalog",
-      "hint" : null,
-      "id" : "appearance.animations.bounce.subtle",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "animation",
-        "motion",
-        "spring",
-        "bounce",
-        "bouncy",
-        "appearance"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : "systemChange",
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "arrow.up.and.down.and.sparkles",
-      "targets" : [
-
-      ],
-      "title" : "Use Bouncy Animations",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "settings",
-      "cliName" : "settings use-animations-without-bounce",
-      "computed" : {
-        "canonical_action_id" : "appearance.animations.bounce.none",
-        "cli" : true,
-        "default_aliases" : [
-
-        ],
-        "is_palette_visible" : true,
-        "palette_family" : "animations",
-        "palette_suggestion_rank" : null,
-        "palette_tier" : "niche"
-      },
-      "defaultChord" : null,
-      "defaultShortcut" : null,
-      "description" : null,
-      "focuses" : false,
-      "group" : "SettingsActionCatalog",
-      "hint" : null,
-      "id" : "appearance.animations.bounce.none",
-      "isDebugOnly" : false,
-      "isDestructive" : false,
-      "isGlobalHotKey" : false,
-      "isPersonOnly" : false,
-      "keywords" : [
-        "animation",
-        "motion",
-        "spring",
-        "bounce",
-        "critically damped",
-        "appearance"
-      ],
-      "mainMenu" : null,
-      "opensWorkspaceContent" : false,
-      "requires" : [
-
-      ],
-      "shortcutFamily" : null,
-      "shortcutLabel" : null,
-      "startsTerminal" : false,
-      "surfacePlan" : {
-        "cli" : "offered",
-        "contextMenuExemption" : "noObject",
-        "contextMenus" : [
-
-        ],
-        "mcpExemption" : "systemChange",
-        "palette" : "offered"
-      },
-      "surfaces" : [
-        "palette"
-      ],
-      "symbol" : "arrow.right.to.line",
-      "targets" : [
-
-      ],
-      "title" : "Use Animations Without Bounce",
-      "waitsForKeyedCreate" : false,
-      "waitsForPerson" : false,
-      "waitsForResult" : false
-    },
-    {
-      "arguments" : [
-
-      ],
-      "category" : "settings",
       "cliName" : "settings use-chromium-by-default",
       "computed" : {
         "canonical_action_id" : "browser.defaultEngine.chromium",
@@ -86268,7 +86408,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86290,7 +86430,7 @@
         "plain glass",
         "appearance"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86310,8 +86450,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "drop",
       "targets" : [
@@ -86337,7 +86476,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86408,7 +86547,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86479,7 +86618,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86505,7 +86644,7 @@
         "more",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86525,8 +86664,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "rectangle.3.group",
       "targets" : [
@@ -86552,7 +86690,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86575,7 +86713,7 @@
         "audit",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86595,8 +86733,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "paintpalette",
       "targets" : [
@@ -86622,7 +86759,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86648,7 +86785,7 @@
         "sizes",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86668,8 +86805,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "sidebar.left",
       "targets" : [
@@ -86695,7 +86831,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86721,7 +86857,7 @@
         "checkout",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86741,8 +86877,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "macwindow.on.rectangle",
       "targets" : [
@@ -86811,7 +86946,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86835,7 +86970,7 @@
         "window",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86855,8 +86990,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "rectangle.on.rectangle",
       "targets" : [
@@ -86892,7 +87026,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86912,7 +87046,7 @@
         "worktree",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -86932,8 +87066,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "checkmark.circle",
       "targets" : [
@@ -86959,7 +87092,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -86983,7 +87116,7 @@
         "frame",
         "debug"
       ],
-      "mainMenu" : "debug",
+      "mainMenu" : null,
       "opensWorkspaceContent" : false,
       "requires" : [
 
@@ -87003,8 +87136,7 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "gauge.with.dots.needle.67percent",
       "targets" : [
@@ -87030,7 +87162,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -87072,14 +87204,251 @@
         "palette" : "offered"
       },
       "surfaces" : [
-        "palette",
-        "menu"
+        "palette"
       ],
       "symbol" : "arrow.counterclockwise",
       "targets" : [
 
       ],
       "title" : "Reset Main-Thread Blocking Counts",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
+      "cliName" : "action debug-blocking-calls-copy",
+      "computed" : {
+        "canonical_action_id" : "debug.blockingCalls.copy",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.blockingCalls.copy",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "blocking",
+        "main thread",
+        "hang",
+        "stall",
+        "sites",
+        "copy",
+        "list",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "doc.on.doc",
+      "targets" : [
+
+      ],
+      "title" : "Copy Main-Thread Blocking Sites",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "icon",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "debugSidebarToggleIcons"
+          },
+          "title" : "Icon"
+        }
+      ],
+      "category" : "settings",
+      "cliName" : "action debug-sidebar-toggle-icon",
+      "computed" : {
+        "canonical_action_id" : "debug.sidebarToggleIcon",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.sidebarToggleIcon",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "sidebar",
+        "toggle",
+        "icon",
+        "glyph",
+        "button",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "sidebar.left",
+      "targets" : [
+
+      ],
+      "title" : "Sidebar Toggle Icon…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "set",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "debugStatusIconSets"
+          },
+          "title" : "Icon Set"
+        }
+      ],
+      "category" : "settings",
+      "cliName" : "action debug-status-icon-set",
+      "computed" : {
+        "canonical_action_id" : "debug.statusIconSet",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "debug.statusIconSet",
+      "isDebugOnly" : true,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "status",
+        "indicator",
+        "icons",
+        "question",
+        "blocked",
+        "waiting",
+        "debug"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "devOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "questionmark.circle",
+      "targets" : [
+
+      ],
+      "title" : "Status Icons…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -90258,6 +90627,288 @@
     },
     {
       "arguments" : [
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "title" : "Terminal",
+                "value" : "terminal"
+              },
+              {
+                "title" : "Browser",
+                "value" : "browser"
+              },
+              {
+                "title" : "Agent Chat",
+                "value" : "agentChat"
+              },
+              {
+                "title" : "New Tab Page",
+                "value" : "newTabPage"
+              }
+            ]
+          },
+          "name" : "kind",
+          "suggestions" : null,
+          "title" : "Kind"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "split",
+          "suggestions" : null,
+          "title" : "Divider"
+        }
+      ],
+      "category" : "pane",
+      "cliName" : "divider insert",
+      "computed" : {
+        "canonical_action_id" : "divider.insertNew",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "DividerActionCatalog",
+      "id" : "divider.insertNew",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "divider",
+        "split",
+        "insert",
+        "new",
+        "between",
+        "pane",
+        "terminal",
+        "browser",
+        "agent",
+        "chat",
+        "tab"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "divider",
+            "folder" : null,
+            "group" : "create",
+            "label" : null,
+            "parent" : null,
+            "rank" : 0,
+            "style" : "choices"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "rectangle.split.3x1",
+      "targets" : [
+        "workspace"
+      ],
+      "title" : "Insert New",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "split",
+          "suggestions" : null,
+          "title" : "Divider"
+        }
+      ],
+      "category" : "pane",
+      "cliName" : "divider hide",
+      "computed" : {
+        "canonical_action_id" : "divider.hide",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "DividerActionCatalog",
+      "id" : "divider.hide",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "divider",
+        "split",
+        "line",
+        "hide",
+        "invisible",
+        "separator",
+        "border"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "divider",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 0,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "eye.slash",
+      "targets" : [
+        "workspace"
+      ],
+      "title" : "Hide Divider",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "split",
+          "suggestions" : null,
+          "title" : "Divider"
+        }
+      ],
+      "category" : "pane",
+      "cliName" : "divider show",
+      "computed" : {
+        "canonical_action_id" : "divider.show",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "DividerActionCatalog",
+      "id" : "divider.show",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "divider",
+        "split",
+        "line",
+        "show",
+        "visible",
+        "separator",
+        "border"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "divider",
+            "folder" : null,
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 1,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "eye",
+      "targets" : [
+        "workspace"
+      ],
+      "title" : "Show Divider",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
 
       ],
       "category" : "settings",
@@ -91406,7 +92057,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -109815,7 +110466,7 @@
         "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -115254,8 +115905,6 @@
           "appearance.animationSpeed.off",
           "appearance.animationSpeed.normal",
           "appearance.animationSpeed.fast",
-          "appearance.animations.bounce.none",
-          "appearance.animations.bounce.subtle",
           "appearance.animations.cursor.toggle",
           "appearance.animations.feedback.toggle",
           "appearance.animations.home.toggle",

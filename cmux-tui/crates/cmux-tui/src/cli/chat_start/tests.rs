@@ -6,9 +6,9 @@ use super::super::cloud_start_chat::Machine;
 use std::time::Duration;
 
 use super::{
-    Parsed, Reads, Route, Start, TAKES_VALUE, USAGE, cloud_words, global_words, here_wait,
-    here_words, in_environment, new_args, parse, parse_with, pick_target, route, route_start,
-    setting_stream, start_words,
+    Parsed, Reads, Route, Start, TAKES_VALUE, USAGE, cloud_words, global_words, here_preflight,
+    here_wait, here_words, in_environment, names_cloud, new_args, parse, parse_with, pick_target,
+    read_setting, route, route_start, setting_stream, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -192,6 +192,34 @@ fn a_vm_chat_is_the_cloud_start_chat_run() {
     // A Cloud chat needs a prompt, and takes no model or chat name.
     assert!(cloud_words(&start(&[]), &Machine::New).is_err());
     assert!(cloud_words(&start(&["--model", "m", "go"]), &Machine::New).is_err());
+}
+
+/// Leo, 2026-11-10: "Does it work across every expected possible workspace?" `cmux chat --on
+/// vm:new` copied no folder, so a chat started from a project never saw it. `--from-folder DIR`
+/// goes to `cloud start-chat --from-folder`, which copies it the way New Cloud chat does.
+#[test]
+fn from_folder_goes_to_the_cloud_start() {
+    let picked = start(&["--on", "vm:new", "--from-folder", ".", "go"]);
+    assert_eq!(picked.from_folder.as_deref(), Some("."));
+    assert_eq!(
+        cloud_words(&picked, &Machine::New).unwrap(),
+        words(&["--prompt", "go", "--from-folder", "."])
+    );
+    assert!(TAKES_VALUE.contains(&"--from-folder"));
+    assert!(USAGE.contains("--from-folder DIR"));
+    assert!(parse(&words(&["--from-folder", "a", "--from-folder", "b", "go"]), None).is_err());
+}
+
+/// The copy-size refusal's recovery, `--allow-large`, works on `cmux chat` too: it goes to the
+/// Cloud start with the folder.
+#[test]
+fn allow_large_goes_to_the_cloud_start() {
+    let picked = start(&["--on", "vm:new", "--from-folder", ".", "--allow-large", "go"]);
+    assert!(picked.allow_large);
+    assert_eq!(
+        cloud_words(&picked, &Machine::New).unwrap(),
+        words(&["--prompt", "go", "--from-folder", ".", "--allow-large"])
+    );
 }
 
 /// Leo, 2026-11-06: "Shared chat commands can start in cloud." `cmux chat --on cloud` takes the
@@ -518,4 +546,181 @@ fn a_chat_here_takes_a_repository() {
     assert!(TAKES_VALUE.contains(&"--repo"));
     // The local start matrix reads the usage block for `[--repo` (hq local_chat_probe.py takes_repo).
     assert!(USAGE.split("\n\n").next().unwrap().contains("[--repo URL]"));
+    for on in ["cloud", "vm", "vm:new", "vm:dev"] {
+        assert!(names_cloud(on), "{on}");
+    }
+    assert!(!names_cloud("here") && !names_cloud("studio-mac"));
+    // Checked before anything is cloned: a bad wait, and `agents chat new`'s own refusals.
+    assert!(here_preflight(&start(&["--repo", "o/n", "hi"])).is_ok());
+    assert!(here_preflight(&start(&["--repo", "o/n", "--wait", "--timeout", "0", "hi"])).is_err());
+    assert!(here_preflight(&start(&["--repo", "o/n", "--attach", "/tmp/note.txt"])).is_err());
+    assert!(here_preflight(&start(&["--repo", "o/n", "--cwd", "rel", "hi"])).is_err());
+}
+
+/// A fake app for the `chat.on` read: every `settings.get` gets the next of `answers` after its
+/// delay, and a plain `ping` on its own connection (the liveness probe) gets `PONG` at once while
+/// the app is up. Joins to the `settings.get` requests it read.
+fn slow_app(
+    answers: Vec<(Duration, Value)>,
+) -> (std::path::PathBuf, App, cmux_unix_socket::TestDir) {
+    use std::io::{BufRead as _, BufReader, Write as _};
+    use std::sync::{Arc, Mutex};
+    let dir = cmux_unix_socket::short_test_dir("cmux-chat-on");
+    let socket = dir.path().join("app.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let answers = Arc::new(Mutex::new(answers.into_iter()));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (done, stop) = std::sync::mpsc::channel::<()>();
+    let app = {
+        let seen = Arc::clone(&seen);
+        std::thread::spawn(move || {
+            listener.set_nonblocking(true).unwrap();
+            let mut served = Vec::new();
+            loop {
+                if !matches!(stop.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                    break;
+                }
+                let Ok((stream, _)) = listener.accept() else {
+                    std::thread::sleep(Duration::from_millis(5));
+                    continue;
+                };
+                stream.set_nonblocking(false).unwrap();
+                let (answers, seen) = (Arc::clone(&answers), Arc::clone(&seen));
+                served.push(std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut writer = stream;
+                    let mut line = String::new();
+                    while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                        if line.trim() == "ping" {
+                            let _ = writer.write_all(b"PONG\n");
+                            return;
+                        }
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        line.clear();
+                        seen.lock().unwrap().push(request);
+                        let Some((delay, answer)) = answers.lock().unwrap().next() else { return };
+                        std::thread::sleep(delay);
+                        if writeln!(writer, "{answer}").is_err() {
+                            return;
+                        }
+                    }
+                }));
+            }
+            for one in served {
+                let _ = one.join();
+            }
+            seen.lock().unwrap().clone()
+        })
+    };
+    (socket, App { done, app }, dir)
+}
+
+/// A running [`slow_app`]; [`finish`] stops it.
+struct App {
+    done: std::sync::mpsc::Sender<()>,
+    app: std::thread::JoinHandle<Vec<Value>>,
+}
+
+fn connected(socket: &std::path::Path) -> std::os::unix::net::UnixStream {
+    std::os::unix::net::UnixStream::connect(socket).unwrap()
+}
+
+/// Stops `app` and gives back the `settings.get` requests it read.
+fn finish(app: App) -> Vec<Value> {
+    drop(app.done);
+    app.app.join().unwrap()
+}
+
+/// The `chat.on` setting decides where the chat runs, so a live app that is only slow is waited
+/// for: one that answers after 2 s (20 read windows) is still the setting. With the old 1.5 s hard
+/// deadline the read was no setting, and a person's Cloud setting started the chat here.
+#[test]
+fn a_slow_live_app_still_names_the_chat_target() {
+    let value = json!({ "ok": true, "result": { "value": "vm:new" } });
+    let (socket, app, _dir) = slow_app(vec![(Duration::from_millis(2_000), value)]);
+    let read =
+        read_setting(&mut connected(&socket), Duration::from_millis(100), Duration::from_secs(30));
+    let seen = finish(app);
+    assert_eq!(read, Ok(Some("vm:new".to_owned())));
+    assert_eq!(seen.len(), 1, "one ask, never resent while the app answered pings: {seen:?}");
+    // The read catches up with the daemon first, so a value `cmux config set on` just wrote is read.
+    assert_eq!(seen[0]["params"], json!({ "path": "chat.on", "after": "sync" }), "{seen:?}");
+}
+
+/// The app's own request deadline passing on a loaded host (`timeout`, `busy`) is asked again
+/// while the app lives, until it answers.
+#[test]
+fn an_app_that_refuses_while_busy_is_asked_again() {
+    let busy = json!({ "ok": false, "error": { "code": "timeout", "message": "no reply within 2.0 seconds" } });
+    let value = json!({ "ok": true, "result": { "value": "cloud" } });
+    let answers = vec![
+        (Duration::ZERO, busy.clone()),
+        (Duration::ZERO, busy.clone()),
+        (Duration::ZERO, json!({ "ok": false, "error": { "code": "busy", "message": "busy" } })),
+        (Duration::ZERO, busy),
+        (Duration::ZERO, value),
+    ];
+    let (socket, app, _dir) = slow_app(answers);
+    let read =
+        read_setting(&mut connected(&socket), Duration::from_millis(50), Duration::from_secs(30));
+    finish(app);
+    assert_eq!(read, Ok(Some("cloud".to_owned())));
+}
+
+/// An app that keeps refusing past the whole wait starts nothing: the answer is a retryable
+/// error, not a chat started here when the person's setting may name a Cloud VM.
+#[test]
+fn an_app_that_never_answers_starts_nothing() {
+    let busy = json!({ "ok": false, "error": { "code": "timeout", "message": "no reply" } });
+    let answers = (0..200).map(|_| (Duration::from_millis(10), busy.clone())).collect();
+    let (socket, app, _dir) = slow_app(answers);
+    let read = read_setting(
+        &mut connected(&socket),
+        Duration::from_millis(50),
+        Duration::from_millis(300),
+    );
+    finish(app);
+    let error = read.unwrap_err();
+    assert_eq!(error["code"], "app.setting_unanswered", "{error}");
+    assert_eq!(error["retryable"], true, "{error}");
+}
+
+/// An app that answers its liveness ping but never this ask is held to the whole wait: the read
+/// gives up at `total` with `app.setting_unanswered`, not when (or if) the app replies. Before, a
+/// pending ask waited as long as pings were answered, so `cmux chat` could hang forever.
+#[test]
+fn an_app_that_answers_pings_but_not_the_ask_is_held_to_the_wait() {
+    let value = json!({ "ok": true, "result": { "value": "cloud" } });
+    let (socket, app, _dir) = slow_app(vec![(Duration::from_secs(3), value)]);
+    let began = std::time::Instant::now();
+    let read = read_setting(
+        &mut connected(&socket),
+        Duration::from_millis(50),
+        Duration::from_millis(300),
+    );
+    let took = began.elapsed();
+    finish(app);
+    let error = read.unwrap_err();
+    assert_eq!(error["code"], "app.setting_unanswered", "{error}");
+    assert_eq!(error["retryable"], true, "{error}");
+    assert!(took < Duration::from_secs(2), "gave up after {took:?}, not at the 300 ms wait");
+}
+
+/// A refusal that will not pass (an app with no `settings.get`) and an unset key are no setting.
+#[test]
+fn a_refused_or_unset_setting_is_no_setting() {
+    let unknown = json!({ "ok": false, "error": { "code": "method_not_found", "message": "no" } });
+    let (socket, app, _dir) = slow_app(vec![(Duration::ZERO, unknown)]);
+    assert_eq!(
+        read_setting(&mut connected(&socket), Duration::from_millis(50), Duration::from_secs(30)),
+        Ok(None)
+    );
+    finish(app);
+    let unset = json!({ "ok": true, "result": { "value": null } });
+    let (socket, app, _dir) = slow_app(vec![(Duration::ZERO, unset)]);
+    assert_eq!(
+        read_setting(&mut connected(&socket), Duration::from_millis(50), Duration::from_secs(30)),
+        Ok(None)
+    );
+    finish(app);
 }

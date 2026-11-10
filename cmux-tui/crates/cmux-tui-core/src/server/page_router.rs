@@ -17,6 +17,7 @@ use crate::panic_free::JsonFields;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::feed_client_ops::Answer;
 use super::{MessageWriter, Mux};
 use crate::request_origin::page_router_table::{self, Routed};
 use crate::request_origin::{HelloRole, OriginClaim, RequestOrigin, forbidden};
@@ -64,12 +65,35 @@ pub(super) fn try_handle(
         let response = crate::resource_router::malformed_resource_response(message, error);
         return Some(writer.send_control(&response).is_ok());
     };
-    let response = match run(mux, client, envelope, route) {
-        Ok(result) => ResponseEnvelope::success(id, result),
-        Err(error) => ResponseEnvelope::failure(id, error),
+    let answer = match run(mux, client, envelope, route) {
+        Ok(answer) => answer,
+        Err(error) => Answer::Now(Err(error)),
     };
-    let response = serde_json::to_value(response).unwrap_or_else(|_| json!({}));
-    Some(writer.send_control(&response).is_ok())
+    let respond =
+        move |id: RequestId, result: Result<Value, ResourceError>, writer: &MessageWriter| {
+            let response = match result {
+                Ok(result) => ResponseEnvelope::success(id, result),
+                Err(error) => ResponseEnvelope::failure(id, error),
+            };
+            let response = serde_json::to_value(response).unwrap_or_else(|_| json!({}));
+            writer.send_control(&response).is_ok()
+        };
+    match answer {
+        Answer::Now(result) => Some(respond(id, result, writer)),
+        // An op that waits (a feed intent's settle line, `gh`, acpmux)
+        // answers from its own thread; the connection reads on.
+        Answer::Later(work) => {
+            let writer = writer.clone();
+            let spawned =
+                std::thread::Builder::new().name("cmux-routed-reply".to_owned()).spawn(move || {
+                    respond(id, work(), &writer);
+                });
+            if let Err(error) = spawned {
+                eprintln!("cmux-tui: routed reply thread did not start: {error}");
+            }
+            Some(true)
+        }
+    }
 }
 
 fn run(
@@ -77,7 +101,7 @@ fn run(
     client: u64,
     envelope: Envelope,
     route: Routed,
-) -> Result<Value, ResourceError> {
+) -> Result<Answer, ResourceError> {
     let operation = envelope.operation.as_str();
     if envelope.protocol != PROTOCOL {
         return Err(ResourceError::validation_invalid(Some("protocol"), "unsupported protocol"));
@@ -171,15 +195,18 @@ fn run(
         params.insert("idempotency_key".to_owned(), Value::String(key));
     }
     match route.owner {
-        "apps.store" => apps_store(mux, client, operation, Value::Object(params), origin),
+        "apps.store" => {
+            Ok(Answer::Now(apps_store(mux, client, operation, Value::Object(params), origin)))
+        }
         super::bookmarks_routed::OWNER => {
-            super::bookmarks_routed::routed(mux, client, operation, params)
+            Ok(Answer::Now(super::bookmarks_routed::routed(mux, client, operation, params)))
         }
-        "tasks.local" => crate::tasks_link::call(mux, operation, params),
+        "tasks.local" => Ok(Answer::Now(crate::tasks_link::call(mux, operation, params))),
         #[cfg(unix)]
-        "agent_session.trust" => {
-            super::agent_session_attach::routed_trust(mux, client, operation, params)
-        }
+        "agent_session.trust" => Ok(Answer::Now(super::agent_session_attach::routed_trust(
+            mux, client, operation, params,
+        ))),
+        "feed" => Ok(super::feed_client_ops::routed(mux, client, operation, Value::Object(params))),
         owner => Err(ResourceError::operation_failed(
             operation,
             "this daemon has no owner for the routed namespace",

@@ -196,6 +196,10 @@ public final class ActionRegistry {
         // A new hook drops the old one's queued work: ask again through the new one.
         didSet { bindingTableWarmQueued = false; if shortcutIndex?.bindingTable == nil { askToWarmBindingTable() } }
     }
+    /// The icon pack's drawing that stands in for an SF Symbol at a point size, or nil to draw the symbol: catalog
+    /// rows (``rowIcon(_:)``) then draw the glyph the palette and hand-built menus draw (Leo 2026-11-09, of the fork:
+    /// "and this fork symbol is so bad"). The App passes `NSImage.packOverride`; this core target cannot read the pack.
+    @ObservationIgnored public var symbolOverride: (@MainActor (String, CGFloat) -> NSImage?)?
     /// A warm is queued and has not run yet: further changes need no second one.
     @ObservationIgnored private var bindingTableWarmQueued = false
 

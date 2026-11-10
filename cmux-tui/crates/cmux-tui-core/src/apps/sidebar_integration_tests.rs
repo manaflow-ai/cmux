@@ -67,6 +67,8 @@ impl Session {
                 idle_stop: Duration::from_secs(60),
                 provider_deadline: Duration::from_secs(1),
                 provider_user_deadline: Duration::from_secs(1),
+                safe_mode_file: None,
+                safe_mode_env: false,
             },
             Box::new(MuxRouter::new(mux)),
             Box::new(HttpFetcher),
