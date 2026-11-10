@@ -4100,6 +4100,9 @@ function TranscriptView({
     if (fromLatest) {
       wheelGlide.current?.stop();
       stopScroll(node);
+      // A send ends Jump to latest's hold here too (stopJump does it scrolled up): the placement pass
+      // clears it only when the send's rows land on its chase branch, not on a ride, fold or resize.
+      chaseHeld.current = false;
     } else stopJump();
     // The room the stack grew while scrolled up is room under the last row again (`room`).
     heldRoom.current = dockRoomRef.current;

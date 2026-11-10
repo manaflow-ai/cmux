@@ -14,6 +14,7 @@
 // next toggle, another chat, or the transcript unmounting.
 import { foldMotion, foldMs } from "./fold";
 import { FOLD_SETTLE_MS } from "./foldAnchor";
+import { LOAD_FADE_CLASS } from "../../shared/loadFade";
 import type { LayoutGeometry } from "../conversationGeometry";
 
 /// The fold's state on the thread while it plays: "open" or "close" (the CSS and tests read it).
@@ -122,6 +123,13 @@ export function ghostOf(row: HTMLElement): HTMLElement {
   for (const name of ["aria-posinset", "aria-setsize", "aria-label", "aria-current", "data-transcript-active"])
     copy.removeAttribute(name);
   copy.classList.remove("acpmux-row--enter", "acpmux-row--message-enter", "acpmux-row--older");
+  // A row that arrived while the chat loaded keeps the load fade's class, and a PR card in it its own
+  // (shared/loadFade.ts): copied, the ghost would play that fade again from opacity 0.
+  copy.classList.remove(LOAD_FADE_CLASS);
+  for (const node of copy.querySelectorAll<HTMLElement>(`.${LOAD_FADE_CLASS}, [data-load-fade]`)) {
+    node.classList.remove(LOAD_FADE_CLASS);
+    node.removeAttribute("data-load-fade");
+  }
   for (const node of copy.querySelectorAll<HTMLElement>(".acpmux-row__message-presentation"))
     node.classList.remove("acpmux-row__message-presentation");
   copy.classList.add(TURN_FOLD_GHOST);

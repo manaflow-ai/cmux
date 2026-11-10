@@ -1,7 +1,7 @@
 // The transcript's collapsibles (tool groups, tool and command rows, MCP calls, a folded thought, a
 // settled run) open and close in one motion: the body's height and opacity, over the shared fold
 // duration on the settle curve (--cmux-ease-settle), while the chevron turns with it (conversation.css `.cv-rotor`). Reduce
-// Motion, the host's animation switches (`data-agent-motion="off"`, a 0 ms token) and a page with no
+// Motion, the host's animation switches (`data-agent-motion="off"`, `data-cmux-motion` off or reduced, a 0 ms token) and a page with no
 // Web Animations open and close at once. Away from the bottom, VirtualTranscript holds the clicked
 // line. At the very bottom the body's height plays here too, and VirtualTranscript moves the offset
 // with it on each frame of the fold, before paint, so the text above glides up (or down) as one stack
@@ -62,9 +62,11 @@ export const foldMotion = {
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true,
 };
 
-/// Whether a fold may move at all now (before its body is drawn).
+/// Whether a fold may move at all now (before its body is drawn): the pane's switch, Reduce Motion, and
+/// the app's motion gate (`data-cmux-motion` off or reduced, as ui/motion/motionMode.ts reads it).
 function motionAllowed(): boolean {
-  return !isAgentMotionOff() && !foldMotion.reducedMotion();
+  const gate = typeof document === "undefined" ? undefined : document.documentElement.dataset.cmuxMotion;
+  return !isAgentMotionOff() && gate !== "off" && gate !== "reduced" && !foldMotion.reducedMotion();
 }
 
 /// How long a fold on `node` plays, or 0 when it applies at once.

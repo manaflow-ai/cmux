@@ -35,7 +35,7 @@ test("a fold moves under the app's full motion and folds at once when its gate i
 
 test("the chevron snaps under the app's motion gate too", () => {
   const css = readFileSync(new URL("./conversation.css", import.meta.url), "utf8");
-  const rule = /(:root:is\([^)]*\)) \.cv-rotor \{\s*transition: none;/.exec(css)?.[1] ?? "";
+  const rule = /(:root:is\([^)]*\))\s+\.cv-rotor \{\s*transition: none;/.exec(css)?.[1] ?? "";
   expect(rule).toContain('[data-cmux-motion="off"]');
   expect(rule).toContain('[data-cmux-motion="reduced"]');
 });

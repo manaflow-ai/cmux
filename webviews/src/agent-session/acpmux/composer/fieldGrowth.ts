@@ -37,8 +37,9 @@ import { sliceHoldsInline } from "./inlineNode";
 //
 // An edit that lands while the field moves retargets from the height drawn, keeping the motion's
 // end. A value set from outside (a send clearing the prompt, a chat's draft), Reduce Motion and
-// motion off change the height in the frame, as before. Nothing runs at rest: the animation and the
-// text's observer exist only while the field moves, and both go when it lands or the editor goes.
+// motion off change the height in the frame, as before; motion turned off mid-growth lands it at once.
+// Nothing runs at rest: the animation, the text's observer and the motion gate's watch exist only
+// while the field moves, and all go when it lands or the editor goes.
 
 /** The spring arms' springs; `ease` and `instant` have none. */
 const SPRINGS: Partial<Record<FieldGrowthArm, SpringParameters>> = {
@@ -62,7 +63,32 @@ type Motion = {
   reveal: boolean;
   /** The text's own size changes while it moves (a rewrap): retarget. */
   observer: ResizeObserver | undefined;
+  /** Stops watching the motion gate (`watchMotionGate`). */
+  unwatch: () => void;
 };
+
+/** Calls `still` when the motion gate of `field`'s page leaves full motion while a growth runs: the
+ *  app's switch (`data-cmux-motion`), the pane's (`data-agent-motion`, its zero tokens on the root's
+ *  style), Reduce Motion and a hidden page (ui/motion/motionMode.ts). Only while the field moves. */
+function watchMotionGate(field: HTMLElement, still: () => void): () => void {
+  const doc = field.ownerDocument;
+  const check = () => {
+    if (motionMode(doc) !== "full") still();
+  };
+  const observer = typeof MutationObserver === "function" ? new MutationObserver(check) : undefined;
+  observer?.observe(doc.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-cmux-motion", "data-agent-motion", "style"],
+  });
+  const media = doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)");
+  media?.addEventListener?.("change", check);
+  doc.addEventListener("visibilitychange", check);
+  return () => {
+    observer?.disconnect();
+    media?.removeEventListener?.("change", check);
+    doc.removeEventListener("visibilitychange", check);
+  };
+}
 
 /** Whether a transaction placed an attachment's node: its steps' own slices, O(the edit). */
 const placesAttachment = (tr: Transaction) =>
@@ -134,6 +160,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         moving.delete(field);
         field.removeAttribute(SETTLING_SCROLLER_ATTRIBUTE);
         motion.observer?.disconnect();
+        motion.unwatch();
         motion.animation.cancel();
       };
       /** Runs `motion` as `animation`, and lets the field rest when it ends. */
@@ -144,6 +171,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
           moving.delete(field);
           field.removeAttribute(SETTLING_SCROLLER_ATTRIBUTE);
           motion.observer?.disconnect();
+          motion.unwatch();
         };
         animation.addEventListener("finish", done, { once: true });
         animation.addEventListener("cancel", done, { once: true });
@@ -162,7 +190,10 @@ export function fieldGrowth(external: () => boolean): Plugin {
         running?.animation.cancel();
         const to = field.getBoundingClientRect().height;
         shown = to;
-        if (running && !atOnce && Math.abs(to - running.to) < 0.5) {
+        // Read before the same-end path: an edit after motion went off (or a value set from outside)
+        // lands a running growth instead of playing it on.
+        const moves = !atOnce && arm !== "instant" && !external() && motionMode(field.ownerDocument) === "full";
+        if (running && moves && Math.abs(to - running.to) < 0.5) {
           // The same end (a second edit on the same line, the text's observer's first call): the
           // motion goes on where it was, on the same curve and clock. A started animation given its
           // start time runs from the next frame; left pending it would hold a frame still.
@@ -174,7 +205,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         }
         if (running) land(field);
         if (from < 0 || Math.abs(to - from) < 0.5) return;
-        if (atOnce || arm === "instant" || external() || motionMode(field.ownerDocument) !== "full") return;
+        if (!moves) return;
         const lineHeight = Number.parseFloat(getComputedStyle(field).lineHeight) || 20;
         const capped = field.scrollHeight > field.clientHeight + 1;
         const reveal = capped || Math.abs(to - from) > lineHeight * REVEAL_LINES || (running?.reveal ?? false);
@@ -206,7 +237,16 @@ export function fieldGrowth(external: () => boolean): Plugin {
                 if (moving.get(field) === motion) follow();
               })
             : undefined;
-        const motion: Motion = { animation, keyframes, timing, to, end: now + duration, reveal, observer };
+        const motion: Motion = {
+          animation,
+          keyframes,
+          timing,
+          to,
+          end: now + duration,
+          reveal,
+          observer,
+          unwatch: watchMotionGate(field, () => land(field)),
+        };
         moving.set(field, motion);
         // Read at the end height above: the text fits the field it lands on, so no thumb meanwhile.
         field.toggleAttribute(SETTLING_SCROLLER_ATTRIBUTE, !capped);

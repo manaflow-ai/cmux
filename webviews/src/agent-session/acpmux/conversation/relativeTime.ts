@@ -132,6 +132,25 @@ function messageDate(at: number, now: number, locale?: string): string {
   }
 }
 
+/// Every wording a prompt's age takes in its first hour in `locale`, one per line ("just now",
+/// "1 minute ago", "59 minutes ago"; Polish adds "22 minuty temu", wider than "59 minut temu"): the row
+/// lays them out in a hidden line so the widest sets its width (conversation.css `.cv-user__time::before`).
+/// Digits are tabular there, so one line per wording; kept per language, 60 labels once.
+const agesWidest = new Map<string, string>();
+export function messageAgeWidest(locale?: string): string {
+  const key = locale ?? "";
+  const kept = agesWidest.get(key);
+  if (kept !== undefined) return kept;
+  const lines = new Map<string, string>();
+  for (let minute = 0; minute < 60; minute += 1) {
+    const label = messageAge(0, minute * 60_000 + 30_000, locale);
+    lines.set(label.replace(/\d/g, "0"), label);
+  }
+  const widest = [...lines.values()].join("\n");
+  agesWidest.set(key, widest);
+  return widest;
+}
+
 /** First shared wall-clock minute where messageAge's text changes. Once it is a date, that is only
  * the new year, when its year appears (nextReplyTime); a date from an earlier year holds no timer. */
 export function nextMessageAge(at: number, now: number): number {

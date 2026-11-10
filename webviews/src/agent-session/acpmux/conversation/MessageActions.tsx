@@ -14,7 +14,7 @@ import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { useRowMark } from "../threadMinimap/promptMarks";
 import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, StopReading, TurnFork } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
-import { exactTime, messageAge, nextMessageAge } from "./relativeTime";
+import { exactTime, messageAge, messageAgeWidest, nextMessageAge } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
 import { copyMarkdownResult } from "../richClipboard";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
@@ -43,9 +43,10 @@ export function MessageTime({ at, className, detail }: { at: number; className: 
       /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={exact}
       data-tooltip-side="top"
       data-tooltip-detail={detail}
-      /* The widest age of its first hour, in this language: the prompt row reserves its width in
-         the real font (conversation.css .cv-user__time::before), so the minute's words change in place. */
-      data-age-widest={messageAge(at, at + 59 * 60_000, language)}
+      /* Every age of its first hour, in this language, one per line: the prompt row reserves the
+         widest in the real font (conversation.css .cv-user__time::before), so the minute's words
+         change in place. */
+      data-age-widest={messageAgeWidest(language)}
     >
       {messageAge(at, now, language)}
     </time>
