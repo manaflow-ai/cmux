@@ -378,13 +378,16 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
   `terminal-resources`), not every program of that name on the host, and refuses counts that are
   not the session's. A daemon without that command (no `terminal-resources-v1` in `identify`) gives a
   lower bound that is not judged; an error reply of the command is exit 1.
-- A RESTORED session does not run 170 bench agents (measured 2026-11-10, aws-m4pro-3, a host with `claude` on its PATH):
-  the product's "Resume Agents After Restart" (`sessions.resumeAgents`, default on) types the stored resume command, so
-  157 of the 170 agent terminals ran the real `claude --resume session-real-real-NNNN` (12.6 GB footprint, 1273 wakeups/s
-  in `measure`, group `daemon_other`) and only the 13 that got a new shell ran the bench program. `agents` types its
-  command into those terminals too, starts nothing there, and now says it: exit 3, "13 agent programs run in this
-  daemon's terminals, the session has 170 agent terminals". The tool before gave exit 0. Until the session or the tool
-  handles it, the memory and CPU rows of a restored run include those `claude` processes.
+- A RESTORED session: the product's "Resume Agents After Restart" (`sessions.resumeAgents`, default on, as on his Mac)
+  types the stored resume command, so on a host with `claude` on its PATH an agent terminal runs the real
+  `claude --resume session-real-real-NNNN` (measured 2026-11-10, aws-m4pro-3: 157 of 170 terminals, 12.6 GB footprint,
+  1273 wakeups/s in `measure`, group `daemon_other`). The launch pays for those starts, as his does. `agents` then makes
+  the session the bench one: it ends each such CLI by its exact PIDs (the daemon's `terminal-resources` of that terminal,
+  the same start time, the session id that this tool gave that terminal; SIGTERM, SIGKILL after 5 s), types nothing into
+  it, and types the start line when only the shell is left. It never types into and never signals another program: such a
+  terminal is a fault (exit 3) with the program's command line. Its line says `resumed_cli_ended`, `resumed_cli_left`,
+  `other_programs` and `agent_programs_running`; exit 0 = one bench program in each agent terminal and no resumed CLI.
+  Run `agents` after EVERY restore and before `measure`, `map` or your own driver; a row made before it has the real CLIs.
 - `measure` counts the app, the daemon, their descendants, the bundle's processes, the daemon's
   terminal hosts (`--owner`) and the WebKit processes macOS holds the app responsible for.
 - `launch --socket-only` gives `measure` and `map` the flag `--socket-only`: their output then says

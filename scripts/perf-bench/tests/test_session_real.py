@@ -439,9 +439,54 @@ class RestoredAgents(unittest.TestCase):
     def test_a_signal_goes_only_to_the_same_process(self):
         rows = table((102, 101, self.CLI + "real-0001"), (103, 102, "node /x/helper.js", "Tue Nov 10 19:00:00 2026"))
         sent = []
-        done = m.end_resumed({102: START, 103: START, 104: START}, rows, kill=lambda pid, sig: sent.append((pid, sig)))
+        done = m.end_resumed({102: START, 103: START, 104: START}, signal.SIGTERM, rows, kill=lambda pid, sig: sent.append((pid, sig)))
         self.assertEqual(done, [102])                       # 103 has another start time (a new process), 104 is gone
         self.assertEqual(sent, [(102, signal.SIGTERM)])
+
+    def test_the_agents_command_ends_the_cli_types_into_the_shell_and_gives_exit_0(self):
+        """The whole `agents` command against a stub daemon and a stub process table: the wiring of the states, the
+        signal, the start line and the exit code."""
+        rows = table((101, 1, "/bin/zsh"), (102, 101, self.CLI + "real-0001"), (121, 1, self.STUB + "real-0002"),
+                     (131, 1, "/bin/zsh"), (132, 131, self.CLI + "real-0001"))        # 132: the same id in a terminal of another daemon
+        sent, typed = [], []
+
+        class Daemon:
+            def must(self, cmd, **params):
+                if cmd == "identify":
+                    return {"capabilities": ["terminal-resources-v1"]}
+                assert cmd == "list-workspaces", cmd
+                return {"workspaces": [{"name": "real-0001"}, {"name": "real-0002"}]}
+
+            def call(self, cmd, **params):
+                if cmd == "terminal-resources":
+                    return {"ok": True, "data": {"terminals": [
+                        {"surface": 10, "pid": 101, "processes": [{"pid": pid} for pid in (101, 102, 103) if pid in rows]},
+                        {"surface": 20, "pid": 121, "processes": [{"pid": 121}]}]}}
+                if cmd == "send":
+                    typed.append((params["surface"], params["text"], sorted(rows)))
+                    rows[103] = (101, START, "/bin/zsh -f /kit/session_real_agent.zsh working real-0001")
+                    return {"ok": True}
+                raise AssertionError(cmd)
+
+        def kill(pid, sig):
+            sent.append((pid, sig))
+            del rows[pid]
+
+        saved = (m.sockets, m.Conn, m.agent_tabs, m.process_rows, m.counts, m.settle_agents, os.kill)
+        m.sockets, m.Conn = (lambda args: ("/tmp/daemon.sock", None)), (lambda sock: Daemon())
+        m.agent_tabs = lambda tree, mix: [(1, {"surface": 10}), (2, {"surface": 20})]
+        m.process_rows, m.counts, m.settle_agents = (lambda: dict(rows)), (lambda conn: {"agents": 2}), (lambda *a: None)
+        os.kill = kill
+        try:
+            m.agents(argparse.Namespace(workspaces=2, terminals=2, agents=2, tabs=2, panes=2, browser_tabs=0, settle=30,
+                                        force=False, agents_working=1, agents_blocked=0, socket="/tmp/daemon.sock", app_socket=None))
+        finally:
+            m.sockets, m.Conn, m.agent_tabs, m.process_rows, m.counts, m.settle_agents, os.kill = saved
+        self.assertEqual(sent, [(102, signal.SIGTERM)])                 # the CLI of this daemon's terminal, not pid 132
+        self.assertEqual(len(typed), 1)
+        self.assertEqual(typed[0][0], 10)
+        self.assertRegex(typed[0][1], r"session_real_agent\.zsh'? working real-0001\n$")
+        self.assertNotIn(102, typed[0][2])                              # typed after the CLI ended, not into it
 
     def run_agents(self, states, settle=60, stays=(), deaf=(), force=False):
         """A terminal world for `start_agents`: `end` makes a resumed terminal a shell (not one in `stays`), `send`

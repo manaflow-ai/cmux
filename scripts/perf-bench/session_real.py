@@ -37,7 +37,8 @@ tagged DEV build; build and launch take `--app <bundle>`; save, install and unin
   make     make the session in a running daemon, in batches; print the counts read back and the time
   counts   print the counts read back from the daemon (and from the app with --app-socket)
   agents   start the agent program in every agent terminal (after `make --no-agents`, or after a
-           restore: a restored agent terminal has a new shell, its program is not run again)
+           restore: a restored agent terminal has a new shell, or the real CLI that the product's
+           "Resume Agents After Restart" started; that CLI is ended by its exact PIDs first)
   clients  hold N more control connections open, as his 13 clients do, until killed
   measure  memory of app + daemon + terminal hosts, process count, PTYs, idle CPU, main wakes/s
   map      the first map: 20 runs each of workspace switch, tab switch, new tab, split, workspace
@@ -697,28 +698,174 @@ def host_facts():
 AGENT_COMMAND = re.compile(r"session_real_agent\.zsh \S+ (real-\d{4})(?:\s|$)")
 
 
-def agent_programs(conn, tabs, rows=None):
-    """{name: pid} of the agent programs that run in the agent terminals of THIS daemon, from the daemon's own record:
-    `terminal-resources` gives the process of each of its terminals and the tree below it; a terminal runs its agent
-    when one of those processes has the agent program with the terminal's own name as its command. Never by the
-    program's name alone over the host, so another tag's programs do not count. Only for a daemon that has the
-    command (``has_terminal_resources``); a reply that is not OK stops the command (exit 1), it is never read as
-    "0 programs" or as "not judged". `rows` ({pid: (ppid, start, command)}) is for tests."""
+# The CLI that the product's "Resume Agents After Restart" starts in a restored agent terminal of this session: the
+# stored record of the bench program is a Claude session `session-real-<name>`, so the product types
+# `claude --resume session-real-<name>` and the real CLI runs (measured 2026-11-10, aws-m4pro-3: 157 of 170 terminals,
+# 12.6 GB). The program path has no space and the session id is the one this tool gave that terminal's bench program.
+RESUMED_CLI = re.compile(r"^(?:\S*/)?claude\s(?:.*\s)?--resume session-real-(real-\d{4})(?:\s|$)")
+SHELLS = ("sh", "bash", "zsh", "dash", "ksh")
+
+
+def is_shell(command):
+    """True for `login` and for a shell that runs no script (`-zsh`, `/bin/zsh`, `-/bin/zsh -l`): a shell with a
+    script or a command (`/bin/sh /path/claude ...`, `zsh -f program`) is a program, not a prompt."""
+    words = command.split()
+    if not words:
+        return False
+    name = os.path.basename(words[0].lstrip("-"))
+    return name == "login" or (name in SHELLS and all(word.startswith("-") for word in words[1:]))
+
+
+def below(pid, rows):
+    """The pids in `rows` ({pid: (ppid, start, command)}) that have `pid` as an ancestor."""
+    found, grew = set(), True
+    while grew:
+        grew = False
+        for other, (parent, _, _) in rows.items():
+            if other not in found and (parent == pid or parent in found):
+                found.add(other)
+                grew = True
+    return found
+
+
+def agent_terminal_states(conn, tabs, rows=None):
+    """{name: state} of each agent terminal, from the daemon's `terminal-resources` (its own terminals only) and the
+    process table. A state is ("program", pid): the bench agent program with this terminal's name runs;
+    ("resumed", {pid: start}): the real CLI that the product's resume started for this terminal's bench session runs,
+    with the processes below it; ("shell", None): only shells; ("other", command): another program runs, it is not
+    this tool's; ("none", None): the daemon has no terminal for the tab (a dead tab). A reply that is not OK stops
+    the command (exit 1)."""
     reply = conn.call("terminal-resources", surfaces=[tab["surface"] for _, tab in tabs])
     if not reply.get("ok"):
         raise SystemExit(f"session_real: the daemon did not answer terminal-resources: {reply.get('error')!r}; "
                          "the agent programs cannot be counted")
     rows = process_rows() if rows is None else rows
     by_surface = {terminal.get("surface"): terminal for terminal in (reply.get("data") or {}).get("terminals") or []}
-    found = {}
+    states = {}
     for number, tab in tabs:
-        terminal, name = by_surface.get(tab["surface"]) or {}, f"real-{number:04d}"
-        for pid in [terminal.get("pid")] + [process.get("pid") for process in terminal.get("processes") or []]:
-            named = AGENT_COMMAND.search(rows.get(pid, (0, "", ""))[2]) if pid else None
+        name, terminal = f"real-{number:04d}", by_surface.get(tab["surface"])
+        if terminal is None:
+            states[name] = ("none", None)
+            continue
+        pids = [pid for pid in [terminal.get("pid")] + [process.get("pid") for process in terminal.get("processes") or []]
+                if pid in rows]
+        state = ("shell", None)
+        for pid in pids:
+            command = rows[pid][2]
+            named = AGENT_COMMAND.search(command)
             if named and named.group(1) == name:
-                found[name] = pid
+                state = ("program", pid)
                 break
-    return found
+            resumed = RESUMED_CLI.search(command)
+            if resumed and resumed.group(1) == name:
+                # The CLI and what it started, in this terminal only: each pid with its start time.
+                mine = {pid} | (below(pid, rows) & set(pids))
+                state = ("resumed", {one: rows[one][1] for one in sorted(mine)})
+            elif state[0] == "shell" and not is_shell(command):
+                state = ("other", command[:120])
+        if state[0] == "resumed":
+            # Another program beside the resumed CLI and its own processes: not this tool's, nothing is ended.
+            extra = [rows[pid][2][:120] for pid in pids if pid not in state[1] and not is_shell(rows[pid][2])]
+            if extra:
+                state = ("other", extra[0])
+        if state[0] in ("shell", "resumed") and terminal.get("truncated"):
+            state = ("other", "the daemon cut the process list of this terminal: what runs in it is not known")
+        states[name] = state
+    return states
+
+
+def agent_programs(conn, tabs, rows=None):
+    """{name: pid} of the agent programs that run in the agent terminals of THIS daemon, from the daemon's own record
+    (`agent_terminal_states`). Never by the program's name alone over the host, so another tag's programs do not
+    count. Only for a daemon that has the command (``has_terminal_resources``)."""
+    return {name: state[1] for name, state in agent_terminal_states(conn, tabs, rows).items() if state[0] == "program"}
+
+
+def end_resumed(resumed, sig=signal.SIGTERM, rows=None, kill=None):
+    """Sends `sig` to each process of `resumed` ({pid: start}) that is still the same process (same start time):
+    exact PIDs that the daemon listed in a terminal of its own, never a name. The pids it signalled."""
+    rows = process_rows() if rows is None else rows
+    done = []
+    for pid, start in resumed.items():
+        if pid in rows and rows[pid][1] == start:
+            try:
+                (kill or os.kill)(pid, sig)
+                done.append(pid)
+            except (ProcessLookupError, PermissionError):
+                pass
+    return done
+
+
+RETYPE_SECONDS = 8   # a start line that did not start the program (typed at the moment the product typed its own) is typed again
+KILL_SECONDS = 5     # a resumed CLI that does not end on SIGTERM gets SIGKILL after this
+OTHER_SECONDS = 10   # another program for this long is not a start-up step (the product's shim, the wrapper): it stays
+
+
+def start_agents(tabs, states_now, send, restart, end, state_of, settle, force=False, clock=time.time, sleep=time.sleep):
+    """Brings each agent terminal to the bench agent program, in rounds, until all run it or `settle` seconds passed.
+    `states_now()` gives {name: (kind, detail)} (`agent_terminal_states`). Per terminal and round:
+    - "program": the bench program runs: nothing (with `force`, the start line one time);
+    - "resumed": the real CLI that the product's "Resume Agents After Restart" started: `end(pids, SIGTERM)` one time,
+      SIGKILL after KILL_SECONDS; nothing is typed into it, the start line is typed when only the shell is left;
+    - "none": the daemon has no terminal (a dead tab): `restart(tab)` one time, then the start line;
+    - "shell": `send(number, tab, state)`; again after RETYPE_SECONDS when the program did not start;
+    - "other": another program: never typed into, never signalled; after OTHER_SECONDS it is not waited for;
+    - "unknown" (a daemon without `terminal-resources`): `restart` for a dead tab, the start line one time, as the
+      tool did before.
+    Returns the counts and the last states."""
+    names = {f"real-{number:04d}": (rank, number, tab) for rank, (number, tab) in enumerate(tabs)}
+    result = {"started": 0, "restarted_shells": 0, "already_running": 0, "restart_failed": [], "ended_resumed": {},
+              "resumed_killed": [], "rounds": 0}
+    typed, restarted, ended, failed, other_since, first = {}, set(), {}, set(), {}, True
+    deadline = clock() + settle
+    while True:
+        states = states_now()
+        result["rounds"] += 1
+        pending = 0
+        for name, (rank, number, tab) in names.items():
+            kind, detail = states.get(name, ("none", None))
+            if kind == "program" and not (force and first):
+                result["already_running"] += 1 if first else 0
+                continue
+            if name in failed or (kind == "unknown" and name in typed):
+                continue
+            if kind == "other":
+                pending += 1 if clock() - other_since.setdefault(name, clock()) < OTHER_SECONDS else 0
+                continue
+            other_since.pop(name, None)
+            pending += 1
+            if clock() >= deadline:
+                continue
+            if kind == "resumed":
+                if name not in ended:
+                    if end(detail, signal.SIGTERM):
+                        ended[name] = clock()
+                        result["ended_resumed"][name] = sorted(detail)
+                elif clock() - ended[name] >= KILL_SECONDS and name not in result["resumed_killed"]:
+                    end(detail, signal.SIGKILL)
+                    result["resumed_killed"].append(name)
+                continue
+            if (kind == "none" or (kind == "unknown" and tab.get("dead"))) and name not in restarted:
+                error = restart(tab)
+                if error:
+                    result["restart_failed"].append({"terminal": name, "error": error})
+                    failed.add(name)
+                    continue
+                restarted.add(name)
+                result["restarted_shells"] += 1
+            if name in typed and clock() - typed[name] < RETYPE_SECONDS:
+                continue
+            if send(number, tab, state_of(rank)):
+                result["started"] += 0 if name in typed else 1
+                typed[name] = clock()
+        first = False
+        if not pending or clock() >= deadline:
+            break
+        sleep(0.5)
+    result["states"] = states
+    result["not_typed"] = sorted(name for name, state in states.items()
+                                 if state[0] in ("shell", "none", "unknown") and name not in typed and name not in failed)
+    return result
 
 
 def has_terminal_resources(identity):
@@ -748,7 +895,7 @@ def agent_programs_by_socket(daemon_socket, rows=None, read=None):
 
 
 def agents(args):
-    """Starts the agent program in every agent terminal that has a shell and no agent yet."""
+    """Starts the agent program in every agent terminal that has no agent program yet (`start_agents`)."""
     mix = mix_of(args)
     daemon_socket, _ = sockets(args)
     conn = Conn(daemon_socket)
@@ -764,57 +911,59 @@ def agents(args):
     # a restore, with no program in their shells), so "runs" is read from the processes of this daemon's terminals.
     exact = has_terminal_resources(conn.must("identify"))
 
-    def programs_now():
-        return agent_programs(conn, tabs) if exact else agent_programs_by_socket(daemon_socket)
+    def states_now():
+        if exact:
+            return agent_terminal_states(conn, tabs)
+        running = agent_programs_by_socket(daemon_socket)
+        return {f"real-{number:04d}": ("program", running[f"real-{number:04d}"]) if f"real-{number:04d}" in running
+                else ("unknown", None) for number, _ in tabs}
 
-    running = programs_now()
-    started = restarted = skipped = 0
-    waiting, restart_failed = [], []
-    for rank, (number, tab) in enumerate(tabs):
-        surface = tab["surface"]
-        if f"real-{number:04d}" in running and not tab.get("dead") and not args.force:
-            skipped += 1
-            continue
-        if tab.get("dead"):
-            reply = conn.call("restart-tab", surface=surface)
-            if not reply.get("ok") and reply.get("error_code") != "tab-not-dead":
-                print(f"restart-tab real-{number:04d}: {reply.get('error')!r}", flush=True)
-                restart_failed.append({"terminal": f"real-{number:04d}", "error": str(reply.get("error"))[:200]})
-                continue
-            restarted += 1
-        waiting.append((number, surface, agent_state(rank, args)))
-    deadline = time.time() + args.settle
-    while waiting and time.time() < deadline:
-        still = []
-        for number, surface, state in waiting:
-            reply = conn.call("send", surface=surface, text=agent_command(number, state))
-            if reply.get("ok"):
-                started += 1
-            else:
-                still.append((number, surface, state))  # the new shell is not in the tab yet
-        waiting = still
-        if waiting:
-            time.sleep(0.5)
-    expected = len(tabs) - len(waiting) - len(restart_failed)
+    def send(number, tab, state):
+        return bool(conn.call("send", surface=tab["surface"], text=agent_command(number, state)).get("ok"))  # not OK: the new shell is not in the tab yet
+
+    def restart(tab):
+        reply = conn.call("restart-tab", surface=tab["surface"])
+        if reply.get("ok") or reply.get("error_code") == "tab-not-dead":
+            return None
+        print(f"restart-tab {tab['surface']}: {reply.get('error')!r}", flush=True)
+        return str(reply.get("error"))[:200]
+
+    did = start_agents(tabs, states_now, send, restart, end_resumed, lambda rank: agent_state(rank, args), args.settle, args.force)
+    states = did.pop("states")
+    restart_failed, not_typed = did["restart_failed"], did.pop("not_typed")
+    expected = len(tabs) - len(not_typed) - len(restart_failed) - sum(1 for state in states.values() if state[0] in ("other", "resumed"))
     settle_agents(conn, expected, args.settle)
-    programs = programs_now()
     deadline = time.time() + min(args.settle, 15)
-    while len(programs) < expected and time.time() < deadline:  # a shell takes a moment to `exec` the program
-        time.sleep(0.5)
-        programs = programs_now()
+    while sum(1 for state in states.values() if state[0] == "program") < expected and time.time() < deadline:
+        time.sleep(0.5)  # a shell takes a moment to `exec` the program
+        states = states_now()
+    programs = sum(1 for state in states.values() if state[0] == "program")
+    other = {name: state[1] for name, state in states.items() if state[0] == "other"}
+    resumed_left = sorted(name for name, state in states.items() if state[0] == "resumed")
     after = counts(conn)
     print("SESSION-REAL-AGENTS " + json.dumps({
-        "started": started, "restarted_shells": restarted, "already_running": skipped, "not_started": len(waiting),
-        "restart_failed": len(restart_failed), "agent_terminals": len(tabs), "agent_programs_running": len(programs),
+        "started": did["started"], "restarted_shells": did["restarted_shells"], "already_running": did["already_running"],
+        "not_started": len(not_typed), "restart_failed": len(restart_failed), "agent_terminals": len(tabs),
+        "agent_programs_running": programs,
         "agent_programs_scope": "the agent terminals of this daemon (its terminal-resources)" if exact else
                                 "a lower bound, not judged: programs whose CMUX_TUI_SOCKET is this daemon's (the daemon has no terminal-resources)",
+        "resumed_cli_ended": len(did["ended_resumed"]), "resumed_cli_killed": len(did["resumed_killed"]),
+        "resumed_cli_left": len(resumed_left), "other_programs": len(other), "rounds": did["rounds"],
         "after": after}), flush=True)
-    end_with("agents", agents_faults(len(tabs), len(programs) if exact else None, after.get("agents"), len(waiting), restart_failed))
+    end_with("agents", agents_faults(len(tabs), programs if exact else None, after.get("agents"), len(not_typed), restart_failed,
+                                     other, resumed_left))
 
 
-def agents_faults(agent_terminals, programs, listed, not_started, restart_failed):
+def agents_faults(agent_terminals, programs, listed, not_started, restart_failed, other=None, resumed_left=()):
     """Why the `agents` result is not the session asked for (empty: it is)."""
     faults = []
+    if other:
+        first = sorted(other)[0]
+        faults.append(f"{len(other)} agent terminals run another program; nothing was typed into them and nothing was ended: "
+                      f"first {first}: {other[first]}")
+    if resumed_left:
+        faults.append(f"{len(resumed_left)} agent terminals still run the real CLI that the product's resume started "
+                      f"(`claude --resume session-real-<name>`): first {resumed_left[0]}")
     if restart_failed:
         faults.append(f"restart-tab failed for {len(restart_failed)} agent terminals: first {json.dumps(restart_failed[0])}")
     if not_started:
