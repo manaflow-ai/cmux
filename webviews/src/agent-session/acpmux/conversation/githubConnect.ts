@@ -9,7 +9,8 @@
 //   - the stderr line git and gh print on a Cloud VM (cmux-host github_cli.rs `Refused` Display:
 //     `cmux github credential: OWNER/REPO: integration.not_found: … Next: … Connect GitHub …
 //     \`cmux accounts github-connect\` …`), which the MCP error's text block repeats.
-// One card per turn, not per call: the turn's last such call names the repository.
+// One card per turn, not per call. Only the GitHub MCP server's own error and arguments name the
+// repository; printed text never does (githubConnectCall).
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { mcpCall } from "./mcpCalls";
 
@@ -60,21 +61,38 @@ function reasonOf(code: string | undefined): GitHubConnectReason | undefined {
   }
 }
 
-/// What a tool call's failure asks of GitHub, or undefined for any other call.
+/// The cmux GitHub MCP server's name (acpmux `github_mcp.rs`; Claude titles its tools
+/// `mcp__github__<tool>`, Codex passes `server: "github"`).
+export const GITHUB_MCP_SERVER = "github";
+
+/// What a tool call's failure asks of GitHub, or undefined for any other call. The repository comes
+/// only from trusted structure: the cmux GitHub MCP server's own error and the call's arguments to
+/// that server. Text a call printed never names it (a file the agent read, a page it fetched, or a
+/// shell's output could print a refusal-shaped line naming any repository), so a git or gh refusal
+/// draws the card with no repository and Connect asks GitHub without one.
 export function githubConnectCall(tool: Tool): Omit<GitHubConnectNeed, "callId"> | undefined {
   const output = tool.output;
   if (!output || !output.includes("github")) return undefined;
   // Large outputs: the refusal is a short line at the end of what the call printed.
   const text = output.length > 65_536 ? output.slice(-65_536) : output;
   const mcp = mcpCall(tool);
-  const argsRepo = mcp ? repoOfArgs(mcp.args) : undefined;
-  const structured = structuredNeed(parseJSON(text), 0);
-  if (structured) return { ...structured, ...pick(structured.repo ?? argsRepo ?? lineRepo(text)) };
+  if (mcp) {
+    if (mcp.server !== GITHUB_MCP_SERVER) return undefined;
+    const argsRepo = repoOfArgs(mcp.args);
+    const structured = structuredNeed(parseJSON(text), 0);
+    if (structured) return { reason: structured.reason, ...pick(structured.repo ?? argsRepo) };
+    const reason = lineReason(text);
+    return reason ? { reason, ...pick(argsRepo) } : undefined;
+  }
+  // A shell call that ran git or gh: the agent side's refusal line, no repository.
+  if (!tool.command || !/(?:^|[\s;&|(])(?:git|gh)\s/.test(tool.command)) return undefined;
+  const reason = lineReason(text);
+  return reason ? { reason } : undefined;
+}
+
+function lineReason(text: string): GitHubConnectReason | undefined {
   const line = refusalLine(text);
-  if (!line) return undefined;
-  const reason = reasonOf(CODE.exec(line)?.[1]);
-  if (!reason) return undefined;
-  return { reason, ...pick(argsRepo ?? lineRepo(line) ?? remoteRepo(text)) };
+  return line ? reasonOf(CODE.exec(line)?.[1]) : undefined;
 }
 
 /// The turn's need: its last failed GitHub call that asks for a connect, over the turn's rows.
@@ -104,25 +122,6 @@ function refusalLine(text: string): string | undefined {
     if (line.includes("Next: ") && line.includes(`\`${GITHUB_CONNECT_CLI}\``) && CODE.test(line)) return line;
   }
   return undefined;
-}
-
-/// The repository a refusal line names: `OWNER/REPO: <code>` (git, gh) or `for GitHub for
-/// OWNER/REPO (<code>)` (the MCP text).
-function lineRepo(line: string): string | undefined {
-  const shell =
-    /(?:^|\s)([A-Za-z0-9][\w.-]*\/[\w.-]+): (?:integration\.not_found|github\.not_connected|needs_reauth|policy\.denied)\b/.exec(
-      line,
-    );
-  if (shell) return shell[1];
-  return /token for GitHub for ([^\s()]+) \(/.exec(line)?.[1];
-}
-
-/// A github.com remote the call's output printed (`git push`'s `https://github.com/OWNER/REPO.git`).
-function remoteRepo(text: string): string | undefined {
-  const match = /(?:https:\/\/|git@)github\.com[/:]([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?(?=[\s/'"]|$)/m.exec(
-    text,
-  );
-  return match ? `${match[1]}/${match[2]}` : undefined;
 }
 
 function repoOfArgs(args: unknown): string | undefined {
