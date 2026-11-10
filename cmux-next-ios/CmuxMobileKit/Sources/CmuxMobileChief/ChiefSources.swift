@@ -257,6 +257,8 @@ public final class ChiefSources {
     }
 
     private func apply(_ found: Lookup, userID: String, http: ChiefCloudHTTP) {
+        // A Turn On's follow-up read (or any newer one) answered: the card shows what it found.
+        turningOnChief = nil
         // A failed look (no network, a failed read) never takes down a Cloud Chief that works: only an
         // answer does (the list without it: archived or deleted; its brain turned off; no brains here).
         if case let .ready(current) = cloudState, case let .unavailable(_, nil, chiefs, brains) = found,
@@ -317,16 +319,16 @@ public final class ChiefSources {
         isChanging = true
         turningOnChief = chief.id
         changeError = nil
-        defer {
-            isChanging = false
-            turningOnChief = nil
-        }
+        defer { isChanging = false }
         do {
             try await Self.turnOn(http, chiefID: chief.id)
             turnOnRefusal = nil
             selectedChiefID = chief.id
+            // The card keeps its spinner until this read lands (``apply(_:userID:http:)``),
+            // so it never flashes Turn On again before the Chief's row replaces it.
             refresh()
         } catch {
+            turningOnChief = nil
             turnOnRefusal = ChiefOffCard.refusal(of: chief.id, for: error)
         }
     }

@@ -130,9 +130,10 @@ import Testing
         #expect(sent.first?.path == "/v1/chiefs/\(Self.hosted)/brain")
         #expect(sent.first?.body["enabled"] as? Bool == true)
         #expect(sources.turnOnRefusal == nil)
-        #expect(sources.turningOnChief == nil)
         #expect(!sources.isChanging)
         #expect(sources.changeError == nil)
+        // The spinner stays until the follow-up read lands, so Turn On never flashes back.
+        #expect(sources.offCard == .turningOn)
     }
 
     @Test func anAccountTheServiceRefusesShowsUnavailableWithNoButtonUntilTheAppComesBack() async {
@@ -157,7 +158,7 @@ import Testing
         Service.reset(200, #"{"ok":true,"value":{"config":{"enabled":true}}}"#)
         await sources.turnOn(chief)
         #expect(sources.turnOnRefusal == nil)
-        #expect(sources.offCard == .off) // until the next read says the brain is on
+        #expect(sources.offCard == .turningOn) // until the follow-up read says the brain is on
     }
 
     @Test func signingOutForgetsTheRefusal() async {
