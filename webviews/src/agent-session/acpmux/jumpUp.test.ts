@@ -30,7 +30,8 @@ test("the last prompt the reader sent, past the prompts they did not type", () =
     reply("reply-3"),
   ];
   expect(lastOwnPrompt(rows, scan())?.id).toBe("typed-2");
-  expect(lastOwnPrompt(rows.filter((each) => each.kind !== "user" || each.untyped), scan())).toBeUndefined();
+  const noneTyped = rows.filter((each) => each.kind !== "user" || each.untyped);
+  expect(lastOwnPrompt(noneTyped, scan())).toBeUndefined();
 });
 
 test("in a shared chat, yours is the one with your author: none for the owner, your id for a guest", () => {
