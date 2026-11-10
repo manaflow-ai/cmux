@@ -2595,7 +2595,7 @@ fn a_drill_whose_start_answers_past_its_deadline_sends_nothing() {
     let until = fake.now() + Duration::from_secs(60);
     let global = GlobalArgs::default();
     let Err(Outcome::Failed { error, .. }) =
-        super::fault::drill_source(&mut fake, &global, &asked, false, (&plan, &caps, until))
+        fault::drill_source(&mut fake, &global, &asked, false, (&plan, &caps, until))
     else {
         panic!("a late start went on: {:?}", fake.ran)
     };
@@ -2614,7 +2614,7 @@ fn a_drill_send_past_its_deadline_runs_nothing() {
         ..GlobalArgs::default()
     };
     let past = Instant::now() - Duration::from_millis(1);
-    let send = super::fault::prompt_send(
+    let send = fault::prompt_send(
         &global,
         &asked,
         "count".into(),

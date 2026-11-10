@@ -124,6 +124,9 @@ pub(super) struct Request {
     pub until: Option<Instant>,
 }
 
+// `Request` grew past clippy's line with the drill's `until`; a parse is made once per command, so its size costs
+// nothing a box would save.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Parsed {
     Help,
