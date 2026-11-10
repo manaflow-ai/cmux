@@ -357,7 +357,7 @@ describe("the widget templates (clock-weather, my-prs, design-links)", () => {
     host.dispatch("m", host.findNode("m", (n) => n.type === "TextField")!, "submit", { text: "octocat" })
     await host.settle(10)
     expect(rowTitles(host)).toEqual(["Public one"])
-    expect(host.calls.find((c) => c.name === "app.storage.set" && c.params.key === "login")?.params.value).toBe("octocat")
+    expect(host.calls.filter((c) => c.name === "app.storage.set" && c.params.key === "login").at(-1)?.params.value).toBe("octocat")
     expect(host.findNode("m", (n) => n.type === "TextField")).toBeUndefined()
   })
 
