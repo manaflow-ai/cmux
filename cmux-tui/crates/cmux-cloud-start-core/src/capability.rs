@@ -4,8 +4,9 @@
 //! plan, grants) once, off the start path, and answers a token. The app sends it on its Cloud calls
 //! in `x-cmux-cloud-capability`, so a create or a start skips those reads.
 //!
-//! The app asks here (ops `cloud_capability_use` and `cloud_capability_keep`) and only carries the
-//! token: which one goes on a call, when to ask for the next, and what an answer means. Asked at
+//! The app asks here (ops `cloud_capability_header`, `cloud_capability_answer`, `cloud_capability_drop`);
+//! this module holds the token for the app process and decides which one goes on a call, when to ask
+//! for the next, and what an answer means. The app only makes the fetch. Asked at
 //! sign-in, on a team switch and while the person types (the composer's reserve), and again on a
 //! call once the token is past its refresh time; never on a timer, so nothing runs while Cloud is
 //! idle. A call never waits for a fetch: it goes with the token it has, or with none (the server's
@@ -62,7 +63,7 @@ pub struct State {
     pub next_fetch_ms: u64,
 }
 
-/// `cloud_capability_use`: one call is about to go in `team` (the install token's team) at `now_ms`.
+/// One call is about to go in `team` (the install token's team) at `now_ms`.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UseRequest {
@@ -102,7 +103,7 @@ pub fn use_for(request: &UseRequest) -> UseReply {
     UseReply { header, fetch, state }
 }
 
-/// `cloud_capability_keep`: the route's answer to a fetch for `team` sent at `sent_ms`, read at
+/// The route's answer to a fetch for `team` sent at `sent_ms`, read at
 /// `now_ms`. `status` 0: no answer (unreachable, timed out).
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -177,6 +178,87 @@ pub fn keep(request: &KeepRequest) -> KeepReply {
         Some(Held { token: token.to_owned(), team: team.to_owned(), use_until_ms, refresh_at_ms });
     state.next_fetch_ms = 0;
     KeepReply { state, outcome: "held" }
+}
+
+/// The token this app process holds, kept here so the app carries no state of its own (Swift stays minimal in
+/// the Cloud core: `.github/language-boundaries.toml` `cloud-core-swift-minimal`).
+static HELD: std::sync::Mutex<State> =
+    std::sync::Mutex::new(State { held: None, next_fetch_ms: 0 });
+
+fn held() -> std::sync::MutexGuard<'static, State> {
+    HELD.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// `cloud_capability_header`: a call in `team` is about to go at `now_ms`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeaderRequest {
+    #[serde(default)]
+    pub team: Option<String>,
+    #[serde(deserialize_with = "ms")]
+    pub now_ms: u64,
+}
+
+/// The token to send (none: the server's full checks) and whether the app starts the fetch now.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeaderReply {
+    pub header: Option<String>,
+    pub fetch: bool,
+}
+
+/// [`use_for`] on the process's held state.
+pub fn header(request: &HeaderRequest) -> HeaderReply {
+    let mut state = held();
+    let reply = use_for(&UseRequest {
+        state: state.clone(),
+        team: request.team.clone(),
+        now_ms: request.now_ms,
+    });
+    *state = reply.state;
+    HeaderReply { header: reply.header, fetch: reply.fetch }
+}
+
+/// `cloud_capability_answer`: [`KeepRequest`] without the state, which this process holds.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnswerRequest {
+    pub team: String,
+    #[serde(deserialize_with = "ms")]
+    pub sent_ms: u64,
+    #[serde(deserialize_with = "ms")]
+    pub now_ms: u64,
+    #[serde(deserialize_with = "ms")]
+    pub status: u64,
+    #[serde(default)]
+    pub body: Value,
+}
+
+/// What the answer was (for the app's one log line; never the token).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct AnswerReply {
+    pub outcome: &'static str,
+}
+
+/// [`keep`] on the process's held state.
+pub fn answer(request: AnswerRequest) -> AnswerReply {
+    let mut state = held();
+    let reply = keep(&KeepRequest {
+        state: state.clone(),
+        team: request.team,
+        sent_ms: request.sent_ms,
+        now_ms: request.now_ms,
+        status: request.status,
+        body: request.body,
+    });
+    *state = reply.state;
+    AnswerReply { outcome: reply.outcome }
+}
+
+/// `cloud_capability_drop`: the install token was refused, or the account or team changed. Nothing is sent until
+/// a new token is fetched.
+pub fn forget() {
+    *held() = State::default();
 }
 
 /// A whole non-negative number from JSON, written as an integer or (through Swift's `JSONValue`) a float.

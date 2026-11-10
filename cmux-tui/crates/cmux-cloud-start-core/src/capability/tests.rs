@@ -167,3 +167,24 @@ fn an_answer_with_float_times_is_kept() {
     assert_eq!(reply.outcome, "held");
     assert_eq!(reply.state.held.unwrap().refresh_at_ms, T0 + 240_000);
 }
+
+#[test]
+fn the_process_holds_the_token_between_calls_and_a_drop_forgets_it() {
+    // The only test of the process-wide state: the others use the pure rules with their own state.
+    forget();
+    let ask = |now: u64| header(&HeaderRequest { team: Some("team_a".to_owned()), now_ms: now });
+    assert_eq!(ask(T0), HeaderReply { header: None, fetch: true });
+    assert!(!ask(T0 + 1).fetch, "one fetch in flight");
+    let kept = super::answer(AnswerRequest {
+        team: "team_a".to_owned(),
+        sent_ms: T0,
+        now_ms: T0 + 50,
+        status: 200,
+        body: answer("team_a", 1_000),
+    });
+    assert_eq!(kept.outcome, "held");
+    assert_eq!(ask(T0 + 60), HeaderReply { header: Some(TOKEN.to_owned()), fetch: false });
+    forget();
+    assert_eq!(ask(T0 + 70), HeaderReply { header: None, fetch: true });
+    forget();
+}
