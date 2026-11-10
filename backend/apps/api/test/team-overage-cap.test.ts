@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { billedLevelMicros, defaultTeamCapPools, markupPriceVersion, overageModelMarkup, teamCapApplies, usageMeterValueMicros } from "../src/billing-catalog.ts"
+import { billedLevelMicros, defaultTeamCapPools, markupPriceVersion, overageModelMarkup, teamCapApplies, teamCapUnpaidMaxPools, usageMeterValueMicros } from "../src/billing-catalog.ts"
+import { paidRenewal } from "../src/billing-usage-sync.ts"
 import { stackTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import { teamCapReached } from "../src/inference/included-stop.ts"
 import { inDO, paidPerson, post, testEnv } from "./setup/inference-person.ts"
@@ -86,7 +87,7 @@ describe("the team spending cap (UsageMeterDO.teamCap)", () => {
     expect(teamCapApplies("v1")).toBe(false)
   })
 
-  it("v2 Team defaults to 2x the pool (50 x seats) once the sync marked its seats, through under, near and at_cap", async () => {
+  it("v2 defaults to 2x the pool (50 x seats for a Team) once the sync marked it, through under, near and at_cap", async () => {
     const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, "a1b2c3d4-0e0f-4a1b-8c2d-000000000002")
     const meter = stub(team)
     // No mark yet: seats unknown, no default.
@@ -106,11 +107,56 @@ describe("the team spending cap (UsageMeterDO.teamCap)", () => {
     expect((await meter.teamCap(team, false, "v2")).spent_usd).toBe(50 + 25 * 1.1)
     await meter.record(team, [modelFact(20)])
     expect(await meter.teamCap(team, true, "v2")).toMatchObject({ state: "at_cap", cap_usd: 100 })
-    // A per-team mark (not Team per seat) gets no default.
+    // A per-team mark (a personal plan) gets the same default: twice its pool (Leo 2026-11-10, no machine-count cap, so
+    // the spending cap is the stop for every account).
     const other = stackTeamIdFor(testEnv.STACK_PROJECT_ID, "a1b2c3d4-0e0f-4a1b-8c2d-000000000003")
-    await stub(other).record(other, [modelFact(100)])
+    await stub(other).record(other, [modelFact(30)])
     await markBillable(other, "per_team", 1, 20)
-    expect(await stub(other).teamCap(other, true, "v2")).toMatchObject({ state: "under", cap_usd: null })
+    expect(await stub(other).teamCap(other, true, "v2")).toMatchObject({ state: "near", cap_usd: 40 })
+    await stub(other).record(other, [modelFact(10)])
+    expect(await stub(other).teamCap(other, true, "v2")).toMatchObject({ state: "at_cap", cap_usd: 40 })
+  })
+
+  it("a new account cannot raise its cap past 4 pools until its first paid renewal invoice", async () => {
+    const { t, team } = await paidPerson("team-cap-raise-lock")
+    const meter = stub(team)
+    await markBillable(team, "per_team", 1, 20, 10_000)
+    // The default, 2 x 20, is under the lock.
+    expect(await meter.teamCap(team, false, "v2")).toMatchObject({ cap_usd: 40 })
+    expect((await meter.teamCap(team, false, "v2")).raise_locked).toBeUndefined()
+    // Raised to 60: under 4 x 20 = 80, kept.
+    await setCap(t, 60)
+    expect(await meter.teamCap(team, false, "v2")).toMatchObject({ cap_usd: 60 })
+    // Raised to 10000: held at 80 until a renewal is paid; the model router stops there too.
+    await setCap(t, 10_000)
+    expect(await meter.teamCap(team, false, "v2")).toMatchObject({ cap_usd: 80, raise_locked: true })
+    await meter.record(team, [modelFact(79.5)])
+    expect(await meter.reserveUser(team, "user_a", "lock-1", 1 * M, 500 * M, undefined, "per_team", false, "v2")).toMatchObject({ ok: false, team_cap: true, cap_usd: 80 })
+    // v1 (production) has no default cap and no lock: the admin's cap as set.
+    expect(await meter.teamCap(team, false, "v1")).toMatchObject({ cap_usd: 10_000 })
+    // The first paid renewal lifts the lock for good.
+    await meter.markPaidInvoice(team, "sub_lock", "in_renewal_1", 2000, nowS())
+    await meter.markPaidInvoice(team, "sub_lock", "in_renewal_1", 2000, nowS())
+    const lifted = await meter.teamCap(team, false, "v2")
+    expect(lifted).toMatchObject({ state: "under", cap_usd: 10_000 })
+    expect(lifted.raise_locked).toBeUndefined()
+    expect(await meter.reserveUser(team, "user_a", "lock-2", 1 * M, 500 * M, undefined, "per_team", false, "v2")).toEqual({ ok: true })
+  })
+
+  it("the lock's size is env config: an integer of 2 to 1000 pools, else 4", () => {
+    expect(teamCapUnpaidMaxPools(undefined)).toBe(4)
+    expect(teamCapUnpaidMaxPools("10")).toBe(10)
+    expect(teamCapUnpaidMaxPools(" 2 ")).toBe(2)
+    for (const bad of ["", "1", "0", "1001", "2.5", "-3", "x"]) expect(teamCapUnpaidMaxPools(bad)).toBe(4)
+  })
+
+  it("only a renewal paid with money lifts the lock, not the sign-up invoice", () => {
+    expect(paidRenewal({ id: "in_1", status: "paid", billing_reason: "subscription_cycle", amount_paid: 2000 })?.id).toBe("in_1")
+    expect(paidRenewal({ id: "in_2", status: "paid", billing_reason: "subscription_create", amount_paid: 2000 })).toBeNull()
+    expect(paidRenewal({ id: "in_3", status: "paid", billing_reason: "subscription_cycle", amount_paid: 0 })).toBeNull()
+    expect(paidRenewal({ id: "in_4", status: "open", billing_reason: "subscription_cycle", amount_paid: 0 })).toBeNull()
+    expect(paidRenewal("in_5")).toBeNull()
+    expect(paidRenewal(null)).toBeNull()
   })
 
   it("an admin-set cap wins over the default and keeps working as today, counting machine time", async () => {
