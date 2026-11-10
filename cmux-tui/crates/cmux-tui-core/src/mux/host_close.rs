@@ -157,7 +157,7 @@ impl TerminalHostCloses {
         record: crate::terminal_host_runtime::TerminalHostRecord,
         record_path: PathBuf,
     ) {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner).pending += 1;
+        // RED SIDE BRANCH: the retry is detached again (fix part 2 reverted).
         let fallback = (record.clone(), record_path.clone());
         let closes = self.clone();
         if std::thread::Builder::new()
@@ -210,14 +210,10 @@ impl TerminalHostCloses {
             }
             delay = (delay * 2).min(Duration::from_secs(5));
         }
-        self.complete();
     }
 
     /// The owner shuts down: each record cleanup makes its last attempt now.
-    pub(crate) fn begin_shutdown(&self) {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner).ending = true;
-        self.cleanup_wake.notify_all();
-    }
+    pub(crate) fn begin_shutdown(&self) {}
 
     fn complete(&self) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
