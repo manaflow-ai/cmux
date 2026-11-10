@@ -13,10 +13,13 @@
 //!   makes it only when the platform made none)
 //!   the one its first try took while that machine exists; for a send from a
 //!   Mac workspace, the machine that workspace already has; else a new one
-//!   named for chats; and the send's keys ([`Keys`]). The platform binds one
-//!   machine per project, shared by that project's workspaces (leo-workspace
-//!   `design/cloud.md`). A machine that exists is pinned to the
-//!   send before anything runs there, so a retry of the send names it.
+//!   named for chats; and the send's keys ([`Keys`]). One workspace per
+//!   machine: the plan's ensure names no project, so the platform gives each
+//!   workspace its own machine, and new ones until the plan's machine cap
+//!   (leo-workspace `design/cloud.md`; Leo, 2026-11-06: "one workspace per
+//!   machine ... just arbitrarily many until you hit the cap"). A machine
+//!   that exists is pinned to the send before anything runs there, so a
+//!   retry of the send names it.
 //! - `pin --key K --account A --machine ID [--workspace W]`: pins the send
 //!   to the machine the App just made for it, and makes it the workspace's
 //!   when the workspace has none yet and no other workspace has it.
@@ -285,7 +288,7 @@ struct PlanRequest {
     /// The cloud environment the send chose (`cloud.startChat`'s `environment`), echoed for `ensure`.
     #[serde(default)]
     environment: Option<String>,
-    /// The cmux credential is the first line of stdin: a project machine for a send from a local folder, on the
+    /// The cmux credential is the first line of stdin: a new machine for a send from a local folder, on the
     /// personal account, is the platform's workspace machine.
     #[serde(default)]
     credential_on_stdin: bool,
@@ -310,7 +313,7 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     })
 }
 
-/// [`plan`], ensuring the project's machine for a local folder on the personal account ([`ensures`]).
+/// [`plan`], ensuring the workspace's own machine for a local folder on the personal account ([`ensures`]).
 pub(super) fn plan_with(
     ledger: &Path,
     request: &str,
@@ -419,7 +422,8 @@ fn plan_with_calls(
                 workspace: workspace.map_or_else(|| keys.create.clone(), str::to_string),
                 create_key: keys.create,
                 repo: repo.clone(),
-                project_key: project_key.clone().unwrap_or_default(),
+                // No project key: the platform binds one workspace per machine, never a project's shared one.
+                project_key: None,
                 git_ref: None,
                 environment: request.environment.clone(),
                 platform: request.platform.clone(),
@@ -442,7 +446,7 @@ fn plan_with_calls(
                     if let Err(error) = Ledger::update(ledger, |pins| {
                         pins.record(id, &send);
                         if let Some(workspace) = workspace {
-                            pick::claim_project(pins, workspace, &request.account, id);
+                            pick::claim(pins, workspace, &request.account, id);
                         }
                     }) {
                         return refused("ledger_failed", format!("{error:#}"));
@@ -528,7 +532,7 @@ fn reservation_destination(
     json!({"ok": true, "machine": machine})
 }
 
-/// Whether the send uses the platform's project machine: the folder has a project key,
+/// Whether the send's new machine is the platform's workspace machine: the folder has a project key (a local folder),
 /// the account is the personal one (the App spells it `user/` with no team: workspace machines are made in
 /// the personal team) and the App handed over the credential.
 fn ensures(request: &PlanRequest, project_key: Option<&str>) -> bool {
@@ -663,7 +667,8 @@ pub(super) struct Ensure {
     workspace: String,
     create_key: String,
     repo: Option<String>,
-    project_key: String,
+    /// Set only by `ensure --project-key`: the platform then shares that project's machine.
+    project_key: Option<String>,
     git_ref: Option<String>,
     environment: Option<String>,
     platform: Option<String>,
@@ -692,8 +697,12 @@ impl Ensure {
             return None;
         }
         let project_key = match optional("--project-key")? {
-            Some(key) => project::normalize_key(&key)?,
-            None => format!("git:github.com/{}", repo.as_deref()?.to_lowercase()),
+            Some(key) => Some(project::normalize_key(&key)?),
+            // Without a project key the ensure needs the repository.
+            None => {
+                repo.as_ref()?;
+                None
+            }
         };
         Some(Self {
             workspace: flags.workspace()??.to_string(),
@@ -710,7 +719,10 @@ impl Ensure {
 
     /// The request body: the plan's `create_key` as the client key, so a retry gets the same machine.
     pub(super) fn body(&self) -> Value {
-        let mut body = json!({"clientKey": self.create_key, "projectKey": self.project_key});
+        let mut body = json!({"clientKey": self.create_key});
+        if let Some(project_key) = &self.project_key {
+            body.set("projectKey", json!(project_key));
+        }
         if let Some(key) = &self.reservation_key {
             body.set("reservationKey", json!(key));
             body.set("reservationSendKey", json!(self.reservation_send_key));

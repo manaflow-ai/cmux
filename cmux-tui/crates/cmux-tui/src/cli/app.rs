@@ -879,8 +879,10 @@ pub(super) fn connect_command_or_wait(global: &GlobalArgs) -> Result<UnixStream,
             .replace("{error}", &error.to_string());
         typed("socket.unreachable", message, Some(&socket))
     };
-    let mut stream = connect_for_uid(&socket.path, uid)
-        .map_err(|error| ConnectFailure { may_pass: socket_gone(&error), error: unreachable(&error) })?;
+    let mut stream = connect_for_uid(&socket.path, uid).map_err(|error| ConnectFailure {
+        may_pass: socket_gone(&error),
+        error: unreachable(&error),
+    })?;
     // `--socket` may name a daemon's socket: the app answers `system.ping`
     // with `pong`, anything else is another kind of socket, and no app
     // request runs there. `--app-socket` names the app socket itself.
@@ -894,7 +896,9 @@ pub(super) fn connect_command_or_wait(global: &GlobalArgs) -> Result<UnixStream,
             Ok(Err(error)) => error.get("code").is_some_and(Value::is_string),
             // A socket that took the connection and then closed it or did not answer is an app between a
             // bind and its first answer (a control server restarting), not another kind of socket.
-            Err(message) if is_dropped(message) || *message == wait::timeout_message(READ_TIMEOUT) => {
+            Err(message)
+                if is_dropped(message) || *message == wait::timeout_message(READ_TIMEOUT) =>
+            {
                 return Err(ConnectFailure { may_pass: true, error: unreachable(message) });
             }
             // A daemon's refusal of the unknown line is a plain-text line.

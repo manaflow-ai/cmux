@@ -256,14 +256,18 @@ fn a_socket_flag_app_that_restarts_is_not_called_another_kind_of_socket() {
     let (stream, _) = listener.accept().unwrap();
     let mut reader = BufReader::new(stream);
     let _ = answer(&mut reader, json!({ "pong": true }));
-    let second = answer(&mut reader, json!({ "action": "window.new", "ran": true, "replayed": true }));
+    let second =
+        answer(&mut reader, json!({ "action": "window.new", "ran": true, "replayed": true }));
     let output = child.wait_with_output().unwrap();
     let extra = !no_more_connections(&listener);
     drop(listener);
     let _ = std::fs::remove_dir_all(&dir);
 
-    let printed =
-        format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let printed = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(ping["method"], "system.ping");
     assert_eq!(output.status.code(), Some(0), "{printed}");
     assert!(!printed.contains("wrong_kind"), "{printed}");
