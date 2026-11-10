@@ -695,6 +695,14 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         let write_result = write_frame(&mut stream, &frame);
         tap.release(&frame);
         if write_result.is_err() {
+            // A write that timed out may have sent only a part of a frame,
+            // and the frames behind it are lost. The client's reader must
+            // see the end of the stream, so that it attaches again and takes
+            // a new atomic Snapshot. Without this shut-down the input thread
+            // above keeps the connection open, and a client that only reads
+            // (a daemon that stalled for longer than the write time-out)
+            // waits for ever and shows an old picture.
+            tap.close();
             break;
         }
         if frame.kind == MessageKind::Exit {
