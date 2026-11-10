@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """busy_holder: the bench load arm `oversub` (FABLE-COMMON.md "Load arm rule", coordinator order f24, 2026-11-10).
 
-Lawrence's Mac runs all day at a load average of about 250 on 18 cores: about 14 runnable CPU-bound threads per
-core (claude, codex, node, bun, cargo, rustc), all at the default priority. A bench "load" arm with a host load
-under 15 is a quiet machine next to that. This tool puts N CPU-bound threads at the DEFAULT priority and QoS beside
-the app under test, for a short time, and takes them away again. It is the ONE busy loop of the bench owners.
+Lawrence's Mac runs all day at a load average of about 250 to 300 on 18 cores: about 14 runnable threads per core
+(claude, codex, git, gh, node, bun, cargo, rustc). A read of it (2026-11-10) gave 97 % of them below the default
+priority 31 (at 20 and at 4), from processes that also sleep on I/O. A bench "load" arm with a host load under 15
+is a quiet machine next to that. This tool puts N busy threads beside the app under test, for a short time, and
+takes them away again, in one of two shapes (see "Two shapes"). It is the ONE busy loop of the bench owners.
 
   busy_holder.py start --owner TASK --watch-pid $$ [--threads 250] [--procs 25] [--max-seconds 240]
+                       [--shape spin|agents]
         prints the holder's PID on stdout (one line) and a JSON line on stderr; the load runs when it returns.
   busy_holder.py stop PID          stops that holder (only a PID that is a busy_holder with a state file and its
                                    token on its command line), waits until it is gone, prints its summary as JSON.
@@ -27,8 +29,19 @@ it shares it between threads, so 1 process with 250 threads and 250 processes wi
 his Mac has many processes. Say the shape next to each number: threads, processes, cores, threads per core, the
 1-minute load at the start and at the end (the summary of `stop` has all of them).
 
-What this load does NOT copy from his Mac: disk reads and writes, memory pressure, page cache traffic, process
-starts and exits, timers and wakeups of real programs, GPU work. It is CPU run-queue pressure only.
+Two shapes (`--shape`), say which one next to each number:
+  spin    (default) N threads that never sleep and do no I/O. They start at the default priority 31; the kernel
+          lowers a thread that never sleeps, so `ps -M` shows them at 0 to 24 during the arm. This is run-queue
+          length only.
+  agents  N processes with one thread each, like a Mac full of agent CLIs and their helpers (measured on his Mac:
+          248 to 376 runnable threads, 97 % of them below priority 31, at 20 and at 4, from processes that also
+          sleep on I/O). Two of three run at utility QoS (priority 20), one of three at background (4). Each one
+          repeats: a CPU burst of 2 to 24 ms, ONE I/O step (write 64 KiB, with an fsync each 8th turn; or lstat
+          200 system files; or start /usr/bin/true and wait for it; or read the 64 KiB back), a sleep of 0 to
+          20 ms. Its files are in the tool's private state folder (64 KiB per process) and are removed at the end.
+
+What neither shape copies from his Mac: memory pressure, page cache traffic of large files, timers of real
+programs, GPU work, network. `spin` also has no disk I/O and no process starts.
 
 SAFETY (each one is enforced here, not left to the caller):
   1. It ends itself after --max-seconds (default 240, hard limit 600) whatever happens: the supervisor's deadline,
@@ -271,6 +284,94 @@ def worker_main(threads: int, deadline: float, iters: int, supervisor: int) -> N
     os._exit(0)
 
 
+AGENT_BLOCK = 65536
+AGENT_NAMES = 4000
+
+
+def agent_names() -> list:
+    """Paths of system files for the lstat step (read-only; the supervisor makes the list once before it forks)."""
+    names: list = []
+    for root in ("/usr/share", "/usr/lib"):
+        for base, _dirs, files in os.walk(root):
+            names.extend(os.path.join(base, n) for n in files)
+            if len(names) >= AGENT_NAMES:
+                return names[:AGENT_NAMES]
+    return names
+
+
+def agent_main(index: int, deadline: float, iters: int, supervisor: int, folder: str, names: list) -> None:
+    """One process of the shape `agents`: CPU burst, one I/O step, sleep; at utility or background QoS."""
+    left = max(1, int(deadline - time.monotonic()) + 3)
+    signal.signal(signal.SIGALRM, signal.SIG_DFL)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signal.alarm(left)  # kernel alarm: the process dies at the limit also when a system call hangs
+    try:
+        resource.setrlimit(resource.RLIMIT_CPU, (left + 5, left + 5))
+    except (ValueError, OSError):
+        pass
+    set_qos("background" if index % 3 == 2 else "utility")
+    rnd = random.Random(index * 7919 + os.getpid())
+    burst = max(100, iters // 2)  # about 2 ms on a quiet core
+    block = os.urandom(AGENT_BLOCK)
+    try:
+        f = open(os.path.join(folder, "a-%d.dat" % os.getpid()), "wb+", buffering=0)
+    except OSError:
+        f = None
+
+    def go_on() -> bool:
+        return time.monotonic() < deadline and os.getppid() == supervisor
+
+    turn = index  # the processes do not all make the same step at the same time
+    while go_on():
+        for _ in range(rnd.randint(1, 12)):
+            piece(burst)
+            if not go_on():
+                os._exit(0)
+        step = turn % 8
+        try:
+            if step in (0, 4) and f is not None:
+                f.seek(0)
+                f.write(block)
+                if step == 0:
+                    os.fsync(f.fileno())
+            elif step in (1, 3, 5, 7) and names:
+                at = rnd.randrange(len(names))
+                for name in names[at:at + 200]:
+                    try:
+                        os.lstat(name)
+                    except OSError:
+                        pass
+            elif step == 2:
+                child = os.posix_spawn("/usr/bin/true", ["/usr/bin/true"], {})
+                os.waitpid(child, 0)
+            elif f is not None:
+                f.seek(0)
+                f.read(AGENT_BLOCK)
+        except OSError:
+            pass
+        time.sleep(rnd.uniform(0.0, 0.02))
+        turn += 1
+    os._exit(0)
+
+
+def agent_folder(supervisor: int) -> str:
+    return os.path.join(state_dir(), "agents-%d" % supervisor)
+
+
+def remove_agent_files(supervisor: int, workers: list) -> None:
+    """Removes the files of one holder's `agents` workers: each by its exact name, then the empty folder."""
+    folder = agent_folder(supervisor)
+    for pid in workers:
+        try:
+            os.unlink(os.path.join(folder, "a-%d.dat" % pid))
+        except OSError:
+            pass
+    try:
+        os.rmdir(folder)
+    except OSError:
+        pass
+
+
 # ---- supervisor ----
 
 def supervise(args) -> int:
@@ -288,7 +389,13 @@ def supervise(args) -> int:
     signal.signal(signal.SIGINT, lambda *_: stop.__setitem__("reason", "stop"))
 
     per = [args.threads // args.procs + (1 if i < args.threads % args.procs else 0) for i in range(args.procs)]
-    state = {"pid": me, "token": args.token, "owner": args.owner, "watch_pid": args.watch_pid,
+    agents = args.shape == "agents"
+    folder, names = "", []
+    if agents:
+        folder = agent_folder(me)
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        names = agent_names()
+    state = {"pid": me, "token": args.token, "owner": args.owner, "watch_pid": args.watch_pid, "shape": args.shape,
              "threads": args.threads, "procs": args.procs, "cores": os.cpu_count(),
              "threads_per_core": round(args.threads / float(os.cpu_count() or 1), 1),
              "max_seconds": max_s, "piece_iters": args.iters, "qos": current_qos(), "nice": os.nice(0),
@@ -296,11 +403,14 @@ def supervise(args) -> int:
              "load1_start": load1(), "started_utc": time.strftime("%H:%M:%SZ", time.gmtime()),
              "workers": [], "ready": False, "ended": None}
     workers = []
-    for n in per:
+    for index, n in enumerate(per):
         pid = os.fork()
         if pid == 0:
             try:
-                worker_main(n, deadline, args.iters, me)
+                if agents:
+                    agent_main(index, deadline, args.iters, me, folder, names)
+                else:
+                    worker_main(n, deadline, args.iters, me)
             finally:
                 os._exit(0)
         workers.append(pid)
@@ -346,6 +456,8 @@ def supervise(args) -> int:
             cpu_s += ru.ru_utime + ru.ru_stime
         except ChildProcessError:
             pass
+    if agents:
+        remove_agent_files(me, workers)
     wall = time.monotonic() - t_start
     cores_used = min(args.threads, os.cpu_count() or 1)
     state.update({"ended": reason, "seconds": round(wall, 2), "worker_cpu_seconds": round(cpu_s, 1),
@@ -366,6 +478,10 @@ def limits_refusal(args) -> str:
         return "--threads must be 1..%d" % MAX_THREADS
     if not 1 <= args.procs <= args.threads:
         return "--procs must be 1..threads"
+    if args.shape not in ("spin", "agents"):
+        return "--shape must be spin or agents"
+    if args.shape == "agents" and args.procs != args.threads:
+        return "--shape agents is one thread for each process: --procs must be equal to --threads"
     if not 1 <= args.max_seconds <= HARD_LIMIT_S:  # also refuses nan
         return "--max-seconds must be 1..%d (hard limit)" % HARD_LIMIT_S
     if test_root and (args.threads > TEST_MAX_THREADS or args.max_seconds > TEST_MAX_S):
@@ -379,6 +495,8 @@ def limits_refusal(args) -> str:
 
 
 def cmd_start(args) -> int:
+    if args.shape == "agents" and args.procs == 1:
+        args.procs = args.threads  # the default of --procs means "not given"
     refusal = limits_refusal(args)
     if refusal:
         return fail(refusal)
@@ -402,7 +520,7 @@ def cmd_start(args) -> int:
     sup = subprocess.Popen(
         [sys.executable, os.path.abspath(__file__), "_supervise", "--token", token, "--owner", owner,
          "--watch-pid", str(watch), "--threads", str(args.threads), "--procs", str(args.procs),
-         "--max-seconds", str(args.max_seconds), "--iters", str(iters)],
+         "--max-seconds", str(args.max_seconds), "--iters", str(iters), "--shape", args.shape],
         stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, close_fds=True)
     t0 = time.monotonic()
     state = None
@@ -417,8 +535,8 @@ def cmd_start(args) -> int:
         sup.terminate()
         return fail("the supervisor was not ready in 20 s; stopped")
     sys.stderr.write(json.dumps({k: state[k] for k in (
-        "pid", "owner", "watch_pid", "threads", "procs", "cores", "threads_per_core", "max_seconds", "qos", "nice",
-        "sched_pri", "load1_start", "started_utc") if k in state}) + "\n")
+        "pid", "owner", "watch_pid", "shape", "threads", "procs", "cores", "threads_per_core", "max_seconds", "qos",
+        "nice", "sched_pri", "load1_start", "started_utc") if k in state}) + "\n")
     print(sup.pid)
     return 0
 
@@ -446,6 +564,8 @@ def cmd_stop(args) -> int:
         left = [p for p in left if alive(p) and is_ours(p, token)]
     for p in left:
         os.kill(p, signal.SIGKILL)
+    if state.get("shape") == "agents":
+        remove_agent_files(args.pid, state.get("workers", []))  # the supervisor did it, unless it was killed
     final = read_state(args.pid) or state
     final["left_after_stop"] = len([p for p in final.get("workers", []) + [args.pid] if alive(p) and is_ours(p, token)])
     final.pop("token", None)
@@ -797,6 +917,25 @@ def cmd_selftest(args) -> int:
               and summary.get("ended") == "stop" and gone(pid, st, 3) is not None, out[:200] or err)
         check("the summary has no token and has the shape", "token" not in summary and summary.get("procs") == 2
               and summary.get("threads") == 4 and "load1_start" in summary and "load1_end" in summary)
+        # 5. the shape `agents`: processes that burst, do I/O and sleep; their files are gone at the end
+        rc, out, err = run("start", "--owner", "me", "--threads", "4", "--procs", "2", "--shape", "agents",
+                           "--max-seconds", "10")
+        check("agents refuses more than one thread for each process", rc == 2 and "--procs" in err, err)
+        rc, out, err = run("start", "--owner", "me", "--threads", "6", "--shape", "agents", "--max-seconds", "10",
+                           "--watch-pid", str(os.getpid()))
+        pid = int(out) if rc == 0 and out.isdigit() else 0
+        st = state_of(pid)
+        files = os.path.join(root, "busy-holder-%d" % os.getuid(), "agents-%d" % pid)
+        time.sleep(3.0)
+        made = len(os.listdir(files)) if os.path.isdir(files) else 0
+        check("agents: 6 processes, each with its own file", pid > 0 and st.get("shape") == "agents"
+              and len(st.get("workers", [])) == 6 and made == 6, "files %d %s" % (made, err[:200]))
+        rc, out, err = run("stop", str(pid))
+        summary = json.loads(out) if out.startswith("{") else {}
+        check("agents: stop leaves 0 processes and no file", rc == 0 and summary.get("left_after_stop") == 0
+              and gone(pid, st, 3) is not None and not os.path.exists(files), out[:200] or err)
+        check("agents: the processes used CPU time and slept", 0.02 < summary.get("fill_ratio", 0) < 0.99
+              or (os.cpu_count() or 1) < 4, "fill_ratio %s" % summary.get("fill_ratio"))
         rc, out, err = run("status")
         check("status with no PID: live 0", rc == 0 and out.splitlines()[:1] == ["live 0"], out)
     finally:
@@ -821,10 +960,12 @@ def main(argv=None) -> int:
     s.add_argument("--max-seconds", type=float, default=DEFAULT_MAX_S)
     s.add_argument("--owner", default="")
     s.add_argument("--watch-pid", type=int, default=0)
+    s.add_argument("--shape", default="spin", help="spin: threads that never sleep; agents: processes at utility "
+                   "and background QoS that burst, do one I/O step and sleep")
     s.set_defaults(fn=cmd_start)
     v = sub.add_parser("_supervise")
     for flag, typ in (("--token", str), ("--owner", str), ("--watch-pid", int), ("--threads", int), ("--procs", int),
-                      ("--max-seconds", float), ("--iters", int)):
+                      ("--max-seconds", float), ("--iters", int), ("--shape", str)):
         v.add_argument(flag, type=typ, required=True)
     v.set_defaults(fn=supervise)
     t = sub.add_parser("stop")

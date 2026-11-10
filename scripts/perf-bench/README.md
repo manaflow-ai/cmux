@@ -270,11 +270,13 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
 A developer's Mac can run all day at a load average of about 250 on 18 cores: about 14 runnable CPU-bound threads
 per core (agents, node, cargo), all at the default priority. A bench "load" arm with a host load under 15 is a
 quiet machine next to that. `busy_holder.py` is the one busy loop of the bench owners: N CPU-bound threads at the
-default priority and QoS beside the app under test, for a short time.
+default priority and QoS beside the app under test, for a short time (shape `spin`), or N processes at utility and
+background QoS that burst, do I/O and sleep (shape `agents`).
 
 ```
 BH="/usr/bin/python3 scripts/perf-bench/busy_holder.py"
 PID=$($BH start --owner <task> --watch-pid $$ --threads 250 --procs 250 --max-seconds 120)   # prints the PID
+PID=$($BH start --owner <task> --watch-pid $$ --threads 320 --shape agents --max-seconds 120) # the other shape
 $BH status $PID      # threads, running, priority, CPU, load
 $BH stop $PID        # the summary: threads, processes, cores, threads per core, load at start and end
 $BH cooldown --below 8 --max-seconds 300 && $BH status    # inside the same hold; must print `live 0`
@@ -285,7 +287,18 @@ $BH selftest               # the safety rules with 4 threads for at most 10 s ea
 - `--procs 1` is one process with N threads; `--procs N` is N processes. macOS shares the cores between
   processes' thread groups first, so the two are different loads; a real Mac has many processes. Write the shape
   next to each number: threads, processes, cores, threads per core, the 1-minute load at the start and the end.
-- It is run-queue pressure only: no disk I/O, no memory pressure, no process churn, no GPU work.
+- `--shape spin` (default) is run-queue pressure only: threads that never sleep, no disk I/O, no process starts.
+  They start at the default priority 31 and the kernel lowers them: `ps -M` shows them at 0 to 24 during the arm.
+  A thread of the app that sleeps most of the time and wakes at 31 or more runs at once beside them; a thing that
+  needs the CPU for a long time at 31 or less (a CLI call that starts a process for each key) takes seconds.
+- `--shape agents` is N processes with one thread each, like a Mac full of agent CLIs and their helpers: two of
+  three at utility QoS (priority 20), one of three at background (4); each repeats a CPU burst of 2 to 24 ms, one
+  I/O step (write 64 KiB with an fsync each 8th turn, lstat 200 system files, start `/usr/bin/true` and wait for
+  it, read the 64 KiB back) and a sleep of 0 to 20 ms. Its files are in the tool's private state folder and are
+  removed at the end. Say the shape next to each number; a row made with one shape does not pair with the other.
+- Neither shape copies memory pressure, page cache traffic of large files, GPU work or network.
+- Time each row with the app's own clock (or the frame on the display), not with the wall time of the call that
+  sends the input: under this load the call itself can take seconds while the app answers in one frame.
 - Safety, enforced by the tool: it ends itself after `--max-seconds` (default 240, hard limit 600); it ends when
   the process that started it is gone; it starts only where `~/perf-lead/tools/GUI-HOST` exists and
   the first word of `~/perf-lead/gui.lock/owner` is `--owner` (a bench host inside the caller's own GUI lock hold; never a
