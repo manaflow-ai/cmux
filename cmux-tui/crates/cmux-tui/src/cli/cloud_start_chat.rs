@@ -1496,6 +1496,7 @@ pub(super) fn send(
         machine: Machine::Target(machine_id.to_owned()),
         wait: false,
         timeout: DEFAULT_TIMEOUT,
+        make_room: false,
     };
     send_to(runner, &request, machine_id, session)
 }
