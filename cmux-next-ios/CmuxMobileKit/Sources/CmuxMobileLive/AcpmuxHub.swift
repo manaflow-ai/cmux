@@ -505,6 +505,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var keptEarlier = false
     /// The kept records are being read from disk: the attach waits, so it reads on from them.
     private var restoring = false
+    /// The chat shows restored kept records and has not caught up since (``CatchUpRead/fromKept``).
+    private var keptRestored = false
+    /// Kept records are being applied: their asks are not shown (they may have been answered
+    /// since); the attach reply's pending list brings back the ones still open.
+    private var applyingKept = false
 
     /// Shows the records this phone kept for the chat at once (from memory in the same turn,
     /// else after a read off the main thread), so the attach that follows reads only what came
@@ -535,9 +540,39 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         earlierBefore = entry.earlier ? entry.records.first(where: Self.isPrompt)?["seq"]?.numberValue.map { Int($0) } : nil
         earlierCarry = []
         keptEarlier = entry.earlier
+        keptRestored = true
+        applyingKept = true
         for record in entry.records { apply(record: record) }
+        applyingKept = false
         endHistory()
     }
+
+    /// The kept copy is too old to catch up from: this source forgets it and everything it applied,
+    /// its readers stop (a store showing the kept turns would otherwise get the newest page on top
+    /// of them), the chat's store is rebuilt, and the next read is a first attach.
+    private func dropKept() {
+        log.info("kept copy of \(self.sessionID, privacy: .public) too old at \(self.lastSeq, privacy: .public): opening on the newest page")
+        keptRestored = false
+        lastSeq = 0
+        replay = []
+        openChunk = nil
+        openChunkText = ""
+        kept = []
+        keptEarlier = false
+        earlierBefore = nil
+        earlierCarry = []
+        seenPermissions = []
+        listedPermissions = []
+        questions = [:]
+        if let key = keptKey { hub?.transcriptCache?.forget(key) }
+        for continuation in continuations { continuation.finish() }
+        continuations = []
+        onReset?()
+    }
+
+    /// Runs when the source dropped its kept copy (``dropKept()``): the chat's store is built again
+    /// on it. Set by the coordinator; tests read it.
+    var onReset: (@MainActor () -> Void)?
 
     /// Records kept in memory past the cache's own bound before they are cut (the cache cuts
     /// its copy again by bytes).
@@ -1158,8 +1193,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         held = []
         saveKept()
         emit(.status(.disconnected))
-        // The chat catches up again when the link comes back.
-        emit(.historyLoading(true))
+        // A chat with history catches up again when the link comes back (a new chat stays new).
+        if lastSeq > 0 { emit(.historyLoading(true)) }
         // Only a connection's own `initialize` says Full access covers it (`attach` sends it again).
         fullAccessChanged(false)
     }
@@ -1240,6 +1275,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     struct CatchUpRead {
         let sessionID: String
         let after: Int
+        /// The first catch-up after kept records were restored (``restoreKept()``): a gap longer
+        /// than one page means the kept copy is old, and the chat opens fresh instead of paging
+        /// through everything since (``CatchUpPages/keptTooOld``).
+        var fromKept = false
         var firstAttach: Bool { after == 0 }
     }
 
@@ -1250,13 +1289,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         var page: [JSONValue] = []
         var earlier = false
         var failure: (any Error)?
+        /// A catch-up from kept records found more than one page since them: nothing was read past
+        /// the attach reply, and the chat opens on its newest page instead (``dropKept()``).
+        var keptTooOld = false
     }
 
     /// The next catch-up of attach `generation`, or nil when it is no longer current.
     private func nextRead(_ generation: Int) -> CatchUpRead? {
         guard generation == self.generation else { return nil }
         refillPending = false
-        return CatchUpRead(sessionID: sessionID, after: lastSeq)
+        return CatchUpRead(sessionID: sessionID, after: lastSeq, fromKept: keptRestored)
     }
 
     /// A prompt record: where a turn starts.
@@ -1294,6 +1336,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // forward until a page reaches the log's end. Otherwise the next live record moves
             // `lastSeq` past the rest of the gap, and the chat never sees what was in it (a
             // turn's end, a decision made on the Mac).
+            if read.fromKept, out.result["hasMore"] == .bool(true) {
+                // The kept copy is more than a page behind: open on the newest page instead.
+                out.keptTooOld = true
+                return out
+            }
             if !read.firstAttach {
                 var more = out.result["hasMore"] == .bool(true)
                 while more, let newest = out.page.last?["seq"]?.numberValue {
@@ -1340,6 +1387,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// dropped. Applying them would move `lastSeq` past the dropped one for good.
     private func caughtUp(_ pages: CatchUpPages, _ read: CatchUpRead, _ generation: Int) -> Bool {
         guard generation == self.generation else { return false }
+        if pages.keptTooOld {
+            dropKept()
+            return true
+        }
         guard apply(pages, read) else {
             attaching = false
             attachTask = nil
@@ -1354,6 +1405,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attachTask = nil
         failures = 0
         attached = true
+        keptRestored = false
         let pending = held
         held = []
         for record in pending { apply(record: record) }
@@ -1622,6 +1674,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         for event in records.map(record) {
             switch event {
             case .permissionRequest, .question:
+                if applyingKept { continue }
                 emitPermission(event)
             default:
                 emit(event)

@@ -111,10 +111,82 @@ import Testing
         let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
         cache.save(key, sessionID: "old-session", earlier: false, records: Self.json(Long.turnRecords(0)))
         let hub = Self.hub(cache)
-        let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Self.summary))
-        try await Task.sleep(for: .milliseconds(50))
+        let source = hub.source(sessionID: "s1", summary: Self.summary)
+        let store = AgentChatStore(source: source)
+        // The entry is in memory: a restore would have run in the source's init.
+        #expect(source.replayCount == 0)
+        await Task.yield()
         #expect(store.turns.isEmpty)
         #expect(store.isLoadingHistory)
+    }
+
+    /// A kept copy far behind the Mac (more than one page since it) is dropped: the chat opens on a
+    /// first attach (one bounded page), not a forward read of everything since.
+    @Test func keptCopyTooFarBehindOpensFresh() async throws {
+        let cache = Self.cache()
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        cache.save(key, sessionID: "s1", earlier: false, records: Self.json(Long.turnRecords(0)))
+        let hub = Self.hub(cache)
+        let source = hub.source(sessionID: "s1", summary: Self.summary)
+        // The coordinator builds the chat's store again on a reset (`onReset`); so does this.
+        final class Holder { var store: AgentChatStore?; var resets = 0 }
+        let holder = Holder()
+        holder.store = AgentChatStore(source: source)
+        source.onReset = {
+            holder.resets += 1
+            holder.store = AgentChatStore(source: source)
+        }
+        #expect(holder.store?.turns.isEmpty == false || source.replayCount > 0)
+        // 1000 turns since: far past one 400-record page.
+        let requests = Long.Requests()
+        await hub.bind(try await Long.fakeAcpmux((0..<1000).flatMap(Long.turnRecords), requests).openChannel(service: "acpmux", args: [:]))
+        await Long.waitUntil { holder.resets == 1 && holder.store?.turns.last?.id == "t999" && holder.store?.isLoadingHistory == false }
+        let store = try #require(holder.store)
+        #expect(holder.resets == 1)
+        #expect(store.turns.last?.id == "t999")
+        #expect(store.turns.first?.id != "t0")
+        let attaches = requests.all.filter { $0.method == "_acpmux/attach" }
+        #expect(attaches.count == 2)
+        #expect((attaches.first?.params["afterSeq"] as? NSNumber)?.intValue == 5)
+        #expect(attaches.last?.params["maxBytes"] != nil)
+        #expect(attaches.last?.params["afterSeq"] == nil)
+        #expect(requests.count("_acpmux/events") == 0)
+        #expect(cache.cached(key)?.records.first?["msg"]?["turnId"]?.stringValue != "t0")
+    }
+
+    /// An ask kept on the phone is not shown from the kept copy (it may have been answered on the
+    /// Mac since); only the attach reply's pending list brings back the open ones.
+    @Test func keptAsksAreNotShownUntilTheMacListsThem() async throws {
+        let cache = Self.cache()
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        let ask = #"{"sessionId":"s1","seq":6,"at":2,"dir":"mux","kind":"permission_request","msg":{"permissionId":"perm1","request":{"sessionId":"s1","toolCall":{"toolCallId":"tc1","title":"Run ls","kind":"execute"},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"}]}}}"#
+        let records = Self.json([Long.turnRecords(0)[0], (6, ask)])
+        cache.save(key, sessionID: "s1", earlier: false, records: records)
+        let hub = Self.hub(cache)
+        let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Self.summary))
+        await Long.waitUntil { store.hasTurns }
+        #expect(store.hasTurns)
+        #expect(store.pendingPermission == nil)
+    }
+
+    /// Once the hub's cache is taken away (sign-out), a link drop saves nothing back.
+    @Test func noSaveAfterTheCacheIsTakenAway() async throws {
+        let cache = Self.cache()
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        let hub = Self.hub(cache)
+        let requests = Long.Requests()
+        await hub.bind(try await Long.fakeAcpmux((0..<3).flatMap(Long.turnRecords), requests).openChannel(service: "acpmux", args: [:]))
+        let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Self.summary))
+        await Long.waitUntil { !store.isLoadingHistory }
+        cache.removeAll()
+        hub.transcriptCache = nil
+        await hub.bind(nil)
+        cache.flush()
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        #expect(cache.cached(key) == nil)
+        #expect(!FileManager.default.fileExists(atPath: cache.directory.path(percentEncoded: false)))
     }
 
     /// Nothing is kept for a chat no account owns.
