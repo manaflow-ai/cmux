@@ -70,7 +70,14 @@ struct CloudBringBack {
         // A move to another machine that may have landed there (its pin, ``run(tab:entry:cli:askFirst:update:toMachine:invocation:)``)
         // finishes first, whichever of the two ran: a bring back would drop the pin, and a later move would seed over what the
         // chat already did there. Once it lands, Bring Back Local runs from that machine's tab.
-        let toMachine = asked || services.cloud.bringBackRetries[tab.id]?.machineID.map { $0 != entry.machineID } == true
+        // A pin to a machine gone from the loaded list could never finish: it goes, as Move to Cloud's own do.
+        let retries = services.cloud.bringBackRetries
+        if case .move(let id)? = retries[tab.id], id != entry.machineID, services.cloud.hasLoadedCurrentMachines, services.machines.session(id) == nil {
+            retries[tab.id] = nil
+        }
+        var pinned = false
+        if case .move(let id)? = retries[tab.id], id != entry.machineID { pinned = true }
+        let toMachine = asked || pinned
         let action = toMachine ? Self.toMachine : Self.action
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
