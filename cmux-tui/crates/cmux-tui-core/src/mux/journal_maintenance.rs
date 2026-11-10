@@ -495,6 +495,7 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .put_journal_hook(manifest, origin, idempotency_key)?;
+        self.agent_hooks_at_rest.journal_hooks_changed();
         if !commit.replayed {
             self.publish_journal_event();
         }
