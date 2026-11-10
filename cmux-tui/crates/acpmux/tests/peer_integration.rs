@@ -4088,7 +4088,7 @@ async fn slow_relay(port: u16, rate: u64) -> (u16, Arc<std::sync::atomic::Atomic
 /// 250 ms read gave up on it over a slow link, and the watch asked for the same page again
 /// every few seconds for good, 1 MB each time (cosmic-gray to huge-blue, 2026-11-10, about
 /// 210 KB/s on a saturated uplink). The watch asks only for the kinds it reads, bounded, and
-/// moves past what the page passed over, so over a slow link it costs a few KB, once.
+/// moves past what the page passed over, so over a slow link it costs a few KB, once, and resolves.
 #[tokio::test]
 async fn a_watch_on_a_peer_chat_never_rereads_a_large_prompt_over_the_link() {
     use base64::Engine as _;
@@ -4128,6 +4128,8 @@ async fn a_watch_on_a_peer_chat_never_rereads_a_large_prompt_over_the_link() {
     let (relay, down) = slow_relay(port, 256 * 1024).await;
 
     let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    // The daemon's own watch workers: the loop that reads a peer chat's pages for a watch.
+    a.start_watches();
     a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(peer_token), true)
         .await
         .unwrap();
@@ -4151,17 +4153,34 @@ async fn a_watch_on_a_peer_chat_never_rereads_a_large_prompt_over_the_link() {
         .await
         .unwrap();
     eprintln!("watch: {added}");
-    // A turn on B's chat wakes the watch, as the live chat's turns did.
+    let watch = added["id"].as_str().unwrap().to_owned();
+    // A turn on B's chat wakes the watch, as the live chat's turns did; then the chat closes.
+    // The watch resolves only once its pages read through the prompt with the image to the close.
     cb.call(
         "session/prompt",
         json!({"sessionId": id, "prompt": [{"type": "text", "text": "again"}]}),
     )
     .await
     .unwrap();
-    tokio::time::sleep(Duration::from_secs(16)).await;
+    cb.call(method::SESSION_CLOSE, json!({"sessionId": id})).await.unwrap();
+    let started = std::time::Instant::now();
+    let mut resolved = false;
+    while started.elapsed() < Duration::from_secs(16) {
+        let ls = ca.call(method::MUX_WATCH_LS, json!({})).await.unwrap();
+        let watches = ls["watches"].as_array().cloned().unwrap_or_default();
+        if !watches.iter().any(|w| w["id"] == watch.as_str() && w["active"] == true) {
+            resolved = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     let read = down.load(Ordering::SeqCst) - before;
-    eprintln!("watch on b/shot: {read} bytes over the link in 16 s");
-    assert!(read < 256 * 1024, "the watch read {read} bytes over the link in 16 s");
+    eprintln!(
+        "watch on b/shot: resolved={resolved} after {:?}, {read} bytes over the link",
+        started.elapsed()
+    );
+    assert!(resolved, "the watch never read b/shot through to its close ({read} bytes moved)");
+    assert!(read < 256 * 1024, "the watch read {read} bytes over the link");
     a.shutdown_all().await;
     b.shutdown_all().await;
 }

@@ -58,14 +58,16 @@ pub const WATCH_KINDS: &[&str] = &[
     "status",
 ];
 
-/// The most a watch's page from a peer may hold: one page always carries its first record,
-/// cut to a stub when it alone is past the bound (`hub/paging.rs` `fit`).
+/// The most a watch's page from a peer may hold, and the most one record in it may: a page
+/// always carries its first record, so a record past this goes as a stub (`hub/paging.rs` `fit`)
+/// and the page still moves the cursor. A tool call update can carry megabytes of output.
 pub const WATCH_PAGE_BYTES: u64 = 64 * 1024;
 
-/// A watch's `_acpmux/events` ask of a peer: after `after`, only `WATCH_KINDS`, bounded.
+/// A watch's `_acpmux/events` ask of a peer: after `after`, only `WATCH_KINDS`, bounded in
+/// all and per record.
 pub fn remote_page(id: &str, after: u64) -> Value {
     json!({"sessionId": id, "afterSeq": after, "limit": 256, "kinds": WATCH_KINDS,
-        "maxBytes": WATCH_PAGE_BYTES})
+        "maxBytes": WATCH_PAGE_BYTES, "recordMaxBytes": WATCH_PAGE_BYTES})
 }
 
 pub fn seed(hub: &Hub, key: &str, _pattern: Option<&str>) -> Cursor {
