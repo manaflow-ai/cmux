@@ -147,6 +147,48 @@ import Testing
         }
     }
 
+    /// A pinned group with its own icon draws it in the pin's place (`SidebarPinnedRowLeading`), so its name starts
+    /// where a pinned group without one starts its name after the pin, and the icon centers where that pin does.
+    @Test(arguments: cases)
+    func pinnedGroupNamesStartAtOneXWithOrWithoutAnIcon(_ c: Case) throws {
+        try Self.at(c) {
+            _ = NSApplication.shared
+            let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+            let plainID = GroupID("g-share-plain"), iconID = GroupID("g-share-icon")
+            var withIcon = SidebarGroup(id: iconID, name: "Rocket group", color: .green, isPinned: true,
+                                        workspaces: [SidebarWorkspace(id: WorkspaceID("w-share-a"), title: "a")])
+            withIcon.icon = .emoji("🚀")
+            let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
+                .group(SidebarGroup(id: plainID, name: "Plain group", color: .blue, isPinned: true,
+                                    workspaces: [SidebarWorkspace(id: WorkspaceID("w-share-b"), title: "b")])),
+                .group(withIcon),
+            ])])
+            let list = SidebarListView(model: model)
+            let window = ScaledWindow(contentRect: NSRect(x: 100, y: 100, width: 240, height: 600), styleMask: [.borderless],
+                                      backing: .buffered, defer: false)
+            window.testScale = c.scale
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let root = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 600))
+            window.contentView = root
+            list.frame = root.bounds
+            root.addSubview(list)
+            window.orderFrontRegardless()
+            list.reload(animated: false)
+            list.rowViews.values.forEach { $0.needsLayout = true; $0.layoutSubtreeIfNeeded() }
+            let plain = try #require(list.rowViews[.group(plainID)] as? GroupHeaderRowView, "no plain pinned group header")
+            let icon = try #require(list.rowViews[.group(iconID)] as? GroupHeaderRowView, "no pinned group header with an icon")
+            let plainName = list.convert(plain.name.frame, from: plain).minX, iconName = list.convert(icon.name.frame, from: icon).minX
+            #expect(abs(plainName - iconName) <= 0.5,
+                    "\(c.testDescription): the pinned group's name starts at \(iconName) with an icon, \(plainName) without one")
+            let pin = list.convert(try #require(plain.pinInkFrame, "the iconless pinned group draws no pin"), from: plain)
+            #expect(icon.pinSquareFrame == nil, "\(c.testDescription): the pinned group with an icon still draws its pin")
+            let glyph = list.convert(icon.glyph.frame, from: icon)
+            #expect(abs(glyph.midX - pin.midX) <= 1 / c.scale + 0.5,
+                    "\(c.testDescription): the group's icon centers at \(glyph.midX), the pin's ink at \(pin.midX)")
+        }
+    }
+
     /// The `pinThenIcon` look (Debug `sidebar.pinnedRowLeading`) keeps the pin first on every pinned row, centered
     /// under Home's glyph, with the row's own icon after it.
     @Test func thePinThenIconLookKeepsThePinOnEveryRow() throws {

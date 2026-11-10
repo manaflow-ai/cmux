@@ -556,13 +556,18 @@ final class GroupHeaderRowView: SidebarRowView {
         // one text column after it, as a pinned workspace row's do (Lawrence 2026-10-28, "home and pinned are not
         // aligned"; Leo 2026-10-28, "the alignment").
         let pinSide = SidebarStyle.pinGlyphSide // Home's glyph square, as a pinned workspace row's pin (#38061)
-        pin.isHidden = !pinned
+        // A pinned group with its own icon (or a machine mark) draws it in the pin's place, so its name starts at Home's
+        // label x as a pinned workspace row's title does (`SidebarPinnedRowLeading`, #38061).
+        let showsPin = pinned && (!(hasIcon || leadsWithMachineMark) || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
+        pin.isHidden = !showsPin
+        // `configure` sets the image; a density or type scale change since then moves `pinGlyphSide`.
+        if showsPin, pin.image?.size.width != pinSide { pin.image = NSImage.icon(.statePinned, size: pinSide) }
         let pinInk = pin.image.flatMap { SidebarGlyphInk.shared.box(of: $0, glyph: SidebarItemRowView.pinGlyph) }
         let scale = window?.backingScaleFactor ?? 2
         let pinX = SidebarStyle.iconColumnCenterX(leading: lead) - (pinInk?.midX ?? pinSide / 2)
         pin.frame = NSRect(x: (pinX * scale).rounded() / scale, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
         // After a pin, the header's own icon and name move one icon column in, as a pinned row's do.
-        let inner = pinned ? SidebarStyle.columns(rowWidth: b.width, leadingOffset: railReach + columns.text - columns.lead) : columns
+        let inner = showsPin ? SidebarStyle.columns(rowWidth: b.width, leadingOffset: railReach + columns.text - columns.lead) : columns
         glyph.frame = NSRect(x: inner.lead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
         // A remote group's machine mark leads in the icon's place, on the same icon column (its image centers in the box).
         if leadsWithMachineMark {
@@ -612,6 +617,14 @@ final class GroupHeaderRowView: SidebarRowView {
 extension GroupHeaderRowView {
     /// The remote group's machine mark leads the name, in the icon's place (``SidebarHostGroupLook/leadingMark``).
     var leadsWithMachineMark: Bool { machineIsShown && hostLook == .leadingMark }
+    /// The pinned group's pin square in the header's coordinates; nil when it draws no pin (tests, #38061).
+    var pinSquareFrame: CGRect? { pin.isHidden || pin.image == nil ? nil : pin.frame }
+    /// The pin's drawn ink in the header's coordinates; nil without a pin (tests).
+    var pinInkFrame: CGRect? {
+        guard let square = pinSquareFrame, let image = pin.image,
+              let ink = SidebarGlyphInk.shared.box(of: image, glyph: SidebarItemRowView.pinGlyph) else { return nil }
+        return ink.offsetBy(dx: square.minX, dy: square.minY)
+    }
 
     private var machineIsShown: Bool { !machineMark.isHidden || !machineDot.isHidden || !machineWords.isHidden }
 

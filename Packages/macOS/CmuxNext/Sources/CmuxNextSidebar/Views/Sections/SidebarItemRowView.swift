@@ -287,7 +287,13 @@ class SidebarItemRowView: NSView {
         // starts at Home's label x too (`SidebarPinnedRowLeading`, #38061); the `pinThenIcon` look draws it in the text
         // column after the pin instead.
         let columns = bandColumns(in: b)
-        let showsPin = info.leadingPin && (bare && !showsSwatchDot || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
+        // A missing workspace (its fallback glyph, dimmed) keeps its pin: the glyph is not the workspace's own icon.
+        let showsPin = info.leadingPin && (bare && !showsSwatchDot || info.isMissing || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
+        // The pin's image follows `pinGlyphSide`, which moves with the density and type scale while `configure`
+        // (which sets it) can skip an unchanged row: a stale, smaller image would draw off center in its frame.
+        if showsPin, pin.image?.size.width != SidebarStyle.pinGlyphSide {
+            pin.image = NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide)
+        }
         let pinFrame = showsPin ? pinGlyphFrame(side: SidebarStyle.pinGlyphSide, leading: columns.lead, height: b.height) : .zero
         // After a pin, the row's own icon, color dot and title move one icon column in.
         let inner = showsPin ? bandColumns(in: b, after: columns.text - columns.lead) : columns
