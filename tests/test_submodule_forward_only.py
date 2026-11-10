@@ -267,22 +267,13 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
 
 
 class GitHubRelationTests(unittest.TestCase):
-    class Response:
-        def __init__(self, payload: dict) -> None:
-            self.payload = payload
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-        def read(self):
-            import json
-            return json.dumps(self.payload).encode()
+    @staticmethod
+    def answer(payload: dict) -> tuple[int, bytes, dict]:
+        import json
+        return 200, json.dumps(payload).encode(), {}
 
     def relation(self, payload: dict) -> str | None:
-        with patch.object(submodule_forward_only, "urlopen", return_value=self.Response(payload)) as opener:
+        with patch.object(submodule_forward_only.deadline_http, "request", return_value=self.answer(payload)) as opener:
             relation = submodule_forward_only.github_relation(
                 "https://github.com/example/sample.git", "newsha", "basesha"
             )

@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 from triage_rules import (  # noqa: E402
     NEEDS_TRIAGE,
@@ -92,9 +93,10 @@ def request(method: str, url: str, token: str, payload: dict[str, Any] | None = 
         req.add_header("Content-Type", "application/json")
     for attempt in range(4):
         try:
-            with urllib.request.urlopen(req, timeout=30) as response:
-                text = response.read().decode()
-                return json.loads(text) if text else None
+            # Each attempt ends within 30 s, a trickled answer included (deadline_http).
+            _, raw, _ = deadline_http.request(req, 30, raise_errors=True)
+            text = raw.decode()
+            return json.loads(text) if text else None
         except urllib.error.HTTPError as error:
             detail = error.read().decode(errors="replace")
             delay = rate_limit_delay(error.headers, attempt) if error.code in (403, 429) else None
@@ -103,7 +105,8 @@ def request(method: str, url: str, token: str, payload: dict[str, Any] | None = 
                 time.sleep(delay)
                 continue
             raise ApiError(method, url, error.code, detail) from error
-        except urllib.error.URLError as error:
+        except (urllib.error.URLError, deadline_http.RequestTimeout) as error:
+            # urlopen raised a connect timeout as URLError; the deadline's timeout is retried the same way.
             if attempt < 3:
                 time.sleep(5 * (attempt + 1))
                 continue

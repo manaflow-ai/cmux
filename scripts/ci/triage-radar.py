@@ -17,6 +17,7 @@ from typing import Any
 
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 from triage_rules import HIGH_RISK_PATTERNS, NIGHTLY_NO, NIGHTLY_YES  # noqa: E402
 
@@ -407,13 +408,15 @@ class GitHub:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(API + path, data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                if response.status == 204:
-                    return {}
-                return json.load(response)
+            # The whole call ends within 30 s, a trickled answer included (deadline_http).
+            status, body, _ = deadline_http.request(request, 30, raise_errors=True)
+            if status == 204:
+                return {}
+            return json.loads(body)
         except urllib.error.HTTPError as error:
             raise RuntimeError(f"GitHub API request failed ({error.code})") from error
-        except urllib.error.URLError as error:
+        except (urllib.error.URLError, deadline_http.RequestTimeout) as error:
+            # urlopen raised a connect timeout as URLError; the deadline's timeout fails the same way.
             raise RuntimeError("GitHub API request failed") from error
 
     def search(self, query: str, *, sort: str, order: str = "desc") -> list[dict[str, Any]]:

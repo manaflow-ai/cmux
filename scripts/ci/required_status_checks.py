@@ -48,7 +48,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Mapping
+from pathlib import Path
 from typing import Any
+
+# deadline_http.py sits beside this script; a run with -I leaves this directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -235,8 +240,10 @@ class GitHub:
             headers["Authorization"] = f"Bearer {self.token}"
         request = urllib.request.Request(API + path, headers=headers, method="GET")
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.loads(response.read().decode("utf-8"))
+            # The whole call ends within 30 s, a trickled answer included (deadline_http);
+            # its RequestTimeout is a TimeoutError, caught below.
+            _, body, _ = deadline_http.request(request, 30, raise_errors=True)
+            return json.loads(body.decode("utf-8"))
         except urllib.error.HTTPError as error:
             body = error.read().decode("utf-8", "replace")[:300]
             raise DriftCheckError(f"GET {path} failed with HTTP {error.code}: {body}") from error

@@ -67,6 +67,7 @@ from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 import pr_status  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -532,8 +533,9 @@ class GitHub:
                 req.add_header("Content-Type", "application/json")
             self.calls += 1
             try:
-                with urllib.request.urlopen(req, timeout=60) as response:
-                    raw = response.read()
+                # The whole call ends within 60 s (deadline_http); a followed redirect drops the
+                # unredirected Authorization header, as urllib did.
+                _, raw, _ = deadline_http.request(req, 60, raise_errors=True)
             except urllib.error.HTTPError as error:
                 # Only a read is retried: a POST that answered 502 may have landed.
                 if error.code >= 500 and attempt == 0 and method == "GET":
