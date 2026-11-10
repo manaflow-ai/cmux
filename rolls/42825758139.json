@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42825758139",
+  "recorded_at": "2026-11-10T13:39:02Z",
+  "reason": "image inputs changed in d7a8cd877400fb95c3c11602407c20beb9969143..b4ca6be250472d5f21fe488934cd9b5c6205896e",
+  "dry_run": false,
+  "cmux_tui": "e0d9836e67f3d82a7833fd9be1432d8628d12f15",
+  "fixes": [
+    {
+      "sha": "b4ca6be250472d5f21fe488934cd9b5c6205896e",
+      "mergedAt": "2026-11-10T05:34:21-08:00",
+      "subject": "Cloud chats: Gemini CLI and Grok CLI on the VM image, their logins in the pool key, and the Cloud chat matrix (#40467)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-10T13:39:02Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
