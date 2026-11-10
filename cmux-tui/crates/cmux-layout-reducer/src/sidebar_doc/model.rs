@@ -517,7 +517,11 @@ impl Item {
 
     /// The rows "Show N more" revealed past a group's cap ([`GROUP_REVEALED_KEY`]).
     pub fn group_revealed(&self) -> u32 {
-        self.extra.get(GROUP_REVEALED_KEY).and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()).unwrap_or(0)
+        self.extra
+            .get(GROUP_REVEALED_KEY)
+            .and_then(Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .unwrap_or(0)
     }
 
     /// The label stored with the item (an old tile's workspace name), drawn

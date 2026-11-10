@@ -263,7 +263,8 @@ fn a_group_stores_its_own_sort() {
 #[test]
 fn a_group_stores_its_own_cap_and_how_far_it_was_revealed() {
     let mut doc = fixture();
-    let update = |patch: serde_json::Value| json!([{"op": "group.update", "id": "inner", "patch": patch}]);
+    let update =
+        |patch: serde_json::Value| json!([{"op": "group.update", "id": "inner", "patch": patch}]);
     let inner = |doc: &Doc| doc.item("inner").expect("inner").clone();
     assert_eq!(inner(&doc).group_row_limit(), None, "follows the setting");
     assert_eq!(inner(&doc).group_revealed(), 0);
