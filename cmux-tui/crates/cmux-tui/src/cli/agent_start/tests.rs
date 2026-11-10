@@ -434,7 +434,7 @@ fn w3h_start_splits_the_callers_pane_runs_a_named_tab_and_reports_the_trust_dial
         run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
     assert_eq!(exit, super::BLOCKED_EXIT, "{report}");
     assert_eq!(report["state"], "blocked");
-    assert_eq!(report["dialog"], "folder_trust");
+    assert_eq!(report["dialog"]["kind"], "folder_trust");
     assert!(report["reason"].as_str().is_some_and(|reason| reason.contains("trust")));
     assert_eq!(report["harness"], "claude");
     assert_eq!(report["launcher"], "sr2 claude");
@@ -678,7 +678,7 @@ fn start_at_trust(screen: &'static str) -> Value {
     let (report, exit) =
         run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
     assert_eq!(exit, super::BLOCKED_EXIT, "{report}");
-    assert_eq!(report["dialog"], "folder_trust", "{report}");
+    assert_eq!(report["dialog"]["kind"], "folder_trust", "{report}");
     report
 }
 
@@ -715,7 +715,7 @@ fn w5q_folder_trust_without_options_names_the_terminal() {
     let report = start_at_trust(
         " Do you trust the files in this folder?\n\n /Users/me/new-project\n\n Enter to confirm",
     );
-    assert_eq!(report["dialog"], "folder_trust", "{report}");
+    assert_eq!(report["dialog"]["kind"], "folder_trust", "{report}");
     let reason = report["reason"].as_str().unwrap_or_default();
     assert!(!reason.contains("NAME"), "{reason}");
     assert!(reason.contains("cmux terminal beta keys"), "{reason}");
@@ -1406,4 +1406,24 @@ fn w6bc_each_dialog_option_names_the_keys_that_pick_it() {
     assert_eq!(report["options"][0]["keys"], json!(["up", "enter"]), "{report}");
     assert_eq!(report["options"][1]["keys"], json!(["enter"]), "{report}");
     assert_eq!(report["options"][0]["number"], 1, "{report}");
+}
+
+/// W6-C (bench round 5 orchestration row 4): a blocked start gives the one
+/// dialog object every blocked result has (`send`, `wait`, `status`):
+/// `kind`, the question it asks, its options with their keys, the keys
+/// that deny it, and for folder trust the keys and label that accept it.
+#[test]
+fn w6bc_a_blocked_start_has_the_shared_dialog_object() {
+    let report = start_at_trust(TRUST_CLAUDE_2_1_321);
+    let dialog = &report["dialog"];
+    assert_eq!(dialog["kind"], "folder_trust", "{report}");
+    let msg = dialog["msg"].as_str().unwrap_or_default();
+    assert!(msg.ends_with("Is this a project you created or one you trust?"), "{report}");
+    assert_eq!(dialog["options"], report["options"], "{report}");
+    assert_eq!(dialog["options"][1]["keys"], json!(["down", "enter"]), "{report}");
+    assert_eq!(dialog["deny_keys"], json!(["escape"]), "{report}");
+    assert_eq!(dialog["accept_keys"], json!(["down", "enter"]), "{report}");
+    assert_eq!(dialog["accept_label"], "Yes, I trust this folder", "{report}");
+    let line = super::human(&report);
+    assert!(line.contains("blocked (folder_trust)"), "{line}");
 }

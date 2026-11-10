@@ -282,6 +282,8 @@ struct FakeDaemon {
     sent: RefCell<Vec<(String, Value)>>,
     /// What `agent list --terminal` answers while the send waits.
     agents: Value,
+    /// The `extra` of the terminal record `terminal.get` answers.
+    extra: Value,
 }
 
 impl FakeDaemon {
@@ -293,6 +295,7 @@ impl FakeDaemon {
             ),
             sent: RefCell::new(Vec::new()),
             agents: json!([]),
+            extra: json!({}),
         }
     }
 
@@ -320,9 +323,8 @@ impl Daemon for FakeDaemon {
             "terminal.state.read" => json!({
                 "state_base64": base64::engine::general_purpose::STANDARD.encode(b"\x1b[?2004h"),
             }),
-            "terminal.get" => {
-                json!({"id": "term_c1a0de00000000000000000000000001", "lifecycle": "running", "extra": {}})
-            }
+            "terminal.get" => json!({"id": "term_c1a0de00000000000000000000000001",
+                                     "lifecycle": "running", "extra": self.extra}),
             "agent.list" => self.agents.clone(),
             "terminal.screen.read" => {
                 let mut screens = self.screens.borrow_mut();
@@ -1478,4 +1480,83 @@ fn w5r_send_of_bang_and_hash_input_to_a_hook_agent_is_not_stalled() {
             outcome.err().map(|failure| failure.failure.error)
         );
     }
+}
+
+/// Claude Code 2.1.321's permission dialog after a send, as the bench round
+/// 5 evaluator read it (`terminal ct5-beta screen read`).
+const PERMISSION_CLAUDE_2_1_321: &str = "\
+❯ Run the shell command touch /tmp/bench5-perm-cmuxtui-o now.
+
+⏺ Bash(touch /tmp/bench5-perm-cmuxtui-o)
+  ⎿  Waiting…
+
+───────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ Tip: auto mode handles these prompts for you — choose \"switch to auto mode\" below
+ Create empty file in /tmp
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ touch /tmp/bench5-perm-cmuxtui-o
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to /tmp from this project
+   3. Yes, and switch to auto mode · auto mode handles these prompts for you
+   4. No
+
+ Esc to cancel · Tab to amend";
+
+/// A daemon whose Claude Code stops on the 2.1.321 permission dialog after
+/// the send, with the hook's OSC 7501 record (`kind permission`, `msg`).
+fn permission_daemon() -> FakeDaemon {
+    let before = "⏺ Canberra\n\n❯ ";
+    let mut daemon = dialog_daemon(&[(1, before), (2, PERMISSION_CLAUDE_2_1_321)]);
+    daemon.extra = json!({"program_status": [{
+        "app": "claude-code", "id": "", "kind": "permission", "state": "blocked",
+        "msg": "approve Bash: touch /tmp/bench5-perm-cmuxtui-o",
+        "updated_at_ms": u64::MAX.to_string(),
+    }]});
+    daemon
+}
+
+/// W6-C (bench round 5 orchestration row 4): a send that stops on a dialog
+/// has no reply (the screen text was no answer), and says what the dialog
+/// asks: its kind and message, its options with the keys that pick each,
+/// and the keys that deny it. The CLI exits 4, as a blocked `agent start`.
+#[test]
+fn w6bc_a_blocked_send_has_no_reply_and_a_structured_dialog() {
+    let daemon = permission_daemon();
+    let message = "Run the shell command `touch /tmp/bench5-perm-cmuxtui-o` now.";
+    let receipt = send::run(&daemon, None, &quick(message)).expect("sent");
+    assert_eq!(receipt["state"], "blocked", "{receipt}");
+    assert!(receipt["reply"].is_null(), "a dialog is no reply: {receipt}");
+    assert!(receipt["reply_source"].is_null(), "{receipt}");
+    let dialog = &receipt["dialog"];
+    assert_eq!(dialog["kind"], "permission", "{receipt}");
+    assert_eq!(dialog["msg"], "approve Bash: touch /tmp/bench5-perm-cmuxtui-o", "{receipt}");
+    let options = dialog["options"].as_array().cloned().unwrap_or_default();
+    assert_eq!(options.len(), 4, "{receipt}");
+    assert_eq!(options[0]["label"], "Yes", "{receipt}");
+    assert_eq!(options[0]["keys"], json!(["enter"]), "{receipt}");
+    assert_eq!(options[3]["label"], "No", "{receipt}");
+    assert_eq!(options[3]["keys"], json!(["down", "down", "down", "enter"]), "{receipt}");
+    assert_eq!(dialog["deny_keys"], json!(["escape"]), "{receipt}");
+    let reason = receipt["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("keys escape"), "{reason}");
+    assert_eq!(super::send_exit_code(&receipt, false), 4, "{receipt}");
+}
+
+/// W6-C: a send refused because the agent already waits on a dialog exits
+/// 4 too, and its error carries the same dialog object.
+#[test]
+fn w6bc_a_send_refused_at_a_dialog_exits_4_with_the_dialog() {
+    let screen = " Do you want to proceed?\n ❯ 1. Yes\n   2. No";
+    let daemon = FakeDaemon::new(snapshot(), &[(1, screen)]);
+    let request =
+        SendRequest { target: "term_c0dec000000000000000000000000004".into(), ..quick("yes") };
+    let failure = send::run(&daemon, None, &request).expect_err("refused");
+    assert_eq!(failure.exit, 4, "{:?}", failure.failure.error);
+    let dialog = &failure.failure.error["details"]["dialog"];
+    assert!(dialog["kind"].is_string(), "{dialog}");
+    assert_eq!(dialog["options"][1]["label"], "No", "{dialog}");
+    assert_eq!(dialog["deny_keys"], json!(["down", "enter"]), "{dialog}");
 }

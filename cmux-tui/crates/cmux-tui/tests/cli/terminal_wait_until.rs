@@ -109,7 +109,11 @@ fn terminal_wait_until_idle_returns_when_the_command_ends() {
 
     let output = finished(spawn_wait(&server, &terminal, &["--until", "idle"]), SECONDS_10);
     assert_success(&output);
-    assert_eq!(json_output(&output)["id"], terminal.as_str());
+    let shown = json_output(&output);
+    assert_eq!(shown["terminal_id"], terminal.as_str(), "{shown}");
+    assert_eq!(shown["until"], "idle", "{shown}");
+    assert_eq!(shown["state"], "idle", "{shown}");
+    assert!(shown["waited_ms"].is_string(), "{shown}");
 
     start_waiting_command(&server, &terminal, COMMAND_END);
     let mut waiting = spawn_wait(&server, &terminal, &["--until", "idle", "--timeout", "60s"]);
@@ -118,8 +122,10 @@ fn terminal_wait_until_idle_returns_when_the_command_ends() {
     let output = finished(waiting, SECONDS_10);
     assert_success(&output);
     let shown = json_output(&output);
-    assert_eq!(shown["id"], terminal.as_str(), "{shown}");
-    assert!(shown["extra"]["activity"].is_null(), "an idle terminal shows a command: {shown}");
+    assert_eq!(shown["terminal_id"], terminal.as_str(), "{shown}");
+    assert_eq!(shown["terminal"]["id"], terminal.as_str(), "{shown}");
+    let extra = &shown["terminal"]["extra"];
+    assert!(extra["activity"].is_null(), "an idle terminal shows a command: {shown}");
 
     start_waiting_command(&server, &terminal, COMMAND_END);
     let started = Instant::now();
@@ -169,8 +175,11 @@ fn terminal_wait_until_prompt_returns_at_the_prompt_mark() {
     let output = finished(waiting, SECONDS_10);
     assert_success(&output);
     let shown = json_output(&output);
-    assert!(shown["extra"]["prompt"]["since_ms"].is_string(), "no prompt fact: {shown}");
-    assert!(shown["extra"]["activity"].is_null(), "a command still shows: {shown}");
+    assert_eq!(shown["until"], "prompt", "{shown}");
+    assert_eq!(shown["state"], "prompt", "{shown}");
+    let extra = &shown["terminal"]["extra"];
+    assert!(extra["prompt"]["since_ms"].is_string(), "no prompt fact: {shown}");
+    assert!(extra["activity"].is_null(), "a command still shows: {shown}");
 
     // At the prompt already: the wait answers at once.
     let output = finished(spawn_wait(&server, &terminal, &["--until", "prompt"]), SECONDS_10);
@@ -216,9 +225,97 @@ fn w5r_terminal_wait_until_idle_after_input_waits_for_the_input_to_answer() {
     );
     assert_success(&output);
     let shown = json_output(&output);
+    let extra = &shown["terminal"]["extra"];
     assert!(
-        shown["extra"]["last_command"]["finished_at_ms"].is_string(),
+        extra["last_command"]["finished_at_ms"].is_string(),
         "the wait returned before the command the input started ended: {shown}"
     );
-    assert!(shown["extra"]["activity"].is_null(), "a command still shows: {shown}");
+    assert!(extra["activity"].is_null(), "a command still shows: {shown}");
+}
+
+/// An OSC 7501 report of Claude Code, as its hooks print it.
+fn claude_status(fields: &str) -> String {
+    format!(r"printf '\033]7501;{fields}:app=claude-code\033\\'; ")
+}
+
+/// W6-C (bench round 5 orchestration row 4): an agent that waits on a
+/// permission dialog is structured on the pane path. `terminal status`,
+/// `terminal wait --until idle` (exit 4, the shape `--until ready` has) and
+/// `agents dialog list` in a session no app owns all give the dialog's
+/// kind, message, options with their keys, and the keys that deny it.
+/// After the answer, the same wait shape says idle.
+#[test]
+fn w6bc_a_blocked_terminal_agent_gives_its_dialog_on_every_read() {
+    let server = HeadlessServer::start_without_shell_integration("w6bc-terminal-dialog");
+    let terminal = new_terminal(&server);
+    // "approve Bash: touch /tmp/w6bc", base64 as OSC 7501 carries it.
+    let msg = "YXBwcm92ZSBCYXNoOiB0b3VjaCAvdG1wL3c2YmM=";
+    let script = format!(
+        "clear; {}printf ' Bash command\\n touch /tmp/w6bc\\n Do you want to proceed?\\n \
+         > 1. Yes\\n   2. No\\n\\n Esc to cancel\\n'; read line; {}\n",
+        claude_status(&format!("state=blocked:kind=permission:msg={msg}")),
+        claude_status("state=idle"),
+    );
+    write(&server, &terminal, &script);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let shown = record(&server, &terminal);
+        let blocked = shown["extra"]["program_status"]
+            .as_array()
+            .is_some_and(|records| records.iter().any(|record| record["state"] == "blocked"));
+        let screen = json_cli(&server, &["terminal", &terminal, "screen", "read", "--details"]);
+        if blocked && json_output(&screen)["text"].as_str().is_some_and(|t| t.contains("2. No")) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the dialog never showed: {shown}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let assert_dialog = |dialog: &serde_json::Value, what: &str| {
+        assert_eq!(dialog["kind"], "permission", "{what}: {dialog}");
+        assert_eq!(dialog["msg"], "approve Bash: touch /tmp/w6bc", "{what}: {dialog}");
+        assert_eq!(dialog["options"][0]["label"], "Yes", "{what}: {dialog}");
+        assert_eq!(dialog["options"][1]["label"], "No", "{what}: {dialog}");
+        let keys = serde_json::json!(["down", "enter"]);
+        assert_eq!(dialog["options"][1]["keys"], keys, "{what}: {dialog}");
+        assert_eq!(dialog["deny_keys"], serde_json::json!(["escape"]), "{what}: {dialog}");
+    };
+
+    let status = json_cli(&server, &["terminal", &terminal, "status"]);
+    assert_success(&status);
+    let records = json_output(&status);
+    let blocked = records
+        .as_array()
+        .and_then(|records| records.iter().find(|record| record["state"] == "blocked"))
+        .cloned()
+        .unwrap_or_default();
+    assert_dialog(&blocked["dialog"], "terminal status");
+
+    let output = finished(
+        spawn_wait(&server, &terminal, &["--until", "idle", "--timeout", "10s"]),
+        SECONDS_10,
+    );
+    assert_eq!(output.status.code(), Some(4), "{}", String::from_utf8_lossy(&output.stderr));
+    let waited = json_output(&output);
+    assert_eq!(waited["terminal_id"], terminal.as_str(), "{waited}");
+    assert_eq!(waited["until"], "idle", "{waited}");
+    assert_eq!(waited["state"], "blocked", "{waited}");
+    assert_dialog(&waited["dialog"], "wait --until idle");
+
+    let listed = json_cli(&server, &["agents", "dialog", "list"]);
+    assert_success(&listed);
+    let listed = json_output(&listed);
+    let terminals = listed["result"]["terminals"].as_array().cloned().unwrap_or_default();
+    let row = terminals.iter().find(|row| row["terminal"] == terminal.as_str());
+    let row = row.unwrap_or_else(|| panic!("agents dialog list has no row for it: {listed}"));
+    assert_dialog(&row["dialog"], "agents dialog list");
+
+    write(&server, &terminal, "go\n");
+    let output = finished(
+        spawn_wait(&server, &terminal, &["--until", "idle", "--timeout", "10s"]),
+        SECONDS_10,
+    );
+    assert_success(&output);
+    let waited = json_output(&output);
+    assert_eq!(waited["state"], "idle", "{waited}");
+    assert!(waited["dialog"].is_null(), "{waited}");
 }
