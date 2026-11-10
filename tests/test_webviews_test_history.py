@@ -95,6 +95,39 @@ class Flaky(unittest.TestCase):
         self.assertEqual(history.flaky(runs(True, False, True), ["test/other.test.ts > x"]), [])
 
 
+class Known(unittest.TestCase):
+    """react-apps-base-check reads a head red's base verdict from a push with the merge parent's inputs."""
+
+    def test_a_red_green_on_every_push_with_the_same_inputs_is_the_changes(self):
+        base, replay = history.known(runs(True, True), "same", {TEST: False, f"{FILE} > other": True})
+        self.assertEqual((base, replay), ({TEST: True}, []))
+
+    def test_a_red_any_such_push_had_is_the_bases(self):
+        self.assertEqual(history.known(runs(True, False), "same", {TEST: False}), ({TEST: False}, []))
+
+    def test_other_inputs_or_a_timed_out_file_say_nothing_and_the_file_replays(self):
+        self.assertEqual(history.known(runs(True, keys=["older"]), "same", {TEST: False}), ({}, [FILE]))
+        self.assertEqual(history.known(runs(None), "same", {TEST: False}), ({}, [FILE]))
+        self.assertEqual(history.known([], "same", {TEST: False}), ({}, [FILE]))
+
+    def test_a_file_red_without_names_reads_the_files_own_verdict(self):
+        self.assertEqual(history.known(runs(True), "same", {FILE: False}), ({FILE: True}, []))
+        self.assertEqual(history.known(runs(None), "same", {FILE: False}), ({FILE: False}, []))
+
+    def test_a_file_no_such_push_ran_replays_and_a_file_one_ran_answers_every_name(self):
+        other = "test/other.test.ts"
+        pushes = history.record([], "sha0", 1000, {FILE: True, other: True}, "same")
+        head = {TEST: False, f"{other} > x": False, f"{FILE} > new test": False}
+        base, replay = history.known(pushes, "same", head)
+        # FILE's "new test" is answered too (its file ran green); a red name the push never ran keeps the file
+        # whole only when its file did not run.
+        self.assertEqual(replay, [])
+        self.assertEqual(base, {TEST: True, f"{other} > x": True, f"{FILE} > new test": True})
+        pushes = history.record([], "sha0", 1000, {FILE: True}, "same")
+        base, replay = history.known(pushes, "same", head)
+        self.assertEqual((base, replay), ({TEST: True, f"{FILE} > new test": True}, [other]))
+
+
 class Inputs(unittest.TestCase):
     def git(self, repo, *args):
         return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
@@ -378,6 +411,55 @@ class Workflow(unittest.TestCase):
         self.assertTrue(fetched(json.dumps({f"{FILE} > a": False})))
         self.assertTrue(fetched(None))  # missing
         self.assertTrue(fetched("{not json"))  # unreadable
+
+    def test_the_replay_takes_the_bases_verdicts_from_a_push_with_its_inputs(self):
+        base = self.job("react-apps-base-check")
+        step = base[base.index("      - name: Restore the base's webview test history"):]
+        step = step[:step.index("\n      - name:", 10)]
+        body = step[step.index("        run: |\n") + len("        run: |\n"):].splitlines()
+        script = "\n".join(line[10:] for line in itertools.takewhile(lambda line: line.startswith(" " * 10), body))
+        other = "test/other.test.ts"
+        with tempfile.TemporaryDirectory() as temp:
+            runner = Path(temp, "head-results/runner")
+            runner.mkdir(parents=True)
+            (runner / "webviews_test_results.py").write_text(
+                (ROOT / "scripts/ci/webviews_test_results.py").read_text(encoding="utf-8"), encoding="utf-8")
+            (runner / "real_history.py").write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+            pushes = history.record([], "sha0", 1000, {FILE: True}, "same")
+            # fetch writes this history; every other command is the real script's.
+            (runner / "webviews_test_history.py").write_text(
+                "import json, pathlib, runpy, sys\n"
+                "if sys.argv[1] == 'fetch':\n"
+                f"    pathlib.Path(sys.argv[2]).parent.mkdir(parents=True, exist_ok=True)\n"
+                f"    pathlib.Path(sys.argv[2]).write_text(json.dumps({{'runs': {json.dumps(pushes)}}}))\n"
+                "    sys.exit(0)\n"
+                "sys.argv[0] = str(pathlib.Path(__file__).with_name('real_history.py'))\n"
+                "runpy.run_path(sys.argv[0], run_name='__main__')\n", encoding="utf-8")
+            # The merge parent's own copy prints its inputs key.
+            Path(temp, "scripts/ci").mkdir(parents=True)
+            Path(temp, "scripts/ci/webviews_test_history.py").write_text("print('same')\n", encoding="utf-8")
+            head = Path(temp, "head-results/webviews-head-results.json")
+            head.write_text(json.dumps({TEST: False, f"{other} > x": False}), encoding="utf-8")
+            output = Path(temp, "output")
+            subprocess.run(["bash", "-e", "-c", script], check=True, capture_output=True, cwd=temp, env={
+                "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp, "HEAD_RESULTS": str(head),
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux", "BASE_REF": "feat-cmux-next", "GITHUB_OUTPUT": str(output)})
+            self.assertEqual(output.read_text(encoding="utf-8"), "replay=1\n")
+            self.assertEqual(Path(temp, "base-replay-files").read_text(encoding="utf-8"), f"{other}\n")
+            self.assertEqual(json.loads(Path(temp, "base-known.json").read_text(encoding="utf-8")), {TEST: True})
+
+    def test_only_the_install_build_and_browsers_wait_on_the_replay(self):
+        import yaml
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["react-apps-base-check"]["steps"]
+        gated = {s["name"] for s in steps if "steps.history.outputs.replay != '0'" in str(s.get("if", ""))}
+        self.assertEqual(gated, {"Use the base's bun", "Cache Bun package cache", "Cache Playwright browsers",
+                                 "Install webview dependencies", "Build base web bundles", "Install headless engines"})
+        names = [s["name"] for s in steps]
+        self.assertLess(names.index("Restore the base's webview test history"), names.index("Use the base's bun"))
+        compare = next(s for s in steps if s["name"] == "Run base reds and compare")
+        self.assertEqual(compare["env"]["KNOWN_REPLAY"], "${{ steps.history.outputs.replay }}")
+        self.assertIn('base-replay-files', compare["run"])
+        self.assertIn('base-known.json', compare["run"])
 
 
 if __name__ == "__main__":

@@ -12,6 +12,11 @@
         pushes with the same inputs key gave them different verdicts), or that went red, green and red
         again on any inputs, or failed there once while their file's reds came back. With NAMES (a
         {name: passed} map, a head's results), only names among its reds.
+    webviews_test_history.py known HISTORY --inputs KEY --names NAMES.json --out BASE.json
+        write to BASE the base verdicts the history already holds for NAMES' reds (a head's results):
+        a red name whose file ran on a push with the same inputs KEY is green there only when no such
+        push named it (or its file) red. Print, one a line, the files the history cannot answer for,
+        which the base must still run
     webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH
         write to OUT the newest history a push on BRANCH uploaded (the ARTIFACT artifact), or an empty
         one when there is none or it cannot be read; GITHUB_TOKEN reads it (actions: read)
@@ -181,6 +186,26 @@ def flaky_name(runs: list[dict], name: str) -> bool:
     return name != file and any(not ok for _, ok in found) and returns(file_verdicts(runs, file))
 
 
+def known(runs: list[dict], key: str, head: dict[str, bool]) -> tuple[dict[str, bool], list[str]]:
+    """(the base verdicts the history holds for HEAD's reds on inputs KEY, the files it holds none for).
+
+    react-apps-base-check replays each head red file once on the merge parent. A push with the same
+    inputs key ran the same webview tree, so its verdict answers the same question without the replay's
+    install, bundle build and browsers (3 to 11 min a shard). A name red on any such push is red on
+    the base (it is not the change's); one that ran green on every such push is green. A file with any
+    name the history cannot answer runs whole, as before, and its names keep the replay's verdicts."""
+    at = [run for run in runs if run["inputs"] == key]
+    base: dict[str, bool] = {}
+    replay: set[str] = set()
+    for name in sorted(name for name, ok in head.items() if not ok):
+        found = [ok for _, ok in verdicts(at, name)]
+        if found:
+            base[name] = all(found)
+        else:
+            replay.add(name.split(" > ", 1)[0])
+    return {name: ok for name, ok in base.items() if name.split(" > ", 1)[0] not in replay}, sorted(replay)
+
+
 def flaky(runs: list[dict], names: list[str] | None = None) -> list[str]:
     if names is None:
         names = sorted({name for run in runs for name in run["red"]})
@@ -274,6 +299,11 @@ def main(argv: list[str]) -> int:
     fl = sub.add_parser("flaky")
     fl.add_argument("history")
     fl.add_argument("--names")
+    kn = sub.add_parser("known")
+    kn.add_argument("history")
+    kn.add_argument("--inputs", required=True)
+    kn.add_argument("--names", required=True)
+    kn.add_argument("--out", required=True)
     fe = sub.add_parser("fetch")
     fe.add_argument("out")
     fe.add_argument("--repo", required=True)
@@ -289,6 +319,12 @@ def main(argv: list[str]) -> int:
         return 1 if args.need_read and not read else 0
     if args.command == "inputs":
         print(inputs(args.root))
+        return 0
+    if args.command == "known":
+        base, replay = known(load(args.history), args.inputs, results([args.names]))
+        Path(args.out).write_text(json.dumps(base, sort_keys=True) + "\n", encoding="utf-8")
+        for file in replay:
+            print(file)
         return 0
     if args.command == "record":
         runs = record(load(args.history), args.sha, args.time, results(args.results), args.inputs, args.attempt)
