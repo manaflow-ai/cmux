@@ -249,7 +249,10 @@ extension ChiefConversationContainer {
         let height = slashSuggestions.preferredHeight
         // Above the field, under the header: the card takes the room between them, and hides
         // when not even one row fits there (it never covers the field).
-        let top = max(view.safeAreaInsets.top + 8, frame.minY - 12 - height)
+        let header = conversation.view.convert(CGPoint(x: 0, y: conversation.headerMaxY), to: view).y
+        // Under the header and under Chief's question bar when it shows (the card never cuts it).
+        let ceiling = max(view.safeAreaInsets.top, header, slashCeilingBelowQuestionBar) + 8
+        let top = max(ceiling, frame.minY - 12 - height)
         let room = frame.minY - 12 - top
         guard room >= Self.minSlashHeight else {
             slashSuggestions.isHidden = true

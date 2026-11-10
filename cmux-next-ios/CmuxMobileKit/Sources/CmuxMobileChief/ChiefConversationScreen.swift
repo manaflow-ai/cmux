@@ -456,6 +456,12 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         }
     }
 
+    /// The bottom of Chief's question bar while it shows, else 0: the `/` list stays below it.
+    var slashCeilingBelowQuestionBar: CGFloat {
+        let bar = questionBar.view.frame
+        return bar.height > 0 && !questionBar.view.isHidden ? bar.maxY : 0
+    }
+
     // MARK: Chief's streaming reply
 
     /// The streaming reply bubble and status line (``ChiefLiveBubble``),
