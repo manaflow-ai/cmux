@@ -377,8 +377,8 @@ fn a_chat_with_no_copies_yet_reads_its_newest_prompts_back_from_the_end() {
     let r0 = read_bytes();
     let page = hub.events_page("c", 0, None, 16, Some(OPEN_BYTES), true, &prompts).unwrap();
     let read = read_bytes() - r0;
-    let newest: Vec<_> =
-        log.iter().filter(|r| r.kind == "user_message").rev().take(16).rev().cloned().collect();
+    let all: Vec<_> = log.iter().filter(|r| r.kind == "user_message").cloned().collect();
+    let newest = all[all.len() - 16..].to_vec();
     assert_eq!(page.events, newest);
     assert!(page.has_more);
     if cfg!(target_os = "linux") {
