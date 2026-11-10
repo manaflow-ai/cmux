@@ -92,11 +92,11 @@ public struct OwnerStartWait {
         let timer = DemandTimer(owner: "OwnerStartWait", clock: clock)
         defer { timer.cancel() }
         // task-owner: the observation; ends at the first true, or cancelled by the deadline or the caller below
-        let watch = Task { @MainActor () -> Bool in
+        let watch = Task { () -> Bool in  // inherits this type's main actor: the observation reads main-actor state
             for await ready in ObservationStream({ condition() }) where ready { return true }
             return false
         }
-        timer.schedule(after: limit) { @MainActor in watch.cancel() }
+        timer.schedule(after: limit) { watch.cancel() }
         return await withTaskCancellationHandler { await watch.value } onCancel: { watch.cancel() }
     }
 }
