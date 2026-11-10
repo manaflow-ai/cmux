@@ -118,7 +118,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
     // --json link status` puts it there) only asks for the error object on
     // a refusal, and never hides the action from the dispatch below.
     let json = args.first().is_some_and(|arg| arg == "--json");
-    let args = if json { &args[1..] } else { args };
+    let args = if json { args.get(1..).unwrap_or_default() } else { args };
     // `dial` has its own exit codes and always one JSON line on stderr.
     if args.first().map(String::as_str) == Some("dial") {
         return dial_cli::run(&args[1..]);
