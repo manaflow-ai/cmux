@@ -300,6 +300,20 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
     that run already covers the push. Nothing is ever dispatched inside a base tier run's window."""
     firsts = base_tier_runs(api, repo)
     last_sha, last_at = newest(firsts)
+
+    def covered() -> bool:
+        """Whether the newest base tier run already covers this push; when it does, the runs it supersedes
+        are cancelled. Asked before every PastDeadline, so a kick with nothing left to dispatch never ends
+        red on the deadline: a run covering the push may first show in any read, the first one too, whose
+        own quota wait it started during (Codex review of #40471)."""
+        tip = pushed or branch_tip(api, repo)
+        if tip not in firsts and (last_sha is None or relevant(api, repo, last_sha, tip, patterns)[0]):
+            return False
+        keep = tip if tip in firsts else last_sha
+        log(f"the base tier run at {keep[:12]} covers {tip[:12]}; nothing to dispatch")
+        cancel_superseded(api, repo, keep, log)
+        return True
+
     waited_out = None  # the run whose window this kick has already slept out
     newer = False  # whether LAST is a run that started while this kick waited
     while True:
@@ -322,6 +336,8 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
         if last_at is not None and last_at != waited_out and (wait := last_at + window - now()) > 0:
             wait = min(wait, window)
             if deadline is not None and wait + AFTER_WINDOW_S > (left := deadline.left()):
+                if covered():
+                    return None
                 raise PastDeadline(f"the window opens in {int(wait)} s but this job has {max(0, int(left))} s left "
                                    f"before its deadline (it needs {AFTER_WINDOW_S} s after the window); "
                                    f"not dispatching; the next push's kick dispatches at a tip that contains "
@@ -363,6 +379,8 @@ def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
         if decided:
             break
     if deadline is not None and deadline.left() <= 0:
+        if covered():
+            return None
         raise PastDeadline(f"the reads before the dispatch used this job's time to its deadline; not dispatching "
                            f"{tip[:12]}; the next push's kick dispatches at a tip that contains it")
     status = api.post(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches",
