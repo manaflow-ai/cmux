@@ -39,7 +39,7 @@ fn install_build(dir: &Path, name: &str, hook_log: &Path) -> PathBuf {
     fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).unwrap();
     cmux_test_exec::write_executable(
         &dir.join("cmux-tui-hook"),
-        &format!("#!/bin/sh\nprintf '%s %s\\n' '{name}' \"$*\" >> '{}'\n", hook_log.display()),
+        format!("#!/bin/sh\nprintf '%s %s\\n' '{name}' \"$*\" >> '{}'\n", hook_log.display()),
     )
     .unwrap();
     exe
@@ -200,14 +200,14 @@ fn own_build_wrapper_and_hook_serve_each_daemons_panes() {
     fs::create_dir_all(shared_helper.parent().unwrap()).unwrap();
     cmux_test_exec::write_executable(
         &shared_helper,
-        &format!("#!/bin/sh\nprintf 'shared %s\\n' \"$*\" >> '{}'\n", hook_log.display()),
+        format!("#!/bin/sh\nprintf 'shared %s\\n' \"$*\" >> '{}'\n", hook_log.display()),
     )
     .unwrap();
     // The real `claude`: records what the wrapper gave it, then runs the
     // hook helper the way Claude Code runs a hook command.
     cmux_test_exec::write_executable(
         &fakebin.join("claude"),
-        &format!(
+        format!(
             "#!/bin/sh\nsettings=\nwhile [ $# -gt 0 ]; do [ \"$1\" = --settings ] && settings=$2; shift; done\n\
              \"$CMUX_TUI_HOOK\" claude SessionStart < /dev/null\n\
              out='{}/claude-'\"$OB_TAG\".txt\n\
@@ -219,7 +219,7 @@ fn own_build_wrapper_and_hook_serve_each_daemons_panes() {
     let user_helper = root.join("user-hook");
     cmux_test_exec::write_executable(
         &user_helper,
-        &format!("#!/bin/sh\nprintf 'user %s\\n' \"$*\" >> '{}'\n", hook_log.display()),
+        format!("#!/bin/sh\nprintf 'user %s\\n' \"$*\" >> '{}'\n", hook_log.display()),
     )
     .unwrap();
     let path = format!("{}:/usr/bin:/bin", fakebin.display());

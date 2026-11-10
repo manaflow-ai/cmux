@@ -439,7 +439,7 @@ fn any_launcher_claude_reports_to_the_pane_session() {
     let launcher = root.join("fake-sr2");
     cmux_test_exec::write_executable(
         &launcher,
-        &format!(
+        format!(
             "#!/bin/sh\n[ \"$1\" = claude ] && shift\n\
              CLAUDE_CONFIG_DIR='{config}'\nexport CLAUDE_CONFIG_DIR\n\
              exec '{claude}' --settings '{settings}' \"$@\"\n",
