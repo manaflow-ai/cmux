@@ -4,7 +4,8 @@ import Testing
 
 /// A tail-first reattach's gap (`gapOpened`, then `gapPage`s) goes in where it belongs even when
 /// the newest records changed what it touches: a retried turn renames the turn it goes before, a
-/// subagent the gap started already has newer state, a prompt it queued still waits.
+/// subagent the gap started already has newer state, a prompt it queued still waits, an ask
+/// it shows was answered later.
 @MainActor
 @Suite struct AgentChatGapTests {
     final class Source: AgentSessionSource {
@@ -79,6 +80,76 @@ import Testing
         let texts = agent?.items.compactMap { if case .message(_, let markdown) = $0 { markdown } else { nil } }
         #expect(texts == ["early", "middle", "late", "live"])
         #expect(store.subagents.filter { $0.id == "sa" }.count == 1)
+        // Drawn under the gap's turn that started it, not under the newest turn.
+        func groups(_ turn: String) -> [String] {
+            store.turns.first { $0.id == turn }?.items.flatMap { item -> [String] in
+                if case .subagents(_, let ids) = item { ids } else { [] }
+            } ?? []
+        }
+        #expect(groups("t1") == ["sa"])
+        #expect(groups("t5").isEmpty)
+    }
+
+    /// A subagent's message and tool call that go on across the gap's edge: "A" before it,
+    /// "B" in it and "C" in the newest page are one message "ABC"; a tool call the gap changed
+    /// and the newest page finished has both changes. The gap used to keep its own items and
+    /// drop every newer change to them.
+    @Test func aSubagentsMessageAndToolCallGoOnAcrossTheGapsEdge() {
+        let store = AgentChatStore(source: Source())
+        store.nextFrame = nil
+        store.apply(.batch([
+            .userMessage(text: "prompt t0", promptId: "p-t0", turnId: "t0", attachments: [], at: Self.at),
+            .turnStarted(turnId: "t0", at: Self.at),
+            .subagent(AgentSubagentChange(id: "sa", name: "Writer", state: .running, at: Self.at)),
+            .subagent(AgentSubagentChange(id: "sb", name: "Reader", state: .running, at: Self.at)),
+            .subagentUpdate(subagentID: "sa", .agentMessageChunk(text: "A", messageId: "m1")),
+            .subagentUpdate(subagentID: "sb", .toolCall(ACPToolCall(id: "tc1", title: "Read", kind: .read))),
+        ]))
+        let tail: [AgentSessionEvent] = Self.turn("t5") + [
+            .subagentUpdate(subagentID: "sa", .agentMessageChunk(text: "C", messageId: "m1")),
+            .subagentUpdate(subagentID: "sb", .toolCallUpdate(ACPToolCallUpdate(toolCallId: "tc1", status: .completed))),
+        ]
+        store.apply(.batch([.gapOpened(beforeTurnID: "t5")] + tail))
+        store.apply(.gapPage([.subagentUpdate(subagentID: "sa", .agentMessageChunk(text: "B", messageId: "m1"))], done: false))
+        store.apply(.gapPage([.subagentUpdate(subagentID: "sb", .toolCallUpdate(ACPToolCallUpdate(toolCallId: "tc1", title: "Read a.swift"))),
+                              .turnResult(turnId: "t0", status: .completed, errorText: nil, at: Self.at)], done: true))
+
+        let texts = store.subagent("sa")?.items.compactMap { if case .message(_, let markdown) = $0 { markdown } else { nil } }
+        #expect(texts == ["ABC"])
+        let calls = store.subagent("sb")?.items.compactMap { if case .tool(let call) = $0 { call } else { nil } } ?? []
+        #expect(calls.map(\.title) == ["Read a.swift"])
+        #expect(calls.map(\.status) == [.completed])
+    }
+
+    /// A live edit of a prompt the gap put back in the queue stays: a later gap page's older
+    /// edit of it does not undo it.
+    @Test func aLiveQueueEditOutlastsALaterGapPage() {
+        let store = Self.store(tail: Self.turn("t5"), before: "t5")
+        store.apply(.gapPage([.queued(text: "first", promptId: "q1", position: 0)], done: false))
+        #expect(store.queue.map(\.text) == ["first"])
+        store.apply(.queueUpdated(promptId: "q1", text: "live"))
+        store.apply(.gapPage([.queueUpdated(promptId: "q1", text: "older")] + Self.turn("t1"), done: true))
+        #expect(store.queue.map(\.text) == ["live"])
+    }
+
+    /// An ask in the gap that a newer record answered shows answered in the gap's turn, not
+    /// open; one the gap answered itself stays answered too.
+    @Test func anAskTheNewestRecordsAnsweredShowsAnsweredInTheGap() {
+        let allow = ACPPermissionOption(id: "allow", name: "Allow", kind: .allowOnce)
+        func ask(_ id: String) -> AgentSessionEvent {
+            .permissionRequest(ACPPermissionRequest(id: id, toolCall: ACPToolCall(id: "tool-\(id)", title: "Run", kind: .execute), options: [allow]))
+        }
+        let store = Self.store(tail: Self.turn("t5") + [.permissionDecision(permissionId: "late", optionId: "allow")], before: "t5")
+        store.apply(.gapPage([.userMessage(text: "prompt t1", promptId: "p-t1", turnId: "t1", attachments: [], at: Self.at),
+                              .turnStarted(turnId: "t1", at: Self.at),
+                              ask("early"),
+                              .permissionDecision(permissionId: "early", optionId: "allow")], done: false))
+        // The ask the newer record answered comes on a later page.
+        store.apply(.gapPage([ask("late"), .turnResult(turnId: "t1", status: .completed, errorText: nil, at: Self.at)], done: true))
+
+        let records = store.turns.first { $0.id == "t1" }?.items.compactMap { if case .permission(let record) = $0 { record } else { nil } } ?? []
+        #expect(records.map(\.request.id) == ["early", "late"])
+        #expect(records.map(\.resolution) == [.chose(allow), .chose(allow)])
     }
 
     /// Prompts the gap queued: one still waiting shows in the queue (with a newer edit of it),
