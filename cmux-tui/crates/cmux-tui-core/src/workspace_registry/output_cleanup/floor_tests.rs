@@ -430,6 +430,48 @@ fn a_swap_at_a_floor_records_what_it_deleted_through() {
     );
 }
 
+/// The swap folds a log left by a killed owner into the registry first. A
+/// reader that holds the log (another process that reads the registry) makes
+/// that checkpoint busy: the swap waits for a later start. It must not throw
+/// away the staged work, and it must not stop the cleanup for this build.
+#[test]
+fn a_swap_behind_a_reader_of_the_log_keeps_the_staged_work() {
+    let fixture = fixture("busy-log", 1_100);
+    let Fixture { root, db_path, floor, .. } = &fixture;
+    assert_eq!(stage(db_path, *floor, &|| true), StageOutcome::Built);
+    // A reader with an open snapshot, then a commit after it: the log holds
+    // a frame that no checkpoint can move past the reader.
+    let reader = read_only(db_path);
+    reader.execute_batch("BEGIN").unwrap();
+    let _: i64 = reader.query_row("SELECT COUNT(*) FROM meta", [], |row| row.get(0)).unwrap();
+    {
+        let writer = Connection::open(db_path).unwrap();
+        writer
+            .execute(
+                "INSERT INTO meta(key, value) VALUES('floor_test_busy_log', '1')
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            )
+            .unwrap();
+    }
+    assert!(!swap_at_open(db_path, &|_| Ok(())), "the swap ran behind a reader of the log");
+    assert!(staging_path(db_path).is_file(), "the staged work was thrown away");
+    assert!(!failed_path(db_path).exists(), "the cleanup was stopped for this build");
+    assert!(!previous_path(db_path).exists());
+    reader.execute_batch("ROLLBACK").unwrap();
+    drop(reader);
+
+    // With the reader gone the next start swaps. The commit above came after
+    // the background build: it is in the copied tables of the swap.
+    drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
+    assert!(previous_path(db_path).is_file(), "no swap after the reader left");
+    assert_eq!(
+        count(db_path, "SELECT COUNT(*) FROM meta WHERE key = 'floor_test_busy_log'"),
+        1,
+        "the swap lost a commit of the log"
+    );
+}
+
 /// A session for the join with retention: a sealed run of old hook records,
 /// then enough newer records and checkpoints that the retention floor
 /// passes the old run (the newest 1,024 records and the newest 16
@@ -444,7 +486,8 @@ fn old_run_below_the_retention_floor(mux: &Arc<crate::Mux>) -> u64 {
     for index in 0..2_100 {
         hook(mux, &terminal, ["SessionStart", "UserPromptSubmit", "Stop"][index % 3]);
     }
-    let old_run = seal_all(mux, "below");
+    seal_all(mux, "below");
+    let old_run = mux.workspace_registry.lock().unwrap().journal_segments_end().unwrap();
     for round in 0..20 {
         for _ in 0..30 {
             hook(mux, &terminal, "UserPromptSubmit");
