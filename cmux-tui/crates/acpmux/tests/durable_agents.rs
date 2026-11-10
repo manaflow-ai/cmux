@@ -2260,6 +2260,33 @@ async fn a_close_ends_the_agent_when_the_host_never_takes_the_terminate() {
     );
 }
 
+/// A Stop that an agent works through restarts the agent. When its host never takes the
+/// terminate, the restart ends the host by its nonce: the stopped agent does not run on, and the
+/// agent that starts again is not that same host adopted.
+#[tokio::test]
+async fn a_stop_restart_ends_the_agent_when_the_host_never_takes_the_terminate() {
+    let env = [("ACPMUX_TEST_STALL_HOST_TERMINATE", "1")];
+    let fake = json!({"argv": ["python3", FAKE]});
+    let (daemon, mut rpc) = proven_daemon("stallstop", fake, &env).await;
+    let session = new_session(&daemon).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    let deaf =
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "deaf-to-cancel"}]});
+    rpc.send("session/prompt", deaf).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let cancel =
+        json!({"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": session}});
+    rpc.wr.write_all(format!("{cancel}\n").as_bytes()).await.unwrap();
+
+    // Two cancel graces (10 s and 5 s) pass before the restart, then the host's own end.
+    let gone =
+        tokio::task::spawn_blocking(move || gone_within(harness_pid, Duration::from_secs(40)));
+    assert!(gone.await.unwrap(), "the stopped agent ran on after its restart");
+}
+
 /// MDM's off as a push recorded it in start-mode.json, for the next daemon to load.
 fn record_mdm_off(daemon: &Daemon) {
     let state = daemon.home.join("start-mode.json");
