@@ -602,8 +602,8 @@ try {
   // Growth per switch (bench/growth.ts): one page switches A, B, A, B... and, once warm, samples the GC'd heap, DOM
   // nodes and listeners every SAMPLE_EVERY of CHURN switches. Back where it started, a switch must leave nothing
   // behind: each slope's target is 0. Warm is WARM switches and then as many as the wire log (wire.ts, the inspector's
-  // bounded record of every message) needs to fill: until it drops its oldest entry it grows by each switch's
-  // messages by design, and that fill is a bound, not a leak (test/wire-log-bounds.test.ts holds the bound).
+  // bounded record of every message) needs to turn over: until every entry it keeps is a switch's, it grows by
+  // design toward its bound, and that fill is not a leak (test/wire-log-bounds.test.ts holds the bound).
   // HEAP_PROBE=1 also takes three heap snapshots in the churn and prints what piled up between them, by constructor
   // and by the oldest object holding it (bench/heapProbe.ts), from an unminified build.
   if (!REMOTE_TAIL) {
@@ -638,19 +638,26 @@ try {
           { timeout: 60_000, polling: "raf" },
         );
       };
-      const wireDropped = () =>
+      const wireLog = () =>
         page.evaluate(() => {
           const debug = (
             window as unknown as {
-              cmuxAcpmuxDebug?: { acpLog(options: { limit: number }): { stats: { dropped: number } } };
+              cmuxAcpmuxDebug?: {
+                acpLog(options: { limit: number }): { stats: { oldestSeq?: number }; entries: { seq: number }[] };
+              };
             }
           ).cmuxAcpmuxDebug;
           if (!debug) throw new Error("the pane has no cmuxAcpmuxDebug");
-          return debug.acpLog({ limit: 1 }).stats.dropped;
+          const log = debug.acpLog({ limit: 1 });
+          return { oldest: log.stats.oldestSeq ?? 0, newest: log.entries[0]?.seq ?? 0 };
         });
-      while (op < WARM || op % 2 || ((await wireDropped()) === 0 && op < MAX_WARM)) await switchOnce();
+      while (op < WARM) await switchOnce();
+      // Turned over: the oldest entry kept was logged after the first WARM switches, so the log holds only
+      // switches' messages and each new one replaces an old one.
+      const { newest: warmedAt } = await wireLog();
+      while (op % 2 || ((await wireLog()).oldest <= warmedAt && op < MAX_WARM)) await switchOnce();
       const warm = op;
-      if ((await wireDropped()) === 0) throw new Error(`the wire log did not fill in ${MAX_WARM} switches`);
+      if ((await wireLog()).oldest <= warmedAt) throw new Error(`the wire log did not turn over in ${MAX_WARM} switches`);
       const probe = process.env.HEAP_PROBE ? await import("./heapProbe") : undefined;
       const snapshots: Awaited<ReturnType<NonNullable<typeof probe>["takeSnapshot"]>>[] = [];
       const samples: GrowthSample[] = [];
@@ -663,7 +670,7 @@ try {
           snapshots.push(await probe.takeSnapshot(cdp));
       }
       if (probe && snapshots.length === 3) probe.diff(snapshots[0]!, snapshots[2]!, FIXTURE, snapshots[1]);
-      console.log(`growth: ${warm} warm switches (the wire log full), then ${CHURN} sampled`);
+      console.log(`growth: ${warm} warm switches (the wire log turned over), then ${CHURN} sampled`);
       const growth = growthPerOp(samples);
       console.log(
         `growth over ${CHURN} switches: heap ${growth.heapKbPerOp} KB, ${growth.nodesPerOp} DOM nodes, ` +

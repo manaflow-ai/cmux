@@ -19,5 +19,9 @@ test("a long message is logged as its first MAX_PAYLOAD_CHARS, and the log's tex
   expect(entries.at(-1)!.text).toBe(message.slice(0, MAX_PAYLOAD_CHARS));
   expect(entries.at(-1)!.size).toBe(message.length);
   expect(entries.at(-1)!.truncated).toBe(true);
-  expect(entries.reduce((sum, entry) => sum + (entry.text?.length ?? 0), 0)).toBeLessThanOrEqual(MAX_TEXT_CHARS);
+  const held = entries.reduce((sum, entry) => sum + (entry.text?.length ?? 0), 0);
+  expect(held).toBeLessThanOrEqual(MAX_TEXT_CHARS);
+  expect(log.stats().textChars).toBe(held);
+  expect(log.stats().oldestSeq).toBe(entries[0]!.seq);
+  expect(log.stats().dropped).toBe(200 - entries.length);
 });

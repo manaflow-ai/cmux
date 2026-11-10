@@ -40,6 +40,10 @@ export type WireEntry = {
 export type WireStats = {
   entries: number;
   dropped: number;
+  /// Characters of message text the log holds (at most MAX_TEXT_CHARS).
+  textChars: number;
+  /// The `seq` of the oldest entry kept: everything before it was dropped.
+  oldestSeq?: number;
   requests: number;
   errors: number;
   inFlight: number;
@@ -218,6 +222,8 @@ export class AcpWireLog {
     return {
       entries: this.log.length,
       dropped: this.droppedCount,
+      textChars: this.bytes,
+      oldestSeq: this.log[0]?.seq,
       ...this.counters,
       inFlight: this.pending.size,
       lastError: this.lastError,
