@@ -8,6 +8,8 @@
 //! (`follow: false`, the app's history read) asks for what the journal holds
 //! and keeps nothing.
 
+#![cfg(unix)]
+
 use super::*;
 
 const TERMINAL: &str = "00000000000040008000000000000b01";
@@ -72,7 +74,6 @@ fn subscribe(stream: &str, follow: bool) -> String {
     )
 }
 
-#[cfg(unix)]
 #[test]
 fn a_live_journal_follower_of_agent_rows_gets_a_row_for_each_report() {
     let mux = test_mux();
@@ -113,5 +114,24 @@ fn a_live_journal_follower_of_agent_rows_gets_a_row_for_each_report() {
     let item = pop_until(&outbound, |message| message["type"] == "stream_item");
     assert_eq!(item["stream_id"], live);
     assert_eq!(item["item"]["kind"], "agent.state.changed");
+
+    // The follower leaves. It can come back with its cursor, so the rows
+    // stay for the grace; after it, a report writes nothing again.
+    let cancel = resource_request(
+        "follower-cancel",
+        "stream.cancel",
+        json!({"machine":"current","session":"current","stream":live}),
+        None,
+    );
+    assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+    assert_eq!(pop_until(&outbound, |message| message["id"] == "follower-cancel")["ok"], true);
     assert!(disconnect_client(&mux, client, false));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while mux.journal_row_followers_for_test() > 0 {
+        assert!(Instant::now() < deadline, "the journal stream did not end with its client");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(rows_of_three_tool_reports(&mux, terminal), 3, "inside the grace: still rows");
+    mux.pass_journal_follower_grace_for_test();
+    assert_eq!(rows_of_three_tool_reports(&mux, terminal), 0, "after the grace: no row");
 }

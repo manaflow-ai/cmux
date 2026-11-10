@@ -29,7 +29,14 @@
 //! - while another hook of the terminal is still on its way to the journal
 //!   (the row keeps its place in their order);
 //! - while an enabled journal hook's kind filter matches
-//!   `agent.state.changed`: that hook is delivered every row.
+//!   `agent.state.changed`: that hook is delivered every row;
+//! - while a client follows the journal live with a kind filter that matches
+//!   it (chatmux-relay's forwarder subscribes to `agent.*`), and for
+//!   [`FOLLOWER_GRACE`] after the last one left: a follower reads the journal
+//!   and nothing else. A bounded read (`follow: false`) does not count;
+//! - after a row of the terminal whose result is not known (its append
+//!   failed or timed out, or it was a retry the registry answered): the
+//!   table no longer knows what the journal holds.
 //!
 //! The table is memory only. After a restart the first report of each
 //! terminal is appended again, and the roster folds to the same state because
@@ -46,6 +53,13 @@ const MAX_SUBJECT_LISTS: usize = 512;
 /// Idempotency keys remembered per terminal, so a hook's retry is told apart
 /// from a new report.
 const MAX_RECENT_KEYS: usize = 64;
+/// How long every report stays a row after the last live journal follower
+/// of the kind left. A follower that lost its connection comes back with its
+/// cursor and must find the rows of the gap: chatmux-relay's forwarder
+/// reconnects within its 30 s backoff limit plus its 15 s socket scan. A
+/// follower that left for good (one `cmux session journal subscribe` in a
+/// shell) costs rows for this long, not until the daemon restarts.
+const FOLLOWER_GRACE: Duration = Duration::from_secs(120);
 
 /// What the journal already holds of the agent session in one terminal.
 #[derive(Debug)]
@@ -63,6 +77,10 @@ struct StoredHookFacts {
 struct HookSlot {
     /// Hooks of this terminal on their way to the journal.
     in_flight: u32,
+    /// Rows of this terminal whose result was not known
+    /// (`forget_agent_hook_stored`). A row sent before one of them does not
+    /// note its facts after it.
+    unknown_results: u64,
     /// The highest sequence noted: commits can finish out of order.
     noted_sequence: u64,
     stored: Option<StoredHookFacts>,
@@ -153,14 +171,40 @@ impl StoredHookFacts {
     }
 }
 
+/// The clients that follow the journal live with a kind filter that matches
+/// `agent.state.changed`.
+#[derive(Debug, Default)]
+struct JournalRowFollowers {
+    live: usize,
+    /// When the last one left; `None` while none ever followed.
+    last_left: Option<Instant>,
+}
+
+/// One live journal stream that is sent `agent.state.changed` rows. While it
+/// lives, and for [`FOLLOWER_GRACE`] after, every hook report is a row.
+#[derive(Debug)]
+pub(crate) struct JournalRowFollower {
+    followers: Arc<Mutex<JournalRowFollowers>>,
+}
+
+impl Drop for JournalRowFollower {
+    fn drop(&mut self) {
+        let mut followers = self.followers.lock().unwrap_or_else(PoisonError::into_inner);
+        followers.live = followers.live.saturating_sub(1);
+        followers.last_left = Some(Instant::now());
+    }
+}
+
 /// Which agent sessions the journal holds, per terminal, and whether a
-/// journal hook reads the rows this module leaves out. Memory only.
+/// journal hook or a journal follower reads the rows this module leaves out.
+/// Memory only.
 #[derive(Debug, Default)]
 pub(super) struct AgentHooksAtRest {
     terminals: Mutex<HashMap<TerminalPublicId, HookSlot>>,
     /// Whether an enabled journal hook's kind filter matches
     /// `agent.state.changed`; `None` until read, and after a hook changed.
     journal_hook_reads_rows: Mutex<Option<bool>>,
+    journal_followers: Arc<Mutex<JournalRowFollowers>>,
 }
 
 impl AgentHooksAtRest {
@@ -173,9 +217,19 @@ impl AgentHooksAtRest {
     }
 
     /// Terminals with a table entry.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn slots(&self) -> usize {
         self.terminals().len()
+    }
+
+    /// Whether a journal follower reads `agent.state.changed` rows at `now`:
+    /// one is connected, or the last one left less than the grace ago.
+    fn journal_follower_reads_rows(&self, now: Instant) -> bool {
+        let followers = self.journal_followers.lock().unwrap_or_else(PoisonError::into_inner);
+        followers.live > 0
+            || followers
+                .last_left
+                .is_some_and(|left| now.saturating_duration_since(left) < FOLLOWER_GRACE)
     }
 
     /// The installed journal hooks are about to change. Hold the guard
@@ -194,6 +248,8 @@ impl AgentHooksAtRest {
 pub(super) struct HookInFlight<'a> {
     at_rest: &'a AgentHooksAtRest,
     terminal: TerminalPublicId,
+    /// The slot's `unknown_results` when the hook was sent.
+    unknown_results: u64,
 }
 
 impl Drop for HookInFlight<'_> {
@@ -215,9 +271,40 @@ fn kind_filter_matches_at_rest_kind(kinds: &[String]) -> bool {
 }
 
 impl Mux {
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn agent_hook_slots_for_test(&self) -> usize {
         self.agent_hooks_at_rest.slots()
+    }
+
+    /// Counts a live journal stream as a reader of `agent.state.changed` rows
+    /// when its kind filter can match them (`matches_kind`). The stream holds
+    /// it for its life: every hook report from here on is a row it can read.
+    pub(crate) fn follow_journal_agent_rows(
+        &self,
+        matches_kind: impl FnOnce(&str) -> bool,
+    ) -> Option<JournalRowFollower> {
+        if !matches_kind(AT_REST_KIND) {
+            return None;
+        }
+        let followers = self.agent_hooks_at_rest.journal_followers.clone();
+        followers.lock().unwrap_or_else(PoisonError::into_inner).live += 1;
+        Some(JournalRowFollower { followers })
+    }
+
+    /// Live followers of the at-rest rows.
+    #[cfg(all(test, unix))]
+    pub(crate) fn journal_row_followers_for_test(&self) -> usize {
+        let followers = &self.agent_hooks_at_rest.journal_followers;
+        followers.lock().unwrap_or_else(PoisonError::into_inner).live
+    }
+
+    /// Makes the last follower's leave [`FOLLOWER_GRACE`] older, as if that
+    /// time passed.
+    #[cfg(all(test, unix))]
+    pub(crate) fn pass_journal_follower_grace_for_test(&self) {
+        let followers = &self.agent_hooks_at_rest.journal_followers;
+        let mut followers = followers.lock().unwrap_or_else(PoisonError::into_inner);
+        followers.last_left = followers.last_left.and_then(|left| left.checked_sub(FOLLOWER_GRACE));
     }
 
     /// The answer to a hook report that changes no durable state, with its
@@ -240,7 +327,9 @@ impl Mux {
         {
             return None;
         }
-        if self.journal_hook_reads_at_rest_rows() {
+        if self.journal_hook_reads_at_rest_rows()
+            || self.agent_hooks_at_rest.journal_follower_reads_rows(Instant::now())
+        {
             return None;
         }
         // Held through the presence change: a later row of this terminal (a
@@ -274,24 +363,86 @@ impl Mux {
         ingress: &crate::JournalIngress,
     ) -> Option<HookInFlight<'_>> {
         let terminal = HookFacts::of(ingress)?.terminal;
-        self.agent_hooks_at_rest.terminals().entry(terminal.clone()).or_default().in_flight += 1;
-        Some(HookInFlight { at_rest: &self.agent_hooks_at_rest, terminal })
+        let mut terminals = self.agent_hooks_at_rest.terminals();
+        let slot = self.open_terminal_slot(&mut terminals, &terminal)?;
+        slot.in_flight += 1;
+        let unknown_results = slot.unknown_results;
+        drop(terminals);
+        Some(HookInFlight { at_rest: &self.agent_hooks_at_rest, terminal, unknown_results })
     }
 
-    /// Records what the journal now holds of the terminal's agent session,
-    /// after `ingress` committed as a new row at `commit`.
-    pub(super) fn note_agent_hook_stored(
+    /// The table entry of `terminal`, made when the terminal is open. A
+    /// closed terminal gets none: its close already ran `forget_terminal`,
+    /// and nothing would remove a later entry. The caller holds the table,
+    /// so a close that comes now removes the entry after it.
+    fn open_terminal_slot<'a>(
+        &self,
+        terminals: &'a mut HashMap<TerminalPublicId, HookSlot>,
+        terminal: &TerminalPublicId,
+    ) -> Option<&'a mut HookSlot> {
+        if !terminals.contains_key(terminal) && self.terminal_resource_surface(terminal).is_none() {
+            return None;
+        }
+        Some(terminals.entry(terminal.clone()).or_default())
+    }
+
+    /// Records how the append of `ingress` (sent as `in_flight`) ended: a
+    /// new row notes its facts; an error (the row can still commit after its
+    /// producer gave up) or a retry the registry answered (nobody noted its
+    /// first result) forgets them.
+    pub(super) fn note_agent_hook_result(
         &self,
         ingress: &crate::JournalIngress,
-        commit: &crate::JournalAppendCommit,
+        commit: Option<&crate::JournalAppendCommit>,
+        in_flight: Option<&HookInFlight<'_>>,
         origin: &str,
         idempotency_key: &str,
     ) {
+        if ingress.producer_id != crate::AGENT_HOOK_PRODUCER_ID {
+            return;
+        }
+        match commit {
+            Some(commit) if !commit.replayed => {
+                self.activity.note_agent_action();
+                self.note_agent_hook_stored(ingress, commit, in_flight, origin, idempotency_key);
+            }
+            _ => self.forget_agent_hook_stored(ingress),
+        }
+    }
+
+    /// The journal may hold a row of the terminal this table did not note.
+    /// Forget what it holds, so the next report is appended and notes the
+    /// facts again.
+    fn forget_agent_hook_stored(&self, ingress: &crate::JournalIngress) {
+        let Some(facts) = HookFacts::of(ingress) else { return };
+        if let Some(slot) = self.agent_hooks_at_rest.terminals().get_mut(&facts.terminal) {
+            slot.stored = None;
+            slot.unknown_results += 1;
+        }
+    }
+
+    /// Records what the journal now holds of the terminal's agent session,
+    /// after `ingress` (sent as `in_flight`) committed as a new row at
+    /// `commit`.
+    fn note_agent_hook_stored(
+        &self,
+        ingress: &crate::JournalIngress,
+        commit: &crate::JournalAppendCommit,
+        in_flight: Option<&HookInFlight<'_>>,
+        origin: &str,
+        idempotency_key: &str,
+    ) {
+        // No entry when the hook was sent: its terminal was closed.
+        let Some(in_flight) = in_flight else { return };
         let Some(facts) = HookFacts::of(ingress) else { return };
         let mut terminals = self.agent_hooks_at_rest.terminals();
-        let slot = terminals.entry(facts.terminal.clone()).or_default();
+        let Some(slot) = terminals.get_mut(&facts.terminal) else { return };
         slot.remember(receipt_key(origin, idempotency_key), None);
-        if commit.sequence <= slot.noted_sequence {
+        // A row with an unknown result came after this one was sent: it can
+        // commit after this one, so this one's facts may be old.
+        if commit.sequence <= slot.noted_sequence
+            || in_flight.unknown_results != slot.unknown_results
+        {
             return;
         }
         slot.noted_sequence = commit.sequence;

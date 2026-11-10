@@ -477,7 +477,9 @@ fn agents_at_rest_a_report_after_a_row_with_an_unknown_result_is_appended() {
     assert_eq!(tool_rows(&mux), 0, "setup: an equal report writes nothing");
 
     // The session's end is admitted by the writer and held there: its
-    // producer gets an error, then the row commits.
+    // producer gets an error, then the row commits. Settle first, so the
+    // hold takes this row and not a late write of the roster's owner.
+    settled(&mux);
     let (entered, entered_receiver) = std::sync::mpsc::sync_channel(1);
     let (release, release_receiver) = std::sync::mpsc::sync_channel(1);
     mux.install_journal_after_commit_admission_for_test(entered, release_receiver);

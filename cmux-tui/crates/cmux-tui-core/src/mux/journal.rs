@@ -566,31 +566,29 @@ impl Mux {
         if let Some(commit) = self.answer_agent_hook_at_rest(ingress, origin, idempotency_key) {
             return Ok(commit);
         }
-        let _in_flight = self.agent_hook_in_flight(ingress);
-        let commit = if self.journal_ingress.enabled() {
+        let in_flight = self.agent_hook_in_flight(ingress);
+        let appended = if self.journal_ingress.enabled() {
             self.journal_ingress.send_producer(
                 ingress.clone(),
                 validated,
                 origin.into(),
                 idempotency_key.into(),
-            )?
+            )
         } else {
-            let commit = self.workspace_registry.lock().unwrap().append_journal_ingress(
+            let appended = self.workspace_registry.lock().unwrap().append_journal_ingress(
                 ingress,
                 &validated,
                 origin,
                 idempotency_key,
-            )?;
-            if !commit.replayed {
+            );
+            if appended.as_ref().is_ok_and(|commit| !commit.replayed) {
                 self.publish_journal_event();
             }
-            commit
+            appended
         };
-        if !commit.replayed && ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
-            self.activity.note_agent_action();
-            self.note_agent_hook_stored(ingress, &commit, origin, idempotency_key);
-        }
-        self.finish_journal_ingress(ingress, origin, idempotency_key, commit)
+        let result = appended.as_ref().ok();
+        self.note_agent_hook_result(ingress, result, in_flight.as_ref(), origin, idempotency_key);
+        self.finish_journal_ingress(ingress, origin, idempotency_key, appended?)
     }
 
     pub(super) fn finish_journal_ingress(
