@@ -2,11 +2,13 @@ import CoreGraphics
 @testable import CmuxNextDesign
 import Testing
 
-/// The flush corner (`chrome.cornerFlush`, Thunderdome r2 A): off by default, and the card's wedge on
+/// The flush corner (`chrome.cornerFlush`, Thunderdome r2 A): `flush-goo` by default (Leo, 2026-11-10: the
+/// selected tab takes the content's color and joins it like a folder tab), and the card's wedge on
 /// the sidebar's side goes while the selected first tab rises from that corner.
 @MainActor @Suite struct CornerFlushTests {
-    @Test func offIsTheDefault() {
-        #expect(CornerFlush.tunable.defaultValue == .off)
+    @Test func gooIsTheDefault() {
+        #expect(CornerFlush.tunable.defaultValue == .goo)
+        #expect(CornerFlush.goo.isOn && CornerFlush.goo.feetRadius > 0)
         #expect(!CornerFlush.off.isOn)
         #expect(CornerFlush.flush.isOn && CornerFlush.tight.isOn)
     }
