@@ -79,7 +79,10 @@ def merge_gating_jobs(workflow_texts: Mapping[str, str], contexts: Iterable[str]
     found: set[tuple[str, str]] = set()
     for workflow, text in workflow_texts.items():
         jobs = workflow_jobs.jobs(text)
-        pending = [name for name, job in jobs.items() if str(job.get("name", name)) in contexts]
+        # The name as GitHub reports it (workflow_jobs.name_values): literal expressions read, and a name nothing
+        # resolves counts as gating, so the trusted-runner guard checks it instead of letting it pass unseen.
+        pending = [name for name, job in jobs.items()
+                   if (names := workflow_jobs.name_values(job, name))[1] or names[0] & contexts]
         while pending:
             name = pending.pop()
             if (workflow, name) in found or name not in jobs:

@@ -94,6 +94,19 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertEqual(unclassified_app_jobs({**self.jobs, name: job}), {name})
 
+    def test_a_release_app_job_whose_environment_differs_in_case_must_be_classified(self) -> None:
+        """Codex: GitHub matches environment names without case, so `environment: Release` is the release
+        environment; workflow_jobs casefolds every resolved name."""
+        for name, environment in (("publish-case-fixture", "Release"), ("publish-upper-fixture", {"name": "RELEASE-NEXT"}),
+                                  ("publish-branch-case-fixture", "${{ inputs.x && 'Release' || 'pr-media' }}")):
+            with self.subTest(job=name):
+                job = {"environment": environment, "steps": [{"run": "gh release upload"}]}
+                self.assertEqual(unclassified_app_jobs({**self.jobs, name: job}), {name})
+
+    def test_a_listed_release_app_job_in_another_case_stays_green(self) -> None:
+        listed = {**self.jobs["publish-release-notes"], "environment": "Release"}
+        self.assertEqual(unclassified_app_jobs({**self.jobs, "publish-release-notes": listed}), set())
+
     def test_a_listed_release_app_job_reading_the_key_by_bracket_stays_green(self) -> None:
         listed = {**self.jobs["publish-release-notes"]}
         listed["steps"] = [*listed["steps"], {"with": {"private-key": "${{ secrets['cmux_release_app_key'] }}"}}]

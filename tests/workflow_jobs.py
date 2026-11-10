@@ -305,8 +305,9 @@ def runs_on_values(job: Mapping[str, Any]) -> tuple[set[str], set[str]]:
 
 def environment_values(job: Mapping[str, Any]) -> tuple[set[str], set[str]]:
     """Every environment name a job's `environment:` can resolve to (matrix values expanded,
-    literal branches of an expression read), and every part it could not resolve. A guard counts
-    a job with an unresolved part as unclassified, never as outside the environment."""
+    literal branches of an expression read), casefolded because GitHub matches environment names
+    without case (`Release` is `release`), and every part it could not resolve. A guard counts a
+    job with an unresolved part as unclassified, never as outside the environment."""
     env = job.get("environment")
     if isinstance(env, Mapping):
         env = env.get("name")
@@ -314,4 +315,38 @@ def environment_values(job: Mapping[str, Any]) -> tuple[set[str], set[str]]:
         return set(), set()
     if not isinstance(env, str):
         return set(), {repr(env)}
-    return _resolve(job, env)
+    values, unresolved = _resolve(job, env)
+    return {value.casefold() for value in values}, unresolved
+
+
+def name_values(job: Mapping[str, Any], job_id: str) -> tuple[set[str], set[str]]:
+    """The check name a job reports: its `name:` (the job id when it has none) with matrix values
+    expanded and literal expressions read (`${{ 'CLA policy guard' }}` is `CLA policy guard`), and
+    every part nothing resolves. Check names keep their case. A guard that matches names counts a job
+    with an unresolved part as a match (unclassified), never as a different check."""
+    name = job.get("name", job_id)
+    if not isinstance(name, str):
+        return set(), {repr(name)}
+    return _resolve(job, name)
+
+
+class Resolved:
+    """Every field a guard compares, read once and normalized: runs-on per matrix cell
+    (runs_on_cells, runs_on_values), environment names casefolded (environment_values), the check
+    name with literal expressions read (name_values), and the job's effective secrets (the workflow
+    env it inherits, then its env, steps, `with:` and `secrets:`; secret_names). Each `*_unresolved`
+    set, and `runs_on_cells is None`, is what nothing here could read: a guard fails closed on it."""
+
+    def __init__(self, job: Mapping[str, Any], job_id: str = "") -> None:
+        self.job = job
+        self.runs_on_cells = runs_on_cells(job)
+        self.runs_on, self.runs_on_unresolved = runs_on_values(job)
+        self.environments, self.environments_unresolved = environment_values(job)
+        self.names, self.names_unresolved = name_values(job, job_id)
+        self.secrets = secret_names(job)
+
+
+def resolve(job: Mapping[str, Any], job_id: str = "") -> Resolved:
+    """The one resolve step (Resolved). A guard reads a job's runs-on, environment, name and secrets here, never
+    the raw field."""
+    return Resolved(job, job_id)

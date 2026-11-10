@@ -16,6 +16,8 @@ The pre-fix reader:
 - environments: the literal `environment:` (or its `name:`); a matrix value or an expression counts as no release
   environment.
 - runs-on: the raw string, one cell; `${{ matrix.runner }}` is not expanded.
+- environment names: compared as written (`Release` is not `release`).
+- check names: the `name:` as written (`${{ 'X' }}` is not `X`).
 - a job's secrets: its own mapping only; the workflow-level `env:` it inherits is not read.
 
 One list's fix changed no reader: signing_runner.SIGNING_JOBS' cap classification (tests/test_ci_signing_owned_mac.py)
@@ -23,12 +25,14 @@ reads the owned pick with the same dotted() and NEEDS_OUTPUT it had before; what
 itself. Its pre-fix is that guard switched off (PRE_FIX_GUARDS: owned_pick_reads finds nothing), and its fixture must
 go red with it, so the fixture is shown to need the guard.
 
-The 18 fixtures: 11 from the nightly, signing and routing groups (tests/test_nightly_trusted_routing.py,
+The 21 fixtures: 11 from the nightly, signing and routing groups (tests/test_nightly_trusted_routing.py,
 tests/test_nightly_sign_runner.py, tests/test_seed_derived_data.py, tests/test_ci_signing_owned_mac.py,
 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py's GATED_SECRET_JOBS,
 tests/test_ci_fork_runner_routing.py, tests/test_publish_app_token_workflow.py) and the four keychain lists
-(KeychainListFixtures below), and three for the readers' last gaps: a matrix runner (a Linux control with issues:
-write, a Mac job calling notarytool) and a secret in the workflow-level env. This branch merges the three list branches, so every module is importable here.
+(KeychainListFixtures below), and six for the readers' last gaps, one or more per field the resolve step reads: runs-on
+(a matrix Linux control with issues: write, a matrix Mac job calling notarytool), env (a secret in the workflow-level
+env), environment (a release environment in another case, for the release and App-token lists) and name (a required
+check named by an expression). Secrets are the bracket, case and toJSON fixtures above. This branch merges the three list branches, so every module is importable here.
 """
 
 from __future__ import annotations
@@ -101,6 +105,10 @@ class PreFixReader:
         return dict(document)
 
     @staticmethod
+    def name_values(job: Mapping[str, Any], job_id: str) -> tuple[set[str], set[str]]:
+        return {str(job.get("name", job_id))}, set()
+
+    @staticmethod
     def environment_values(job: Mapping[str, Any]) -> tuple[set[str], set[str]]:
         env = job.get("environment")
         if isinstance(env, Mapping):
@@ -112,7 +120,8 @@ class PreFixReader:
     @classmethod
     def patched(cls) -> ExitStack:
         stack = ExitStack()
-        for name in ("secret_names", "document", "jobs", "environment_values", "runs_on_cells", "inheriting"):
+        for name in ("secret_names", "document", "jobs", "environment_values", "runs_on_cells", "inheriting",
+                     "name_values"):
             stack.enter_context(mock.patch.object(workflow_jobs, name, getattr(cls, name)))
         return stack
 
@@ -195,6 +204,15 @@ FIXTURES = (
     ("GLAEDA_EXCLUSIVE_JOBS (workflow env)", "test_ci_signing_owned_mac", "ClassificationTests",
      "test_an_unlisted_job_inheriting_a_workflow_env_secret_is_named",
      "test_a_listed_job_inheriting_a_workflow_env_secret_stays_green"),
+    ("TRUSTED_RUNNER_JOBS (name expression)", "test_ci_fork_runner_routing", "ForkRunnerRoutingTests",
+     "test_a_merge_gating_job_whose_name_is_an_expression_is_checked",
+     "test_a_merge_gating_job_named_by_an_expression_on_the_trusted_route_stays_green"),
+    ("RELEASE_PUBLICATION_JOBS (environment case)", "test_ci_fork_runner_routing", "ForkRunnerRoutingTests",
+     "test_a_release_environment_in_another_case_is_unclassified",
+     "test_a_listed_release_job_in_another_case_stays_green"),
+    ("APP_JOBS (environment case)", "test_publish_app_token_workflow", "WorkflowTests",
+     "test_a_release_app_job_whose_environment_differs_in_case_must_be_classified",
+     "test_a_listed_release_app_job_in_another_case_stays_green"),
     ("STEP_LEVEL_ONLY", HERE, "KeychainListFixtures", "test_step_level_only", None),
     ("INLINE_DEVELOPER_ID_KEYCHAINS", HERE, "KeychainListFixtures", "test_inline_developer_id_keychains", None),
     ("SCRIPT_MADE_KEYCHAINS (derived)", HERE, "KeychainListFixtures", "test_script_made_keychains", None),
@@ -217,8 +235,8 @@ def outcome(result: unittest.TestResult) -> str:
 
 
 class PreFixMutation(unittest.TestCase):
-    def test_there_are_eighteen_fixtures(self) -> None:
-        self.assertEqual(len({row[3] for row in FIXTURES}), 18)
+    def test_there_are_twenty_one_fixtures(self) -> None:
+        self.assertEqual(len({row[3] for row in FIXTURES}), 21)
 
     def test_each_fixture_is_green_with_the_shared_reader(self) -> None:
         for label, module, cls, red, green in FIXTURES:

@@ -1029,7 +1029,7 @@ class PathRoutingStructure(unittest.TestCase):
         # so adding a routed job needs no count update and deleting a guard still fails.
         placement = re.compile(r"needs\.macos-placement\.outputs\.(?:runner|session_runner|gui_runner)\b")
         routes = {name: job for name, job in jobs.items()
-                  if (text := runs_on_text(job)) is None or placement.search(text)}
+                  if (route_text := runs_on_text(job)) is None or placement.search(route_text)}
         self.assertIn("release-compile", routes)
         for name, job in routes.items():
             expression = job["runs-on"]
@@ -2588,7 +2588,7 @@ class ReservedLaneLabels(unittest.TestCase):
     def test_no_runs_on_reads_a_reserved_lane_variable(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         found = {(name, variable) for name, job in jobs.items() for variable in self.RESERVED
-                 if (text := runs_on_text(job)) is None or f"vars.{variable}" in text}
+                 if (route_text := runs_on_text(job)) is None or f"vars.{variable}" in route_text}
         self.assertEqual(found, set(self.DIRECT))
 
     def test_the_fast_tier_takes_its_label_only_while_the_placement_saw_it_idle(self):
@@ -3448,7 +3448,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
 
     def test_every_job_that_can_run_on_the_gateway_is_guarded(self):
         pinned = {name for name, job in self.jobs().items()
-                  if (text := runs_on_text(job)) is None or any(pin in text for pin in self.PINS)}
+                  if (route_text := runs_on_text(job)) is None or any(pin in route_text for pin in self.PINS)}
         self.assertEqual(pinned, set(self.FALLBACKS),
                          "a job pinned to the build-fleet gateway needs the idle-reading guard and a Mac fallback here")
 
@@ -3800,8 +3800,8 @@ class GatewayRunsOnlyTheFleetClient(unittest.TestCase):
     def client_jobs(self) -> dict:
         """Jobs whose runs-on can resolve to gateway_runner through fleet_jobs (read by its `if` or its runs-on)."""
         return {name: job for name, job in self.jobs().items()
-                if (text := runs_on_text(job)) is None
-                or ("gateway_runner" in text and "outputs.fleet_jobs" in str(job.get("if", "")) + text)}
+                if (route_text := runs_on_text(job)) is None
+                or ("gateway_runner" in route_text and "outputs.fleet_jobs" in str(job.get("if", "")) + route_text)}
 
     def fleet_client_tiers(self) -> list[str]:
         place = next(step for step in self.jobs()["macos-placement"]["steps"] if step.get("id") == "place")

@@ -1349,6 +1349,45 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(set(errors), {("fixture.yml", "build-fixture")})
         self.assertIn(("fixture.yml", "gate-fixture"), trusted_runner_jobs({**texts, "fixture.yml": fixture}))
 
+    def test_a_merge_gating_job_whose_name_is_an_expression_is_checked(self) -> None:
+        """Codex: `name: ${{ 'CLA policy guard' }}` was compared as written, so a required check moved to
+        ubuntu-24.04 passed. workflow_jobs.name_values reads literal expressions, and a name nothing resolves
+        counts as gating, so the guard checks it."""
+        texts = workflow_texts()
+        for name, expression in (("literal-gate-fixture", "${{ 'backend migrations applied' }}"),
+                                 ("branch-gate-fixture", "${{ inputs.x && 'backend migrations applied' || 'other' }}"),
+                                 ("input-gate-fixture", "${{ inputs.check }}")):
+            with self.subTest(job=name):
+                fixture = (f"on:\n  pull_request:\njobs:\n  {name}:\n    name: \"{expression}\"\n"
+                           "    runs-on: ubuntu-24.04\n    steps:\n      - run: true\n")
+                errors = trusted_runner_route_errors({**texts, "fixture.yml": fixture})
+                self.assertEqual(set(errors), {("fixture.yml", name)})
+
+    def test_a_merge_gating_job_named_by_an_expression_on_the_trusted_route_stays_green(self) -> None:
+        texts = workflow_texts()
+        fixture = ("on:\n  pull_request:\njobs:\n  literal-gate-fixture:\n"
+                   "    name: \"${{ 'backend migrations applied' }}\"\n"
+                   f"    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n    steps:\n      - run: true\n")
+        self.assertIn(("fixture.yml", "literal-gate-fixture"), trusted_runner_jobs({**texts, "fixture.yml": fixture}))
+        self.assertEqual(trusted_runner_route_errors({**texts, "fixture.yml": fixture}), {})
+
+    def test_a_release_environment_in_another_case_is_unclassified(self) -> None:
+        """Codex: GitHub matches environment names without case; `environment: Release` is a release job."""
+        jobs = workflow_jobs.jobs(NIGHTLY)
+        for name, environment in (("case-fixture", "Release"), ("upper-fixture", {"name": "RELEASE-NEXT"}),
+                                  ("matrix-case-fixture", "${{ matrix.environment }}")):
+            with self.subTest(job=name):
+                job = {"environment": environment, "runs-on": "blacksmith-4vcpu-ubuntu-2404",
+                       "strategy": {"matrix": {"environment": ["Release"]}}}
+                self.assertEqual(unclassified_release_jobs({**jobs, name: job}), {name})
+
+    def test_a_listed_release_job_in_another_case_stays_green(self) -> None:
+        jobs = workflow_jobs.jobs(NIGHTLY)
+        listed = {**jobs["publish-release-notes"], "environment": "Release-Next"}
+        fixture = {**jobs, "publish-release-notes": listed}
+        self.assertEqual(unclassified_release_jobs(fixture), set())
+        self.assertEqual(stale_release_classifications(fixture), set())
+
     def test_a_merge_gating_job_whose_header_carries_a_comment_is_checked(self) -> None:
         """`  gate-x: # note` is a job to GitHub; it must be route-checked, not reported missing or
         folded into the job above it."""

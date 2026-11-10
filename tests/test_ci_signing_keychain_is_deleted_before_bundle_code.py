@@ -575,7 +575,11 @@ def inline_step_scripts(job: dict, missing: list[str] | None = None) -> dict:
 def holds_release_material(job: dict) -> bool:
     """Rule 6's scope: the job reads a release secret (any form workflow_jobs reads) or runs in a release
     environment."""
-    return release_secret(job) or bool(RELEASE_ENVIRONMENT.search(json.dumps(job.get("environment") or "")))
+    # Environment names through workflow_jobs (casefolded, matrix and literal branches read); one nothing resolves
+    # might be a release environment, so it counts.
+    environments, unresolved = workflow_jobs.environment_values(job)
+    return (release_secret(job) or any(RELEASE_ENVIRONMENT.fullmatch(name) for name in environments)
+            or bool(unresolved))
 
 
 def bundle_code_with_secrets(name: str, job: dict) -> list[str]:
