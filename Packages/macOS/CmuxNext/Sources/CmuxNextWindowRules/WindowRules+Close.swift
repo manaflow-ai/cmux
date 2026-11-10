@@ -49,6 +49,9 @@ extension WindowRules {
             switch try container.decode(String.self, forKey: .decision) {
             case "show": self = .show
             case "skip": self = .skip
+            // Transitional: the FFI pinned before cmux-window-rules dropped `AskTerminals` answers it for exactly
+            // the tabs the new rule closes with no toast (one tab, none working). Remove after the re-pin.
+            case "askTerminals": self = .skip
             case let other: throw DecodingError.dataCorruptedError(forKey: .decision, in: container, debugDescription: "toast \(other)")
             }
         }
