@@ -500,11 +500,10 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
     func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
 
-    /// In an agent screenshot launch every frame stays on the test screen
-    /// (`WindowPlacement.containedOnTestScreen`), whichever path sets it.
-    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
-    }
+    /// Every frame stays on the test screen in an agent screenshot launch, whichever path sets it
+    /// (`WindowPlacement.containedOnTestScreen`), and is kept as given with no display (`constrainsToScreen`).
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) { super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag) }
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { WindowPlacement.constrainsToScreen ? super.constrainFrameRect(frameRect, to: screen) : frameRect }
 
     /// The traffic lights, found once (`StandardWindowButtons`, cx-8w027.25).
     private var standardButtons = StandardWindowButtons()

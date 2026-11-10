@@ -496,6 +496,7 @@ import {
 } from "./subagents/subagentMessage";
 import { runsUnderTabRow, type UnderHeaderLines } from "./header/underHeader";
 import { HarnessStatusCard } from "./HarnessStatusCard";
+import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
   cloudRunsHere,
@@ -8896,6 +8897,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     newTab: fresh,
     inCloud: snapshot.summary?.hostKind === "cloud",
   });
+  /// A harness's local command typed alone (localCommands.ts): its GUI answer, now, mid-turn too.
+  /// False where this chat has nothing to show it in (Session Info off): it goes to the harness.
+  const handleLocalCommand = (command: LocalCommand): boolean => {
+    const { action } = command;
+    if (action.kind === "changes") {
+      if (quick) return false;
+      openChangesTab.current();
+      return true;
+    }
+    if (action.kind !== "section" || !sessionInfo.reveal) return false;
+    sessionInfo.reveal(action.section);
+    return true;
+  };
   /// Shared by the chat composer and New Tab: cmux-owned slash commands never fall through to a
   /// literal harness prompt. A string is an inline refusal; Composer/NewTab keep the draft intact.
   const handleCmuxCommand = (
@@ -11176,6 +11190,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onCmuxCommand={(command, args, attachments, gesture) =>
               handleCmuxCommand(command, args, false, attachments, gesture)
             }
+            onLocalCommand={handleLocalCommand}
             onBindSideGesture={() => directClient.current?.bindSideGesture()}
             // Send's menu offers Send in side chat where `/side <prompt>` would fork this chat now.
             sendsToSide={SIDE_COMMAND !== undefined && !cmuxCommandRefusal(SIDE_COMMAND, "prompt", commandState(false))}
@@ -12199,6 +12214,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       showError: (error) => setNewTabFixError(errorMessage(error) || String(error)),
                     }),
                   )}
+                  // A chat card's Compress Chat or Decompress Chat: acpmux's cold archive, on this page's
+                  // connection. acpmux answers it to this Mac's own app only, never a remote one.
+                  {...(snapshot.origin !== "remote" && snapshot.origin !== "peer"
+                    ? {
+                        onColdArchive: (sessionId: string, archived: boolean) =>
+                          directClient.current?.coldArchive(sessionId, archived) ??
+                          Promise.reject(new Error(translate("error.notOpen"))),
+                      }
+                    : {})}
                 />
               </Activity>
               {harnessesOpen && harnessesPage}
