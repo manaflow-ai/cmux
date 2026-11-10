@@ -136,3 +136,73 @@ fn a_page_after_the_first_that_fails_fails_the_list_as_not_whole() {
     let err = link.call_whole_list("_acpmux/sessions", json!({}), WAIT).unwrap_err();
     assert!(matches!(err, LinkError::Rpc(..)), "{err:?}");
 }
+
+/// Review of cmux#40640 at 00411eb5: a start that stopped waiting for `session/new` left the
+/// agent acpmux spawned anyway bound to no tab. The late answer still comes to the caller (here
+/// after the call timed out and the caller closed the link), and what the late handler sends on
+/// the link reaches acpmux; then the link closes.
+#[test]
+fn a_reply_after_the_timeout_goes_to_the_late_handler_on_a_link_kept_open_for_it() {
+    let dir = cmux_unix_socket::short_test_dir("aslate");
+    let socket = dir.path().join("acpmux.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let (asked, methods) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut writer = stream.try_clone().unwrap();
+        for line in BufReader::new(stream).lines() {
+            let Ok(line) = line else { return };
+            let request: Value = serde_json::from_str(&line).unwrap();
+            let _ = asked.send(request["method"].as_str().unwrap_or_default().to_owned());
+            if request["method"] == "session/new" {
+                std::thread::sleep(Duration::from_millis(400));
+                let result = json!({"sessionId": "late-1"});
+                let _ = writeln!(
+                    writer,
+                    "{}",
+                    json!({"jsonrpc": "2.0", "id": request["id"], "result": result})
+                );
+            } else {
+                let _ = writeln!(
+                    writer,
+                    "{}",
+                    json!({"jsonrpc": "2.0", "id": request["id"], "result": {}})
+                );
+            }
+        }
+    });
+    let link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let (ended, late) = std::sync::mpsc::channel();
+    let answer = link.call_or_late(
+        "session/new",
+        json!({}),
+        Duration::from_millis(50),
+        WAIT,
+        move |link, reply| {
+            let killed = link.call("_acpmux/kill", json!({"sessionId": reply["sessionId"]}), WAIT);
+            let _ = ended.send((reply, killed.is_ok()));
+        },
+    );
+    assert_eq!(answer, Err(LinkError::Timeout));
+    link.close();
+    let (reply, killed) = late.recv_timeout(WAIT).unwrap();
+    assert_eq!(reply["sessionId"], "late-1");
+    assert!(killed, "the late handler's call reached acpmux");
+    assert_eq!(methods.recv_timeout(WAIT).unwrap(), "session/new");
+    assert_eq!(methods.recv_timeout(WAIT).unwrap(), "_acpmux/kill");
+    let deadline = std::time::Instant::now() + WAIT;
+    while !link.closed.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(link.closed.load(Ordering::Acquire), "the late wait closes the link when it ends");
+}
+
+/// A reply inside the timeout is the call's own answer, and the late handler never runs.
+#[test]
+fn a_reply_in_time_never_reaches_the_late_handler() {
+    let (link, _asked, _dir) = scripted(vec![json!({"sessionId": "s-1"})]);
+    let answer = link.call_or_late("session/new", json!({}), WAIT, WAIT, |_, _| panic!("not late"));
+    assert_eq!(answer.unwrap()["sessionId"], "s-1");
+    link.close();
+    assert!(link.closed.load(Ordering::Acquire));
+}

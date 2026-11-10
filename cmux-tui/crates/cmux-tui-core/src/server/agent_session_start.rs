@@ -121,6 +121,10 @@ const MAX_STARTS: usize = 8;
 const MAX_CWD_BYTES: usize = 4096;
 /// A harness spawns and answers `session/new` (a cold agent can take long).
 const NEW_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long after a `session/new` timed out its answer is still waited for, to end the session
+/// acpmux made for a start that already gave up (review of cmux#40640 at 00411eb5: a 7 s catalog
+/// read and a 56 s spawn left an agent no tab bound).
+const LATE_SESSION_GRACE: Duration = Duration::from_secs(300);
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long the start waits for acpmux to be ready, from its connect: its catalog answered
 /// (`_acpmux/harnesses`, which acpmux itself holds until `catalog_ready` in `hub/startup.rs`:
@@ -689,7 +693,7 @@ pub(in crate::server) fn restart_with(
 fn start_and_bind(
     mux: &Arc<Mux>,
     client: u64,
-    link: &AcpmuxLink,
+    link: &Arc<AcpmuxLink>,
     catalog: &Value,
     params: &StartParams,
     phone: bool,
@@ -757,7 +761,16 @@ fn start_and_bind(
     let new = json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}});
     timings.checks = Some(ms_since(checks));
     let spawn = Instant::now();
-    let created = link.call("session/new", new, by.cap(NEW_TIMEOUT)).map_err(Refusal::of);
+    // acpmux goes on spawning the agent after a timeout here: a session it makes later is
+    // bound to no tab, so it ends as soon as its answer comes.
+    let created = link
+        .call_or_late("session/new", new, by.cap(NEW_TIMEOUT), LATE_SESSION_GRACE, |link, late| {
+            if let Some(session) = late.get("sessionId").and_then(Value::as_str) {
+                let kill = json!({"sessionId": session, "purge": true});
+                let _ = link.call("_acpmux/kill", kill, CALL_TIMEOUT);
+            }
+        })
+        .map_err(Refusal::of);
     timings.session_new = Some(ms_since(spawn));
     let created = created?;
     let settle = Instant::now();
