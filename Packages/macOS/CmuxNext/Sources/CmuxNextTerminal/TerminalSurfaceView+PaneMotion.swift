@@ -114,7 +114,7 @@ extension TerminalSurfaceView: PaneMotionTargeting {
 /// ``TerminalHostView/paneResizeGestureDidChange(active:)``): the pane follows the pointer with no spring. cmux-ad m14
 /// (Lawrence's P0): in every frame of the drag and of its release each terminal shows its text at that frame's pane size,
 /// never frozen or anchored. The surface takes its pane's size in every frame through the placement
-/// any resize uses (`TerminalHostView` `placeSurface`, the frame owner's ``place(_:anchor:)``), and the reflow preview
+/// any resize uses (`TerminalHostView` `placeSurface`), and the reflow preview
 /// re-wraps its text at that size. The program gets its size while it moves, at most once per refresh (cmux-ad m29,
 /// RESIZE P0 6: ``TerminalGridReporter``), and the newest at the release (a full-screen program froze with one grid). Before, the drag hold
 /// (`terminalDrag.holdSurface`, RESIZE VIDEOS A3) kept the drag-start size and text through the drag, and the release's

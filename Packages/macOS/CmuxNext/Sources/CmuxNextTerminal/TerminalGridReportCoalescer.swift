@@ -11,7 +11,7 @@ import CmuxNextWakeups
 /// and one grid per 25 ms window (4 refreshes) left the program's own drawing 40-80 pt off its pane edge (the m20
 /// judge allows 2 refreshes and one cell; px-keys-held-2-s1r x1, P0 runner 2b757265: 63 frames).
 ///
-/// - While frames run (the view's window has a presenter, ``TerminalGridReportTicks``), the first new grid after a
+/// - While frames run (the view's window's refreshes, ``TerminalGridReportTicks``), the first new grid after a
 ///   refresh goes at once, in the turn that showed its size (RESIZE P0 7, cause T): a key spring lands one size per
 ///   refresh at the end of its turn, and a grid that waited for the next refresh made the program's redraw race the next
 ///   draw-ahead render, so it showed 3 refreshes after its pane (m20 allows 2; px-keys-held-2-s1r x1, fd7a1664 on cmux21
@@ -85,7 +85,7 @@ final class TerminalGridReportCoalescer {
     /// - Parameters:
     ///   - interval: The backstop of a window no refresh reaches; Ghostty's 25 ms by default.
     ///   - clock: The backstop timer's clock; tests pass a manual one.
-    ///   - ticks: The display refreshes that end a window (the view's window presenter); nil: the timer only.
+    ///   - ticks: The display refreshes that end a window (``TerminalGridReportRefreshes``); nil: the timer only.
     ///   - send: Reports one grid to the PTY owner. Called on the main thread; while frames run, at most once per refresh,
     ///     plus at most one grid that replaces an unshown one (``viewSized(_:waitsForRefresh:replacesUnshown:)``).
     init(interval: Duration = TerminalGridReportCoalescer.defaultInterval,
@@ -230,7 +230,7 @@ final class TerminalGridReportCoalescer {
 }
 
 /// The display refreshes that end a coalescer's window (``TerminalGridReportCoalescer/frameTicked()``): the
-/// view's window presenter (``TerminalFramePresenter``), whose frame client ticks while frames run.
+/// view's window's ``TerminalGridReportRefreshes``, whose frame client ticks while frames run.
 protocol TerminalGridReportTicks: AnyObject {
     /// Ticks `coalescer` each refresh until it reports no window open.
     func tickGridReports(_ coalescer: TerminalGridReportCoalescer)

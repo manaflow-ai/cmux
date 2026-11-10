@@ -334,6 +334,8 @@ public final class SidebarView: NSView {
         ]
         spacePaging.attach(list: scrollView, dots: profileBar)
         addSubview(edgeFade)
+        // A stuck project header draws its own fade under it: the list's top fade holds off while one is stuck.
+        list.onStuckHeaderChange = { [weak self] stuck in self?.edgeFade.holdsTopEdge = stuck }
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
         buildBands(); buildNeedsYou()
 
