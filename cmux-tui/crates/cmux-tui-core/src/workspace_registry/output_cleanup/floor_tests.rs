@@ -409,3 +409,115 @@ fn a_rebuild_without_free_space_is_refused_and_changes_nothing() {
     DISK_MARGIN_FOR_TEST.with(|margin| margin.set(Some(0)));
     assert_eq!(stage(db_path, *floor, &|| true), StageOutcome::Built);
 }
+
+/// What retention deleted through is in `meta` (`journal_pruned_through`):
+/// the agent history restore after a version change and the `cursor.gap`
+/// answer of `session.journal.subscribe` read it. A swap at a floor deletes
+/// through its cut, so the new registry must say so, or those readers take
+/// it for a registry that lost nothing.
+#[test]
+fn a_swap_at_a_floor_records_what_it_deleted_through() {
+    let fixture = fixture("meta", 1_100);
+    let Fixture { root, db_path, floor, .. } = &fixture;
+    assert_eq!(stage(db_path, *floor, &|| true), StageOutcome::Built);
+    drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
+    assert_rebuilt(&fixture);
+    let pruned_through =
+        super::super::journal_retention::journal_pruned_through(&read_only(db_path)).unwrap();
+    assert_eq!(
+        pruned_through, *floor,
+        "the swapped registry does not say that the records through the floor are gone"
+    );
+}
+
+/// A session for the join with retention: a sealed run of old hook records,
+/// then enough newer records and checkpoints that the retention floor
+/// passes the old run (the newest 1,024 records and the newest 16
+/// checkpoints always stay). Returns the end of the old run. 1,000 records
+/// at or below the floor are worth a rebuild in this test.
+fn old_run_below_the_retention_floor(mux: &Arc<crate::Mux>) -> u64 {
+    PUT_RECORDS_LIMIT.with(|limit| limit.set(1_000));
+    // The worker ticks each 30 s; these tests run the same tick themselves.
+    mux.stop_journal_maintenance();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().cloned().unwrap().to_string();
+    for index in 0..2_100 {
+        hook(mux, &terminal, ["SessionStart", "UserPromptSubmit", "Stop"][index % 3]);
+    }
+    let old_run = seal_all(mux, "below");
+    for round in 0..20 {
+        for _ in 0..30 {
+            hook(mux, &terminal, "UserPromptSubmit");
+            hook(mux, &terminal, "Stop");
+        }
+        mux.create_journal_checkpoint("client_test", &format!("floor_join_checkpoint_{round}"))
+            .unwrap();
+    }
+    seal_all(mux, "above");
+    old_run
+}
+
+fn retention_floor(mux: &crate::Mux) -> u64 {
+    mux.workspace_registry.lock().unwrap().journal_retention_floor().unwrap()
+}
+
+/// The join with retention. Deleting a long run in place leaves the file at
+/// its size (the freed pages stay in it), so when the sealed segments at or
+/// below the floor hold enough records for a rebuild, the maintenance tick
+/// deletes none of them: the cleanup worker builds the registry again
+/// without them and the next start swaps it in.
+#[test]
+fn retention_leaves_a_run_worth_a_rebuild_to_the_rebuild() {
+    let root = Root::new("join");
+    let mux = open(&root.0);
+    let old_run = old_run_below_the_retention_floor(&mux);
+    // The ticks save the roster and the agent history at the head and keep
+    // the newest 16 checkpoints: the floor then passes the old run.
+    for _ in 0..16 {
+        if retention_floor(&mux) >= old_run {
+            break;
+        }
+        mux.run_journal_maintenance_for_test();
+    }
+    let floor = retention_floor(&mux);
+    assert!(floor >= old_run, "the fixture is wrong: floor {floor}, old run ends at {old_run}");
+    for _ in 0..4 {
+        mux.run_journal_maintenance_for_test();
+    }
+    let pruned_through = mux.journal_pruned_through().unwrap();
+    mux.shutdown();
+    drop(mux);
+    assert_eq!(
+        pruned_through, 0,
+        "retention deleted in place a run of {old_run} records that is worth a rebuild"
+    );
+}
+
+/// The rebuild is not the only way down: when no rebuild can run in this
+/// start (here: an earlier attempt of this build failed, so no cleanup
+/// worker starts), the tick deletes the run in place, as it does a run too
+/// small for a rebuild.
+#[test]
+fn retention_deletes_in_place_when_no_rebuild_can_run() {
+    let root = Root::new("join-in-place");
+    let mux = open(&root.0);
+    let db_path = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+    mux.shutdown();
+    drop(mux);
+    write_failure_marker(&db_path, "a test: no rebuild in this start");
+    let mux = open(&root.0);
+    let old_run = old_run_below_the_retention_floor(&mux);
+    for _ in 0..24 {
+        if mux.journal_pruned_through().unwrap() >= old_run {
+            break;
+        }
+        mux.run_journal_maintenance_for_test();
+    }
+    let pruned_through = mux.journal_pruned_through().unwrap();
+    mux.shutdown();
+    drop(mux);
+    assert!(
+        pruned_through >= old_run,
+        "retention deleted through {pruned_through}; the old run ends at {old_run}"
+    );
+}
