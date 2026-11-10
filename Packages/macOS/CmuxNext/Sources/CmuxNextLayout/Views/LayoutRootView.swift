@@ -432,8 +432,10 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             // the screens shown (`advanceFrame`), so a spring started there (a restore, a daemon echo) froze its panes
             // mid-motion, their content held wider than the pane and pinned to its edge (Leo 2026-10-21). The screen
             // a switch shows (below) shows at rest, its panes, camera and chrome where this sync puts them, and the
-            // one it hides starts no motion nobody sees.
-            let staysShown = isActive && !view.isHidden
+            // one it hides starts no motion nobody sees. A screen whose view is made in this sync (a reopened, duplicated
+            // or restored screen that comes with the change that shows it) was not shown before it either: a center or a
+            // reveal request in the same change lands at once, not on a camera spring after the screen shows.
+            let staysShown = isActive && !view.isHidden && !isNew
             // A waiting screen's first pass lands at once, as a screen made with the shown one did (no previous sync).
             let landsAtOnce = isNew && waited.contains(screen.id)
             let old = before[screen.id]
@@ -468,8 +470,11 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
             }
             // A changed layout or focus reaches the scroll reducer: it anchors
             // the camera on layout changes, reveals focus, and springs back
-            // after a close.
-            if layoutChanged || scrollChanged {
+            // after a close. A focus move, a switch, a center mode or a gesture reaches only the screen shown and
+            // the one a switch hides (O(2), not O(screens): a focus move ran a scroll sync and a presentation pass of
+            // every mounted screen). A screen that stays hidden has no camera to move; it gets the focus and the mode
+            // in the sync that shows it (a switch is a `scrollChanged`), as a screen mounted at idle does.
+            if layoutChanged || (scrollChanged && (isActive || screen.id == previous?.activeScreen)) {
                 let focused = snapshot.focused.flatMap { screen.layout.contains($0) ? $0 : nil }
                 let source: ColumnFocusSource = previous?.focused != snapshot.focused ? model.lastFocusSource : .programmatic
                 // Only a snap that stands in for Reduce Motion's spring shows the
@@ -525,10 +530,12 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
+        let switched = previous.map { $0.activeScreen != snapshot.activeScreen } ?? false
         if needsFrames { driver.start() }
         // A divider drag moves panes in this sync with no frame tick after it: what follows the panes once per placed
         // frame (shortcut hint chips) hears it here, as from a tick; a sync in a tick's input hears it from that tick.
-        else if snapshot.gestureActive, !context.holdsPresentations { onFramePlaced?() }
+        // So does a change of screen: other panes show, at rest, and no frame runs after it.
+        else if snapshot.gestureActive || switched, !context.holdsPresentations { onFramePlaced?() }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
     }
