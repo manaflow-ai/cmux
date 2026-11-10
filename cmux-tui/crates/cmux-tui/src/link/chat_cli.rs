@@ -56,6 +56,19 @@ struct Args {
     verb: Verb,
 }
 
+/// `cmux link chat --help` (and `cmux link chat VERB --help`).
+const USAGE: &str = "\
+usage: cmux link chat list --host ID [--name NAME] [--socket PATH] [--json]
+       cmux link chat read --host ID --surface N [--after-seq N] [--limit N] [--name NAME]
+       cmux link chat send --host ID --surface N --text TEXT [--steer] [--prompt-id ID] [--name NAME]
+       cmux link chat approve --host ID --surface N --prompt-id P --turn-id T --revision R
+       cmux link chat decline --host ID --surface N --prompt-id P
+
+A Cloud machine's agent chats as your role reaches them over the link (owner, or a member of
+the machine's team). Each prints one JSON object; a refusal is
+{\"ok\":false,\"error_code\":CODE,\"error\":MESSAGE} with exit 1, bad usage chat.bad_usage (exit 64).
+";
+
 fn usage(message: &str) -> i32 {
     println!("{}", json!({"ok": false, "error_code": "chat.bad_usage", "error": message}));
     64
@@ -155,8 +168,32 @@ fn frames(verb: &Verb) -> Vec<Value> {
     }
 }
 
+/// `--help` or `-h` in a flag's place (never a flag's value, so `--text --help` is a prompt), or
+/// `help` as the verb.
+fn asks_for_help(args: &[String]) -> bool {
+    if args.first().is_some_and(|verb| matches!(verb.as_str(), "-h" | "--help" | "help")) {
+        return true;
+    }
+    let mut words = args.iter().skip(1);
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            "-h" | "--help" => return true,
+            "--host" | "--socket" | "--name" | "--surface" | "--after-seq" | "--limit" | "--text"
+            | "--prompt-id" | "--turn-id" | "--revision" => {
+                words.next();
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 /// `cmux link chat ...`: the exit code.
 pub(super) fn run(args: &[String]) -> i32 {
+    if asks_for_help(args) {
+        print!("{USAGE}");
+        return 0;
+    }
     let args = match parse(args) {
         Ok(args) => args,
         Err(message) => return usage(&message),
@@ -253,6 +290,17 @@ mod tests {
             frames(&approve.verb)[1],
             json!({"cmd":"agent-session-queue-approve","surface":3,"prompt_id":"g1","turn_id":"t1","revision":0})
         );
+    }
+
+    #[test]
+    fn help_names_every_verb() {
+        for verb in ["list", "read", "send", "approve", "decline"] {
+            assert!(USAGE.contains(&format!("cmux link chat {verb} --host ID")), "{verb}");
+        }
+        assert_eq!(run(&words("--help")), 0);
+        assert_eq!(run(&words("send --help")), 0);
+        assert!(!asks_for_help(&words("send --host host_ab12 --surface 1 --text --help")));
+        assert!(!asks_for_help(&words("send --host host_ab12 --surface 1 --text help")));
     }
 
     #[test]

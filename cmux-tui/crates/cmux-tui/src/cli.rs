@@ -60,13 +60,13 @@ mod cloud_automation_relay;
 #[cfg(unix)]
 mod cloud_client_session;
 #[cfg(unix)]
-#[cfg(unix)]
 mod cloud_environment;
 #[cfg(unix)]
 mod cloud_hands;
 mod cloud_help;
 #[cfg(unix)]
 mod cloud_machine_auth;
+#[cfg(unix)]
 mod cloud_machine_io;
 #[cfg(unix)]
 mod cloud_machines;
@@ -74,9 +74,10 @@ mod cloud_machines;
 mod cloud_repo;
 #[cfg(unix)]
 mod cloud_secret;
-mod cloud_team_keys;
 #[cfg(unix)]
 mod cloud_start_chat;
+#[cfg(unix)]
+mod cloud_team_keys;
 #[cfg(unix)]
 mod cloud_workspaces;
 mod code_mode;

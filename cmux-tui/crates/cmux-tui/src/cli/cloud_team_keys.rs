@@ -100,6 +100,11 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
     if matches!(verb.as_str(), "--help" | "-h" | "help") {
         return if rest.is_empty() { Ok(command) } else { Err(usage()) };
     }
+    // `team-keys status --help` is the help too (a flag never takes `--help` as its value).
+    let verbs = ["status", "set", "remove", "rm"];
+    if verbs.contains(&verb.as_str()) && rest.iter().any(|w| w == "--help" || w == "-h") {
+        return Ok(command);
+    }
     let (agent, options) = match verb.as_str() {
         "status" => (None, rest),
         "set" | "remove" | "rm" => {
@@ -285,6 +290,8 @@ mod tests {
         assert_eq!(parse(&words("set claude")).unwrap().verb, Verb::Set { agent: "claude".into(), kind: "api_key".into(), secret_file: None });
         assert_eq!(parse(&words("rm claude")).unwrap().verb, Verb::Remove { agent: "claude".into() });
         assert_eq!(parse(&[]).unwrap().verb, Verb::Help);
+        assert_eq!(parse(&words("status --help")).unwrap().verb, Verb::Help);
+        assert_eq!(parse(&words("set claude --help")).unwrap().verb, Verb::Help);
         // No way to put the key itself on the command line.
         assert!(parse(&words("set claude sk-live-123456789")).is_err());
         assert!(parse(&words("set claude --secret sk-live-123456789")).is_err());
