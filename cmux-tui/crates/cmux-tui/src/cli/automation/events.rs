@@ -151,7 +151,7 @@ fn tagged(kind: &EventKind, event: &Value) -> Value {
 
 /// The person's open pull requests, newest first, as `gh` reads them.
 fn read_pull_requests() -> Result<Vec<Value>, Value> {
-    let output = std::process::Command::new("gh")
+    let output = cmux_process::Command::new("gh")
         .args([
             "search",
             "prs",
@@ -162,7 +162,7 @@ fn read_pull_requests() -> Result<Vec<Value>, Value> {
             "--limit=30",
             "--json=url,title,number,repository,isDraft,createdAt",
         ])
-        .stdin(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
         .output()
         .map_err(
             |e| json!({"message": format!("gh: {e}; install GitHub's gh and run `gh auth login`")}),
