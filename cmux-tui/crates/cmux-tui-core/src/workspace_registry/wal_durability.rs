@@ -26,8 +26,11 @@
 //! Installing the WAL hook also turns off SQLite's automatic checkpoint,
 //! which ran on whichever request crossed 1000 WAL pages: it copied the WAL
 //! into the database and synced it inside the committing request. The
-//! syncer runs that checkpoint instead, on its own connection, once the WAL
-//! passes [`CHECKPOINT_BYTES`]; a PASSIVE checkpoint never blocks a writer.
+//! syncer runs that checkpoint instead, on its own connection, once the
+//! commits wrote [`CHECKPOINT_BYTES`] of frames since the last checkpoint
+//! that copied the whole WAL; a PASSIVE checkpoint never blocks a writer.
+//! The WAL file's size does not decide: after a cut the file stays at its
+//! limit, and a checkpoint at each answered request would follow.
 //!
 //! A PASSIVE checkpoint never shrinks the WAL file, and while a reader holds
 //! an old snapshot it cannot catch up, so the file grows with every commit
@@ -166,6 +169,8 @@ struct SyncState {
     wal_frames: u64,
     /// Bytes of the WAL frames the commits appended (`server-stats` `write_path.registry_wal_frame_bytes`).
     wal_frame_bytes: u64,
+    /// [`Self::wal_frame_bytes`] when the last checkpoint that copied the whole WAL started.
+    copied_frame_bytes: u64,
     /// The largest WAL file size seen since the database opened (`server-stats`
     /// `write_path.registry_wal_file_high_water_bytes`).
     wal_file_high_water: u64,
@@ -567,6 +572,11 @@ fn run(shared: &Shared) {
         let leftover = std::mem::take(&mut state.leftover_owed);
         state.leftover_running = leftover;
         let owed = !state.stopping && (leftover || asked > state.restart_done);
+        // Else a checkpoint is due by what the commits wrote since the last
+        // one that copied the whole WAL, never by the file's size.
+        let mark = state.wal_frame_bytes;
+        let due =
+            owed || (!force && mark.saturating_sub(state.copied_frame_bytes) > CHECKPOINT_BYTES);
         drop(state);
         // A forced flush syncs the WAL; otherwise the WAL reaches the disk
         // with its checkpoint (SQLite syncs it first), or at close.
@@ -574,9 +584,12 @@ fn run(shared: &Shared) {
         if force {
             flush(shared);
         }
-        let ran = (owed || !force) && checkpoint_if_large(shared, &mut checkpointer, owed);
+        let (ran, whole) = checkpoint_if_due(shared, &mut checkpointer, due);
         synced |= ran;
         state = shared.state.lock().recover_poison();
+        if whole {
+            state.copied_frame_bytes = state.copied_frame_bytes.max(mark);
+        }
         #[cfg(test)]
         {
             state.checkpoints += u64::from(ran);
@@ -591,14 +604,19 @@ fn run(shared: &Shared) {
     }
 }
 
-/// A PASSIVE checkpoint on the syncer's own connection once the WAL is
-/// large, or whatever its size when `owed`: it copies what it can without
-/// waiting for a writer or reader. True when a checkpoint ran (it synced the
-/// WAL before copying it).
-fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>, owed: bool) -> bool {
-    let size = wal_file_len(shared);
-    if size <= CHECKPOINT_BYTES && !owed {
-        return false;
+/// A PASSIVE checkpoint on the syncer's own connection when `due`: it
+/// copies what it can without waiting for a writer or reader. Returns
+/// whether a checkpoint ran (it synced the WAL before copying it) and
+/// whether it copied the whole WAL as of its start.
+fn checkpoint_if_due(
+    shared: &Shared,
+    checkpointer: &mut Option<Connection>,
+    due: bool,
+) -> (bool, bool) {
+    // Each pass reads the file's size for its high-water mark.
+    wal_file_len(shared);
+    if !due {
+        return (false, false);
     }
     if checkpointer.is_none() {
         *checkpointer = super::open_registry_database_with_flags(
@@ -613,12 +631,16 @@ fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>, o
         .map_err(|error| eprintln!("cmux-tui: open the WAL checkpointer failed: {error:#}"))
         .ok();
     }
-    let Some(connection) = checkpointer.as_ref() else { return false };
-    match connection.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(())) {
-        Ok(()) => true,
+    let Some(connection) = checkpointer.as_ref() else { return (false, false) };
+    // The row: (busy, frames in the WAL, frames copied).
+    let result = connection.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+    });
+    match result {
+        Ok((busy, frames, copied)) => (true, busy == 0 && copied >= frames),
         Err(error) => {
             eprintln!("cmux-tui: WAL checkpoint failed: {error}");
-            false
+            (false, false)
         }
     }
 }

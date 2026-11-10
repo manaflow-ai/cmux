@@ -36,9 +36,10 @@ const LEFT_CHANGES: usize = 100;
 const LAST_OPEN_STEP: &str = "registry.resource_invariants";
 /// The step that makes the schema of a registry at the current version.
 const SCHEMA_STEP: &str = "registry.schema";
-/// WAL frames the whole open may commit: a few pages of `meta`, not a count
-/// that grows with the session or with the left WAL.
-const CATCH_UP_FRAMES: u32 = 16;
+/// WAL frames the whole open commits, in `registry.migrations.schema`,
+/// whatever the session's size and the left WAL (the test prints the table
+/// of each page: `pages_written`).
+const OPEN_FRAMES: u32 = 2;
 const WAL_HEADER_BYTES: u64 = 32;
 const WAL_FRAME_HEADER_BYTES: u64 = 24;
 
@@ -129,6 +130,7 @@ fn a_start_on_a_current_registry_leaves_the_left_wal_alone(workspaces: usize) {
 
     let steps: Rc<RefCell<Vec<(&'static str, WalIndex)>>> = Rc::default();
     let seen = steps.clone();
+    let wal_path = side_file(&db_path, "-wal");
     crate::startup_timings::observe_laps_on_this_thread(Some(Box::new(move |step| {
         seen.borrow_mut().push((step, wal_index(&db_path)));
     })));
@@ -160,10 +162,29 @@ fn a_start_on_a_current_registry_leaves_the_left_wal_alone(workspaces: usize) {
             break;
         }
     }
+    // The table or index of each page the open wrote: the page number at
+    // the start of each new WAL frame, named by `dbstat`.
+    let pages_written: Vec<String> = (before.frames..at_end.map_or(before.frames, |at| at.frames))
+        .map(|frame| {
+            let mut number = [0u8; 4];
+            let at = WAL_HEADER_BYTES + u64::from(frame) * frame_bytes;
+            let read = std::fs::File::open(&wal_path).and_then(|mut file| {
+                std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(at))?;
+                file.read_exact(&mut number)
+            });
+            let page = u32::from_be_bytes(number);
+            let name = pin
+                .query_row("SELECT name FROM dbstat WHERE pageno = ?1", [page], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap_or_else(|error| format!("? ({error})"));
+            format!("page {page} of {name} (read {})", read.is_ok())
+        })
+        .collect();
     println!(
         "registry_start_log: workspaces={workspaces} wal_bytes={wal_bytes} wal_frames={} \
          wal_frames_copied={} open_ms={open_ms:.1} at_end_of_open={at_end:?} \
-         steps_that_wrote={changed:?}",
+         steps_that_wrote={changed:?} pages_written={pages_written:?}",
         before.frames, before.copied
     );
     drop(registry);
@@ -175,10 +196,10 @@ fn a_start_on_a_current_registry_leaves_the_left_wal_alone(workspaces: usize) {
     assert!(
         at_end.copied == before.copied
             && schema_after == schema_before
-            && committed.is_some_and(|frames| frames <= CATCH_UP_FRAMES),
+            && committed == Some(OPEN_FRAMES),
         "the open of a current registry of {workspaces} workspaces with a left WAL of \
          {wal_bytes} bytes took {open_ms:.1} ms: it must copy 0 frames on the opening thread, \
-         commit 0 frames in {SCHEMA_STEP} and at most {CATCH_UP_FRAMES} in all, but the WAL \
+         commit 0 frames in {SCHEMA_STEP} and {OPEN_FRAMES} in all, but the WAL \
          went from {} to {} frames and the copied frames from {} to {}; steps that wrote: \
          {changed:?}",
         before.frames,

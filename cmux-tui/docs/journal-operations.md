@@ -19,7 +19,10 @@ returns, in well under a millisecond. One syncer thread
 (`workspace_registry/wal_durability.rs`) runs the WAL checkpoints off every
 request (SQLite syncs the WAL before each one) and flushes the drive cache
 once at close, so no request waits for the disk but for the restart rule
-below, and no holder of the mux state lock ever does;
+below, and no holder of the mux state lock ever does. The syncer checkpoints
+once the commits wrote 4 MiB of frames since its last checkpoint of the whole
+WAL (it does not decide by the WAL file's size, which stays at 64 MiB after a
+cut);
 `write_path.wal_commits` and `wal_synced_commits` show how many commits are
 known on disk, and `registry_wal_frame_bytes` how many bytes their WAL frames
 took (two reads around one change give that change's bytes). A PASSIVE
