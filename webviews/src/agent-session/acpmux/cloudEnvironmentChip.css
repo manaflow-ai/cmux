@@ -52,3 +52,6 @@
   max-height: max(120px, var(--available-height, 360px));
   overflow-y: auto;
 }
+
+/* The project's default (cmux-platform's per-repository default): a quiet mark at the row's end. */
+.acpmux-cloud-env-default { margin-inline-start: auto; flex: none; color: var(--agent-muted); font-size: var(--text-detail); }

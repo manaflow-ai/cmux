@@ -724,7 +724,7 @@ public final class AgentPaneModel {
             return reply
         case .cloudEnvironment(let request):
             guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
-            if request.action == "update" || request.action == "create", !transport.gestures.consume() {
+            if ["update", "create", "setDefault"].contains(request.action), !transport.gestures.consume() {
                 return Self.transportFailure(.gestureRequired)
             }
             return await onCloudEnvironment(request)

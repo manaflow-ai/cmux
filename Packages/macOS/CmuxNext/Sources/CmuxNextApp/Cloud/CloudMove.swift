@@ -321,11 +321,10 @@ struct CloudMove {
             guard let session = machines.session(id) else { throw Failure(message: CloudMoveStrings.noSuchMachine(id), retry: .move(machineID: id)) }
             return try await Self.connected(session, invocation)
         }
-        if let live = others.first(where: { $0.daemon.connection != nil }) ?? others.first {
-            return try await Self.connected(live, invocation)
-        }
+        let environment = invocation["environment"]?.stringValue // Move to Cloud's Environment chip: a new machine booted in it
+        if environment == nil, let live = others.first(where: { $0.daemon.connection != nil }) ?? others.first { return try await Self.connected(live, invocation) }
         let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
-                                                             request: CloudChatPick.request(sizedFor: await pick()))
+                                                             request: CloudChatPick.request(sizedFor: await pick()).booted(in: environment))
         return try await Self.connected(created, invocation)
     }
 

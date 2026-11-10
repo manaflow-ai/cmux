@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CloudEnvironment } from "../../pages/cloud/environmentModel";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import { ChevronIcon } from "./ComposerPickers";
@@ -11,6 +11,8 @@ import {
   AUTO_ENVIRONMENT,
   autoEnvironment,
   cloudStartEnvironment,
+  defaultPick,
+  projectDefaultFrom,
   recentEnvironments,
   rememberEnvironment,
   cloudEnvironmentRows,
@@ -26,13 +28,32 @@ import "./cloudEnvironmentChip.css";
 /// names (App.tsx `sendToCloud`). The pick is the chat's own (`held`, kept with its run mode in
 /// App.tsx); a composer given none keeps its own, which goes with it. Undefined while `enabled` is
 /// off (CLOUD_ENVIRONMENTS_ENABLED, or no new chat): nothing is read then.
+/// What this page last read, so a new chat's chip draws the account's environments and the project's
+/// default at once and refreshes them in place (no empty list while a read runs). One list, and one
+/// default per repository, at most 50 kept; the oldest goes first.
+let cachedEnvironments: readonly CloudEnvironment[] = [];
+const cachedDefaults = new Map<string, string | undefined>();
+function rememberDefault(repo: string, id: string | undefined) {
+  cachedDefaults.delete(repo);
+  cachedDefaults.set(repo, id);
+  while (cachedDefaults.size > 50) cachedDefaults.delete(cachedDefaults.keys().next().value!);
+}
+
 export function useCloudEnvironmentControl(
   enabled: boolean,
   folder: string | undefined,
   repo: string | undefined,
   held?: CloudEnvironmentPick,
 ): CloudEnvironmentControl | undefined {
-  const [environments, setEnvironments] = useState<readonly CloudEnvironment[]>([]);
+  const [environments, setEnvironmentList] = useState<readonly CloudEnvironment[]>(() => cachedEnvironments);
+  const setEnvironments = useCallback(
+    (next: readonly CloudEnvironment[] | ((list: readonly CloudEnvironment[]) => readonly CloudEnvironment[])) =>
+      setEnvironmentList((list) => {
+        cachedEnvironments = typeof next === "function" ? next(list) : next;
+        return cachedEnvironments;
+      }),
+    [],
+  );
   const [own, setOwn] = useState(AUTO_ENVIRONMENT);
   const current = held?.current ?? own;
   const setPick = held?.onPick ?? setOwn;
@@ -44,18 +65,61 @@ export function useCloudEnvironmentControl(
       // Signed out, Cloud off or offline: Auto and the actions still show; the list stays as it was.
       () => undefined,
     );
+  }, [setEnvironments]);
+  // The project's default, from the service (`cloud.environment.default`), for the repository it was read for;
+  // undefined while unread or when the service keeps no per-project default (the local recents stand in).
+  const [defaults, setDefaultState] = useState<{ repo: string; id: string } | undefined>(() => {
+    const id = repo ? cachedDefaults.get(repo) : undefined;
+    return repo && id !== undefined ? { repo, id } : undefined;
+  });
+  const setDefaults = useCallback((next: { repo: string; id: string } | undefined, forRepo: string) => {
+    rememberDefault(forRepo, next?.id);
+    setDefaultState(next);
   }, []);
+  const loadDefault = useCallback(() => {
+    if (!repo) return;
+    postNative<unknown>("cloud.environment.default", { repo }).then(
+      (reply) => {
+        const id = projectDefaultFrom(reply);
+        setDefaults(id === undefined ? undefined : { repo, id }, repo);
+      },
+      // Offline or refused: what was read before stands; a service with no such route answers that way too,
+      // and never had one cached.
+      () => undefined,
+    );
+  }, [repo, setDefaults]);
   useEffect(() => {
-    if (enabled) load();
-  }, [enabled, load]);
+    if (!enabled) return;
+    load();
+    loadDefault();
+  }, [enabled, load, loadDefault]);
+  // Another repository than the one last read (the folder changed): its cached default until the read lands.
+  const projectDefault = repo ? (defaults?.repo === repo ? defaults.id : cachedDefaults.get(repo)) : undefined;
+  // A new chat starts on the project's default, once per chat and never over a pick made there.
+  const chat = held?.chat ?? "";
+  const pickedIn = useRef<string>(undefined);
+  useEffect(() => {
+    const next = enabled ? defaultPick(current, projectDefault, pickedIn.current === chat) : undefined;
+    if (next) setPick(next);
+  }, [enabled, current, projectDefault, chat, setPick]);
   if (!enabled) return undefined;
-  const recent = recentEnvironments(folder, environments);
+  const recent = recentEnvironments(folder, environments, undefined, projectDefault);
   const named = environments.find((environment) => environment.id === current);
   const auto = autoEnvironment(environments);
   // Remembered first, so the render the new pick causes reads this folder's new order.
   const pick = (id: string) => {
+    pickedIn.current = chat;
     rememberEnvironment(folder, id);
     setPick(id);
+  };
+  const makeDefault = (id: string | undefined) => {
+    if (!repo) return;
+    const before = defaults;
+    setDefaults({ repo, id: id ?? AUTO_ENVIRONMENT }, repo);
+    // Refused or offline: the mark goes back to what the service has.
+    postNative("cloud.environment.setDefault", { repo, environment: id ?? null }).catch(() =>
+      setDefaults(before, repo),
+    );
   };
   return {
     recent,
@@ -84,7 +148,11 @@ export function useCloudEnvironmentControl(
         () => undefined,
       );
     },
-    onOpen: load,
+    onOpen: () => {
+      load();
+      loadDefault();
+    },
+    ...(projectDefault !== undefined ? { projectDefault, onMakeDefault: makeDefault } : {}),
   };
 }
 
@@ -103,7 +171,7 @@ export function useChatCloudEnvironment(chat: string): {
   // The same pick object while the chat and its pick stay: the composer takes it in its run mode
   // rows, and a new object each render drew the composer again on every pane event.
   const pick = useMemo<CloudEnvironmentPick>(
-    () => ({ current, onPick: (id) => setHeld({ chat, current: id }) }),
+    () => ({ current, chat, onPick: (id) => setHeld({ chat, current: id }) }),
     [chat, current],
   );
   return {
@@ -128,6 +196,7 @@ function folderName(folder: string | undefined): string | undefined {
 const ACTION_TEST_IDS: Partial<Record<CloudEnvironmentRow["kind"], string>> = {
   new: "cloud-environment-new",
   edit: "cloud-environment-edit",
+  makeDefault: "cloud-environment-make-default",
   newMachine: "cloud-environment-new-machine",
 };
 
@@ -174,6 +243,7 @@ export function CloudEnvironmentChip({
   const action = (row: CloudEnvironmentRow) => {
     if (row.kind === "new") control.onNew();
     else if (row.kind === "edit") control.onEdit(row.id);
+    else if (row.kind === "makeDefault") control.onMakeDefault?.(row.id);
     else if (row.kind === "newMachine")
       control.onNewMachine(control.current === AUTO_ENVIRONMENT ? undefined : control.current);
   };
@@ -184,7 +254,9 @@ export function CloudEnvironmentChip({
         ? t("composer.envNew")
         : row.kind === "edit"
           ? t("composer.envEdit", { name: row.name })
-          : t("composer.envNewMachine");
+          : row.kind === "makeDefault"
+            ? t("composer.envMakeDefault")
+            : t("composer.envNewMachine");
     return (
       <MenuItem key={row.kind} className="acpmux-menu-item" data-value={row.kind} onSelect={() => action(row)}>
         <span
@@ -192,7 +264,15 @@ export function CloudEnvironmentChip({
           data-action={row.kind}
           data-testid={ACTION_TEST_IDS[row.kind]}
         >
-          {row.kind === "new" ? <PlusIcon /> : row.kind === "edit" ? <GearIcon /> : <ServerIcon />}
+          {row.kind === "new" ? (
+            <PlusIcon />
+          ) : row.kind === "edit" ? (
+            <GearIcon />
+          ) : row.kind === "makeDefault" ? (
+            <PinIcon />
+          ) : (
+            <ServerIcon />
+          )}
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{text}</span>
           </span>
@@ -216,6 +296,9 @@ export function CloudEnvironmentChip({
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{rowName}</span>
           </span>
+          {row.kind === "environment" && id === control.projectDefault && (
+            <span className="acpmux-cloud-env-default">{t("composer.envProjectDefault")}</span>
+          )}
           {dropUp === "gear" && row.kind === "environment" && (
             <button
               type="button"
@@ -332,6 +415,15 @@ function PlusIcon() {
   return (
     <Icon>
       <path d="M8 3v10M3 8h10" />
+    </Icon>
+  );
+}
+
+/// Make default: a pin (this project keeps it).
+function PinIcon() {
+  return (
+    <Icon>
+      <path d="M6 2.25h4M7 2.25v4L4.75 9h6.5L9 6.25v-4M8 9v4.75" />
     </Icon>
   );
 }

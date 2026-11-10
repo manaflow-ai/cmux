@@ -2,10 +2,19 @@ import { useSyncExternalStore } from "react";
 import { Sheet } from "../../ui/Sheet";
 import { DialogButton, keyedIconProps } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
-import { EnvironmentNetwork, EnvironmentScript, EnvironmentValues } from "./EnvironmentFields";
-import type { EnvironmentSection } from "./environmentModel";
+import {
+  EnvironmentFiles,
+  EnvironmentImagePicker,
+  EnvironmentNetwork,
+  EnvironmentOutput,
+  EnvironmentRepository,
+  EnvironmentScript,
+  EnvironmentValues,
+  networkLabels,
+} from "./EnvironmentFields";
+import { environmentConfig, setupOutput, type EnvironmentField, type EnvironmentSection } from "./environmentModel";
 import type { EnvironmentState, EnvironmentStore } from "./environmentStore";
-import { L } from "./strings";
+import { format, L } from "./strings";
 import "./environment.css";
 
 const errorKeys: Record<NonNullable<EnvironmentState["error"]>, string> = {
@@ -15,6 +24,11 @@ const errorKeys: Record<NonNullable<EnvironmentState["error"]>, string> = {
   name: L.envNameRequired,
   names: L.envInvalidNames,
   script: L.envScriptTooLarge,
+  maintenance: L.envMaintenanceTooLarge,
+  repository: L.envInvalidRepository,
+  filePath: L.envInvalidFilePath,
+  fileSize: L.envFileTooLarge,
+  filesSize: L.envFilesTooLarge,
   file: L.envFileFailed,
   copy: L.envCopyFailed,
   secret: L.envSecretRequired,
@@ -25,24 +39,45 @@ const errorKeys: Record<NonNullable<EnvironmentState["error"]>, string> = {
   value: L.envInvalidValue,
   retype: L.envSecretRetype,
   dropped: L.envRouteDropped,
+  conflict: L.envConflict,
   vaultDown: L.envVaultDown,
   vaultHost: L.envVaultPublicSuffix,
   vaultText: L.envVaultNotPlainText,
   vaultUnreadable: L.envVaultUnreadable,
   vaultRefused: L.envVaultRefused,
 };
-const sections = {
+const sections: Record<EnvironmentSection, string> = {
   overview: L.envTitle,
+  repository: L.envRepository,
   network: L.envNetwork,
   secrets: L.envSecrets,
   script: L.envScript,
+  maintenance: L.envMaintenance,
   variables: L.envVariables,
+  files: L.envFiles,
+  output: L.envOutput,
+};
+
+/** Where each field a conflict names lives in the sheet. */
+const fieldLabels: Record<EnvironmentField, string> = {
+  name: L.envName,
+  setup_script: L.envScript,
+  env_vars: L.envVariables,
+  network: L.envNetwork,
+  repo: L.envRepository,
+  ref: L.envRepository,
+  maintenance_script: L.envMaintenance,
+  files: L.envFiles,
+  image: L.envImage,
+  secrets: L.envSecrets,
 };
 
 export function EnvironmentSheet({ store, strings }: { store: EnvironmentStore; strings: Strings }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
   const { draft, original, section } = state;
+  const config = original ? environmentConfig(original) : undefined;
+  const output = setupOutput(original, state.derived);
   const row = (target: EnvironmentSection, detail: string) => (
     <button type="button" className="env-drill" onClick={() => store.section(target)}>
       <span>
@@ -107,12 +142,22 @@ export function EnvironmentSheet({ store, strings }: { store: EnvironmentStore; 
                       />
                       {original.is_default && <small>{t(L.envDefaultLocked)}</small>}
                     </label>
+                    {config?.image && (
+                      <EnvironmentImagePicker draft={draft} original={original} store={store} strings={strings} />
+                    )}
                     {draft.network.mode === "limited" && <p className="env-note">{t(L.envNetworkPending)}</p>}
                     <div className="env-rows">
+                      {config?.repository &&
+                        row(
+                          "repository",
+                          draft.repo.trim()
+                            ? [draft.repo.trim(), draft.ref.trim() || t(L.envBranchPlaceholder)].join(" · ")
+                            : t(L.envNone),
+                        )}
                       {row(
                         "network",
                         [
-                          t(draft.network.mode === "full" ? L.envFull : L.envLimited),
+                          t(networkLabels[draft.network.mode]),
                           ...(draft.network.mode === "limited" ? draft.network.domains.filter(Boolean) : []),
                           ...(draft.network.mode === "limited" && draft.network.package_managers
                             ? [t(L.envPackages)]
@@ -136,6 +181,8 @@ export function EnvironmentSheet({ store, strings }: { store: EnvironmentStore; 
                               : L.envScriptUnset,
                         ),
                       )}
+                      {config?.maintenance &&
+                        row("maintenance", t(draft.maintenance ? L.envScriptCustom : L.envScriptUnset))}
                       {row(
                         "variables",
                         draft.variables
@@ -143,6 +190,38 @@ export function EnvironmentSheet({ store, strings }: { store: EnvironmentStore; 
                           .filter(Boolean)
                           .join(", ") || t(L.envNone),
                       )}
+                      {config?.files &&
+                        row(
+                          "files",
+                          draft.files
+                            .map((file) => file.path.trim())
+                            .filter(Boolean)
+                            .join(", ") || t(L.envNone),
+                        )}
+                      {(output.run || output.snapshot || config?.repository) &&
+                        row(
+                          "output",
+                          [
+                            output.run &&
+                              t(
+                                output.run.status === "running"
+                                  ? L.envRunRunning
+                                  : output.run.status === "failed"
+                                    ? L.envRunFailed
+                                    : L.envRunSucceeded,
+                              ),
+                            output.snapshot &&
+                              t(
+                                output.snapshot.state === "cached"
+                                  ? L.envSnapshotCached
+                                  : output.snapshot.state === "rebuilding"
+                                    ? L.envSnapshotRebuilding
+                                    : L.envSnapshotNone,
+                              ),
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || t(L.envNone),
+                        )}
                     </div>
                   </div>
                 )}
@@ -151,12 +230,37 @@ export function EnvironmentSheet({ store, strings }: { store: EnvironmentStore; 
                   <EnvironmentValues draft={draft} store={store} strings={strings} secrets={section === "secrets"} />
                 )}
                 {section === "script" && <EnvironmentScript state={state} store={store} strings={strings} />}
+                {section === "maintenance" && (
+                  <EnvironmentScript state={state} store={store} strings={strings} maintenance />
+                )}
+                {section === "repository" && <EnvironmentRepository draft={draft} store={store} strings={strings} />}
+                {section === "files" && <EnvironmentFiles draft={draft} store={store} strings={strings} />}
+                {section === "output" && <EnvironmentOutput state={state} strings={strings} />}
               </>
             )}
-            {state.error && (
-              <p role="alert" className="env-error">
-                {t(errorKeys[state.error])}
-              </p>
+            {state.conflict ? (
+              // Changed elsewhere: say where, keep every edit, and let the person pick (never dropped silently).
+              <div role="alert" className="env-conflict">
+                <p className="env-error">
+                  {format(t(L.envConflict), {
+                    sections: [...new Set(state.conflict.fields.map((field) => t(fieldLabels[field])))].join(", "),
+                  })}
+                </p>
+                <div className="env-conflict-actions">
+                  <button type="button" className="env-button" onClick={() => store.resolveConflict(true)}>
+                    {t(L.envKeepMine)}
+                  </button>
+                  <button type="button" className="env-button" onClick={() => store.resolveConflict(false)}>
+                    {t(L.envUseNewest)}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              state.error && (
+                <p role="alert" className="env-error">
+                  {t(errorKeys[state.error])}
+                </p>
+              )
             )}
             {!draft && !state.loading && (
               <button type="button" className="env-button" onClick={() => void store.retry()}>

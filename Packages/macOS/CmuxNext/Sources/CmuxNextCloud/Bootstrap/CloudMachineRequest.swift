@@ -51,6 +51,14 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// on the machine. Not an option of the machine itself, so ``isDefault`` ignores it.
     public var environment: String?
 
+    /// This request with its machine booted in `environment` (none: unchanged), as Move to Cloud's
+    /// Environment chip asks.
+    public func booted(in environment: String?) -> CloudMachineRequest {
+        var request = self
+        if let environment { request.environment = environment }
+        return request
+    }
+
     /// A machine name `cloud new-machine` takes: 1-64 of letters, digits, `.`, `_` and `-`, not
     /// starting with `-`, so it is also a host name and a shell word in the commands it prints.
     /// `true` is what a bare `--name` with no value becomes on its way to the app.

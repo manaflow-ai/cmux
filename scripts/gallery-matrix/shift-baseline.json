@@ -2043,7 +2043,7 @@
     "cloud.environment-sheet#network": 0,
     "cloud.environment-sheet#network-full": 0,
     "cloud.environment-sheet#overview": 0,
-    "cloud.environment-sheet#save-failure": 0.00686,
+    "cloud.environment-sheet#save-failure": 0,
     "cloud.environment-sheet#script": 0,
     "cloud.environment-sheet#secrets": 0,
     "cloud.environment-sheet#variables": 0,

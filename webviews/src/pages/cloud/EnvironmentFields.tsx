@@ -3,6 +3,20 @@ import type { Strings } from "../shared/i18n";
 import { L } from "./strings";
 import {
   DEFAULT_SECRET_HEADER,
+  environmentConfig,
+  fileFits,
+  filePathValid,
+  filesFit,
+  imageId,
+  imageName,
+  imageOptions,
+  type EnvironmentImage,
+  repositoryValid,
+  setupOutput,
+  type CloudEnvironment,
+  type FileDraft,
+  type NetworkMode,
+  type SetupStep,
   headerIssue,
   headerText,
   secretNeedsValue,
@@ -27,23 +41,34 @@ export function EnvironmentNetwork({
 }) {
   const { t } = strings;
   const { network } = draft;
+  const original = store.getSnapshot().original;
+  // Off only where the service keeps it (`environmentConfig`); an older one answers Full or Limited alone.
+  const modes: NetworkMode[] =
+    original && environmentConfig(original).off ? ["full", "limited", "off"] : ["full", "limited"];
   return (
     <div className="env-fields">
       <fieldset className="env-modes">
         <legend>{t(L.envNetwork)}</legend>
-        {(["full", "limited"] as const).map((mode) => (
+        {modes.map((mode) => (
           <label key={mode}>
             <input
-              aria-label={t(mode === "full" ? L.envFull : L.envLimited)}
+              aria-label={t(networkLabels[mode])}
               type="radio"
               name="environment-network"
               checked={network.mode === mode}
               onChange={() => store.edit({ network: { ...network, mode } })}
             />
-            {t(mode === "full" ? L.envFull : L.envLimited)}
+            {t(networkLabels[mode])}
           </label>
         ))}
       </fieldset>
+      {network.mode === "off" && (
+        <>
+          <p className="env-note">{t(L.envOffNote)}</p>
+          {/* Honest about today: the service refuses a chat start on Off (cloud_environment.network_unenforced). */}
+          <p className="env-note">{t(L.envOffPending)}</p>
+        </>
+      )}
       {network.mode === "limited" && (
         <>
           <p className="env-note">{t(L.envNetworkPending)}</p>
@@ -68,6 +93,285 @@ export function EnvironmentNetwork({
             <small>{t(L.envDomainsHint)}</small>
           </label>
         </>
+      )}
+    </div>
+  );
+}
+
+export const networkLabels: Record<NetworkMode, string> = { full: L.envFull, limited: L.envLimited, off: L.envOff };
+
+/** The repository a machine clones, `owner/name`, and its branch (empty: the default branch). */
+export function EnvironmentRepository({
+  draft,
+  store,
+  strings,
+}: {
+  draft: EnvironmentDraft;
+  store: EnvironmentStore;
+  strings: Strings;
+}) {
+  const { t } = strings;
+  const [editing, setEditing] = useState(false);
+  const bad = !editing && !repositoryValid(draft.repo, draft.ref);
+  return (
+    <div className="env-fields">
+      <div className="env-repository">
+        <label className="env-field">
+          <span>{t(L.envRepository)}</span>
+          <input
+            aria-label={t(L.envRepository)}
+            aria-invalid={bad || undefined}
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            placeholder={t(L.envRepositoryPlaceholder)}
+            value={draft.repo}
+            onFocus={() => setEditing(true)}
+            onBlur={() => setEditing(false)}
+            onChange={(event) => store.edit({ repo: event.target.value })}
+          />
+        </label>
+        <label className="env-field">
+          <span>{t(L.envBranch)}</span>
+          <input
+            aria-label={t(L.envBranch)}
+            aria-invalid={bad || undefined}
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            placeholder={t(L.envBranchPlaceholder)}
+            value={draft.ref}
+            onFocus={() => setEditing(true)}
+            onBlur={() => setEditing(false)}
+            onChange={(event) => store.edit({ ref: event.target.value })}
+          />
+        </label>
+      </div>
+      <div className="env-fold" data-open={bad || undefined}>
+        <div className="env-fold-body">{bad && <small className="env-error">{t(L.envInvalidRepository)}</small>}</div>
+      </div>
+      <p className="env-note">{t(L.envRepositoryHint)}</p>
+    </div>
+  );
+}
+
+/** The base image, by name: the service's list when it gives one, else the stored image alone (today the
+ *  service has one, `default`, so the picker shows that one option). */
+export function EnvironmentImagePicker({
+  draft,
+  original,
+  store,
+  strings,
+}: {
+  draft: EnvironmentDraft;
+  original: CloudEnvironment;
+  store: EnvironmentStore;
+  strings: Strings;
+}) {
+  const { t } = strings;
+  const images = imageOptions(original);
+  // A stored image the list no longer names stays listed, so the picker never shows another one picked.
+  const ids = images.map(imageId);
+  const stored = draft.image !== null && !ids.includes(draft.image) ? [draft.image] : [];
+  const label = (image: EnvironmentImage) => (imageId(image) === "default" ? t(L.envImageDefault) : imageName(image));
+  return (
+    <label className="env-field">
+      <span>{t(L.envImage)}</span>
+      <select
+        aria-label={t(L.envImage)}
+        value={draft.image ?? ""}
+        onChange={(event) => store.edit({ image: event.target.value || null })}
+      >
+        {draft.image === null && <option value="">{t(L.envImageDefault)}</option>}
+        {[...images, ...stored].map((image) => (
+          <option key={imageId(image)} value={imageId(image)}>
+            {label(image)}
+          </option>
+        ))}
+      </select>
+      <small>{t(L.envImageHint)}</small>
+    </label>
+  );
+}
+
+/** Text files written to the machine before setup: a path and its contents per row. */
+export function EnvironmentFiles({
+  draft,
+  store,
+  strings,
+}: {
+  draft: EnvironmentDraft;
+  store: EnvironmentStore;
+  strings: Strings;
+}) {
+  const { t } = strings;
+  const [editing, setEditing] = useState<string>();
+  const set = (files: FileDraft[]) => store.edit({ files });
+  const edit = (id: string | undefined, patch: Partial<FileDraft>) =>
+    set(draft.files.map((file) => (file.id === id ? { ...file, ...patch } : file)));
+  const tooMany = !filesFit(draft.files);
+  return (
+    <div className="env-fields">
+      <p className="env-note">{t(L.envFilesNote)}</p>
+      <div className="env-fold" data-open={tooMany || undefined}>
+        <div className="env-fold-body">{tooMany && <small className="env-error">{t(L.envFilesTooLarge)}</small>}</div>
+      </div>
+      {draft.files.map((file, index) => {
+        const repeated = draft.files.some((other) => other !== file && other.path.trim() === file.path.trim());
+        const pathBad = editing !== file.id && file.path !== "" && (!filePathValid(file.path.trim()) || repeated);
+        const sizeBad = !fileFits(file.content);
+        const message = pathBad ? L.envInvalidFilePath : sizeBad ? L.envFileTooLarge : undefined;
+        return (
+          <div className="env-file-row" key={file.id ?? index}>
+            <div className="env-file-head">
+              <input
+                aria-label={t(L.envFilePath)}
+                aria-invalid={pathBad || undefined}
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                placeholder={t(L.envFilePathPlaceholder)}
+                value={file.path}
+                onFocus={() => setEditing(file.id)}
+                onBlur={() => setEditing(undefined)}
+                onChange={(event) => edit(file.id, { path: event.target.value })}
+              />
+              <button
+                type="button"
+                className="env-icon"
+                aria-label={`${t(L.envRemoveFile)} ${file.path}`}
+                onClick={() => set(draft.files.filter((item) => item.id !== file.id))}
+              >
+                ×
+              </button>
+            </div>
+            <textarea
+              className="env-file-content"
+              aria-label={`${t(L.envFileContent)} ${file.path}`}
+              aria-invalid={sizeBad || undefined}
+              rows={4}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              wrap="off"
+              value={file.content}
+              onChange={(event) => edit(file.id, { content: event.target.value })}
+            />
+            <div className="env-fold" data-open={message ? true : undefined}>
+              <div className="env-fold-body">{message && <small className="env-error">{t(message)}</small>}</div>
+            </div>
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        className="env-button env-add"
+        onClick={() => set([...draft.files, { id: rowId(), path: "", content: "" }])}
+      >
+        {t(L.envAddFile)}
+      </button>
+    </div>
+  );
+}
+
+const stepLabels: Record<string, string> = {
+  machine: L.envStepMachine,
+  repo: L.envStepRepo,
+  files: L.envStepFiles,
+  secrets: L.envSecrets,
+  network: L.envNetwork,
+  install: L.envStepInstall,
+  verify: L.envStepVerify,
+  maintenance: L.envMaintenance,
+  snapshot: L.envStepSnapshot,
+};
+const stepStates: Record<SetupStep["state"], string> = {
+  pending: L.envStepPending,
+  running: L.envStepRunning,
+  done: L.envStepDone,
+  failed: L.envStepFailed,
+  skipped: L.envStepSkipped,
+};
+const reasons: Record<string, string> = {
+  first: L.envReasonFirst,
+  setup_script: L.envReasonScript,
+  script: L.envReasonScript,
+  env_vars: L.envReasonVariables,
+  variables: L.envReasonVariables,
+  files: L.envReasonFiles,
+  image: L.envReasonImage,
+  repo: L.envReasonRepository,
+  ref: L.envReasonRepository,
+  repository: L.envReasonRepository,
+  expired: L.envReasonExpired,
+  refresh: L.envReasonExpired,
+  inputs: L.envReasonInputs,
+};
+
+/** The last setup or maintenance run: the snapshot's state (cached, or rebuilding and why), each step, and the
+ *  end of its log. Read only: the run is the service's, and this page changes nothing. */
+export function EnvironmentOutput({ state, strings }: { state: EnvironmentState; strings: Strings }) {
+  const { t } = strings;
+  const { run, snapshot } = setupOutput(state.original, state.derived);
+  if (!run && !snapshot)
+    return (
+      <div className="env-fields">
+        <p className="env-note">{t(L.envOutputEmpty)}</p>
+      </div>
+    );
+  const reason = snapshot?.reason ? (reasons[snapshot.reason] ?? L.envReasonInputs) : undefined;
+  return (
+    <div className="env-fields">
+      {snapshot && (
+        <div className="env-output-status" data-state={snapshot.state}>
+          <span className="env-row-title">
+            {t(
+              snapshot.state === "cached"
+                ? L.envSnapshotCached
+                : snapshot.state === "rebuilding"
+                  ? L.envSnapshotRebuilding
+                  : L.envSnapshotNone,
+            )}
+          </span>
+          {snapshot.state === "cached" && <span className="env-note">{t(L.envSnapshotCachedNote)}</span>}
+          {snapshot.state !== "cached" && reason && <span className="env-note">{t(reason)}</span>}
+        </div>
+      )}
+      {run && (
+        <section className="env-run" aria-label={t(run.kind === "maintenance" ? L.envRunMaintenance : L.envRunSetup)}>
+          <header className="env-run-heading">
+            <span className="env-row-title">{t(run.kind === "maintenance" ? L.envRunMaintenance : L.envRunSetup)}</span>
+            <span className={run.status === "failed" ? "env-error" : "env-note"} data-status={run.status}>
+              {t(
+                run.status === "running"
+                  ? L.envRunRunning
+                  : run.status === "failed"
+                    ? L.envRunFailed
+                    : L.envRunSucceeded,
+              )}
+            </span>
+          </header>
+          {run.steps.length > 0 && (
+            <ol className="env-steps">
+              {run.steps.map((step) => (
+                <li key={step.id} className="env-step" data-state={step.state}>
+                  <span className="env-step-name">{stepLabels[step.id] ? t(stepLabels[step.id]!) : step.id}</span>
+                  {step.detail && <span className="env-row-detail env-step-detail">{step.detail}</span>}
+                  <span className={step.state === "failed" ? "env-error" : "env-note"}>
+                    {t(stepStates[step.state])}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+          {run.error?.message && <p className="env-error">{run.error.message}</p>}
+          {run.log_tail && (
+            <div className="env-log">
+              <span className="env-note">{t(L.envLogTail)}</span>
+              <pre>{run.log_tail}</pre>
+            </div>
+          )}
+        </section>
       )}
     </div>
   );
@@ -259,17 +563,22 @@ export function SecretDelivery({
   );
 }
 
+/** The setup script, or (`maintenance`) the maintenance script beside it: the same editor, with no repository
+ *  suggestion for maintenance. */
 export function EnvironmentScript({
   state,
   store,
   strings,
+  maintenance = false,
 }: {
   state: EnvironmentState;
   store: EnvironmentStore;
   strings: Strings;
+  maintenance?: boolean;
 }) {
   const { t } = strings;
-  const script = state.draft?.script ?? state.derivedScript ?? "";
+  const script = maintenance ? (state.draft?.maintenance ?? "") : (state.draft?.script ?? state.derivedScript ?? "");
+  const label = maintenance ? L.envMaintenance : L.envScript;
   const [copied, setCopied] = useState(false);
   const lines = useRef<HTMLPreElement>(null);
   return (
@@ -284,7 +593,7 @@ export function EnvironmentScript({
               aria-label={t(L.envChooseFile)}
               onChange={(event) => {
                 const file = event.target.files?.[0];
-                if (file) void store.importScript(file);
+                if (file) void store.importScript(file, maintenance ? "maintenance" : "script");
                 event.target.value = "";
               }}
             />
@@ -316,7 +625,7 @@ export function EnvironmentScript({
               .join("\n")}
           </pre>
           <textarea
-            aria-label={t(L.envScript)}
+            aria-label={t(label)}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
@@ -327,14 +636,14 @@ export function EnvironmentScript({
             }}
             onChange={(event) => {
               setCopied(false);
-              store.edit({ script: event.target.value });
+              store.edit(maintenance ? { maintenance: event.target.value } : { script: event.target.value });
             }}
           />
         </div>
         <div className="env-editor-foot">{t(L.envFileLimit)}</div>
       </div>
-      {state.deriving && <output className="env-note">{t(L.loading)}</output>}
-      {state.deriveFailed && (
+      {!maintenance && state.deriving && <output className="env-note">{t(L.loading)}</output>}
+      {!maintenance && state.deriveFailed && (
         <p role="alert" className="env-note">
           {t(L.envDeriveFailed)}{" "}
           <button type="button" className="env-link" onClick={() => void store.derive()}>
@@ -342,12 +651,12 @@ export function EnvironmentScript({
           </button>
         </p>
       )}
-      {state.derivedScript !== undefined && state.draft?.script !== null && (
+      {!maintenance && state.derivedScript !== undefined && state.draft?.script !== null && (
         <button type="button" className="env-link" onClick={() => store.edit({ script: null })}>
           {t(L.envScriptReset)}
         </button>
       )}
-      <p className="env-note">{t(L.envScriptNote)}</p>
+      <p className="env-note">{t(maintenance ? L.envMaintenanceNote : L.envScriptNote)}</p>
     </div>
   );
 }

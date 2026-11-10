@@ -4363,9 +4363,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       notices.transient(notRunText());
       return;
     }
-    void callNative("action.run", { id: CONNECT_ACTIONS[kind], ...(session !== undefined ? { session } : {}) }).catch(
-      sayActionRefusal(notices.transient, notRunText),
-    );
+    // Move to Cloud makes its machine in the Environment chip's pick (none on Auto or with the flag off).
+    const environment = kind === "move" ? cloudEnvironment.forSend(undefined) : undefined;
+    void callNative("action.run", {
+      id: CONNECT_ACTIONS[kind],
+      ...(session !== undefined ? { session } : {}),
+      ...(environment ? { environment } : {}),
+    }).catch(sayActionRefusal(notices.transient, notRunText));
   };
   /// `session`: the chat whose title menu offered the move. The host moves the tab only while it
   /// still shows that chat (AgentTabs+Header.swift), so a switch before the request is handled
@@ -11823,6 +11827,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   offloadReasons,
                   moveTargets,
                   onMoveTo: (id: string) => moveChatToMachine(id, snapshot.sessionId),
+                  moveEnvironment: cloudEnvironment.pick,
                 })}
             // The list opened: the machines' status and the chat's moves are read again.
             onRefreshMachines={() => {
