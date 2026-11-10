@@ -49,8 +49,10 @@ import Testing
 /// - its pixel size is a size its pane had in this press, this frame or earlier (never a size of a later frame);
 /// - it is drawn 1:1 from the layer's top-left (`contentsGravity` top-left, the layer at the window's scale): an older
 ///   frame is cut or leaves the pane's ground at the right and the bottom, it is never stretched;
-/// - it took a new size in more than 3 spring frames (the layer's size no longer shows that: it is the area's).
-/// It prints the frames in which a terminal showed a frame of an earlier size ("behind"): a number, not an assertion.
+/// - it took a new size in at least half of the spring frames (the layer's size no longer shows that: it is the
+///   area's), and it is the frame of an earlier size than its pane's ("behind") in at most 1 frame of 4. Both bounds
+///   are this port's choice, not a measured limit: aws-m4pro-3 (no display, load 6 to 40) gave a new size in 18 of
+///   27 spring frames (the spring's last frames move less than a device pixel) and 0 of 33 frames behind.
 ///
 /// It needs a window on a display (a display worker: `cmux-ci run --display --label gui-session-v1`).
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)),
@@ -137,7 +139,9 @@ struct TerminalKeyResizeFrameTests {
         #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes)")
         let ends = Self.ptyEndsAtItsViewsGrid(screen)
         #expect(ends.isEmpty, "a PTY does not end at its view's grid: \(ends)")
-        #expect(changes.allSatisfy { $0 > 3 }, "a terminal showed a frame of a new size in only \(changes) of \(steps) spring frames: it did not follow its pane")
+        #expect(changes.allSatisfy { $0 >= steps / 2 }, "a terminal showed a frame of a new size in only \(changes) of \(steps) spring frames: it did not follow its pane")
+        #expect(behind.allSatisfy { $0 * 4 <= frames.count - 1 },
+                "a terminal showed the frame of an earlier size than its pane's in \(behind) of \(frames.count - 1) frames: it is behind its pane")
     }
 
     /// T-KEYS 3 (keys bench 8554d26b, cmux10s, macOS 27.0.1, 120 Hz: in the first frame after a press every terminal
@@ -194,6 +198,10 @@ struct TerminalKeyResizeFrameTests {
     /// the test cannot decide (Ghostty shows the frame of a size as soon as it is drawn, and the spring's last frames
     /// have one pixel size; the precondition failed in 1 of 3 runs at 35f0e356de2d), and the landing has no release
     /// left that reads a size in flight. So that state is printed, not required: the grids below must hold in both.
+    /// The frames that p1 and p2 (no mode 2026) did not show as their own are printed too, not required: this spring
+    /// steps faster than a display (its grid rule counts refreshes of the clock), so at this pace neither terminal
+    /// shows a frame of a new size (27 of 27 for p1 at d703d217459e), and "p1 waited in more than 1 frame" proved
+    /// nothing about the hold. The frames give no fact about mode 2026 here: the test sends it, and checks the grids.
     @Test func aTerminalWhoseFrameWaitsAtTheLandingEndsAtTheLandingsGrid() async throws {
         let screen = try await PaneScreen()
         defer { screen.close() }
@@ -213,7 +221,7 @@ struct TerminalKeyResizeFrameTests {
 
         let pressed = ContinuousClock.now
         _ = PaneResize.press("p2", .right, model: screen.model, view: screen.root)
-        var steps = 0, moving = true, waitedInSpring = 0, waitingAtLanding = false
+        var steps = 0, moving = true, waitedInSpring = 0, otherWaitedInSpring = 0, waitingAtLanding = false
         while moving, steps < 240 {
             screen.ios[0].send(.output(hold))
             moving = screen.root.advanceFrame(1.0 / 120)
@@ -221,12 +229,13 @@ struct TerminalKeyResizeFrameTests {
             await Self.commit() // the frame's commit
             let waiting = !Self.showsItsOwnFrame(screen.sessions[0])
             if waiting { waitedInSpring += 1 }
+            if !Self.showsItsOwnFrame(screen.sessions[1]) { otherWaitedInSpring += 1 }
             if !moving { waitingAtLanding = waiting }
             steps += 1
         }
         try #require(steps >= 4, "the press's spring ran \(steps) frames: no spring ran")
-        try #require(waitedInSpring > 1, "p1's sizes waited in \(waitedInSpring) of \(steps) frames: p1 did not hold its frames")
-        print("F1 landing: p1 waited for its frame in \(waitedInSpring) of \(steps) spring frames; at the landing \(waitingAtLanding ? "it still waited" : "it showed its own frame")")
+        print("F1 landing: p1 (mode 2026) waited for its frame in \(waitedInSpring) of \(steps) spring frames, p2 (no mode 2026) in \(otherWaitedInSpring); " +
+              "at the landing p1 \(waitingAtLanding ? "still waited" : "showed its own frame")")
         screen.ios[0].send(.output(Data("\u{1b}[?2026l".utf8)))
         await Self.settle(screen)
         let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }

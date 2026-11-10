@@ -67,8 +67,11 @@ struct ReduceMotionKeyResizeGridTests {
         // One grid per terminal with a new grid, counted at this screen's own PTYs. `TerminalSurfaceView.gridReports`
         // counts every terminal of the process, and the terminals of the suites that run beside this one report in the
         // awaits above (red at 35f0e356de2d beside 10 other suites: 6 reports counted; green alone). A grid reaches its
-        // IO through the ordered input stream, so the count is read here, after the terminals rest: it is every grid of
-        // the press, the first frame's included.
+        // IO through the ordered input stream, so the count is read after a marker that goes through that stream behind
+        // every grid asked for so far: it is every grid of the press, the first frame's included, also one more that
+        // follows the final grid.
+        let reached = await ReduceMotionPaneCloseFrameTests.gridsReachedTheirPTYs(screen, Array(screen.ios.indices))
+        try #require(reached, "a terminal's input stream did not reach its PTY in 2 s")
         let sent = zip(screen.ios, gridsBefore).map { $0.resizes.count - $1 }
         #expect(sent.reduce(0, +) <= changedGrid.count,
                 "the press sent \(sent) grids to p1, p2, p3 for \(changedGrid.count) terminals with a new grid: one each")

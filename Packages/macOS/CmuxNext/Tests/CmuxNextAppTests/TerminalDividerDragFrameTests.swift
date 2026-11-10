@@ -29,7 +29,8 @@ import Testing
 /// (this frame or an earlier one), it is never scaled to its layer (``TerminalKeyResizeFrameTests/Sample/drawnUnscaled``),
 /// and it took a new size in at least half of the drag frames. "The frame shown at the layer's pixel size" was red at
 /// d703d217459e (aws-m4pro-3: 5 of 42 samples showed the frame of one drag frame earlier) and is no longer the rule;
-/// those samples are printed as "frames behind their pane".
+/// those samples are "frames behind their pane": at most 1 frame of 4 per terminal (this port's choice, not a
+/// measured limit: aws-m4pro-3 gave 1 of 21 at 3be5828e3a33).
 ///
 /// It needs a window on a display (a display worker: `cmux-ci run --display --label gui-session-v1`).
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)),
@@ -120,6 +121,8 @@ struct TerminalDividerDragFrameTests {
               "frames behind their pane \(behind) of \(frames.count - 1); PTY grids \(resizes); misplaced \(misplaced.count), " +
               "unsized \(unsized.count), stretched \(stretched.count), no frame \(frameless.count)")
         #expect(changes.allSatisfy { $0 >= moves / 2 }, "a terminal showed a frame of a new size in only \(changes) of \(moves) drag frames: the drag holds it")
+        #expect(behind.allSatisfy { $0 * 4 <= frames.count - 1 },
+                "a terminal showed the frame of an earlier size than its pane's in \(behind) of \(frames.count - 1) frames: it is behind its pane")
         #expect(misplaced.isEmpty, "\(misplaced.count) frames showed a terminal off its pane's top-left: \(misplaced.prefix(8))")
         #expect(unsized.isEmpty, "\(unsized.count) frames showed a terminal at a size its pane had not had yet: \(unsized.prefix(8))")
         #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame scaled to a layer of another pixel size: \(stretched.prefix(8))")

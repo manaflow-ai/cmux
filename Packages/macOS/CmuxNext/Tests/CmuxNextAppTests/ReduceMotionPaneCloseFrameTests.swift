@@ -81,12 +81,32 @@ struct ReduceMotionPaneCloseFrameTests {
         // terminals' own PTYs. `TerminalSurfaceView.gridReports` counts every terminal of the process, and the terminals
         // of the suites that run beside this one report in the awaits above (red at 35f0e356de2d beside 10 other suites:
         // 8 reports counted; green alone). A grid reaches its IO through the ordered input stream, so the count is read
-        // here, after each PTY has its view's grid: it is every grid of the close, the first frame's included.
+        // after a marker that goes through that stream behind every grid asked for so far (``gridsReachedTheirPTYs``):
+        // it is every grid of the close, the first frame's included, also one more that follows the final grid.
+        let reached = await Self.gridsReachedTheirPTYs(screen, kept)
+        try #require(reached, "a kept terminal's input stream did not reach its PTY in 2 s")
         let sent = zip(kept, gridsBefore).map { screen.ios[$0].resizes.count - $1 }
         #expect(sent.allSatisfy { $0 <= 1 }, "a Reduce Motion close sent \(sent) grids to the \(kept.count) resized terminals: at most one each")
     }
 
     static func text(_ size: CGSize) -> String { "\(size.width)x\(size.height)" }
+
+    /// Whether every grid that `terminals` asked their PTYs for so far is in their `ScriptedTerminalIO.resizes` (at most
+    /// 2 s). A grid goes to its IO through the session's ordered input stream, and the IO records it in the stream's
+    /// consumer task: a count read at the first moment the PTY has its view's grid can miss a grid that follows it
+    /// ("final, stale, final"). So each terminal sends its coalesced grid now (`gridReports.flush()`), then marker
+    /// bytes through the same stream; when the IO has the marker, it has every grid sent before it.
+    static func gridsReachedTheirPTYs(_ screen: ThreePanes, _ terminals: [Int]) async -> Bool {
+        let marker = Data("grids-read-\(UUID().uuidString)".utf8)
+        for terminal in terminals {
+            let view = screen.sessions[terminal].surfaceView
+            view.gridReports.flush()
+            view.bridge.takeUnretainedValue().input.send(marker)
+        }
+        return await commits(screen, seconds: 2) { screen in
+            terminals.allSatisfy { screen.ios[$0].writes.contains(marker) }
+        }
+    }
 
     /// Commits until `done` holds (checked before each commit, at most `seconds`), with no frame tick between.
     static func commits(_ screen: ThreePanes, seconds: Int, until done: (ThreePanes) -> Bool) async -> Bool {
