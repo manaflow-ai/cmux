@@ -99,4 +99,12 @@ reset; manifest '' ''
 printf 'const Popup = () => <div className="ui-popup ui-glass" data-host-glass="menu" />;\nreturn <Popup />;\n' > "$web/Component.tsx"
 expect_pass component-const-is-not-a-class
 
+reset; manifest '' ''
+printf '<div children={<div className="ui-popup ui-glass" data-host-glass="menu" />} />\n' > "$web/Outer.tsx"
+expect_pass a-child-popup-is-not-the-outer-element
+
+reset; manifest '' ''
+printf 'const popupClassName = "ui-popup ui-glass";\nreturn <div className={cx({ active: isActive }, popupClassName)} />;\n' > "$web/ObjectArg.tsx"
+expect_fail const-after-an-object-argument web-floating
+
 echo "check-surface-materials.test: ok"

@@ -6,9 +6,10 @@
 # filtered dispatch proves the filter on both hosts (cx-jcfoz: the macOS job ran only fixed
 # groups and reported green without running the filter; a macOS-only regression landed).
 # A filter that selects no test, or only ignored tests, fails loudly instead of passing.
-# CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST=1 (the macOS job) lets a host with no matching test
-# pass: Linux-only test files (#![cfg(target_os = "linux")]) compile to nothing there, and
-# the strict Linux run still fails a filter that matches nothing anywhere.
+# CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST=1 (both jobs) lets a host with no matching test pass:
+# host-only test files (#![cfg(target_os = "linux")], macOS-only tests) compile to nothing
+# on the other host. With $GITHUB_OUTPUT set, the script writes `selected=N` (the runnable
+# tests on this host); hosted verification fails the run when both hosts selected 0.
 # Extra args go to the final libtest run (macOS passes --test-threads=2: process-heavy CLI
 # tests exceed the smaller runner's child-process limit).
 set -euo pipefail
@@ -53,9 +54,13 @@ if [[ ! -s "$runnable_names" && -s "$ignored_names" ]]; then
   echo "::error::test_filter '$filter' matches only ignored tests" >&2
   exit 1
 fi
+selected="$(grep -c . "$runnable_names" || true)"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  echo "selected=${selected:-0}" >> "$GITHUB_OUTPUT"
+fi
 if [[ ! -s "$normal_names" ]]; then
   if [[ "${CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST:-}" == "1" ]]; then
-    echo "::notice::test_filter '$filter' selects no Rust test on this host; the Linux job runs it"
+    echo "::notice::test_filter '$filter' selects no Rust test on this host; hosted verification fails the run only if the other host selects none too"
     exit 0
   fi
   echo "::error::test_filter '$filter' selected no Rust tests" >&2
