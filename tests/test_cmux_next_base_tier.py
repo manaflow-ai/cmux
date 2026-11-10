@@ -15,10 +15,15 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -27,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_base_tier as tier  # noqa: E402
+import cmux_next_tree_notify as notify  # noqa: E402
 import github_quota_client as quota  # noqa: E402
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
@@ -56,6 +62,8 @@ class FakeApi:
         self.jobs: dict[int, list[dict]] = {}
         self.gets: list[str] = []
         self.covering: set[str] = set()  # base tier run shas whose commit contains the tip (compare: behind)
+        self.listed_late = False  # GitHub lists a dispatched run only after a while: the listing misses it
+        self.during_dispatch = lambda: None  # a slow dispatch POST: the time GitHub takes to answer it
 
     def open_run(self, run_id: int, sha: str, at: float, status: str = "queued",
                  jobs: list[dict] | None = None, title: str = tier.TITLE) -> None:
@@ -89,7 +97,8 @@ class FakeApi:
             self.cancelled.append(int(match.group(1)))
             return 202
         self.dispatched.append((path, body))
-        if self.dispatch_status == 204:
+        self.during_dispatch()
+        if self.dispatch_status == 204 and not self.listed_late:
             # The run the dispatch starts, titled with the branch tip when GitHub took it.
             self.runs.insert(0, {"id": 99, "status": "queued", "display_title": f"{tier.TITLE}{self.landed or self.tip}",
                                  "created_at": stamp(T0 + 10**6)})
@@ -524,16 +533,48 @@ class OneDeadline(unittest.TestCase):
                                     result)
                     self.assertEqual(len(fake.dispatched), 1 if result == TIP else 0)
 
-    def test_the_settle_after_a_late_dispatch_is_skipped_inside_the_deadline(self):
+    def test_a_dispatch_whose_settle_does_not_fit_is_not_made(self):
+        # Codex review of #40471 (P2): a dispatch that skipped its settle freed the concurrency slot before
+        # GitHub listed the new run, and the next kick, 5 s later, saw no run at the tip and dispatched
+        # again: duplicate Mac work. The settle's time is reserved before the dispatch; without it the
+        # kick dispatches nothing and says so in one line, and the next kick dispatches once.
         clock = Clock(T0 + 20 * 60)
-        deadline = quota.Deadline(tier.SETTLE_S - 1, clock=clock.now)
+        api = FakeApi([(OLD, T0)], TIP)
+        api.listed_late = True  # the next kick's listing does not show this kick's dispatch yet
+        api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+        late = quota.Deadline(tier.SETTLE_S - 1, clock=clock.now)
+        with self.assertRaises(tier.PastDeadline) as raised:
+            tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                      pushed=TIP, deadline=late)
+        self.assertEqual(len(str(raised.exception).splitlines()), 1)
+        self.assertEqual(api.dispatched, [])
+        clock.at += 5
+        self.assertEqual(tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep,
+                                   log=lambda _: None, pushed=TIP,
+                                   deadline=quota.Deadline(600, clock=clock.now)), TIP)
+        self.assertEqual(len(api.dispatched), 1)
+
+
+    def test_a_slow_dispatch_post_still_settles_inside_the_deadline(self):
+        # Codex review of #40520 (F1): the guard reserved only SETTLE_S, but the dispatch POST can wait up
+        # to the client's request timeout. With 21 s left and a 10 s POST that succeeds, the settle ended 9 s
+        # past the deadline. The POST's time is reserved with the settle: such a kick dispatches nothing,
+        # and one with room for both settles before the deadline even when its POST takes the whole timeout.
+        clock = Clock(T0 + 20 * 60)
         api = FakeApi([(OLD, T0)], TIP)
         api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+        api.during_dispatch = lambda: setattr(clock, "at", clock.at + 10)
+        short = quota.Deadline(tier.SETTLE_S + 1, clock=clock.now)
+        with self.assertRaises(tier.PastDeadline):
+            tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                      pushed=TIP, deadline=short)
+        self.assertEqual(api.dispatched, [])
+        api.during_dispatch = lambda: setattr(clock, "at", clock.at + quota.REQUEST_TIMEOUT_S)
+        room = quota.Deadline(quota.REQUEST_TIMEOUT_S + tier.SETTLE_S, clock=clock.now)
         self.assertEqual(tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep,
-                                   log=lambda _: None, pushed=TIP, deadline=deadline), TIP)
-        self.assertEqual(clock.slept, [])
-        self.assertEqual(api.cancelled, [])
-
+                                   log=lambda _: None, pushed=TIP, deadline=room), TIP)
+        self.assertEqual(len(api.dispatched), 1)
+        self.assertGreaterEqual(room.left(), 0)
 
 class RunDuringAWait(unittest.TestCase):
     """Codex review of #40369 (F1): after any wait the kick reads the run history again before it
@@ -735,18 +776,163 @@ class QuotaRetry(unittest.TestCase):
         headers["X-RateLimit-Reset"] = str(int(self.NOW + 9999))
 
         def urlopen(request, timeout):
-            raise quota.urllib.error.HTTPError(request.full_url, 403, "rate limit exceeded", headers,
+            raise urllib.error.HTTPError(request.full_url, 403, "rate limit exceeded", headers,
                                                 io.BytesIO(b'{"message": "API rate limit exceeded"}'))
 
-        original = quota.urllib.request.urlopen
-        quota.urllib.request.urlopen = urlopen
+        original = urllib.request.urlopen
+        urllib.request.urlopen = urlopen
         try:
             api = quota.QuotaGitHub("t", deadline=quota.Deadline(60, clock=lambda: self.NOW), now=lambda: self.NOW,
                                     sleep=lambda _: None)
             with self.assertRaisesRegex(tier.QuotaExhausted, "core REST quota"):
                 api.get("repos/o/r/git/ref/heads/x")
         finally:
-            quota.urllib.request.urlopen = original
+            urllib.request.urlopen = original
+
+class TricklingServer:
+    """One HTTP server on 127.0.0.1 that answers every connection with ANSWER, a byte every GAP seconds
+    (0: all at once). It stops trickling when stop() is called or the client hangs up."""
+
+    def __init__(self, answer: bytes, gap: float):
+        self.answer, self.gap = answer, gap
+        self.done = threading.Event()
+        self.listener = socket.socket()
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen()
+        self.listener.settimeout(0.05)
+        self.url = f"http://127.0.0.1:{self.listener.getsockname()[1]}"
+        self.thread = threading.Thread(target=self.serve, daemon=True)
+        self.thread.start()
+
+    def serve(self) -> None:
+        while not self.done.is_set():
+            try:
+                conn, _ = self.listener.accept()
+            except OSError:
+                continue
+            # One thread a connection: a call abandoned at its bound must not hold up the next one.
+            threading.Thread(target=self.answer_one, args=(conn,), daemon=True).start()
+
+    def answer_one(self, conn: socket.socket) -> None:
+        with conn:
+            try:
+                conn.settimeout(1)
+                conn.recv(65536)  # the request (small enough for one read here)
+                if not self.gap:
+                    conn.sendall(self.answer)
+                    return
+                for byte in self.answer:
+                    if self.done.wait(self.gap):
+                        return
+                    conn.sendall(bytes([byte]))
+            except OSError:
+                return
+
+    def stop(self) -> None:
+        self.done.set()
+        self.thread.join(2)
+        self.listener.close()
+
+
+class WholeRequestBound(unittest.TestCase):
+    """Codex review of #40530 (F1): urlopen(timeout=30) bounds each socket wait, not the call, so a POST
+    whose answer trickles in could run past REQUEST_TIMEOUT_S, and DISPATCH_RESERVE_S could still overrun
+    the settle (a 204 after 0.293 s with a 0.1 s timeout). Every call of tree notify's client, and so of
+    QuotaGitHub and the takeover's client, now ends within its bound on one monotonic clock."""
+
+    BOUND = 0.3
+    SLACK = 0.4
+    # Each header byte comes 0.03 s after the last (well under the 0.3 s socket timeout); all of them take
+    # about 2 s, far past the bound.
+    SLOW = b"HTTP/1.1 204 No Content\r\nX-Trickle: " + b"a" * 30 + b"\r\nContent-Length: 0\r\n\r\n"
+    FAST = b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 12\r\n\r\n{"ok": true}'
+
+    def serve(self, answer: bytes, gap: float) -> TricklingServer:
+        server = TricklingServer(answer, gap)
+        self.addCleanup(server.stop)
+        return server
+
+    def clients(self, url: str):
+        tree = notify.GitHub("t", url)
+        kick = quota.QuotaGitHub("t", url, deadline=quota.Deadline(60), sleep=lambda _: self.fail("slept"))
+        for api in (tree, kick):
+            api.timeout = self.BOUND
+        return {"tree notify": tree, "QuotaGitHub": kick}
+
+    def test_trickled_headers_end_the_call_at_its_bound(self):
+        self.assertGreater(len(self.SLOW) * 0.03, 4 * self.BOUND)
+        server = self.serve(self.SLOW, 0.03)
+        for name, api in self.clients(server.url).items():
+            for method, call in (("POST", lambda: api.post("repos/o/r/actions/workflows/w/dispatches", {})),
+                                 ("GET", lambda: api.get("repos/o/r"))):
+                with self.subTest(client=name, method=method):
+                    started = time.monotonic()
+                    try:
+                        outcome = call()
+                    except Exception as error:  # noqa: BLE001
+                        outcome = error
+                    elapsed = time.monotonic() - started
+                    self.assertLess(elapsed, self.BOUND + self.SLACK, f"{name} {method} returned {outcome!r}")
+                    # Never a success: a timed-out write may have been taken, so it is reported as unknown.
+                    self.assertIsInstance(outcome, TimeoutError)
+                    self.assertIsInstance(outcome, notify.RequestTimeout)
+                    self.assertGreaterEqual(elapsed, self.BOUND * 0.9)
+
+    def test_a_fast_answer_still_returns_its_body(self):
+        server = self.serve(self.FAST, 0)
+        for name, api in self.clients(server.url).items():
+            with self.subTest(client=name):
+                self.assertEqual(api.get("repos/o/r"), {"ok": True})
+
+    def test_the_dispatch_reserve_is_the_bound_plus_the_settle(self):
+        self.assertEqual(quota.REQUEST_TIMEOUT_S, notify.GitHub.timeout)
+        self.assertEqual(tier.DISPATCH_RESERVE_S, notify.REQUEST_TIMEOUT_S + tier.SETTLE_S)
+
+
+class DispatchWithNoAnswer(unittest.TestCase):
+    """A dispatch POST that times out may have been taken by GitHub. The kick counts it as dispatched,
+    unknown: it settles and cancels as after a 204, never posts it again, then fails with one line."""
+
+    def test_a_timed_out_dispatch_still_settles_and_cancels_then_fails(self):
+        clock = Clock(T0 + 20 * 60)
+        api = FakeApi([(OLD, T0)], TIP)
+        api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+
+        def taken_but_unanswered():
+            # GitHub took it (the run is listed later); the answer never came back within the bound.
+            api.runs.insert(0, {"id": 99, "status": "queued", "display_title": f"{tier.TITLE}{TIP}",
+                                "created_at": stamp(T0 + 10**6)})
+            clock.at += 30
+            raise TimeoutError("no full answer within 30 s")
+
+        api.during_dispatch = taken_but_unanswered
+        lines: list[str] = []
+        with self.assertRaises(RuntimeError) as raised:
+            tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep, log=lines.append,
+                      pushed=TIP, deadline=quota.Deadline(600, clock=clock.now))
+        self.assertEqual(len(str(raised.exception).splitlines()), 1)
+        self.assertIn("may or may not", str(raised.exception))
+        self.assertEqual(len(api.dispatched), 1)
+        self.assertIn(tier.SETTLE_S, clock.slept)
+        self.assertEqual(api.cancelled, [11])
+        self.assertFalse(any(line.startswith("dispatched") for line in lines))
+
+    def test_a_timed_out_cancel_is_logged_and_not_counted(self):
+        api = FakeApi([(OLD, T0)], TIP)
+        api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+        api.open_run(12, TIP, T0 + 60, "queued", QUEUED_MAC)
+        original = api.post
+
+        def post(path, body):
+            if path.endswith("/cancel"):
+                raise TimeoutError("no full answer within 30 s")
+            return original(path, body)
+
+        api.post = post
+        lines: list[str] = []
+        self.assertEqual(tier.cancel_superseded(api, REPO, TIP, lines.append), [])
+        self.assertTrue(any("may or may not be cancelled" in line for line in lines), lines)
+
 
 class PushPaths(unittest.TestCase):
     def test_it_reads_cmux_next_push_paths(self):

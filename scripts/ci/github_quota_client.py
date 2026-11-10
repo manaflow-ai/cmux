@@ -11,16 +11,15 @@ client (cmux_next_tree_notify.GitHub) never sleeps.
 
 from __future__ import annotations
 
-import json
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cmux_next_tree_notify import GitHub  # noqa: E402
+# REQUEST_TIMEOUT_S: one call's whole-request bound (urlopen_within); RequestTimeout: past it, the answer is
+# unknown, and a write may have been applied.
+from cmux_next_tree_notify import REQUEST_TIMEOUT_S, GitHub, RequestTimeout  # noqa: E402,F401
 
 
 class QuotaExhausted(RuntimeError):
@@ -92,21 +91,6 @@ class QuotaGitHub(GitHub):
         self.deadline = deadline
         self.now = now
         self.sleep = sleep
-
-    def _send(self, method: str, url: str, body: dict | None = None) -> tuple[int, bytes, dict[str, str]]:
-        """One call, with its response headers (the rate limit's reset is in them)."""
-        data = json.dumps(body).encode() if body is not None else None
-        request = urllib.request.Request(url, data=data, method=method, headers={
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        })
-        # Unredirected, as in tree notify's client: a redirect must not receive the token.
-        request.add_unredirected_header("Authorization", f"Bearer {self.token}")
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return response.status, response.read(), {k.lower(): v for k, v in (response.headers or {}).items()}
-        except urllib.error.HTTPError as error:
-            return error.code, error.read(), {k.lower(): v for k, v in (error.headers or {}).items()}
 
     def _request(self, method: str, url: str, body: dict | None = None):
         attempt = 0
