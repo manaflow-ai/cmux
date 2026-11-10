@@ -358,7 +358,7 @@ function Columns({
   const modelsList = useRef<HTMLDivElement | null>(null);
   const railList = useRef<HTMLDivElement | null>(null);
   // The menu's width: the person's own (a drag on its edge), else as wide as the longest model name
-  // of every tab, so it never changes width from tab to tab; a narrower menu ends names in an ellipsis.
+  // of every tab, so it never changes width from tab to tab; a narrower menu wraps a longer name.
   const ownWidth = useModelMenuWidth();
   const [natural, setNatural] = useState<{ key: string; width: number }>();
   // A drag in progress owns the width: a render meanwhile (a streaming reply) never resets it.
@@ -369,7 +369,9 @@ function Columns({
     const wanted = ownWidth ?? natural?.width;
     popup.style.width = wanted ? `min(${wanted}px, ${room})` : "";
     popup.style.minWidth = wanted ? `min(${MODEL_MENU_MIN_WIDTH}px, ${room})` : "";
-    popup.style.maxWidth = wanted ? room : "";
+    // The default keeps the stylesheet's 40em cap (a longer name wraps under it); a width the person
+    // dragged to is theirs, up to the window.
+    popup.style.maxWidth = ownWidth ? room : wanted ? `min(40em, ${room})` : "";
   };
 
   // The Starred tab is always the rail's first, also before anything is starred.
