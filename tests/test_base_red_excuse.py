@@ -6594,7 +6594,7 @@ class FailingStepLogOnly(unittest.TestCase):
     # failed_steps_log is vendored, byte for byte, into cmuxterm-hq tools/fleet-reconcilers/failed_steps_log.py and
     # leo-workspace tools/failed_steps_log.py (base-red-watch reads job logs there and cannot import this script); each
     # copy's test pins the same fingerprint. A change here updates this value and both copies.
-    VENDORED_FINGERPRINT = "70d803b87dcf55c71d13ce053b8c316474001c4539830cea721eee493b2e018a"
+    VENDORED_FINGERPRINT = "899f401b85e748092518e0131de327cedb76e7b972643faa3ecb0df15cd18fba"
 
     def test_the_code_vendored_into_base_red_watch_is_pinned(self):
         import hashlib
@@ -6671,10 +6671,10 @@ class FailingStepLogOnly(unittest.TestCase):
 # own `::group::Run` stands in for a silent step's missing one. step_owners places a log only when it maps one to one
 # onto the steps, each header validated as its step's own; else every line is AMBIGUOUS. One fixture set, copied as is
 # into cmuxterm-hq tools/fleet-reconcilers/test_failed_steps_log.py and leo-workspace tools/test_failed_steps_log.py:
-# (steps, lines, failed, passed, ambiguous). Steps are (name, conclusion, started second, completed second) between
-# "Set up job" and "Complete job"; lines are (step, second, text). Each listed text's line has that status;
-# failed_steps_log keeps the FAILED and AMBIGUOUS ones and drops the PASSED ones. A case with only AMBIGUOUS texts
-# places nothing: the comment keeps the whole log and every excuse refuses.
+# (steps, lines, failed, passed, ambiguous[, errored]). Steps are (name, conclusion, started second, completed second)
+# between "Set up job" and "Complete job"; lines are (step, second, text). Each listed text's line has that status;
+# failed_steps_log keeps all but the PASSED ones. A case with any AMBIGUOUS text is not placed: the comment keeps
+# those lines and every excuse refuses.
 def clock(second):
     """12:00:00 plus SECOND as hh:mm:ss, with seven decimals when SECOND is a float."""
     minutes, rest = divmod(second, 60)
@@ -6790,7 +6790,17 @@ STEP_OWNERSHIP = {
         [("Licenses", 3, "##[group]Run python3 test_licenses.py"), ("Licenses", 4, NEGATIVE_CASE),
          ("Lint", 10, "##[group]Run scripts/lint.sh"), ("Lint", 11, NEW_RED), ("Lint", 11.5, EXIT),
          ("Rollup", 20, "##[group]Run scripts/rollup.sh"), ("Rollup", 20.6, "##[error]red check: Lint")],
-        [NEW_RED, EXIT, "##[error]red check: Lint"], [NEGATIVE_CASE], []),
+        ["##[error]red check: Lint"], [NEGATIVE_CASE], [], [NEW_RED, EXIT]),
+    # #40542's fourth Codex BLOCK, F1: a passing negative-case step prints text that reads like the runner's exit line,
+    # and its script's echo group holds an `##[error]` line; neither is a live annotation, so it stays PASSED.
+    "passing_step_echoes_failure_text": (
+        [("Negative cases", "success", 10, 12), ("Check", "failure", 20, 22)],
+        [("Negative cases", 10, "##[group]Run python3 negative.py"),
+         ("Negative cases", 10.1, 'echo "##[error]Process completed with exit code 1."'),
+         ("Negative cases", 10.2, "##[endgroup]"), ("Negative cases", 11, NEW_RED),
+         ("Negative cases", 11.5, "expected: Process completed with exit code 1."),
+         ("Check", 20, "##[group]Run scripts/check-concurrency.sh"), ("Check", 21, OLD_RED), ("Check", 21.5, EXIT)],
+        [OLD_RED, EXIT], [NEW_RED, "expected: Process completed with exit code 1."], []),
     # A composite action prints a `Run` line per inner step (cmux-next-ios kit's "Set up pinned Rust", job
     # 129951569749: 13 STEP_START lines for 10 steps): more headers than steps, nothing is placed.
     "composite_action": (
@@ -6841,12 +6851,13 @@ STEP_OWNERSHIP = {
         [("Tests", 12.2, "##[group]Run scripts/tests.sh"), ("Tests", 12.6, "##[group]Run diagnostic details"),
          ("Tests", 12.7, NEW_RED), ("Tests", 13, EXIT)],
         [], [], [NEW_RED, EXIT]),
-    # "Complete job" failed after a passing step, with no `##[error]` line: the last section is both steps', so it is
-    # FAILED, never dropped as the passing step's (LW#4181's Codex P2).
+    # "Complete job" failed after a passing step, with no `##[error]` line: the last section is both steps', and which
+    # one printed a line is not proven, so it is AMBIGUOUS: kept, never dropped as the passing step's (LW#4181's
+    # Codex P2), and never base evidence (#40542's fourth Codex BLOCK, F2).
     "failing_complete_job": (
         [("Build", "success", 10, 12), ("Complete job", "failure", 12, 13)],
         [("Build", 10, "##[group]Run make"), ("Build", 11, "build: ok"), ("Build", 12, "build: done")],
-        ["##[group]Run make", "build: ok", "build: done"], [], []),
+        [], [], ["##[group]Run make", "build: ok", "build: done"]),
     # A step printed no `Run` line: fewer headers than steps, so nothing is placed.
     "fewer_step_starts_than_steps_places_nothing": (
         [("Licenses", "success", 10, 12), ("Strings", "failure", 20, 22)],
@@ -6867,11 +6878,12 @@ STEP_OWNERSHIP = {
 
 class StepOwnership(unittest.TestCase):
     """step_owners places each line by the log's step order, never by a step's name or its whole-second times alone,
-    and says FAILED, PASSED or AMBIGUOUS (STEP_OWNERSHIP); failed_steps_log keeps all but the PASSED lines. Detector
-    for cmuxterm-hq docs/handbook/red-quoted-from-a-passing-step.md."""
+    and says FAILED, ERRORED, PASSED or AMBIGUOUS (STEP_OWNERSHIP); failed_steps_log keeps all but the PASSED lines.
+    Detector for cmuxterm-hq docs/handbook/red-quoted-from-a-passing-step.md."""
 
     def check(self, case):
-        steps, lines, failed, passed, ambiguous = STEP_OWNERSHIP[case]
+        steps, lines, failed, passed, ambiguous, *rest = STEP_OWNERSHIP[case]
+        errored = rest[0] if rest else []
         for columns in (False, True):
             with self.subTest(columns=columns):
                 job, log_text = {"steps": framed_steps(steps)}, framed_log(lines, columns=columns)
@@ -6879,11 +6891,11 @@ class StepOwnership(unittest.TestCase):
                 for line, _, status in excuse.step_owners(job, log_text):
                     said.setdefault(excuse.lines_of(line)[0], set()).add(status)
                 for status, texts in ((excuse.FAILED, failed), (excuse.PASSED, passed),
-                                      (excuse.AMBIGUOUS, ambiguous)):
+                                      (excuse.AMBIGUOUS, ambiguous), ("errored", errored)):
                     for text in texts:
                         self.assertEqual(said.get(text), {status}, text)
                 out = excuse.failed_steps_log(job, log_text)
-                for text in failed + ambiguous:
+                for text in failed + ambiguous + errored:
                     self.assertIn(text, out)
                 for text in passed:
                     self.assertNotIn(text, out)
@@ -6935,6 +6947,9 @@ class StepOwnership(unittest.TestCase):
 
     def test_container_step_and_a_self_printed_group(self):
         self.check("container_step_and_a_self_printed_group")
+
+    def test_passing_step_echoes_failure_text(self):
+        self.check("passing_step_echoes_failure_text")
 
     def test_failing_complete_job(self):
         self.check("failing_complete_job")
@@ -7045,20 +7060,71 @@ class StepOwnership(unittest.TestCase):
                 with self.subTest(case=case, columns=columns), self.assertRaisesRegex(excuse.Refused, NOT_EXCUSED):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
+    def judge_pair(self, head_steps, head_lines, base_steps, base_lines, columns):
+        name = "cmux-next static checks"
+        github = FakeGitHub()
+        github.jobs = {job_id: {"id": job_id, "run_id": run_id, "head_sha": sha, "name": name,
+                                "status": "completed", "conclusion": "failure", "steps": framed_steps(steps)}
+                       for job_id, run_id, sha, steps in ((1, 10, HEAD, head_steps), (2, 20, BASE_SHA, base_steps))}
+        github.logs = {1: framed_log(head_lines, name, columns), 2: framed_log(base_lines, name, columns)}
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_codex_repro_a_passing_steps_echoed_exit_line_never_makes_its_lines_base_evidence(self):
+        # #40542's fourth Codex BLOCK, F1: on the base a passing negative-case step prints the head's New.swift
+        # diagnostic and `expected: Process completed with exit code 1.`; the failing check reports Old.swift on the
+        # base and New.swift on the head. SECTION_RED matched the echoed exit text anywhere in a line, so the passing
+        # step's section was failed, its New.swift line base evidence, and the head excused.
+        steps = [("Negative cases", "success", 10, 12), ("Check", "failure", 20, 22)]
+
+        def lines(where, echo):
+            return [("Negative cases", 10, "##[group]Run python3 negative.py"),
+                    ("Negative cases", 10.2, "##[endgroup]"),
+                    *([("Negative cases", 11, NEW_RED),
+                       ("Negative cases", 11.5, "expected: Process completed with exit code 1.")] if echo else []),
+                    ("Check", 20, "##[group]Run scripts/check-concurrency.sh"),
+                    ("Check", 21, NEW_RED.replace("New.swift:9", where)), ("Check", 21.5, EXIT)]
+        for columns in (False, True):
+            with self.subTest(columns=columns), self.assertRaisesRegex(excuse.Refused, NOT_EXCUSED):
+                self.judge_pair(steps, lines("New.swift:9", False), steps, lines("Old.swift:3", True), columns)
+
+    def test_codex_repro_a_failing_complete_job_never_makes_the_last_steps_lines_base_evidence(self):
+        # #40542's fourth Codex BLOCK, F2: on the base "Complete job" failed after a passing last step that printed the
+        # head's New.swift diagnostic; the shared last section was promoted to failed, its line base evidence, and the
+        # head's New.swift failure excused against the base's Old.swift.
+        def steps(complete):
+            return [("Check", "failure", 10, 12), ("Negative cases", "success", 20, 22),
+                    ("Complete job", complete, 22, 23)]
+
+        def lines(where, echo):
+            return [("Check", 10, "##[group]Run scripts/check-concurrency.sh"),
+                    ("Check", 11, NEW_RED.replace("New.swift:9", where)), ("Check", 11.5, EXIT),
+                    ("Negative cases", 20, "##[group]Run python3 negative.py"),
+                    *([("Negative cases", 21, NEW_RED)] if echo else [])]
+        for columns in (False, True):
+            with self.subTest(columns=columns), self.assertRaisesRegex(excuse.Refused, NOT_EXCUSED):
+                self.judge_pair(steps("success"), lines("New.swift:9", False), steps("failure"),
+                                lines("Old.swift:3", True), columns)
+
 
 # A seeded property test over random step layouts (cmux#40542's one-to-one rule): composites, self-printed groups,
-# silent steps, same-second boundaries, continue-on-error, duplicate names, a post step, both log formats, and inner
-# `Run` lines that copy another step's header or an unnamed (`Run ...`) step's name, a later silent step's included
-# (#40542's third Codex BLOCK, hq#8962 F1). The same seed gives the same layouts on every run; a failure names its
-# case number, so `random_layout(Random(SEED + n))` rebuilds it.
+# silent steps, same-second boundaries, continue-on-error, duplicate names, a post step, both log formats; inner `Run`
+# lines that copy another step's header or an unnamed (`Run ...`) step's name, a later silent step's included
+# (#40542's third Codex BLOCK, hq#8962 F1); and passing steps that echo failure text (an exit-code line, an
+# `##[error]` line in their script's echo, error-shaped lines, another step's diagnostic), failing steps that echo
+# another failing step's diagnostic on the base, and a failing "Complete job" (#40542's fourth Codex BLOCK). The same
+# seed gives the same layouts on every run; a failure names its case number, so `random_layout(Random(SEED + n))`
+# rebuilds it.
 LAYOUT_SEED = 40542
 LAYOUT_CASES = 3000
 
 
 def random_layout(rng):
-    """(steps, head lines, base lines, error-bearing texts) for one random job. A failing or continue-on-error step
-    prints its own error, New.swift on the head and Old.swift on the base, and its exit line; a passing step may
-    print the head's error as a negative case, the same on both sides; a rollup may print identical red lines."""
+    """(steps, head lines, base lines, error-bearing texts, whether judge() may excuse the head against the base) for
+    one random job. Each failing or continue-on-error step prints its own error, the same on both sides or New<x>.swift
+    on the head and Old<x>.swift on the base (letters, not numbers: errors are compared with numbers masked), and its
+    exit line. judge() may excuse only a placed pair whose failures are proven: no continue-on-error step printed an
+    error, "Complete job" passed or shares its section with a failed step, and every line a failed step printed on
+    the head a step of the same name printed on the base."""
     plan, at = [], rng.choice((2, 3, 3, 3))
     for j in range(rng.randint(1, 6)):
         end = at + rng.choice((0, 0, 1, 2, 3))
@@ -7070,29 +7136,41 @@ def random_layout(rng):
                 if rng.random() < 0.2 else f"Check {j}")
         header = (name if name.startswith("Run ") else
                   f"Run ./.github/actions/a{j}" if kind == "composite" else f"Run script-{j}.sh")
-        plan.append((name, kind, verdict, at, end, header))
+        mine = NEW_RED.replace("New.swift", f"New{chr(65 + j)}.swift")
+        theirs = mine.replace("New", "Old") if rng.random() < 0.7 else mine
+        plan.append((name, kind, verdict, at, end, header, mine, theirs))
         at = end + rng.choice((0, 0, 1, 2))
     copied = [step[5] for step in plan] + [step[0] for step in plan if step[0].startswith("Run ")]
-    steps, head, base, red, prev = [], [], [], set(), 2.5
-    for j, (name, kind, verdict, at, end, header) in enumerate(plan):
-        texts = []
+    diagnostics = [step[6] for step in plan if step[2] != "success" and step[1] != "silent"]
+    steps, head, base, red, prev, may = [], [], [], set(), 2.5, True
+    for j, (name, kind, verdict, at, end, header, mine, theirs) in enumerate(plan):
+        texts = []  # (head text, base text)
         if kind != "silent":
-            texts = [f"##[group]{header}", f"step {j}: started"]
+            texts = [(f"##[group]{header}",) * 2]
+            if rng.random() < 0.3:
+                texts += [(f'echo "##[error]step {j} would fail"',) * 2, ("##[endgroup]",) * 2]
+            texts.append((f"step {j}: started",) * 2)
             if kind in ("composite", "self_group"):
-                inner = rng.choice(copied) if rng.random() < 0.6 else f"Run inner-{j}.sh"
-                texts.append(f"##[group]{inner}")
-            if verdict == "success" and rng.random() < 0.4:
-                texts.append(NEW_RED.replace("New.swift:9", f"New{j}.swift:{j}"))
-            if verdict != "success":
-                texts += [NEW_RED.replace("New.swift:9", f"New.swift:{j}"), EXIT]
+                texts.append((f"##[group]{rng.choice(copied) if rng.random() < 0.6 else f'Run inner-{j}.sh'}",) * 2)
+            if verdict == "success":
+                for echo in ("expected: Process completed with exit code 1.", mine, *diagnostics):
+                    if rng.random() < 0.3:
+                        texts.append((echo,) * 2)
+            else:
+                texts.append((mine, theirs))
+                if verdict == "failure" and diagnostics and rng.random() < 0.3:
+                    texts.append(("", rng.choice(diagnostics)))
+                texts.append((EXIT,) * 2)
         stamps = sorted(round(rng.uniform(max(prev, at), end + 0.999), 7) for _ in texts)
-        for second, text in zip(stamps, texts):
-            head.append((name, second, text))
-            base.append((name, second, text.replace(f"New.swift:{j}", f"Old.swift:{j}")))
-            if verdict != "success":
-                red.add(text)
+        for second, (said, also) in zip(stamps, texts):
+            if said:
+                head.append((name, second, said))
+            base.append((name, second, also))
+            if verdict != "success" and said:
+                red.add(said)
         prev = stamps[-1] if stamps else prev
         steps.append((name, "failure" if verdict == "failure" else "success", at, end))
+        may = may and verdict != "continue_on_error"
     at = plan[-1][4] + rng.choice((0, 1))
     if rng.random() < 0.5 or not any(c == "failure" for _, c, _, _ in steps):
         end = at + rng.choice((0, 1))
@@ -7108,19 +7186,25 @@ def random_layout(rng):
         head.append(("Post Run actions/checkout", second, "Post job cleanup."))
         base.append(("Post Run actions/checkout", second, "Post job cleanup."))
         steps.append(("Post Run actions/checkout", "success", at, at))
-    return steps, head, base, red
+    if rng.random() < 0.15:
+        # A failing "Complete job" leaves the last section unproven unless the step it shares it with failed.
+        may = may and steps[-1][1] == "failure"
+        steps.append(("Complete job", "failure", steps[-1][3], steps[-1][3]))
+    failed = {name for name, conclusion, _, _ in steps if conclusion == "failure"}
+    printed = {(name, text) for name, _, text in base if name in failed}
+    return steps, head, base, red, may and all((name, text) in printed for name, _, text in head if name in failed)
 
 
 class StepLayouts(unittest.TestCase):
     """LAYOUT_CASES random layouts from LAYOUT_SEED, each in both log formats: failed_steps_log never drops a line of
-    a failing or error-bearing section; judge() never excuses a head whose own failure lines differ from the base's;
-    judge() refuses whenever step_owners finds any section ambiguous."""
+    a failing or error-bearing section; judge() refuses whenever step_owners finds any section ambiguous, and never
+    excuses unless the head's and the base's failures are both proven failures of the same step (random_layout)."""
 
     def test_random_step_layouts(self):
         import random
-        name, seen = "cmux-next static checks", {"placed": 0, "ambiguous": 0, "excused": 0}
+        name, seen = "cmux-next static checks", {"placed": 0, "ambiguous": 0, "excused": 0, "excused across": 0}
         for n in range(LAYOUT_CASES):
-            steps, head, base, red = random_layout(random.Random(LAYOUT_SEED + n))
+            steps, head, base, red, may = random_layout(random.Random(LAYOUT_SEED + n))
             columns = bool(n % 2)
             job = {"steps": framed_steps(steps)}
             head_log, base_log = framed_log(head, name, columns), framed_log(base, name, columns)
@@ -7129,8 +7213,7 @@ class StepLayouts(unittest.TestCase):
             kept = excuse.failed_steps_log(job, head_log)
             for text in red:
                 self.assertIn(text, kept, f"case {n}: {text!r} dropped")
-            differs = head != base
-            for pair in ((head_log, base_log), (head_log, head_log)):
+            for pair, allowed in (((head_log, base_log), may), ((head_log, head_log), None)):
                 github = FakeGitHub()
                 github.jobs = {job_id: {"id": job_id, "run_id": run_id, "head_sha": sha, "name": name,
                                         "status": "completed", "conclusion": "failure", "steps": job["steps"]}
@@ -7141,10 +7224,12 @@ class StepLayouts(unittest.TestCase):
                 except excuse.Refused:
                     continue
                 self.assertFalse(ambiguous, f"case {n}: excused with an ambiguous section: {said}")
-                self.assertFalse(pair[1] is base_log and differs, f"case {n}: excused across differing lines: {said}")
+                if allowed is not None:
+                    self.assertTrue(allowed, f"case {n}: excused without proven failures of the same step: {said}")
+                    seen["excused across"] += 1
                 seen["excused"] += 1
-        # The layouts reach both sides of the rule, and placed identical reds are still excused.
-        self.assertGreater(min(seen.values()), LAYOUT_CASES // 20, seen)
+        # The layouts reach both sides of the rule, and placed reds proven on both sides are still excused.
+        self.assertGreater(min(seen.values()), LAYOUT_CASES // 50, seen)
 
 
 # The STEP_OWNERSHIP cases through step_lines' callers. Every named step gets a test-named name (" tests"; an unnamed
@@ -7155,12 +7240,12 @@ class StepLayouts(unittest.TestCase):
 # own (PACKAGE_EXCUSED), and refuses the rest (a continue-on-error section with no test, a failing "Complete job").
 FLAKE = "✘ Test sometimes() recorded an issue at A.swift:1:2: Expectation failed: ready == true"
 OWN = "✘ Test own() recorded an issue at B.swift:3:4: Expectation failed: done == true"
-PACKAGE_EXCUSED = {"duplicate_names", "unnamed_steps_a_second_apart"}
+PACKAGE_EXCUSED = {"duplicate_names", "unnamed_steps_a_second_apart", "passing_step_echoes_failure_text"}
 
 
 def callers_case(case, columns=False, own=True):
     """(job, log, package) for STEP_OWNERSHIP[CASE] as described above."""
-    steps, lines, _, passed, _ = STEP_OWNERSHIP[case]
+    steps, lines, _, passed, *_ = STEP_OWNERSHIP[case]
 
     def renamed(name):
         return name if name.startswith("Run ") or name == "Complete job" else f"{name} tests"
@@ -7200,7 +7285,7 @@ class StepOwnershipCallers(unittest.TestCase):
                     self.assertFalse(excuse.quarantined_only(job, log_text, {"sometimes()": "hq#1"}))
 
     def test_step_lines_gives_a_failed_section_its_own_lines_only(self):
-        for case, (_, _, _, _, ambiguous) in STEP_OWNERSHIP.items():
+        for case, (_, _, _, _, ambiguous, *_) in STEP_OWNERSHIP.items():
             job, log_text, _ = callers_case(case)
             owned = excuse.step_lines(job, log_text)
             with self.subTest(case=case):
