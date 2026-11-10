@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 2,
+  "id": "example/clock",
+  "name": "Clock",
+  "version": "1.0.0",
+  "description": "A New Tab widget (cmux.newtab.widget/1): the time and the date.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.newtab.widget/1": { "export": "renderClock", "title": "Clock", "symbol": "clock", "options": { "size": "small" } }
+  }
+}

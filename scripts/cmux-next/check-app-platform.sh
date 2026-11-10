@@ -6,6 +6,8 @@ host="$root/cmux-tui/crates/cmux-app-host"
 bun "$host/js/build.ts" --check
 bun "$host/tools/gen-cmux-global.ts" --check
 bun "$root/samples/apps/build.ts" --check
+# The copyable examples (examples/extensions/*): each dist/main.js is its src/main.ts packed.
+for example in "$root"/examples/extensions/*/; do bun "$host/tools/pack.ts" "$example" --check; done
 (cd "$host/js" && bun test)
 (cd "$host/app-test" && bun test)
 (cd "$root/samples/apps" && bun test)

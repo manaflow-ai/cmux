@@ -268,3 +268,58 @@ test("a catalog change before the watch activates is recovered by its completion
   expect(host.changedStopped).toBe(1);
   expect(host.count("unmount")).toBe(1);
 });
+
+const WIDGET_OPTIONS = {
+  interface: "cmux.newtab.widget/1",
+  limits: { maxNodes: 4, types: new Set(["VStack", "Text"]) },
+  mounts: (panel: AppPanel, layout: readonly string[]) => layout.includes(`app:${panel.app}#${panel.section}`),
+};
+
+test("New Tab widgets list their interface, mount only placed ones and save the layout", async () => {
+  const mock = new MockAppPanelsClient();
+  const owner = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
+  owner.start();
+  await settled();
+  await settled();
+  // Listed for Add Widgets, nothing placed: no mount (R1).
+  expect(owner.getView().panels.length).toBe(3);
+  expect(owner.getView().mounted).toEqual([]);
+  expect(mock.mounted).toBe(0);
+  const clock = "app:example/clock#cmux.newtab.widget/1";
+  owner.setLayout(["timer", clock]);
+  expect(mock.layouts).toEqual([["timer", clock]]);
+  expect(owner.getView().layout).toEqual(["timer", clock]);
+  await settled();
+  await settled();
+  expect(mock.mounted).toBe(1);
+  expect(owner.getView().mounted.map((entry) => entry.panel.app)).toEqual(["example/clock"]);
+  owner.setLayout(["timer"]);
+  expect(mock.mounted).toBe(0);
+  owner.stop();
+});
+
+test("a widget over its limits is unmounted and named; a failed mount is named and not retried in a loop", async () => {
+  const mock = new MockAppPanelsClient();
+  mock.failing.add("samples/github-prs");
+  mock.layout = ["app:samples/too-big#cmux.newtab.widget/1", "app:samples/github-prs#cmux.newtab.widget/1"];
+  const owner = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
+  owner.start();
+  for (let i = 0; i < 4; i++) await settled();
+  const problems = Object.fromEntries(owner.getView().mounted.map((entry) => [entry.panel.app, entry.problem]));
+  expect(problems["samples/too-big"]).toEqual({ kind: "over", violation: { kind: "nodes", limit: 4 } });
+  expect(problems["samples/github-prs"]).toEqual({ kind: "failed" });
+  // The over-budget mount ended; the failed one never mounted.
+  expect(mock.mounted).toBe(0);
+  owner.stop();
+});
+
+test("hiding the page ends every widget mount", async () => {
+  const mock = new MockAppPanelsClient();
+  mock.layout = ["app:example/clock#cmux.newtab.widget/1"];
+  const owner = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
+  owner.start();
+  for (let i = 0; i < 4; i++) await settled();
+  expect(mock.mounted).toBe(1);
+  owner.stop();
+  expect(mock.mounted).toBe(0);
+});
