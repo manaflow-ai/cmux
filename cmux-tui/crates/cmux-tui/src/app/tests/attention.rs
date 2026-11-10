@@ -64,6 +64,76 @@ fn attention_entries_put_blocked_and_requested_tabs_before_unread_ones() {
     assert_eq!(order, vec![42, 41]);
 }
 
+/// One key as a Kitty-protocol host reports it with associated text only:
+/// the unshifted key code, the given modifiers, and `text`.
+fn reported_text_key(
+    code: char,
+    modifiers: KeyModifiers,
+    text: &str,
+) -> crate::keys::KeyboardInput {
+    crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
+        key_event: KeyEvent::new(KeyCode::Char(code), modifiers),
+        shifted_key: None,
+        base_layout_key: None,
+        text: text.to_string(),
+    })
+}
+
+/// W6-D (bench r5 #5): the cmux app sends `A` after the prefix as
+/// `CSI 97;;65u` (key `a`, no Shift, text `A`), as a Caps Lock press also
+/// reports it. That key is the character `A`: `Ctrl-b A` opens the "Needs
+/// you" list and does not jump like `Ctrl-b a`.
+#[test]
+fn w6d_prefix_then_a_reported_as_text_opens_the_needs_you_list() {
+    let mux = Mux::new("w6d-attention-list-text-key", SurfaceOptions::default());
+    let mut app = test_app(Session::Local(mux));
+    app.replace_tree(attention_tree());
+    let before = app.active_surface();
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+    app.handle_keyboard(reported_text_key('a', KeyModifiers::NONE, "A")).unwrap();
+
+    assert!(app.menu.is_some(), "Ctrl-b A must open the Needs you list");
+    assert_eq!(app.active_surface(), before, "the list must not jump to a tab");
+    assert!(!app.prefix_armed);
+}
+
+/// The same text-only report resolves every printable binding by the
+/// character the person typed; a plain `a` (text `a`) stays `a`, and a
+/// Ctrl chord keeps its key (its text is not the typed character).
+#[test]
+fn w6d_text_only_key_reports_resolve_bindings_by_the_typed_character() {
+    let keys = Config::default().keys;
+    let resolve = |input: crate::keys::KeyboardInput| {
+        let (key, fallback) = input.shortcut_keys();
+        crate::app::action_for_binding(&keys, &key, fallback.as_ref())
+    };
+    assert_eq!(
+        resolve(reported_text_key('a', KeyModifiers::NONE, "A")),
+        Some(Action::AttentionList)
+    );
+    assert_eq!(
+        resolve(reported_text_key('a', KeyModifiers::NONE, "a")),
+        Some(Action::NextAttention)
+    );
+    assert_eq!(
+        resolve(reported_text_key('s', KeyModifiers::NONE, "S")),
+        Some(Action::FocusSidebar)
+    );
+    assert_eq!(
+        resolve(reported_text_key('/', KeyModifiers::NONE, "?")),
+        Some(Action::ShowShortcuts)
+    );
+    assert_eq!(
+        resolve(reported_text_key('k', KeyModifiers::CONTROL, "K")),
+        resolve(crate::keys::KeyboardInput::from(KeyEvent::new(
+            KeyCode::Char('k'),
+            KeyModifiers::CONTROL
+        ))),
+        "a Ctrl chord resolves by its key, not its text"
+    );
+}
+
 /// W5-Q (bench r4 #5): the TUI's queue puts a finished agent turn nobody
 /// viewed (an idle agent with an unread notification) before an older bell,
 /// as `cmux attention list` does.
