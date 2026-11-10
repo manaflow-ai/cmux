@@ -912,6 +912,11 @@ async fn an_explicit_lock_dir_that_is_not_the_acpmux_home_never_adopts() {
 /// settled yet (`cloned` unset: its node key not replaced), the way a copy
 /// looks before acpmux's daemon first starts on the new machine.
 fn joined_on_another_box(home: &Path) {
+    joined_on(home, "another-box", "original-key");
+}
+
+/// A machine record in `home` joined on the box `fingerprint` with the node key `key`.
+fn joined_on(home: &Path, fingerprint: &str, key: &str) {
     use std::os::unix::fs::OpenOptionsExt as _;
     use std::os::unix::fs::PermissionsExt as _;
     std::fs::create_dir_all(home).unwrap();
@@ -919,8 +924,8 @@ fn joined_on_another_box(home: &Path) {
     let record = serde_json::json!({
         "credential": "cmm_original", "machine_id": "machine_original", "team_id": "team",
         "name": "original", "hub_origin": "https://example.com", "last_heartbeat": null,
-        "revoked": false, "wgPublicKey": "original-key", "credential_generation": 1,
-        "host_fingerprint": "another-box",
+        "revoked": false, "wgPublicKey": key, "credential_generation": 1,
+        "host_fingerprint": fingerprint,
     });
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -1054,6 +1059,50 @@ async fn an_adopted_link_with_no_stamp_fails_closed() {
     let own = KeyHolder::acquire(&fresh.link).unwrap();
     serve_key(&state, &own, Some(&fresh.home)).await.unwrap();
     assert!(fresh.link.join(STAMP).is_file());
+}
+
+/// Review F2 at 2d63280a: a link state directory copied here with its home, where acpmux then
+/// settled the home and joined it again with this box's own key. The copied link still refuses,
+/// and records as copied only the key it adopted elsewhere, never the registered one: the next
+/// start of acpmux keeps the new key. A link adopted by an older build (no key named) marks
+/// nothing either, since the key is provably this box's own.
+#[tokio::test]
+async fn a_rejoin_after_settling_then_a_restart_keeps_the_new_key() {
+    use acpmux::cli::mesh_node_key as node_key;
+    if !box_named() {
+        return;
+    }
+    let here = node_key::box_stamp().unwrap();
+    for named in [true, false] {
+        let copy = adopted_machine().await;
+        let adopted_elsewhere = node_public(&copy.home);
+        assert!(copy.link.join(ADOPTED_KEY).is_file(), "the adoption names its key");
+        if !named {
+            std::fs::remove_file(copy.link.join(ADOPTED_KEY)).unwrap();
+        }
+        // The link's state directory came from another box.
+        std::fs::write(copy.link.join(STAMP), r#"{"fingerprint":"another-box"}"#).unwrap();
+        // acpmux settled the home and joined it again here: a fresh key, registered.
+        std::fs::remove_file(KeyFile::Node.path_in(&copy.home)).unwrap();
+        let rejoined = node_key::load_or_create_at(&copy.home).unwrap().public_key;
+        assert_ne!(rejoined, adopted_elsewhere);
+        joined_on(&copy.home, &here, &STANDARD.encode(rejoined));
+        let refused = refused(&copy, Some(&copy.home)).await;
+        assert!(refused.starts_with("key_adoption.cloned_home:"), "{refused}");
+        assert!(
+            !node_key::serves_copied_key(&copy.home),
+            "the rejoined key was marked (named {named})"
+        );
+        // acpmux's next start: nothing to replace, the registered key stays.
+        assert!(!node_key::home_copied(&copy.home));
+        assert!(node_key::replace_copied_at(&copy.home).unwrap().is_none());
+        assert_eq!(node_public(&copy.home), rejoined);
+        if named {
+            // The key that came with the copy is the one recorded.
+            let text = std::fs::read(copy.home.join(node_key::COPIED_KEY)).unwrap();
+            assert!(String::from_utf8(text).unwrap().contains(&STANDARD.encode(adopted_elsewhere)));
+        }
+    }
 }
 
 /// A link of this box's own never adopts a node key recorded as copied; once

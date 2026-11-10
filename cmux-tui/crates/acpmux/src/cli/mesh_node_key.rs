@@ -306,14 +306,25 @@ struct CopiedKey {
     public_keys: std::collections::BTreeSet<String>,
 }
 
-/// Record, synced, that the node key now in `home` was copied from another machine, before
-/// anything removes the evidence (a leave deletes the machine record) or keeps the key (the
-/// link adopted it). It adds the key to the ones already named, under a lock of its own: a
-/// home copied, settled with a fresh key, and copied again names both, so a stale entry never
-/// lets a later copy through. A record that cannot be read is replaced by one naming this key
-/// (the keys it named are no longer in use: each was replaced when it was found).
+/// Record, synced, that the node key now in `home` was copied from another machine
+/// ([`record_copied_public_key`] of the key read now). Only for a caller that holds what keeps
+/// the key in place (the join lock, under which acpmux replaces it) or that read its evidence
+/// after this key: any other passes the key it read before its evidence.
 pub fn record_copied_key(home: &Path) -> Result<()> {
     let Some(key) = public_key_at(home) else { return Ok(()) };
+    record_copied_public_key(home, &key)
+}
+
+/// Record, synced, that the node key `key` (its public half) in `home` was copied from another
+/// machine, before anything removes the evidence (a leave deletes the machine record) or keeps
+/// the key (the link adopted it). Always the key the evidence is about, read before it: never
+/// the key in place when this runs, which a `host join` or a settled start may have replaced
+/// with this box's own meanwhile. It adds the key to the ones already named, under a lock of
+/// its own: a home copied, settled with a fresh key, and copied again names both, so a stale
+/// entry never lets a later copy through. A record that cannot be read is replaced by one
+/// naming this key (the keys it named are no longer in use: each was replaced when it was
+/// found).
+pub fn record_copied_public_key(home: &Path, key: &[u8; 32]) -> Result<()> {
     let key = base64::engine::general_purpose::STANDARD.encode(key);
     crate::config::private_state_dir(home)?;
     let lock = crate::config::private_state_rw(&home.join("node-key-copied.lock"))?;
@@ -336,6 +347,12 @@ pub fn record_copied_key(home: &Path) -> Result<()> {
 /// ([`record_copied_key`]): nobody serves it here, not the WireGuard transport, the hub
 /// carrier nor the cmux link. A record that cannot be read counts as naming it (fail closed).
 pub fn serves_copied_key(home: &Path) -> bool {
+    public_key_at(home).is_some_and(|now| named_copied(home, &now))
+}
+
+/// Whether `key` is one recorded as copied in `home` ([`record_copied_key`]); a record that
+/// cannot be read names every key (fail closed).
+fn named_copied(home: &Path, key: &[u8; 32]) -> bool {
     let path = home.join(COPIED_KEY);
     let text = match std::fs::read(&path) {
         Ok(text) => text,
@@ -343,9 +360,15 @@ pub fn serves_copied_key(home: &Path) -> bool {
         Err(_) => return true,
     };
     let Ok(record) = serde_json::from_slice::<CopiedKey>(&text) else { return true };
-    public_key_at(home)
-        .map(|key| base64::engine::general_purpose::STANDARD.encode(key))
-        .is_some_and(|now| record.public_keys.contains(&now))
+    record.public_keys.contains(&base64::engine::general_purpose::STANDARD.encode(key))
+}
+
+/// Whether the node key in `home` is provably this box's own: the home's machine record is
+/// live and joined (or settled) on this box, and the key is not one recorded as copied. What
+/// the cmux link asks before it records a key as copied with no key named by its own
+/// evidence: a key acpmux settled and joined again here is never marked.
+pub fn node_key_own_here(home: &Path) -> bool {
+    crate::cli::cloud_join::node_key_own_at(home)
 }
 
 /// This box's stamp: the fingerprint acpmux's clone check compares (`cloud_join`
@@ -435,10 +458,29 @@ pub(crate) fn lock_to_remove(home: &Path) -> Result<RemoveLock> {
 /// of the new key is returned; the old key's bytes are not read. Refused, with the key left as it
 /// is, when the cmux link adopted it or another process holds it ([`lock_to_remove`]).
 pub fn replace_at(state_dir: &Path) -> Result<NodeKeypair> {
+    replace_at_if(state_dir, |_| true)?
+        .ok_or_else(|| anyhow::anyhow!("the node key was not replaced"))
+}
+
+/// [`replace_at`], a compare-and-replace: only while the node key in `state_dir` is one
+/// `replaceable` accepts, asked again under the WireGuard key lock the replacement holds. A key
+/// put in place after the caller's own check (a `host join`'s, registered with the platform)
+/// is never deleted. `None` when the key stays. With no key there, `replaceable` is not asked
+/// and a first key is made.
+pub fn replace_at_if(
+    state_dir: &Path,
+    replaceable: impl Fn(&[u8; 32]) -> bool,
+) -> Result<Option<NodeKeypair>> {
+    let asked = || public_key_at(state_dir).is_none_or(|now| replaceable(&now));
+    // Nothing to do asks for no lock: a key a running link or transport holds stays unasked.
+    if !asked() {
+        return Ok(None);
+    }
     crate::config::private_state_dir(state_dir)?;
     // Held until the new key is in place.
     let _lock = match lock_to_remove(state_dir)? {
         RemoveLock::Free(holder) => holder,
+        RemoveLock::Adopted if !asked() => return Ok(None),
         RemoveLock::Adopted => anyhow::bail!(
             "{ADOPTED}: the cmux link serves this node key, and its paired peers know the \
              link by it alone; it is not replaced"
@@ -448,6 +490,9 @@ pub fn replace_at(state_dir: &Path) -> Result<NodeKeypair> {
              not replaced while it does"
         ),
     };
+    if !asked() {
+        return Ok(None);
+    }
     let path = KeyFile::Node.path_in(state_dir);
     match std::fs::symlink_metadata(&path) {
         Ok(meta) => {
@@ -457,7 +502,18 @@ pub fn replace_at(state_dir: &Path) -> Result<NodeKeypair> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
     }
-    load_or_create_at(state_dir)
+    load_or_create_at(state_dir).map(Some)
+}
+
+/// The node key in `home` replaced while it is one recorded as copied from another machine
+/// ([`serves_copied_key`]), asked under the key lock ([`replace_at_if`]): what acpmux's start
+/// and a `host join` do, under the join lock, before either uses the key. `None` when the key
+/// is not a copied one (or there is none) and stays.
+pub fn replace_copied_at(home: &Path) -> Result<Option<NodeKeypair>> {
+    if public_key_at(home).is_none() {
+        return Ok(None);
+    }
+    replace_at_if(home, |now| named_copied(home, now))
 }
 
 /// `private` as the pending node key ([`KeyFile::NodePending`]): owner-only, fully synced and
@@ -627,6 +683,30 @@ mod tests {
         let empty = tempfile::tempdir().unwrap();
         let first = replace_at(empty.path()).unwrap();
         assert_eq!(load_or_create_at(empty.path()).unwrap().public_key, first.public_key);
+    }
+
+    /// Review F1 at 2d63280a: a replacement is a compare-and-replace, asked under the key lock:
+    /// a key put in place after the caller's check stays, and a copied one goes.
+    #[test]
+    fn a_compare_and_replace_keeps_a_key_put_in_place_after_the_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let checked = load_or_create_at(dir.path()).unwrap().public_key;
+        record_copied_key(dir.path()).unwrap();
+        // Another process replaced it after the check (a `host join`).
+        let joined = replace_at(dir.path()).unwrap().public_key;
+        assert!(replace_at_if(dir.path(), |now| *now == checked).unwrap().is_none());
+        assert_eq!(public_key_at(dir.path()), Some(joined));
+        assert!(replace_copied_at(dir.path()).unwrap().is_none(), "the join's key is not copied");
+        assert_eq!(public_key_at(dir.path()), Some(joined));
+        // An adopted key that is not the one asked about stays with no refusal.
+        std::fs::create_dir_all(dir.path().join("link")).unwrap();
+        std::fs::write(dir.path().join("link/key-adopted.json"), b"{}").unwrap();
+        assert!(replace_at_if(dir.path(), |now| *now == checked).unwrap().is_none());
+        std::fs::remove_file(dir.path().join("link/key-adopted.json")).unwrap();
+        record_copied_key(dir.path()).unwrap();
+        let fresh = replace_copied_at(dir.path()).unwrap().unwrap().public_key;
+        assert_ne!(fresh, joined);
+        assert!(!serves_copied_key(dir.path()));
     }
 
     /// A copied home's key is never replaced when the cmux link adopted it or another process

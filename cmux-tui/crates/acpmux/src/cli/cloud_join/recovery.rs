@@ -37,7 +37,8 @@ fn set_aside_copied_pending(current: Option<&str>) -> Result<bool> {
     let copied = other_box(&state_dir(), p.host_fingerprint.as_deref(), current);
     if copied {
         // The node key beside it is the original box's too: recorded before anything here
-        // could join with it or replace the record that would show the copy.
+        // could join with it or replace the record that would show the copy (the key in place
+        // now: the caller holds the join lock, under which alone it is replaced).
         crate::cli::mesh_node_key::record_copied_key(&state_dir()).map_err(|_| store_error())?;
         std::fs::rename(state_dir().join(FILE), state_dir().join(COPIED))
             .map_err(|_| store_error())?;
@@ -319,6 +320,10 @@ fn new_pending(
 ) -> Result<Pending> {
     let mut random = Zeroizing::new([0u8; 32]);
     getrandom::fill(&mut *random).map_err(|_| store_error())?;
+    // A node key recorded as copied from another machine is never proposed: it is replaced
+    // first, as the daemon's start does, under the same join lock the caller holds (a pending
+    // join set aside, or a leave, may have left it with no record to settle).
+    crate::cli::mesh_node_key::replace_copied_at(&state_dir()).map_err(|_| store_error())?;
     let p = Pending {
         version: 1,
         credential: format!(
