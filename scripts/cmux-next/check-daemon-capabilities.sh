@@ -91,7 +91,8 @@ runtime_only = {
     "agent-session-start-vm-kind-v1", "agent-session-start-model-v1", "agent-session-start-no-cwd-v1", "agent-session-trust-v1", "agent-session-trust-vm-kind-v1",
     "cloud-attachments-v1", "cloud-chief-live-v1",
     "cloud-conversation-runs-v1", "cloud-conversation-typing-v1", "cloud-conversations-v1",
-    "cloud-host-replica-v1", "cloud-selfhost-v1", "history-v1", "terminal-reaper-active-v1",
+    "cloud-host-replica-v1", "cloud-selfhost-v1", "cloud-spare-warm-v1", "cloud-start-chat-reservation-v1",
+    "history-v1", "terminal-reaper-active-v1",
     "ws-listen-v1", "ws-listen-origins-v1",
 }
 needed = (set(required.get("required", [])) | set(required.get("optional", []))) - runtime_only
