@@ -150,9 +150,9 @@ impl Hub {
             return Err(RpcError::invalid_params("params must be an object"));
         }
         // Anything but a read from such a caller ends the chat's GitHub lending
-        // (`github_owner.rs`), at the boundary or not.
+        // (`github_owner.rs`), at the boundary or not, for good: kept in its saved meta.
         if !crate::pairing::read_only_allows(m) {
-            session.floor.github_withheld.store(true, Ordering::SeqCst);
+            self.withhold_github(&session);
         }
         if !session.meta().vm_boundary {
             return Ok(());

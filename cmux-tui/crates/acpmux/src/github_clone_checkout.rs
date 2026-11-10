@@ -10,6 +10,13 @@
 //! folder, its work tree is walked once more, and one such path still there fails the clone.
 //! The list is matched without regard to case (a case-insensitive volume opens `claude.md` for
 //! `CLAUDE.md`).
+//!
+//! Every path is judged where it lands, as the sandbox's rules match it (Codex review round 5,
+//! F1): the clone's folder in the chat's folder, joined with the path in the repository
+//! ([`kept_out_at`]). A rule on a folder name or on the last two parts of a path (`.config/mise`,
+//! `mise/config.toml`) so also catches a path whose folder is `DIR` or above it: a repository's
+//! `config.toml` is `mise/config.toml` in a clone named `mise`, and a clone named `HEAD` or
+//! `CLAUDE.md` is refused before the Mac is asked (`check_target`).
 
 use crate::rpc::RpcError;
 use std::path::Path;
@@ -75,8 +82,20 @@ pub(crate) fn kept_out(path: &[u8]) -> bool {
         && ENDS.iter().any(|(a, b)| parts[parts.len() - 2] == a.as_bytes() && last == b.as_bytes())
 }
 
+/// Whether a clone leaves out `rel` (a path in the repository, `/`-separated; empty: the clone's
+/// folder itself) when its folder is `dest`: judged on the whole path it lands at (module docs).
+pub(crate) fn kept_out_at(dest: &Path, rel: &[u8]) -> bool {
+    let mut path = dest.as_os_str().as_encoded_bytes().to_vec();
+    if !rel.is_empty() {
+        path.push(b'/');
+        path.extend_from_slice(rel);
+    }
+    kept_out(&path)
+}
+
 /// The sparse-checkout patterns (non-cone) that check out everything but `out`, each path named
 /// exactly; `None` when a path cannot be named in one (a line break in it).
+#[cfg(unix)]
 pub(crate) fn sparse_patterns(out: &[&[u8]]) -> Option<Vec<u8>> {
     let mut patterns = b"/*\n".to_vec();
     for path in out {
@@ -98,8 +117,9 @@ pub(crate) fn sparse_patterns(out: &[&[u8]]) -> Option<Vec<u8>> {
 }
 
 /// The first path under the clone's top folder `top` (not its own `.git`) that a clone leaves
-/// out, if one is there (module docs). Links are not followed.
-pub(crate) fn first_left_in(top: &Path) -> Result<Option<String>, RpcError> {
+/// out where it lands, in `dest`, if one is there (module docs). Links are not followed.
+#[cfg(unix)]
+pub(crate) fn first_left_in(top: &Path, dest: &Path) -> Result<Option<String>, RpcError> {
     use std::os::unix::ffi::OsStrExt as _;
     let failed = |e: std::io::Error| RpcError::internal(format!("could not check the clone: {e}"));
     let mut folders = vec![(top.to_path_buf(), Vec::<u8>::new())];
@@ -115,7 +135,7 @@ pub(crate) fn first_left_in(top: &Path) -> Result<Option<String>, RpcError> {
                 path.push(b'/');
             }
             path.extend_from_slice(name.as_bytes());
-            if kept_out(&path) {
+            if kept_out_at(dest, &path) {
                 return Ok(Some(String::from_utf8_lossy(&path).into_owned()));
             }
             if entry.file_type().map_err(failed)?.is_dir() {
@@ -127,6 +147,7 @@ pub(crate) fn first_left_in(top: &Path) -> Result<Option<String>, RpcError> {
 }
 
 /// The reply's line naming what a clone left out (at most 50 paths).
+#[cfg(unix)]
 pub(crate) fn left_out_line(out: &[String]) -> String {
     if out.is_empty() {
         return String::new();

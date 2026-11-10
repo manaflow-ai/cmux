@@ -362,6 +362,8 @@ impl Hub {
         }
         meta.additional_directories = super::additional_dirs::without_cwd(dirs, &meta.cwd);
         meta.remote_origin = true;
+        // A moved chat is lent no GitHub here: its marks came from another machine.
+        meta.github_lendable = false;
         if let Some(sid) = meta.agent_session_id.as_deref()
             && !plain_agent_session(sid)
         {

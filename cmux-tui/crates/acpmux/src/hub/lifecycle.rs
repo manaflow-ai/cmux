@@ -99,6 +99,7 @@ impl Hub {
             adopt,
             remote,
             vm_boundary,
+            github_lendable,
             env: session_env,
             workspace_id,
             keep_harness_mode,
@@ -292,6 +293,7 @@ impl Hub {
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
         meta.vm_boundary = remote && vm_boundary;
+        meta.github_lendable = remote && github_lendable;
         meta.subsession = subsession;
         meta.lineage = lineage;
         meta.created_by = created_by;

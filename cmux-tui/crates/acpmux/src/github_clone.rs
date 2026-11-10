@@ -127,6 +127,14 @@ pub fn check_target(cwd: &Path, r: &GithubActionParams) -> Result<PathBuf, RpcEr
     let name = dir_name(r);
     valid_dir(&name).map_err(|why| RpcError::invalid_params(format!("dir {why}")))?;
     let target = cwd.join(&name);
+    // Judged where it lands (Codex review round 5, F1): `HEAD`, `CLAUDE.md`, or `mise` in a
+    // `.config` folder are paths the sandbox forbids, whatever the name alone is.
+    if checkout::kept_out_at(&target, b"") {
+        return Err(RpcError::invalid_params(format!(
+            "{name} is a path a chat on this machine may not write (an agent's instructions, settings or hooks): give another DIR"
+        ))
+        .with_data(json!({"reason": "github.clone_forbidden_dir"})));
+    }
     if std::fs::symlink_metadata(&target).is_ok() {
         return Err(exists_error(&name));
     }
@@ -315,7 +323,7 @@ async fn clone_into(
     let root = origin.staging();
     let stage = make_stage(&root)?;
     let staged = stage.join(STAGED.to_str().unwrap_or("clone"));
-    let done = clone_staged(origin, &stage, &staged, &parent, &name, repo, token).await;
+    let done = clone_staged(origin, &stage, &staged, target, &parent, &name, repo, token).await;
     // The daemon's own folder: empty now, whether the clone moved out or was removed.
     if let Err(e) = std::fs::remove_dir(&stage) {
         tracing::warn!(stage = %stage.display(), "github clone: the staging folder stays: {e}");
@@ -330,6 +338,7 @@ async fn clone_staged(
     origin: &CloneOrigin,
     stage: &Path,
     staged: &Path,
+    target: &Path,
     parent: &std::fs::File,
     name: &str,
     repo: &str,
@@ -348,7 +357,7 @@ async fn clone_staged(
     // git's home: new and empty, in the daemon's private staging folder.
     let home = stage.join("home");
     std::fs::create_dir(&home).map_err(opened)?;
-    let cloned = clone_in(origin, &dir, staged, &home, repo, token).await;
+    let cloned = clone_in(origin, &dir, staged, target, &home, repo, token).await;
     let _ = std::fs::remove_dir_all(&home);
     let done = cloned.and_then(|out| place(origin, &stage_dir, parent, name).map(|()| out));
     if done.is_err() {
@@ -663,12 +672,15 @@ async fn finish(
 }
 
 /// Clones `repo` into the folder open at `dir` (`staged`), with `home` as git's home, and
-/// checks out all but what the sandbox forbids (`checkout.rs`): the paths left out.
+/// checks out all but what the sandbox forbids where each path lands, in `target`
+/// (`checkout.rs`): the paths left out.
 #[cfg(unix)]
+#[allow(clippy::too_many_arguments)]
 async fn clone_in(
     origin: &CloneOrigin,
     dir: &std::fs::File,
     staged: &Path,
+    target: &Path,
     home: &Path,
     repo: &str,
     token: Option<&str>,
@@ -715,8 +727,10 @@ async fn clone_in(
         // An empty repository has no HEAD, and nothing to check out.
         return Ok(Vec::new());
     };
-    let out: Vec<&[u8]> =
-        listing.split(|&b| b == 0).filter(|p| !p.is_empty() && checkout::kept_out(p)).collect();
+    let out: Vec<&[u8]> = listing
+        .split(|&b| b == 0)
+        .filter(|p| !p.is_empty() && checkout::kept_out_at(target, p))
+        .collect();
     if !out.is_empty() {
         let patterns = checkout::sparse_patterns(&out).ok_or_else(|| {
             RpcError::invalid_params(
@@ -739,7 +753,7 @@ async fn clone_in(
     let mut read = git_at(base, home, dir_fd, None);
     read.args(["read-tree", "-m", "-u", "HEAD"]);
     finish(read, None, deadline, "check out the clone", None).await?;
-    if let Some(path) = checkout::first_left_in(staged)? {
+    if let Some(path) = checkout::first_left_in(staged, target)? {
         return Err(RpcError::internal(format!(
             "the checkout holds {path}, which a chat on this machine may not write; the clone was removed"
         )));
@@ -747,7 +761,6 @@ async fn clone_in(
     Ok(out.iter().map(|p| String::from_utf8_lossy(p).into_owned()).collect())
 }
 
-#[cfg(unix)]
 #[path = "github_clone_checkout.rs"]
 mod checkout;
 

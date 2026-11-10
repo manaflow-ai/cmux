@@ -34,9 +34,6 @@ pub(crate) struct FloorState {
     /// The last turn was a Web turn: an agent request between turns is
     /// held to the floor.
     pub(super) last_turn_web: AtomicBool,
-    /// A Web client or a paired device acted on the chat (`Hub::refuse_at_vm_boundary`): its
-    /// agent is lent no GitHub action from then on (`github_owner.rs`).
-    pub(crate) github_withheld: AtomicBool,
     /// The active Web turn was started by the native Cloud mobile relay.
     /// Unlike an ordinary Web client, it may not use Codex's any-mode bridge.
     pub(super) cloud_mobile_turn: AtomicBool,

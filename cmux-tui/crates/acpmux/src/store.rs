@@ -418,6 +418,12 @@ pub struct SessionMeta {
     /// keeps it, as it keeps `remote_origin`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub vm_boundary: bool,
+    /// The GitHub broker may lend this remote chain the Mac's GitHub (`hub/github_owner.rs`):
+    /// set only when the person's own client started it (`vm_boundary::owner`), cleared for
+    /// good once a Web client or a paired device acts on it. False when not written, so a chat
+    /// from a store kept before this field, or brought by a move, is lent nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub github_lendable: bool,
     /// Per-session env (`session_env.rs`): allowlisted keys set by the unix
     /// socket on session/new or session/fork, applied over the preset env at
     /// every spawn. Never copied to a fork or a handoff.

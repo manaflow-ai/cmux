@@ -16,12 +16,23 @@
 //! tool calls reach the hub as [`crate::claude_stdio::GITHUB_ACTION`] requests from the
 //! session's own agent ([`Hub::answer_github_action`]). The caller is the session that owns
 //! that agent, so no socket or token enters the sandbox. It is answered only:
-//! - for a remote chain's Claude Code (`remote_claude`): no other harness speaks for this method;
+//! - for a remote chain's Claude Code, known to be one ([`Hub::lends_to_claude`]): its profile
+//!   resolves now to a Claude Code one and its agent says it is acpmux's own Claude Code
+//!   backend; a profile that does not resolve, or a config being written, refuses (Codex review
+//!   round 5, F3, on #40513: the sandbox's own check counts an unknown as Claude, which is the
+//!   safe side there and the unsafe one here);
 //! - while no Web client runs the turn (`web_turn`: a Web turn, or between turns after one);
-//! - when nothing but the owner's own clients ever acted on the chat (`github_withheld`): a
-//!   prompt, steer, answer or edit from a Web client or a paired device (`via: device`), the
-//!   requests `vm_boundary::owner` says are not the person's, turns it off for the chat for the
-//!   life of this daemon (`Hub::refuse_at_vm_boundary` marks it).
+//! - when the chat may be lent at all (`SessionMeta::github_lendable`, Codex review round 5, F2):
+//!   - set only when the person's own client started it (`session/new` from a connection
+//!     `vm_boundary::owner` says is the person's);
+//!   - cleared for good, and saved, when a Web client or a paired device (`via: device`) sends
+//!     it anything but a read (`Hub::refuse_at_vm_boundary`);
+//!   - a fork carries its chat's value read when the fork is made (so a fork of a withheld chat
+//!     is withheld from its first turn), a side chat (`btw.rs`), a sub-session, a trigger's chat
+//!     and any other session the daemon makes itself start with it off, and a chat a move brings
+//!     (`transfer_guard.rs`) has it off;
+//!   - it is in the chat's saved meta, so a restart keeps it, and a chat saved before it existed
+//!     reads as not lent.
 //!
 //! Then it is the same action as over the socket: the same `validate`, the same link and the
 //! Mac's same `githubBroker` check, the same `github_broker_action` row.
@@ -71,9 +82,32 @@ impl Hub {
     }
 
     /// Whether `meta`'s Claude Code is offered the `acpmux-github` server at this spawn: a remote
-    /// chain, on a machine a Mac lends GitHub to now (module docs).
+    /// chain that may be lent, on a machine a Mac lends GitHub to now (module docs).
     pub(crate) fn offers_github_broker(&self, meta: &crate::store::SessionMeta) -> bool {
-        meta.remote_origin && self.github_owner_link().is_some()
+        meta.remote_origin && meta.github_lendable && self.github_owner_link().is_some()
+    }
+
+    /// Ends `session`'s GitHub lending for good (module docs): its meta, saved.
+    pub(super) fn withhold_github(&self, session: &Session) {
+        let changed = {
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            std::mem::replace(&mut meta.github_lendable, false)
+        };
+        if changed {
+            self.save_meta(session);
+        }
+    }
+
+    /// Whether `session`'s agent is known to be a remote chain's Claude Code (module docs):
+    /// anything not known so, an error included, is not.
+    pub(crate) async fn lends_to_claude(&self, session: &Session) -> bool {
+        let m = session.meta();
+        if !m.remote_origin || !crate::claude_stdio::steers_by_info(m.agent_info.as_ref()) {
+            return false;
+        }
+        let cfg = self.config.read().await;
+        super::resolve::session_profile(&cfg, &m.harness, &m.cwd, true)
+            .is_ok_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
     }
 
     /// [`crate::claude_stdio::GITHUB_ACTION`] from `session`'s own agent (module docs).
@@ -86,13 +120,17 @@ impl Hub {
             crate::rpc::RpcError::new(-32040, why.to_owned())
                 .with_data(serde_json::json!({"reason": "github.denied"}))
         };
-        if !self.remote_claude(session) {
-            return Err(denied("this chat asks for GitHub actions with `acpmux gh`"));
+        if !self.lends_to_claude(session).await {
+            return Err(denied(
+                "GitHub actions are lent only to a remote chain's Claude Code (a local chat uses `acpmux gh`)",
+            ));
         }
         let refusal = if Self::web_turn(session) {
             Some("GitHub actions are not lent to a turn a Web client started")
-        } else if session.floor.github_withheld.load(std::sync::atomic::Ordering::SeqCst) {
-            Some("GitHub actions are not lent to a chat a Web client or a paired device acted on")
+        } else if !session.meta().github_lendable {
+            Some(
+                "GitHub actions are not lent to a chat a Web client or a paired device acted on, or one this machine's owner did not start",
+            )
         } else {
             None
         };

@@ -76,6 +76,9 @@ pub struct NewRequest {
     /// chain's Claude Code here runs without the platform sandbox. Only with
     /// `remote`; checked by the caller (`vm_boundary::asked`).
     pub vm_boundary: bool,
+    /// The person's own client starts it (`vm_boundary::owner`): a remote chain started so may
+    /// be lent the Mac's GitHub (`SessionMeta::github_lendable`).
+    pub github_lendable: bool,
     /// A harness session to resume instead of starting a new one.
     pub adopt: Option<crate::adopt::AdoptRequest>,
     /// Per-session env (`session_env.rs`), already checked by the caller.

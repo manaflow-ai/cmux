@@ -556,6 +556,9 @@ impl Hub {
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
             vm_boundary: parent_meta.vm_boundary,
+            // Lent only while its chat still is, read now (`github_owner.rs`): a fork of a chat
+            // a Web client or a paired device acted on is lent nothing from its first turn.
+            github_lendable: parent_meta.github_lendable && session.meta().github_lendable,
             // Never inherited: the fork request sets its own or runs without one.
             session_env,
             workspace_id,

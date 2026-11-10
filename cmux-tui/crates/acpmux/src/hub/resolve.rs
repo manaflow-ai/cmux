@@ -377,6 +377,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_sandbox: Default::default(),
         remote_origin: d.remote,
         vm_boundary: false,
+        // Lent only when its owner starts it (`lifecycle.rs`, `github_owner.rs`).
+        github_lendable: false,
         session_env: Default::default(),
         workspace_id: None,
         chat_store: None,
