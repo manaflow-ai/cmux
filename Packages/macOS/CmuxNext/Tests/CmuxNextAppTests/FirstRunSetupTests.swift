@@ -341,59 +341,6 @@ import Testing
         _ = try await provider.call("cmux.setup.run", params: signIn, context: click)
         #expect(mac.signIns == 1 && mac.opened == 1)
     }
-
-    /// cmux#37736 round 9 F1: the React Messages page draws the Set Up cmux card itself (the docked Home is no longer
-    /// the native transcript that hosted it). Its route says whether the card shows, serves the card's own state,
-    /// rows and gesture rule under the page's prefix, makes the card's provider only while it shows, and Hide ends it.
-    @Test func theMessagesPageServesTheCardWhileItShows() async throws {
-        let defaults = try defaults()
-        let setup = FirstRunSetup(defaults: defaults)
-        let mac = PressLog()
-        let route = SetupCardRoute(setup: setup, agents: { nil }, environment: SetupCardEnvironment(
-            account: { (false, nil) }, signInAccount: { mac.signIns += 1 }, cliState: { "missing" }, installCLI: { _ in },
-            openAgents: {}, screenReader: { false }, historySources: { false }, importHistory: { false }))
-        let page = PageCallContext(page: PageDescriptor.homeMessages.id)
-        let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.homeMessages.id, userGesture: true, gestureEvent: at) }
-        let op = { (name: String) in SetupCardRoute.prefix + name }
-        #expect(SetupCardRoute.prefix.hasPrefix(HomeMessagesPageRoute.prefix), "inside the Messages page's namespace")
-
-        // No first run: no card, and no provider made.
-        #expect(try await route.call(op("shows"), params: [:], context: page) == ["shows": false])
-        await #expect(throws: PageError.self) { try await route.call(op("state"), params: [:], context: page) }
-        #expect(route.provider == nil)
-
-        // A first run: the stream says so, and the card's rows come from the same provider as the native card's.
-        let events = ShowsLog()
-        let subscription = try await route.subscribe(op("shows"), filter: .null, context: page) { events.shown.append($0) }
-        defer { subscription.cancel() }
-        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
-        await until { events.shown.last == ["shows": true] }
-        #expect(events.shown.last == ["shows": true])
-        let state = try await route.call(op("state"), params: [:], context: page)
-        #expect(state["account"] == ["signedIn": false])
-        #expect(state["cli"] == "missing")
-        #expect(route.provider != nil)
-
-        // A row runs only on the person's own click, as on the native card.
-        let signIn: JSONValue = ["action": ["kind": "signInAccount"]]
-        await #expect(throws: PageError.self) { try await route.call(op("run"), params: signIn, context: page) }
-        #expect(mac.signIns == 0)
-        _ = try await route.call(op("run"), params: signIn, context: click(1))
-        #expect(mac.signIns == 1)
-
-        // Hide ends the card for good; its provider goes with it.
-        _ = try await route.call(op("hide"), params: [:], context: click(2))
-        #expect(!setup.shows)
-        await until { events.shown.last == ["shows": false] }
-        #expect(events.shown.last == ["shows": false])
-        #expect(route.provider == nil)
-        #expect(defaults.string(forKey: FirstRunSetup.stateKey) == "ended")
-    }
-}
-
-/// What the Messages page's `shows` stream sent.
-@MainActor private final class ShowsLog {
-    var shown: [JSONValue] = []
 }
 
 /// What the card's environment saw: VoiceOver's state, the Agents windows opened and the account sign-ins run.

@@ -27,7 +27,7 @@ export interface HomeLinkChipProps {
   href: string;
   /** The link's text in the message. */
   label: string;
-  /** Asks the app for the target's facts (`cmux.home.messages.linkPreview`). */
+  /** Asks the app for the target's facts (`cmux.home.linkPreview`). */
   fetchPreview: LinkPreviewFetch;
   /** A click: the host opens the app link or path (`link.open`), never the system. */
   onOpen(href: string): void;

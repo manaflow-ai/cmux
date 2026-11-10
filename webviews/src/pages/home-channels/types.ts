@@ -257,74 +257,9 @@ export interface HomeMention {
 
 export type HomePart =
   | { type: "text"; text: string; mentions: HomeMention[] }
-  | {
-      type: "work";
-      title: string;
-      status: "running" | "waiting" | "done" | "failed";
-      preview?: string;
-      /** The acpmux session it names (a machine name: never shown as its text). */
-      session?: string;
-    }
+  | { type: "work"; title: string; status: "running" | "waiting" | "done" | "failed"; preview?: string }
   | HomeAttachment
-  | HomeQuestion
-  | HomeLinkPreviewPart
-  | HomeLocation
   | { type: "other"; text: string };
-
-/** One option of a question item (`QuestionItem.options`). */
-export interface HomeQuestionOption {
-  id: string;
-  label: string;
-  detail?: string;
-  /** Shown beside the option (a Chief approval's allow option carries the request JSON here). */
-  preview?: { text: string; format: "monospace" | "markdown" | "html" };
-}
-
-/** One question of an ask (`QuestionItem`). */
-export interface HomeQuestionItem {
-  id: string;
-  header?: string;
-  prompt: string;
-  options: HomeQuestionOption[];
-  multiSelect: boolean;
-  allowsOther: boolean;
-}
-
-/** Where a question stands; only its owner moves it out of pending. */
-export type HomeQuestionState =
-  | { kind: "pending" }
-  | { kind: "cancelled" }
-  | { kind: "answered"; selections: Record<string, { optionIds: string[]; other?: string }> };
-
-/** A `question` part (cmux-tui spec/commands.md `Question`): an agent's question with options. A
- * Chief's permission card is one of these (one `approval:<digest>` item with allow and deny). */
-export interface HomeQuestion {
-  type: "question";
-  harness: "claude" | "codex" | "acp" | "chief";
-  session: string;
-  permission?: string;
-  agent?: string;
-  items: HomeQuestionItem[];
-  state: HomeQuestionState;
-}
-
-/** A `link_preview` part: a link with the preview its sender fetched (receivers never fetch it). */
-export interface HomeLinkPreviewPart {
-  type: "link_preview";
-  url: string;
-  title?: string;
-  site?: string;
-  /** Its picture, a blob of the conversation read by hash. */
-  image?: HomeDerivedImage;
-}
-
-/** A shared place. */
-export interface HomeLocation {
-  type: "location";
-  latitude: number;
-  longitude: number;
-  label?: string;
-}
 
 /** A derived image of an attachment (a video's poster, an image's preview): JPEG or WebP. */
 export interface HomeDerivedImage {

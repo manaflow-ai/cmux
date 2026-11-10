@@ -65,16 +65,6 @@ in the same PR. A seam never switches a working Swift path off before its React 
    views. The engine models the engine itself reads (`HomePins`, `HomeChiefAvatar`, `ChiefBackend`,
    `HomeGroupOutcome` and the rest) move into `CmuxNextHomeEngine` first.
 
-## Messages
-
-The Messages view is React: the docked Home, classic Home's top page and a Home pane tab all host
-`home-messages` (`HomeMessagesPage`, one page kept and reused per host). The AppKit list, sheets and
-New Message are deleted. The native transcript (`HomeHostView`) still draws conversation tabs and the
-Chief panel until those move too.
-
-Picked list: `messages` (a neutral selection slab and hairlines between rows), over `accent` and `quiet`.
-Picked transcript: `imessage` (blue mine, grey theirs, tails on each group's last bubble), over `theme` and `outline`.
-
 ## Chat Colors
 
 One chat's bubble and text colours, with a live preview. It opens as a small floating panel, one for

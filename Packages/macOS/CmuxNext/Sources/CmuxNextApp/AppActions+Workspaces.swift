@@ -72,27 +72,28 @@ extension AppActions {
         // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
         registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
         HomeSettingActions().bind(into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady, summonChiefPet: { [weak services] petOn in services?.notifications.chiefPet?.summon(petOn: petOn) })
-        // The composer's attach button as an action (home.attachFiles): a path goes to the shown Home
-        // composer (a conversation tab's, or the Messages page's) through its own intake (as a drop,
-        // HomeComposerIntake); without one the shown composer opens its file picker.
+        // The composer's attach button as an action (home.attachFiles): a path
+        // goes to the shown Home composer through its own intake (as a drop);
+        // without one the shown composer opens its file picker.
         registry.bind("home.attachFiles", invoke: { invocation in
-            guard let intake = HomeComposerIntake(window: services.windows.active?.window) else { return services.registry.refuse(RefusalStrings.homeAttachNoHome) }
-            guard let path = invocation["path"]?.stringValue, !path.isEmpty else { return intake.pickFiles(openPanel: services.openPanel) }
-            // task-owner: one intake call; ends with the composer's answer (bounded by HomeComposerIntake.deadline); plain Task: it inherits the action's main actor
-            Task {
-                switch await intake.attach(paths: [path], via: .drop).result {
-                case .accepted: break
-                case .missingFile: services.registry.refuse(RefusalStrings.homeAttachNoFile(path))
-                case .notConnected: services.registry.refuse(RefusalStrings.homeAttachNoHome)
-                }
+            guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window), view.canAttach else {
+                services.registry.refuse(RefusalStrings.homeAttachNoHome)
+                return
+            }
+            guard let path = invocation["path"]?.stringValue, !path.isEmpty else {
+                view.pickFiles()
+                return
+            }
+            if view.attachFiles(paths: [path], via: .drop) == .missingFile {
+                services.registry.refuse(RefusalStrings.homeAttachNoFile(path))
             }
         })
-        // Reply to Selection (Cmd-Shift-R on Home, the palette): a native transcript's, else the Messages page's (pageCommands.ts `home.messages.replyToSelection`).
+        // Reply to Selection (Cmd-Shift-R on Home, the palette): the same path as the transcript's menu item.
         registry.bind("home.replyToSelection") {
-            if let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window) { return view.replyToSelection() ? () : services.registry.refuse(RefusalStrings.homeReplyNoSelection) }
-            // task-owner: one page call; ends with its answer (bounded by HomeMessagesPage.answerDeadline); plain Task: it inherits the action's main actor
-            let reply: @MainActor (HomeMessagesPage?) -> Void = { page in Task { if await page?.ask("home.messages.replyToSelection")?.objectValue?["replied"]?.boolValue != true { services.registry.refuse(RefusalStrings.homeReplyNoSelection) } } }
-            if services.home.dock.isClassic { if let page = homePage(services) { reply(page) } } else { withDock(services) { reply($0.messages) } }
+            guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window), view.replyToSelection() else {
+                services.registry.refuse(RefusalStrings.homeReplyNoSelection)
+                return
+            }
         }
         // The Home page's New Message, Invite, New Chief, Archive Chief and Open Conversation.
         bindHomeConversations(services)

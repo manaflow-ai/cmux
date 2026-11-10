@@ -35,13 +35,7 @@ import {
   type HomeLiveSnapshot,
   type HomeMessage,
   type HomeParticipant,
-  type HomeLinkPreviewPart,
-  type HomeLocation,
   type HomePart,
-  type HomeQuestion,
-  type HomeQuestionItem,
-  type HomeQuestionOption,
-  type HomeQuestionState,
   type HomeReaction,
   type HomeResolvedLink,
   type HomeRun,
@@ -143,121 +137,17 @@ function part(raw: Json): HomePart {
       return {
         type: "work",
         title: String(raw.session ?? ""),
-        session: String(raw.session ?? ""),
         status: status as "running",
         preview: raw.preview as string | undefined,
       };
     }
     case "attachment":
       return attachmentPart(raw);
-    case "question":
-      // The owner's question part (spec/commands.md `Question`; Swift `AgentQuestion(conversationPart:)`).
-      return questionPart(raw) ?? { type: "other", text: "question" };
-    case "link_preview": {
-      const link: HomeLinkPreviewPart = { type: "link_preview", url: String(raw.url ?? "") };
-      if (typeof raw.title === "string" && raw.title) link.title = raw.title;
-      if (typeof raw.site === "string" && raw.site) link.site = raw.site;
-      const image = derivedImage(raw.image);
-      if (image) link.image = image;
-      return link;
-    }
-    case "location": {
-      if (typeof raw.latitude !== "number" || typeof raw.longitude !== "number")
-        return { type: "other", text: "location" };
-      const place: HomeLocation = { type: "location", latitude: raw.latitude, longitude: raw.longitude };
-      if (typeof raw.label === "string" && raw.label) place.label = raw.label;
-      return place;
-    }
+    case "link_preview":
+      return { type: "other", text: String(raw.url ?? "") };
     default:
-      return { type: "other", text: unknownPartText(raw) };
+      return { type: "other", text: String(raw.type ?? "") };
   }
-}
-
-/** A part type this page does not draw, as native showed it (HomeCoreMapping): an agent's widget
- * (an app and a fallback) by its fallback text; any other by its link when it carries one, else
- * its type (ConversationPart.plainText). */
-export function unknownPartText(raw: Json): string {
-  if (
-    raw.type === "widget" &&
-    typeof raw.app === "string" &&
-    raw.app &&
-    typeof raw.fallback === "string" &&
-    raw.fallback
-  )
-    return raw.fallback;
-  if (typeof raw.url === "string" && raw.url) return raw.url;
-  return String(raw.type ?? "");
-}
-
-const HARNESSES = new Set(["claude", "codex", "acp", "chief"]);
-const PREVIEW_FORMATS = new Set(["monospace", "markdown", "html"]);
-
-/** A stored `question` part, or undefined when it is not one (no session, no readable item). */
-export function questionPart(raw: Json): HomeQuestion | undefined {
-  const session = optStr(raw.session);
-  if (session === undefined || !Array.isArray(raw.items)) return undefined;
-  const items: HomeQuestionItem[] = [];
-  for (const entry of raw.items as unknown[]) {
-    if (!entry || typeof entry !== "object") continue;
-    const item = entry as Json;
-    const id = optStr(item.id);
-    const prompt = optStr(item.prompt);
-    if (id === undefined || prompt === undefined) continue;
-    const options: HomeQuestionOption[] = [];
-    for (const value of Array.isArray(item.options) ? (item.options as unknown[]) : []) {
-      if (!value || typeof value !== "object") continue;
-      const option = value as Json;
-      const optionId = optStr(option.id);
-      const label = optStr(option.label);
-      if (optionId === undefined || label === undefined) continue;
-      const out: HomeQuestionOption = { id: optionId, label };
-      if (optStr(option.detail) !== undefined) out.detail = String(option.detail);
-      const preview = option.preview as Json | undefined;
-      if (preview && typeof preview === "object" && typeof preview.text === "string") {
-        const format = PREVIEW_FORMATS.has(String(preview.format)) ? preview.format : "monospace";
-        out.preview = { text: preview.text, format: format as "monospace" };
-      }
-      options.push(out);
-    }
-    const shown: HomeQuestionItem = {
-      id,
-      prompt,
-      options,
-      multiSelect: item.multi_select === true,
-      allowsOther: item.allows_other !== false,
-    };
-    if (optStr(item.header) !== undefined) shown.header = String(item.header);
-    items.push(shown);
-  }
-  if (!items.length) return undefined;
-  const question: HomeQuestion = {
-    type: "question",
-    harness: (HARNESSES.has(String(raw.harness)) ? raw.harness : "chief") as HomeQuestion["harness"],
-    session,
-    items,
-    state: questionState(raw.state),
-  };
-  if (optStr(raw.permission) !== undefined) question.permission = String(raw.permission);
-  if (optStr(raw.agent) !== undefined) question.agent = String(raw.agent);
-  return question;
-}
-
-function questionState(raw: unknown): HomeQuestionState {
-  const state = raw && typeof raw === "object" ? (raw as Json) : {};
-  if (state.kind === "cancelled") return { kind: "cancelled" };
-  if (state.kind !== "answered") return { kind: "pending" };
-  const answer = state.answer && typeof state.answer === "object" ? (state.answer as Json) : {};
-  const selections: Record<string, { optionIds: string[]; other?: string }> = {};
-  const raws = answer.selections && typeof answer.selections === "object" ? (answer.selections as Json) : {};
-  for (const [item, value] of Object.entries(raws)) {
-    const selection = value && typeof value === "object" ? (value as Json) : {};
-    const ids = Array.isArray(selection.option_ids)
-      ? (selection.option_ids as unknown[]).filter((id) => typeof id === "string")
-      : [];
-    selections[item] = { optionIds: ids as string[] };
-    if (typeof selection.other === "string") selections[item].other = selection.other;
-  }
-  return { kind: "answered", selections };
 }
 
 function derivedImage(raw: unknown): HomeDerivedImage | undefined {
