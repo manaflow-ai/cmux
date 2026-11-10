@@ -588,6 +588,7 @@ impl Hub {
             totals: None,
             pull_requests: vec![],
             pull_request_times: Default::default(),
+            try_it: None,
             touched_files: vec![],
             harness_cost_usd: if matches!(made, Made::ClaudeResume) {
                 parent_meta.harness_cost_usd

@@ -14,6 +14,19 @@ import { quoteMarkdown } from "./selectionReplyModel";
 /// card made the answer up (Yes and Not now for a yes-or-no question), which it draws instead.
 export type NextStepOption = { label: string; key?: "recap.yes" | "recap.notNow" };
 
+/// How to try what a finished wrap-up made (acpmux `wrap_up`'s `try`, `verify` and `report`): a
+/// Try button that opens `url` in a browser tab or runs `command` in a new terminal, the steps to
+/// check once it runs, and the HTML report. Aziz, 2026-11-09: "theres a direct way for me to try
+/// out and verify its work in addition to the artifact."
+export type WrapUpTry = {
+  /// The button's words; absent when the wrap-up gave only steps or a report.
+  label?: string;
+  url?: string;
+  command?: string;
+  verify: string[];
+  report?: string;
+};
+
 export type NextStepAsk = {
   /// The tag the line carried, lowercased ("outward"), or `wrap_up` for the agent's own wrap-up
   /// call (wrapUp.ts).
@@ -29,6 +42,8 @@ export type NextStepAsk = {
   /// Two to four answers; the first is the primary (⌘↩). A wrap-up's may hold one, or none with
   /// no question.
   options: NextStepOption[];
+  /// A finished wrap-up's Try button, Verify steps and report (wrapUp.ts).
+  tryIt?: WrapUpTry;
   /// The answer's text without the ask's lines (the tagged line and its option list), which the
   /// card draws instead. Blank lines the removal leaves at the end are trimmed.
   rest: string;

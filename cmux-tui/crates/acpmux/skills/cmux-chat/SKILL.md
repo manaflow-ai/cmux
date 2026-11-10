@@ -69,6 +69,13 @@ Skip it for a short answer or plain conversation. Do not restate the plan or the
 When the cmux tools list `acpmux_wrap_up`, pass the recap to it (it draws the box under
 your answer) instead of also writing it in prose.
 
+When the turn finished something the person can try, give the wrap-up a way to try it:
+`try` with a `label` and either a `url` (a tagged build's Tag Opener
+`http://127.0.0.1:17320/<tag>`, a preview page, a TestFlight link) or a `command` (one shell
+line, run in a new terminal), `verify` with up to five steps saying what to check and what
+they should see, and `report` with the HTML report's path or URL. The box draws a Try
+button, the steps and a Report link, and the chat's sidebar row gets the same Try button.
+
 ## Editing cmux live
 
 When the person asks to change how cmux itself looks or behaves (a panel, a view, a

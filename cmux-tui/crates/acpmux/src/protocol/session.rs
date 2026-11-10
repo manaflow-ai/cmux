@@ -140,6 +140,12 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub pull_requests: Vec<String>,
+    /// How to try what the chat last finished (`hub/try_it.rs`): the Try button, Verify steps
+    /// and report of its newest wrap-up that gave one; absent when none did, and from a peer
+    /// on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub try_it: Option<TryIt>,
     /// The session whose agent started this one with its `start_session`
     /// tool (`hub/subsessions.rs`); null for a session a person or client
     /// started. Kept when the parent is closed or gone, so a client draws
@@ -934,4 +940,29 @@ pub struct SessionChanged {
     /// The peer a remote session runs on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer: Option<String>,
+}
+
+/// How to try a chat's finished work (`hub/try_it.rs`), from its wrap-up's `try`, `verify` and
+/// `report` (`acpmux_mcp_wrap_up.rs` checks them): a Try button that opens `url` in a browser
+/// tab or runs `command` in a new terminal, the steps to check, and the HTML report.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TryIt {
+    /// The Try button's words; absent when the wrap-up gave only steps or a report.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// An http or https page to open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// One shell line to run in a new terminal in the chat's folder (never from a phone).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    /// What to check once it runs, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub verify: Vec<String>,
+    /// The task's HTML report, a file path or a web address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<String>,
+    /// When the wrap-up that gave it completed (Unix ms).
+    pub at: u64,
 }

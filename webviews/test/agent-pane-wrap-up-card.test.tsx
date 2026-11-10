@@ -214,6 +214,57 @@ describe("NextStepCard with a recap", () => {
   });
 });
 
+describe("a finished wrap-up's Try", () => {
+  const TRY = {
+    recap: RECAP,
+    try: { label: "Open try-agent-work build", url: "http://127.0.0.1:17320/try-agent-work" },
+    verify: ["Finish a task: its sidebar row shows Try.", "Click Try: the build opens."],
+    report: "/tmp/try-agent-work/report.html",
+  };
+
+  test("reads the Try target, the Verify steps and the report off the call", () => {
+    expect(wrapUpAsk(call(TRY).tool!)?.tryIt).toEqual({
+      label: "Open try-agent-work build",
+      url: "http://127.0.0.1:17320/try-agent-work",
+      verify: TRY.verify,
+      report: TRY.report,
+    });
+    expect(wrapUpAsk(call({ recap: RECAP, try: { command: "make demo" } }).tool!)?.tryIt).toEqual({
+      label: "Try it",
+      command: "make demo",
+      verify: [],
+    });
+  });
+
+  test("a target the tool refuses draws no button, and its steps still draw", () => {
+    for (const bad of [{ url: "javascript:alert(1)" }, { url: "file:///etc/passwd" }, { command: "ls\nrm -rf ~" }, { url: "https://a.b", command: "ls" }]) {
+      const tryIt = wrapUpAsk(call({ recap: RECAP, try: bad, verify: ["Look."] }).tool!)?.tryIt;
+      expect(tryIt?.label).toBeUndefined();
+      expect(tryIt?.url).toBeUndefined();
+      expect(tryIt?.command).toBeUndefined();
+      expect(tryIt?.verify).toEqual(["Look."]);
+    }
+  });
+
+  test("the box draws Try, Report, the target and the steps; a click opens the target", () => {
+    const ask = wrapUpAsk(call(TRY).tool!)!;
+    const html = renderToStaticMarkup(createElement(NextStepCard, { ask, onTry: () => undefined, onReport: () => undefined }));
+    expect(html).toContain("acpmux-next-step__try-button");
+    expect(html).toContain("Open try-agent-work build");
+    expect(html).toContain("acpmux-next-step__report");
+    expect(html).toContain("http://127.0.0.1:17320/try-agent-work");
+    expect(html.match(/type="checkbox"/g)).toHaveLength(2);
+    expect(html.indexOf("acpmux-next-step__recap")).toBeLessThan(html.indexOf("acpmux-next-step__try"));
+  });
+
+  test("with a question, the Try stays above it; where nothing can open, the button is off", () => {
+    const ask = wrapUpAsk(call({ ...TRY, ask: "Open a PR?", actions: ["Yes", "Not now"] }).tool!)!;
+    const html = renderToStaticMarkup(createElement(NextStepCard, { ask, onAnswer: async () => undefined }));
+    expect(html.indexOf("acpmux-next-step__try")).toBeLessThan(html.indexOf("acpmux-next-step__question"));
+    expect(html).toMatch(/acpmux-next-step__try-button"[^>]*disabled/);
+  });
+});
+
 function input() {
   return { recap: RECAP, ask: "Should I open a PR for this?", actions: ["Yes, open PR", "Not now"] };
 }
