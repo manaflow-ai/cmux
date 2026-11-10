@@ -167,9 +167,9 @@ fi
 [[ "$out" == *"the app FFI inputs cannot be listed"*"TEST_ONLY"* ]] || fail "the TEST_ONLY read did not refuse: $out"
 git -C "$repo" reset -q --hard HEAD~1
 # Everything else in an input crate is an input: a file a library source includes (include_str!), one its build
-# script reads, the README, the LICENSE, a script, a descriptor only a test reads but no reviewed list names, and a
+# script reads, the README, a script, a descriptor only a test reads but no reviewed list names, and a
 # tests/ file that a library source of another input crate includes (that crate's tests/ is then an input whole).
-for f in data.json ml.json br.json build-data.txt README.md LICENSE scripts/sync.py .descriptor.json \
+for f in data.json ml.json br.json build-data.txt README.md scripts/sync.py .descriptor.json \
   tests/vectors/lines.json tests/api.rs; do
   echo "changed" >> "$core/$f"
   git -C "$repo" commit -qam "input $f"
@@ -518,6 +518,38 @@ from pathlib import Path
 p = Path(sys.argv[1])
 p.write_text(p.read_text().replace("[package]\n", "[package]\nworkspace = \"../../../alt\"\n", 1))
 EOF'
+# A build script (build.rs, the file Cargo.toml's `build` names, build-support/ and the modules they reach) that walks up
+# from the crate with .parent() or .ancestors() refuses (lead decision, 2026-11-10): the path it computes outside the
+# crate names no literal. A reviewed app_ffi_pin.py BUILD_SCRIPT_PARENTS entry is the only exception. Elsewhere (a
+# library source) .parent() is a runtime path and does not refuse.
+refuse_build() { # refuse_build WHY SETUP: SETUP (eval) and pin; the check must refuse
+  eval "$2"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "build parent: $1"
+  if pin_head "build parent: pin $1"; then
+    fail "$1 passed"
+  fi
+  out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" || true
+  [[ "$out" == *"the app FFI inputs cannot be listed"*"parent"* ]] || fail "$1 did not refuse: $out"
+  git -C "$repo" reset -q --hard "$before_holes"
+}
+refuse_build "a build script that walks up with .parent()" \
+  'printf "fn main() { let p = std::path::PathBuf::from(env!(\"CARGO_MANIFEST_DIR\")).parent().unwrap().join(\"x\"); }\n" > "$hole/build.rs"'
+refuse_build "a build script module that walks up with .ancestors()" \
+  'mkdir -p "$hole/build-support"; printf "#[path = \"build-support/up.rs\"]\nmod up;\nfn main() {}\n" > "$hole/build.rs"; printf "pub fn up(p: &std::path::Path) { let _ = p.ancestors().nth(3); }\n" > "$hole/build-support/up.rs"'
+refuse_build "a module beside build.rs that walks up" \
+  'printf "mod walk;\nfn main() {}\n" > "$hole/build.rs"; printf "pub fn w(p: &std::path::Path) { let _ = p.parent(); }\n" > "$hole/walk.rs"'
+refuse_build "the build script Cargo.toml names, walking up" \
+  'mkdir -p "$hole/tools"; printf "fn main() { let _ = std::path::Path::new(\".\").parent(); }\n" > "$hole/tools/b.rs"; python3 - "$hole/Cargo.toml" <<'"'"'EOF'"'"'
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+p.write_text(p.read_text().replace("[package]\n", "[package]\nbuild = \"tools/b.rs\"\n", 1))
+EOF'
+printf 'pub fn here(p: &std::path::Path) -> Option<&std::path::Path> { p.parent() }\n' >> "$hole/src/lib.rs"
+git -C "$repo" commit -qam "a library source that uses .parent()"
+pin_head "pin the library .parent()" || fail "a library source's .parent() refused"
+git -C "$repo" reset -q --hard "$before_holes"
 # H: an inherited path entry spelled { "workspace" = true }, on a python3 without tomllib (a macOS runner's 3.9).
 shim="$tmp/no-tomllib"
 mkdir -p "$shim"
