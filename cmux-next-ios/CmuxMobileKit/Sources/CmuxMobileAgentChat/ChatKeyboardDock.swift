@@ -227,7 +227,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // tap still reaches the row under it (a disclosure, a link).
         transcriptTap.addTarget(self, action: #selector(transcriptTapped(_:)))
         transcriptTap.cancelsTouchesInView = false
-        transcriptTap.delegate = DockPanDelegate.shared
+        transcriptTap.delegate = TranscriptTapDelegate.shared
         scrollView.addGestureRecognizer(transcriptTap)
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
@@ -726,13 +726,14 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         endEditingFromTranscriptTap()
     }
 
-    /// A tap on the transcript while the composer is focused: the keyboard goes down and the
-    /// field lets go of focus, as Safari's address bar does on a tap on the page. Nothing
-    /// happens when the composer is not focused, so a tap while reading moves nothing.
+    /// A tap on the transcript while the composer is focused: the composer lets go of focus
+    /// and the keyboard goes down, as Safari's address bar does on a tap on the page. Only
+    /// the composer's focus changes (its binding resigns the field), never a text field in
+    /// a row (the question card's "Other..." answer). Nothing happens when the composer is
+    /// not focused, so a tap while reading moves nothing.
     func endEditingFromTranscriptTap() {
         guard surface.composerFocused else { return }
         surface.composerFocused = false
-        view.endEditing(true)
     }
 
     @objc private func dockPanned(_ pan: UIPanGestureRecognizer) {
@@ -982,8 +983,22 @@ private final class DragLinkTarget: NSObject {
     @objc func tick() { owner?.draggedKeyboardFrame() }
 }
 
-/// Lets the composer's swipe-down recognizer, and the transcript's tap, run beside the
-/// recognizers already there (the text view's own, the rows' disclosure taps).
+/// The transcript's end-editing tap runs beside the rows' own taps, and never takes a touch
+/// on a text input in a row (tapping into it must keep the focus it gets).
+private final class TranscriptTapDelegate: NSObject, UIGestureRecognizerDelegate {
+    @MainActor static let shared = TranscriptTapDelegate()
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let current = view {
+            if current is UITextInput { return false }
+            view = current.superview
+        }
+        return true
+    }
+}
+
+/// Lets the composer's swipe-down recognizer run beside the text view's own.
 private final class DockPanDelegate: NSObject, UIGestureRecognizerDelegate {
     @MainActor static let shared = DockPanDelegate()
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }

@@ -33,7 +33,7 @@ import UIKit
         window.makeKeyAndVisible()
         controller.view.layoutIfNeeded()
         let scroll = try #require(controller.view.subviews.lazy.compactMap { $0 as? ChatTranscriptCollectionView }.first)
-        // A stand-in for the composer's field, holding first responder as the field does.
+        // Another text input under the transcript's controller (a row's answer field).
         let field = UITextView(frame: CGRect(x: 0, y: 800, width: 402, height: 40))
         field.text = "a draft in progress"
         controller.view.addSubview(field)
@@ -42,29 +42,26 @@ import UIKit
         return Chat(controller: controller, surface: surface, scroll: scroll, field: field, window: window)
     }
 
-    @Test func aTapOnTheTranscriptEndsEditingAndKeepsTheDraft() throws {
+    @Test func aTapOnTheTranscriptLetsTheComposerGoAndTouchesNothingElse() throws {
         let chat = try chat()
         defer { chat.window.isHidden = true }
-        try #require(chat.field.isFirstResponder)
         let tap = try #require(chat.scroll.gestureRecognizers?.first { $0 === chat.controller.transcriptTap },
                                "the transcript carries the tap that ends editing")
         #expect(!tap.cancelsTouchesInView, "the tap still reaches the row under it")
+        let editing = chat.field.isFirstResponder
         chat.controller.endEditingFromTranscriptTap()
-        #expect(!chat.surface.composerFocused, "the composer lets go of focus")
-        #expect(!chat.field.isFirstResponder, "the keyboard goes down")
+        #expect(!chat.surface.composerFocused, "the composer lets go of focus (its binding lowers the keyboard)")
+        // Only the composer's focus: a text input elsewhere (a row's answer field) keeps its own.
+        #expect(chat.field.isFirstResponder == editing, "no other editing ends")
         #expect(chat.field.text == "a draft in progress", "the draft stays")
     }
 
     @Test func aTapWhileReadingMovesNothing() throws {
         let chat = try chat()
         defer { chat.window.isHidden = true }
-        chat.field.resignFirstResponder()
         chat.surface.composerFocused = false
-        let other = UITextField(frame: CGRect(x: 0, y: 0, width: 100, height: 30))
-        chat.controller.view.addSubview(other)
-        other.becomeFirstResponder()
         chat.controller.endEditingFromTranscriptTap()
-        #expect(other.isFirstResponder, "a tap with the composer unfocused ends no other editing")
+        #expect(!chat.surface.composerFocused)
     }
 }
 #endif
