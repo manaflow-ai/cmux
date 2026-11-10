@@ -126,7 +126,10 @@ const MAX_CWD_BYTES: usize = 4096;
 /// folder with `agent_session.timeout` while acpmux was still working (cmux#40385's matrix). A
 /// silent acpmux fails the start within `quiet + probe` (the status answer reads the host's
 /// load, so a busy machine gets 30 s for it); the ceiling, one for the whole start, is the login
-/// finish's.
+/// finish's. This covers the catalog read (`_acpmux/harnesses`) too: a starting acpmux holds that
+/// answer until its login shell read and catalog reload end (`Hub::harnesses_reply`), and the app
+/// restarts acpmux with a person key just before a Cloud chat's start, so a fixed 5 s refused it
+/// `agent_session.timeout` while acpmux was about to answer (cmuxterm-hq run 42837396397).
 pub(super) const START_PATIENCE: Patience = Patience {
     quiet: Duration::from_secs(10),
     probe: Duration::from_secs(30),
