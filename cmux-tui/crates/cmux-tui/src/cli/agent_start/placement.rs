@@ -374,6 +374,15 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
                     split
                 }
                 None => {
+                    // W6-F: shows how often a start lacks the caller's size.
+                    crate::client_log::log(
+                        "debug",
+                        "agent_start",
+                        &format!(
+                            "default placement fell back to a right split of {pane}: \
+                             no caller size in the snapshot or no split tree"
+                        ),
+                    );
                     let split = split(daemon, pane, "right", cwd)?;
                     balance(daemon, split.screen.as_deref(), &split.pane, None);
                     split
