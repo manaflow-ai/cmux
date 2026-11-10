@@ -185,7 +185,10 @@ jobs:
     name: lint (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    # macOS 70, not 40: the limit counts glaeda's job-started hook, which waits
+    # in "Set up runner" for the mini's canonical root token. Runs 42712581504
+    # and 42687069230 (2026-11-09) waited 22-25 min there and hit 40 min mid-tests.
+    timeout-minutes: ${{ matrix.os == 'macos' && 70 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -487,7 +490,10 @@ jobs:
     name: test (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    # macOS 70, not 40: the limit counts glaeda's job-started hook, which waits
+    # in "Set up runner" for the mini's canonical root token. Runs 42712581504
+    # and 42687069230 (2026-11-09) waited 22-25 min there and hit 40 min mid-tests.
+    timeout-minutes: ${{ matrix.os == 'macos' && 70 || 40 }}
     # The runnable tests the focused filter selected on each host. Each leg sets
     # only its own key, so neither leg overwrites the other's count in the
     # matrix's combined outputs; hosted-verification reads both.
