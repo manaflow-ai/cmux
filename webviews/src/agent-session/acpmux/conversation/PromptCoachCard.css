@@ -1,0 +1,127 @@
+/* The prompt coach card (PromptCoachCard.tsx): the cards' hairline ring, padding and radius (the
+   recap's, design/grid.md cards), a label line and the rewritten prompt in a tinted block that keeps
+   its line breaks and scrolls past eight 20px lines. No outer margin: the row's stack gives the gap.
+   Its height is fixed by its text, so model.ts estimates it exactly: 12 + 24 + 8 + (16 + lines * 20)
+   + 12. Small-radius rects, never pills. */
+.cv-coach {
+  --cv-coach-line: 20px;
+  --cv-coach-lines: 8;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-coach[data-look="card"],
+.cv-coach[data-look="compact"] {
+  padding: var(--grid-cards-padding, 12px);
+  border-radius: var(--grid-cards-radius, 12px);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+}
+.cv-coach[data-look="rule"] {
+  padding: 4px 0 4px 12px;
+  box-shadow: inset 2px 0 0 var(--agent-border);
+}
+/* The entrance, once, for a card that arrived while the chat was open: a fade with a 4px rise, no
+   size change, so nothing below it moves. Through the web motion gate: off, reduced, the chat's own
+   motion switch or Reduce Motion, it simply appears. */
+@keyframes cv-coach-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"]) .cv-coach[data-enter] {
+  animation: cv-coach-enter var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-coach[data-enter] {
+    animation: none;
+  }
+}
+.cv-coach__head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  min-width: 0;
+  min-height: 24px;
+}
+.cv-coach__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-coach__label {
+  color: var(--agent-text);
+}
+.cv-coach__meta {
+  margin-left: var(--ds-space-2, 8px);
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+}
+.cv-coach__action,
+.cv-coach__toggle {
+  all: unset;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 var(--ds-space-1, 4px);
+  border-radius: var(--ds-radius-control, 6px);
+  color: var(--cv-text-dim);
+  cursor: default;
+}
+.cv-coach__toggle {
+  padding: 0 var(--ds-space-2, 8px);
+}
+.cv-coach__action:hover,
+.cv-coach__toggle:hover {
+  color: var(--agent-text);
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+}
+.cv-coach__action:active,
+.cv-coach__toggle:active {
+  background: color-mix(in srgb, var(--agent-text) 13%, transparent);
+}
+.cv-coach__action:focus-visible,
+.cv-coach__toggle:focus-visible {
+  outline: 2px solid var(--agent-focus, currentColor);
+  outline-offset: 1px;
+}
+/* text-focus-allow: a read-only scrolling block reached by Tab so the keys scroll it; it has no
+   caret, so the ring is the only sign it holds focus. */
+.cv-coach__prompt:focus-visible {
+  outline: 2px solid var(--agent-focus, currentColor);
+  outline-offset: 1px;
+}
+.cv-coach__copy[data-copied] {
+  color: var(--agent-text);
+}
+.cv-coach__prompt {
+  box-sizing: border-box;
+  max-height: calc(var(--cv-coach-line) * var(--cv-coach-lines) + 16px);
+  margin-top: var(--ds-space-2, 8px);
+  padding: 8px var(--ds-space-3, 12px);
+  overflow-y: auto;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  color: var(--agent-text);
+  line-height: var(--cv-coach-line);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.cv-coach[data-look="rule"] .cv-coach__prompt {
+  background: transparent;
+  padding-inline: 0;
+}

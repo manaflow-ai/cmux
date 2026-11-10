@@ -1,5 +1,5 @@
 name: Cloud chat proof (staging and production, tagged DEV app)
-run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
+run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || inputs.matrix && format('Cloud workspace matrix ({0}, {1}){2}', inputs.build, inputs.agent, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
 
 # One manual trip through a Cloud chat from one tagged DEV build of the dispatched commit, signed in as
 # the agent test account on staging and production. The bundle is built (or downloaded) once per backend job,
@@ -63,6 +63,11 @@ on:
         type: string
       from_folder:
         description: Start the chat from a new plain folder on the runner (no Git), copied the composer's way; the reply must name a word only its file holds
+        required: false
+        default: false
+        type: boolean
+      matrix:
+        description: "Instead of the one proof chat: the Cloud workspace matrix (scripts/cmux-next/cloud-chat-matrix.py), a chat from every kind of folder, each timed and its copy checked by hash"
         required: false
         default: false
         type: boolean
@@ -432,7 +437,7 @@ jobs:
           retention-days: 1
 
       - name: Staging Cloud chat and reply
-        if: inputs.cleanup_machine == ''
+        if: inputs.cleanup_machine == '' && !inputs.matrix
         timeout-minutes: 30
         env:
           PROOF_PROMPT: ${{ inputs.prompt }}
@@ -445,6 +450,30 @@ jobs:
             --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend staging \
             --expected-api-origin https://cloud-api-staging.cmux.dev --credentials-file "$credentials" \
             --evidence "$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json"
+
+      - name: Staging Cloud workspace matrix
+        if: inputs.cleanup_machine == '' && inputs.matrix
+        timeout-minutes: 90
+        env:
+          PROOF_AGENT: ${{ inputs.agent }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/cloud-chat-proof/matrix-staging"
+          status=0
+          python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-staging" \
+            --agents "$PROOF_AGENT" --cloud-backend staging --expected-api-origin https://cloud-api-staging.cmux.dev \
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --out "$out" || status=$?
+          [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the staging matrix
+        if: always() && inputs.matrix
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-workspace-matrix-staging
+          path: ${{ runner.temp }}/cloud-chat-proof/matrix-staging/
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Machine status and kill
         if: inputs.cleanup_machine != ''
@@ -621,7 +650,7 @@ jobs:
           echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
 
       - name: Prod Cloud chat and reply
-        if: inputs.cleanup_machine == ''
+        if: inputs.cleanup_machine == '' && !inputs.matrix
         timeout-minutes: 30
         env:
           PROOF_PROMPT: ${{ inputs.prompt }}
@@ -634,6 +663,30 @@ jobs:
             --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend prod \
             --expected-api-origin https://cloud-api.cmux.dev --credentials-file "$credentials" \
             --evidence "$RUNNER_TEMP/cloud-chat-proof/prod-evidence.json"
+
+      - name: Prod Cloud workspace matrix
+        if: inputs.cleanup_machine == '' && inputs.matrix
+        timeout-minutes: 90
+        env:
+          PROOF_AGENT: ${{ inputs.agent }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/cloud-chat-proof/matrix-prod"
+          status=0
+          python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-prod" \
+            --agents "$PROOF_AGENT" --cloud-backend prod --expected-api-origin https://cloud-api.cmux.dev \
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --out "$out" || status=$?
+          [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the prod matrix
+        if: always() && inputs.matrix
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-workspace-matrix-prod
+          path: ${{ runner.temp }}/cloud-chat-proof/matrix-prod/
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Summarize the evidence
         id: evidence

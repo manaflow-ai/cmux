@@ -10468,6 +10468,10 @@
         "ty": "object",
         "nullable": true
       },
+      "/split/around": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/split/direction": {
         "ty": "string",
         "required": true
@@ -10531,6 +10535,10 @@
       },
       "/split": {
         "ty": "object",
+        "nullable": true
+      },
+      "/split/around": {
+        "ty": "uint64",
         "nullable": true
       },
       "/split/direction": {
@@ -11806,6 +11814,20 @@
         "nullable": true
       }
     },
+    "request:set-divider-visible": {
+      "/split": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/transaction": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/visible": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "request:set-frontend-browser-history": {
       "/history": {
         "ty": "json",
@@ -12321,6 +12343,10 @@
       }
     },
     "request:split": {
+      "/around": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/before": {
         "ty": "boolean"
       },
@@ -21373,6 +21399,7 @@
       }
     },
     "response:set-default-colors": {},
+    "response:set-divider-visible": {},
     "response:set-frontend-browser-history": {
       "/data": {
         "ty": "json",
