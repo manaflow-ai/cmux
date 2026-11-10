@@ -2079,6 +2079,42 @@ mod tests {
 
         self.assert_refused_like_ci("crash-safety-baseline.json", "may only go down", "cmux-fixture-raise")
 
+    # ratchet-rev-3 (BLOCK of #39853 at 95f48d97): main_based() asked where HEAD left origin/main, so a feat branch
+    # that merged the current origin/main (not on feat) read as main-based and got no Rust crash check at all.
+    def merges_main(self):
+        """origin/main one commit ahead of feat's tip (with the CmuxNext app entry, as a real main tip merged into a
+        feat branch keeps feat's file), merged into the local feat-cmux-next."""
+        self.git("checkout", "--quiet", "-b", "main", "origin/feat-cmux-next")
+        self.write("docs/main-only.md", "main's own work\n")
+        self.commit("main: its own commit")
+        self.assertEqual(self.push_ref("main", "--no-verify").returncode, 0)
+        self.git("fetch", "--quiet", "origin")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.git("merge", "--quiet", "--no-ff", "--no-edit", "origin/main")
+
+    def test_a_feat_push_that_merges_main_and_adds_an_unwrap_is_refused(self):
+        crate = "cmux-tui/crates/cmux-fixture-synced/src"
+        self.write(f"{crate}/lib.rs", "pub fn a(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.set_crash_row("cmux-fixture-synced", "unwrap", 1)
+        self.base_commit("base: a crate at its row of 1")
+        self.merges_main()
+        self.write(f"{crate}/lib.rs", "pub fn a(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n"
+                   "pub fn b(v: Mutex<u32>) -> u32 {\n    *v.lock().unwrap()\n}\nuse std::sync::Mutex;\n")
+        self.commit("after the main sync: a lock().unwrap() in production code")
+
+        self.assert_refused_like_ci("cmux-fixture-synced", f"{crate}/lib.rs:")
+
+    def test_a_feat_push_that_merges_main_and_raises_only_a_rust_row_is_refused(self):
+        crate = "cmux-tui/crates/cmux-fixture-synced-row/src"
+        self.write(f"{crate}/lib.rs", "pub fn a(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
+        self.set_crash_row("cmux-fixture-synced-row", "unwrap", 1)
+        self.base_commit("base: a crate at its row of 1")
+        self.merges_main()
+        self.set_crash_row("cmux-fixture-synced-row", "unwrap", 4)
+        self.commit("after the main sync: raise the row only")
+
+        self.assert_refused_like_ci("crash-safety-baseline.json", "may only go down", "cmux-fixture-synced-row")
+
     def test_a_push_that_lowers_only_a_rust_row_passes(self):
         crate = "cmux-tui/crates/cmux-fixture-lower/src"
         self.write(f"{crate}/lib.rs", "pub fn a(v: Option<u32>) -> u32 {\n    v.unwrap()\n}\n")
