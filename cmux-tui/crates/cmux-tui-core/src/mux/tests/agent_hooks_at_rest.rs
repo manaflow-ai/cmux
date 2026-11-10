@@ -1,0 +1,269 @@
+//! Agents that work and change no durable state write nothing.
+//!
+//! Lawrence's daemon, 2026-11-10 (826 workspaces, 170 agents, nobody at the
+//! keyboard): 64 % of the journal rows were `agent.state.changed`, about 3.3 a
+//! second, 2,146 bytes each, 612 MB a day, each one a registry commit. A tool
+//! call, a notification or a hook cmux has no name for moves no durable state:
+//! the roster keeps its row and the history list keeps its session. They are
+//! live state for clients (presence), not journal.
+//!
+//! This guard runs that stretch on a real on-disk registry: every agent is in
+//! a turn and reports tool calls for some simulated minutes. It counts journal
+//! rows, registry commits, WAL frame bytes and database pages; none may move.
+//! Rows and bytes are counted, not timed, so the result does not depend on the
+//! machine. The control proves that the counters see a real change: a turn's
+//! start and end still append their rows.
+
+use std::collections::BTreeMap;
+
+use serde_json::{Value, json};
+
+use super::*;
+
+/// Agents of the session (Lawrence's daemon had 170).
+const AGENTS: usize = 170;
+/// Simulated minutes at rest.
+const MINUTES: usize = 5;
+/// Reports of one agent a minute (3.3 rows a second from 170 agents is about
+/// 1.2 a minute each; a busy agent sends more, so the guard uses 3).
+const REPORTS_PER_AGENT_PER_MINUTE: usize = 3;
+const CWD: &str = "/work/project";
+
+struct Agent {
+    terminal: TerminalPublicId,
+    surface: SurfaceId,
+    session: String,
+}
+
+/// A session of `workspaces` workspaces with `AGENTS` terminals spread over
+/// them, each terminal with an agent in a turn.
+fn session_with_agents_in_a_turn(workspaces: usize, root: &Path) -> (Arc<Mux>, Vec<Agent>) {
+    let mux = open_persistent_test_mux("agents-at-rest", root);
+    // The maintenance worker checkpoints and seals on its own clock; the
+    // counters below must see only what the hooks cause.
+    mux.stop_journal_maintenance();
+    let keys = (0..workspaces)
+        .map(|_| mux.create_empty_workspace(None, None, None).unwrap().key)
+        .collect::<Vec<_>>();
+    let agents = (0..AGENTS)
+        .map(|index| {
+            let raw = format!("00000000000040008000{:012x}", index + 1);
+            let incarnation = format!("10000000000040008000{:012x}", index + 1);
+            let surface = mux
+                .seed_running_terminal_for_test(&raw, &incarnation, &keys[index % workspaces])
+                .unwrap();
+            let terminal =
+                mux.workspace_registry.lock().unwrap().terminal_resource_id(&raw).unwrap().unwrap();
+            Agent { terminal, surface, session: format!("session-{index}") }
+        })
+        .collect::<Vec<_>>();
+    for agent in &agents {
+        send(&mux, agent, "SessionStart", json!({}));
+        send(&mux, agent, "UserPromptSubmit", json!({ "prompt": "go on" }));
+    }
+    for agent in &agents {
+        assert_eq!(
+            settled(&mux).agent_roster_state_now_for_test(agent.terminal.as_str()).as_deref(),
+            Some("working"),
+            "setup: every agent is in a turn"
+        );
+    }
+    (mux, agents)
+}
+
+/// One hook of `agent` through the real journal ingress path, as its hook
+/// helper sends it. Returns the answer the helper gets.
+fn send(
+    mux: &Arc<Mux>,
+    agent: &Agent,
+    event: &str,
+    mut native: Value,
+) -> crate::JournalAppendCommit {
+    native["session_id"] = json!(agent.session);
+    native["cwd"] = json!(CWD);
+    let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        event,
+        Some(agent.terminal.as_str()),
+        native,
+    )
+    .unwrap();
+    let key = format!("at-rest-{}", crate::workspace_registry::new_uuid_v4());
+    mux.append_journal_ingress(&ingress, "test", &key).unwrap()
+}
+
+/// What the registry holds and what was written to it so far.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Written {
+    journal_head: u64,
+    commits: u64,
+    wal_frame_bytes: u64,
+    database_bytes: u64,
+}
+
+fn written(mux: &Arc<Mux>) -> Written {
+    // The roster's owner saves its snapshot after the request answered.
+    let mux = settled(mux);
+    let stats = mux.write_path_stats();
+    let path = mux.journal_kernel.database_path().expect("an on-disk registry");
+    let reader = crate::workspace_registry::open_registry_database_read_only(path).unwrap();
+    let pragma = |name: &str| -> u64 {
+        let value: i64 = reader.query_row(&format!("PRAGMA {name}"), [], |row| row.get(0)).unwrap();
+        u64::try_from(value).unwrap()
+    };
+    Written {
+        journal_head: mux.session_journal_head().unwrap(),
+        commits: stats.wal_commits,
+        wal_frame_bytes: stats.registry_wal_frame_bytes,
+        // The committed size, WAL frames included: it does not depend on
+        // when a checkpoint moves them into the main file.
+        database_bytes: pragma("page_count") * pragma("page_size"),
+    }
+}
+
+/// Journal rows after `sequence`, counted by kind.
+fn kinds_after(mux: &Mux, mut sequence: u64) -> BTreeMap<String, usize> {
+    let mut kinds = BTreeMap::new();
+    loop {
+        let page = mux.session_journal_after(sequence, 500).unwrap();
+        let Some(last) = page.records.last() else { return kinds };
+        sequence = last.sequence;
+        for record in &page.records {
+            *kinds.entry(record.kind.clone()).or_default() += 1;
+        }
+    }
+}
+
+/// The next presence of `surface` on `events`, skipping every other event.
+fn next_presence(events: &MuxEventReceiver, surface: SurfaceId) -> AgentPresence {
+    loop {
+        match events.recv_timeout(Duration::from_secs(5)) {
+            Ok(MuxEvent::AgentPresenceChanged { surface: changed, presence: Some(presence) })
+                if changed == surface =>
+            {
+                return presence.as_ref().clone();
+            }
+            Ok(_) => continue,
+            Err(error) => panic!("no agent presence for the tool call: {error:?}"),
+        }
+    }
+}
+
+/// `MINUTES` at rest: each agent reports tool calls, notifications and a hook
+/// cmux has no name for. Nothing durable changes, so nothing is written.
+fn agents_at_rest_write_nothing(workspaces: usize) {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-agents-at-rest-{}", crate::workspace_registry::new_uuid_v4()));
+    let (mux, agents) = session_with_agents_in_a_turn(workspaces, &root);
+    let before = written(&mux);
+
+    let mut hooks = 0_usize;
+    for report in 0..MINUTES * REPORTS_PER_AGENT_PER_MINUTE {
+        for agent in &agents {
+            let file = format!("{CWD}/src/file_{report}.rs");
+            let answer = match report % 4 {
+                0 => send(
+                    &mux,
+                    agent,
+                    "PreToolUse",
+                    json!({ "tool_name": "Read", "tool_input": { "file_path": file } }),
+                ),
+                1 => send(
+                    &mux,
+                    agent,
+                    "PostToolUse",
+                    json!({ "tool_name": "Read", "tool_input": { "file_path": file } }),
+                ),
+                2 => send(&mux, agent, "Notification", json!({ "message": "still at work" })),
+                _ => send(&mux, agent, "PreCompact", json!({})),
+            };
+            // The hook helper reads a decimal sequence and an event id of 1
+            // to 128 characters from the answer.
+            assert!(
+                answer.sequence > 0 && (1..=128).contains(&answer.event_id.len()),
+                "the hook's caller gets a receipt: {answer:?}"
+            );
+            hooks += 1;
+        }
+    }
+    // The live effect still reaches clients: a tool call shows its file.
+    let events = mux.subscribe();
+    let shown = &agents[AGENTS / 2];
+    send(
+        &mux,
+        shown,
+        "PreToolUse",
+        json!({ "tool_name": "Edit", "tool_input": { "file_path": "/work/project/src/shown.rs" } }),
+    );
+    hooks += 1;
+    let presence = next_presence(&events, shown.surface);
+    assert_eq!(presence.path.as_deref(), Some("/work/project/src/shown.rs"));
+    assert_eq!(presence.tool.as_deref(), Some("Edit"));
+    drop(events);
+
+    let after = written(&mux);
+    let rows = kinds_after(&mux, before.journal_head);
+    assert_eq!(
+        after,
+        before,
+        "{MINUTES} minutes at rest, {AGENTS} agents in {workspaces} workspaces, {hooks} hooks that \
+         change no durable state: {} journal rows {rows:?}, {} registry commits, {} WAL frame \
+         bytes, {} bytes of database pages. A hook that changes no durable state must write nothing",
+        after.journal_head - before.journal_head,
+        after.commits - before.commits,
+        after.wal_frame_bytes - before.wal_frame_bytes,
+        after.database_bytes.saturating_sub(before.database_bytes),
+    );
+    for agent in &agents {
+        assert_eq!(
+            mux.agent_roster_state_now_for_test(agent.terminal.as_str()).as_deref(),
+            Some("working"),
+            "the roster keeps every agent in its turn"
+        );
+    }
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn agents_at_rest_write_nothing_in_a_light_session() {
+    agents_at_rest_write_nothing(1);
+}
+
+#[test]
+fn agents_at_rest_write_nothing_in_a_large_session() {
+    agents_at_rest_write_nothing(60);
+}
+
+#[test]
+fn agents_at_rest_write_nothing_in_a_real_session() {
+    agents_at_rest_write_nothing(826);
+}
+
+/// The control: the same counters see a durable change. Each agent ends its
+/// turn and starts the next one; each of the two hooks appends its row.
+#[test]
+fn agents_at_rest_control_a_turn_still_appends_its_rows() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-agents-at-rest-control-{}", crate::workspace_registry::new_uuid_v4()));
+    let (mux, agents) = session_with_agents_in_a_turn(1, &root);
+    let before = written(&mux);
+    for agent in &agents {
+        send(&mux, agent, "Stop", json!({}));
+        send(&mux, agent, "UserPromptSubmit", json!({ "prompt": "next" }));
+    }
+    let after = written(&mux);
+    let rows = kinds_after(&mux, before.journal_head);
+    assert_eq!(
+        (rows.get("agent.turn.completed"), rows.get("agent.turn.started")),
+        (Some(&AGENTS), Some(&AGENTS)),
+        "each turn end and each turn start appends exactly one row: {rows:?}"
+    );
+    assert!(
+        after.commits >= before.commits + 2 * AGENTS as u64
+            && after.wal_frame_bytes > before.wal_frame_bytes,
+        "the counters see the turn rows: {before:?} -> {after:?}"
+    );
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
