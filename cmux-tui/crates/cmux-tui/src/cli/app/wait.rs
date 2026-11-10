@@ -21,8 +21,11 @@ const LONG_WAIT: Duration = SCREENSHOT_TIMEOUT;
 /// No note for a wait shorter than this.
 const FIRST_NOTE_AFTER: Duration = Duration::from_secs(2);
 const NOTE_EVERY: Duration = Duration::from_secs(5);
-/// The waits before each new connection after the app dropped one.
-const RECONNECT_BACKOFF: [Duration; 2] = [Duration::from_millis(200), Duration::from_millis(800)];
+/// The first wait before a new connection after the app dropped one; each next wait doubles, up to
+/// [`RECONNECT_MAX_WAIT`], until the request's deadline (`run::not_run_deadline`): an app restarting
+/// its control server takes as long as it takes, never a fixed two tries.
+const RECONNECT_FIRST_WAIT: Duration = Duration::from_millis(200);
+const RECONNECT_MAX_WAIT: Duration = Duration::from_secs(2);
 
 /// [`request_with_retry`] with progress notes while it waits; a transport
 /// failure is the `app.transport` error to print, typed by [`timed_out`]
@@ -39,20 +42,35 @@ pub(super) fn request(
     let what = waiting_for(method, params);
     let template = crate::localization::catalog().app_control.waiting_progress;
     let progress = Progress::start(&what, template, timeout.filter(|_| long), global.output);
+    let started = Instant::now();
+    let deadline = super::run::not_run_deadline(timeout);
     let mut response = request_with_retry(stream, method, params, timeout);
     // A dropped connection (the app restarted its control server, or closed
-    // it under load) is healed: a new connection, the same request. A keyed
-    // run carries its idempotency key, so the app replays or joins it.
-    for wait in RECONNECT_BACKOFF {
+    // it under load) is healed: a new connection, the same request, with
+    // backoff until the deadline. A keyed run carries its idempotency key, so
+    // the app replays or joins it.
+    let mut wait = RECONNECT_FIRST_WAIT;
+    loop {
         let Err(error) = &response else { break };
         if timeout.is_some_and(|timeout| *error == timeout_message(timeout))
             || !safe_to_resend(method, params)
         {
             break;
         }
+        if started.elapsed() + wait > deadline {
+            eprintln!(
+                "cmux: {method}: the app's control socket still dropped the request after {} ms of reconnects",
+                started.elapsed().as_millis()
+            );
+            break;
+        }
         std::thread::sleep(wait);
-        let Ok(fresh) = super::connect_command(global) else { break };
-        *stream = fresh;
+        wait = (wait * 2).min(RECONNECT_MAX_WAIT);
+        match super::connect_command(global) {
+            Ok(fresh) => *stream = fresh,
+            // The control server is not back yet: wait again (the last error stays the answer).
+            Err(_) => continue,
+        }
         response = request_with_retry(stream, method, params, timeout);
     }
     let waited = progress.finish();
