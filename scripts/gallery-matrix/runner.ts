@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type CDPSession, type Page } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import { createHash, randomUUID } from "node:crypto";
@@ -221,6 +221,15 @@ export async function captureClip(page: Page): Promise<{ x: number; y: number; w
   const bottom = Math.min(measured.viewportHeight, measured.bottom + DEFAULT_CAPTURE_CONTEXT);
   return right > left && bottom > top ? { x: left, y: top, width: right - left, height: bottom - top } : undefined;
 }
+/** A CDP session on the page, or undefined when the context has none or refuses one; never throws. */
+async function openCpuSession(context: unknown, page: unknown): Promise<CDPSession | undefined> {
+  const open = (context as { newCDPSession?: (page: unknown) => Promise<CDPSession> }).newCDPSession;
+  if (typeof open !== "function") return undefined;
+  return Promise.resolve()
+    .then(() => open.call(context, page))
+    .catch(() => undefined);
+}
+
 async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, outputDir: string, baselineDir: string | undefined, threshold: number, browser: Browser): Promise<Record<string, unknown>> {
   const params = item.params ?? {};
   const width = Number(params.width ?? DEFAULT_WIDTH);
@@ -230,6 +239,12 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, colorScheme: params.colorScheme === "dark" ? "dark" : params.colorScheme === "light" ? "light" : "no-preference", locale: typeof params.locale === "string" ? params.locale : undefined, timezoneId: "UTC", reducedMotion: flag(params.reducedMotion) ? "reduce" : "no-preference", contrast: flag(params.highContrast) ? "more" : "no-preference" });
   try {
     const page = await context.newPage();
+    // The renderer's main-thread CPU time (Chromium's Performance metrics, `ThreadTime`): the work the
+    // stage did to get ready, which a loaded runner does not stretch the way it stretches wall time.
+    // Optional: a context with no CDP (another engine, a test double) is held to wall time instead.
+    const cpu = engine === "chromium" ? await openCpuSession(context, page) : undefined;
+    const cpuReady = cpu ? await Promise.resolve().then(() => cpu.send("Performance.enable")).then(() => true, () => false) : false;
+    if (engine === "chromium" && !cpuReady) console.warn(`gallery matrix: ${item.id}: no renderer CPU reading; its ready budget uses wall time`);
     // Workflow receipts reuse the matrix's synthetic captures. Keep only an AX digest/count,
     // never accessibility text, and leave ordinary matrix timing/capture costs unchanged.
     const workflow = process.env.CMUX_GALLERY_WORKFLOW_EVIDENCE === "1";
@@ -295,9 +310,17 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     await page.goto(url, { waitUntil: "domcontentloaded" });
     // A gallery stage says when it has painted and gone still (frame/main.ts `data-gallery-ready`).
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
+    const threadTime = cpuReady
+      ? await Promise.resolve().then(() => cpu!.send("Performance.getMetrics")).then(({ metrics }) => metrics.find((metric) => metric.name === "ThreadTime")?.value, () => undefined)
+      : undefined;
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
     const stamped = await page.evaluate(() => (window as unknown as { cmuxGalleryReadyMs?: number }).cmuxGalleryReadyMs ?? null);
     const readyMs = stamped === null ? null : Math.max(0, stamped - stillsMs - beforeEvidenceMs);
+    // The CPU the stage spent until ready (mount, play and settle), read once it said so: gallery
+    // health holds each state's budget to this, not to wall time (ready-budgets.ts). A play's own
+    // waits (a scripted turn's quiet windows, a timer it lets run) cost no CPU, and a runner busy
+    // with other shards delays the stage without adding to it. Wall time stays as `readyMs`.
+    const readyCpuMs = stamped === null || typeof threadTime !== "number" ? null : Math.round(threadTime * 1000);
     const revision = await page.evaluate(() => {
       const root = document.documentElement;
       return {
@@ -327,7 +350,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // The design specs' geometry rules, read from the stage as screenshotted (webviews/src/gallery/invariants.ts): gallery health's geometry gate.
     const invariants = await page.evaluate(() => (window as unknown as { cmuxGalleryInvariants?: () => unknown }).cmuxGalleryInvariants?.() ?? null).catch(() => null);
     const screenshotPath = join(outputDir, screenshotName);
-    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, load, invariants, ...(experiment ? { experiment } : {}) };
+    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, readyCpuMs, revision, play, load, invariants, ...(experiment ? { experiment } : {}) };
     if (workflow) result.workflowEvidence = { beforeSteps, afterSteps, final: { screenshot: screenshotName, axDigest: await axDigest() }, timingIncludesEvidenceCapture: false };
     if (geometrySelections) result.geometry = await collectGeometry(page, geometrySelections, { schemaVersion: 1, revision, capture: { caseId: item.id, engine, theme: String(params.colorScheme), viewport: { width, height }, deviceScaleFactor: DEFAULT_DEVICE_SCALE, screenshot: screenshotName, screenshotSha256: "", coordinateSpace: "css-px" } }, outputDir);
     if (stills.length) result.steps = stills.sort((a, b) => a.index - b.index);

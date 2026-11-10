@@ -24,13 +24,19 @@ public final class WindowRegistryStore {
     /// its own workspace's entry, never `value`, so a workspace made, closed or moved elsewhere maps no other row again
     /// (TYPING UNDER LOAD F6: every row read the whole registry).
     public let incognitoByWorkspace = ObservedMap<String, Bool>()
+    /// The close-selection rule's state for the workspaces of every window: who opened which, and the pick after a
+    /// close (`WindowCloseSelection`). One instance for all windows is safe: a workspace has one owner window
+    /// (`WindowRegistry.owner(of:)`), so no relation of one window can be ended by a selection change of another.
+    @ObservationIgnored public let closeSelection = WindowCloseSelection()
     /// The window that lists each workspace (`WindowRegistry.owner(of:)`), observed one workspace at a time: nil while
     /// no window lists it. An observer of ONE workspace (its link places, its shown name) reads its own entry, never
     /// `value`: a read of `value` there made one workspace made or closed wake one observer per workspace of the
     /// session (WORKSPACE LIST 800: 826 workspaces named again per list change, about 100 ms of main thread).
     public let ownerByWorkspace = ObservedMap<String, String>()
-    /// The workspaces `incognitoByWorkspace` and `ownerByWorkspace` answer for.
-    @ObservationIgnored private var answered: Set<String> = []
+    /// The window kind and owner last written to `incognitoByWorkspace` and `ownerByWorkspace` for each workspace they
+    /// answer for. Plain, not observed: the next refresh compares against it, so an answer that did not change costs
+    /// no read or write of an observed entry.
+    @ObservationIgnored private var answered: [String: (incognito: Bool, owner: String?)] = [:]
 
     public init() {}
 
@@ -49,10 +55,20 @@ public final class WindowRegistryStore {
         var next = value
         let changes = transition(&next)
         if next != value {
+            let before = value
             value = next
-            refreshWorkspaceAnswers()
+            // The answers follow from the lists, the incognito windows and the discarded workspaces alone: a window
+            // that comes to the front, moves or closes with its list kept changes none.
+            if !Self.sameAnswers(before, next) { refreshWorkspaceAnswers() }
         }
         return changes
+    }
+
+    /// Whether `old` and `new` give every workspace the same window kind and owner (equal lists share storage: the
+    /// compare is O(windows) then).
+    private static func sameAnswers(_ old: WindowRegistry, _ new: WindowRegistry) -> Bool {
+        old.incognito == new.incognito && old.discarding == new.discarding && old.windows.count == new.windows.count
+            && zip(old.windows, new.windows).allSatisfy { $0.id == $1.id && $0.workspaceIDs == $1.workspaceIDs }
     }
 
     /// Drops every launch-snapshot membership (the restore): each window's readers hear only their own window's entry.
@@ -70,6 +86,21 @@ public final class WindowRegistryStore {
     public func takeCloseWork() -> WorkspaceCloseWork {
         defer { closeWork = WorkspaceCloseWork() }
         return closeWork
+    }
+
+    /// What membership turns did since the last `takeMembershipWork()` (`WindowMembershipWork`).
+    @ObservationIgnored public private(set) var membershipWork = WindowMembershipWork()
+
+    /// The counts since the last call; counts from zero again.
+    public func takeMembershipWork() -> WindowMembershipWork {
+        defer { membershipWork = WindowMembershipWork() }
+        return membershipWork
+    }
+
+    /// Runs one build of a daemon's workspace order for a membership turn, counted in `membershipWork`.
+    public func orderBuild<Order>(_ build: () -> Order) -> Order {
+        membershipWork.orderBuilds += 1
+        return build()
     }
 
     /// The windows a selection repair visits, counted in `closeWork`: every window, or window `only` alone. A close
@@ -110,24 +141,30 @@ public final class WindowRegistryStore {
     /// The window that lists `workspaceID` (`value.owner(of:)`); observes that workspace's entry only.
     public func owner(ofWorkspace workspaceID: String) -> String? { ownerByWorkspace[workspaceID] }
 
-    /// Writes each workspace's window kind and owner: O(listed workspaces); only the entries that changed notify.
+    /// Writes the window kind and owner of each workspace whose answer changed, and of no other: one new workspace
+    /// writes its own two entries, in a session of 826 workspaces as in one of 60 (`membershipWork.answerWrites`).
+    /// A write of an equal value notified nobody before too, but it read its slot through the observation registrar
+    /// (a key path made for each read): 2 x 827 of them were 2.5 ms of main thread per new workspace at 826
+    /// (NEW WORKSPACE 800). The walk that is left compares plain values: one dictionary read per listed workspace.
     private func refreshWorkspaceAnswers() {
-        var answers: [String: Bool] = [:]
-        var owners: [String: String] = [:]
+        var next: [String: (incognito: Bool, owner: String?)] = [:]
+        next.reserveCapacity(answered.count + 1)
         // The first window that lists a workspace owns it (`WindowRegistry.owner(of:)`).
         for window in value.windows {
-            for id in window.workspaceIDs where answers[id] == nil {
-                answers[id] = value.isIncognito(window.id)
-                owners[id] = value.owner(of: id)
-            }
+            let incognito = value.isIncognito(window.id)
+            for id in window.workspaceIDs where next[id] == nil { next[id] = (incognito: incognito, owner: window.id) }
         }
-        for id in value.discarding { answers[id] = true }
-        for id in answered {
-            if answers[id] == nil { incognitoByWorkspace[id] = nil }
-            if owners[id] == nil { ownerByWorkspace[id] = nil }
+        for id in value.discarding { next[id] = (incognito: true, owner: next[id]?.owner) }
+        for (id, old) in answered where next[id] == nil {
+            incognitoByWorkspace[id] = nil
+            membershipWork.answerWrites += 1
+            if old.owner != nil { ownerByWorkspace[id] = nil; membershipWork.answerWrites += 1 }
         }
-        for (id, answer) in answers { incognitoByWorkspace[id] = answer }
-        for (id, owner) in owners { ownerByWorkspace[id] = owner }
-        answered = Set(answers.keys)
+        for (id, answer) in next {
+            let old = answered[id]
+            if old?.incognito != answer.incognito { incognitoByWorkspace[id] = answer.incognito; membershipWork.answerWrites += 1 }
+            if old?.owner != answer.owner { ownerByWorkspace[id] = answer.owner; membershipWork.answerWrites += 1 }
+        }
+        answered = next
     }
 }

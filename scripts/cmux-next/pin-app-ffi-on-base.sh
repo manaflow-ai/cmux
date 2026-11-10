@@ -15,7 +15,11 @@
 #  - the tip's FFI sources are the release's (content, not commit: an unrelated
 #    commit on top changes nothing; a newer FFI change gives result=newer, and
 #    the run of the push that made it pins its own release);
-#  - the tip's C headers keep every declaration of the current pin's
+#  - the FFI only adds over the current pin, as the Swift build sees it
+#    (scripts/cmux-next/app_ffi_additive.py): the same packaging inputs
+#    (build-app-ffi.sh, module maps, cbindgen.toml, the release workflow and
+#    toolchain), the same preprocessor directives under the same conditionals,
+#    and every C declaration of the current pin's headers kept in place
 #    (scripts/cmux-next/app_ffi_additive.py): a removed or changed declaration
 #    can break the Swift build, so result=pr and the pull request's app compile
 #    proves it first;
@@ -91,7 +95,7 @@ for attempt in 1 2 3 4 5; do
   have "$pinned" || finish pr "the current pin's source $pinned is not available, so its headers cannot be compared"
   rc=0; additive="$(python3 -I scripts/cmux-next/app_ffi_additive.py "$pinned" "$sha" -- "${inputs[@]}" 2>&1)" || rc=$?
   echo "$additive"
-  (( rc == 0 )) || finish pr "the headers are not additive over the current pin ${pinned:0:12}; the re-pin pull request's app compile proves them first"
+  (( rc == 0 )) || finish pr "the FFI does not only add over the current pin ${pinned:0:12}; the re-pin pull request's app compile proves them first"
   bash scripts/cmux-next/repin-app-ffi.sh "$sha" "$checksum"
   bash scripts/cmux-next/check-app-ffi-pin.sh --verify-release
   paths=("$manifest")
@@ -99,7 +103,7 @@ for attempt in 1 2 3 4 5; do
   git add -- "${paths[@]}"
   git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
     commit --quiet -m "chore(next): pin CCmuxAppFFI to $tag" \
-    -m "The release of ${sha:0:12}, whose FFI sources the tip ${tip:0:12} has (checksum $checksum). Its headers keep every declaration of the pin before, ${pinned:0:12}." \
+    -m "The release of ${sha:0:12}, whose FFI sources the tip ${tip:0:12} has (checksum $checksum). It keeps the packaging, directives and declarations of the pin before, ${pinned:0:12}." \
     -m "scripts/cmux-next/pin-app-ffi-on-base.sh${GITHUB_RUN_ID:+: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID}"
   if [[ "${ENABLED:-}" != true ]]; then
     finish dry-run "would push $(git rev-parse --short HEAD) on ${tip:0:12} (the repository variable CMUX_NEXT_BASE_AUTOFIX is not 1)"

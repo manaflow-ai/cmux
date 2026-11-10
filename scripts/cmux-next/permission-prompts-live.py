@@ -18,7 +18,7 @@ page (a new port, so a new origin, every run). For each engine:
      app's one macOS notification authorization), but its pages keep `Notification` and
      `PushManager` with the permission `default`, as in Chrome: a page without them fails
      bot checks (Akamai's challenge page reloaded godaddy.com forever). A request for the
-     permission ends at once as `denied`, with no prompt.
+     permission ends at once as `default`, with no prompt, however often the page asks.
 
 Location is only ever denied: allowing it would raise the macOS location prompt on the
 host. GUI host only (a capture mini). The app is quit and the tag's daemons stopped at
@@ -214,10 +214,13 @@ def run_engine(engine):
         check(run(engine, "notifyNow('cmux chromium early')"), f"{engine}: the page makes a notification without permission")
         time.sleep(2)
         check(banner("cmux chromium early") is None, f"{engine}: a notification without permission shows no banner ({banners()})")
-        check(run(engine, "askNotify(); true"), f"{engine}: the page requests notifications")
-        got = settled("notify")
-        check(got == "denied" and not permission_prompts("notifications"),
-              f"{engine}: a notification request ends at once, refused, with no prompt ({got}, {prompts()})")
+        for attempt in range(1, 7):
+            check(run(engine, "askNotify(); true"), f"{engine}: the page requests notifications ({attempt})")
+            got = settled("notify")
+            check(got == "default" and not permission_prompts("notifications"),
+                  f"{engine}: notification request {attempt} ends at once, unanswered, with no prompt ({got}, {prompts()})")
+        got = page("Notification.permission")
+        check(got == "default", f"{engine}: after six requests nothing is stored for the site ({got})")
     else:
         check(run(engine, "notifyNow('cmux early')"), f"{engine}: the page makes a notification before asking")
         time.sleep(2)

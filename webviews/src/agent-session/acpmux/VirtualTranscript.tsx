@@ -169,7 +169,7 @@ import {
   jumpUpShown,
   jumpUpTarget,
   lastOwnPrompt,
-  placeOffScreen,
+  placeOffView,
   pressJumpUp,
   type JumpBack,
   type ManualMark,
@@ -1410,7 +1410,7 @@ function TranscriptView({
       repositoryReading.current,
     );
     repositoryReading.current = reading;
-    return reading.repositories;
+    return reading.at;
   }, [githubRepository, fallbackRepository, rows]);
   // Which repository each row's bare `#N` names, by the transcript's evidence
   // (conversation/bareReferences.ts): one scope object per turn, kept while nothing new is named;
@@ -5048,7 +5048,7 @@ function TranscriptView({
     : undefined;
   const upIndex = upTarget ? indexOfRow(rows, upTarget.rowId, jumpUpHint) : -1;
   const upTop = upIndex >= 0 ? layout.geometry.topAt(upIndex) + (upTarget?.offset ?? 0) : undefined;
-  const upOff = placeOffScreen(upTop, renderScroll.top - origin, height, topInset);
+  const upOff = placeOffView(upTop, { shownTop, height, threadTop: THREAD_TOP, topInset, dockSpace });
   const upShown = jumpButton && jumpUpShown(upOff, jumpBackHeld ? jumpBack.current : undefined);
   const upTopRef = useRef(upTop);
   upTopRef.current = upTop;
@@ -5250,7 +5250,7 @@ function TranscriptView({
                         controls={controls}
                         onToggleActivity={toggleRow}
                         onOpenDiff={onOpenDiff}
-                        githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
+                        githubRepository={githubRepository ?? rowRepositories?.(absoluteIndex)}
                         referenceScope={scopeAt(absoluteIndex)}
                       >
                         <RowContent
@@ -5263,7 +5263,7 @@ function TranscriptView({
                           onOpenDiff={onOpenDiff}
                           expanded={isExpanded}
                           controls={controls}
-                          githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
+                          githubRepository={githubRepository ?? rowRepositories?.(absoluteIndex)}
                         />
                       </RowFrame>
                     );
