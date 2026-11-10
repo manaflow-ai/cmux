@@ -32,6 +32,10 @@ import Testing
                                                 validMetrics: SettingsApplier.validMetrics)
         _ = SettingsApplier(registry: ActionRegistry.standard()).apply(snapshot)
         DesignSettings.shared.density = density
+        // The pill's even inset: the flush corner (the default above compact) puts the first tab on the
+        // card's edge instead (CornerFlushTests). Reset at compact, where it is off anyway.
+        TunableStore.shared.register([CornerFlush.tunable.descriptor])
+        TunableStore.shared.set(CornerFlush.tunable.key, density == .compact ? nil : CornerFlush.off.tunableValue)
     }
 
     private func reset() { load(nil, density: .compact) }
