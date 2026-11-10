@@ -13,9 +13,14 @@ the name lookup is checked against it, the connect, the TLS handshake, each send
 most what is left, and a send never starts once nothing is left. So nothing is written after the
 deadline, and an answer that ends after it is a RequestTimeout, never a success.
 
-The one wait it cannot cut short is the name lookup: getaddrinfo takes no timeout. The deadline is
-checked before and after it, so a slow lookup can overrun the deadline by its own length, but the call
-then raises RequestTimeout without connecting, so nothing is sent.
+getaddrinfo takes no timeout, so the name lookup runs on a daemon thread the caller waits on for the time
+left; past it the call raises RequestTimeout (Codex review of #40631, F2: a 663 ms lookup against a 100 ms
+deadline). That thread is safe to abandon, unlike #40574's request thread: a lookup sends nothing, so all
+it can leave behind is an address no one reads.
+
+Bytes already buffered can finish an answer with no further receive, so the deadline is checked once
+more before any answer is returned (Codex review of #40631, F1: a buffered 204 read after a pause
+succeeded at 1.28 s against a 1 s deadline).
 
 tests/test_ci_no_bare_urlopen.py fails on any other urlopen call in scripts/ci outside the legacy list
 there; every new caller comes through here.
@@ -29,6 +34,7 @@ import io
 import select
 import socket
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -61,13 +67,32 @@ class Deadline:
         return left
 
 
+def _resolve(host: str, port: int, deadline: Deadline) -> list:
+    """socket.getaddrinfo for HOST, waited on for the time left on DEADLINE (see the module docstring)."""
+    left = deadline.left(f"resolving {host}")
+    found: dict[str, object] = {}
+
+    def lookup() -> None:
+        try:
+            # Read at call time, so a test can slow the lookup down.
+            found["infos"] = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+        except BaseException as error:  # noqa: BLE001 - handed to the caller below
+            found["error"] = error
+
+    thread = threading.Thread(target=lookup, name="deadline-http-resolve", daemon=True)
+    thread.start()
+    thread.join(left)
+    if thread.is_alive():
+        raise RequestTimeout(f"resolving {host}: past the {deadline.seconds:g} s deadline")
+    if "error" in found:
+        raise found["error"]
+    return found["infos"]
+
+
 def _connect(address: tuple[str, int], deadline: Deadline, source_address=None) -> socket.socket:
     """socket.create_connection, with the lookup checked against DEADLINE and each connect bounded by it."""
     host, port = address
-    deadline.left(f"resolving {host}")
-    # Read at call time, so a test can slow the lookup down. getaddrinfo takes no timeout: see the module
-    # docstring.
-    infos = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+    infos = _resolve(host, port, deadline)
     error: OSError | None = None
     for family, kind, proto, _, sockaddr in infos:
         left = deadline.left(f"connecting to {host}")
@@ -245,6 +270,8 @@ def request(req: urllib.request.Request | str, seconds: float | None = None, *, 
         if isinstance(error.reason, RequestTimeout):
             raise error.reason from None
         raise
+    # The answer may have finished from bytes already buffered, with no receive left to check the time.
+    deadline.left("reading the answer")
     if raise_errors and status >= 400:
         raise urllib.error.HTTPError(req.full_url, status, getattr(response, "reason", "") or "", raw, io.BytesIO(body))
     return status, body, Headers({k.lower(): v for k, v in (raw or {}).items()})
