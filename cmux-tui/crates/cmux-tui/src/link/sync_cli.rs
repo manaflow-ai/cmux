@@ -552,6 +552,11 @@ pub(super) fn machine_call(
 }
 
 /// What is at `path` on the machine (`file`, `dir`, ...); None when nothing.
+/// The sync base kept for `local` at `from_root` is the one for `to_root` ([`base::carry`]).
+pub(super) fn carry_base(local: &Path, from_root: &str, to_root: &str) -> anyhow::Result<bool> {
+    base::carry(local, from_root, to_root)
+}
+
 pub(super) fn remote_kind(socket: &Path, path: &str) -> anyhow::Result<Option<String>> {
     Remote::connect(socket)?.kind(path)
 }

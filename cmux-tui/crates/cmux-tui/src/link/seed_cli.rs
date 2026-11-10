@@ -413,7 +413,7 @@ impl<'a> Machine<'a> {
     }
 }
 
-/// A seeded folder whose chat moved on with it, `.git` byte for byte, from the machine at `from`
+/// A seeded or copied folder whose chat moved on with it, `.git` byte for byte, from the machine at `from`
 /// (`from_root`) to the one at `to` (`to_root`; `cmux link agent move --sync relay`): this Mac's
 /// record of `local` follows, so Bring Back Local from the new machine merges against the same
 /// seed. False when there is no record, or it is of another machine than `from`.
@@ -440,6 +440,11 @@ pub(in crate::link) fn follow(
     }
     kept.machine =
         Some(anyhow::Context::context(id(to), "the new machine did not say which machine it is")?);
+    // A copied folder's Bring Back Local merges against the copy's own base (`link-sync`), which
+    // the relay's copy of the machine's record still matches.
+    if kept.mode == Kept::Copy {
+        sync_cli::carry_base(&local, from_root, to_root)?;
+    }
     record::save(&local, to_root, &kept)?;
     Ok(true)
 }

@@ -7,7 +7,7 @@ import CmuxNextDaemon
 @MainActor
 enum CloudMoveTargets {
     static func targets(record: AgentSessionRef?, machine: String, services: AppServices) -> [AgentPaneMoveTarget] {
-        guard let record else { return [] }
+        guard let record, !record.host.hasPrefix(MachineRegistry.registryHostPrefix) || record.session.flatMap({ services.cloud.movedChats.entry(host: record.host, session: $0) }) != nil else { return [] } // a Cloud chat no move from here put there: no folder to take yet (cmux#40122)
         let running = record.host.hasPrefix(MachineRegistry.registryHostPrefix)
             ? services.machines.cloud.first { AgentTabStore.registryHost(of: $0.daemon) == record.host } : nil
         let chat = CloudMoveTargetRules.Chat(

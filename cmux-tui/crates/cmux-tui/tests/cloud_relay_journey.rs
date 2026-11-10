@@ -381,6 +381,83 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     assert_eq!(count(&events, "user_message", USER_TEXT, QUEUED), 0, "ran on VM one too");
 }
 
+/// A folder Move to Cloud copied rather than seeded (no git here) moves VM to VM by relay, and
+/// Bring Back Local from VM two still merges against the copy's own base, carried to the new path.
+#[test]
+fn a_copied_folder_moved_to_another_vm_still_brings_back() {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let root = PathBuf::from("/tmp").join(format!("crc-{}-{stamp}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    let root = fs::canonicalize(&root).unwrap();
+    let _cleanup = Cleanup(root.clone());
+    let github = root.join("github");
+    let mac = Machine::start(&root, "mac", Vec::new());
+    let one = vm(&root, "one", &github);
+    let two = vm(&root, "two", &github);
+    let cli = || {
+        let mut command = Command::new(bin());
+        command
+            .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
+            .env("GIT_CONFIG_GLOBAL", "/dev/null");
+        command
+    };
+
+    let folder = mac.home().join("notes");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join("a.txt"), "from this mac\n").unwrap();
+    let first = one.home().join("work/notes");
+    let (ok, pushed) = run_json(
+        cli().args(["link", "seed", "push", "--socket"]).arg(&one.socket).arg(&folder).arg(&first),
+    );
+    assert!(ok && pushed["ok"] == json!(true), "copy push: {pushed}");
+    assert_eq!(pushed["mode"], json!("copy"), "{pushed}");
+
+    let mut one_acpmux = one.acpmux();
+    let created = one_acpmux.call("session/new", json!({"cwd": first, "mcpServers": []}));
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    let surface = bound_agent_tab(&one, &session);
+    fs::write(first.join("b.txt"), "written on vm one\n").unwrap();
+
+    let moved_to = two.home().join("work/notes-moved");
+    let (ok, moved) = run_json(
+        cli()
+            .args(["link", "agent", "move", "--from-socket"])
+            .arg(&one.socket)
+            .args(["--surface", &surface.to_string(), "--to-socket"])
+            .arg(&two.socket)
+            .arg("--cwd")
+            .arg(&moved_to)
+            .args(["--vm-kind", "owner", "--sync", "relay", "--sync-from-socket"])
+            .arg(&one.socket)
+            .arg("--sync-socket")
+            .arg(&two.socket)
+            .arg("--sync-local")
+            .arg(&first)
+            .arg("--sync-remote")
+            .arg(&moved_to)
+            .arg("--sync-seed-local")
+            .arg(&folder)
+            .arg("--state-dir")
+            .arg(root.join("pump-copy")),
+    );
+    assert!(ok && moved["ok"] == json!(true), "agent move: {moved}");
+    assert_eq!(fs::read_to_string(moved_to.join("b.txt")).unwrap(), "written on vm one\n");
+
+    fs::write(moved_to.join("c.txt"), "made on vm two\n").unwrap();
+    let (ok, back) = run_json(
+        cli()
+            .args(["link", "seed", "pull", "--socket"])
+            .arg(&two.socket)
+            .arg(&folder)
+            .arg(&moved_to)
+            .arg("--or-copy"),
+    );
+    assert!(ok && back["ok"] == json!(true), "bring back from VM two: {back}");
+    assert_eq!(fs::read_to_string(folder.join("b.txt")).unwrap(), "written on vm one\n");
+    assert_eq!(fs::read_to_string(folder.join("c.txt")).unwrap(), "made on vm two\n");
+    assert_eq!(fs::read_to_string(folder.join("a.txt")).unwrap(), "from this mac\n");
+}
+
 /// Every file name under `dir`.
 fn walk_names(dir: &Path) -> Vec<String> {
     let mut names = Vec::new();
