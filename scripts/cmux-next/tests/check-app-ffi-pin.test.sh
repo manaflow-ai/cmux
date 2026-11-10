@@ -255,4 +255,54 @@ commits="${commits%%Fix:*}"
 [[ "$commits" != *"json pin, stale base"* ]] \
   || fail "a shallow checkout named its oldest commit, which changed no input: $out"
 
+# A full checkout never fetches for the list: only a shallow one deepens.
+GIT_TRACE="$tmp/full-trace" check_tree >/dev/null 2>&1 && fail "the full checkout's stale pin passed"
+! grep -q "built-in: git fetch" "$tmp/full-trace" || fail "a full checkout fetched to list the commits since the pin"
+
+# A pull request merge whose branch forks before the pin, checked shallow: the list names the merge (on the pinned
+# branch, the first-parent chain) and never an input commit older than the pin. Without --first-parent the deepened
+# branch side reached back past the pin while the pin's own side stayed cut, so input commits older than the pin
+# read as newer (review of #40027).
+merge="$tmp/merge"
+mkdir -p "$merge/scripts/cmux-next" "$merge/scripts/ci" "$merge/Packages/macOS/CmuxNext" "$merge/cmux-tui/crates/cmux-app-ffi/src"
+cp "$script" "$merge/scripts/cmux-next/check-app-ffi-pin.sh"
+cp "$pin_reader" "$merge/scripts/ci/app_ffi_pin.py"
+printf '[package]\nname = "x"\n' > "$merge/cmux-tui/crates/cmux-app-ffi/Cargo.toml"
+git -C "$merge" init -q -b main
+input() { echo "$1" >> "$merge/cmux-tui/crates/cmux-app-ffi/src/lib.rs"; git -C "$merge" add -A; git -C "$merge" commit -qm "$1"; }
+input "c0"
+for i in $(seq 1 200); do
+  case "$i" in
+    50) input "old input before the fork" ;;
+    100) git -C "$merge" branch pr ;;
+    150) input "old input after the fork" ;;
+    *) git -C "$merge" commit -q --allow-empty -m "main $i" ;;
+  esac
+done
+merge_pin="$(git -C "$merge" rev-parse HEAD)"
+cat > "$merge/Packages/macOS/CmuxNext/Package.swift" <<EOF
+let appFFI: Target = .binaryTarget(
+    name: "CCmuxAppFFI",
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-$merge_pin/CCmuxAppFFI.xcframework.zip",
+    checksum: "$zeros"
+)
+EOF
+git -C "$merge" add -A
+git -C "$merge" commit -qm "pin"
+git -C "$merge" commit -q --allow-empty -m "after the pin"
+git -C "$merge" checkout -q pr
+echo "pr input" > "$merge/cmux-tui/crates/cmux-app-ffi/src/pr.rs"
+git -C "$merge" add -A
+git -C "$merge" commit -qm "pr input"
+git -C "$merge" checkout -q main
+git -C "$merge" merge -q --no-ff -m "merge pr" pr
+git clone -q --depth 2 "file://$merge" "$tmp/merge-shallow"
+if out="$(cd "$tmp" && bash "$code/scripts/cmux-next/check-app-ffi-pin.sh" --tree "$tmp/merge-shallow" 2>&1)"; then
+  fail "a merge that changes an input passed: $out"
+fi
+commits="${out#*Commits since the pin:}"
+commits="${commits%%Fix:*}"
+[[ "$commits" == *" t: merge pr"* ]] || fail "the list does not name the merge that changed an input: $out"
+[[ "$commits" != *"old input"* ]] || fail "the list names an input commit older than the pin: $out"
+
 echo "check-app-ffi-pin.test.sh: ok"
