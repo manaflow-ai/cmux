@@ -153,7 +153,7 @@ pub(super) fn parse(words: &[String]) -> Result<Parsed, UsageError> {
             "--repo" => repo = Some(take()?),
             "--ref" => reference = Some(take()?),
             "--timeout" => {
-                timeout = super::chat_send::timeout_value(&take()?)?.min(MAX_TIMEOUT);
+                timeout = chat_send::timeout_value(&take()?)?.min(MAX_TIMEOUT);
             }
             _ if word.starts_with('-') => {
                 return Err(UsageError::new(format!("unknown flag {word}")));
