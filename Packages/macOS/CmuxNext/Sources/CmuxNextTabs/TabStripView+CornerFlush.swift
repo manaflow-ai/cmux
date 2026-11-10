@@ -98,8 +98,8 @@ extension TabStripView: TabStripCorner {
         let chrome = shown ? CornerFlushChrome.chrome(of: self) : nil
         if let old = cornerChrome, old !== chrome { old.folderDidChange(self, animated: false, gone: true) }
         cornerChrome = chrome
-        let band = chrome?.folderDidChange(self, animated: animated) ?? 0
-        applyCornerBand(band, animated: animated)
+        let drawn = chrome?.folderDidChange(self, animated: animated) ?? 0
+        applyCornerBand(drawn, animated: animated)
     }
 
     /// The chrome's shade under the tabs of a strip inside the content card (design/selected-is-foreground.md):
