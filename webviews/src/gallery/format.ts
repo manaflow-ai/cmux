@@ -313,7 +313,7 @@ export type AppsPageVariant = VariantBase & {
 /** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
 export type CloudPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
-  action?: "select-machine" | "create" | "get" | "ports-pending" | "ports-shared";
+  action?: "select-machine" | "create" | "get" | "ports-pending" | "ports-shared" | "resume";
   error?: { code: string; message: string };
   signedIn?: boolean;
   layout?: "rows" | "cards";
@@ -327,6 +327,10 @@ export type CloudPageVariant = VariantBase & {
   pendingAction?: "forward" | "close" | "browser" | "share" | "revoke";
   /** The create sheet's snapshot list fails once (its Retry then loads the sample snapshots). */
   snapshotsFail?: boolean;
+  /** The team's spending cap as `cloud.plan.get` answers it; at the cap a start or create is refused. */
+  spendCap?: NonNullable<import("../pages/cloud/ops").CloudPlan["spend_cap"]>;
+  /** The member's own monthly budget is spent: a start or create is refused. */
+  memberBudget?: { spent_usd: number; limit_usd: number };
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };

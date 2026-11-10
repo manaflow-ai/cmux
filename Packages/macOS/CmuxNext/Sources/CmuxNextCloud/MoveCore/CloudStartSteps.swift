@@ -12,6 +12,9 @@ public import os
     let log: (String) -> Void
     let now: () -> ContinuousClock.Instant
     private var last: ContinuousClock.Instant
+    /// Each step done so far and its whole milliseconds, in order: a start's answer carries them as `stages_ms`, so the
+    /// caller (`cmux cloud start-chat`) names where a long start went without reading the app's log.
+    public private(set) var recorded: [(step: String, ms: Int64)] = []
 
     public init(log: @escaping (String) -> Void, now: @escaping () -> ContinuousClock.Instant = { .now }) {
         (self.log, self.now) = (log, now)
@@ -23,14 +26,20 @@ public import os
 
     /// Logs `name`'s time since the step before it ended.
     public func done(_ name: String) {
-        let end = now()
-        log(Self.line(name, last.duration(to: end)))
+        let end = now(), elapsed = last.duration(to: end)
+        log(Self.line(name, elapsed))
+        recorded.append((name, Self.milliseconds(elapsed)))
         last = end
     }
 
     /// `cloud start step: NAME MS ms`, whole milliseconds, never negative.
     public nonisolated static func line(_ name: String, _ elapsed: Duration) -> String {
+        "\(prefix)\(name) \(milliseconds(elapsed)) ms"
+    }
+
+    /// Whole milliseconds of `elapsed`, never negative.
+    public nonisolated static func milliseconds(_ elapsed: Duration) -> Int64 {
         let (seconds, attoseconds) = elapsed.components
-        return "\(prefix)\(name) \(max(0, seconds * 1000 + attoseconds / 1_000_000_000_000_000)) ms"
+        return max(0, seconds * 1000 + attoseconds / 1_000_000_000_000_000)
     }
 }

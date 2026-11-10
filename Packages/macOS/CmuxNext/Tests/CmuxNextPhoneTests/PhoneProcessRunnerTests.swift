@@ -19,6 +19,15 @@ import Testing
         #expect(missing.stderr.contains("No such file"))
     }
 
+    /// A pasteboard far past one pipe buffer, to a child that reads only after a second: every byte
+    /// arrives, and the caller is not the one waiting for the child to read (the feed's queue is).
+    @Test(.timeLimit(.minutes(1))) func aLargeStdinReachesASlowReaderWhole() async throws {
+        let result = try await PhoneProcessRunner().run(["sh", "-c", "sleep 1; wc -c"], stdin: Data(repeating: 0x61, count: 1_024 * 1_024),
+                                                        deadline: .seconds(20))
+        #expect(result.status == 0)
+        #expect(String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "1048576")
+    }
+
     @Test func aStartedCommandStopsOnInterruptAndOwnsItsStdoutFile() async throws {
         let file = temporaryFolder().appendingPathComponent("out.txt")
         let command = try await PhoneProcessRunner().start(["sleep", "60"], stdoutFile: file)

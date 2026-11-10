@@ -206,7 +206,10 @@ would do it, spring curves", "proper physics". Design:
    Panes"). It was off by default from 2026-10-14 (Lawrence: "get rid of
    big animations by default for the panes") and is ON by default since
    2026-10-16 (Lawrence: "We want animations on by default but then we can
-   let people configure it to disable the animations completely"). It
+   let people configure it to disable the animations completely";
+   `schemas/settings/source/appearance.json`, `PaneAnimationsSetting`). The
+   pane motion contract is in
+   [motion-first-principles-DESIGN.md](motion-first-principles-DESIGN.md). It
    gates every pane layout spring:
    split grow-in, close and move-away, swap, zoom and unzoom
    (`PaneZoomMotion`), divider ratio changes from the model, the column
