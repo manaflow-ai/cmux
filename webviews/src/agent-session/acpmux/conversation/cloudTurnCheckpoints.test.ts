@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import {
   bindMarks,
+  chatAfterRewind,
   chatWithCheckpoint,
   CloudTurnCheckpoints,
   handshakeMarks,
@@ -38,7 +39,16 @@ function harness(on = true) {
     rows = [...rows, { kind: "turnSummary", seq: summarySeq }];
     snap(false, sessionId);
   };
-  return { checkpoints, asked, answers, logged, snap, turn, setRows: (next: typeof rows) => (rows = next) };
+  return {
+    checkpoints,
+    asked,
+    answers,
+    logged,
+    snap,
+    turn,
+    rows: () => rows,
+    setRows: (next: typeof rows) => (rows = next),
+  };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -266,4 +276,75 @@ test("the observer hands each answer the chat it was asked for", async () => {
   await Promise.resolve();
   await Promise.resolve();
   expect(seen).toEqual(["a"]);
+});
+
+test("a waiting checkpoint is dropped when a turn starts before it goes", async () => {
+  const h = harness();
+  h.snap(false);
+  h.turn(9);
+  h.turn(12); // waits behind 9
+  // Another turn starts while 9 is still in flight: 12's checkpoint would capture its changes.
+  h.setRows([...h.rows(), { kind: "user" }]);
+  h.snap(true);
+  h.asked[0]!.resolve({ rowId: "user-10" });
+  await settle();
+  expect(h.asked.map((a) => a.afterSeq)).toEqual([9]);
+  // That turn's own end asks for its own checkpoint.
+  h.setRows([...h.rows(), { kind: "turnSummary", seq: 18 }]);
+  h.snap(false);
+  expect(h.asked.map((a) => a.afterSeq)).toEqual([9, 18]);
+});
+
+test("a waiting checkpoint goes only while its chat is idle with that turn end the newest", async () => {
+  const h = harness();
+  h.snap(false);
+  h.turn(9);
+  h.turn(12); // waits behind 9
+  // chat.select away and back while the chat runs another turn: no idle-to-working edge is seen.
+  h.snap(false, "s2");
+  h.setRows([...h.rows(), { kind: "user" }]);
+  h.snap(true, "s1");
+  h.asked[0]!.resolve({ rowId: "user-10" });
+  await settle();
+  expect(h.asked.map((a) => a.afterSeq)).toEqual([9]);
+});
+
+test("rewind then send: the new local prompt maps to the checkpoint after the turn before it", () => {
+  // The chat rewound to before its second turn (summary 5); the person then sent a new prompt.
+  const rows = [
+    row("user-1", "user", { text: "first" }),
+    row("summary-a", "turnSummary", { seq: 5 }),
+    row("local-new", "user", { text: "the new prompt" }),
+  ];
+  const retained = new Set(["user-6", "user-12", "user-21"]);
+  expect([...readyPromptRows(rows, retained)]).toEqual([["local-new", "user-6"]]);
+  // Only the checkpoint taken right after summary 5: none, no button (never user-12 or user-21).
+  expect([...readyPromptRows(rows, new Set(["user-12", "user-21"]))]).toEqual([]);
+  // A prompt row with its own seq is bounded by it.
+  const echoed = [...rows.slice(0, 2), row("local-new", "user", { text: "x", seq: 8 })];
+  expect([...readyPromptRows(echoed, retained)]).toEqual([["local-new", "user-6"]]);
+});
+
+test("a successful rewind drops the chat's marks past the restored checkpoint", () => {
+  const start = handshakeMarks(undefined, new Set(["user-6", "user-12", "user-21"]), "a");
+  const other = chatWithCheckpoint(start, { rowId: "user-30" }, "b");
+  const rewound = chatAfterRewind(other, { turn: "auto-t6-g0", turnSeq: 8, generation: 1 }, "a", "user-6");
+  expect([...(marksFor(rewound, "a") ?? [])]).toEqual(["user-6"]);
+  expect([...(marksFor(rewound, "b") ?? [])]).toEqual(["user-30"]);
+  // Without the answer's turn, the rowId's seq bounds it.
+  expect([...(marksFor(chatAfterRewind(start, { seconds: 9 }, "a", "user-12"), "a") ?? [])]).toEqual([
+    "user-6",
+    "user-12",
+  ]);
+  // A checkpoint asked before the rewind (an older generation) adds nothing; a new one does.
+  expect(chatWithCheckpoint(rewound, { rowId: "user-22", generation: 0 }, "a")).toBe(rewound);
+  const next = chatWithCheckpoint(rewound, { rowId: "user-9", generation: 1 }, "a");
+  expect([...(marksFor(next, "a") ?? [])]).toEqual(["user-6", "user-9"]);
+  // After the rewind the new local prompt maps to the restored checkpoint, never user-21.
+  const rows = [
+    row("user-1", "user", { text: "first" }),
+    row("summary-a", "turnSummary", { seq: 5 }),
+    row("local-new", "user", { text: "the new prompt" }),
+  ];
+  expect([...readyPromptRows(rows, marksFor(rewound, "a"))]).toEqual([["local-new", "user-6"]]);
 });

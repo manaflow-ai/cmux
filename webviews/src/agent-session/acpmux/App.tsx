@@ -396,6 +396,7 @@ import {
   readyPromptMap,
   readyPromptRows,
   bindMarks,
+  chatAfterRewind,
   chatWithCheckpoint,
   handshakeMarks,
   marksFor,
@@ -3867,10 +3868,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             before: async (rowId: string) => {
               if (rewindInFlight.current) throw new Error("rewind in flight"); // l10n-allow: an error the button reads as failed, never shown
               rewindInFlight.current = true;
+              const mark = rewindRows.get(rowId) ?? rowId;
+              const session = snapshotRef.current?.sessionId;
               try {
-                const answer = await postNative<{ seconds?: unknown } | null>("chat.rewindTurn", {
-                  rowId: rewindRows.get(rowId) ?? rowId,
-                });
+                const answer = await postNative<{ seconds?: unknown } | null>("chat.rewindTurn", { rowId: mark });
+                // Back at that checkpoint: the chat's marks past it name discarded states.
+                setCloudTurnRewind((marks) => chatAfterRewind(marks, answer, session, mark));
                 return { seconds: typeof answer?.seconds === "number" ? answer.seconds : Number.NaN };
               } finally {
                 rewindInFlight.current = false;
