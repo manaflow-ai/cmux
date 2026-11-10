@@ -430,6 +430,7 @@
         "CmuxNextAppHealth",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
+        "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
         "CmuxNextBrowserTabs",
         "CmuxNextChecklist",
@@ -466,6 +467,7 @@
         "CmuxNextHostedChief",
         "CmuxNextImportCards",
         "CmuxNextImportSuggestions",
+        "CmuxNextKeepAwake",
         "CmuxNextLayout",
         "CmuxNextMacScreen",
         "CmuxNextMobile",
@@ -1102,12 +1104,13 @@
         "CmuxTheme"
       ],
       "reads": [
-        "Packages/Shared/CmuxMessagesLab/Sources/",
-        "Packages/Shared/CmuxScreenKit/Sources/",
-        "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/",
-        "Packages/macOS/CmuxNext/Sources/",
+        "Packages/Shared/CmuxMessagesLab/Sources/**/*.swift",
+        "Packages/Shared/CmuxScreenKit/Sources/**/*.swift",
+        "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/**/*.swift",
+        "Packages/macOS/CmuxNext/Sources/**/*.swift",
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
+        "plans/cmux-next/spec-proposals/visuals/design-tokens.json",
         "schemas/theme/orange-accent-allowlist.json",
         "schemas/theme/theme-ink-vectors.json"
       ]

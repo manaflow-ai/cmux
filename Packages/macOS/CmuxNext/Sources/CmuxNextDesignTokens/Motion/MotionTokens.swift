@@ -25,11 +25,12 @@ public nonisolated enum MotionSpeed: String, Sendable, CaseIterable, Codable {
 /// its target (Lawrence 2026-11-10, no bounce in any motion;
 /// plans/cmux-next/motion-first-principles-DESIGN.md, principle 5;
 /// NoBounceSpringTests samples each one). The spec's design-tokens.json
-/// `motion` and cmux-motion still hold the older dampings of the tokens that
-/// were under 1 (scripts/cmux-next/motion-parity.py compares this port's
-/// paths with cmux-motion's). The cases are declared
-/// in cmux-motion's `MotionSpring::ALL` order, the token index of its C ABI
-/// (`cmux_motion_spring_base`): append new tokens on both sides.
+/// `motion.springs` and cmux-motion hold the same values
+/// (scripts/cmux-next/motion-parity.py compares this port's paths with
+/// cmux-motion's). The cases up to `tabOpen` are declared in cmux-motion's
+/// `MotionSpring::ALL` order, the token index of its C ABI
+/// (`cmux_motion_spring_base`; this port does not read a token by its
+/// index): append new tokens on both sides.
 public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// An existing item moves or resizes: tab reflow and reorder, sidebar
     /// rows, pane and divider frames, pane unzoom, toolbar height.
@@ -48,10 +49,6 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// notch, trackpad fling snap. Response 0.2 s (stiffness about 990;
     /// 0.222 s until Leo 2026-10-20's shorter scale).
     case scroll
-    /// No consumer: it drove the screen switch slide, removed 2026-11-10 (a change of screen has no
-    /// animation). The case stays because its position is the cmux-motion C ABI's spring index
-    /// (`cmux_motion_spring_base`, cmux-tui/crates/cmux-motion/src/tokens.rs); it goes when that table does.
-    case screen
     /// An overlay that tracks the pointer between targets: drop zones, the
     /// drag ghost's jump between card and inline slot.
     case track
@@ -69,7 +66,7 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// their dividers, on this one spring (Lawrence 2026-10-18).
     case exit
     /// A new tab growing in at its final slot while the tabs right of it make room, on one
-    /// spring (`ui.animations.newTab`, on by default). Structural.
+    /// spring (`ui.animations.newTab`, on by default).
     case tabOpen
     /// A split (Cmd-D, Cmd-Shift-D): the new pane grows in from the split edge while every pane
     /// of its chain gives up room, one spring from the key's frame to rest (Lawrence 2026-10-19:

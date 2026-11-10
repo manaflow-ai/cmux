@@ -916,10 +916,31 @@ pub struct Tag {
 pub const META_SCHEMA: &str = "acpmux.session.v1";
 
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now()
+    let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+        .unwrap_or(0);
+    #[cfg(test)]
+    let now = now + test_clock::ahead_ms();
+    now
+}
+
+/// Compressed time for tests (`stress/`): this thread's [`now_ms`] runs ahead of the wall clock
+/// by what it was moved, so a day of timestamps passes in a loop. Other threads see wall time.
+#[cfg(test)]
+pub(crate) mod test_clock {
+    use std::cell::Cell;
+
+    thread_local!(static AHEAD_MS: Cell<u64> = const { Cell::new(0) });
+
+    pub(crate) fn ahead_ms() -> u64 {
+        AHEAD_MS.with(Cell::get)
+    }
+
+    /// Moves this thread's clock `ms` ahead.
+    pub(crate) fn advance(ms: u64) {
+        AHEAD_MS.with(|a| a.set(a.get() + ms));
+    }
 }
 
 pub trait Store: Send + Sync {
@@ -2024,7 +2045,7 @@ fn sync_directory(_path: &Path) -> Result<()> {
 /// Open one event segment for append, owner-only from creation and after an
 /// older build left it with wider permissions.
 #[cfg(unix)]
-fn open_private_append(path: &Path) -> Result<File> {
+pub(crate) fn open_private_append(path: &Path) -> Result<File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     crate::config::refuse_lost_home(path)?;
 
@@ -2041,7 +2062,8 @@ fn open_private_append(path: &Path) -> Result<File> {
 }
 
 #[cfg(windows)]
-fn open_private_append(path: &Path) -> Result<File> {
+pub(crate) fn open_private_append(path: &Path) -> Result<File> {
+    crate::config::refuse_lost_home(path)?;
     Ok(crate::owner_only::open_append(path)?)
 }
 
