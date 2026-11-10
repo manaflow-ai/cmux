@@ -1,0 +1,107 @@
+// A flat map over transcript rows that reads again only the rows after the last one that is the same
+// object as before. Rows change at their tail (a streamed token, a running call's output: the
+// client keeps every unchanged row's object, direct.ts `OrderedRows`), so a snapshot's derived
+// lists cost the rows it changed, not the whole chat (bench/transcript-replay.bench.ts long log:
+// the pane's per-snapshot passes over every row made each update grow with the transcript).
+// The identity walk over the kept rows is a pointer compare each, and a pass keeps no per-row
+// array: a chat of 35,000 rows copies only its items, never 35,000 row ends.
+
+/// One pass's result: the rows it read, the items, and the index of the row each item came from
+/// (non-decreasing).
+export type PrefixFlat<R, T> = {
+  readonly rows: readonly R[];
+  readonly items: readonly T[];
+  readonly from: readonly number[];
+};
+
+/// How many leading rows of `rows` are the same objects at the same places in `previous`. The pane
+/// asks this of the same two snapshots once per pass (composer, tray, plan, Find, ...), so the last
+/// few answers are kept: each pair is walked once.
+/// (Snapshots are never written after they are made; the lengths are checked all the same.)
+const kept: { previous: readonly unknown[]; rows: readonly unknown[]; lengths: number; count: number }[] = [];
+export function keptPrefix(previous: readonly unknown[], rows: readonly unknown[]): number {
+  if (previous === rows) return rows.length;
+  const lengths = previous.length * 2 ** 26 + rows.length;
+  for (const each of kept)
+    if (each.previous === previous && each.rows === rows && each.lengths === lengths) return each.count;
+  const limit = Math.min(rows.length, previous.length);
+  let count = 0;
+  while (count < limit && rows[count] === previous[count]) count += 1;
+  kept.unshift({ previous, rows, lengths, count });
+  if (kept.length > 8) kept.pop();
+  return count;
+}
+
+/// `rows.flatMap(each)`, with `previous` (the last pass of the same `each`) reused for the rows it
+/// read that are still the same objects at the same places. The same rows give `previous` back.
+/// `each` may read the rows before its own (`rows[index - 1]`), never after: a kept row's items
+/// stay its items only while what it read is kept too.
+export function prefixFlatMap<R, T>(
+  rows: readonly R[],
+  each: (row: R, index: number, rows: readonly R[]) => readonly T[],
+  previous?: PrefixFlat<R, T>,
+): PrefixFlat<R, T> {
+  const start = previous ? keptPrefix(previous.rows, rows) : 0;
+  if (previous && start === rows.length && rows.length === previous.rows.length) return previous;
+  let keep = 0;
+  if (start > 0) {
+    // The items of the kept rows: those before the first item of a row at or past `start`. Rows
+    // change at the tail, so this walks back over the few items of the rows that changed.
+    keep = previous!.from.length;
+    while (keep > 0 && previous!.from[keep - 1]! >= start) keep -= 1;
+  }
+  const items = keep > 0 ? previous!.items.slice(0, keep) : [];
+  const from = keep > 0 ? previous!.from.slice(0, keep) : [];
+  for (let index = start; index < rows.length; index += 1)
+    for (const item of each(rows[index]!, index, rows)) {
+      items.push(item);
+      from.push(index);
+    }
+  return { rows, items, from };
+}
+
+/// The last few passes of one `each`, for a function several views call with their own rows (the
+/// pane's and Session Info's): each call starts from the pass that kept the most of its rows.
+export class PrefixFlatCache<R, T> {
+  private readonly passes: PrefixFlat<R, T>[] = [];
+  constructor(
+    private readonly each: (row: R, index: number, rows: readonly R[]) => readonly T[],
+    private readonly size = 4,
+  ) {}
+
+  read(rows: readonly R[]): PrefixFlat<R, T> {
+    let best: PrefixFlat<R, T> | undefined;
+    let bestKept = 0;
+    for (const pass of this.passes) {
+      if (pass.rows === rows) return pass;
+      const count = keptPrefix(pass.rows, rows);
+      if (count > bestKept) {
+        best = pass;
+        bestKept = count;
+      }
+    }
+    const next = prefixFlatMap(rows, this.each, best);
+    if (next !== best) {
+      // A pass at least as long as the one it started from takes its place (the same view's next
+      // snapshot); a shorter one is another view's, and both stay.
+      if (best && rows.length >= best.rows.length) this.passes.splice(this.passes.indexOf(best), 1);
+      this.passes.unshift(next);
+      if (this.passes.length > this.size) this.passes.pop();
+    }
+    return next;
+  }
+}
+
+/// The rows `keep` says yes to, in order, read again only past the kept prefix (PrefixFlatCache).
+export class PrefixFilter<R> {
+  private readonly cache: PrefixFlatCache<R, R>;
+  constructor(keep: (row: R, index: number, rows: readonly R[]) => boolean, size = 4) {
+    this.cache = new PrefixFlatCache((row, index, rows) => (keep(row, index, rows) ? [row] : NONE), size);
+  }
+
+  /// The pass: `items` the rows kept, `from` their indexes in `rows`.
+  read(rows: readonly R[]): PrefixFlat<R, R> {
+    return this.cache.read(rows);
+  }
+}
+const NONE: readonly never[] = [];

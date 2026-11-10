@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextDesign
 public import Foundation
 
@@ -86,6 +86,11 @@ public final class CEFEngine: BrowserEngine {
 
     /// True once CEF has been initialized in this process.
     public var isRunning: Bool { CEFRuntime.shared.state == .ready }
+
+    /// Sends every first-party page file to its page host while `live` (the live web loop,
+    /// web-dev.json); false when this Chromium cannot.
+    @discardableResult
+    public func setLivePages(_ live: Bool) -> Bool { CEFRuntime.shared.setLivePages(live) }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
         adoptStores()
@@ -223,11 +228,17 @@ public final class CEFEngine: BrowserEngine {
     /// True when Chromium opened `profile` in this process: its directory
     /// may be removed only after the next launch.
     public func hasOpened(_ profile: BrowserProfileID) -> Bool {
-        CEFRuntime.shared.usedProfiles.contains(profile) || CEFRuntime.shared.extensionStores.hasStore(for: profile)
+        CEFRuntime.shared.hasOpened(profile)
     }
 
     /// Recent renderer and helper process failures (`debug.crashes`).
     public var crashLog: BrowserCrashLog { CEFRuntime.shared.crashLog }
+    /// Each renderer end and main-frame load failure a person saw, with the engine versions (cancelled loads
+    /// included: the receiver filters). The App sends them to crash reporting.
+    public var onEngineFailure: ((BrowserEngineFailure) -> Void)? {
+        get { CEFRuntime.shared.failureReports.onFailure }
+        set { CEFRuntime.shared.failureReports.onFailure = newValue }
+    }
 
     /// Runs once CEF is initialized in this process (process-wide), after the
     /// person's password settings (`setPasswordPolicy`) and search engine
@@ -251,7 +262,7 @@ public final class CEFEngine: BrowserEngine {
     public var pumpStats: CEFPumpStats? { CEFRuntime.shared.pump?.stats }
 
     /// What the fork's page tracker read from host views (for `debug.cef`).
-    public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats }
+    public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats.with(hostedPages: hostedPageFields) }
 
     /// Chromium asked for a window (a link, `window.open`,
     /// `chrome.windows.create`) and no Chromium window of its profile exists:

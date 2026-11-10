@@ -4,6 +4,139 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes cloud.machine.pause declares.
+    CloudMachinePauseError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudMachineNotRunning = "cloud.machine.not_running",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        CloudRateLimited = "cloud.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Rename a machine.
+    CloudMachineRenameOp {
+        name: "cloud.machine.rename",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: CloudMachineRenameParams,
+        result: CloudMachineRenameResult,
+        error: CloudMachineRenameError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineRenameParams {
+    pub machine: MachineId,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineRenameResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.rename declares.
+    CloudMachineRenameError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
+    CloudMachineResizeOp {
+        name: "cloud.machine.resize",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "money",
+        principals: [Session, Install],
+        params: CloudMachineResizeParams,
+        result: CloudMachineResizeResult,
+        error: CloudMachineResizeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineResizeParams {
+    pub machine: MachineId,
+    pub size: CloudMachineSize,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineResizeResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.resize declares.
+    CloudMachineResizeError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineBusy = "cloud.machine.busy",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudMachineNotRunning = "cloud.machine.not_running",
+        CloudPlanRequired = "cloud.plan.required",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        CloudRateLimited = "cloud.rate_limited",
+        CloudSizeGrowOnly = "cloud.size.grow_only",
+        CloudSizeLocked = "cloud.size.locked",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.
+    CloudMachineStartOp {
+        name: "cloud.machine.start",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: CloudMachineStartParams,
+        result: CloudMachineStartResult,
+        error: CloudMachineStartError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineStartParams {
+    pub machine: MachineId,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudMachineStartResult {
     pub machine: CloudMachine,
@@ -19,10 +152,12 @@ wire_errors! {
         CloudMachineNotBound = "cloud.machine.not_bound",
         CloudMachineNotFound = "cloud.machine.not_found",
         CloudMachineNotPaused = "cloud.machine.not_paused",
+        CloudMemberBudgetReached = "cloud.member_budget.reached",
         CloudPlanRequired = "cloud.plan.required",
         CloudProviderUnavailable = "cloud.provider.unavailable",
         CloudQuotaExceeded = "cloud.quota.exceeded",
         CloudRateLimited = "cloud.rate_limited",
+        CloudSpendCapReached = "cloud.spend_cap.reached",
         IdempotencyConflict = "idempotency.conflict",
         MutationIndeterminate = "mutation.indeterminate",
         OwnerUnreachable = "owner.unreachable",
@@ -194,6 +329,48 @@ wire_errors! {
         ClientTooOld = "client.too_old",
         OwnerUnreachable = "owner.unreachable",
         SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set this team's cleanup numbers (a team admin; each within the plan's limit, a worked-in window never past the plan's) and whether you get the email heads-up before one of your machines is deleted. cloud.plan.get answers the settings in force as `retention`.
+    CloudRetentionSetOp {
+        name: "cloud.retention.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: CloudRetentionSetParams,
+        result: CloudRetentionSetResult,
+        error: CloudRetentionSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudRetentionSetParams {
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub settings: Option<Option<CloudRetentionOverrides>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_heads_up: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudRetentionSetResult {
+    pub changed: bool,
+}
+
+wire_errors! {
+    /// The error codes cloud.retention.set declares.
+    CloudRetentionSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
     }
 }
@@ -421,6 +598,7 @@ wire_errors! {
         AuthSsoRequired = "auth.sso_required",
         AuthUnauthenticated = "auth.unauthenticated",
         ClientTooOld = "client.too_old",
+        CloudMemberBudgetReached = "cloud.member_budget.reached",
         CloudNoSnapshotConfigured = "cloud.no_snapshot_configured",
         CloudPlanRequired = "cloud.plan.required",
         CloudProviderUnavailable = "cloud.provider.unavailable",
@@ -428,6 +606,7 @@ wire_errors! {
         CloudRateLimited = "cloud.rate_limited",
         CloudSizeLocked = "cloud.size.locked",
         CloudSnapshotNotFound = "cloud.snapshot.not_found",
+        CloudSpendCapReached = "cloud.spend_cap.reached",
         IdempotencyConflict = "idempotency.conflict",
         MutationIndeterminate = "mutation.indeterminate",
         OwnerUnreachable = "owner.unreachable",
@@ -546,7 +725,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).
+    /// Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).
     CloudVmNetworkPolicyOp {
         name: "cloud.vm.network_policy",
         class: Read,
@@ -718,182 +897,4 @@ pub struct CloudVmStatusReportParamsActivity {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_agent_action_at: Option<i64>,
     pub active_sessions: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmStatusReportParams {
-    pub machine: MachineId,
-    pub state: CloudVmStatusReportParamsState,
-    pub daemon: CloudVmStatusReportParamsDaemon,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub health: Option<CloudVmStatusReportParamsHealth>,
-    pub activity: CloudVmStatusReportParamsActivity,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmStatusReportResult {
-    pub applied: bool,
-}
-
-wire_errors! {
-    /// The error codes cloud.vm.status.report declares.
-    CloudVmStatusReportError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        CloudRateLimited = "cloud.rate_limited",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.
-    ConversationCreateOp {
-        name: "conversation.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ConversationCreateParams,
-        result: ConversationCreateResult,
-        error: ConversationCreateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationCreateParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<LitGroup>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    pub participants: Vec<HomeParticipantInput>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub settings: Option<HomeConversationSettings>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationCreateResult {
-    pub conversation: HomeConversationSummary,
-}
-
-wire_errors! {
-    /// The error codes conversation.create declares.
-    ConversationCreateError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ConversationExists = "conversation_exists",
-        Forbidden = "forbidden",
-        HomeRateLimited = "home.rate_limited",
-        HomeUserNotReady = "home.user_not_ready",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParticipant = "invalid_participant",
-        InvalidTitle = "invalid_title",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        NotReachable = "not_reachable",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Page older messages before before_seq (newest first within the page).
-    ConversationHistoryOp {
-        name: "conversation.history",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConversationDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: ConversationHistoryParams,
-        result: ConversationHistoryResult,
-        error: ConversationHistoryError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationHistoryParams {
-    pub conversation: ConversationId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub before_seq: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationHistoryResult {
-    pub messages: Vec<HomeMessage>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub threads: Option<Vec<HomeThreadSummary>>,
-    pub next_before_seq: Option<i64>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes conversation.history declares.
-    ConversationHistoryError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same.
-    ConversationImportOp {
-        name: "conversation.import",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ConversationImportParams,
-        result: HomeConversationCommit,
-        error: ConversationImportError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationImportParamsSource {
-    pub kind: LitMac,
-    pub host: String,
-    pub local_id: String,
-}
-
-wire_enum! {
-    ConversationImportParamsKind {
-        Group = "group",
-        Chief = "chief",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ConversationImportParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<ConversationId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<ConversationImportParamsSource>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<ConversationImportParamsKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub participants: Option<Vec<HomeParticipantInput>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after_seq: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fill: Option<bool>,
-    pub messages: Vec<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub read_cursors: Option<Value>,
 }

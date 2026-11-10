@@ -4,7 +4,28 @@
   "description": "The daemon page router (page-router.md): what each cmux page may call and which subscribe events it hears, and which v2 operation namespaces the daemon routes to an owner outside the operation catalog. The one source: the daemon embeds this file, and bindings/codegen/page_router.py generates the page clients' table from it.",
   "pages": {
     "home-channels": {
-      "description": "Channels (Home). It reads conversations through the raw conversation commands of its authenticated WebSocket, and the participants' pictures with participant.avatar.get. A web link the person clicks in the Chief chat opens on the right side of the home workspace with workspace.open_url, only on the person's gesture (a host confirmation on the page relay); its WebSocket has no confirmation, so it is refused there. It manages the person's Chiefs (chief-profile-ws-v1): it lists and reads them and changes display_name, role and the avatar; create, delete, undo, instructions, personality, the lock and the grant (tools, harnesses, engine, self_edit) need the person's gesture; it reads a Chief's kept revisions (chief.profile.history). Its WebSocket keeps its raw subscribe; a page relay of this page gets no event stream. With chief-work-v1 its authenticated owner WebSocket may read chief-work: Chief-owned subagents and harness background commands on the configured Chief machine, through the same owner-page admission as the Chief registry. No other page or paired device gains this read.",
+      "description": "Channels (Home). It reads conversations through the raw conversation commands of its authenticated WebSocket, and the participants' pictures with participant.avatar.get. Its Cmd-K palette ranks the rows it sends with palette.rank (stateless: the rows go in, their ranked order comes out). A web link the person clicks in the Chief chat opens on the right side of the home workspace with workspace.open_url, only on the person's gesture (a host confirmation on the page relay); its WebSocket has no confirmation, so it is refused there. It manages the person's Chiefs (chief-profile-ws-v1): it lists and reads them and changes display_name, role and the avatar; create, delete, undo, instructions, personality, the lock and the grant (tools, harnesses, engine, self_edit) need the person's gesture; it reads a Chief's kept revisions (chief.profile.history). Its WebSocket keeps its raw subscribe; a page relay of this page gets no event stream. With chief-work-v1 its authenticated owner WebSocket may read chief-work: Chief-owned subagents and harness background commands on the configured Chief machine, through the same owner-page admission as the Chief registry. No other page or paired device gains this read.",
+      "read": [
+        "chief.profile.avatar.get",
+        "chief.profile.avatar.set",
+        "chief.profile.get",
+        "chief.profile.history",
+        "chief.profile.list",
+        "chief.profile.update",
+        "palette.rank",
+        "participant.avatar.get"
+      ],
+      "gesture": [
+        "chief.profile.create",
+        "chief.profile.delete",
+        "chief.profile.undo",
+        "workspace.open_url"
+      ],
+      "confirm": [],
+      "events": []
+    },
+    "home-messages": {
+      "description": "Messages (Home): the docked Home's Messages view. A client of the same conversations as home-channels through the same raw conversation commands of its authenticated WebSocket, with the participants' pictures (participant.avatar.get), the person's Chiefs (chief-profile-ws-v1, with the same gestures for create, delete and undo), workspace.open_url on the person's gesture, and chief-work through the owner-page admission. Unlike home-channels it has no Cmd-K palette, so no palette.rank. No other page or paired device gains these.",
       "read": [
         "chief.profile.avatar.get",
         "chief.profile.avatar.set",
@@ -37,6 +58,19 @@
       "confirm": [],
       "events": [
         "history-changed"
+      ]
+    },
+    "stash": {
+      "description": "Stashed Tabs. Reads the stashes; importing OneTab text needs the person's gesture. Restore and delete run in the app (its native Undo toast and the pane a page reopens in), not through this relay. It hears stash-changed, so an open page shows a stash saved, restored or deleted elsewhere (a tab menu, the CLI, another window) without a reload.",
+      "read": [
+        "stash.list"
+      ],
+      "gesture": [
+        "stash.import"
+      ],
+      "confirm": [],
+      "events": [
+        "stash-changed"
       ]
     },
     "apps": {
@@ -73,6 +107,68 @@
       ],
       "confirm": [],
       "events": []
+    },
+    "bookmarks": {
+      "description": "Bookmarks. Reads and searches one browser profile's bookmark tree; every edit (add, rename, move, delete, a dropped row) is one bookmarks.apply on the person's gesture; it hears bookmarks-changed, so an open page re-reads when any surface changes the tree.",
+      "read": [
+        "bookmarks.list",
+        "bookmarks.search"
+      ],
+      "gesture": [
+        "bookmarks.apply"
+      ],
+      "confirm": [],
+      "events": [
+        "bookmarks-changed"
+      ]
+    },
+    "bookmarks-bar": {
+      "description": "The bookmarks bar under a browser tab's toolbar. Reads only what it draws (the bar's row, whether Other Bookmarks has any, a folder menu's subtree on a click) with bookmarks.children; a link dropped on it or an item dragged along it is written by the app (which keeps its own copy and the last folder up to date), never by the page; it hears bookmarks-changed and re-reads its row.",
+      "read": [
+        "bookmarks.children"
+      ],
+      "gesture": [],
+      "confirm": [],
+      "events": [
+        "bookmarks-changed"
+      ]
+    },
+    "tasks": {
+      "description": "Tasks. Reads the local Tasks owner's mirror (tasks.snapshot); creating, changing, moving, archiving or delegating a task needs the person's gesture (each is one click, drop or Return in the page); it hears tasks-changed, so an open page applies every commit made elsewhere (the CLI, an agent) without a re-read.",
+      "read": [
+        "tasks.snapshot"
+      ],
+      "gesture": [
+        "tasks.create",
+        "tasks.update",
+        "tasks.move",
+        "tasks.archive",
+        "tasks.delegate"
+      ],
+      "confirm": [],
+      "events": [
+        "tasks-changed"
+      ]
+    },
+    "feed": {
+      "description": "Feed (plans/cmux-next/feed-page.md): the person's feed read from the daemon's feed client (feed-client-v1), in the Inbox tab and the right sidebar. It reads the view, items, the Reports basket and Find Work's GitHub lists; an answer, decline, read, archive, snooze or Mark All Read (feed.intent), a GitHub refresh and a report reply need the person's gesture. It hears feed-view-changed and feed-reports-changed, so an open page re-reads on each change without polling. Posting, withdrawing, the GitHub setting and the presence stay with the verified app connection.",
+      "read": [
+        "feed.view.read",
+        "feed.item.get",
+        "feed.items.list",
+        "feed.github.find_work",
+        "feed.reports.read"
+      ],
+      "gesture": [
+        "feed.intent",
+        "feed.github.refresh",
+        "feed.reports.reply"
+      ],
+      "confirm": [],
+      "events": [
+        "feed-view-changed",
+        "feed-reports-changed"
+      ]
     }
   },
   "namespaces": {
@@ -104,6 +200,56 @@
       ],
       "mutation": [
         "agent_session.trust.set"
+      ]
+    },
+    "bookmarks": {
+      "owner": "bookmarks.tree",
+      "description": "The bookmark tree of each browser profile in the home session (bookmarks-v1, server/bookmarks_routed.rs): list, children, search, the omnibar rank and the Netscape export as reads; apply (the bookmark ops in turn, each replay-keyed), import_html and import_source as mutations. Unix socket and authenticated WebSocket connections; mutations need origin user.",
+      "read": [
+        "bookmarks.list",
+        "bookmarks.children",
+        "bookmarks.search",
+        "bookmarks.rank",
+        "bookmarks.export"
+      ],
+      "mutation": [
+        "bookmarks.apply",
+        "bookmarks.import_html",
+        "bookmarks.import_source"
+      ]
+    },
+    "tasks": {
+      "owner": "tasks.local",
+      "description": "The local Tasks owner (`cmux-tasks serve`, plans/cmux-next/tasks.md section 5) over its Unix socket; the daemon relays and keeps no copy. `tasks.snapshot {}` answers the owner's subscribe snapshot as the local person sees it; `tasks.<verb>` runs owner op `task.<verb>` with the request's idempotency key and origin user and answers `{result, seq, replay}` (the op result, the owner's committed sequence after it, and whether the key had already applied). Owner events reach the page as `tasks-changed {change}`, and `tasks-changed {lost: true}` when the link ended. A missing owner is operation.failed with extra.code `tasks.owner_unreachable`; an owner refusal carries `tasks.<code>` (not_found, invalid, conflict, ...). Unix socket and authenticated WebSocket connections; mutations need origin user.",
+      "read": [
+        "tasks.snapshot"
+      ],
+      "mutation": [
+        "tasks.create",
+        "tasks.update",
+        "tasks.move",
+        "tasks.archive",
+        "tasks.delegate"
+      ]
+    },
+    "feed": {
+      "owner": "feed",
+      "description": "The daemon's feed client (feed-client-v1, plans/cmux-next/feed-page.md section 2): the mirror of the person's FeedDO on the app's cloud lease, the in-memory integration owner (GitHub items, update cards), the GitHub poller and the acpmux Reports basket. Unix socket and authenticated WebSocket connections; mutations need origin user; feed.post, feed.withdraw, feed.github.configure and feed.presence.set need the verified app connection itself.",
+      "read": [
+        "feed.view.read",
+        "feed.item.get",
+        "feed.items.list",
+        "feed.github.find_work",
+        "feed.reports.read"
+      ],
+      "mutation": [
+        "feed.intent",
+        "feed.post",
+        "feed.withdraw",
+        "feed.github.configure",
+        "feed.github.refresh",
+        "feed.reports.reply",
+        "feed.presence.set"
       ]
     }
   }

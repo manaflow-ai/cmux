@@ -160,6 +160,21 @@ def test_portable_guard_runner_does_not_hide_a_native_change() -> None:
     assert actual.macos is True, (paths, actual)
 
 
+def test_portable_router_linux_placement_keeps_guard_references_linux_only() -> None:
+    workflow = (ROOT / module.CI_WORKFLOW_PATH).read_text(encoding="utf-8")
+    _, jobs = module.split_workflow_jobs(workflow)
+    router = jobs["changes"]
+    assert module.job_is_plainly_linux(router)
+    references = module.macos_job_test_references("\njobs:\n  " + router)
+    assert references is not None and references[0] == frozenset(), references
+    for unknown in (
+        router.replace("outputs.linux_runner", "outputs.mini_runner"),
+        router.replace("outputs.placed_attempt", "outputs.unchecked_attempt"),
+        router.replace("' changes '", "' other-job '"),
+    ):
+        assert not module.job_is_plainly_linux(unknown), unknown
+
+
 def test_resources_bin_release_neutral_inputs_are_text_scripts() -> None:
     # The Release lane validates compiled binaries' slices; a bundled text
     # script cannot fail it. A binary in this list would skip that check.
@@ -627,7 +642,6 @@ def test_every_web_bundle_input_outside_webviews_runs_the_web_checks() -> None:
         "schemas/settings/settings-schema.json",
         "web/data/model-catalog/snapshot.json",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
     ):
         assert want in outside, want
     assert any(path.startswith("release-notes/next/highlights/") for path in outside)
@@ -649,7 +663,7 @@ def test_swift_and_unread_catalog_edits_do_not_run_the_web_checks() -> None:
     ]
     assert unread, "every CmuxNext catalog is read by a web page; pick another unread path"
     for path in (
-        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsPageLayout.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsPageLayout+Categories.swift",
         unread[0],
     ):
         assert module.classify_files([path]).web is False, path
@@ -1387,6 +1401,19 @@ def test_linux_registry_changes_skip_native_but_preserve_native_changes() -> Non
     assert module.test_registry_change_is_linux_only(base, base + guard)
     assert module.test_registry_change_is_linux_only(base + guard, base)
     assert module.test_registry_change_is_linux_only(base, base + '\n# comment\n')
+    # The split into area fragments re-ordered the entries; order alone is no native change.
+    two = base + '\n[[test]]\npath = "tests/native2.py"\nlane = "macos-shell"\n'
+    swapped = 'version = 1\n[[test]]\npath = "tests/native2.py"\nlane = "macos-shell"\n' + base.removeprefix('version = 1\n')
+    assert module.test_registry_change_is_linux_only(two, swapped)
+    # The registry has serial entries; one is no reason to treat every edit as native.
+    serial_native = base + 'serial = true\n'
+    assert module.test_registry_change_is_linux_only(serial_native, serial_native + guard)
+    assert module.test_registry_change_is_linux_only(base, base + guard + 'serial = true\n')
+    assert not module.test_registry_change_is_linux_only(base, serial_native), "a native entry's serial is native"
+    # An unchanged guard entry with requirements (the registry's fish one) does not make every edit native.
+    fish_guard = '\n[[test]]\npath = "tests/fish.py"\nlane = "linux-guard"\nrequirements = ["fish"]\n'
+    assert module.test_registry_change_is_linux_only(base + fish_guard, base + fish_guard + guard)
+    assert not module.test_registry_change_is_linux_only(base, base + fish_guard), "adding one still needs fish"
     for candidate in (
         base.replace('macos-shell', 'linux-guard'),
         base.replace('native.py', 'other.py'),
@@ -1397,6 +1424,22 @@ def test_linux_registry_changes_skip_native_but_preserve_native_changes() -> Non
     ):
         assert not module.test_registry_change_is_linux_only(base, candidate), candidate
     assert not module.test_registry_change_is_linux_only('invalid TOML', base)
+
+
+def test_workflow_registry_fragment_diff_reaches_normal_and_trusted_router() -> None:
+    """The registry split into tests/test-execution.d/<area>.toml: a fragment edit is judged the same way."""
+    fragment = "tests/test-execution.d/other.toml"
+    base = '[[test]]\npath = "tests/native.py"\nlane = "macos-shell"\n'
+    guard = '\n[[test]]\npath = "tests/guard.py"\nlane = "linux-guard"\n'
+    for policy_change in ([], ["scripts/ci/detect_ci_change_areas.py"]):
+        for candidate, expected in ((base + guard, "false"),
+                                    (base.replace("native.py", "other.py"), "true")):
+            result, outputs = run_detect_step_for_paths(
+                [fragment, *policy_change],
+                base_files={fragment: base}, head_files={fragment: candidate},
+            )
+            assert f"macos={expected}" in outputs, (result.stdout, result.stderr)
+            assert f"release_build={expected}" in outputs, outputs
 
 
 def test_registry_cli_uses_base_and_keeps_mixed_product_changes() -> None:
@@ -2580,10 +2623,12 @@ def test_repository_helpers_route_by_where_they_run() -> None:
     # Runs only in its own dispatched workflow; pr_runner_pool.py names it
     # in a docstring, which is not a call.
     assert route("scripts/ci/owned_pool_rescue.py") == areas()
-    # compile admission runs it (and seed_derived_data.py, which imports
-    # e2e_warm_derived_data.py): macOS.
+    # compile admission runs it: macOS.
     assert route("scripts/ci/owned_build_state.py") == areas(macos=True)
-    assert route("scripts/ci/e2e_warm_derived_data.py") == areas(macos=True)
+    # job_input_fingerprint.py lists it as a Mac job input (the seed replay in
+    # cmux-next.yml), and a nightly test that runs off the Linux guards names
+    # that script, so the walk fails open, as for owned_spm_scratch.py.
+    assert route("scripts/ci/e2e_warm_derived_data.py") is None
     # Only the Release lane runs it.
     assert route("scripts/ci/reuse_release_product.py") == areas(macos=True, release_build=True)
     # run_python_test_lane.py imports it, and ci.yml's routing job runs that.
@@ -4454,7 +4499,13 @@ exit 65
                 fixture.write_text(content)
                 fixture.chmod(0o755)
             (root / "cmux-compile-admission.txt").write_text("unable to open dependencies file\n")
+            # The step sources the fleet-cache retry and the CAS classifier; no fleet socket here, so local cache.
+            for relative in ("scripts/ci/lib/fleet-cache-fallback.sh", "scripts/ci/fleet-compilation-cache.sh",
+                             "scripts/cmux-next/lib/compilation-cache.sh"):
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / relative, root / relative)
             env = dict(os.environ, PATH=f"{root / 'bin'}:{os.environ['PATH']}",
+                       CMUX_FLEET_CAS_SOCKET=str(root / "absent.sock"),
                        RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(root / "outputs"),
                        CMUX_COMPILE_ADMISSION_DERIVED_DATA=str(root / "dd"),
                        CMUX_COMPILE_ADMISSION_CAS=str(root / "cas"),
@@ -4832,6 +4883,14 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         ) == expected, (paths, actual)
 
 
+
+def test_docs_reference_inputs_run_web_unit_tests() -> None:
+    # web/tests/next-docs.test.ts reads these outside web/; a change to them that
+    # skipped Web tests left the generated palette reference stale on base (#38631).
+    for path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
+        assert web_subareas.classify_paths([path]).unit_tests, path
+        assert module.is_web_change(path), path
+
 def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
     result = run_web_status(
         results={
@@ -4861,6 +4920,30 @@ def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
         for outcome in ("skipped", "failure", "cancelled"):
             result = run_web_status(results={web_job: outcome})
             assert result.returncode != 0, (web_job, outcome)
+
+
+def test_web_status_rejects_a_scope_that_succeeded_with_no_subareas() -> None:
+    # cmux#40171 review: web=true, the scope green with outputs={} and every child skipped must stay a red, as on base.
+    result = run_web_status(
+        inputs={"web": "true", "macos": "false", "agent_session_web": "false"},
+        results={job: "skipped" for job in WEB_JOBS if job != "web-subarea-scope"},
+        subareas={},
+    )
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    assert "summary red: Web status:" in result.stdout, result.stdout
+
+
+def test_web_status_with_partial_subarea_outputs_still_names_its_failed_child() -> None:
+    # cmux#40171 review (fe389ab5): partial scope outputs ({"db": "true"}), the scope abandoned and web-tests failed
+    # raised KeyError on subareas["typecheck"], so no summary red: line and no failed child came out.
+    result = run_web_status(
+        inputs={"web": "true", "macos": "false", "agent_session_web": "false"},
+        results={**{job: "skipped" for job in WEB_JOBS}, "web-subarea-scope": "abandoned", "web-tests": "failure"},
+        subareas={"db": "true"},
+    )
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    assert "summary red: Web status:" in result.stdout and "web-tests: failure" in result.stdout, result.stdout
+    assert "Traceback" not in result.stderr, result.stderr
 
 
 def test_web_status_allows_unrouted_skips() -> None:

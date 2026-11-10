@@ -601,6 +601,11 @@ def main(argv: list[str]) -> int:
         help="run the fast set plus the groups the changed files in FILE (one per line) route to for a "
              "feat-cmux-next change (detect_linux_guard_changes.classify_feat); no stamp",
     )
+    parser.add_argument(
+        "--skip-group", action="append", default=[], metavar="GROUP",
+        help="leave out this group or job even when --feat-routes picks it (a feat-cmux-next push runs "
+             "release-notary in nightly-guards, judged at its tip)",
+    )
     args = parser.parse_args(argv)
     if args.root:
         ROOT = Path(args.root).resolve()
@@ -630,8 +635,11 @@ def main(argv: list[str]) -> int:
         wanted = (wanted or set(FAST_GROUPS)) | set(routed)
     if wanted is not None:
         units = [u for u in units if u.group in wanted or u.job in wanted]
+    if args.skip_group:
+        units = [u for u in units if u.group not in args.skip_group and u.job not in args.skip_group]
+    if wanted is not None or args.skip_group:
         if not units:
-            print(f"no guard group matches {sorted(wanted)}", file=sys.stderr)
+            print(f"no guard group matches {sorted(wanted or ())} without {sorted(args.skip_group)}", file=sys.stderr)
             if args.json_path:
                 # An empty plan is an answer for a caller comparing checkouts:
                 # this one has none of those groups.

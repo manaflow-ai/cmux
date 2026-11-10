@@ -34,9 +34,36 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
         "The edits card's header is one full-width toggle (headerToggle.ts); its chevron is that toggle's keyboard control and shares its wash, never a second box.",
     },
     {
+      selector: ".cv-turn-retry",
+      kind: "hover",
+      control: ".cv-turn-retry > .cv-iconbtn",
+      reason:
+        "A reply footer's Retry and its model switch are one split control (TurnRows.tsx TurnFooter); both halves share one pill, never a box around the row.",
+    },
+    {
+      selector: ".cv-message-retry",
+      kind: "hover",
+      control: ".cv-message-retry > .cv-iconbtn",
+      reason:
+        "A prompt's Retry and its model switch are the same split control as a reply footer's (MessageActions.tsx, conversation.css .cv-message-retry); both halves share one pill, never a box around the row.",
+    },
+    {
+      selector: ".hc-msg",
+      kind: "hover",
+      control: ".hc-msg button",
+      reason:
+        "A Home channel message is one row that washes whenever the pointer is over it (styles.css .hc-msg:hover), the channel list's row hover; a button in it (a code block's Copy, its actions) shares that wash, never a box of its own.",
+    },
+    {
       selector: '.diff-pill[role="toolbar"]',
       kind: "plate",
       reason: "The standalone floating diff toolbar is its own glass surface, not trailing tools on a row.",
+    },
+    {
+      selector: ".cv-table-tools.ui-glass",
+      kind: "plate",
+      reason:
+        "A reply table's Open and Copy float as one glass pill on the table's own corner, over its header or the line above (TableBlock.tsx); the glass keeps them legible over text.",
     },
   ];
   type Finding = { kind: string; selector: string; detail: string };
@@ -270,6 +297,12 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
               groups += baseline.groups;
               failures.push(...baseline.findings.map((f) => `${name}: ${f.kind} ${f.selector}: ${f.detail}`));
               for (let index = 0; index < baseline.controls; index++) {
+                // FOCUS-RING: a stage that focused a field from its play shows that field's ring until
+                // the pointer moves past its slop (ui/focusModality.ts). The pointer is in use before
+                // the baseline (a move inside the page; one outside it fires no event), so the hover
+                // below measures the hover alone, not the ring leaving.
+                await page.mouse.move(1, 1);
+                await page.mouse.move(1, 20);
                 await page.mouse.move(-10, -10);
                 const point = await page.evaluate(
                   (i) => (window as unknown as AuditWindow).controlSurfaceAudit.before(i),

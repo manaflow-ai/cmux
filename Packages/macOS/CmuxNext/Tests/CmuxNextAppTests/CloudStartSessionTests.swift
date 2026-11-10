@@ -111,6 +111,26 @@ struct CloudStartSessionTests {
         }
     }
 
+    /// A terminal's or a script's start (the CLI `cmux cloud start-chat` runs `cloud start-session`)
+    /// creates its machine as the person's would, never waiting on the "Create a Cloud machine?" card,
+    /// unless the person turned `cloud.agentsStartWithoutAsking` off.
+    @Test func aCLIStartCreatesWithoutTheCardUnlessThePersonTurnedAskingOn() async throws {
+        func startsAsPerson(_ origin: ActionOrigin, delegated: Bool) -> Bool {
+            let invocation = Self.invocation(["agent": .string("claude")], origin: origin)
+            return CloudStartCore().startsAsPerson(byPerson: CloudHandlers.origin(of: invocation) == .user, delegated: delegated)
+        }
+        for origin in [ActionOrigin.cli, .script, .remote] {
+            #expect(startsAsPerson(origin, delegated: true), "a \(origin) start would wait on the create card")
+            #expect(!startsAsPerson(origin, delegated: false), "asking turned on, a \(origin) start still asks")
+        }
+        #expect(startsAsPerson(.user, delegated: false), "the person's own run never asks")
+        // The create flow's own question (Leo, 2026-11-04: "just auto/bypass permissions by default").
+        let services = Self.fixture().services
+        #expect(services.settings?.cloudAgentsSkipAsking != false, "by default a CLI start would wait on the create card")
+        try await Self.askingFirst(services)
+        #expect(services.settings?.cloudAgentsSkipAsking == false, "asking turned on, a CLI start would not ask")
+    }
+
     // MARK: Refusals before anything starts
 
     @Test func aScriptRunWithoutAMachineSaysHowToNameOne() throws {
@@ -302,9 +322,11 @@ struct CloudStartSessionTests {
 
     /// A fresh Cloud machine whose image baked a cmux-tui from before cmux#29107 refuses its creator's
     /// first chat (`team_vm_blocked`): the start updates the machine to the app's build and tries once
-    /// more. With no update (`updateMachine` answers false, or none is wired), or for a refusal an older
-    /// daemon does not explain, the refusal stands and no second start runs.
-    @Test(arguments: [AgentSessionAttachError.teamMachine, "agent_session.host_unverified"])
+    /// more. A chat with no folder on a machine whose cmux-tui predates no-folder starts (`folder_needed`)
+    /// does the same, so it starts in `~/chats/<id>` with nothing to pick (Leo, 2026-11-05: "it should be
+    /// allowed to not pick a folder"). With no update (`updateMachine` answers false, or none is wired), or
+    /// for a refusal an older daemon does not explain, the refusal stands and no second start runs.
+    @Test(arguments: [AgentSessionAttachError.teamMachine, "agent_session.host_unverified", AgentRemoteStartRefusal.folderNeededCode])
     func aStartAnOlderDaemonRefusedUpdatesTheMachineAndStartsOnceMore(code: String) async throws {
         func host(_ steps: StartSteps, refusal: String, updates: Bool?) -> AgentTabRemoteHost {
             var host = AgentTabRemoteHost(surface: 1, session: nil, machine: "devbox", hostID: "devbox", endpoint: { throw CancellationError() })
@@ -532,21 +554,21 @@ struct CloudStartSessionTests {
     @Test func onlyAFreshListOfThisAccountIsCurrent() {
         let now = ContinuousClock.now
         let account = Self.account
-        #expect(CloudService.listIsCurrent(loadedAt: now - .seconds(5), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
+        #expect(CloudListFreshness.isCurrent(loadedAt: now - .seconds(5), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
         // A failed or superseded refresh leaves the last landing time: an old list is not current.
-        #expect(!CloudService.listIsCurrent(loadedAt: now - .seconds(60), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
+        #expect(!CloudListFreshness.isCurrent(loadedAt: now - .seconds(60), loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
         // Never loaded, or dropped at a sign-out.
-        #expect(!CloudService.listIsCurrent(loadedAt: nil, loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
+        #expect(!CloudListFreshness.isCurrent(loadedAt: nil, loadedFor: account, account: account, now: now, within: CloudStartSession.listFresh))
         // A team switch keeps the user: the previous team's list is not this team's.
-        #expect(!CloudService.listIsCurrent(loadedAt: now, loadedFor: ["user-1", "team-0"], account: account, now: now, within: CloudStartSession.listFresh))
+        #expect(!CloudListFreshness.isCurrent(loadedAt: now, loadedFor: ["user-1", "team-0"], account: account, now: now, within: CloudStartSession.listFresh))
     }
 
     @Test func theRetryCommandKeepsTheNameOneShellWord() {
-        #expect(CloudStartSession.shellQuoted("dev-1") == "dev-1")
-        #expect(CloudStartSession.shellQuoted("my dev") == "'my dev'")
-        #expect(CloudStartSession.shellQuoted("it's") == "'it'\\''s'")
-        #expect(CloudStartSession.shellQuoted("a;rm -rf ~") == "'a;rm -rf ~'")
-        let message = CloudStartSessionStrings.createFailed("my dev", quoted: CloudStartSession.shellQuoted("my dev"), agent: "claude", reason: "x")
+        #expect(CloudStartCore.shellQuoted("dev-1") == "dev-1")
+        #expect(CloudStartCore.shellQuoted("my dev") == "'my dev'")
+        #expect(CloudStartCore.shellQuoted("it's") == "'it'\\''s'")
+        #expect(CloudStartCore.shellQuoted("a;rm -rf ~") == "'a;rm -rf ~'")
+        let message = CloudStartSessionStrings.createFailed("my dev", quoted: CloudStartCore.shellQuoted("my dev"), agent: "claude", reason: "x")
         #expect(message.contains("`cmux cloud start-session --name 'my dev' --agent claude`"))
         #expect(message.hasPrefix("Couldn't create Cloud machine `my dev` (x)"))
     }

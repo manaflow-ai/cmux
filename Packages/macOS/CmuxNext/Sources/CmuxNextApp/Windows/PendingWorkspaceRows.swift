@@ -13,16 +13,7 @@ import Observation
 final class PendingWorkspaceRows {
     static let shared = PendingWorkspaceRows()
 
-    struct Row: Equatable {
-        /// The workspace's key, fixed at the press.
-        let id: String
-        var window: String
-        let machine: MachineID
-        /// The row as the window lists it once the daemon has created it.
-        let face: SidebarWorkspace
-        let slot: WorkspaceSlot?
-        let byDefault: NewWorkspaceDefaultSlot?
-    }
+    typealias Row = PendingWorkspaceRow
 
     private(set) var rows: [Row] = []
     /// The names `add` reserved, by key, until a store lists the workspace (its name counts there from then) or its create
@@ -40,7 +31,7 @@ final class PendingWorkspaceRows {
     @ObservationIgnored var placing = false
     /// The workspaces whose slot `WindowManager.pendingPlacements` holds and has not sent (observed: a rows pass re-runs when one goes).
     private(set) var unsentSlots: Set<String> = []
-    let groupJoins = GroupJoinRows() // `agent.openSessionWorkspace --group`: out of the list until it lists in a group
+    let groupJoins = GroupJoinRows() // `agent.openSessionWorkspace --group`: joined in the pass that first lists it
 
     /// A create's row in its final look (`SidebarMapping.creatingRow`) under its key: Cmd-N's, and an agent's chat open.
     func add(creating id: String, window: String, machine: MachineID, name: String, opensPage: Bool, slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?, unpinned: Bool = false) { if unpinned { self.unpinned.insert(id); takenOver.insert(id) }; add(.init(id: id, window: window, machine: machine, face: SidebarMapping.shared.creatingRow(id: id, machine: machine, name: name, opensPage: opensPage), slot: slot, byDefault: byDefault), name: name) }
@@ -57,6 +48,9 @@ final class PendingWorkspaceRows {
         takenOver.remove(id); unpinned.remove(id); groupJoins.release(id)
         redraws.run()
     }
+
+    /// The row `id` was dropped at `slot` while its create runs (`WindowManager.reslotCreates`): it draws there now.
+    func reslot(_ id: String, to slot: WorkspaceSlot) { if let i = rows.firstIndex(where: { $0.id == id }) { rows[i].slot = slot; rows[i].byDefault = nil; redraws.run() } }
 
     /// Window `old` is now window `new` (`WindowManager.launchWindowAdopted`): its rows list there.
     func move(window old: String, to new: String) {
@@ -102,47 +96,17 @@ final class PendingWorkspaceRows {
             guard unsentSlots.contains(id) || doc.awaitsPlacement(workspace, session: daemon.store.registryID) else { return false }
             takenOver.insert(id)
             return true
-        }.union(doc.isActive ? groupJoins.hidden(in: listed) : []), from: listed)
+        }.union(doc.isActive ? groupJoins.hidden(in: listed, window: window, catchingUp: doc.catchingUp) : []), from: listed)
     }
 
     /// The pending rows of `window` whose workspace the sidebar cannot draw at its slot yet (`unplaced`: Cmd-N's
     /// stand-in, or a workspace the sidebar document does not place yet): the sidebar lists the pending row for them.
     func ids(in window: String, unplaced: (String) -> Bool) -> Set<String> { Set(rows.filter { $0.window == window && unplaced($0.id) }.map(\.id)) }
 
-    func rows(in window: String) -> [Row] { rows.filter { $0.window == window } }
+    func rows(in window: String) -> [Row] { rows.filter { $0.window == window && !groupJoins.holds($0.id) } } // a held grouped create: no slot, so no stand-in
 
     /// An app's `WindowManager.pendingPlacements` went from slots for `old` to slots for `new` (per id: apps share this).
     func placements(from old: [String: PendingPlacement].Keys, to new: [String: PendingPlacement].Keys) {
         if old.count != new.count || !old.allSatisfy(new.contains) { unsentSlots = unsentSlots.subtracting(old).union(new) }
-    }
-
-    /// `sections` with each pending row the window does not list yet, at
-    /// its slot (`NewWorkspaceDefaultSlot`), in press order. `home` is the
-    /// home workspace's id. `catchingUp`: the window's `sections` are a projection behind the sidebar document
-    /// (`SidebarRows.layoutCatchingUp`).
-    static func adding(_ rows: [Row], to sections: [SidebarRowSection], home: String?, catchingUp: Bool) -> [SidebarRowSection] {
-        guard !rows.isEmpty else { return sections }
-        var sections = sections
-        let listed = Set(sections.flatMap(\.workspaces).map(\.id.rawValue))
-        for row in rows where !listed.contains(row.id) {
-            let section = SectionID.machine(row.machine)
-            // An explicit slot is ready at the press. A default slot whose
-            // current anchor is missing belongs to the stale cold layout and
-            // must wait for that anchor, rather than drawing a bottom frame.
-            let slot: WorkspaceSlot?
-            if let explicit = row.slot {
-                slot = explicit
-            } else if let byDefault = row.byDefault {
-                // Before the slot: `top` resolves to the section's top without the current row, which may sit in a group.
-                if byDefault.awaitsCurrentAnchor(section: section, in: sections, home: home, catchingUp: catchingUp) { continue }
-                slot = byDefault.slot(for: row.id, section: section, in: sections, home: home, catchingUp: catchingUp) ?? .bottom(anchor: nil)
-            } else {
-                // No slot keeps the daemon's place: the end of the section.
-                slot = .bottom(anchor: nil)
-            }
-            guard let slot, let position = slot.position(moving: [row.id], section: section, in: sections) else { continue }
-            SidebarEdits.insert([row.face], at: position, in: &sections)
-        }
-        return sections
     }
 }

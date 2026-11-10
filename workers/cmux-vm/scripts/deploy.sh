@@ -67,7 +67,7 @@ if [ "${#extras[@]}" -gt 0 ]; then
   fi
 fi
 
-# Scopes service-key-grants.json grants by key id (acl:read and acl:write for cmux-platform's Cloud keys), merged
+# Scopes service-key-grants.json grants by key id (the mesh ACL and snapshot scopes for cmux-platform's Cloud keys), merged
 # into the entries without touching their write-only secrets.
 if [ -n "$service_keys" ]; then
   service_keys="$(printf '%s' "$service_keys" | bash scripts/apply-key-grants.sh)"
@@ -85,7 +85,10 @@ jq -n \
    + (if $service_keys == "" then {} else {CMUX_VM_SERVICE_KEYS: $service_keys} end)' > "$secrets"
 
 # Until the secrets land the Worker answers 503 "not configured" (src/index.ts).
-bunx wrangler deploy --config wrangler.generated.json --env "$TARGET"
+# /healthz names this commit (x-cmux-commit) for NOW's cloud_deploy_gate; only a full commit id is passed.
+commit_var=()
+if [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then commit_var=(--var "COMMIT_SHA:$GITHUB_SHA"); fi
+bunx wrangler deploy --config wrangler.generated.json --env "$TARGET" "${commit_var[@]}"
 bunx wrangler secret bulk "$secrets" --config wrangler.generated.json --env "$TARGET"
 worker="$(jq -r --arg t "$TARGET" '.env[$t].name' wrangler.generated.json)"
 bash scripts/custom-domains.sh "$worker"

@@ -4,8 +4,8 @@ import CmuxNextDesign
 
 // fullscreen-lag (user, 2026-10-19). A full screen enter or exit is one
 // AppKit animation from the old size to the new one; the window takes the new
-// size at its start. Nothing springs toward it (`Motion.isLiveResizing` holds
-// for the transition), terminals send the daemon one grid at its end
+// size at its start. Nothing in it springs toward it (`Motion.isLiveResizing(window)`
+// holds for the transition), terminals send the daemon one grid at its end
 // (`ResizeCoordinator`), hover cards close (their anchors move), and the top
 // row lays out for where it rests: the traffic lights are away while the
 // window leaves full screen (`ShellWindow.restingTrafficLights`), and once
@@ -48,7 +48,7 @@ extension WindowController {
     /// top row and every strip under it measure once more, in this turn.
     private func fullScreenTransitionDidEnd() {
         (window as? ShellWindow)?.isLeavingFullScreen = false
-        root.needsLayout = true
+        root.applyMainPane() // a fullscreen window has no lit rim to leave room for (`Metrics.windowEdgeInset`)
         root.layoutSubtreeIfNeeded()
         relayoutTopRowStrips()
     }

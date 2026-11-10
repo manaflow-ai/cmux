@@ -7,3 +7,19 @@
   flex: none;
   max-width: 40%;
 }
+/* The base's look of the chat's reply under a finished line ("reply-before"), as conversation.css
+   drew `.cv-tools > .cv-reaction-reply` before the reply became the chat's own message. */
+.subagent-done-gallery__before-reply {
+  margin: 0;
+  padding-left: var(--cv-tool-text-inset);
+  color: var(--cv-text-dim);
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* The stage's rows flow one under the other (the transcript places its rows absolutely, which drew
+   every row of this stage at the same top). */
+.subagent-done-gallery > .acpmux-row {
+  position: relative;
+  inset: auto;
+}

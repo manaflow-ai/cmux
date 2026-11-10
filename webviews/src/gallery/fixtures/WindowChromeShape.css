@@ -1,0 +1,65 @@
+.window-chrome-gallery {
+  --chrome-density: 1;
+  --chrome-unit: calc(4px * var(--chrome-density) * var(--cmux-interface-scale, 1));
+  --chrome-inset: calc(var(--chrome-unit) * 2);
+  --chrome-outer-radius: calc(var(--chrome-unit) * 8);
+  --chrome-inner-radius: max(0px, calc(var(--chrome-outer-radius) - var(--chrome-inset)));
+  --chrome-gap: calc(var(--chrome-unit) * 2);
+  --chrome-icon-size: calc(var(--chrome-unit) * 4);
+  --chrome-font-size: calc(var(--chrome-unit) * 3.25);
+  --chrome-small-size: calc(var(--chrome-unit) * 2.75);
+  --chrome-surface: var(--agent-page-bg, var(--cmux-surface-background, var(--cmux-app-window, #17191e)));
+  --chrome-sidebar: var(--agent-surface, var(--cmux-app-sidebar, var(--cmux-surface-background, #121419)));
+  --chrome-card: var(--agent-surface-elevated, var(--cmux-elevated-background, var(--cmux-app-content, #20242b)));
+  --chrome-divider: var(--agent-border, var(--cmux-separator, var(--cmux-app-separator, color-mix(in srgb, currentColor 12%, transparent))));
+  --chrome-ink: var(--agent-text, var(--cmux-text, var(--cmux-app-text, #f2f3f7)));
+  --chrome-muted: var(--agent-muted, var(--cmux-text-secondary, var(--cmux-app-text-secondary, #9da3b1)));
+  --chrome-accent: var(--agent-accent, var(--cmux-accent, var(--cmux-app-accent, #7da8ff)));
+  --chrome-selection: var(--agent-accent-soft, var(--cmux-selection, var(--cmux-app-selection, color-mix(in srgb, var(--chrome-accent) 20%, transparent))));
+  --chrome-action-slot: calc(var(--chrome-unit) * 7);
+  --chrome-add-slot: var(--chrome-action-slot);
+  display: flex;
+  flex-direction: column;
+  gap: var(--chrome-gap);
+  min-height: 100%;
+  padding: calc(var(--chrome-unit) * 3);
+  color: var(--chrome-ink);
+  background: var(--chrome-surface);
+  font: 500 var(--chrome-font-size)/1.25 var(--font-ui);
+  background-image: linear-gradient(color-mix(in srgb, var(--chrome-surface) 82%, transparent), color-mix(in srgb, var(--chrome-surface) 92%, transparent)), var(--cmux-app-background-image, url("./assets/liquid-glass-wallpaper.jpg"));
+  background-size: cover;
+  background-position: center;
+  border-radius: var(--chrome-outer-radius);
+  overflow: hidden;
+}
+
+.chrome-window-header { display: grid; grid-template-columns: calc(var(--chrome-unit) * 61) minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--chrome-inset); align-items: start; min-height: calc(var(--chrome-unit) * 10); padding: 0 calc(var(--chrome-unit) * 2); }
+.chrome-window-sidebar-title,
+.chrome-window-agent-title,
+.chrome-window-browser-title { min-width: 0; }
+.chrome-window-sidebar-title { display: flex; align-items: center; gap: calc(var(--chrome-unit) * 2); padding-inline: calc(var(--chrome-unit) * 2); min-height: calc(var(--chrome-action-slot) * 1.5); }
+.chrome-sidebar-toggle { border: 0; background: transparent; color: var(--chrome-muted); font: inherit; }
+.chrome-sidebar-toggle:hover { color: var(--chrome-ink); }
+.chrome-traffic-lights { --chrome-light-close: #ff5f57; --chrome-light-minimize: #febc2e; --chrome-light-zoom: #28c840; display: flex; gap: var(--chrome-unit); }
+.chrome-traffic-lights i { width: var(--chrome-icon-size); height: var(--chrome-icon-size); border-radius: 50%; background: var(--chrome-light-close); }
+.chrome-traffic-lights i:nth-child(2) { background: var(--chrome-light-minimize); }
+.chrome-traffic-lights i:nth-child(3) { background: var(--chrome-light-zoom); }
+.chrome-window-body { display: flex; flex: 1; min-height: 0; gap: var(--chrome-inset); overflow: hidden; }
+.chrome-sidebar { width: calc(var(--chrome-unit) * 61); min-width: calc(var(--chrome-unit) * 61); padding: calc(var(--chrome-unit) * 4) calc(var(--chrome-unit) * 2); background: var(--chrome-sidebar); }
+.chrome-main { min-width: 0; flex: 1; display: flex; flex-direction: column; padding-right: var(--chrome-inset); }
+.chrome-content-surface { min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: color-mix(in srgb, var(--chrome-card) 74%, transparent); border-radius: var(--chrome-inner-radius); }
+.chrome-pane-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--chrome-inset); min-height: 0; flex: 1; }
+.chrome-pane { min-width: 0; overflow: hidden; }
+.chrome-agent-pane { background: color-mix(in srgb, var(--chrome-card) 56%, transparent); }
+.chrome-pane-content { position: relative; display: flex; flex-direction: column; gap: var(--chrome-gap); min-height: 100%; padding: calc(var(--chrome-unit) * 5); }
+.chrome-chat-placeholder { color: var(--chrome-muted); font-size: var(--chrome-small-size); }
+.chrome-transcript-rail { position: absolute; inset-block: calc(var(--chrome-unit) * 5); inset-inline-start: calc(var(--chrome-unit) * 2); display: flex; flex-direction: column; justify-content: space-around; }
+.chrome-transcript-rail i { width: var(--chrome-unit); height: calc(var(--chrome-unit) * 2); border-radius: var(--chrome-unit); background: var(--chrome-accent); opacity: .45; }
+.chrome-browser-pane { background: var(--chrome-card); border-radius: var(--chrome-inner-radius); }
+.chrome-browser-content { display: flex; flex-direction: column; gap: calc(var(--chrome-unit) * 3); padding: calc(var(--chrome-unit) * 8) calc(var(--chrome-unit) * 5); }
+.chrome-browser-kicker { color: var(--chrome-accent); font-size: var(--chrome-small-size); letter-spacing: .04em; }
+.chrome-browser-content h3 { margin: 0; font-size: calc(var(--chrome-font-size) * 1.4); }
+.chrome-browser-content p { max-width: 38ch; margin: 0; color: var(--chrome-muted); font-size: var(--chrome-small-size); }
+.chrome-browser-line { width: 82%; height: var(--chrome-unit); border-radius: var(--chrome-unit); background: color-mix(in srgb, var(--chrome-ink) 13%, transparent); }
+.chrome-browser-line.short { width: 56%; }
+

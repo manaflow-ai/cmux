@@ -13,12 +13,15 @@
 .acpmux-minimap__card {
   /* Mixed into the opaque base (styles.css --acpmux-base), as the menus are: the page color can be clear. */
   --acpmux-minimap-base: var(--acpmux-base, var(--agent-page-bg));
+  --acpmux-minimap-pitch: 10px;
+  --acpmux-minimap-bar-height: 2px;
   --acpmux-minimap-rest: var(--agent-muted);
   --acpmux-minimap-text: var(--agent-text);
   --acpmux-minimap-card: color-mix(in srgb, var(--agent-text) 7.5%, var(--acpmux-minimap-base));
   --acpmux-minimap-card-ring: color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-minimap-base));
-  /* The Codex rail's spring curve, about 0.8% overshoot, run over the scale's micro step (120 ms). */
-  --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
+  /* The Codex rail's spring curve up to its end, run over the scale's micro step (120 ms): it reaches
+     full length at 58.75% and stays there, never past it (Lawrence: no bounce in any motion). */
+  --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1 58.75%, 1);
 }
 /* appearance.borders none clears the popover's rim in place, as it clears the popups'. */
 :root[data-borders="none"] .acpmux-minimap,
@@ -82,19 +85,40 @@
   display: none;
 }
 /* A rail longer than its room fades at an edge with more rows past it: 2.5rem, less in a short rail
-   (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). */
+   (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). Each
+   edge deepens as the list leaves that end (--acpmux-minimap-fade-*-reach, 0 to 1, model.ts
+   railFadeReach): none at the very top or bottom, so the ticks roll under the edge like a wheel. The
+   reaches do not inherit, so a scroll's new reach restyles the list and none of its ticks. */
+@property --acpmux-minimap-fade-top-reach {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+@property --acpmux-minimap-fade-bottom-reach {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
 .acpmux-minimap__list[data-fade-top] {
-  mask-image: linear-gradient(to bottom, transparent, #000 var(--acpmux-minimap-fade, 2.5rem));
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 calc(var(--acpmux-minimap-fade, 2.5rem) * var(--acpmux-minimap-fade-top-reach))
+  );
 }
 .acpmux-minimap__list[data-fade-bottom] {
-  mask-image: linear-gradient(to top, transparent, #000 var(--acpmux-minimap-fade, 2.5rem));
+  mask-image: linear-gradient(
+    to top,
+    transparent,
+    #000 calc(var(--acpmux-minimap-fade, 2.5rem) * var(--acpmux-minimap-fade-bottom-reach))
+  );
 }
 .acpmux-minimap__list[data-fade-top][data-fade-bottom] {
   mask-image: linear-gradient(
     to bottom,
     transparent,
-    #000 var(--acpmux-minimap-fade, 2.5rem),
-    #000 calc(100% - var(--acpmux-minimap-fade, 2.5rem)),
+    #000 calc(var(--acpmux-minimap-fade, 2.5rem) * var(--acpmux-minimap-fade-top-reach)),
+    #000 calc(100% - var(--acpmux-minimap-fade, 2.5rem) * var(--acpmux-minimap-fade-bottom-reach)),
     transparent
   );
 }
@@ -103,7 +127,7 @@
   flex: none;
   display: block;
   width: 100%;
-  height: 10px;
+  height: var(--acpmux-minimap-pitch);
   margin: 0;
   padding: 0;
   border: 0;
@@ -130,7 +154,7 @@
 .acpmux-minimap__bar,
 .acpmux-minimap__dot {
   position: absolute;
-  top: 4px;
+  top: calc((var(--acpmux-minimap-pitch) - var(--acpmux-minimap-bar-height)) / 2);
   left: 0;
   background: currentColor;
   opacity: 0.4;
@@ -139,9 +163,18 @@
   transition: transform var(--cmux-motion-micro) cubic-bezier(0.25, 1, 0.5, 1);
   transition: transform var(--cmux-motion-micro) var(--acpmux-minimap-spring);
 }
+/* The tick's line box is its full 26 px (model.ts TICK_BOX) in every width, as the tick's scale and the
+   bookmark dot's offset (ThreadMinimap.tsx) count it: a rail narrowed by a short gutter (Session Info
+   pushing the chat toward the left rail, a narrow pane) keeps its resting ticks one length, and only the
+   room between them and the text shrinks (restTick.experiment.ts `steady`; Leo, 2026-11-06: "you guys
+   didn't fix the spacing on this left side session rail thing"). The list clips a magnified tick past a
+   narrowed rail, which widens while it is in use. The `squeeze` arm keeps the box the rail's width. */
 .acpmux-minimap__bar {
-  width: min(26px, 100%);
+  width: 26px;
   height: 2px;
+}
+.acpmux-minimap__rail[data-rest-tick="squeeze"] .acpmux-minimap__bar {
+  width: min(26px, 100%);
 }
 /* The ticks' entrance (Leo 2026-10-25: "the animation ... those sort of lines pop up. There should
    be a little bit more easing"): each new tick grows out from the rail's edge on the hover's spring
@@ -295,11 +328,11 @@
 /* Another session's message (model.ts promptSender) keeps the person's tick: at rest every tick
    shares one column, one x and one width, so the rail never reads jagged; its preview card names the
    sender (PreviewCard.tsx). #31681 set these ticks in and shorter; Leo 2026-11-02, on that rail:
-   "WTF ARE THESE" (leo-workspace design/session-rail.md). With `data-incoming-dim`
-   (incoming.experiment.ts, on by default) their resting tick is a step dimmer than the person's, in
-   the same place and size, so the person's prompts stay the rail's rhythm (Leo, 2026-11-03: "i've
-   always been on the fence about messages from other chats showing up in that prompt jump scroll
-   rail individual elements"). Lit, bookmarked, hovered and focused ticks draw as every other. */
+   "WTF ARE THESE" (leo-workspace design/session-rail.md). By default it also keeps the person's
+   resting weight: a dimmer tick read as a gap, so the rail read as uneven pairs (Leo, 2026-11-06).
+   With `data-incoming-dim` (incoming.experiment.ts's dimming arms, which set
+   --acpmux-minimap-incoming) their resting tick is a step dimmer than the person's, in the same
+   place and size. Lit, bookmarked, hovered and focused ticks draw as every other. */
 .acpmux-minimap__rail[data-incoming-dim] .acpmux-minimap__tick[data-incoming][data-tone="rest"]:not([data-bookmarked]) .acpmux-minimap__bar {
   opacity: var(--acpmux-minimap-incoming, 0.25);
 }
@@ -310,7 +343,7 @@
   top: 0;
   right: 0;
   width: 9px;
-  height: 10px;
+  height: var(--acpmux-minimap-pitch);
 }
 /* Where the card's x and y count from: the rail's origin, as the card draws in the transcript
    scroller's parent (PreviewCard.tsx). */
@@ -330,23 +363,25 @@
   top: 0;
   left: 0;
   z-index: var(--layer-tooltip);
+  /* As wide as its words, up to the arm's widest (card.experiment.ts, set inline by PreviewCard), so a
+     long prompt or reply uses the room beside the rail instead of wrapping in a narrow column. The rail
+     origin is at most 52px in; keep another 12px clear at the far edge. */
   width: fit-content;
-  /* The existing rail origin is at most 52px in; keep another 12px clear at the far edge. */
-  min-width: min(240px, calc(100vw - 64px));
-  max-width: min(360px, calc(100vw - 64px));
+  min-width: min(280px, calc(100vw - 64px));
+  max-width: min(var(--acpmux-minimap-card-max, 520px), calc(100vw - 64px));
   isolation: isolate;
   will-change: transform;
   box-sizing: border-box;
   /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
-     none clears it through --acpmux-minimap-rim. Glass, as the chat's other hover cards (the link
-     preview, the tooltips): the tooltip tint over the shared blur, never an opaque fill (Leo
-     2026-10-21). Reduce Transparency turns the tint into the solid popup surface and the blur off
-     (pages/shared/desktop.css). */
+     none clears it through --acpmux-minimap-rim. Glass, the popover level as the chat's other hover
+     cards (the link preview, a session's card; glass.css GLASS LEVELS), never an opaque fill (Leo
+     2026-10-21). Reduce Transparency turns the fill into the solid popup surface (below) and the blur
+     off (pages/shared/desktop.css). */
   padding: var(--ds-space-2);
   border-radius: var(--ds-radius-xl);
-  background: var(--tooltip-tint, var(--surface-popup, var(--acpmux-minimap-card)));
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  background: color-mix(in srgb, var(--glass-surface, var(--acpmux-minimap-base)) var(--ds-glass-popover-tint), transparent);
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
   box-shadow:
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
     var(--elevation-2);
@@ -355,6 +390,15 @@
   letter-spacing: var(--text-body--letter-spacing);
   -webkit-font-smoothing: antialiased;
   cursor: default;
+}
+/* Reduce Transparency: the solid popup surface. */
+:root[data-reduce-transparency] .acpmux-minimap__card {
+  background: var(--surface-popup, var(--acpmux-minimap-card));
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-minimap__card {
+    background: var(--surface-popup, var(--acpmux-minimap-card));
+  }
 }
 /* The sender of another session's message, above its words: secondary text, one line. */
 .acpmux-minimap__from {
@@ -365,9 +409,11 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* The prompt is the card's title: one line, cut with an ellipsis, the emphasis weight. Only the title
+   is emphasized; the reply under it is regular weight (Leo, 2026-11-07: "First off, it's all bold"). */
 .acpmux-minimap__title {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--ds-space-2);
   min-height: var(--ds-control-compact);
   font-weight: var(--weight-emphasis);
@@ -376,11 +422,8 @@
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  white-space: pre-line;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 /* A prompt not loaded yet (a pending tick): a blank line where its words go, at the line's height, so
    the card is its usual size and nothing moves when they arrive. */
@@ -412,6 +455,7 @@
 .acpmux-minimap__bookmark.ui-button.ui-btn[aria-pressed="true"] {
   color: var(--agent-text);
 }
+/* The reply under the title, set apart from it: the card's regular weight, muted, its first lines. */
 .acpmux-minimap__reply {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -421,11 +465,31 @@
   color: var(--agent-muted);
   line-height: var(--text-title--line-height);
 }
+/* A prompt's card shows the arm's lines (card.experiment.ts). Its max-height is the same lines, so
+   opening the card is one max-height transition from them to the open lines, never a jump. */
 .acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
-  height: auto;
-  /* Callers provide the measured body line height so a capped reply never exposes a partial row. */
-  max-height: calc(var(--acpmux-minimap-reply-lines, 1) * var(--acpmux-minimap-reply-line-height, var(--text-title--line-height)));
-  min-height: var(--acpmux-minimap-reply-line-height, var(--text-title--line-height));
+  -webkit-line-clamp: var(--acpmux-minimap-reply-lines, 5);
+  max-height: calc(var(--acpmux-minimap-reply-lines, 5) * var(--text-title--line-height));
+  transition: max-height var(--cmux-motion-standard) var(--cmux-ease-out);
+}
+/* Open (the pointer moved from the rail into the card): more of the reply, up to the arm's open lines,
+   and it scrolls inside past them. The card grows down from where it was (PreviewCard `openTop`). */
+.acpmux-minimap__card[data-open] .acpmux-minimap__reply {
+  display: block;
+  -webkit-line-clamp: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  max-height: calc(var(--acpmux-minimap-reply-open-lines, 14) * var(--text-title--line-height));
+}
+:root[data-cmux-motion="off"] .acpmux-minimap__card[data-prompt] .acpmux-minimap__reply,
+:root[data-cmux-motion="reduced"] .acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
+    transition: none;
+  }
 }
 .acpmux-minimap__metadata {
   display: flex;
@@ -574,7 +638,7 @@
   opacity: var(--acpmux-minimap-mark, 0.7);
 }
 /* The rows the rail does not draw (tickWindow.ts): one block as tall as they are, painted as their
-   resting ticks: the bar's 2 px at 4 px down each 10 px row, at its resting length (model.ts
+   resting ticks: the bar's 2 px centered in each row, at its resting length (model.ts
    tickLength(0), 0.2308 of the bar's box) in the rest tone at its 40%. A fast wheel or fling can move
    the list past the drawn rows for a frame before its scroll event draws them (Chromium scrolls on
    its compositor); that frame shows ticks at rest, not a blank strip (Leo, 2026-10-31: "if i scroll
@@ -584,14 +648,17 @@
   flex: none;
   background: linear-gradient(
       to bottom,
-      transparent 4px,
-      color-mix(in srgb, var(--acpmux-minimap-rest) 40%, transparent) 4px 6px,
-      transparent 6px
+      transparent calc((var(--acpmux-minimap-pitch) - var(--acpmux-minimap-bar-height)) / 2),
+      color-mix(in srgb, var(--acpmux-minimap-rest) 40%, transparent) calc((var(--acpmux-minimap-pitch) - var(--acpmux-minimap-bar-height)) / 2) calc((var(--acpmux-minimap-pitch) + var(--acpmux-minimap-bar-height)) / 2),
+      transparent calc((var(--acpmux-minimap-pitch) + var(--acpmux-minimap-bar-height)) / 2)
     )
-    0 0 / calc(min(26px, 100%) * 0.2308) 10px repeat-y;
+    0 0 / calc(26px * 0.2308) var(--acpmux-minimap-pitch) repeat-y;
+}
+.acpmux-minimap__rail[data-rest-tick="squeeze"] .acpmux-minimap__gap {
+  background-size: calc(min(26px, 100%) * 0.2308) var(--acpmux-minimap-pitch);
 }
 /* A tick's list item (its place among every prompt for assistive tech): a plain block around its
-   tick, so it takes the tick's 10 px and the list's rows stay where they were. */
+   tick, so it takes the tick's pitch and the list's rows stay where they were. */
 .acpmux-minimap__entry {
   flex: none;
   display: block;

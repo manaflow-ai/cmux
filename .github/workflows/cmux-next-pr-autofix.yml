@@ -50,6 +50,10 @@ concurrency:
   group: cmux-next-pr-autofix-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   # Whether the Mac action-exports job runs: decided on Linux, so a pull
   # request that changes neither the catalog nor the settings never takes a Mac.
@@ -725,7 +729,9 @@ jobs:
     # The contents-write App key is never exposed to PR-controlled workflow
     # code. A main-only environment intentionally leaves PR repairs as an
     # artifact until this push is moved behind a trusted workflow_run broker.
-    environment: cmux-pr-autofix
+    environment:
+      name: cmux-pr-autofix
+      deployment: false
     needs: [action-areas, action-exports, repair]
     # Explicit status checks: the implicit success() would fail on the
     # action-exports job, which most pull requests skip. The areas must have

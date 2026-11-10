@@ -120,7 +120,6 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const long = rowLines("kinds-long");
       const received = rowLines("kinds-received");
       const scheduled = rowLines("backgroundTurn-spacing-scheduled");
-      const worked = rowLines("worked-kinds-received");
       const run = rowLines("kinds-run");
       const short = rowLines("kinds-short");
       const compacted = rowLines("kinds-compacted");
@@ -131,8 +130,7 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const gaps: Record<string, number | null> = {
         "body-line": long.length > 1 ? diff(at(long[0]), at(long[1])) : null,
         "footer-to-received": diff(glyph("kinds-footer"), at(received[0])),
-        "received-to-worked": diff(at(received.at(-1)), at(worked[0])),
-        "worked-to-status": diff(at(worked[0]), at(scheduled[0])),
+        "received-to-status": diff(at(received.at(-1)), at(scheduled[0])),
         "status-to-run": diff(at(scheduled.at(-1)), at(run[0])),
         "run-to-child": run.length > 2 ? diff(at(run[0]), at(run[1])) : null,
         "child-pitch": run.length > 2 ? diff(at(run[1]), at(run[2])) : null,
@@ -156,6 +154,11 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
 
   const open = async (theme: string, variant = VARIANT) => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 1200 }, deviceScaleFactor: 2 });
+    // Leo's capture of a Claude chat, as Claude's in-place runs draw it (claudeTurnFold.experiment.ts
+    // arm "runs"); by default a finished Claude turn folds under Worked for (Codex parity).
+    await page.addInitScript(() => {
+      globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "claude-turn-fold": "runs" };
+    });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1100, theme, reducedMotion: "true" })}`,
@@ -231,6 +234,10 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
         const first = lines(row)[0];
         return first ? (first.top + first.bottom) / 2 : null;
       };
+      const tail = (row: Element | undefined) => {
+        const last = lines(row).at(-1);
+        return last ? (last.top + last.bottom) / 2 : null;
+      };
       const diff = (a: number | null | undefined, b: number | null | undefined) =>
         a == null || b == null ? null : Math.round((b - a) * 100) / 100;
       // A stacked row's first line sits on its own line under the row: the pitch from it to the row under it is one
@@ -251,7 +258,11 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const bubble = document.querySelector('[data-row-id="sp-prompt"] .cv-user__bubble')?.getBoundingClientRect();
       const sent = byText(/^Sent to/m) ?? document.querySelector('[data-row-id="received-sent"]') ?? undefined;
       const gaps: Record<string, number | null> = {
-        "work-to-subagent": diff(head(byText(/Sent a message/)), head(byClass("acpmux-subagentDone"))),
+        // A running turn keeps its work in sight (cmux#38339): its last call's row over the subagent's.
+        "work-to-subagent": diff(
+          tail(document.querySelector('[data-row-id="status-work"]') ?? undefined),
+          head(byClass("acpmux-subagentDone")),
+        ),
         "subagent-to-waiting": diff(head(byClass("acpmux-subagentDone")), head(byClass("acpmux-pendingMessages"))),
         // The closed group draws its first line under its head (stacked): the live line is a row under that.
         "waiting-to-live": after(

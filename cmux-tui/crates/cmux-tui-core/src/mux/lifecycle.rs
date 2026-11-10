@@ -64,32 +64,15 @@ impl Mux {
         self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner()).remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.agent_presence.lock().unwrap().remove(terminal_id);
+        self.agent_hooks_at_rest.forget_terminal(terminal_id);
         self.agent_prompts.lock().unwrap().forget(terminal_id);
         self.output_store.forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
-        // yet, so a closed terminal retires its roster entry explicitly.
-        // The snapshot persists so a restart does not resurrect the entry.
-        // The fold lock orders this save with `fold_agent_roster`'s, so
-        // neither writes an older snapshot over the other's. The write takes
-        // the registry connection alone, never the workspace registry lock,
-        // so state commits do not wait behind it (issue 23038).
-        let fold = self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner);
-        let retired = {
-            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
-            let retired = host.roster.retire_terminal(terminal_id.as_str());
-            retired.then(|| (host.cursor, host.roster.snapshot().to_string()))
-        };
-        if let Some((cursor, snapshot)) = retired
-            && let Err(error) = self.registry_connection.put_journal_reducer_state(
-                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
-                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
-                cursor,
-                &snapshot,
-            )
-        {
-            eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
-        }
-        drop(fold);
+        // yet, so a closed terminal retires its roster entry explicitly, and
+        // the snapshot persists so a restart does not resurrect it. The
+        // roster's owner thread does both; the close only records it
+        // (cmux-ad m11 2, `agent_roster_worker.rs`).
+        self.retire_roster_terminal(terminal_id);
         // Read the terminal's open local items and drop its ring together.
         self.close_terminal_feed_items(terminal_id);
     }
@@ -117,12 +100,18 @@ impl Mux {
 
     pub fn shutdown(&self) {
         let screen_checkpoint = self.wants_shutdown_checkpoint();
+        // The agents' last report times, before anything stops: the journal
+        // writer still runs.
+        self.save_agent_activity(true);
         self.shutting_down.store(true, Ordering::Release);
         // An in-flight maintenance tick must not delay the rest of shutdown.
         self.stop_journal_maintenance();
         self.stop_output_cleanup();
+        self.shutdown_feed_client();
         #[cfg(unix)]
         self.stop_agent_chat_notices();
+        #[cfg(unix)]
+        self.stop_project_chats();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();
@@ -142,6 +131,9 @@ impl Mux {
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
+        // The roster's owner saves what closes and hooks asked of it while
+        // the journal writer still runs; then it ends.
+        self.stop_agent_roster_worker();
         self.finalize_terminal_journal("shutdown", screen_checkpoint);
         self.journal_kernel.shutdown();
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
@@ -190,14 +182,23 @@ impl Mux {
         for surface in surfaces {
             terminal_gaps.extend(surface.finish_terminal_reader(terminal_reader_deadline));
         }
+        // The readers stopped: in a shutdown the publications they queued
+        // commit now, in the same grace, as when the readers made them inline.
+        // In a drop no job can reach the mux any more (as no reader could),
+        // so they end at once.
+        self.finish_terminal_publications(terminal_reader_deadline);
+        // The readers stopped. A marker the full terminal lane still owes
+        // (journal_ingress/terminal_offer.rs) is offered now, ahead of the
+        // last barrier. The offer does not wait.
+        let mut owed_gaps = self.journal_ingress.offer_owed_terminal_gaps();
         if self.journal_ingress.is_current_writer_thread() {
             // The readers stopped: the store's last write is safe here too.
             self.output_store.shutdown(self);
-            if !terminal_gaps.is_empty() {
+            if !terminal_gaps.is_empty() || owed_gaps > 0 {
                 eprintln!(
                     "cmux-tui: {context} on the session journal writer could not durably record \
                      {} terminal output gap(s)",
-                    terminal_gaps.len()
+                    terminal_gaps.len() + owed_gaps
                 );
             }
             if let Err(error) = self.journal_ingress.close_and_join() {
@@ -221,8 +222,22 @@ impl Mux {
         // durable gap above. Fence the terminal ingress lane while this Mux
         // still owns the registry; the closed gate prevents a timed-out reader
         // from inserting output after the barrier.
-        if let Err(error) = self.flush_terminal_journal() {
+        let mut flushed = self.flush_terminal_journal();
+        if flushed.is_ok() && owed_gaps > 0 {
+            // The lane was full at the offer above. The barrier emptied it
+            // and the readers are stopped, so the owed markers have room now;
+            // one more barrier makes them durable.
+            owed_gaps = self.journal_ingress.offer_owed_terminal_gaps();
+            flushed = self.flush_terminal_journal();
+        }
+        if let Err(error) = flushed {
             eprintln!("cmux-tui: flush terminal journal during {context}: {error:#}");
+        }
+        if owed_gaps > 0 {
+            eprintln!(
+                "cmux-tui: {context} could not record {owed_gaps} terminal output gap marker(s) \
+                 in the session journal"
+            );
         }
         if screen_checkpoint {
             self.capture_shutdown_checkpoint();
@@ -321,6 +336,8 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         #[cfg(unix)]
         self.stop_agent_chat_notices();
+        #[cfg(unix)]
+        self.stop_project_chats();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();

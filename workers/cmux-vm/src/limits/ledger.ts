@@ -16,6 +16,7 @@ import { SnapshotId, VmId } from "../lib/ids.ts";
 import { RetainedVmCreation } from "../domain/vm-creation.ts";
 import { Reservation, type LedgerStorage } from "./storage.ts";
 import { meshCreation, type MeshCreationCommand, type MeshCreationResult } from "./mesh-creation.ts";
+import { admitAgentSlot, bindAgentCreation, forgetAgentVm, settleAgentSlot, type AgentSlotOutcome } from "./agent-slots.ts";
 export type { LedgerStorage } from "./storage.ts";
 
 /** The subset of Durable Object storage the ledger uses. Values come back untyped and are checked on read. */
@@ -153,6 +154,10 @@ export class TenantLedger {
   constructor(private readonly storage: LedgerStorage) {}
 
   meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult> { return meshCreation(this.storage, command, nowMs); }
+  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> { return admitAgentSlot(this.storage, agent, limit, ownedVmIds, nowMs, slotId); }
+  settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void> { return settleAgentSlot(this.storage, agent, slotId, outcome, nowMs); }
+  bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void> { return bindAgentCreation(this.storage, agent, creationKey, vmId, nowMs); }
+  forgetAgentVm(vmId: string, creationKey: string | null): Promise<void> { return forgetAgentVm(this.storage, vmId, creationKey); }
 
   snapshotCapture(command: SnapshotCaptureCommand, nowMs: number): Promise<SnapshotCaptureResult> { return snapshotCapture(this.storage, command, nowMs); }
 

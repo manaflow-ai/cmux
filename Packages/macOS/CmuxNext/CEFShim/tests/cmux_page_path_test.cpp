@@ -99,6 +99,33 @@ int main() {
     navigation(false, "about:blank", page, artifact, false);
     navigation(false, "", page, artifact, false);
     navigation(true, "about:blank", "", artifact, true);
+    const std::string artifacts_page = "cmux-page://cmux.artifacts/";
+    navigation(false, "about:blank", artifacts_page, artifact, false);
+    navigation(false, "", artifacts_page, artifact, false);
+    for (const auto& parent : {"cmux-page://cmux.artifacts.evil/", "cmux-page://cmux.artifactsx/",
+                               "cmux-page://evil@cmux.artifacts/", "cmux-page://cmux.artifacts:42/",
+                               "https://cmux.artifacts/", "cmux-page://cmux.settings/",
+                               "cmux-page://cmux.artifacts@evil/", "cmux-page://cmux.artifacts./"}) {
+      navigation(false, "about:blank", parent, artifact, true);
+    }
+    for (const auto& target : {artifact, artifact + "?copy=1", artifact + "#copy", artifacts_page,
+                               std::string("cmux-page://cmux.agent/bridge.js"),
+                               std::string("cmux-page://cmux.artifacts/__artifact"),
+                               std::string("about:srcdoc"), std::string("about:blank"),
+                               std::string("https://example.test/"), std::string("file:///tmp/a.html"),
+                               std::string("data:text/html,replace"), std::string("javascript:alert(1)")}) {
+      navigation(false, artifact, artifacts_page, target, true);
+      navigation(false, "about:srcdoc", artifacts_page, target, true);
+      navigation(false, "about:blank", artifact, target, true);
+    }
+    navigation(false, "about:blank", artifacts_page, artifact + "?copy=1", true);
+    navigation(false, "about:blank", artifacts_page, artifact + "#copy", true);
+    navigation(false, artifacts_page, artifacts_page, artifact, true);
+    Allowed(false, artifact, artifacts_page, "cmux.artifacts", false);
+    Allowed(false, "about:blank", artifact, "cmux.artifacts", false);
+    Allowed(false, "about:srcdoc", artifacts_page, "cmux.artifacts", false);
+    Allowed(false, artifacts_page, "", "cmux.agent", false);
+
     for (const auto& parent : {"https://evil.test/", "cmux-page://cmux.agent.evil/",
                                "cmux-page://cmux.history/", "cmux-page://evil@cmux.agent/"}) {
       navigation(false, "about:blank", parent, artifact, true);
@@ -110,13 +137,15 @@ int main() {
       navigation(false, "about:srcdoc", page, target, true);
       navigation(false, "about:blank", artifact, target, true);
     }
-    // The Artifacts page's passive previews: the same lockdown, and no bootstrap.
+    // The Artifacts page's passive previews: the same lockdown. Its one bootstrap (an empty direct
+    // child loading the canonical endpoint, as the agent page does) is covered above.
     const std::string artifacts = "cmux-page://cmux.artifacts/";
     for (const auto& target : {std::string("https://example.test/"), std::string("about:srcdoc"),
                                std::string("about:blank"), artifacts, std::string("data:text/html,replace")}) {
       navigation(false, "about:srcdoc", artifacts, target, true);
     }
-    navigation(false, "about:blank", artifacts, artifact, true);
+    navigation(false, "about:blank", artifacts, artifact, false);
+    navigation(false, "about:srcdoc", artifacts, artifact, true);
     navigation(false, artifacts, "", "https://example.test/", false);
     Expect(!cmux_shim::ArtifactContextRestricted("about:srcdoc", "cmux-page://cmux.artifacts.evil/"),
            "a look-alike origin is not the Artifacts page");
@@ -308,6 +337,88 @@ int main() {
     Expect(std::string(cmux_shim::PageStatusText(206)) == "Partial Content", "status text 206");
     Expect(std::string(cmux_shim::PageStatusText(416)) == "Range Not Satisfiable", "status text 416");
     Expect(std::string(cmux_shim::PageStatusText(200)) == "OK", "status text 200");
+  }
+
+  // The live web loop's CSP for one answer (cmux_shim_page_resource_respond_page): kept as given,
+  // dropped when it would split a header.
+  {
+    const std::string dev = "default-src 'none'; connect-src ws://127.0.0.1:4200 http://127.0.0.1:4200";
+    Expect(cmux_shim::PageHeaderValue(dev) == dev, "live csp kept");
+    Expect(cmux_shim::PageHeaderValue("default-src *\r\nX-Frame-Options: ALLOW").empty(), "live csp with CRLF dropped");
+    Expect(cmux_shim::PageHeaderValue("default-src *\nInjected: yes").empty(), "live csp with LF dropped");
+    Expect(cmux_shim::PageHeaderValue("").empty(), "live csp empty");
+  }
+
+  // A page host's Content-Type goes to CEF as a bare type and a charset: a dev server's
+  // `text/html; charset=utf-8` as the type drew the page's source as plain text.
+  {
+    std::string mime, charset;
+    cmux_shim::SplitPageMimeType("text/html; charset=utf-8", &mime, &charset);
+    Expect(mime == "text/html" && charset == "utf-8", "content type split: " + mime + " / " + charset);
+    cmux_shim::SplitPageMimeType("Text/JavaScript;Charset=\"UTF-8\"", &mime, &charset);
+    Expect(mime == "text/javascript" && charset == "utf-8", "content type case and quotes: " + mime + " / " + charset);
+    cmux_shim::SplitPageMimeType("image/png", &mime, &charset);
+    Expect(mime == "image/png" && charset.empty(), "content type without parameters");
+    cmux_shim::SplitPageMimeType("text/plain; format=flowed; charset=iso-8859-1", &mime, &charset);
+    Expect(mime == "text/plain" && charset == "iso-8859-1", "content type other parameters dropped");
+    cmux_shim::SplitPageMimeType("", &mime, &charset);
+    Expect(mime.empty() && charset.empty(), "content type empty");
+  }
+
+  // A video's first chunk of a longer file is one answer to the rest of the file: Chromium takes a
+  // cmux-page:// answer's length as the file's (Leo, 2026-11-03: "i can neither preview a vid in
+  // place nor have it pop up anymore"). The page host's 8 MiB of a 12 MB recording at bytes=0-.
+  {
+    const int64_t mib8 = 8 << 20, total = 12'345'678;
+    const std::vector<std::pair<std::string, std::string>> first = {
+        {"Content-Range", "bytes 0-" + std::to_string(mib8 - 1) + "/" + std::to_string(total)},
+        {"Accept-Ranges", "bytes"}};
+    cmux_shim::PageRangedStream stream;
+    Expect(cmux_shim::PlanRangedStream("bytes=0-", 206, first, mib8, &stream), "a first chunk of a longer file streams");
+    Expect(stream.length == total, "the answer's length is the rest of the file, got " + std::to_string(stream.length));
+    Expect(stream.next == mib8 && stream.total == total, "the next chunk starts after the first");
+    Expect(stream.headers.size() == 2 && stream.headers[0].second == "bytes 0-12345677/12345678",
+           "the answer's Content-Range names the rest of the file");
+    Expect(cmux_shim::PageRangedStreamNextRange(stream) == "bytes=8388608-", "the next ask is open-ended from there");
+    // The second chunk is the rest; it must start where the first ended and stay the same file.
+    const auto second = cmux_shim::PageRangeHeaders("Content-Range: bytes 8388608-12345677/12345678\n");
+    Expect(cmux_shim::AcceptRangedChunk(&stream, 206, second, total - mib8), "the next chunk is taken");
+    Expect(stream.next == total, "the stream ends at the file's end");
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 206, second, total - mib8), "nothing past the end is taken");
+
+    // A seek: Chromium asks again from the middle; the page host's chunk from there streams too.
+    const auto middle = cmux_shim::PageRangeHeaders("Content-Range: bytes 9000000-17388607/30000000\n");
+    Expect(cmux_shim::PlanRangedStream("bytes=9000000-", 206, middle, mib8, &stream) && stream.next == 9'000'000 + mib8,
+           "a seek's first chunk streams");
+    Expect(stream.length == 21'000'000, "a seek's answer is the rest from there");
+
+    // Chunks that are not the next part of the same file are refused (the stream fails).
+    cmux_shim::PlanRangedStream("bytes=0-", 206, first, mib8, &stream);
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-9/12345678"), 10),
+           "a chunk from another place is refused");
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 8388608-8388617/99"), 10),
+           "a chunk of a file of another size is refused");
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 404, {}, 0), "a refused chunk (the grant is gone) fails the stream");
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 8388608-8388617/12345678"), 9),
+           "a chunk shorter than its Content-Range is refused");
+
+    // Answers that are already whole stay as they are: a closed range, a 200, a 416, a bad header.
+    Expect(!cmux_shim::PlanRangedStream("bytes=0-1", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-1/8"), 2, &stream),
+           "a closed range is answered as asked");
+    Expect(!cmux_shim::PlanRangedStream("bytes=0-", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-7/8"), 8, &stream),
+           "a chunk that reaches the end is the whole answer");
+    Expect(!cmux_shim::PlanRangedStream("bytes=0-", 200, {}, 8, &stream), "a 200 is the whole file");
+    Expect(!cmux_shim::PlanRangedStream("bytes=99-", 416, cmux_shim::PageRangeHeaders("Content-Range: bytes */8"), 0, &stream),
+           "a 416 stays a 416");
+    Expect(!cmux_shim::PlanRangedStream("bytes=4-", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-1/8"), 2, &stream),
+           "a chunk from another place than asked is not streamed");
+    Expect(!cmux_shim::PlanRangedStream("bytes=0-", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-3/8"), 2, &stream),
+           "a chunk shorter than its Content-Range is not streamed");
+    Expect(!cmux_shim::PlanRangedStream("bytes=-4", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 4-5/8"), 2, &stream),
+           "a suffix range is not streamed");
+    Expect(cmux_shim::PlanRangedStream("", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-1/8"), 2, &stream) &&
+               stream.length == 8,
+           "a request with no Range header streams the whole file");
   }
 
   std::string cleanup = "rm -rf '" + made + "' '" + base + "'";

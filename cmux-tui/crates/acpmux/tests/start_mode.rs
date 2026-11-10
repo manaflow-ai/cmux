@@ -36,7 +36,8 @@ const FAKE_APP_SERVER: &str =
 
 /// A home with three harnesses: `claude` (Claude Code over stdio, the fake),
 /// `codex` (a program named `codex` run as `codex app-server`, bridged in
-/// process) and `plain` (an ACP agent with no full-access mode). `extra`
+/// process), `plain` (an ACP agent with no full-access mode and no mode that asks) and `asker`
+/// (the same agent, which says it asks before every tool call). `extra`
 /// is merged into config.json.
 fn home(name: &str, extra: Value) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("acpmux-start-mode-{name}-{}", std::process::id()));
@@ -55,7 +56,11 @@ fn home(name: &str, extra: Value) -> PathBuf {
         "harnesses": {
             "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             "codex": {"argv": [codex, "app-server"]},
-            "plain": {"argv": ["python3", FAKE_AGENT]},
+            // Says nothing about asking (`FAKE_ASK_CLAIM=0`): it cannot keep a policy.
+            "plain": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_ASK_CLAIM": "0"}},
+            // The same agent, which says it asks before every tool call (the fake's default,
+            // `agentCapabilities._meta.acpmux.asksBeforeTools`).
+            "asker": {"argv": ["python3", FAKE_AGENT]},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",
@@ -224,39 +229,65 @@ async fn a_pick_in_a_chat_holds_for_that_chat_and_new_chats_start_in_the_default
     assert_eq!(answer["source"], "config", "{answer}");
     assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
 
-    // A unix socket client (an agent, a script) cannot widen a chat to full
-    // access.
+    // A unix socket client (an agent, a script) may move a chat to Claude Code's own Auto under
+    // the person's full-access start level (`start_mode.rs` `may_move_without_person`), but to
+    // no other mode that does not ask.
     let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
     let (chat, _) = agent.chat(&dir, "claude").await;
     let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "default"})).await;
     assert!(r.get("error").is_none(), "{r}");
     let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r =
+        agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "acceptEdits"})).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
     assert_eq!(last_pick(&dir), Value::Null);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// acp-chief-issues.md #15 (2026-10-19 u1976): the Chief asked a headless
-/// `acpmux new --mode bypassPermissions` (then auto, acceptEdits) for a
-/// nightly job; each was refused with person_required, and the refusal
-/// sent it to the app or a preset, so it gave up. A script can still start
-/// a chat headless with no mode at all: it then runs in the person's own
-/// start mode. The refusal must say so, and that start must work.
+/// acp-chief-issues.md #15 (2026-10-19 u1976), cmux#37392: a headless
+/// `acpmux new --mode bypassPermissions` (a Chief's `cmux chat new --mode
+/// bypassPermissions` reaches the app's daemon with no caller it can prove)
+/// names the mode a start with no mode gets anyway while the person's start
+/// level is full access, so it starts in it. Under another level it is still
+/// refused, and the refusal names the start without a mode, which works.
 #[tokio::test]
-async fn a_refused_headless_mode_start_names_the_start_without_a_mode() {
+async fn a_headless_mode_start_runs_in_the_persons_full_access_and_is_refused_below_it() {
     let dir = home("headless", json!({"defaultPermissionMode": "fullAccess"}));
     let daemon = hub(&dir);
     let mut script = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
     let params = json!({"cwd": dir.join("work"), "mcpServers": [],
         "_meta": {"acpmux": {"harness": "claude", "mode": "bypassPermissions"}}});
-    let r = script.call("session/new", params).await;
+    let r = script.call("session/new", params.clone()).await;
+    assert!(r.get("error").is_none(), "full access is the person's start level: {r}");
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(script.mode(&id).await, "bypassPermissions", "{r}");
+    // Another mode that skips approvals (one acpmux never starts a chat in) stays the person's.
+    let wider = json!({"cwd": dir.join("work"), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "claude", "mode": "danger-full-access"}}});
+    let r = script.call("session/new", wider).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
-    let message = r["error"]["message"].as_str().unwrap_or_default();
-    assert!(message.contains("without --mode"), "{message}");
-    // That start, with no mode, works headless in the person's start mode.
-    let (_, mode) = script.chat(&dir, "claude").await;
-    assert_eq!(mode, "bypassPermissions");
+    drop(script);
+    drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
+
+    for level in ["standard", "ask"] {
+        let dir = home(&format!("headless-{level}"), json!({"defaultPermissionMode": level}));
+        let daemon = hub(&dir);
+        let mut script = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+        let params = json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "claude", "mode": "bypassPermissions"}}});
+        let r = script.call("session/new", params).await;
+        assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{level}: {r}");
+        let message = r["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains("without --mode"), "{message}");
+        // That start, with no mode, works headless in the person's start mode.
+        let (_, mode) = script.chat(&dir, "claude").await;
+        assert_ne!(mode, "bypassPermissions", "{level}");
+        drop(script);
+        drop(daemon);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[tokio::test]
@@ -272,7 +303,8 @@ async fn the_setting_chooses_ask_or_the_harness_own_mode() {
     let dir = home("standard", json!({"defaultPermissionMode": "standard"}));
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
-    assert_eq!(app.chat(&dir, "claude").await.1, "default");
+    // Claude Code's own start mode is Auto, never Manual (`claude_stdio::OWN_MODE`).
+    assert_eq!(app.chat(&dir, "claude").await.1, "auto");
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -540,6 +572,13 @@ async fn start_mode_answer_for_folder_pinned_and_unknown_harnesses() {
 }
 
 impl Client {
+    /// `session/new` on `harness` with acpmux permission policy `policy`: the whole reply.
+    async fn new_chat_with_policy(&mut self, dir: &Path, harness: &str, policy: &str) -> Value {
+        let params = json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": harness, "policy": policy}}});
+        self.call("session/new", params).await
+    }
+
     /// A new chat on `harness` with acpmux permission policy `policy`: its id and its mode.
     async fn chat_with_policy(
         &mut self,
@@ -547,9 +586,7 @@ impl Client {
         harness: &str,
         policy: &str,
     ) -> (String, String) {
-        let params = json!({"cwd": dir.join("work"), "mcpServers": [],
-            "_meta": {"acpmux": {"harness": harness, "policy": policy}}});
-        let r = self.call("session/new", params).await;
+        let r = self.new_chat_with_policy(dir, harness, policy).await;
         let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
         (id.clone(), self.mode(&id).await)
     }
@@ -587,12 +624,16 @@ async fn a_chat_with_a_narrower_policy_starts_in_the_mode_that_keeps_it() {
     }
     // A chat with no policy of its own still starts in the start level.
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
-    // A harness with no mode that asks cannot keep the policy: the chat says so.
-    let (id, mode) = app.chat_with_policy(&dir, "plain", "approve-reads").await;
-    assert_eq!(mode, "normal");
-    let notes = app.unenforced(&id).await;
-    assert_eq!(notes.len(), 1, "{notes:?}");
-    assert_eq!(notes[0]["msg"]["policy"], "approve-reads", "{notes:?}");
+    // A harness with no mode that asks cannot keep any of them: the chat does not start (lead,
+    // 2026-11-08: a policy that silently does not hold is a security bug).
+    for policy in ["ask", "approve-reads", "approve-edits", "review", "deny-all"] {
+        let r = app.new_chat_with_policy(&dir, "plain", policy).await;
+        assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "{policy}: {r}");
+        // An agent that says it asks before every tool call keeps it.
+        let (id, mode) = app.chat_with_policy(&dir, "asker", policy).await;
+        assert_eq!(mode, "normal", "{policy}");
+        assert!(app.unenforced(&id).await.is_empty(), "asker, {policy}");
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -787,12 +828,16 @@ async fn a_chat_whose_move_aborts_follows_a_deny_all_default_set_meanwhile() {
     assert!(r.get("error").is_none(), "{r}");
     let begin = mover.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
     let transfer = begin["result"]["transferId"].clone();
+    let epoch = begin["result"]["epoch"].clone();
     assert!(transfer.is_string(), "{begin}");
     let r = app.call("_acpmux/set_default_policy", json!({"policy": "deny-all"})).await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(app.mode(&id).await, "agent-full-access", "a moving chat is not touched");
     let r = mover
-        .call("_acpmux/transfer_abort", json!({"sessionId": id, "transferId": transfer}))
+        .call(
+            "_acpmux/transfer_abort",
+            json!({"sessionId": id, "transferId": transfer, "epoch": epoch}),
+        )
         .await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(mode_soon(&mut app, &id, "read-only").await, "read-only");
@@ -820,7 +865,8 @@ async fn deny_all_in_config_holds_on_every_chat_from_startup() {
 /// no Codex mode. The Codex bridge's `ask` asks before every change and its `read-only` only
 /// reads (`hub/start_mode.rs` `NARROW_MODES`), so a start in either needs no person. A bridge
 /// mode that does not ask still does, and so does the codex-acp adapter's `read-only`, which
-/// writes in the workspace without asking (`web_modes::NON_ASKING_MODES`).
+/// writes in the workspace without asking (`web_modes::NON_ASKING_MODES`). The bridge's
+/// full-access mode, which a start with no mode gets here, needs none (cmux#37392).
 #[tokio::test]
 async fn the_unix_socket_starts_the_codex_bridge_in_read_only_or_ask() {
     let dir = home("narrow-start", json!({"defaultPermissionMode": "fullAccess"}));
@@ -839,10 +885,14 @@ async fn the_unix_socket_starts_the_codex_bridge_in_read_only_or_ask() {
         let id = id.to_owned();
         assert_eq!(agent.mode(&id).await, mode);
     }
-    for mode in ["agent", "agent-full-access"] {
-        let r = agent.call("session/new", start("codex", mode)).await;
-        assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{mode}: {r}");
-    }
+    let r = agent.call("session/new", start("codex", "agent")).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "agent: {r}");
+    // The bridge's full-access mode is what a start with no mode gets under the person's
+    // full-access start level, so naming it needs no person either (cmux#37392).
+    let r = agent.call("session/new", start("codex", "agent-full-access")).await;
+    let id = r["result"]["sessionId"].as_str();
+    let id = id.unwrap_or_else(|| panic!("agent-full-access: {r}")).to_owned();
+    assert_eq!(agent.mode(&id).await, "agent-full-access");
     let r = agent.call("session/new", start("adapter", "read-only")).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "adapter: {r}");
     let _ = std::fs::remove_dir_all(&dir);
@@ -1009,9 +1059,9 @@ async fn chief_subagent_chats_start_at_the_person_start_level() {
 
     // Chief's own turn and a person's preset keep the harness's own mode.
     let turn = chief.preset_chat(&dir, "optchat-chief-0a1b2c3d").await;
-    assert_eq!(chief.mode(&turn).await, "default");
+    assert_eq!(chief.mode(&turn).await, "auto");
     let own = chief.preset_chat(&dir, "p").await;
-    assert_eq!(chief.mode(&own).await, "default");
+    assert_eq!(chief.mode(&own).await, "auto");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1081,5 +1131,415 @@ async fn the_persons_bypass_pick_on_a_deny_all_chat_is_still_refused() {
     let r =
         app.call("session/set_mode", json!({"sessionId": id, "modeId": "agent-full-access"})).await;
     assert_eq!(r["error"]["data"]["reason"], "policy_mode", "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// cmux#37392 (exact-head review of the Chief permission mode): a Chief whose mode is Auto
+/// sets it on its Claude turn before each prompt, from a connection that is not the person. Under
+/// an `ask` start level acpmux refused that set even on a chat already in Auto, so every Chief
+/// turn was refused. A set to the mode a chat already runs changes nothing and needs no person;
+/// any other move under `ask` still does, and a full-access mode is never taken this way.
+#[tokio::test]
+async fn a_set_to_the_mode_a_chat_already_runs_needs_no_person() {
+    let dir = home("unchanged-mode", json!({"defaultPermissionMode": "ask"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (chat, mode) = app.chat(&dir, "claude").await;
+    assert_eq!(mode, "default");
+    let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let mut script = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let r = script.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
+    assert!(r.get("error").is_none(), "the chat already runs Auto: {r}");
+    assert_eq!(script.mode(&chat).await, "auto");
+    let r =
+        script.call("session/set_mode", json!({"sessionId": chat, "modeId": "acceptEdits"})).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    // A chat the person put in bypass: the same set from the script stays the person's.
+    let r = app
+        .call("session/set_mode", json!({"sessionId": chat, "modeId": "bypassPermissions"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = script
+        .call("session/set_mode", json!({"sessionId": chat, "modeId": "bypassPermissions"}))
+        .await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+const FAKE_AUTO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude_auto.py");
+
+/// A Claude Code launcher profile on acpmux's own Claude Code backend that names its own family,
+/// as `claude-sr2` (`sr2 claude`) does, running a Claude Code that runs every tool without asking
+/// (`fake_claude_auto.py`: Claude Code's `auto`, or a call its settings allow). It logs each call
+/// to `log`.
+fn launcher_profile(log: &Path) -> acpmux::config::HarnessProfile {
+    acpmux::config::HarnessProfile {
+        kind: acpmux::config::HarnessKind::ClaudeStdio,
+        argv: vec!["python3".into(), FAKE_AUTO.into()],
+        env: [("FAKE_AUTO_LOG".to_owned(), log.to_string_lossy().into_owned())].into(),
+        description: None,
+        fallback: None,
+        family: Some("claude-sr2".into()),
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    }
+}
+
+/// The calls `fake_claude_auto.py` logged, by their command (Bash) or path (Write): whether each
+/// ran.
+fn ran_calls(log: &Path) -> std::collections::BTreeMap<String, bool> {
+    let text = std::fs::read_to_string(log).unwrap_or_default();
+    text.lines()
+        .map(|l| serde_json::from_str::<Value>(l).unwrap())
+        .map(|r| {
+            let key = r["input"]["command"].as_str().or(r["input"]["file_path"].as_str());
+            (key.unwrap().to_owned(), r["ran"].as_bool().unwrap())
+        })
+        .collect()
+}
+
+/// Lead, 2026-11-08: any policy narrower than approve-all, however a chat gets it, holds or the
+/// chat does not run. A deny-all or review default (a lockdown) refuses a new chat on a harness
+/// that cannot keep it; a live chat narrowed to a policy its harness cannot keep has its agent
+/// stopped (`policy_refused`), and its next start fails with `policy_unenforceable`.
+#[tokio::test]
+async fn a_policy_that_cannot_hold_never_runs_however_the_chat_gets_it() {
+    let dir = home("policy-refuse-all", json!({}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    for lockdown in ["deny-all", "review"] {
+        let r = app.call("_acpmux/set_default_policy", json!({"policy": lockdown})).await;
+        assert!(r.get("error").is_none(), "{r}");
+        let params = json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "plain"}}});
+        let r = app.call("session/new", params).await;
+        assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "{lockdown}: {r}");
+        assert_eq!(r["error"]["data"]["policy"], lockdown, "{r}");
+    }
+    let r = app.call("_acpmux/set_default_policy", json!({"policy": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    // Live: an approve-all chat runs, then is narrowed to review.
+    let (id, _) = app.chat_with_policy(&dir, "plain", "approve-all").await;
+    let hi = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]});
+    let r = app.call("session/prompt", hi.clone()).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "review"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app.call("_acpmux/events", json!({"sessionId": id, "kinds": ["policy_refused"]})).await;
+    let refused = r["result"]["events"].as_array().cloned().unwrap_or_default();
+    assert_eq!(refused.len(), 1, "the agent was stopped: {r}");
+    assert_eq!(refused[0]["msg"]["reason"], "policy_unenforceable", "{r}");
+    let r = app.call("session/prompt", hi).await;
+    assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "its next start: {r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+impl Client {
+    /// The records of kind `kind` in chat `id`'s log.
+    async fn records(&mut self, id: &str, kind: &str) -> Vec<Value> {
+        let r = self.call("_acpmux/events", json!({"sessionId": id, "kinds": [kind]})).await;
+        r["result"]["events"].as_array().cloned().unwrap_or_else(|| panic!("{r}"))
+    }
+}
+
+/// acpmux believes an agent's `asksBeforeTools` claim only from an agent it started from a
+/// harness entry of its own config that still launches what it started from, and logs every
+/// claim (`asks_before_tools_claim`; lead, 2026-11-09). A folder profile (the repository's
+/// `.cmux/harnesses`) that claims is not believed, so a narrow policy on it does not run; nor is
+/// an entry changed while its agent runs, so a narrower policy then stops that agent.
+#[tokio::test]
+async fn a_policy_holds_on_an_asks_before_tools_claim_only_from_an_unchanged_config_entry() {
+    use acpmux::config::folder_profiles;
+    let dir = home("asks-claim-trust", json!({}));
+    let (repo, gate) = folder_profile(&dir);
+    // The folder profile `acme` runs the fake, which claims.
+    acpmux::trust::set(&gate.trust, &repo.to_string_lossy(), "trusted").unwrap();
+    let enabled = Config { folder_gate: Some(gate.clone()), ..Default::default() };
+    let sha = folder_profiles::load_one(&enabled, &gate, &repo, "acme")
+        .and_then(|fp| fp.sha256)
+        .expect("sha256");
+    folder_profiles::enable(&enabled, &gate, &repo, "acme", &sha).unwrap();
+    let daemon = hub_with(&dir, |cfg| cfg.folder_gate = Some(gate));
+    let mut app = Client::app(&daemon).await;
+
+    // A config entry that claims: believed, and logged.
+    let (id, _) = app.chat_with_policy(&dir, "asker", "ask").await;
+    let claims = app.records(&id, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["harness"], "asker", "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], true, "{claims:?}");
+    // An agent that makes no claim: none is logged.
+    let (id, _) = app.chat_with_policy(&dir, "plain", "approve-all").await;
+    assert!(app.records(&id, "asks_before_tools_claim").await.is_empty());
+
+    // A folder profile that claims: not believed, so a narrow policy on it does not run.
+    let folder_chat = |policy: &str| {
+        json!({"cwd": repo, "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "acme", "policy": policy}}})
+    };
+    let r = app.call("session/new", folder_chat("ask")).await;
+    assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "{r}");
+    let why = r["error"]["data"]["why"].as_str().unwrap_or_default();
+    assert!(why.contains("not_a_config_entry"), "{r}");
+    // Under approve-all it runs; its claim is logged as not believed, and a narrower policy
+    // then stops its agent.
+    let r = app.call("session/new", folder_chat("approve-all")).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let claims = app.records(&id, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], false, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["reason"], "not_a_config_entry", "{claims:?}");
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.records(&id, "policy_refused").await.len(), 1, "folder agent stopped");
+
+    // A config entry changed while its agent runs: it no longer launches what the agent started
+    // from, so the claim is not believed, and a narrower policy stops the agent.
+    let (id, _) = app.chat_with_policy(&dir, "asker", "approve-all").await;
+    let mut cfg = daemon.config.write().await;
+    let asker = cfg.harnesses.get_mut("asker").expect("asker");
+    asker.env.insert("FAKE_CHANGED".to_owned(), "1".to_owned());
+    drop(cfg);
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let refused = app.records(&id, "policy_refused").await;
+    assert_eq!(refused.len(), 1, "changed entry's agent stopped: {refused:?}");
+    let why = refused[0]["msg"]["why"].as_str().unwrap_or_default();
+    assert!(why.contains("entry_changed"), "{refused:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The median, the 95th percentile and the largest of `ms`, sorted in place.
+fn spread(ms: &mut [f64]) -> (f64, f64, f64) {
+    ms.sort_by(f64::total_cmp);
+    let at = |q: usize| ms.get((ms.len().saturating_sub(1)) * q / 100).copied().unwrap_or(0.0);
+    (at(50), at(95), at(100))
+}
+
+/// What the gate costs a chat that it does not hold (approve-all): every tool call still asks the
+/// hub. Measured where Claude Code waits, from its `hook_callback` to the answer, beside the
+/// repository-sync hook the backend answers itself (no hub). Printed for the record (lead,
+/// 2026-11-08), bounded loosely so a loaded runner does not fail it.
+#[tokio::test]
+async fn the_policy_gate_round_trip_under_approve_all_is_measured() {
+    let dir = home("policy-gate-latency", json!({"defaultPermissionMode": "fullAccess"}));
+    let log = dir.join("auto.log");
+    let daemon = hub_with(&dir, |cfg| {
+        cfg.harnesses.insert("sr2".into(), launcher_profile(&log));
+    });
+    let mut app = Client::app(&daemon).await;
+    let (id, _) = app.chat_with_policy(&dir, "sr2", "approve-all").await;
+    let calls: Vec<Value> =
+        (0..60).map(|i| json!(["Bash", {"command": format!("true {i}")}])).collect();
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": auto_tools(&Value::Array(calls))}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let text = std::fs::read_to_string(&log).unwrap();
+    let (mut sync, mut gate) = (Vec::new(), Vec::new());
+    for line in text.lines() {
+        let record: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(record["ran"], true, "approve-all runs it: {record}");
+        let hooks = record["hookMs"].as_array().cloned().unwrap_or_default();
+        assert_eq!(hooks.len(), 2, "the repository sync and the gate: {record}");
+        for hook in hooks {
+            let ms = hook["ms"].as_f64().unwrap_or_else(|| panic!("{record}"));
+            match hook["callback"].as_str() {
+                Some("acpmux-policy-gate") => gate.push(ms),
+                _ => sync.push(ms),
+            }
+        }
+    }
+    assert_eq!(gate.len(), 60);
+    let (g50, g95, gmax) = spread(&mut gate);
+    let (s50, s95, _) = spread(&mut sync);
+    // Straight to the process's stderr, past the test harness's capture: the number is the
+    // record.
+    let line = format!(
+        "policy gate round trip under approve-all, n=60: p50 {g50:.2} ms, p95 {g95:.2} ms, max {gmax:.2} ms (backend-only hook: p50 {s50:.2} ms, p95 {s95:.2} ms)\n"
+    );
+    let _ = std::io::Write::write_all(&mut std::io::stderr(), line.as_bytes());
+    assert!(g50 < 500.0, "p50 {g50} ms");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `git -C dir args`, which must succeed.
+fn git_in(dir: &Path, args: &[&str]) {
+    let ok = std::process::Command::new("git").arg("-C").arg(dir).args(args).status();
+    assert!(ok.unwrap().success(), "git {args:?}");
+}
+
+/// The prompt that makes `fake_claude_auto.py` run `calls`, each `[tool, input]`.
+fn auto_tools(calls: &Value) -> Value {
+    json!([{"type": "text", "text": format!("auto-tools: {calls}")}])
+}
+
+/// W5-L: a chat on a `claude-sr2` profile under deny-all or review ran a `touch` and a Write with
+/// no prompt and no deny: the profile's own family hid Claude Code's asking mode from the policy
+/// tables, the chat stayed in `auto`, and the daemon only warned. A policy is now held whatever
+/// the harness's mode: every tool call the harness makes passes acpmux's PreToolUse gate, which
+/// denies what the policy refuses (a write, a commit, a command that does not only read) and lets
+/// reads and read-only commands run, also git reads in a partial clone with merge drivers (the
+/// cmux checkout, where a review chat could not run `git diff`). The chat also moves to Claude
+/// Code's asking mode. Under approve-all the same calls run, and a chat narrowed to review while
+/// its agent runs is held at once.
+#[tokio::test]
+async fn a_narrow_policy_holds_on_a_claude_launcher_that_runs_tools_without_asking() {
+    let dir = home("policy-gate", json!({"defaultPermissionMode": "fullAccess"}));
+    let work = dir.join("work");
+    git_in(&work, &["init", "-q"]);
+    git_in(&work, &["config", "user.name", "Gate Test"]);
+    git_in(&work, &["config", "user.email", "gate@example.invalid"]);
+    std::fs::write(work.join("file.txt"), "needle\n").unwrap();
+    git_in(&work, &["add", "file.txt"]);
+    git_in(&work, &["commit", "-qm", "init"]);
+    git_in(&work, &["update-ref", "refs/remotes/origin/x", "HEAD"]);
+    // As the cmux checkout: merge drivers and a promisor remote.
+    for (key, value) in [
+        ("merge.pbxproj-v1.driver", "/nonexistent/merge %O %A %B"),
+        ("merge.pbxproj-v1.name", "pbxproj"),
+        ("remote.origin.url", "https://example.invalid/r.git"),
+        ("remote.origin.promisor", "true"),
+        ("remote.origin.partialclonefilter", "blob:none"),
+    ] {
+        git_in(&work, &["config", key, value]);
+    }
+    let log = dir.join("auto.log");
+    let daemon = hub_with(&dir, |cfg| {
+        cfg.harnesses.insert("sr2".into(), launcher_profile(&log));
+    });
+    let mut app = Client::app(&daemon).await;
+    let reads = [
+        "git status",
+        "ls",
+        "git diff origin/x -- file.txt",
+        "git log --oneline -1",
+        "git show HEAD:file.txt",
+        "git blame file.txt",
+        "cat file.txt",
+        "grep -rn needle .",
+    ];
+    let commit = "git commit -q --allow-empty -m gate";
+    let mut last = String::new();
+    for policy in ["review", "deny-all", "approve-all"] {
+        let _ = std::fs::remove_file(&log);
+        let (id, _) = app.chat_with_policy(&dir, "sr2", policy).await;
+        let probe = dir.join(format!("probe-{policy}"));
+        let written = work.join(format!("written-{policy}.txt"));
+        let touch = format!("touch {}", probe.display());
+        let mut calls = vec![
+            json!(["Bash", {"command": touch}]),
+            json!(["Write", {"file_path": written, "content": "x"}]),
+            json!(["Bash", {"command": commit}]),
+        ];
+        calls.extend(reads.iter().map(|r| json!(["Bash", {"command": r}])));
+        let calls = Value::Array(calls);
+        let r = app
+            .call("session/prompt", json!({"sessionId": id, "prompt": auto_tools(&calls)}))
+            .await;
+        assert!(r.get("error").is_none(), "{policy}: {r}");
+        let ran = ran_calls(&log);
+        assert_eq!(ran.len(), 3 + reads.len(), "{policy}: every call was made: {ran:?}");
+        // Deny-all denies every shell command, read-only or not (lead, 2026-11-08: the name
+        // promises it; review is the read-only preset).
+        let shell_reads = policy != "deny-all";
+        for read in reads {
+            assert!(ran[read] == shell_reads, "{policy}: {read}: {ran:?}");
+        }
+        let writes = policy == "approve-all";
+        assert!(ran[&touch] == writes, "{policy}: the touch: {ran:?}");
+        assert!(ran[&written.to_string_lossy().into_owned()] == writes, "{policy}: {ran:?}");
+        assert!(ran[commit] == writes, "{policy}: the commit: {ran:?}");
+        assert!(probe.exists() == writes, "{policy}: the touch");
+        assert!(written.exists() == writes, "{policy}: the Write");
+        if !writes {
+            // Reported: each refused call is a denied permission in the chat's log.
+            let r = app
+                .call("_acpmux/events", json!({"sessionId": id, "kinds": ["permission_auto"]}))
+                .await;
+            let denied = r["result"]["events"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{r}"))
+                .iter()
+                .filter(|e| e["msg"]["optionId"] == "reject_once")
+                .count();
+            let want = if shell_reads { 3 } else { 3 + reads.len() };
+            assert_eq!(denied, want, "{policy}: the touch, the Write, the commit: {r}");
+            // And the chat runs in Claude Code's mode that asks, not `auto`.
+            assert_eq!(app.mode(&id).await, "default", "{policy}");
+        }
+        last = id;
+    }
+    // Narrowed while its agent runs: held from the next call, with no restart.
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": last, "policy": "review"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let _ = std::fs::remove_file(&log);
+    let probe = dir.join("probe-narrowed");
+    let touch = format!("touch {}", probe.display());
+    let calls = json!([["Bash", {"command": touch}], ["Bash", {"command": "git log -1"}]]);
+    let r =
+        app.call("session/prompt", json!({"sessionId": last, "prompt": auto_tools(&calls)})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let ran = ran_calls(&log);
+    assert!(!ran[&touch] && !probe.exists(), "narrowed to review: {ran:?}");
+    assert!(ran["git log -1"], "narrowed to review: {ran:?}");
+    // A harness that can neither gate nor keep a policy by its mode does not start under it:
+    // never "warn and run unprotected".
+    for policy in ["ask", "approve-reads", "approve-edits", "review", "deny-all"] {
+        let r = app.new_chat_with_policy(&dir, "plain", policy).await;
+        assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "{policy}: {r}");
+        assert_eq!(r["error"]["data"]["policy"], policy, "{r}");
+        assert!(r["error"]["data"]["hint"].as_str().is_some_and(|h| !h.is_empty()), "{r}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A remote chat records the launch of its config entry as the entry is written, not the
+/// canonical program path its remote start resolves (lead, 2026-11-09): a catalog reload that
+/// changes nothing never marks it for a respawn, as it never marks a local chat. `asker`'s
+/// program is the bare `python3`, which a remote start resolves to a path. The reload also
+/// changes the entry of a local control chat, `ctl`: once that one's agent started again, the
+/// sweep that judged every chat is done.
+#[tokio::test]
+async fn a_remote_chat_keeps_its_entrys_launch_through_an_unchanged_reload() {
+    let ctl = |flag: &str| json!({"argv": ["python3", FAKE_AGENT], "env": {"CTL": flag}});
+    let dir = home("remote-respawn", json!({"webAskingModes": {"asker": ["normal"]}}));
+    let config_path = dir.join("config.json");
+    let write_ctl = |flag: &str| {
+        let mut config: Value =
+            serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
+        config["harnesses"]["ctl"] = ctl(flag);
+        std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    };
+    write_ctl("1");
+    let daemon = hub(&dir);
+    let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
+    let (remote, _) = web.chat(&dir, "asker").await;
+    let mut app = Client::app(&daemon).await;
+    let claims = app.records(&remote, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], true, "the remote chat's claim: {claims:?}");
+    let (control, _) = app.chat(&dir, "ctl").await;
+
+    let mut events = daemon.subscribe();
+    write_ctl("2");
+    daemon.reload_catalog().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while app.records(&control, "asks_before_tools_claim").await.len() < 2 {
+            if let Err(tokio::sync::broadcast::error::RecvError::Closed) = events.recv().await {
+                panic!("the hub ended");
+            }
+        }
+    })
+    .await
+    .expect("the control chat's agent started again on its changed entry");
+    let marked = app.records(&remote, "respawn_pending").await;
+    assert!(marked.is_empty(), "an unchanged entry respawns no remote chat: {marked:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -28,7 +28,7 @@ import {
   turnView,
   SUPERSEDED,
   WORKED,
-  WORKING,
+  THINKING,
   workedLabel,
 } from "../src/agent-session/acpmux/conversation/turns";
 import { endsTurn, turnRows } from "../src/agent-session/acpmux/diff";
@@ -166,11 +166,11 @@ test("a steer draws inline in the running turn, whose line counts from the first
   const view = turnView(rows, new Set(), { working: true });
   const first = view.find((row) => row.kind === "user" && row.text === "Fix the flaky login test")!;
   const steer = view.find((row) => row.kind === "user" && row.text === "also check the logout path")!;
-  // One running turn: one Working line, timed from the first prompt.
-  const working = view.filter((row) => row.kind === WORKING);
+  // One running turn: one live line at its foot, under the steer, timed from the first prompt.
+  const working = view.filter((row) => row.kind === THINKING);
   expect(working).toHaveLength(1);
   expect(working[0]!.at).toBe(first.at);
-  expect(view.indexOf(working[0]!)).toBeLessThan(view.indexOf(steer));
+  expect(view.indexOf(working[0]!)).toBeGreaterThan(view.indexOf(steer));
   // Nothing says the turn was stopped.
   expect(view.some((row) => row.kind === "turnSummary" && row.status === "cancelled")).toBe(false);
   expect(view.some((row) => row.kind === WORKED && row.status === "cancelled")).toBe(false);
@@ -231,7 +231,7 @@ test("a real Stop still reads You stopped after", async () => {
   const stopped = view.find((row) => row.kind === WORKED)!;
   expect(stopped.status).toBe("cancelled");
   expect(workedLabel(translate, stopped)).toBe(translate("turn.stopped", { time: "40s" }));
-  const working = view.find((row) => row.kind === WORKING);
+  const working = view.find((row) => row.kind === THINKING);
   expect(working?.at).toBe(START + 60_000);
 });
 
@@ -255,7 +255,7 @@ test("a prompt sent now after a real Stop leaves the Stop as it was", async () =
   expect(view.find((row) => row.kind === WORKED)?.status).toBe("cancelled");
   const next = view.find((row) => row.kind === "user" && row.text === "then the logout path")!;
   expect(next.steer).toBeUndefined();
-  expect(view.find((row) => row.kind === WORKING)?.at).toBe(START + 50_000);
+  expect(view.find((row) => row.kind === THINKING)?.at).toBe(START + 50_000);
 });
 
 /// The chain ended: the steer's work, then the answer and the turn's own end. Each summary carries
@@ -480,7 +480,7 @@ test("a Send now that ends the turn with end_turn goes on as the same turn", asy
   // own footer stays one, at its end.
   expect(view.filter((row) => row.kind === "turnSummary" && !row.superseded)).toHaveLength(0);
   expect(view.filter((row) => row.superseded)).toHaveLength(1);
-  const working = view.filter((row) => row.kind === WORKING);
+  const working = view.filter((row) => row.kind === THINKING);
   expect(working).toHaveLength(1);
   expect(working[0]!.at).toBe(first.at);
 });
@@ -723,11 +723,18 @@ test("Codex folds interim text under Worked for; Claude folds it into its run's 
   ];
 
   const now = START + 200_000;
-  // A Claude turn folds under one Worked for too (Leo, 2026-11-04); opened, its runs fold inside it.
-  const claudeClosed = turnView(rows, new Set(), { now, agentFamily: "claude" });
-  expect(claudeClosed.map((each) => each.id)).toEqual(["prompt", `${WORKED}-prompt`, "final", "summary"]);
-  const claude = turnView(rows, new Set([`${WORKED}-prompt`]), { now, agentFamily: "claude" });
-  expect(claude.map((each) => each.id)).toEqual(["prompt", `${WORKED}-prompt`, "a-one", "final", "summary"]);
+  // By default a Claude turn folds under Worked for, as Codex does (Codex parity).
+  expect(turnView(rows, new Set(), { now, agentFamily: "claude" }).map((each) => each.id)).toEqual([
+    "prompt",
+    "worked-prompt",
+    "final",
+    "summary",
+  ]);
+  // Claude's in-place arm (claudeTurnFold.experiment.ts "runs") folds it into its run's line.
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+  const claude = turnView(rows, new Set(), { now, agentFamily: "claude" });
+  globalThis.cmuxExperiments = undefined;
+  expect(claude.map((each) => each.id)).toEqual(["prompt", "a-one", "final", "summary"]);
   const run = claude.find((each) => each.id === "a-one");
   expect(run?.foldRun).toBe(true);
   expect(run?.items?.find((item) => item.kind === "note")?.text).toBe("The first check is still running.");

@@ -114,8 +114,8 @@ const streamReply: Play = async (ctx) => {
 const jumpDuringStream: Play = async (ctx) => {
   await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
   await ctx.click({ testId: "stream-text-start" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
-  await ctx.click({ selector: ".acpmux-jump-latest" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+  await ctx.click({ selector: ".acpmux-jump-latest:not(.acpmux-jump-up)" });
   await ctx.waitFor(() => ctx.find({ testId: "stream-text-done" }).textContent === "Stream settled", { capMs: 30_000 });
   await ctx.waitFor(() => {
     const node = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
@@ -137,7 +137,10 @@ export default componentEntry<{ cadence: Cadence }>({
       reason: "The reply's code fence closes once; its first Shiki highlight compiles the grammar.",
     },
   },
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript", "agent-session/acpmux/conversation/RevealedMarkdown.tsx"],
+  covers: [
+    "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
+    "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
+  ],
   load: async () => StreamingTextGallery,
   pane: true,
   styles: () =>

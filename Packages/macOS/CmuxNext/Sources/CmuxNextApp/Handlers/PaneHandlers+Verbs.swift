@@ -15,25 +15,39 @@ extension PaneHandlers {
     }
 
     private static func bindSwaps(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        let swaps: [(ActionID, PaneDirection)] = [
-            ("swapPaneLeft", .left), ("swapPaneRight", .right), ("swapPaneUp", .up), ("swapPaneDown", .down),
+        let swaps: [(ActionID, LayoutDirection, PaneDirection)] = [
+            ("swapPaneLeft", .left, .left), ("swapPaneRight", .right, .right), ("swapPaneUp", .up, .up), ("swapPaneDown", .down, .down),
         ]
-        for (id, direction) in swaps {
-            registry.bind(id, invoke: { invocation in
-                guard let pane = ctx.daemonPane(invocation) else { return }
-                let handle = pane.handle
-                ctx.send("swap-pane") { try await $0.swapPane(handle, with: .direction(direction)) }
+        for (id, side, direction) in swaps {
+            registry.bindEffect(id, effect: { invocation in
+                guard let pane = ctx.daemonPane(invocation) else { return .done }
+                // The window the key went to, else one that shows the pane; none (a scripted run on a hidden workspace): a model change only, on the daemon's event.
+                guard let shown = ctx.services.windows.active?.focusedPane.flatMap({ $0.pane === pane ? $0 : nil }) ?? ctx.services.paneController(for: pane), let content = shown.workspace else { return ctx.services.daemon(for: pane).swapEffect(pane.handle, toward: direction) }
+                // With the pane the screen shows on that side (Focus Pane Left's rule, on the displayed frames): the swap seen is the swap sent.
+                guard let other = neighbor(of: shown.layoutPaneID, direction: side, in: content).flatMap({ content.panes[$0] }) else { return .refused(RefusalStrings.noPaneInDirection(RefusalStrings.direction(side)), quiet: true) }
+                return showNow(ctx, pane) { $0.swapEffect(pane.handle, with: other.pane.handle, toward: direction) }
             })
         }
-        registry.bind("palette.swapWithSession", invoke: { invocation in
-            guard let source = ctx.paneController(ActionInvocation(target: invocation.target))?.pane else { return }
-            guard let ref = invocation["pane"]?.targetValue ?? ctx.refuse(RefusalStrings.paneArgumentRequired) else { return }
-            let panes = ctx.services.activeDaemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
-            guard let target = panes.first(where: { $0.id == ref.id }) ?? ctx.refuse(RefusalStrings.noPaneID(ref.id)) else { return }
-            guard target !== source else { return ctx.refuseQuietly(RefusalStrings.paneCannotSwapWithItself) }
-            let from = source.handle, to = target.handle
-            ctx.send("swap-pane") { try await $0.swapPane(from, with: .pane(to)) }
+        // Also what a pane drag's drop runs (PaneSwapDrag).
+        registry.bindEffect("palette.swapWithSession", effect: { invocation in
+            guard let source = ctx.paneController(ActionInvocation(target: invocation.target).onMachine(invocation.targetMachineID))?.pane else { return .done }
+            guard let ref = invocation["pane"]?.targetValue else { return .refused(RefusalStrings.paneArgumentRequired) }
+            // In the source's own daemon, from its index: both handles are one daemon's, and no walk of the session.
+            guard let target = ctx.services.daemon(for: source).store.pane(idOrResource: ref.id) else { return .refused(RefusalStrings.noPaneID(ref.id)) }
+            guard target !== source else { return .refused(RefusalStrings.paneCannotSwapWithItself, quiet: true) }
+            return showNow(ctx, source) { $0.swapEffect(source.handle, with: target.handle) }
         })
+    }
+
+    /// Runs a zoom or a swap of `pane` on its own daemon (a store intent), then lays out each window that shows its workspace
+    /// in the same turn, not a turn later on the store's observation. A workspace no window shows takes the model change only;
+    /// one parked off screen lays out once, when it shows (`WorkspaceContentController.apply`).
+    // perf-hot: 10ms pane-verb-turn
+    static func showNow(_ ctx: AppActionContext, _ pane: PaneModel, _ change: (DaemonService) -> ActionEffect) -> ActionEffect {
+        let daemon = ctx.services.daemon(for: pane), effect = change(daemon)
+        guard let workspace = daemon.store.workspace(containing: pane.handle) else { return effect }
+        for window in ctx.services.windows.controllers where window.content?.workspace === workspace { window.content?.applyLayoutIfChanged() }
+        return effect
     }
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -96,32 +110,8 @@ extension PaneHandlers {
         })
         registry.bind("triggerFlash", invoke: { invocation in
             guard let pane = ctx.paneController(invocation) else { return }
-            flash(pane.view)
+            pane.view.flashRing()
         })
-    }
-
-    /// A brief gray ring over the pane (no accent color): two blinks
-    /// (`Motion.flashAnimation`), one fade under Reduce Motion, none when
-    /// animations are off.
-    private static func flash(_ view: NSView) {
-        guard let host = view.layer, let fade = Motion.indicators.flashAnimation() else { return }
-        let ring = CALayer()
-        ring.frame = host.bounds.insetBy(dx: 2, dy: 2)
-        ring.cornerRadius = 8
-        let color = view.performWithTheme { Palette.focusRing }
-        if Borders.drawsLines {
-            ring.borderWidth = 3
-            ring.borderColor = color.cgColor
-        } else {
-            // appearance.borders none: a soft fill instead of an outline.
-            ring.backgroundColor = color.withAlphaComponent(0.18).cgColor
-        }
-        ring.opacity = 0
-        host.addSublayer(ring)
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { ring.removeFromSuperlayer() }
-        ring.add(fade, forKey: "flash")
-        CATransaction.commit()
     }
 
     /// Ghostty font size bindings on every live terminal in the workspace.

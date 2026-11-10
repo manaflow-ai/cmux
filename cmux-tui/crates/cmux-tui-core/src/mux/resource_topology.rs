@@ -82,6 +82,7 @@ mod registry_layout;
 use registry_layout::apply_layout_snapshot;
 use registry_layout::overwrite_layout_snapshot;
 use registry_layout::registry_screen_from_layout;
+use registry_layout::set_layout_divider_hidden;
 use registry_layout::set_layout_split_ratio;
 use registry_layout::swap_layout_panes;
 mod batch_close;
@@ -97,8 +98,10 @@ mod effectful_operation;
 mod emptied_workspace;
 mod end_terminals_batch;
 mod layout_ops;
+pub(in crate::mux) use layout_ops::LayoutSizesUnchanged;
 mod layout_projection;
 mod pane_browser;
+mod pane_move;
 mod pane_tab_moves;
 mod published_screen;
 mod rename_focus;
@@ -128,6 +131,12 @@ pub(crate) const PANE_SPLIT_FOCUS_FIELD: &str = "focus";
 /// `workspace.create`'s `focus` field: whether the new workspace becomes the
 /// focused one. The resource router sends `false` when a caller omits it.
 pub(crate) const WORKSPACE_CREATE_FOCUS_FIELD: &str = "focus";
+
+/// `screen.create`'s `focus` field: whether the new screen becomes its
+/// workspace's focused screen. The resource router sends `false` when a
+/// caller omits it; the daemon's and the user's own new screens omit it and
+/// focus the new screen.
+pub(crate) const SCREEN_CREATE_FOCUS_FIELD: &str = "focus";
 use pane_browser::{creation_identity_kind, effect_browser_cell_size};
 use published_screen::screen_value;
 pub(super) use structural_move::structural_tab_move_plan;
@@ -377,7 +386,24 @@ fn resource_creation_failure(
     })
 }
 
+/// Cause logged when a creation waits on an earlier attempt that is still
+/// running or has an indeterminate outcome.
+const BLOCKED_CREATION_CAUSE: &str =
+    "an earlier attempt of this creation is still running or has an indeterminate outcome";
+
+/// Joins an indeterminate creation's reason with the failure that started its
+/// settlement, when there is one.
+fn creation_cause(reason: &str, failure: Option<&ResourceError>) -> String {
+    match failure {
+        Some(failure) => {
+            format!("{reason}; the attempt failed ({}: {})", failure.code, failure.message)
+        }
+        None => reason.to_string(),
+    }
+}
+
 fn creation_settlement_result(
+    mux: &Mux,
     settlement: ResourceCreationSettlement,
     idempotency_key: &str,
     operation: &str,
@@ -389,6 +415,11 @@ fn creation_settlement_result(
             Err(anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation)))
         }
         ResourceCreationSettlement::Pending => {
+            mux.report_resource_effect_indeterminate(
+                idempotency_key,
+                operation,
+                "an interrupted attempt of this creation has not settled yet",
+            );
             Err(anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation)))
         }
     }
@@ -399,3 +430,6 @@ mod structural_tab_move_tests;
 
 #[cfg(test)]
 mod creation_recovery_tests;
+
+#[cfg(all(test, unix))]
+mod launch_activation_tests;

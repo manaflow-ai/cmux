@@ -44,6 +44,8 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var titleFadeWidth: CGFloat
     /// Diameter of the unread / status dot.
     public var badgeSize: CGFloat
+    /// How a hovered tab's x takes its status's slot.
+    public var hoverCloseSwap: TabHoverCloseSwap = .crossFade
 
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat
@@ -60,9 +62,17 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Every pill's corner radius (`Metrics.tabCornerRadius`): concentric with the card
     /// corner the strip sits in; the strip's + and a tab's hover card share it.
     public var cornerRadius: CGFloat
-    /// Corner of the close button's hover and pressed fill: Helium's rounded
-    /// rect (`TabCloseButton` `kCornerRadius`, 4), not Chrome's circle.
-    public var closeCornerRadius: CGFloat
+    /// The radius of a fill (the close button's hover and pressed fill, a badge's
+    /// fill, a group chip) at `rect` inside a tab pill at `pill`: concentric with the
+    /// pill (``cornerRadius`` less the fill's inset from the pill's nearer top or bottom
+    /// edge, `ConcentricCorners`), at most half the fill's shorter side. A rounded rect,
+    /// not Chrome's circle; the default 16 pt close button in a 24 pt, 8 pt pill is
+    /// Helium's 4 pt (`TabCloseButton` `kCornerRadius`).
+    public func nestedCornerRadius(_ rect: CGRect, in pill: CGRect) -> CGFloat {
+        let corners = Metrics.corners
+        let inset = max(0, min(rect.minY - pill.minY, pill.maxY - rect.maxY))
+        return corners.radius(fitting: rect.size, radius: corners.nested(in: cornerRadius, inset: inset))
+    }
 
     // MARK: Groups
 
@@ -153,8 +163,12 @@ public struct TabStripMetrics: Equatable, Sendable {
         overflow = DesignSettings.shared.tabOverflow
         switch overflow {
         case .shrink:
-            // A larger inactive minimum (a user's) raises the active one, never the other way round.
-            minInactiveTabWidth = min(Metrics.tabMinInactiveWidth, maxTabWidth)
+            // Unset, the inactive minimum is `crowdedMinimumWidth` at this density's parts, not the tunable's
+            // compact/comfortable pair: Default (level 0.5, #37274) draws Comfortable's 16 pt favicon, where the
+            // pair's 73 left 23 of `crowdedTitleRoom`'s 24. A larger inactive minimum (a user's) raises the active
+            // one, never the other way round.
+            let inactiveMinimum = MetricTunables.tabMinInactiveWidth.explicitValue ?? activeFloor + Self.crowdedTitleRoom
+            minInactiveTabWidth = min(inactiveMinimum, maxTabWidth)
             minActiveTabWidth = min(max(Metrics.tabMinActiveWidth, activeFloor, minInactiveTabWidth), maxTabWidth)
         case .scroll:
             // Scrolling tabs: every unpinned tab stays this wide, then the strip scrolls.
@@ -173,7 +187,6 @@ public struct TabStripMetrics: Equatable, Sendable {
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
         cornerRadius = Metrics.tabCornerRadius
-        closeCornerRadius = Metrics.space2
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)

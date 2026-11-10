@@ -177,11 +177,53 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("palette_usage.import", PALETTE_USAGE_REASON),
     ("palette_usage.hide", PALETTE_USAGE_REASON),
     ("palette_usage.forget", PALETTE_USAGE_REASON),
+    ("palette.rank", PALETTE_RANK_REASON),
     ("stash.create", STASH_REASON),
     ("stash.list", STASH_REASON),
     ("stash.restore", STASH_REASON),
     ("stash.delete", STASH_REASON),
     ("stash.import", STASH_REASON),
+    ("classic_import.plan", CLASSIC_IMPORT_REASON),
+    ("classic_import.record", CLASSIC_IMPORT_REASON),
+    ("conductor_import.plan", CONDUCTOR_IMPORT_REASON),
+    ("conductor_import.record", CONDUCTOR_IMPORT_REASON),
+    ("cloud.machine.io", CLOUD_API_REASON),
+    ("cloud.owner.acpmux_keyed_start", CLOUD_API_REASON),
+    ("cloud.owner.acpmux_person_holds", CLOUD_API_REASON),
+    ("cloud.owner.fork_run", CLOUD_API_REASON),
+    ("cloud.owner.github_app", CLOUD_API_REASON),
+    ("cloud.owner.handoff_begin_turn", CLOUD_API_REASON),
+    ("cloud.owner.handoff_open", CLOUD_API_REASON),
+    ("cloud.owner.handoff_wait", CLOUD_API_REASON),
+    ("cloud.owner.handoffs", CLOUD_API_REASON),
+    ("cloud.owner.harness_login_copy", CLOUD_API_REASON),
+    ("cloud.owner.turn_checkpoint", CLOUD_API_REASON),
+    ("cloud.owner.turn_rewind", CLOUD_API_REASON),
+    ("cloud.owner.turns", CLOUD_API_REASON),
+    ("cloud.previews.create_link", CLOUD_API_REASON),
+    ("cloud.previews.refresh", CLOUD_API_REASON),
+    ("cloud.previews.revoke_link", CLOUD_API_REASON),
+    ("cloud.runs.cancel", CLOUD_API_REASON),
+    ("cloud.runs.create", CLOUD_API_REASON),
+    ("cloud.runs.sandbox", CLOUD_API_REASON),
+    ("cloud.runs.start", CLOUD_API_REASON),
+    ("cloud.runs.wait", CLOUD_API_REASON),
+    ("cloud.vm.domains", CLOUD_API_REASON),
+    ("cloud.vm.firewall_create", CLOUD_API_REASON),
+    ("cloud.vm.firewall_delete", CLOUD_API_REASON),
+    ("cloud.vm.firewall_get", CLOUD_API_REASON),
+    ("cloud.vm.firewall_list", CLOUD_API_REASON),
+    ("cloud.vm.networks", CLOUD_API_REASON),
+    ("cloud.vm.provision_api", CLOUD_API_REASON),
+    ("cloud.vm.publication_api_keys", CLOUD_API_REASON),
+    ("cloud.vm.publications", CLOUD_API_REASON),
+    ("cloud.vm.revoke_publication_api_key", CLOUD_API_REASON),
+    ("cloud.vm.scp_endpoint", CLOUD_API_REASON),
+    ("cloud.vm.tunnel_attach", CLOUD_API_REASON),
+    ("cloud.vm.tunnel_detach", CLOUD_API_REASON),
+    ("cloud.vm.tunnel_enroll", CLOUD_API_REASON),
+    ("cloud.vm.tunnel_revoke", CLOUD_API_REASON),
+    ("cloud.vm.tunnel_rotate_key", CLOUD_API_REASON),
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.ensure_app", APP_WORKSPACE_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
@@ -230,14 +272,18 @@ const AGENT_MESSAGE_UNSEND_REASON: &str = "Agent messages go through `cmux agent
      taking one back is `cmux agent message unsend`, beside the send it undoes.";
 
 const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
-const SESSION_REASON: &str =
-    "Session plumbing in the cmux-tui-only scope; the curated cmux CLI omits it.";
-const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon); \
-     cmux-tui-only, and the cmux CLI's `server` scope does not send it.";
-const SESSION_SETTING_REASON: &str = "A session-wide setting in the cmux-tui-only scope.";
+// The `session` and `client` scopes are on the `cmux` CLI too since #38290 (an agent in a
+// cmux-tui pane reads its topology and cleans up with the `cmux` on its PATH); they stay
+// off MCP, which the catalog test allows for these two scopes only.
+const SESSION_REASON: &str = "Session plumbing: the `session` scope of the CLI, not an MCP tool.";
+const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon): \
+     only the CLI's `session` scope sends it, never an MCP tool.";
+const SESSION_SETTING_REASON: &str =
+    "A session-wide setting: the `session` scope of the CLI, not an MCP tool.";
 const JOURNAL_REASON: &str =
-    "Session journal plumbing for producers and hooks in the cmux-tui-only scope.";
-const CLIENT_REASON: &str = "Connection-scoped client records in the cmux-tui-only scope.";
+    "Session journal plumbing for producers and hooks: the CLI's `session` scope, not MCP.";
+const CLIENT_REASON: &str =
+    "Connection-scoped client records: the `client` scope of the CLI, not an MCP tool.";
 const PROJECTION_REASON: &str = "Frontend projection records the app writes; cmux-tui-only.";
 const PAIRING_REASON: &str =
     "Device pairing approval: a person approves a pairing, never an agent; cmux-tui-only.";
@@ -245,10 +291,18 @@ const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that
      window; the CLI omits it too, and window_list reads the app's windows.";
 const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit it through the \
      app's sidebar actions (action tools), which keep the app's intent log.";
+const PALETTE_RANK_REASON: &str = "Ranks palette rows a page sends for its own palette \
+     (the Channels page); an agent has no palette to rank, and its tools already search.";
 const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
      records and reads it; agents rank rows through palette.query, never read or write usage.";
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \
      list; agents close and open tabs through the tab and browser tools, never the stash.";
+const CLASSIC_IMPORT_REASON: &str = "The app's move from classic cmux drives these: it reads \
+     the plan and records what it made; agents never import.";
+const CONDUCTOR_IMPORT_REASON: &str = "The app's Import from Conductor drives these: it reads \
+     the dry-run plan and records what it made; agents never import.";
+const CLOUD_API_REASON: &str = "The app's Cloud code and `cmux cloud` call these with the \
+     person's own access token in the params; agents use the cmux cloud commands.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";
@@ -476,7 +530,9 @@ impl V2Tool {
         }
         if self.waits() {
             text.push_str(&format!(
-                " timeout_ms defaults to {DEFAULT_WAIT_MS} and may be at most {MAX_WAIT_MS}."
+                " timeout_ms defaults to {DEFAULT_WAIT_MS} and may be at most {MAX_WAIT_MS}. \
+                 An answer whose time ran out (no match, or a process still running) has \
+                 timed_out true and waited_ms."
             ));
         }
         if self.paginated {
@@ -749,6 +805,7 @@ impl V2Tool {
                 stream: false,
                 resolve: Vec::new(),
                 view: Default::default(),
+                filter: Default::default(),
             },
             session,
             page,

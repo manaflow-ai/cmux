@@ -30,6 +30,7 @@ use crate::no_panic::JsonExt;
 use std::time::Duration;
 
 use super::*;
+use crate::hub::no_session::NO_SESSION_PREFIX;
 use crate::hub::outbox::{Delivery, RETRY_DELAYS_SECS, RETRY_FOR_MS, State};
 
 /// What an attempt that did not deliver leaves the delivery as.
@@ -44,6 +45,9 @@ pub(super) enum Next {
     Fail,
     /// The target holds it for a paused agent pair.
     Held,
+    /// The target's machine answered that it has no such session: failed at once, never tried
+    /// again (a name that is no session's stays so; `hub/no_session.rs`).
+    NoSession,
 }
 
 /// How long one attempt waits for the target's acceptance.
@@ -88,6 +92,7 @@ pub(super) async fn handle(
     if hub.resolve(&target).is_err()
         && hub.resolve_remote(&target).is_none()
         && hub.peer_down_for(&target).is_none()
+        && hub.no_session_is_final(&target)
     {
         // With the mesh relay on, the team hub may know a name nothing here or on a peer matches
         // (`mesh_send.rs`); a name several sessions here or on peers match stays this daemon's
@@ -97,14 +102,15 @@ pub(super) async fn handle(
         {
             return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
         }
-        // The names it nearly matched, so the sender can pick one (`Hub::unknown_session`).
-        let close = hub.unknown_session(&target).data.and_then(|d| d.get("candidates").cloned());
-        let mut data = json!({"reason": "no_session", "session": target});
-        if let Some(close) = close {
-            data.set("candidates", close);
-        }
-        return Err(RpcError::invalid_params(format!("no session: {target}")).with_data(data));
+        // The machine is reachable and has no such session: refused now, never queued, with the
+        // closest names there so the sender can pick one (`hub/no_session.rs`).
+        let (text, data) = hub.no_session_text(&target);
+        return Err(
+            RpcError::invalid_params(format!("no session: {target} ({text})")).with_data(data)
+        );
     }
+    // A peer that is down now: queued and tried again, and the answer says so.
+    let host_unreachable = hub.host_unreachable_for(&target);
     // Over the caps it is refused now, never kept (`attach.rs`).
     crate::attach::check_wire(&request)?;
     let mux = request
@@ -128,6 +134,9 @@ pub(super) async fn handle(
         target,
         request,
         caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
+        // A token it could not prove keeps the replay off the owner too (#38260 F1).
+        unproven_caller: conn.unproven_caller.get().filter(|_| !conn.is_person()).cloned(),
+        not_terminal: !conn.is_person() && !conn.may_be_owner_terminal(),
         state: State::Queued,
         attempts: 0,
         never_sent: true,
@@ -137,7 +146,7 @@ pub(super) async fn handle(
         created_at: now,
         updated_at: now,
     };
-    // Its attachments are kept beside outbox.json, once, not in each rewrite of it.
+    // Its attachments are kept beside outbox.json, once, never in its snapshot or journal.
     let kept = hub.outbox.attachments_path(&new);
     if let Some(path) = kept.clone() {
         let request = new.request.clone();
@@ -146,15 +155,26 @@ pub(super) async fn handle(
             .map_err(|e| RpcError::internal(e.to_string()))?
             .map_err(|e| RpcError::internal(format!("cannot keep the attachments: {e:#}")))?;
     }
-    // The send's one durable write (the whole of outbox.json, a group commit with other
+    // The send's one durable write (its line in outbox.journal, a group commit with other
     // changes): on the blocking pool at the on-screen CPU tier (`qos.rs`), so a loaded machine or
     // a slow disk never holds an async worker that serves other connections, and agent work at
     // its clamped priority never starves the write the sender waits on.
-    let delivery = {
+    let added = {
         let (hub, new) = (hub.clone(), new.clone());
         tokio::task::spawn_blocking(move || crate::qos::on_screen(|| hub.outbox.add(new)))
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?
+    };
+    // Not on disk, so not kept: the sender is told to send it again, and its attachments go.
+    let delivery = match added {
+        Ok(delivery) => delivery,
+        Err(e) => {
+            if let Some(path) = kept {
+                forget_attachments(path).await;
+            }
+            return Err(RpcError::internal(format!("cannot keep the message: {e:#}"))
+                .with_data(json!({"reason": "outbox.not_saved", "retryable": true})));
+        }
     };
     // The same prompt id again: the first delivery, already on its way.
     if delivery.id == new.id {
@@ -165,7 +185,11 @@ pub(super) async fn handle(
         }
         drop_own_uploads(hub, &new, &delivery).await;
     }
-    Ok(delivery.status())
+    let mut status = delivery.status();
+    if host_unreachable {
+        status.set("hostUnreachable", json!(true));
+    }
+    Ok(status)
 }
 
 /// A direct peer send needs a durable projection intent: the peer may accept
@@ -217,6 +241,8 @@ pub(super) async fn remember_forward(
         target,
         request,
         caller: Some(caller.to_owned()),
+        unproven_caller: None,
+        not_terminal: false,
         // Held is terminal to older daemons: rollback never sends this lookup
         // record as a prompt. New code recognizes the forwardProjection marker.
         state: State::Held,
@@ -542,6 +568,11 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             }
             return;
         }
+        // Armed before the attempt: `notify_waiters` wakes only waits that exist, so a peer
+        // ready while the attempt runs or its failure is saved still ends the retry wait.
+        let ready = hub.outbox.peer_ready.notified();
+        tokio::pin!(ready);
+        ready.as_mut().enable();
         let attempt = delivery.attempts + 1;
         hub.outbox.update(id, |d| {
             if !d.settled() {
@@ -577,8 +608,8 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 Err((why, Next::Retry))
             })
         } else {
-            let outcome =
-                attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await;
+            let caller = Caller::of(&delivery);
+            let outcome = attempt_once(hub, caller, request, Origin::Local).await;
             link_unsent = matches!(outcome, Err((_, Next::Unsent)));
             match outcome {
                 // Nothing has reached the target: the mesh relay carries it when it can.
@@ -607,6 +638,22 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 return;
             }
             Err((error, next)) => {
+                // No such session there: failed now, naming the closest names, unless its
+                // machine is down or has not listed its sessions since it came back (then the
+                // answer proves nothing; tried again).
+                let (error, next) = match next {
+                    Next::NoSession if hub.peer_down_for(&delivery.target).is_some() => {
+                        (error, Next::Unsent)
+                    }
+                    Next::NoSession if !hub.no_session_is_final(&delivery.target) => {
+                        (error, Next::Retry)
+                    }
+                    Next::NoSession => {
+                        let (text, _) = hub.no_session_text(&delivery.target);
+                        (format!("{NO_SESSION_PREFIX}{text}"), Next::NoSession)
+                    }
+                    next => (error, next),
+                };
                 let delay = matches!(next, Next::Retry | Next::Unsent)
                     .then(|| retry_delay(&mut delays, &delivery, crate::store::now_ms()))
                     .flatten();
@@ -642,7 +689,6 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // intent older than a day after a restart does not spend its retries at once.
                 let sleep =
                     tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
-                let ready = hub.outbox.peer_ready.notified();
                 if delivery.projection_only() {
                     sleep.await;
                 } else {
@@ -729,12 +775,33 @@ async fn forget_attachments(path: std::path::PathBuf) {
     let _ = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
 }
 
+/// The session a kept send is delivered as (`Delivery::caller`, `Delivery::unproven_caller`): one
+/// the sender's connection proved, or one it named with a token this daemon could not prove.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Caller<'a> {
+    Proven(&'a str),
+    Unproven(&'a str),
+    /// No session, from a connection that declared no terminal (`Delivery::not_terminal`).
+    NotTerminal,
+}
+
+impl<'a> Caller<'a> {
+    fn of(delivery: &'a Delivery) -> Option<Self> {
+        delivery
+            .caller
+            .as_deref()
+            .map(Caller::Proven)
+            .or_else(|| delivery.unproven_caller.as_deref().map(Caller::Unproven))
+            .or_else(|| delivery.not_terminal.then_some(Caller::NotTerminal))
+    }
+}
+
 /// One attempt: the target's acceptance, or the error and whether to try again. It runs on a
 /// connection of `origin`: the unix socket's for a send here, a peer's for a message the mesh
 /// relay delivers (`mesh_relay.rs`), so each is held to its origin's rules.
 pub(super) async fn attempt_once(
     hub: &Arc<Hub>,
-    caller: Option<&str>,
+    caller: Option<Caller<'_>>,
     request: Value,
     origin: Origin,
 ) -> Result<Value, (String, Next)> {
@@ -759,18 +826,29 @@ pub(super) async fn attempt_once(
         .to_owned();
     let (in_tx, in_rx) = mpsc::channel(16);
     let (out_tx, mut out_rx) = mpsc::channel(1024);
-    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
+    tokio::spawn(super::serve_outbox_connection(hub.clone(), in_rx, out_tx, origin));
     let mut hello = json!({
         "protocolVersion": 1,
         "clientCapabilities": {},
         "clientInfo": {"name": "acpmux-outbox", "version": crate::hub::VERSION},
     });
-    if let Some(id) = caller {
-        let mut mux = serde_json::Map::new();
-        mux.insert(
-            crate::hub::person::CALLER_FIELD.to_owned(),
-            json!({"sessionId": id, "token": crate::hub::person::caller_token(id)}),
-        );
+    if let Some(caller) = caller {
+        // An unproven one goes with no token, which proves nothing: the fresh connection binds it
+        // unproven, as the sender's own did (`Conn::bind_person`).
+        let (id, token) = match caller {
+            Caller::Proven(id) => (Some(id), crate::hub::person::caller_token(id)),
+            Caller::Unproven(id) => (Some(id), String::new()),
+            Caller::NotTerminal => (None, String::new()),
+        };
+        // Never a terminal's declaration: a send that names a session or declared none is no
+        // owner's terminal send (`cli_caller.rs`).
+        let mut mux = crate::cli_caller::agent_declaration();
+        if let Some(id) = id {
+            mux.insert(
+                crate::hub::person::CALLER_FIELD.to_owned(),
+                json!({"sessionId": id, "token": token}),
+            );
+        }
         hello.set("_meta", json!({"acpmux": mux}));
     }
     let lines = [
@@ -834,6 +912,13 @@ fn next(e: &RpcError) -> Next {
     if reason == "peer_unreachable" {
         return Next::Unsent;
     }
+    // No such session on the target's machine: a not-found answer (this daemon's for a peer
+    // that lists none, or the peer's own), which every later attempt would give again.
+    if reason == "no_session"
+        || (e.code == RpcError::not_found("").code && e.message.starts_with("no session matches"))
+    {
+        return Next::NoSession;
+    }
     let flagged = data.and_then(|d| d.get("retryable")).and_then(Value::as_bool);
     match flagged {
         _ if reason.starts_with("agent_pair.") => Next::Fail,
@@ -841,6 +926,24 @@ fn next(e: &RpcError) -> Next {
         Some(false) => Next::Fail,
         None if e.code != RpcError::invalid_params("").code => Next::Retry,
         None => Next::Fail,
+    }
+}
+
+#[cfg(test)]
+mod no_session_next_tests {
+    use super::*;
+
+    /// "No such session" from the target's machine is final; a peer that is down is not.
+    #[test]
+    fn a_no_session_answer_is_final_and_an_unreachable_peer_is_not() {
+        let e = RpcError::not_found("no session matches \"host/proc-title\"");
+        assert_eq!(next(&e), Next::NoSession);
+        let flagged =
+            RpcError::invalid_params("no session: x").with_data(json!({"reason": "no_session"}));
+        assert_eq!(next(&flagged), Next::NoSession);
+        let down = RpcError::internal("down").with_data(json!({"reason": "peer_unreachable"}));
+        assert_eq!(next(&down), Next::Unsent);
+        assert_eq!(next(&RpcError::internal("connection reset")), Next::Retry);
     }
 }
 
@@ -858,6 +961,8 @@ mod retry_delay_tests {
             target: "gone/lane".into(),
             request,
             caller: None,
+            unproven_caller: None,
+            not_terminal: false,
             state: State::Queued,
             attempts: 0,
             never_sent: true,
@@ -1126,6 +1231,8 @@ mod forward_projection_tests {
         let before = receiver.meta().event_count;
         original.detach_child(&sender).await;
         original.store.flush().unwrap();
+        // The first daemon's shutdown seal: the journal's lock passes to the restarted one.
+        original.seal();
         // Reopen the source state as daemon startup does: the outbox resumes before the saved
         // sessions load (`daemon.rs`). No original callback survives.
         let restarted = Hub::new_loading(

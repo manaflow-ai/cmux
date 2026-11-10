@@ -90,6 +90,11 @@ on:
         options:
           - remote
           - local
+      release:
+        description: "macOS only: build the Release configuration for this Mac's architecture (reload.sh --config release --native-arch) instead of Debug, with its own DerivedData cache entries"
+        required: false
+        default: false
+        type: boolean
 
 # Surface tag/platform/nonce in the run title so the dispatcher can match its run
 # by the nonce it passed (gh workflow run does not return a run id).
@@ -210,6 +215,15 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/install-rust-ci.sh
+          # ghostty-vt-sys runs `zig build` in ghostty-next with ghostty-next's
+          # own Zig (as cloud-chat-proof.yml does); without it the build stops at
+          # "failed to run `zig build` ... No such file or directory".
+          if [[ -z "${ZIG:-}" ]]; then
+            GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
+            vt_zig="$(sed -n 's/^CMUX_VT_ZIG=//p' "$GITHUB_ENV" | tail -1)"
+            [[ -x "$vt_zig" ]] || { echo "::error::ghostty-next Zig not installed" >&2; exit 1; }
+            export ZIG="$vt_zig"
+          fi
           acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
@@ -263,6 +277,7 @@ jobs:
         env:
           DISPATCH_REF: ${{ github.ref_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_BUILD: ${{ inputs.release == true && '1' || '' }}
         run: |
           set -euo pipefail
           # actions/cache scopes entries to the run's dispatch ref: a run may
@@ -298,7 +313,8 @@ jobs:
           spm_prefix="reload-build-macos-spm-v2-${xcode_key}-${workspace_key}-"
           # DerivedData contains ONLY_ACTIVE_ARCH products and object files;
           # never restore those across OS/architecture changes.
-          derived_prefix="reload-build-macos-deriveddata-v3-${xcode_key}-${runner_key}-${workspace_key}-"
+          # A Release build keeps its own entries, outside the Debug prefix: its objects never stand in for a Debug run's.
+          derived_prefix="reload-build-macos-deriveddata-${RELEASE_BUILD:+release-}v3-${xcode_key}-${runner_key}-${workspace_key}-"
           if [ -f "$resolved_file" ]; then
             resolved_hash="$(shasum -a 256 "$resolved_file" | awk '{ print $1 }')"
             spm_cache_enabled=true
@@ -597,6 +613,7 @@ jobs:
         env:
           BUILD_TAG: ${{ inputs.tag }}
           CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
+          RELEASE_BUILD: ${{ inputs.release == true && '1' || '' }}
           CMUX_SOURCE_PACKAGES_DIR: ${{ github.workspace }}/.ci-source-packages
           SPM_CACHE_STATUS: ${{ steps.spm_sanitize.outputs.status }}
           DERIVED_DATA_CACHE_STATUS: ${{ steps.derived_data_restore.outputs.status }}
@@ -620,7 +637,8 @@ jobs:
             ./scripts/reload.sh \
               --tag "$BUILD_TAG" \
               --derived-data "$derived_data" \
-              --swift-frontend-workaround
+              --swift-frontend-workaround \
+              ${RELEASE_BUILD:+--config release --native-arch}
           }
 
           set +e

@@ -74,6 +74,8 @@ public nonisolated enum RefusalStrings {
     }
     /// A tab action (Cmd-W) while a top page shows: pages have no tabs and do not close.
     public static var topPageHasNoTabs: String { text("handlers.refusal.topPageHasNoTabs", "This page has no tabs.") }
+    /// A new tab or pane refused over a top page (automation, or classic Home's page that stays).
+    public static var topPageHasNoPanes: String { text("handlers.refusal.topPageHasNoPanes", "This page has no panes.") }
     /// Close Workspace with no target while a top page shows (HomeRules).
     public static var topPageIsNotAWorkspace: String { text("handlers.refusal.topPageIsNotAWorkspace", "This page is not a workspace.") }
     /// A close of the store's home workspace (`home_not_closable`).
@@ -199,6 +201,10 @@ public nonisolated enum RefusalStrings {
     public static var screenHasOnePane: String { text("handlers.refusal.screenHasOnePane", "the screen has one pane") }
     public static func noDividerToMove(_ direction: String) -> String { format("handlers.refusal.noDividerToMove", "no divider to move %@ (or it is at its limit)", direction) }
     public static var screenHasNoSplits: String { text("handlers.refusal.screenHasNoSplits", "the screen has no splits") }
+    /// Insert New, Hide Divider or Show Divider for a divider the screen no longer shows (a CLI split id that is gone).
+    public static var noDivider: String { text("handlers.refusal.noDivider", "that divider is no longer on the screen") }
+    /// Insert New > Browser where a browser tab cannot open in a split (an incognito or disconnected pane).
+    public static var dividerBrowser: String { text("handlers.refusal.dividerBrowser", "a browser can’t open between these panes") }
     /// A canvas action on a screen that shows its split or column layout.
     public static var canvasNotShown: String { text("handlers.refusal.canvasNotShown", "this screen is not a canvas; use Toggle Canvas Layout first") }
     /// A canvas arrangement with nothing to move, or an overview of an empty canvas.
@@ -230,7 +236,6 @@ public nonisolated enum RefusalStrings {
     public static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
     /// A Close Tab press aimed at a pane the press before it emptied (`PaneCloseAim` in the app).
     public static var closeAimedAtClosedPane: String { text("handlers.refusal.closeAimedAtClosedPane", "That pane closed. Press again to close a tab in this pane.") }
-    public static var pinnedTabKept: String { text("handlers.refusal.pinnedTabKept", "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it.") }
     public static var sessionLocalCannotPin: String { text("handlers.refusal.sessionLocalCannotPin", "session-local tabs cannot be pinned") }
     public static var neverHibernateNoSite: String { text("handlers.refusal.neverHibernateNoSite", "This tab shows no website.") }
     public static var hibernateVisibleTab: String { text("handlers.refusal.hibernateVisibleTab", "Only a hidden tab can hibernate.") }

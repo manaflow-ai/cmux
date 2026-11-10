@@ -16,6 +16,10 @@ public import Foundation
 /// alone (an app launched from another cmux's terminal), it is another
 /// daemon's socket.
 public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
+    /// How long the app waits for the daemon's answer to one request. A loaded daemon answers
+    /// late, not never (#28083); a 2 s bound turned its late answers into failures.
+    public static let answerDeadline: Duration = .seconds(30)
+
     public var executable: URL
     public var home: URL
     public var socketPath: String
@@ -26,7 +30,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Non-secret Computer Use launch configuration for this daemon. The v2
     /// endpoint directory is allowed; legacy socket tokens are withheld.
     public var computerUse: [String: String] = [:]
-    /// Whether the daemon this app spawns gets ``offerToolsKey`` (`1`): its local sessions then get
+    /// Whether the daemon this app spawns gets ``offerToolsKey`` `1` rather than `0`: its local sessions then get
     /// the cmux-sessions MCP server (`offer_session`), whatever the harness. On while suggested tasks
     /// are on (``AgentPaneSuggestedTasks``); ``AcpmuxHost`` reads it at each daemon start, so a running
     /// daemon keeps the value it started with.
@@ -130,6 +134,15 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// `environment::socket_path`, tests/cases/environment.json): `configured`
     /// (`ACPMUX_SOCKET`) when set, except an absolute path past the Unix socket limit (a long
     /// TMPDIR), which maps to the short alias acpmux binds; else ``defaultSocketPath(home:uid:)``.
+    /// The socket of the acpmux daemon whose `ACPMUX_HOME` is `home`, for this user (no `ACPMUX_SOCKET`):
+    /// how Home reaches a Chief's own acpmux (``defaultSocketPath(home:uid:)``).
+    public static func socketPath(home: URL) -> String {
+        defaultSocketPath(home: home, uid: getuid())
+    }
+
+    /// The app's own acpmux home of `userHome` (`~/.acpmux`), the daemon a Chief on the app's acpmux uses.
+    public static func appHome(userHome: URL) -> URL { sharedRoot(userHome: userHome) }
+
     static func socketPath(configured: String?, home: URL, uid: UInt32) -> String {
         guard let configured else { return defaultSocketPath(home: home, uid: uid) }
         if configured.hasPrefix("/"), configured.utf8.count > maxSocketPathBytes {

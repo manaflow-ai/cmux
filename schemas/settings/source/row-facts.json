@@ -1,0 +1,132 @@
+{
+  "$comment": "HAND-EDITED per-row facts of the settings schema that are not a row's own definition. kept_on_reset_all: keys Reset All Settings leaves alone, the look picked at onboarding (the app theme and the terminal font), which each row still resets (SettingsController.resetAllSettings). shared_with_browser: cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json); their consumers are cmux-next and cmux-browser (rows moved to schemas/settings/source say so themselves, in their consumers). validation: how another validator checks a row's value: portable (the export's fixed rule and samples), or domain:<name> when only the app knows the valid values (theme names, installed fonts, system sounds) or the value has its own shape; keys wins over kinds. scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+RowFacts.generated.swift); the schema export writes kept_on_reset_all, consumers and validation per row from it. former_defaults: each key's earlier defaults that held for a day or more (from the history of schemas/defaults/cmux-next.json, 2026-10-12 to 2026-11-08); the one-time launch migration SettingsController.forgetStoredDefaults drops a stored value equal to one of them or to the current default, so the key follows the default again (Leo 2026-11-08). Since then a write of the default removes the key (setSetting), so a later default change needs no entry here. An opt-in whose default went from on to off has no entry (updates.downloadAutomatically, off since Leo 2026-10-27): a stored true is the person's pick, and dropping it turned their automatic updates off (Lawrence 2026-11-08).",
+  "kept_on_reset_all": [
+    "appearance.theme",
+    "appearance.appTheme",
+    "terminal.fontFamily",
+    "terminal.fontSize"
+  ],
+  "shared_with_browser": [
+    "layout.defaultColumnWidth",
+    "layout.minimumPaneWidth",
+    "app.quitBehavior"
+  ],
+  "validation": {
+    "keys": {
+      "agents.chats.roots": "domain:chat_roots",
+      "appearance.background": "domain:backdrop_selection",
+      "appearance.customDensities": "domain:custom_densities",
+      "agentPane.display.commandLabels": "domain:command_labels",
+      "browser.customSearchEngine.search": "domain:search_template",
+      "browser.customSearchEngine.suggest": "domain:search_template"
+    },
+    "kinds": {
+      "theme": "domain:theme",
+      "font_family": "domain:font_family",
+      "sound": "domain:sound"
+    },
+    "default": "portable"
+  },
+  "former_defaults": {
+    "agents.subsessions.maxChildren": [
+      50
+    ],
+    "agents.subsessions.maxRunning": [
+      16
+    ],
+    "app.quitBehavior": [
+      "ask"
+    ],
+    "appearance.chromeStyle": [
+      "default",
+      "flat-sidebar-line"
+    ],
+    "appearance.focusIndicator": [
+      "both"
+    ],
+    "browser.hibernation": [
+      "moderate"
+    ],
+    "browser.links.cmdClick": [
+      "backgroundTab"
+    ],
+    "browser.omnibar.glass": [
+      "transparent"
+    ],
+    "computerUse.driver": [
+      "legacy"
+    ],
+    "diff.layout": [
+      "unified"
+    ],
+    "diff.wordDiffs": [
+      false
+    ],
+    "focusRing.enabled": [
+      true
+    ],
+    "layout.defaultColumnWidth": [
+      0.5
+    ],
+    "layout.newColumnWidth": [
+      "matchCurrent"
+    ],
+    "notifications.attention.moveToTop": [
+      true
+    ],
+    "notifications.attention.style": [
+      "blink"
+    ],
+    "notifications.dismissal": [
+      "keystroke",
+      "click"
+    ],
+    "sidebar.hoverCards.delay": [
+      1300,
+      250
+    ],
+    "sidebar.hoverCards.groups.delay": [
+      600
+    ],
+    "sidebar.workspaceRow.agentStatus": [
+      true
+    ],
+    "sidebar.workspaceRow.log": [
+      true
+    ],
+    "sidebar.workspaceRow.notification": [
+      true
+    ],
+    "tabs.newTabNowPlaying": [
+      true
+    ],
+    "tabs.newTabPosition": [
+      "end"
+    ],
+    "tabs.newTabTemplate": [
+      "default",
+      "cards"
+    ],
+    "tabs.newTabWidgets.greeting": [
+      true
+    ],
+    "ui.animations.newWorkspace": [
+      false
+    ],
+    "ui.paneAnimations": [
+      false
+    ],
+    "updates.idleInstallMaxWaitSeconds": [
+      900
+    ],
+    "updates.installOnQuit": [
+      true
+    ],
+    "workspaces.autoArchive.style": [
+      "suggest"
+    ],
+    "workspaces.newPlacement": [
+      "top"
+    ]
+  }
+}

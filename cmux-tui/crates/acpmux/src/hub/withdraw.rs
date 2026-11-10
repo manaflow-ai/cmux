@@ -266,7 +266,7 @@ impl Hub {
             (None, None) => return Err(RpcError::invalid_params("msgId or promptId is required")),
         };
         if session.moving().is_some() {
-            return Err(super::super::queue::moving_error());
+            return Err(super::super::queue::moving_error(session));
         }
         // An inbox message a notice carries that is not written yet: decided once it was written
         // (retracted) or ended (still new, so unsent). Waited for outside the lock every withdraw
@@ -320,6 +320,7 @@ impl Hub {
         let mut found = lookup()?;
         // A person's prompt (`author.rs`) is no agent message either.
         if found.provenance.is_none()
+            || crate::prompt_provenance::is_unverified(found.provenance.as_ref())
             || crate::author::of_provenance(found.provenance.as_ref()).is_some()
         {
             let message = "the prompt is the person's own, not an agent message";

@@ -8,10 +8,11 @@
 // compared to our claude code version", then "we already have a good version"); Codex's keeps its
 // folder tray. The `codex-*-alt-*` variants are the other Codex layouts drawn for the pick
 // (gallery-only CSS over the shipped one), the replaced in-box row among them.
-import { GALLERY_NOW } from "../../gallery/clock";
+import { GALLERY_NOW, minutesAgo } from "../../gallery/clock";
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
-import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, CWD, manySessions, noChat, tool, user } from "../../gallery/fixtures/acpmux";
+import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { setComposerLook, type ComposerLook } from "./composerLook";
 import type { TaskGoal } from "./goal";
 
@@ -42,16 +43,28 @@ const startedChat = () => {
 /// A new chat before its first send: the folder and computer strip heads the composer.
 const newChat = () => noChat(manySessions(4), { summary: { sessionId: "", cwd: CWD, harness: "codex" } });
 
-const goalChat = (status: "active" | "paused") => {
+const goalChat = (status: "running" | "stalled" | "paused" | "done", provider: "codex" | "claude" = "codex") => {
   const snapshot = chat(startedChat().rows, { harness: "codex", model: "gpt-6-astra" });
   return {
     ...snapshot,
     summary: {
       ...snapshot.summary!,
-      harness: "codex",
+      harness: provider,
       goal: {
         objective: "Finish the timeout fix and verify the retry behavior",
         status,
+        provider,
+        startedAt: 1_700_000_000_000,
+        updatedAt: status === "done" ? 1_700_000_012_000 : 1_700_000_006_000,
+        ...(status === "done" ? { endedAt: 1_700_000_012_000 } : {}),
+        detail: provider === "claude" ? "Loop: check, test, and refine until the goal is met" : undefined,
+        steps:
+          provider === "claude"
+            ? [
+                { label: "Inspect the failing request", status: "done" },
+                { label: "Add the retry and run tests", status: status === "done" ? "done" : "running" },
+              ]
+            : undefined,
         tokenBudget: 50000,
         tokensUsed: 12400,
       },
@@ -60,7 +73,8 @@ const goalChat = (status: "active" | "paused") => {
 };
 
 /// A Claude Code /loop between its runs (acpmux reads it from ScheduleWakeup and CronCreate,
-/// `claude_stdio/loops.rs`): the goal strip shows its prompt, that it loops, and when it next runs.
+/// `claude_stdio/loops.rs`): the goal strip says when it checks back, or its schedule; its prompt
+/// only on demand.
 const loopChat = (goal: Omit<TaskGoal, "kind" | "status">) => {
   const snapshot = startedChat();
   return {
@@ -167,6 +181,102 @@ async function glassLevel(ctx: PlayContext, which: ComposerLook, level: Composer
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
 }
 
+type MaterialStage = "plain" | "lens" | "reduce";
+/// The shared glass material (glass.css, "GLASS MATERIAL"; Leo 2026-11-05 on the Dock beside our
+/// composer: "the glass is a pretty big deal"), on a see-through window over the colorful wallpaper
+/// fixture, as a window over art draws it: the picture and a light window wash behind a clear page,
+/// and the same still sent to the glass lens. Plain is what ships; Lens is the opt-in Debug choice
+/// that bends the picture at the rim; Reduce Transparency is the solid fallback. A capture's "before"
+/// removes .ui-glass-material from the card (scripts/agent-pane/capture-composer-material.mjs).
+async function materialStage(ctx: PlayContext, mode: MaterialStage) {
+  await look(ctx, "claude");
+  ctx.document.getElementById("composer-material-gallery")?.remove();
+  const root = ctx.document.documentElement;
+  root.setAttribute("data-cmux-see-through", "");
+  root.setAttribute("data-glass", mode === "reduce" ? "plain" : mode);
+  root.toggleAttribute("data-reduce-transparency", mode === "reduce");
+  root.style.setProperty("--cmux-surface-background", "transparent");
+  root.style.setProperty("--agent-page-bg", "transparent");
+  const style = ctx.document.createElement("style");
+  style.id = "composer-material-gallery";
+  style.textContent = `
+    html {
+      background:
+        linear-gradient(light-dark(rgb(255 255 255 / 0.16), rgb(0 0 0 / 0.18))),
+        url("${wallpaper}") center / cover no-repeat fixed !important;
+    }
+    body, .acpmux-shell { background: transparent !important; }
+  `;
+  ctx.document.head.append(style);
+  const host = ctx.document.defaultView as unknown as { cmuxTheme?: { backdrop?: (value: unknown) => void } };
+  host.cmuxTheme?.backdrop?.({
+    image: wallpaper,
+    key: "gallery-composer-material",
+    rect: { x: 0, y: 0, width: root.clientWidth, height: root.clientHeight },
+    blur: 0,
+    tint: "transparent",
+  });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box.ui-glass-material"));
+}
+
+/// The composer hat over the card, as Leo's image of 2026-11-05 shows it: three background commands
+/// run, so the hat draws a card joined to the composer as one glass (bottomStack.css).
+const HAT_COMMANDS = [
+  "mkdir -p webviews/test/browser",
+  "bun test test/composer-hat-material.test.ts",
+  "git push -q origin HEAD:lane/composer-strip-glass",
+];
+const hatChat = () => {
+  const snapshot = startedChat();
+  const commands = activity(
+    HAT_COMMANDS.map((command, index) =>
+      tool(command, "execute", "completed", {
+        inputSummary: JSON.stringify({ command, run_in_background: true }),
+        startedAt: minutesAgo(15.35 - index),
+      }),
+    ),
+    15.35,
+  );
+  return { ...snapshot, rows: [...snapshot.rows, commands], isWorking: true };
+};
+/// The joined stack in the glass material over the wallpaper: the pick lights the hat's top and drops
+/// the card's top light at the join. The alternates are gallery-only CSS over it.
+async function hatMaterialStage(ctx: PlayContext, css = "") {
+  await materialStage(ctx, "plain");
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-dock > .acpmux-running-tray[data-card]"));
+  ctx.document.getElementById("composer-hat-material-gallery")?.remove();
+  if (!css) return;
+  const style = ctx.document.createElement("style");
+  style.id = "composer-hat-material-gallery";
+  style.textContent = css;
+  ctx.document.head.append(style);
+}
+const HAT_FLAT = `.acpmux-dock > .acpmux-running-tray[data-card] {
+  box-shadow:
+    inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
+    inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
+    inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent) !important;
+  --acpmux-tray-frost: var(--ds-glass-popover-blur) !important;
+}`;
+const CARD_LIT = `.acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer > .acpmux-composer-box.ui-glass-material {
+  --acpmux-composer-rim: var(--glass-material-rim) !important;
+}`;
+/// Before (base): the hat a flat hairline box, the card's bright top line across the stack's middle.
+const HAT_BEFORE = HAT_FLAT + CARD_LIT;
+/// Alternate: both lit, the hat's top and the card's top at the join.
+const HAT_BOTH_LIT = CARD_LIT;
+/// Alternate: the pick, and the hat casts the material's depth as well.
+const HAT_DEPTH = `.acpmux-dock > .acpmux-running-tray[data-card] {
+  box-shadow:
+    inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
+    inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
+    inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent),
+    inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-tray-specular),
+    inset 1px 1.5px 1px -1px var(--acpmux-tray-specular),
+    inset 0 16px 20px -16px var(--acpmux-tray-sheen),
+    var(--glass-material-depth) !important;
+}`;
+
 /// Alternate B: the strip stays plain text over the box, as Claude's look draws it; only the row moves.
 const ALT_PLAIN_STRIP = `
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
@@ -196,7 +306,7 @@ const ALT_IN_BOX_ROW = `
 /// BUTTON FOR CLAUDE BUT / WE CAN THINK ABOUT WHAT'S BEST"). The pick, one control in both looks: a
 /// slot that is Stop while a turn runs and the prompt is empty, and Send (steer or queue, as Return
 /// does) from the first letter. Claude's look draws it before the mic with Claude desktop's ↵ (the
-/// mic keeps the right edge through a turn); Codex's draws Send's ↑ after the mic, as Codex does.
+/// mic keeps the right edge through a turn); Codex's draws Send's ↑ on a disc after the mic, as Codex does.
 /// The alternates are gallery-only CSS over it. Stop beside a second send control (the two-button
 /// state this replaced) is never drawn.
 const runningChat = () => {
@@ -206,10 +316,40 @@ const runningChat = () => {
 const DRAFT = { draft: "Also cover the 503 path" };
 const ALT_AFTER_MIC = `
 .acpmux-composer-actions > :is(.acpmux-send, .acpmux-cancel) { order: 1; }`;
-const ALT_FILLED_DISC = `
-.acpmux-composer-actions > .acpmux-send.acpmux-send-ready:not(.acpmux-cancel) {
-  border-radius: 999px; background: var(--agent-text); color: var(--agent-bg, Canvas);
+/// Codex's Send (composerLook.css, the pick: the accent disc after the mic). The alternates: ChatGPT's
+/// disc in the text colour, and the plain ↑ glyph Codex's look drew before (#23763's no-disc rule).
+const ALT_TEXT_DISC = `
+.acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled) {
+  background: var(--agent-text); color: var(--agent-page-bg, Canvas);
 }`;
+const ALT_PLAIN_GLYPH = `
+.acpmux-composer[data-composer-look="codex"] .acpmux-send,
+.acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled) {
+  background: transparent; color: var(--agent-muted);
+}`;
+
+/// Codex's box height and the room under its row (Leo 2026-11-08: "we need to not have our thing be
+/// so tall maybe but also put the context ring to the left of the model picker and also have more
+/// padding on the bottom aka the composer simply doesn't have so little space at the bottom"). Each
+/// arm sets the prompt's top, the prompt-to-row gap and the room under the row (composerLook.css
+/// tokens), all on the 4 px grid; `codex-height-floor-16` (balanced, 16 px under the box) is what ships. Refs
+/// codex/live/composer-codex-empty-input-controls and chatgpt/live/composer-empty-placeholder-plus-button.
+const codexSpacing = (top: number, gap: number, bottom: number, floor?: number) => `
+.acpmux-composer[data-composer-look="codex"] {
+  --acpmux-codex-prompt-top: calc(${top}px * var(--cmux-interface-scale, 1));
+  --acpmux-codex-prompt-gap: calc(${gap}px * var(--cmux-interface-scale, 1));
+  --acpmux-codex-row-bottom: calc(${bottom}px * var(--cmux-interface-scale, 1));
+}${
+  floor === undefined
+    ? ""
+    : `
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot) { padding-bottom: ${floor}px; }`
+}`;
+/// Replaced: the ring after the model (its place before Leo's 2026-11-08 ask).
+const ALT_RING_AFTER_MODEL = `
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot .acpmux-context { order: 0; }`;
+/// A one-line draft the grow check (test/composer-grow-no-thumb.test.ts) adds a line to.
+const GROW_DRAFT = { draft: "Also cover the 503 path" };
 
 const chatHeight = 360;
 
@@ -229,8 +369,8 @@ export default agentPaneEntry({
   ],
   variants: {
     "goal-active": {
-      note: "A persisted Codex goal between turns; Pause and Clear use the same /goal command path.",
-      snapshot: goalChat("active"),
+      note: "A running Codex goal heads the composer hat; its elapsed time and chevron stay in one row, and pause, edit and delete fade in over the cut objective on hover.",
+      snapshot: goalChat("running"),
       play: (ctx) => look(ctx, "claude"),
     },
     "goal-paused": {
@@ -238,17 +378,49 @@ export default agentPaneEntry({
       snapshot: goalChat("paused"),
       play: (ctx) => look(ctx, "codex"),
     },
+    "goal-stalled": {
+      note: "A stalled Codex goal keeps its objective and elapsed time visible so the user can resume it without losing context.",
+      snapshot: goalChat("stalled"),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "goal-done": {
+      note: "A completed goal keeps a short-lived receipt with its elapsed duration and no misleading resume control.",
+      snapshot: goalChat("done"),
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "claude-loop-steps": {
+      note: "Claude's /loop is projected into the same goal row; opening it in place shows its checklist for step-by-step plans.",
+      snapshot: goalChat("running", "claude"),
+      play: async (ctx) => {
+        await look(ctx, "claude");
+        await ctx.click({ selector: ".acpmux-goal-toggle" });
+      },
+    },
     "loop-wakeup": {
-      note: "A self-paced Claude Code /loop (ScheduleWakeup): its prompt, Looping, and when it next runs. No controls: Claude stops a loop only from its own turn.",
+      note: "A self-paced Claude Code /loop (ScheduleWakeup), cmux#38051: one quiet chip in the composer's column, \"Checking back in 15 min.\". The agent's wake prompt (job ids, links, steps) is only in the tooltip and behind the chip's button. No controls: Claude stops a loop only from its own turn.",
       snapshot: loopChat({
-        objective: "check the deploy and fix anything red",
-        reason: "the rollout takes a few minutes",
-        nextRunAt: GALLERY_NOW + 4 * 60_000,
+        objective:
+          "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
+        reason: "watching the fleet build",
+        nextRunAt: GALLERY_NOW + 15 * 60_000,
       }),
       play: (ctx) => look(ctx, "claude"),
     },
+    "loop-wakeup-open": {
+      note: "The same loop with its prompt opened on demand: it wraps inside the column and scrolls past six lines.",
+      snapshot: loopChat({
+        objective:
+          "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
+        reason: "watching the fleet build",
+        nextRunAt: GALLERY_NOW + 15 * 60_000,
+      }),
+      play: async (ctx) => {
+        await look(ctx, "claude");
+        await ctx.click({ selector: ".acpmux-goal[data-kind=loop] .acpmux-goal-action" });
+      },
+    },
     "loop-cron": {
-      note: "An interval /loop (CronCreate): its schedule as Claude Code words it, and its first run.",
+      note: 'An interval /loop (CronCreate): its schedule as Claude Code words it, "Repeats every 5 minutes".',
       snapshot: loopChat({ objective: "/babysit-prs", schedule: "every 5 minutes", nextRunAt: GALLERY_NOW + 90_000 }),
       play: (ctx) => look(ctx, "claude"),
     },
@@ -294,34 +466,60 @@ export default agentPaneEntry({
       },
     },
     "codex-chat": {
-      note: "The second dot, Codex's look: ChatGPT's full-width prompt over one lower controls row, with + left and the mic and Send right. Every mode, model and context control stays inside the box.",
+      note: "The second dot, Codex's look: ChatGPT's full-width prompt over one lower controls row, with + and the mode left and the context ring, the model, the mic, then Codex's round Send, right. Every mode, model and context control stays inside the box.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex"),
     },
     "codex-chat-spacing-compact": {
       note: "Spacing A: 16px after the prompt. Compact, but the placeholder and lower controls are closer than ChatGPT's reference.",
       snapshot: startedChat(),
-      play: (ctx) =>
-        look(
-          ctx,
-          "codex",
-          '.acpmux-composer[data-composer-look="codex"] { --acpmux-codex-prompt-gap: calc(16px * var(--cmux-interface-scale, 1)); }',
-        ),
+      play: (ctx) => look(ctx, "codex", codexSpacing(16, 16, 8)),
     },
     "codex-chat-spacing-balanced": {
-      note: "Spacing B (selected): 24px after the prompt, 16px above it, + and the trailing actions 8px from the lower edges. Reference: chatgpt/live/composer-empty-placeholder-plus-button.",
+      note: "Spacing B (#34709's pick, replaced by codex-height-balanced): 24px after the prompt, 16px above it, + and the trailing actions 8px from the lower edges. Reference: chatgpt/live/composer-empty-placeholder-plus-button.",
       snapshot: startedChat(),
-      play: (ctx) => look(ctx, "codex"),
+      play: (ctx) => look(ctx, "codex", codexSpacing(16, 24, 8, 8)),
     },
     "codex-chat-spacing-airy": {
       note: "Spacing C: 32px after the prompt. More empty space than the reference without improving the control row's separation.",
       snapshot: startedChat(),
-      play: (ctx) =>
-        look(
-          ctx,
-          "codex",
-          '.acpmux-composer[data-composer-look="codex"] { --acpmux-codex-prompt-gap: calc(32px * var(--cmux-interface-scale, 1)); }',
-        ),
+      play: (ctx) => look(ctx, "codex", codexSpacing(16, 32, 8)),
+    },
+    "codex-height-before": {
+      note: "Replaced: the empty box 98.75 px tall, the prompt 16 px under the top, 24 px to the row and the row 8 px over the bottom edge (#34709). Leo 2026-11-08: too tall, too little room at the bottom.",
+      snapshot: startedChat(),
+      play: (ctx) => look(ctx, "codex", codexSpacing(16, 24, 8, 8)),
+    },
+    "codex-height-tight": {
+      note: "Arm A: 12 px top, 12 px to the row, 12 px under it (86.75 px). Shortest, but the placeholder crowds the row it heads.",
+      snapshot: startedChat(),
+      play: (ctx) => look(ctx, "codex", codexSpacing(12, 12, 12)),
+    },
+    "codex-height-balanced": {
+      note: "Arm B: 12 px top, 16 px to the row, 12 px under it (90.75 px, 8 px shorter), the box 8 px over the pane's bottom as before. The row has as much room under it as the prompt over it, and the prompt still reads as its own line.",
+      snapshot: startedChat(),
+      play: (ctx) => look(ctx, "codex", codexSpacing(12, 16, 12, 8)),
+    },
+    "codex-height-roomy": {
+      note: "Arm C: 12 px top, 20 px to the row, 16 px under it (98.75 px, as tall as before). The most room under the row, but no shorter.",
+      snapshot: startedChat(),
+      play: (ctx) => look(ctx, "codex", codexSpacing(12, 20, 16)),
+    },
+    "codex-height-floor-16": {
+      note: "Arm D (the pick, shipped): arm B with the box 16 px over the pane's bottom (was 8): the reference's box stands about twice as high over its window's edge as ours did.",
+      snapshot: startedChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-ring-alt-after-model": {
+      note: 'Replaced: the ring after the model, before the mic. Leo 2026-11-08: "put the context ring to the left of the model picker".',
+      snapshot: startedChat(),
+      play: (ctx) => look(ctx, "codex", ALT_RING_AFTER_MODEL),
+    },
+    "codex-grow-line": {
+      note: "A one-line draft in Codex's look; Shift-Return adds a line and the field grows to fit it with no scrollbar thumb on the way (test/composer-grow-no-thumb.test.ts).",
+      snapshot: startedChat(),
+      ready: GROW_DRAFT,
+      play: (ctx) => look(ctx, "codex"),
     },
     "codex-chat-alt-in-box-row": {
       note: "Replaced (cmux #28901, last good commit 8b44a8a1dc2): Codex's own 52 px row in the box under the prompt. Replaced on Leo's \"we already have a good version\" (2026-11-01). Gallery-only CSS, close to the old layout.",
@@ -362,6 +560,41 @@ export default agentPaneEntry({
       snapshot: startedChat(),
       play: (ctx) => glassLevel(ctx, "codex", "balanced"),
     },
+    "composer-material-plain": {
+      note: "The shared glass material (Plain, what ships) over the colorful wallpaper on a see-through window: the specular rim lit from above-left, the sheen under the top edge, the soft shadow, and a frost that keeps the colors vivid.",
+      snapshot: startedChat(),
+      play: (ctx) => materialStage(ctx, "plain"),
+    },
+    "composer-hat-material": {
+      note: "The pick for Leo's image (2026-11-05, the hat over the composer): the hat and the card are one glass, lit once from above. The hat's top takes the card's specular line, corner band and sheen, its frost is the card's vivid one, and the card gives up its own top light at the join, keeping the hairline there and its return along the bottom.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx),
+    },
+    "composer-hat-material-before": {
+      note: "Before (base): the hat a flat box with a hairline top and the popover frost, and the card's bright top line and sheen running across the middle of the stack, under the hat.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx, HAT_BEFORE),
+    },
+    "composer-hat-material-alt-both-lit": {
+      note: "Alternate: the hat's top lit and the card keeps its own top light too, so a second bright line divides the one glass.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx, HAT_BOTH_LIT),
+    },
+    "composer-hat-material-alt-depth": {
+      note: "Alternate: the pick, and the hat casts the material's depth too; through the clear card under it the shadow reads as a smudge at the join.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx, HAT_DEPTH),
+    },
+    "composer-material-lens": {
+      note: "The same card in the opt-in Lens (Debug choice glass.lens): the lens bends the wallpaper at the rim and draws its own specular light; the material adds the depth.",
+      snapshot: startedChat(),
+      play: (ctx) => materialStage(ctx, "lens"),
+    },
+    "composer-material-reduce-transparency": {
+      note: "Reduce Transparency over the same wallpaper: the solid card with its hairline ring, no frost and no specular band.",
+      snapshot: startedChat(),
+      play: (ctx) => materialStage(ctx, "reduce"),
+    },
     "codex-new-chat": {
       note: "Codex's look on a new chat (the pick): the folder and computer strip a tray tucked under the box's top edge, as Codex's.",
       ready: { newSession: true, cwd: CWD },
@@ -392,12 +625,12 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "claude"),
     },
     "send-one-slot-codex-running": {
-      note: "The pick, Codex's look: the same one slot before the mic as Claude's, Stop while the prompt is empty.",
+      note: "The pick, Codex's look: the one slot after the mic on its disc, Stop while the prompt is empty.",
       snapshot: runningChat(),
       play: (ctx) => look(ctx, "codex"),
     },
     "send-one-slot-codex-typed": {
-      note: "The pick, Codex's look: Send (↵) in the same slot once a prompt is typed.",
+      note: "The pick, Codex's look: Send (↑ on the accent disc) in the same slot once a prompt is typed.",
       snapshot: runningChat(),
       ready: DRAFT,
       play: (ctx) => look(ctx, "codex"),
@@ -408,11 +641,33 @@ export default agentPaneEntry({
       ready: DRAFT,
       play: (ctx) => look(ctx, "claude", ALT_AFTER_MIC),
     },
-    "send-alt-filled-disc": {
-      note: "Alternate (not shipped): Codex's filled disc after the mic. Not picked: the composer draws plain glyphs, no discs (Leo 2026-10-21), and the slot stays before the mic.",
-      snapshot: runningChat(),
+    "codex-send-accent-disc": {
+      note: "Codex's Send (the pick): the ↑ on the accent disc after the mic, as Codex and ChatGPT draw it (Leo 2026-11-04: \"our codex style composer should look like codex's/chatgpt's\"). Ref codex/live/composer-codex-empty-input-controls.",
+      snapshot: startedChat(),
       ready: DRAFT,
-      play: (ctx) => look(ctx, "codex", ALT_FILLED_DISC),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-send-empty": {
+      note: "Codex's Send with nothing to send: the soft disc and the dimmed ↑ stay after the mic, so the mic never steps.",
+      snapshot: startedChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-send-stop": {
+      note: "Codex's slot mid-turn with an empty prompt: Stop's square on the soft disc.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-send-alt-text-disc": {
+      note: "Alternate (not shipped): ChatGPT's disc in the text colour. Not picked: Codex's own composer, the look's namesake, uses its accent.",
+      snapshot: startedChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "codex", ALT_TEXT_DISC),
+    },
+    "codex-send-alt-plain-glyph": {
+      note: "Replaced: Codex's look drew Send as a plain glyph (no disc, #23763). Kept for comparison.",
+      snapshot: startedChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "codex", ALT_PLAIN_GLYPH),
     },
     "newtab-claude": {
       note: "New Tab, the first dot (Claude Minimal, the default): the Minimal page as it was, with the three dots under it.",

@@ -62,6 +62,10 @@ struct ReadParams {
     #[serde(default)]
     offset: u64,
     max_bytes: u64,
+    /// `fs-read-nofollow-v1`: a symlink as any component of `path` is
+    /// `fs.symlink_in_path`, never followed.
+    #[serde(default)]
+    no_follow: bool,
 }
 
 #[derive(Deserialize)]
@@ -84,6 +88,10 @@ struct WriteParams {
     encoding: Option<String>,
     #[serde(default)]
     decoded_size: Option<u64>,
+    /// `fs-write-nofollow-v1`: a symlink as any component of `path` is
+    /// `fs.symlink_in_path`, never followed or replaced.
+    #[serde(default)]
+    no_follow: bool,
 }
 
 #[derive(Deserialize)]
@@ -232,7 +240,7 @@ impl FsService {
     }
 
     fn read(&self, params: ReadParams) -> Result<Value, FsError> {
-        let (file, meta) = self.open_file(&params.path)?;
+        let (file, meta) = self.open_file_with(&params.path, params.no_follow)?;
         let wanted =
             params.max_bytes.min(MAX_READ_BYTES).min(meta.size.saturating_sub(params.offset));
         let mut bytes = vec![0u8; usize::try_from(wanted).unwrap_or(0)];
@@ -270,9 +278,30 @@ impl FsService {
     /// device: `O_NONBLOCK` keeps the open from blocking, and the kind is
     /// checked on the open descriptor).
     pub(crate) fn open_file(&self, path: &str) -> Result<(File, Meta), FsError> {
-        let resolved = self.roots.resolve(path, true)?;
+        self.open_file_with(path, false)
+    }
+
+    /// [`Self::open_file`]; with `no_follow` no symlink is followed, as a
+    /// folder on the way or as the file (`fs-read-nofollow-v1`): each folder
+    /// is entered with `O_NOFOLLOW` and the file opened with it, so a link
+    /// swapped in after any look fails the open instead of being read
+    /// through.
+    pub(crate) fn open_file_with(
+        &self,
+        path: &str,
+        no_follow: bool,
+    ) -> Result<(File, Meta), FsError> {
+        let resolved = if no_follow {
+            self.roots.resolve_no_follow(path)?
+        } else {
+            self.roots.resolve(path, true)?
+        };
         let Some(name) = &resolved.name else { return Err(FsError::NotAFile) };
-        if Meta::of(&sys::lstat_at(resolved.dir(), name)?).kind != EntryKind::File {
+        let kind = Meta::of(&sys::lstat_at(resolved.dir(), name)?).kind;
+        if no_follow && kind == EntryKind::Symlink {
+            return Err(FsError::SymlinkInPath);
+        }
+        if kind != EntryKind::File {
             return Err(FsError::NotAFile);
         }
         let fd = sys::open_at(resolved.dir(), name, libc::O_RDONLY | libc::O_NONBLOCK, 0)?;
@@ -305,11 +334,17 @@ impl FsService {
             if params.permissions.is_some() {
                 return Err(FsError::ParamsInvalid("permissions is not valid with append".into()));
             }
-            return Ok(json!({ "entry": append(&self.roots, &params.path, &expected, &data)? }));
+            return Ok(
+                json!({ "entry": append(&self.roots, &params.path, &expected, &data, params.no_follow)? }),
+            );
         }
         let mode = WriteMode::parse(&params.mode, params.expected)?;
-        let mut pending =
-            PendingWrite::begin(&self.roots, &params.path, mode, Some(data.len() as u64))?;
+        let size = Some(data.len() as u64);
+        let mut pending = if params.no_follow {
+            PendingWrite::begin_no_follow(&self.roots, &params.path, mode, size)?
+        } else {
+            PendingWrite::begin(&self.roots, &params.path, mode, size)?
+        };
         if let Some(permissions) = params.permissions {
             pending.set_permissions(permissions)?;
         }

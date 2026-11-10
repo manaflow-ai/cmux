@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import CmuxNextTestSupport
 import Testing
 
@@ -19,31 +20,6 @@ import Testing
         #expect(HomeTeamSeatImpact.of(canInvite: false, planID: "team", hasSubscription: true, memberCount: 4, memberLimit: nil)
             == .notAllowed)
         #expect(!HomeTeamSeatImpact.notAllowed.allowsSending)
-    }
-
-    @Test func aTypedEmailOffersInviteToTheActiveTeamUnderIt() throws {
-        let field = HomeRecipientField(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
-        field.contacts = { [] }
-        field.inviteTeam = { "cmux" }
-        var invited: [ContactAddress] = []
-        field.onInviteToTeam = { invited.append($0) }
-        field.text.stringValue = "leo@cmux.com"
-        field.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field.text))
-
-        let rows = field.suggestions.rows
-        let address = try #require(ContactAddress.parse("leo@cmux.com"))
-        #expect(rows.contains(.inviteToTeam(address, team: "cmux")))
-        let invite = try #require(rows.firstIndex(of: .inviteToTeam(address, team: "cmux")))
-        #expect(rows.firstIndex(of: .recipient(.address(address))).map { $0 < invite } ?? true, "the invite row comes after the address")
-        field.suggestions.activate(rows[invite])
-        #expect(invited == [address])
-        invited.removeAll()
-
-        // Signed out or no team: no row.
-        field.inviteTeam = { nil }
-        field.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field.text))
-        #expect(!field.suggestions.rows.contains { if case .inviteToTeam = $0 { true } else { false } })
-        #expect(invited.isEmpty)
     }
 
     @Test func sendWaitsForTheSeatLineThenSendsTheAddressOnce() async throws {

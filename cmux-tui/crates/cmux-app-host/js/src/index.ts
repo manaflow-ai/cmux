@@ -8,9 +8,10 @@ import { menuHandler, mount, mountExists, nodeRecord, sendPendingOps, setSceneSi
 import { act, palette, paletteCancel, paletteDetail, paletteOpen, setPaletteScopes } from "./palette.ts"
 import { batch, computed, effect, flush, onCleanup, signal, untrack } from "./reactive.ts"
 import * as views from "./view.ts"
+import { watch } from "./watch.ts"
 
 const g = globalThis as Record<string, unknown>
-export const RUNTIME_VERSION = "1.1.0"
+export const RUNTIME_VERSION = "1.2.0"
 
 const exportsOf = (): Record<string, unknown> => (g.__cmuxAppExports as Record<string, unknown> | undefined) ?? {}
 
@@ -42,7 +43,7 @@ function install() {
   const native = g.__cmuxAppNative as Native | undefined
   if (native) state.native = native
   // Globals for app code (the old custom sidebar API plus `cmux`, `palette` and `act`).
-  Object.assign(sharedMembers, { palette, act })
+  Object.assign(sharedMembers, { palette, act, watch })
   Object.assign(g, views, { cmux, signal, computed, effect, untrack, onCleanup, CmuxError, palette, act })
   if (typeof g.console === "undefined") {
     g.console = { log: (...a: unknown[]) => log("info", ...a), info: (...a: unknown[]) => log("info", ...a), warn: (...a: unknown[]) => log("warn", ...a), error: (...a: unknown[]) => log("error", ...a), debug: (...a: unknown[]) => log("debug", ...a) }
@@ -130,6 +131,19 @@ function install() {
         case "dragChange": {
           const h = record.handlers.dragChange as ((s: unknown) => unknown) | undefined
           runHandler("dragChange", h && (() => h(payload.state ?? null)))
+          break
+        }
+        case "change": {
+          // Toggle and Slider: the new value, typed as the node's kind expects.
+          const h = record.handlers.change as ((v: unknown) => unknown) | undefined
+          // A value of the wrong shape is dropped, never coerced (no "false" read as true, no NaN).
+          const raw = payload.value
+          const typed =
+            record.kind === "Toggle"
+              ? typeof raw === "boolean" ? raw : typeof raw === "number" ? raw !== 0 : undefined
+              : typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() !== "" ? Number(raw) : undefined
+          if (typed === undefined || (typeof typed === "number" && !Number.isFinite(typed))) break
+          runHandler("change", h && (() => h(typed)))
           break
         }
         case "submit":

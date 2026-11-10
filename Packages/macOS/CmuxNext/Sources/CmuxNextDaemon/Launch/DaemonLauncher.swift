@@ -98,6 +98,8 @@ public struct DaemonLauncher: Sendable {
     public static let binaryOverrideKey = "CMUX_NEXT_TUI_BIN"
 
     public let configuration: Configuration
+    /// App health's sink for each ensure's facts (``DaemonHealthSink``); nil: not reported.
+    public var health: DaemonHealthSink?
     /// `configuration.rememberedSocket` until the first endpoint request of
     /// any provider of this launcher takes it: the startup loop's retries
     /// and every reconnect then ask the owner (`ensure`), so a hung daemon
@@ -109,9 +111,10 @@ public struct DaemonLauncher: Sendable {
     public let ensureOutcome = EnsureOutcome()
     let clock: any Clock<Duration>
     private let ensureTimeout: Duration
-    /// Hard cap on one `server ensure`. The daemon bounds a restore itself
-    /// (2 minutes, then `server.restore_timeout`), so this only has to be
-    /// longer than that bound plus the time to reach the owner.
+    /// Hard cap on one `server ensure` from a binary that reports no restore
+    /// progress. A bundled binary has none: the daemon ends its wait once the
+    /// owner made no progress for 2 minutes (`server.restore_timeout`), and an
+    /// owner that restores a large registry for longer is awaited, never cut off.
     static let ensureRestoreCap: Duration = .seconds(150)
     private let environmentProvider: @Sendable () async -> [String: String]
 
@@ -141,7 +144,8 @@ public struct DaemonLauncher: Sendable {
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         socketMemory: DaemonSocketMemory = DaemonSocketMemory(),
-        applicationSupport: URL = DaemonLauncher.applicationSupportDirectory()
+        applicationSupport: URL = DaemonLauncher.applicationSupportDirectory(),
+        health: DaemonHealthSink? = nil
     ) throws -> DaemonLauncher {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
@@ -157,7 +161,9 @@ public struct DaemonLauncher: Sendable {
         // shell integration keeps the bundled `cmux` first (cmux-tui `cli_path`).
         let cli = bundle.resourceURL.map { BundledCLIEnvironment(binDirectory: $0.path + "/bin", pathIntegration: nil) }
         let environment = appEnvironment(cache: .shared, base: processEnvironment, overrides: overrides, cli: cli)
-        return DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } })
+        var launcher = DaemonLauncher(configuration: configuration, environment: { await environment().merging(daemonEnvironment) { _, owner in owner } })
+        launcher.health = health
+        return launcher
     }
 
     /// The launcher of a Chief home's conversation owner
@@ -196,11 +202,20 @@ public struct DaemonLauncher: Sendable {
 
     /// The Chief owner's `server ensure` environment: the user's basic
     /// variables only, never a build's `CMUX_*` identity; the brain's tools socket (chief.*) and
-    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`).
+    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`). Also the
+    /// R-DAEMON-STATE input lane switch from the app's launch knobs (``DaemonDiagnosticKnobs``):
+    /// the Chief owner follows the same rules as the app's own daemon, so its off switch must reach it too.
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
                     "CMUX_TUI_CHIEF_BRAINS"]
-        return base.filter { kept.contains($0.key) }
+        var environment = base.filter { kept.contains($0.key) }
+        let knobs = DaemonDiagnosticKnobs(processEnvironment: base).daemonEnvironment
+        for name in DaemonDiagnosticKnobs.chiefOwnerDaemonNames {
+            if let value = knobs[name] {
+                environment[name] = value
+            }
+        }
+        return environment
     }
 
     /// The app launcher's `server ensure` environment: the login
@@ -273,15 +288,24 @@ public struct DaemonLauncher: Sendable {
         return "cmux-app-\(cleaned)"
     }
 
-    /// `~/Library/Application Support/cmux/tags/<tag>/tui`.
+    /// `~/Library/Application Support/cmux-next/tags/<tag>/tui`.
     public static func tagStateDirectory(tag: String) -> URL {
         tagStateDirectory(tag: tag, applicationSupport: applicationSupportDirectory())
     }
 
-    /// `<applicationSupport>/cmux/tags/<tag>/tui`.
+    /// `<applicationSupport>/cmux-next/tags/<tag>/tui`.
     public static func tagStateDirectory(tag: String, applicationSupport: URL) -> URL {
         let component = (try? sessionName(tag: tag).dropFirst("cmux-app-".count)).map(String.init) ?? "default"
-        return applicationSupport.appendingPathComponent("cmux/tags/\(component)/tui", isDirectory: true)
+        return nextSupport(applicationSupport).appendingPathComponent("tags/\(component)/tui", isDirectory: true)
+    }
+
+    /// NEXT's own folder in `applicationSupport`, `cmux-next`, which holds the
+    /// daemon state of every build (``BuildIdentity/daemonStateDirectory(appSupport:)``).
+    /// Classic cmux owns `cmux` beside it: NEXT keeps nothing there, so removing
+    /// classic never removes NEXT's workspaces (``StateFolderMove`` moved what
+    /// older builds kept there).
+    public static func nextSupport(_ applicationSupport: URL = applicationSupportDirectory()) -> URL {
+        applicationSupport.appendingPathComponent("cmux-next", isDirectory: true)
     }
 
     /// The user's `~/Library/Application Support`.
@@ -290,26 +314,18 @@ public struct DaemonLauncher: Sendable {
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
     }
 
-    /// The user's per-user temp directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`),
-    /// independent of the process's `TMPDIR`. Falls back to `/tmp`.
-    public static func userTemporaryDirectory() -> URL {
-        let length = confstr(_CS_DARWIN_USER_TEMP_DIR, nil, 0)
-        if length > 0 {
-            var buffer = [CChar](repeating: 0, count: length)
-            if confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, length) > 0 {
-                let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-                if !path.isEmpty { return URL(fileURLWithPath: path, isDirectory: true) }
-            }
-        }
-        return URL(fileURLWithPath: "/tmp", isDirectory: true)
-    }
-
     // MARK: - Ensure
 
     /// Environment for `server ensure`: the provider's, plus the state
     /// directory, config file and a fixed runtime base.
     func ensureEnvironment() async -> [String: String] {
         var environment = await environmentProvider()
+        // This authority is only for the app launcher's ensure call. The
+        // daemon strips it before spawning the detached owner, so terminals
+        // cannot later switch a shared owner back to their own backend.
+        if environment["CMUX_NEXT_CLOUD_RUNTIME"] == "1" {
+            environment["CMUX_NEXT_CLOUD_LAUNCHER"] = "1"
+        }
         if let stateDirectory = configuration.stateDirectory { environment["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
         // XDG_RUNTIME_DIR would win over TMPDIR in cmux-tui's socket lookup.
@@ -327,28 +343,51 @@ public struct DaemonLauncher: Sendable {
             try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
         }
-        if let running = await runningOwner() { return running }
-        // The probe runs while the environment is gathered.
-        async let reapGrace = supportsReapGrace()
+        // A NEXT app launch is authoritative for backend selection. Skip the
+        // status fast path so `server ensure` can replace a daemon left alive
+        // by the previous app launch; terminal processes never receive the
+        // one-shot launcher marker.
         let environment = await ensureEnvironment()
+        if environment["CMUX_NEXT_CLOUD_LAUNCHER"] != "1",
+           let running = await runningOwner() {
+            health?.note(.ready(pid: running.pid))
+            return running
+        }
+        async let reapGrace = supportsReapGrace()
         // The bundled binary reports restore progress (`--restore-progress`): the app
-        // then waits while the owner restores and gives up only when the
-        // progress stops for `ensureTimeout` (cx-n3bs). An external binary
-        // may lack the option; the daemon's own restore bound ends it.
+        // then waits while the owner restores, with no fixed cap, and gives up
+        // only when the progress lines stop for `ensureTimeout` (cx-n3bs). The
+        // daemon itself ends the wait once the owner stops working. A fixed cap
+        // killed every owner of a 59 GB registry partway through its restore
+        // (2026-11-08). An external binary may lack the option; the cap bounds it.
         let progress = configuration.binaryIsBundled
         let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
+        let reports = progress ? ensureOutcome.restoreReporter() : nil
+        defer { reports?.end() }
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
-        let result = try await ProcessRunner.run(
-            executable: configuration.binary,
-            arguments: arguments,
-            environment: environment,
-            stdin: configuration.installKey?.payload,
-            timeout: progress ? Self.ensureRestoreCap : max(ensureTimeout, Self.ensureRestoreCap),
-            progressIdle: progress ? ensureTimeout : nil,
-            clock: clock
-        )
-        return try Self.parseEnsure(result)
+        // App health reads each ensure (read-only; nothing here changes what the launcher does). The
+        // start counts from the first restore progress, so probing a wedged owner is no start.
+        let note = health.map(EnsureProgressNote.init)
+        do {
+            let result = try await ProcessRunner.run(
+                executable: configuration.binary,
+                arguments: arguments,
+                environment: environment,
+                stdin: configuration.installKey?.payload,
+                timeout: progress ? nil : max(ensureTimeout, Self.ensureRestoreCap),
+                progressIdle: progress ? ensureTimeout : nil,
+                progressed: note.map { note in { @Sendable in note.progressed() } },
+                stdoutLine: reports?.line,
+                clock: clock
+            )
+            let ensured = try Self.parseEnsure(result)
+            health?.note(.ready(pid: ensured.pid))
+            return ensured
+        } catch {
+            health?.note(.exited)
+            throw error
+        }
     }
 
     /// The `server ensure` command line for `configuration`. `reapGrace`

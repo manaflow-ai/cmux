@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture replies, not shipped UI.
 // The line of a turn the agent ran on its own (backgroundTurns.ts, BackgroundTurnLine.tsx): quiet,
-// it is one closed line the reader can open; running, the same line with the working spinner; one
+// it is one closed line the reader can open; running, the same line with the working spinner and its words shimmering; one
 // with something to say draws no line. direct.ts tags the rows (test/agent-pane-background-turns.test.ts).
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -63,7 +63,8 @@ test("a quiet background turn is one closed line that opens to its rows", () => 
 
 test("a background turn that is not quiet draws its rows as they came, with no line", () => {
   const rows = transcript({ quiet: false });
-  expect(ids(turnView(rows, new Set()))).toEqual(["prompt", "reply", "summary", "check", "note"]);
+  // Its reply ends on its own footer (backgroundTurnFooter.test.ts).
+  expect(ids(turnView(rows, new Set()))).toEqual(["prompt", "reply", "summary", "check", "note", "backgroundEnd-bg"]);
 });
 
 test("a running background turn is the compact line with the working spinner", () => {
@@ -75,6 +76,14 @@ test("a running background turn is the compact line with the working spinner", (
   const html = renderToStaticMarkup(<BackgroundTurnLine row={running} expanded={false} onToggle={() => {}} />);
   expect(html).toContain("cv-spinner");
   expect(html).toContain("Scheduled check");
+  // Its words shimmer as a running tool row's do (Leo, 2026-11-09: "isn't highlighted all the way
+  // through like other tool calls are"): the lit copy of the whole label, on a live line.
+  expect(html).toContain("is-live");
+  expect(html).toMatch(/class="cv-row-shimmer"[^>]*>.*Scheduled check/);
+  const ended = line("bg", { running: false, quiet: true, trigger: "scheduled" });
+  expect(renderToStaticMarkup(<BackgroundTurnLine row={ended} expanded={false} onToggle={() => {}} />)).not.toContain(
+    "cv-row-shimmer",
+  );
 });
 
 test("rows with no background turn come back as they were", () => {

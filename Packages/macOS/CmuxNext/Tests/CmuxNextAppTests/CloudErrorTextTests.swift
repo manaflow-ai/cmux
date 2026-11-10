@@ -30,8 +30,6 @@ struct CloudErrorTextTests {
     /// caller or the classic `cmux vm` CLI: the app shows the message and
     /// trace id without them; the log (`description`) keeps them.
     @Test(arguments: [
-        ("vm_firewall_rule_not_found", "List your rules with GET /api/vm/firewall; a retried delete of a removed rule is already done."),
-        ("vm_tunnel_not_found", "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up."),
         ("vm_not_found", "Run `cmux vm ls` to see available Cloud VMs. If the VM stopped while idle, start a new one with `cmux vm new`."),
         ("vm_access_requires_pro", "Upgrade to Pro at https://cmux.com/pricing to reconnect vm-1, or delete it with `cmux vm rm vm-1`."),
         ("vm_active_limit_exceeded", "Upgrade to cmux Pro at https://cmux.com/pricing for more active machines, or free a slot with `cmux vm rm <id>`."),
@@ -45,25 +43,6 @@ struct CloudErrorTextTests {
                                        headerCode: code)
         #expect(error.description == "It failed. \(action) (trace t-1)")
         #expect(CloudStrings.errorText(error) == "It failed. \(CloudStrings.trace("t-1"))")
-    }
-
-    /// A paused machine's resume and a creation failure read through the same
-    /// text: no `cmux vm` action, no API path from a timeout.
-    @Test(.timeLimit(.minutes(1)), arguments: [
-        CloudAPIError.http(status: 404, code: "vm_not_found", message: "Cloud VM vm-1 was not found.",
-                           action: "Run `cmux vm ls` to see available Cloud VMs.", traceId: "t-2"),
-        CloudAPIError.timedOut("POST /api/vm/vm-1/resume"),
-    ])
-    func aFailedResumeReadsAsTheErrorText(error: CloudAPIError) async {
-        let f = CloudIdlePauseTests.pausedMachine(reason: .idle)
-        f.session.resumer = { _ in throw error }
-        f.session.attach(origin: .user)
-        let session = f.session
-        for await busy in ObservationStream({ session.resuming }) where !busy { break }
-        #expect(f.session.resumeFailure == CloudStrings.errorText(error))
-        #expect(f.session.resumeFailure?.contains("cmux vm") == false)
-        #expect(f.session.resumeFailure?.contains("/api/vm") == false)
-        f.session.disconnect()
     }
 
     @Test func aFailedCreationReadsAsTheErrorText() {
@@ -104,11 +83,8 @@ struct CloudErrorTextTests {
 
     @Test func theApprovalsRouteKeepsTheServerActionAndTrace() {
         let error = CloudAPIError.http(status: 409, code: "vm_other", message: "Busy.", action: "Retry in a minute.", traceId: "t1")
-        #expect(CloudService.approvalsFailure(error) == .failed("Busy. Retry in a minute. \(CloudStrings.trace("t1"))"))
         #expect(CloudService.workerApprovalsFailure(error) == .failed("Busy. Retry in a minute. \(CloudStrings.trace("t1"))"))
-        #expect(CloudService.approvalsFailure(.timedOut("/api/vm/x/acpmux/keyed-start")) == .failed(CloudStrings.apiTimedOut))
         #expect(CloudService.workerApprovalsFailure(.decoding("keyNotFound(…)")) == .failed(CloudStrings.apiUnreadable))
-        #expect(CloudService.approvalsFailure(.notSignedIn) == .failed(CloudStrings.signInFirst))
     }
 
     @Test func anActionFailureReadsAsItsMessage() {

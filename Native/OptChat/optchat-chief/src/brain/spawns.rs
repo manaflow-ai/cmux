@@ -168,7 +168,7 @@ impl Brain {
                 self.cloud_pause_retry.remove(&peer);
                 continue;
             }
-            if self.cloud_paused.contains(&peer) {
+            if self.state.cloud_paused.contains(&peer) {
                 continue;
             }
             // A failed pause waits out its backoff (PAUSE_BACKOFF).
@@ -193,8 +193,9 @@ impl Brain {
             if now.saturating_sub(since) < wait {
                 continue;
             }
-            self.cloud_paused.insert(peer.clone());
+            self.state.cloud_paused.insert(peer.clone());
             self.cloud_idle_since.remove(&peer);
+            self.save();
             if self.cloud_pause_retry.contains_key(&peer) {
                 // A retry: its failure was logged once, the outcome is too.
             } else if own {
@@ -395,7 +396,7 @@ impl Brain {
     /// `peer` (a subagent's own VM) is gone: its subagent is marked so.
     pub(super) fn cloud_vm_deleted(&mut self, peer: &str) {
         self.cloud_reaping.remove(peer);
-        self.cloud_paused.remove(peer);
+        self.state.cloud_paused.remove(peer);
         self.cloud_idle_since.remove(peer);
         self.cloud_pause_retry.remove(peer);
         for sub in self
@@ -527,7 +528,7 @@ impl Brain {
     /// error is logged when it differs from the one logged before, so a VM
     /// that stays busy or broken gives one line, not one per tick.
     pub(super) fn cloud_pause_failed(&mut self, peer: &str, error: &str) {
-        self.cloud_paused.remove(peer);
+        self.state.cloud_paused.remove(peer);
         self.cloud_idle_since.remove(peer);
         // A result that comes back after the VM was deleted starts no streak.
         if !self.has_vm_peer(peer) {
@@ -590,13 +591,14 @@ impl Brain {
         peers.sort_unstable();
         peers.dedup();
         for peer in peers {
-            if self.live_on(&peer) > 0 || self.cloud_paused.contains(&peer) {
+            if self.live_on(&peer) > 0 || self.state.cloud_paused.contains(&peer) {
                 continue;
             }
             let began = std::time::Instant::now();
             match vms.pause(&peer) {
                 Ok(()) => {
-                    self.cloud_paused.insert(peer.clone());
+                    self.state.cloud_paused.insert(peer.clone());
+                    self.save();
                     (self.log)(&format!(
                         "cloud: host stops: paused {peer} in {} ms",
                         began.elapsed().as_millis()
@@ -644,7 +646,7 @@ impl Brain {
             .iter()
             .filter(|peer| {
                 per_agent
-                    || self.cloud_paused.contains(*peer)
+                    || self.state.cloud_paused.contains(*peer)
                     || self.cloud_vms.as_ref().is_some_and(|vms| vms.available())
                     || machines
                         .iter()
@@ -714,10 +716,11 @@ impl Brain {
             })
             .collect();
         for p in chosen.iter().flatten() {
-            self.cloud_paused.remove(p);
+            self.state.cloud_paused.remove(p);
             self.cloud_idle_since.remove(p);
             self.cloud_pause_retry.remove(p);
         }
+        self.save();
         let sizes: Vec<Option<String>> = chosen
             .iter()
             .zip(tasks)
@@ -834,10 +837,14 @@ impl Brain {
         session_id: String,
         policy: Option<String>,
         harness: Option<String>,
+        made: Option<crate::action_lifetime::Made>,
     ) {
         if let Some(sub) = self.state.sub_mut(id) {
             sub.session_id = Some(session_id);
             sub.policy = policy;
+            if made.is_some() {
+                sub.made = made;
+            }
             if harness.is_some() {
                 sub.harness = harness;
             }
@@ -1749,12 +1756,32 @@ impl Brain {
     /// a name the user or the Chief gave it stays.
     fn mark_workspace(&mut self, id: &str, done: bool) {
         if !done {
+            // Running again: it has not expired.
+            if let Some(made) = self.state.sub_mut(id).and_then(|s| s.made.as_mut()) {
+                made.expires_ms = None;
+            }
             return;
+        }
+        // Its lifetime ends now (action_lifetime.rs): a Task leaves the hat after its time, a
+        // tucked workspace is due for the reaper at once.
+        let now = now_ms();
+        if let Some(made) = self.state.sub_mut(id).and_then(|s| s.made.as_mut()) {
+            made.ended(now);
+            self.save();
         }
         let (Some(workspaces), Some((_, sub))) = (self.workspaces.clone(), self.state.sub(id))
         else {
             return;
         };
+        // A tucked one keeps a short task's guards: a stopped run, or a report that left work to
+        // land (its landing follow-up resumes it), keeps its workspace.
+        let reap =
+            crate::action_lifetime::reap_due(sub.made.as_ref(), sub.workspace.is_some(), now)
+                && !sub.stopped
+                && !sub
+                    .report
+                    .as_deref()
+                    .is_some_and(crate::sub_watch::unlanded);
         // Every finished one under the close setting; else a short task's
         // (a run under SHORT_TASK whose report left nothing to land), so a
         // sidebar does not fill with workspaces of one-off asks. Its chat
@@ -1766,7 +1793,7 @@ impl Brain {
                 .report
                 .as_deref()
                 .is_some_and(crate::sub_watch::unlanded);
-        if !(self.sub_close_on_finish || short) {
+        if !(self.sub_close_on_finish || short || reap) {
             return;
         }
         let Some(key) = sub.workspace.clone() else {
@@ -1775,6 +1802,8 @@ impl Brain {
         // The close setting closes every finished one and forgets it; a short
         // task closes only while none of its terminals runs a command, and its
         // key is forgotten once that close succeeds (a kept one stays).
+        // The reaper closes a tucked workspace like a short task's: only while none of its
+        // terminals runs a command, so a shell the person started there is never ended.
         let explicit = self.sub_close_on_finish;
         if explicit {
             if let Some(sub) = self.state.sub_mut(id) {
@@ -2226,9 +2255,14 @@ impl Brain {
         // B4: its VM was paused while it was idle; it resumes before the
         // message (a rare tell to a finished cloud subagent, seconds).
         if !cancelled
-            && let Some(peer) = peer.filter(|p| self.cloud_paused.contains(p))
+            && let Some(peer) = peer.filter(|p| self.state.cloud_paused.contains(p))
             && let Some(vms) = self.cloud_vms.clone()
         {
+            if !vms.available() {
+                return Err(format!(
+                    "{id}'s cloud VM {peer} is paused and this Mac has no pool tool (~/.config/cloud-subagents/vm-cmd) to resume it; set up the pool tool here (deploy.sh install-vm-cmd) or tell it from the Mac that paused it"
+                ));
+            }
             let began = std::time::Instant::now();
             vms.resume(&peer)
                 .map_err(|e| format!("{id}'s cloud VM {peer} did not resume: {e}"))?;
@@ -2236,9 +2270,10 @@ impl Brain {
                 "cloud: resumed {peer} for a tell to {id} in {} ms",
                 began.elapsed().as_millis()
             ));
-            self.cloud_paused.remove(&peer);
+            self.state.cloud_paused.remove(&peer);
             self.cloud_idle_since.remove(&peer);
             self.cloud_pause_retry.remove(&peer);
+            self.save();
         }
         if cancelled {
             return Ok(format!(
@@ -2719,6 +2754,8 @@ impl Brain {
                     Some(summary) => {
                         self.sub_changed(summary);
                     }
+                    // A handed-over session: its own link reports it.
+                    None if self.reported_elsewhere.contains(&session) => {}
                     None => self.sub_done(
                         &id,
                         "(gone: its session no longer exists, so no report will come)".into(),
@@ -2791,45 +2828,87 @@ impl Brain {
                             .unwrap_or(u64::MAX),
                     )
                 })
-                .map(|(spawn, s)| crate::subagents::QueuedStart {
-                    id: s.id.clone(),
-                    spawn: spawn.clone(),
-                    launch: s.queued_launch.clone(),
-                    engine: None,
-                    extra: (!s.inbox.is_empty()).then(|| inbox_text(&s.inbox)),
-                });
-            let Some(mut queued) = next else { return };
-            queued.engine = match queued.launch.as_ref().and_then(|l| l.harness.as_deref()) {
-                Some(harness) => Some(self.engine_on(harness)),
-                None => self.spawn_engine(),
-            };
-            let id = queued.id.clone();
-            let sent = self
-                .sub_starter
-                .as_ref()
-                .is_some_and(|starter| starter.send(queued).is_ok());
-            if !sent {
-                self.sub_failed(&id, "this Chief host cannot start queued subagents");
+                .map(|(spawn, s)| (spawn.clone(), s.id.clone()));
+            let Some((spawn, id)) = next else { return };
+            if !self.start_one(&spawn, &id, "a slot is free") {
                 continue;
             }
-            let mut delivered = 0;
-            if let Some(sub) = self.state.sub_mut(&id) {
-                sub.status = SubStatus::Starting;
-                sub.run_ms = now_ms();
-                sub.queued_launch = None;
-                // Its inbox went in with its task.
-                delivered = sub.inbox.len();
-                sub.inbox.clear();
-            }
-            if delivered > 0 {
-                self.queue(
-                    format!("[{id}] got {delivered} queued message(s) from you with its task."),
-                    Source::Note,
-                );
-            }
-            self.save();
-            (self.log)(&format!("subagent {id}: a slot is free, starting it"));
         }
+    }
+
+    /// chief.stop {start: name} (Start now on a queued agent's tab in Home,
+    /// user 2026-11-07 msg 23835): queued subagent `name` starts at once,
+    /// past the live cap, the others keep their places. Answers
+    /// `{"started": bool, "note"?, "error"?}`.
+    pub(super) fn start_subagent_now(&mut self, name: &str) -> Value {
+        let found = self.state.spawns.iter().find_map(|(spawn, r)| {
+            r.subs
+                .iter()
+                .find(|s| s.id == name)
+                .map(|s| (spawn.clone(), s.status, s.cancelled))
+        });
+        let Some((spawn, status, cancelled)) = found else {
+            return json!({"started": false, "error": format!("no subagent {name}")});
+        };
+        if status != SubStatus::Queued || cancelled {
+            return json!({"started": false, "error": format!("{name} is not queued")});
+        }
+        if let Some(s) = self.state.sub_mut(name) {
+            // The person asked for it by name: a pause no longer holds it.
+            s.paused = false;
+        }
+        if !self.start_one(&spawn, name, "the user started it now") {
+            return json!({"started": false, "error": "this Chief host cannot start queued subagents"});
+        }
+        (self.log)(&format!("the owner started subagent {name} past the cap"));
+        json!({"started": true, "note": format!("Started by the user: {name}.")})
+    }
+
+    /// Starts queued subagent `id` of spawn `spawn` now (no cap check): its
+    /// launch goes to the starter, its inbox with it. False when the host
+    /// cannot start it (it failed, and says why).
+    fn start_one(&mut self, spawn: &str, id: &str, why: &str) -> bool {
+        let Some((_, s)) = self.state.sub(id) else {
+            return false;
+        };
+        let mut queued = crate::subagents::QueuedStart {
+            id: s.id.clone(),
+            spawn: spawn.to_owned(),
+            launch: s.queued_launch.clone(),
+            engine: None,
+            extra: (!s.inbox.is_empty()).then(|| inbox_text(&s.inbox)),
+        };
+        queued.engine = match queued.launch.as_ref().and_then(|l| l.harness.as_deref()) {
+            Some(harness) => Some(self.engine_on(harness)),
+            None => self.spawn_engine(),
+        };
+        let id = queued.id.clone();
+        let sent = self
+            .sub_starter
+            .as_ref()
+            .is_some_and(|starter| starter.send(queued).is_ok());
+        if !sent {
+            self.sub_failed(&id, "this Chief host cannot start queued subagents");
+            return false;
+        }
+        let mut delivered = 0;
+        if let Some(sub) = self.state.sub_mut(&id) {
+            sub.status = SubStatus::Starting;
+            sub.run_ms = now_ms();
+            sub.queued_launch = None;
+            // Its inbox went in with its task.
+            delivered = sub.inbox.len();
+            sub.inbox.clear();
+        }
+        if delivered > 0 {
+            self.queue(
+                format!("[{id}] got {delivered} queued message(s) from you with its task."),
+                Source::Note,
+            );
+        }
+        self.save();
+        (self.log)(&format!("subagent {id}: {why}, starting it"));
+        true
     }
 
     /// `text` with every mention of this Chief's subagents written as its link

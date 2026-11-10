@@ -89,7 +89,7 @@ impl WorkspaceRef {
 }
 
 /// The value of a leading `key: value` header line of `task` (`Title:`,
-/// `Group:`), among its first three non-empty lines; any case.
+/// `Group:`, `Sidebar:`), among its first three non-empty lines; any case.
 pub fn header(task: &str, key: &str) -> Option<String> {
     task.lines()
         .map(str::trim)
@@ -102,11 +102,13 @@ pub fn header(task: &str, key: &str) -> Option<String> {
         })
 }
 
-/// Whether `line` is a `Title:` or `Group:` header.
-fn is_header(line: &str) -> bool {
+/// Whether `line` is a `Title:`, `Group:` or `Sidebar:` header.
+pub fn is_header(line: &str) -> bool {
     line.split_once(':').is_some_and(|(k, _)| {
         let k = k.trim();
-        k.eq_ignore_ascii_case("title") || k.eq_ignore_ascii_case("group")
+        k.eq_ignore_ascii_case("title")
+            || k.eq_ignore_ascii_case("group")
+            || k.eq_ignore_ascii_case("sidebar")
     })
 }
 
@@ -745,8 +747,9 @@ fn home_dir() -> PathBuf {
 
 /// The index a workspace takes in the personal group it joins, from the same
 /// `workspaces.newPlacement` the app reads (cmux-next.json, else cmux.json; see
-/// `agent_memory::settings`). `top`, the default, puts it first (index 0); `bottom` and
-/// `afterCurrent`/`beforeCurrent` keep the daemon's place, the end. None keeps the daemon default.
+/// `agent_memory::settings`). Only `bottom` keeps the daemon's place, the end; `afterCurrent`
+/// (the default), `beforeCurrent` and `top` put it first (index 0), never at the sidebar's end
+/// (Leo 2026-11-06). None keeps the daemon default.
 pub fn new_group_index(home: &Path) -> Option<usize> {
     let placement = crate::agent_memory::settings::document(home).and_then(|doc| {
         doc.pointer("/workspaces/newPlacement")
@@ -754,8 +757,9 @@ pub fn new_group_index(home: &Path) -> Option<usize> {
             .map(str::to_owned)
     });
     match placement.as_deref() {
-        Some("bottom" | "afterCurrent" | "beforeCurrent") => None,
-        // No file, no key, or a value the app does not know: the app's default, `top`.
+        Some("bottom") => None,
+        // `top`, `afterCurrent`, `beforeCurrent`, no file, no key, or a value the app does not know
+        // (the app's default, `afterCurrent`).
         _ => Some(0),
     }
 }
@@ -782,9 +786,29 @@ pub fn place_in_personal_group_from(
         return Ok(());
     }
     let here = || json!({"machine": "current", "session": "current"});
-    let listed = resource_call(daemon, "workspace_group.list", here(), None)?;
-    let Some(group) = agents_group(name, &groups_of(&listed)) else {
-        return Ok(());
+    let group = if name == crate::action_lifetime::TUCK_GROUP {
+        // A tucked Chief workspace (action_lifetime.rs, Leo 2026-11-10): the sidebar's "Chief"
+        // group, made collapsed when it has none; one the person opened stays open.
+        let mut params = here();
+        params["name"] = json!(name);
+        params["collapsed"] = json!(true);
+        params["reuse"] = json!(true);
+        let made = resource_call(
+            daemon,
+            "workspace_group.create",
+            params,
+            Some(&format!("optchat-chief-tuck-group-{key}")),
+        )?;
+        made["value"]["id"]
+            .as_str()
+            .ok_or("workspace_group.create named no group")?
+            .to_owned()
+    } else {
+        let listed = resource_call(daemon, "workspace_group.list", here(), None)?;
+        let Some(group) = agents_group(name, &groups_of(&listed)) else {
+            return Ok(());
+        };
+        group
     };
     let workspace = locate_by_key(daemon, key)
         .ok_or("the session does not list the new workspace")?

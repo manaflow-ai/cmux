@@ -4,14 +4,17 @@
 // with appearance.borders none. The composer's
 // fill, the New Tab box's and the chat composer's alike, is no longer a gray slab darker than the
 // page ("same bg kinda weird"; Leo 10-14): in a light theme it is the page lifted toward white,
-// lighter than the page; in a dark theme a small step lighter than the page. Both are solid. Their
-// drop shadow is the shared --elevation-1 in a light theme and none in a dark one, where it shows
-// nothing (cg-design-judge, 10-14).
+// lighter than the page; in a dark theme a small step lighter than the page. Both are solid. The New
+// Tab box's drop shadow is the shared --elevation-1 in a light theme and none in a dark one
+// (cg-design-judge, 10-14). The chat composer is the shared glass material (glass.css, "GLASS
+// MATERIAL"; Leo 2026-11-05 on the Dock: "the glass is a pretty big deal"), whose soft two-step
+// depth shows over a wallpaper in a dark theme too.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -93,21 +96,26 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
         }
       }
       entries.push(shadow.slice(start));
-      return entries
-        .filter((entry) => /\binset\b/.test(entry))
-        .map((entry) => {
-          const lengths = [...entry.replace(/\([^)]*\)/g, "").matchAll(/(-?[\d.]+)px/g)].map((match) =>
-            Number(match[1]),
-          );
-          const color = entry.match(/(?:rgba?|color)\([^)]*\)/)?.[0] ?? "transparent";
-          const numbers = [...color.matchAll(/-?[\d.]+(?:e-?\d+)?/g)].map((match) => Number(match[0]));
-          let rgba: [number, number, number, number] = [0, 0, 0, 0];
-          if (color.startsWith("color(")) rgba = [numbers[0], numbers[1], numbers[2], numbers[3] ?? 1];
-          else if (color.startsWith("rgb"))
-            rgba = [numbers[0] / 255, numbers[1] / 255, numbers[2] / 255, numbers[3] ?? 1];
-          return { spread: lengths[3] ?? 0, rgba };
-        })
-        .filter(({ spread }) => spread !== 0);
+      return (
+        entries
+          .filter((entry) => /\binset\b/.test(entry))
+          .map((entry) => {
+            const lengths = [...entry.replace(/\([^)]*\)/g, "").matchAll(/(-?[\d.]+)px/g)].map((match) =>
+              Number(match[1]),
+            );
+            const color = entry.match(/(?:rgba?|color)\([^)]*\)/)?.[0] ?? "transparent";
+            const numbers = [...color.matchAll(/-?[\d.]+(?:e-?\d+)?/g)].map((match) => Number(match[0]));
+            let rgba: [number, number, number, number] = [0, 0, 0, 0];
+            if (color.startsWith("color(")) rgba = [numbers[0], numbers[1], numbers[2], numbers[3] ?? 1];
+            else if (color.startsWith("rgb"))
+              rgba = [numbers[0] / 255, numbers[1] / 255, numbers[2] / 255, numbers[3] ?? 1];
+            return { spread: lengths[3] ?? 0, blur: lengths[2] ?? 0, rgba };
+          })
+          // A rim is a crisp ring; the glass material's blurred highlights (glass.css, "GLASS MATERIAL")
+          // are soft light with a spread, not a rim.
+          .filter(({ spread, blur }) => spread !== 0 && blur === 0)
+          .map(({ spread, rgba }) => ({ spread, rgba }))
+      );
     }, id);
   }
 
@@ -147,7 +155,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
           expect(rest.length, "the box draws a rim").toBe(1);
           expect(rest[0].spread * scale, "rest rim in device px").toBe(1);
           expect(rest[0].rgba[3], "the rim's color parsed and shows").toBeGreaterThan(0);
-          await page.focus(`#${field}`);
+          await focusByKey(page, `#${field}`);
           const focused = await rims(page, box);
           // No focus ring: the same one rim at the same width, its tone a step brighter.
           expect(focused.length, "focus draws one rim").toBe(1);
@@ -163,7 +171,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     test(`${box}: focused, the rim still clears with appearance.borders none`, async () => {
       const page = await open(2);
       await page.evaluate(() => document.documentElement.setAttribute("data-borders", "none"));
-      await page.focus(`#${field}`);
+      await focusByKey(page, `#${field}`);
       for (const { rgba } of await rims(page, box))
         expect(rgba[3], `${box} focused rim alpha with borders none`).toBe(0);
       await page.close();
@@ -174,7 +182,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       const page = await open(2);
       await page.emulateMedia({ contrast: "more" });
       const rest = await rims(page, box);
-      await page.focus(`#${field}`);
+      await focusByKey(page, `#${field}`);
       const focused = await rims(page, box);
       const width = await page.evaluate(() =>
         parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cmux-focus-ring-width")),
@@ -201,7 +209,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
           stripRim: getComputedStyle(document.getElementById("strip")!).boxShadow,
         }));
       const rest = await edge();
-      await page.focus("#strip-composer-field");
+      await focusByKey(page, "#strip-composer-field");
       const focused = await edge();
       expect(focused.layer, "no rim layer round the strip").toBe("none");
       expect(focused.stripRim, "the strip draws no rim").toBe("none");
@@ -220,7 +228,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
           card: getComputedStyle(document.getElementById("queue-composer")!, "::before").boxShadow,
         }));
       const rest = await edges();
-      await page.focus("#queue-composer-field");
+      await focusByKey(page, "#queue-composer-field");
       const focused = await edges();
       expect(tone(focused.queue), "the queue's edge takes the focused tone").not.toBe(tone(rest.queue));
       expect(tone(focused.queue), "the queue and the card draw one tone").toBe(tone(focused.card));
@@ -335,7 +343,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     });
   }
   for (const theme of ["dark", "light"] as const) {
-    test(`${theme}: the composers cast ${theme === "light" ? "--elevation-1" : "no shadow"}`, async () => {
+    test(`${theme}: New Tab casts ${theme === "light" ? "--elevation-1" : "no shadow"}, the chat composer the material's depth`, async () => {
       const page = await open(2, theme);
       const result = await page.evaluate(() => {
         // The drop layers of a computed box-shadow (inset rims left out), and --elevation-1's own.
@@ -359,17 +367,19 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
         probe.style.boxShadow = "var(--elevation-1)";
         document.body.append(probe);
         const elevation = drops(getComputedStyle(probe).boxShadow);
+        probe.style.boxShadow = "var(--glass-material-depth)";
+        const depth = drops(getComputedStyle(probe).boxShadow);
         probe.remove();
         const of = (id: string) => drops(getComputedStyle(document.getElementById(id)!).boxShadow);
-        return { elevation, newtab: of("newtab"), composer: of("composer") };
+        return { elevation, depth, newtab: of("newtab"), composer: of("composer") };
       });
       expect(result.elevation.length, "--elevation-1 resolves").toBe(1);
-      for (const id of ["newtab", "composer"] as const) {
-        if (theme === "light") expect(result[id], `${id} casts --elevation-1`).toEqual(result.elevation);
-        else
-          for (const layer of result[id])
-            expect(layer, `${id} casts no visible shadow`).toMatch(/^(?:rgba\(0, 0, 0, 0\)|transparent)|0px 0px 0px/);
-      }
+      if (theme === "light") expect(result.newtab, "newtab casts --elevation-1").toEqual(result.elevation);
+      else
+        for (const layer of result.newtab)
+          expect(layer, "newtab casts no visible shadow").toMatch(/^(?:rgba\(0, 0, 0, 0\)|transparent)|0px 0px 0px/);
+      expect(result.depth.length, "the material's depth resolves to two layers").toBe(2);
+      expect(result.composer, "the chat composer casts the material's depth").toEqual(result.depth);
       await page.close();
     });
   }

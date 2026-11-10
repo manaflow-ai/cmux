@@ -23,7 +23,9 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 from cmux_next_push_attribution import (MAX_COMMENTED_PRS, failed_jobs, bisect_history, last_green,
                                          never_passed, should_comment)  # noqa: E402
+import cmux_next_route  # noqa: E402
 from cmux_next_route import MAX_PRIORITY_SUITES, outputs, route  # noqa: E402
+from cmux_next_route import matches as route_matches  # noqa: E402
 
 PACKAGE = "Packages/macOS/CmuxNext"
 GRAPH = json.loads((ROOT / PACKAGE / "ci-target-graph.json").read_text(encoding="utf-8"))
@@ -133,9 +135,7 @@ def graph_readers(path: str) -> set[str]:
     """The test targets whose sources name `path` (the graph's `reads`; a trailing / is a directory)."""
     return {
         name for name, target in GRAPH["targets"].items()
-        if target["kind"] == "test" and any(
-            path.startswith(read) if read.endswith("/") else path == read for read in target.get("reads", [])
-        )
+        if target["kind"] == "test" and any(route_matches(path, read) for read in target.get("reads", []))
     }
 
 
@@ -165,7 +165,10 @@ class GraphCoversThePackage(unittest.TestCase):
         graph target whose directory still exists, or it could let a stray directory through."""
         declared = manifest_target_paths()
         for name, target in GRAPH["targets"].items():
-            if target["path"] and (ROOT / target["path"]).is_dir():
+            directory = ROOT / target["path"] if target["path"] else None
+            # A folder with no Swift sources left (a fixture another language reads) is not a
+            # target, as above: a deleted target's leftover fixture waits for the graph's regeneration.
+            if directory and directory.is_dir() and any(directory.rglob("*.swift")):
                 with self.subTest(target=name):
                     self.assertIn(target["path"], declared)
 
@@ -280,12 +283,13 @@ class PullRequestTiers(unittest.TestCase):
 
     def test_ui_pr_runs_its_own_tests_without_the_daemon(self):
         result = tiers(PR_17470)
-        self.assertEqual(result["swift_targets"], "CmuxNextAppTests")
+        # CmuxNextDesignTests (#39966) scans every app Swift source for SF Symbol names, so any .swift change runs it.
+        self.assertEqual(result["swift_targets"], "CmuxNextAppTests CmuxNextDesignTests")
         self.assertEqual(result["daemon"], "false")
         self.assertEqual(result["scheme"], "false")
         self.assertEqual(result["generated"], "true")
         self.assertEqual(result["native"], "true")
-        self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests)\.")
+        self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests|CmuxNextDesignTests)\.")
 
     def test_a_shared_module_selects_its_dependents(self):
         path = f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"
@@ -293,10 +297,11 @@ class PullRequestTiers(unittest.TestCase):
         selected = result["swift_targets"].split()
         self.assertEqual(selected, sorted(graph_dependents({"CmuxNextSidebar"}) | graph_readers(path)))
         # CmuxNextChiefViewsTests (#22683) reaches the sidebar through CmuxNextChiefViews.
-        for name in ("CmuxNextAppTests", "CmuxNextChiefViewsTests", "CmuxNextKeepAwakeTests", "CmuxNextWorkspaceNamingTests"):
+        # CmuxNextDesignTests (#39966) reads every app Swift source (the SF Symbol scan), not the sidebar's module.
+        for name in ("CmuxNextAppTests", "CmuxNextChiefViewsTests", "CmuxNextDesignTests", "CmuxNextKeepAwakeTests",
+                     "CmuxNextWorkspaceNamingTests"):
             self.assertIn(name, selected)
-        for name in ("CmuxNextDaemonTests", "CmuxNextDesignTests"):
-            self.assertNotIn(name, selected)
+        self.assertNotIn("CmuxNextDaemonTests", selected)
         self.assertEqual(result["daemon"], "false")
 
     def test_every_target_selects_the_tests_that_reach_it(self):
@@ -417,7 +422,7 @@ class PullRequestTiers(unittest.TestCase):
         selected = result["swift_targets"].split()
         # The targets that ship a bundle are pinned here, so dropping one from the router
         # fails this test instead of moving the expectation with it.
-        bundles = {"CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette"}
+        bundles = {"CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity"}
         self.assertEqual(set(route_module.BUNDLE_TARGETS), bundles)
         self.assertLessEqual(bundles, set(GRAPH["targets"]))
         self.assertEqual(selected, sorted(graph_readers(path)))
@@ -573,11 +578,13 @@ class EveryTier(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
         self.assertIn("vendored_pin: ${{ steps.route.outputs.vendored_pin }}", workflow)
         swift_test = workflow[workflow.index("\n  swift-test:\n"):workflow.index("\n  daemon-test:\n")]
-        # Swift runs on a same-repository PR (#22303), a fork PR labeled full-ci and
-        # dispatches; a feat-cmux-next push skips it (push CI is the app build).
+        # Swift runs on a PR labeled full-ci (same-repository or fork; since 2026-11-05, when every
+        # unlabeled PR run was cancelled or skipped and none passed) and on dispatches; a
+        # feat-cmux-next push skips it (push CI is the app build).
         condition = next(line for line in swift_test.splitlines() if line.startswith("    if: "))
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
+        self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
+        self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
+                      condition)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
         self.assertIn("    continue-on-error: false\n", swift_test)
         self.assertIn("    name: cmux-next swift test\n", swift_test)
@@ -609,8 +616,8 @@ class LinuxLaneTests(unittest.TestCase):
                           and not route_module.consumed(path, cls.tree_inputs, cls.read))
 
     def test_the_allowlist_comes_from_the_registry(self):
-        from test_execution_registry import load_registry
-        entries = load_registry(ROOT / "tests/test-execution.toml")
+        from test_execution_registry import load_tree
+        entries = load_tree(ROOT)
         expected = {e["path"] for e in entries if e.get("lane") == "linux-guard" and str(e["path"]).startswith("tests/test_")}
         self.assertEqual(set(self.linux), expected)
         self.assertGreater(len(self.linux), 100)
@@ -619,19 +626,21 @@ class LinuxLaneTests(unittest.TestCase):
         result = tiers([self.sample])
         self.assertEqual(mac_tiers(result), [], self.sample)
         self.assertEqual(tiers([self.sample, "tests/test-execution.toml"])["native"], "false")
+        self.assertEqual(tiers([self.sample, "tests/test-execution.d/ci.toml"])["native"], "false")
 
     def test_a_test_moved_off_linux_guard_routes_to_mac_again(self):
-        from test_execution_registry import load_registry
+        from test_execution_registry import load_tree
         entries = [dict(e, lane="macos-shell") if e["path"] == self.sample else e
-                   for e in load_registry(ROOT / "tests/test-execution.toml")]
-        with mock.patch("test_execution_registry.load_registry", return_value=entries):
+                   for e in load_tree(ROOT)]
+        with mock.patch("test_execution_registry.load_tree", return_value=entries):
             self.assertIn("native", mac_tiers(tiers([self.sample])))
 
     def test_an_unreadable_registry_allowlists_nothing(self):
-        with mock.patch("test_execution_registry.load_registry", side_effect=ValueError("bad registry")):
+        with mock.patch("test_execution_registry.load_tree", side_effect=ValueError("bad registry")):
             self.assertEqual(self.route.linux_guard_tests(ROOT), frozenset())
             self.assertIn("native", mac_tiers(tiers([self.sample])))
             self.assertIn("native", mac_tiers(tiers(["tests/test-execution.toml"])))
+            self.assertIn("native", mac_tiers(tiers(["tests/test-execution.d/ci.toml"])))
 
     def test_a_linux_guard_test_a_mac_tier_reads_keeps_its_tier(self):
         with mock.patch.object(self.route, "SWIFT_JOB_INPUTS", self.route.SWIFT_JOB_INPUTS + (self.sample,)):
@@ -842,6 +851,11 @@ class BundleInputs(unittest.TestCase):
         self.assertTrue(self.route.matches("webviews/src/pages/a/b/main.tsx", "webviews/src/pages/*/main.tsx"),
                         "fnmatch's * crosses /: a pattern read is never narrower than the test")
         self.assertFalse(self.route.matches("webviews/src/pages/a/App.tsx", "webviews/src/pages/*/main.tsx"))
+        self.assertTrue(self.route.matches("Sources/CmuxConversationMacUI/MacComposerView.swift",
+                                           "Sources/CmuxConversationMacUI/**/*.swift"),
+                        "/**/ is zero or more folders, as in the generator's pathlib glob")
+        self.assertTrue(self.route.matches("Sources/A/B/C.swift", "Sources/**/*.swift"))
+        self.assertFalse(self.route.matches("Sources/A/Resources/index.html", "Sources/**/*.swift"))
 
     def test_the_dev_server_test_reads_only_the_page_entries(self):
         """PageDevServerTests names its entries by a pattern, which the graph generator records."""
@@ -1244,6 +1258,65 @@ class PushAttribution(unittest.TestCase):
         with mock.patch.object(attribution, "gh_api", return_value=payload):
             self.assertEqual(attribution.compare_commits("o/r", a, c), [])
 
+    def test_range_and_culprit_come_from_first_parent_git_history(self):
+        """Squash subjects name their pull requests from local git; only commits git cannot name
+        (a rebase merge, a direct push) share one GraphQL lookup, and nothing asks compare or
+        commits/{sha}/pulls."""
+        import os
+        import subprocess
+        import tempfile
+        import cmux_next_push_attribution as attribution
+
+        with tempfile.TemporaryDirectory() as repo:
+            def git(*args):
+                return subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+                                      check=True, capture_output=True, text=True).stdout.strip()
+            git("init", "-q")
+            shas = []
+            for subject in ("base", "feat: one (#11)", "fix: rebased, no number", "Revert \"x (#9)\" (#12)", "two (#11)"):
+                git("commit", "-q", "--allow-empty", "-m", subject)
+                shas.append(git("rev-parse", "HEAD"))
+            git("checkout", "-q", "-b", "side", shas[1])
+            git("commit", "-q", "--allow-empty", "-m", "side (#99)")
+            git("checkout", "-q", "-")
+            git("merge", "-q", "--no-ff", "-m", "Merge pull request #13 from o/side", "side")
+            shas.append(git("rev-parse", "HEAD"))
+            base, head = shas[0], shas[-1]
+            asked = []
+            cwd = os.getcwd()
+            os.chdir(repo)
+            try:
+                with mock.patch.object(attribution, "gh_api", side_effect=lambda path: self.fail(f"REST read {path}")), \
+                     mock.patch.object(attribution, "merged_pulls_batch",
+                                       side_effect=lambda r, unnamed, b: asked.append(unnamed) or {unnamed[0]: [20]}):
+                    self.assertEqual(attribution.pull_requests("o/r", base, head, "feat-cmux-next"), [11, 20, 12, 13])
+                    self.assertEqual(asked, [[shas[2]]])
+                    self.assertEqual(attribution.compare_commits("o/r", base, head), shas[1:])
+                    self.assertEqual(attribution.pull_requests_for_commit("o/r", shas[3], "feat-cmux-next"), [12])
+                # A base off the fetched first-parent chain falls back to the API.
+                with mock.patch.object(attribution, "gh_api", return_value={"commits": []}) as api:
+                    self.assertEqual(attribution.pull_requests("o/r", "f" * 40, head, "feat-cmux-next"), [])
+                    api.assert_called_once()
+            finally:
+                os.chdir(cwd)
+
+    def test_reads_use_the_read_token_and_retry_on_the_workflow_token(self):
+        import subprocess
+        import cmux_next_push_attribution as attribution
+        calls = []
+
+        def run(args, **kwargs):
+            token = (kwargs.get("env") or {}).get("GH_TOKEN", "workflow")
+            calls.append(token)
+            if token == "app":
+                raise subprocess.CalledProcessError(1, args)
+            return subprocess.CompletedProcess(args, 0, stdout="{}")
+
+        with mock.patch.dict("os.environ", {"GH_READ_TOKEN": "app"}), \
+             mock.patch.object(attribution.subprocess, "run", side_effect=run):
+            self.assertEqual(attribution.gh_api("repos/o/r/actions/runs/1/jobs"), {})
+        self.assertEqual(calls, ["app", "workflow"])
+
     def test_culprit_mapping_requires_the_prs_actual_merge_commit(self):
         import cmux_next_push_attribution as attribution
         pulls = [{"number": 7, "merged_at": "now", "base": {"ref": "feat-cmux-next"}, "merge_commit_sha": "other"}]
@@ -1495,6 +1568,102 @@ class RouteLabels(unittest.TestCase):
         self.assertEqual(labels, "dev-build")
         self.assertEqual(len(gh_calls), 1)
         self.assertIn("issues/7/labels", gh_calls[0])
+
+
+class FfiRepinRoute(unittest.TestCase):
+    """A pure app FFI re-pin runs the app compile alone; any other diff keeps every tier (2026-11-10: re-pin
+    #40576 sat 2 h 49 min behind the Mac queue every Package.swift change took, and base stayed red on
+    "Check the app FFI pin" from 13:36 to 18:25Z)."""
+
+    MANIFEST = f"{PACKAGE}/Package.swift"
+    CRATE = "cmux-tui/crates/cmux-app-ffi"
+
+    def setUp(self):
+        import subprocess
+        import tempfile
+        from app_ffi_pin import read, rewrite
+        self.read, self.rewrite = read, rewrite
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name) / "repo"
+        self.git = ["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                    "-c", "commit.gpgsign=false"]
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        (self.repo / PACKAGE).mkdir(parents=True)
+        (self.repo / self.MANIFEST).write_text((ROOT / self.MANIFEST).read_text(encoding="utf-8"), encoding="utf-8")
+        (self.repo / self.CRATE / "src").mkdir(parents=True)
+        (self.repo / self.CRATE / "Cargo.toml").write_text('[package]\nname = "cmux-app-ffi"\n')
+        self.old_source = self.commit({f"{self.CRATE}/src/lib.rs": "// v1\n"}, "ffi v1")
+        self.new_source = self.commit({f"{self.CRATE}/src/lib.rs": "// v2\n"}, "ffi v2")
+        self.commit({"README.md": "unrelated\n"}, "base")
+
+    def commit(self, files: dict[str, str], message: str) -> str:
+        import subprocess
+        for path, text in files.items():
+            (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / path).write_text(text, encoding="utf-8")
+        subprocess.run([*self.git, "add", "-A"], check=True)
+        subprocess.run([*self.git, "commit", "-qm", message], check=True)
+        return subprocess.run([*self.git, "rev-parse", "HEAD"], check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    def repin(self, sha: str, extra: dict[str, str] | None = None, edit=lambda text: text) -> list[str]:
+        """Commit a head that pins cmux-app-ffi-SHA (plus EXTRA files and EDIT of Package.swift); its changed files."""
+        import subprocess
+        text = self.rewrite((self.repo / self.MANIFEST).read_text(encoding="utf-8"), sha, "ab" * 32)
+        self.commit({self.MANIFEST: edit(text), **(extra or {})}, "re-pin")
+        return subprocess.run([*self.git, "diff", "--no-renames", "--name-only", "HEAD^1", "HEAD"], check=True,
+                              capture_output=True, text=True).stdout.split()
+
+    def test_a_pure_repin_routes_to_the_app_compile_alone(self):
+        changed = self.repin(self.new_source)
+        reason = cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1")
+        self.assertIsNotNone(reason)
+        self.assertIn(self.new_source[:12], reason)
+        result = outputs(route(ROOT, "pull_request", changed, set(), repin=reason))
+        self.assertEqual(result["native"], "true")
+        self.assertEqual(result["mac_release"], "true", "the Mac Release compile stays the no-verdict fallback")
+        self.assertEqual(result["macos"], "true")
+        for tier in ("full", "scheme", "generated", "swift", "daemon", "fast_tier"):
+            self.assertEqual(result[tier], "false", tier)
+
+    def test_the_same_files_without_the_repin_reason_run_every_tier(self):
+        self.assertEqual(tiers([self.MANIFEST])["full"], "true")
+
+    def test_a_label_asking_for_more_keeps_every_tier(self):
+        changed = self.repin(self.new_source)
+        reason = cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1")
+        for label in ("full-ci", "dev-build"):
+            result = outputs(route(ROOT, "pull_request", changed, {label}, repin=reason))
+            self.assertEqual(result["full"] if label == "full-ci" else result["scheme"], "true", label)
+
+    def test_a_second_changed_file_is_not_a_repin(self):
+        changed = self.repin(self.new_source, extra={"README.md": "changed too\n"})
+        self.assertEqual(sorted(changed), sorted([self.MANIFEST, "README.md"]))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+        self.assertEqual(outputs(route(ROOT, "pull_request", changed, set(), repin=None))["full"], "true")
+
+    def test_another_package_swift_edit_is_not_a_repin(self):
+        changed = self.repin(self.new_source, edit=lambda text: text.replace(
+            "let appFFI: Target", "// a new dependency rides along\nlet appFFI: Target", 1))
+        self.assertEqual(changed, [self.MANIFEST])
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+
+    def test_a_release_whose_sources_are_not_heads_is_not_a_repin(self):
+        changed = self.repin(self.old_source)
+        self.assertEqual(changed, [self.MANIFEST])
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+
+    def test_an_unpublished_or_unreadable_pin_is_not_a_repin(self):
+        changed = self.repin("0" * 40)  # no such commit, and no origin to fetch it from
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, None))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "no-such-rev"))
+
+    def test_an_unchanged_pin_is_not_a_repin(self):
+        text = (self.repo / self.MANIFEST).read_text(encoding="utf-8")
+        self.commit({self.MANIFEST: text + "// the pin is as it was\n"}, "not a re-pin")
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, [self.MANIFEST], "HEAD^1"))
 
 
 if __name__ == "__main__":

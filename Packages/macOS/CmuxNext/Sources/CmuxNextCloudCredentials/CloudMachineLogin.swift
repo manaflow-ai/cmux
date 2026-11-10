@@ -35,9 +35,9 @@ public nonisolated enum CloudMachineLogin: String, Sendable, Equatable, CaseIter
     /// Runs the probe on the machine (with `api` already pinned to the machine's team) and reads whether
     /// cmux holds this account's login. Never throws: `probe` is nil for an exec that failed, which the
     /// start reads as `.none`, as the probe before it did.
-    public static func read(on api: CloudAPIClient, machineID: String, teamID: String?, userID: String) async
+    public static func read(on api: CloudAPIClient, machineID: String, teamID: String?, userID: String, otherTeams: [String?] = []) async
         -> (probe: CloudHarnessLoginDecision.MachineProbe?, cached: Bool) {
-        let cached = (try? await CloudCredentialLogin.load(provider: .claude, teamID: teamID, userID: userID)) ?? nil
+        let cached = (try? await CloudCredentialLogin.loadAny(provider: .claude, teamID: teamID, otherTeams: otherTeams, userID: userID)) ?? nil
         guard let result = try? await api.exec(machineID, command: probe(cachedFingerprint: cached.flatMap(fingerprint)), timeoutMs: 30_000) else {
             return (nil, cached != nil)
         }
@@ -59,10 +59,10 @@ public nonisolated enum CloudMachineLogin: String, Sendable, Equatable, CaseIter
     /// of `~/.claude/.credentials.json`. The token goes only to the provider, in a header; the output is
     /// the word, never a token or the provider's reply. A Python that fails once a login is known keeps it.
     ///
-    /// The classic `/api/vm` exec runs as root (``CloudAPIClient/execRunsAsWorkUser``), whose HOME is
-    /// `/root`, while the login lives in `cmux`'s home, where ``CloudCredentialInstaller`` writes it. So
-    /// the image's detection runs with HOME set to `cmux`'s home (``workHome``), after the config is sourced
-    /// as before, so that script never writes into `cmux`'s home as root.
+    /// An exec whose HOME is not `cmux`'s (a root exec's `/root`) would miss the login, which lives in
+    /// `cmux`'s home, where ``CloudCredentialInstaller`` writes it. So the image's detection runs with HOME
+    /// set to `cmux`'s home (``workHome``), after the config is sourced as before, so that script never
+    /// writes into `cmux`'s home as root.
     static func probe(cachedFingerprint: String?, endpoint: String = endpoint) -> String {
         ". /etc/cmux/agent-config.sh >/dev/null 2>&1\n" + workHome
             + ". /etc/cmux/agent-auth.sh && cmux_agent_has_own_login claude || { echo none; exit 0; }\n"

@@ -4,6 +4,7 @@ import AppKit
 import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -29,7 +30,7 @@ struct FirstRunPageAppShortcutsTests {
 
     private static func showFirstRunPage(_ services: AppServices, _ controller: WindowController) throws {
         let suite = "cmux-first-run-keys-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         services.pages.register(FirstRunPage())
         services.onboarding.showHistoryAtFirstRun(isFirstRun: true, defaults: defaults)
@@ -62,6 +63,31 @@ struct FirstRunPageAppShortcutsTests {
                 return !before.contains(tab) && !ProvisionalTab.isProvisional(tab)
             }, report: { Self.report(services, controller, reply) })
             #expect(PasswordManagerRouteTests.tabs(services).contains { !before.contains($0.id) && $0.kind == .pty })
+        }
+    }
+
+    /// The action budget sees the leave: the `newSurface` run that Ctrl-` starts over the page is
+    /// timed from before the window leaves the page (ActionBudgetMonitor, < 10 ms to the commit).
+    @Test func theNewTerminalKeysTimingIncludesTheLeave() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            let controller = try #require(services.windows.active)
+            try Self.showFirstRunPage(services, controller)
+            @MainActor final class Seen { var sample: ActionTimingSample?; var leftAt: UInt64? }
+            let seen = Seen()
+            let previous = controller.root.onContentChange
+            controller.root.onContentChange = { if seen.leftAt == nil { seen.leftAt = ActionBudgetMonitor.now() }; previous?() }
+            defer { controller.root.onContentChange = previous }
+            let stream = services.actionBudget.samples(everyRun: true)
+            let reader = Task { @MainActor in
+                for await sample in stream where sample.id == "newSurface" { seen.sample = sample; break }
+            }
+            defer { reader.cancel() }
+
+            let reply = Self.press("`", ["control"], services)
+            try await PasswordManagerRouteTests.until({ seen.sample != nil && seen.leftAt != nil },
+                                                      report: { "sample \(String(describing: seen.sample)), left \(String(describing: seen.leftAt)), \(Self.report(services, controller, reply))" })
+            let sample = try #require(seen.sample), leftAt = try #require(seen.leftAt)
+            #expect(sample.startUptimeNanos <= leftAt, "the run's timing started \(Double(sample.startUptimeNanos) - Double(leftAt)) ns after the leave")
         }
     }
 
@@ -115,21 +141,34 @@ struct FirstRunPageAppShortcutsTests {
             let controller = try #require(services.windows.active)
             try Self.showFirstRunPage(services, controller)
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
+            var work: [ActionWork] = []
             for origin in [ActionOrigin.script, .cli, .mcp] {
                 for id in ["newTab.default", "newSurface"] as [ActionID] {
-                    #expect(!services.registry.perform(id, invocation: ActionInvocation(origin: origin)), "\(origin) \(id) ran over the page")
+                    var ran = false
+                    work += services.registry.capturingWork { ran = services.registry.perform(id, invocation: ActionInvocation(origin: origin)) }
+                    #expect(!ran, "\(origin) \(id) ran over the page")
                 }
             }
-            // Give a wrongly started daemon create the time to land before the store is read.
-            try await Task.sleep(for: .seconds(2))
+            // A wrongly started daemon create is work these runs reported: wait for it to end, then for the
+            // store to apply every event the daemon sent, before the store is read.
+            for task in work { _ = await task.value }
+            if let connection = services.daemon.connection, let barrier = await connection.eventSequence() {
+                try await PasswordManagerRouteTests.until({ services.daemon.store.appliedSequence >= barrier })
+            }
             #expect(controller.shownTopPage == .page(.importHistory), "automation took the person's page away")
             #expect(Set(PasswordManagerRouteTests.tabs(services).map(\.id)) == before, "automation added a tab under the page")
         }
     }
 
-    /// Every action the rule names exists in the catalog and carries the flag (a rename must not drop one silently).
+    /// The actions that open a new tab or pane in the window's workspace (the New Tab family and the
+    /// new panes) are exactly the ones the Rust catalog flags (a rename must not drop one silently).
     @Test func everyContentOpenerIsACatalogAction() {
+        let openers: Set<ActionID> = [
+            "newSurface", "newTab.default", "newTab.afterCurrent", "newTab.atStart", "newTab.atEnd", "newTab.toRight", "newTab.ofKind",
+            "openBrowser", "openBrowser.chromium", "openBrowser.webkit", "reopenClosedBrowserPanel",
+            "splitRight", "splitDown", "newColumn", "newColumnLeft", "newRow", "newPaneAutoLayout",
+        ]
         let flagged = Set(ActionCatalog.all.filter(\.opensWorkspaceContent).map(\.id))
-        #expect(flagged == ActionCatalog.workspaceContentActionIDs, "missing: \(ActionCatalog.workspaceContentActionIDs.subtracting(flagged))")
+        #expect(flagged == openers, "missing: \(openers.subtracting(flagged)), extra: \(flagged.subtracting(openers))")
     }
 }

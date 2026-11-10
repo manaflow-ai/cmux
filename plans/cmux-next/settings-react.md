@@ -77,7 +77,7 @@ Validation per kind: `toggle`, `choice`, `choice_or_number`, `number` (range, fi
 against the value domain the app published (`settings.domains.publish`); with no published domain
 (headless host) they accept any non-empty string and the app reports a diagnostic on apply.
 
-Agent policy is explicit per key with no default (`SettingsSchema+AgentPolicy.swift`; the export
+Agent policy is explicit per key with no default (`schemas/settings/source/agent-policy.json`; the export
 test fails on a key in neither table). Refused today: `history.terminalCommands` and
 `feed.mirrorNotifications.*` (privacy), `browser.remoteLocalhost` (network), `app.quitBehavior`
 (destructive). `appearance.backgroundOpacity` and `appearance.backgroundBlur` are settable.
@@ -261,6 +261,35 @@ unreachable, Settings shows "Settings are read only until cmux reconnects" and r
 | d | Parity test over every descriptor: palette row + editor, `settings.list` row, CLI round trip, MCP tool, page row with an editor for its kind | one test fails per missing surface |
 | e | Default `settings.surface = web`; delete the native Settings views and `SettingsWindowModel` after one dogfood round | dogfood |
 | f | Schema authored in `config/settings/schema.json`; Swift descriptors, `web/data/cmux.schema.json` and TS types generated; `cmux-tui.json` overlapping keys fold into cmux.json | generator `--check` in CI |
+
+State before slice b (2026-11-10): the Swift writer still exists and no Swift caller sends
+`settings.set` yet. Until it does, `CmuxConfigFile` holds the owner's lock (`.cmux-next.json.lock`,
+the `flock` of `cmux-config` `lock_config`; Swift `SettingsFileLock`) from each read of the file to
+its publish, so an app write and a daemon write no longer replace each other's edit. Slice b needs
+these from the daemon first:
+
+1. The owner's settings file path on the wire (`settings.snapshot` or identify). The app reads its
+   file directly. The daemon picks its file from its own environment (`$HOME`,
+   `CMUX_NEXT_CONFIG_FILE` when it started) and outlives the app, so the app cannot tell today that
+   both use one file. A write sent to an owner of another file changes the wrong file, and the app
+   never sees it.
+   Decided (2026-11-10), for the next PR: the app passes its config path to the daemon at launch,
+   and the daemon reports its owner's path in `settings.snapshot`, so an app that joins a daemon
+   that already runs sees a mismatch and does not send its writes to the wrong file.
+2. Several edits in one publish (Swift `CmuxConfigFile.apply`), or the rules that need them in the
+   owner's `settings.set`: a renamed row's old key goes with the write, the window background's
+   opacity and material change together, a built-in density ends the custom one.
+3. Conditional edits: set only when unset (`setUnset`) and remove only when unchanged
+   (`removeUnchanged`, the stored-defaults pass). `if_revision` covers the whole file only.
+4. The launch passes (`runLaunchMigrations`) in the daemon, because they run at launch with no
+   wait for a daemon connection: the quit behavior, workspace row and pane toolbar buttons
+   migrations, the classic imports (`ClassicSettingsMigration`, `ClassicShortcutImport`,
+   `ClassicPreferenceImport`) and the stored-defaults passes. The migrations and the classic
+   imports read the file and write in a later step, so a key the daemon sets in between can still
+   be overwritten; the lock does not close that. The stored-defaults passes check and write in one
+   step.
+5. A rule for a write to an object above schema rows: the app socket takes it after a confirmation,
+   the owner refuses it (`check_row_overlap`).
 
 Collections without a daemon owner yet (accounts: app Keychain; spaces and machines: their owners'
 catalog ops) render in the page through the catalog actions that already exist; where none exists,

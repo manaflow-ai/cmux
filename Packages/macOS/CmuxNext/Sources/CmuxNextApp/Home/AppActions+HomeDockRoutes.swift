@@ -1,11 +1,12 @@
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 
 /// Home as the home workspace with its left dock (classic off, cx-ebm.59.5): Home's actions run in
-/// the dock's shown view. In Messages (the default) they do what classic Home does (the native
-/// list, its sheets); in Channels they open a route of hq-ec's page, which draws its own sheets on
+/// the dock's shown view. In Messages (the default) the React page presents its own sheet or
+/// selects in its list (``HomeMessagesPage``); in Channels they open a route of hq-ec's page, which draws its own sheets on
 /// the daemon ops (COORD.md, 2026-10-14: no Swift adapter). The host only shows Home, focuses the
 /// dock tab, and selects or sets the page's URL hash, which the page follows (store.followHash).
 extension AppActions {
@@ -49,6 +50,13 @@ extension AppActions {
         return true
     }
 
+    /// Show/Hide Chief over Home: the Chief's message box takes the keys. A run that may not move the focus (the
+    /// CLI, MCP: socket focus policy) leaves the keys where they are, with no refusal.
+    static func focusDockComposer(_ services: AppServices) {
+        guard ActionRunScope.viewChangeAllowed() else { return }
+        withDock(services) { $0.focusPrimaryInput() }
+    }
+
     /// Runs `body` on the docked Home's view: Home shown, the dock tab selected, the view made
     /// (at once, or when the tab first shows). Refused (Home not ready) while the dock has no tab yet.
     static func withDock(_ services: AppServices, _ body: @escaping @MainActor (HomeDockView) -> Void) {
@@ -64,8 +72,8 @@ extension AppActions {
     }
 
     /// Opens `route` in the docked Home: in Channels the page goes to `#<route>`; in Messages
-    /// `messages` runs on the native view instead (the classic sheet, the list selection).
-    static func openDockRoute(_ route: String, _ services: AppServices, messages: @escaping @MainActor (TopHomePageView) -> Void) {
+    /// `messages` runs on the Messages page instead (its sheet, its list selection).
+    static func openDockRoute(_ route: String, _ services: AppServices, messages: @escaping @MainActor (HomeMessagesPage) -> Void) {
         withDock(services) { dock in
             if dock.mode == .messages, let page = dock.messages {
                 messages(page)
@@ -79,7 +87,7 @@ extension AppActions {
     /// Opens `route` in the docked Home's Channels page, switching to Channels from Messages
     /// first: New Chief is a page there (u2586), never the Messages sheet. `messages` runs only
     /// while Channels is off.
-    static func openChannelsRoute(_ route: String, _ services: AppServices, messages: @escaping @MainActor (TopHomePageView) -> Void) {
+    static func openChannelsRoute(_ route: String, _ services: AppServices, messages: @escaping @MainActor (HomeMessagesPage) -> Void) {
         withDock(services) { dock in
             guard dock.mode == .messages else {
                 dock.open(route: route)

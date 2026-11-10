@@ -1,17 +1,23 @@
 import CmuxAgentQuestion
 import CmuxMobileDiff
 import CmuxMobileMarkdown
+import CmuxMobileModel
 import Foundation
 import Observation
 
 /// One prompt and everything the agent did for it.
-public struct AgentTurn: Identifiable, Hashable, Sendable {
-    public enum Status: String, Hashable, Sendable { case running, completed, cancelled, failed }
+public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
+    public enum Status: String, Hashable, Sendable, Codable { case running, completed, cancelled, failed }
 
     public var id: String
     public var prompt: String
+    /// The id of the prompt that opened the turn: a later `userMessage` for the turn with another
+    /// id is a message steered into it. Nil in a turn saved before it was kept.
+    public var promptID: String?
     public var attachments: [AgentAttachment]
     public var promptAt: Date
+    /// Another agent's message, when the prompt is one (AgentIncoming): drawn as its card.
+    public var incoming: AgentIncoming?
     public var items: [TurnItem] = []
     public var status: Status = .running
     public var startedAt: Date?
@@ -22,14 +28,15 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
     /// Tool calls drawn by something else (the subagent row that a spawn call started).
     public var hiddenToolCalls: Set<String> = []
 
-    public init(id: String, prompt: String, attachments: [AgentAttachment] = [], promptAt: Date) {
+    public init(id: String, prompt: String, promptID: String? = nil, attachments: [AgentAttachment] = [], promptAt: Date) {
         self.id = id
         self.prompt = prompt
+        self.promptID = promptID
         self.attachments = attachments
         self.promptAt = promptAt
     }
 
-    public struct Retry: Hashable, Sendable {
+    public struct Retry: Hashable, Sendable, Codable {
         public var attempt: Int
         public var maxAttempts: Int
         public var status: Int?
@@ -110,7 +117,7 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
     }
 }
 
-public enum TurnItem: Hashable, Sendable, Identifiable {
+public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
     case message(id: String, markdown: String)
     case thought(id: String, text: String)
     case tool(ACPToolCall)
@@ -119,9 +126,12 @@ public enum TurnItem: Hashable, Sendable, Identifiable {
     case question(AgentQuestion)
     /// Subagents started together (ids into `AgentChatStore.subagents`).
     case subagents(id: String, ids: [String])
+    /// A message steered into the running turn, where it went in (the Mac's steered row).
+    case steer(SteeredMessage)
 
     public var id: String {
         switch self {
+        case .steer(let message): "st-\(message.promptID)"
         case .subagents(let id, _): "s-\(id)"
         case .message(let id, _): "m-\(id)"
         case .thought(let id, _): "t-\(id)"
@@ -133,12 +143,30 @@ public enum TurnItem: Hashable, Sendable, Identifiable {
     }
 }
 
-public struct PermissionRecord: Hashable, Sendable {
+/// A message steered into a running turn: the person's, drawn as their bubble, or another
+/// agent's (`incoming`), drawn as its card.
+public struct SteeredMessage: Hashable, Sendable, Codable {
+    public var promptID: String
+    public var text: String
+    public var attachments: [AgentAttachment]
+    public var at: Date
+    public var incoming: AgentIncoming?
+
+    public init(promptID: String, text: String, attachments: [AgentAttachment] = [], at: Date, incoming: AgentIncoming? = nil) {
+        self.promptID = promptID
+        self.text = text
+        self.attachments = attachments
+        self.at = at
+        self.incoming = incoming
+    }
+}
+
+public struct PermissionRecord: Hashable, Sendable, Codable {
     public var request: ACPPermissionRequest
     /// The chosen option once resolved (nil option = cancelled).
     public var resolution: Resolution?
 
-    public enum Resolution: Hashable, Sendable {
+    public enum Resolution: Hashable, Sendable, Codable {
         case chose(ACPPermissionOption)
         case cancelled
     }
@@ -176,6 +204,8 @@ public final class AgentChatStore {
     /// The chat opened on its newest history only: older records stay on the Mac, so the
     /// first turn shown is not where the session started (``AgentSessionEvent/earlierHistory(_:)``).
     public private(set) var hasEarlierHistory = false
+    /// The Mac holds older records than the oldest it sent (``AgentSessionEvent/earlierHistory(_:)``).
+    @ObservationIgnored private var sourceHasEarlier = false
     /// An older page is being read (``loadEarlier()``).
     public private(set) var isLoadingEarlier = false
     /// The title the agent gave the session (`session_info_update`).
@@ -225,7 +255,7 @@ public final class AgentChatStore {
     public private(set) var subagents: [AgentSubagent] = []
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
-    /// The allow option waiting for Face ID (nil otherwise).
+    /// The allow option on its way (nil otherwise).
     public private(set) var approvingOptionID: String?
     /// A prompt that was not sent, for the composer to put back (then cleared).
     public var returnedDraft: ReturnedDraft?
@@ -272,6 +302,10 @@ public final class AgentChatStore {
     private var currentMessageID: String?
     /// Retained output belongs to the failed attempt, even when chunks carry no message ID.
     private var startsNewAttempt = false
+    /// The turn the latest `userMessage` opened (nil for a steer into a running turn): the one a `promptFrom` may mark.
+    @ObservationIgnored private var promptedTurnID: String?
+    /// The steer the latest `userMessage` put into a running turn: the one a `promptFrom` may mark.
+    @ObservationIgnored private var steeredPrompt: (turnID: String, promptID: String)?
     private var task: Task<Void, Never>?
     /// The chat's edit diffs, computed once each off the main thread (the transcript, its
     /// grid card and the subagent screens share them).
@@ -292,6 +326,7 @@ public final class AgentChatStore {
     isolated deinit {
         task?.cancel()
         chunkFlush?.cancel()
+        spill?.discard()
     }
 
     // MARK: Derived state
@@ -312,6 +347,10 @@ public final class AgentChatStore {
     public private(set) var pendingPermission: PermissionRecord?
     /// The newest turn's open question.
     public private(set) var pendingQuestion: AgentQuestion?
+    /// The chat's open sudo card (acpmux `elevation_request`), until it is answered or closed.
+    public private(set) var pendingElevation: AgentElevationAsk?
+    /// The sudo card's Approve is being signed and sent.
+    public private(set) var sendingElevation = false
     /// The running turn's latest plan.
     public private(set) var runningPlanEntries: [ACPPlanEntry]?
     /// Turns before the newest that hold an edit (counted once per new turn).
@@ -322,7 +361,7 @@ public final class AgentChatStore {
         let last = turns.last
         assign(\.hasTurns, !turns.isEmpty)
         assign(\.isRunning, last?.status == .running)
-        assign(\.firstPrompt, turns.first?.prompt)
+        assign(\.firstPrompt, spilledFirstPrompt ?? turns.first?.prompt)
         assign(\.pendingPermission, last.flatMap(Self.openPermission))
         assign(\.pendingQuestion, last.flatMap(Self.openQuestion))
         assign(\.runningPlanEntries, last?.status == .running ? last.flatMap(Self.latestPlan) : nil)
@@ -446,8 +485,24 @@ public final class AgentChatStore {
         resendable = nil
         let promptID = resend ?? UUID().uuidString.lowercased()
         keepSent(attachments, promptID: promptID)
-        source.send(.prompt(text: text, attachments: attachments, steer: steer,
+        // One of the agent's own slash commands waits for the turn and runs as its own.
+        let steers = steer && !Self.commandWaitsForTurn(text, harness: summary.harness, commands: availableCommands)
+        source.send(.prompt(text: text, attachments: attachments, steer: steers,
                             promptID: promptID, resend: resend != nil))
+    }
+
+    /// Whether `text` is one of a Claude agent's own slash commands (`commands`, its
+    /// `available_commands_update`: built-ins, skills, plugin commands such as `/loop`), the Mac's
+    /// `commandWaitsForTurn`. Claude Code never reads a command into a running turn: steered, it
+    /// waits under the turn unread, or is read as plain words. Such a message queues and runs as
+    /// its own turn. Text that only starts with a slash (a path, a word the agent doesn't list)
+    /// is the agent's to read, and steers.
+    nonisolated static func commandWaitsForTurn(_ text: String, harness: String, commands: [ACPAvailableCommand]) -> Bool {
+        guard family(of: harness) == "claude", !commands.isEmpty else { return false }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else { return false }
+        let name = trimmed.dropFirst().prefix { !$0.isWhitespace }.lowercased()
+        return !name.isEmpty && commands.contains { $0.name.lowercased() == name }
     }
 
     /// The Mac shows `promptID` ran (or queued): a draft returned for it goes away, and it is
@@ -482,13 +537,21 @@ public final class AgentChatStore {
         // A refusal is about the previous answer ("Approve this on your Mac"):
         // a new answer, such as the decline that follows, replaces it.
         clientError = nil
-        // An allow is signed after Face ID: the bar shows "Waiting for Face ID…" until the
-        // decision lands or the signature fails (cancelled Face ID comes back as an error).
+        // An allow is signed with the approval key: the bar shows "Sending…" until the
+        // decision lands or the signature fails.
         approvingOptionID = option?.isAllow == true ? option?.id : nil
         sentPermissionAnswer = (request.id, option?.id)
         permissionAnswerUncertain = false
         awaitsPermissionReply = true
         source.send(.respondPermission(permissionId: request.id, optionId: option?.id))
+    }
+
+    /// Answers the sudo card: Approve with the password (signed with the approval key), or Deny.
+    /// The card stays until acpmux records its decision; a failed send says why (``clientError``).
+    public func answerElevation(_ ask: AgentElevationAsk, password: String?) {
+        clientError = nil
+        sendingElevation = password != nil
+        source.send(.answerElevation(ask, password: password.map(AgentSecretText.init)))
     }
 
     // MARK: Bookmarks, pins and permissions (chat polish parity)
@@ -659,7 +722,12 @@ public final class AgentChatStore {
     /// chats fork through an earlier turn (acpmux `fork_through.rs`).
     public func editForkSeq(for turn: AgentTurn) -> Int? {
         guard ["claude", "codex"].contains(Self.family(of: summary.harness)),
-              let index = turns.firstIndex(where: { $0.id == turn.id }), index > 0, !turn.prompt.isEmpty else { return nil }
+              let index = turns.firstIndex(where: { $0.id == turn.id }), !turn.prompt.isEmpty else { return nil }
+        guard index > 0 else {
+            // The turn before it is on disk (`spillOlder`).
+            guard turnsOnDisk > 0, let spilled = spilledTurns.last, spilled.completed else { return nil }
+            return turnSeqs[spilled.id]
+        }
         let before = turns[index - 1]
         guard before.status == .completed else { return nil }
         return turnSeqs[before.id]
@@ -738,6 +806,7 @@ public final class AgentChatStore {
     }
 
     private func applyEvent(_ event: AgentSessionEvent) {
+        if !spilledTurnIDs.isEmpty, replaysSpilledTurn(event) { return }
         revision &+= 1
         lastChangeWasReplay = false
         placeBottomStackInstantly = false
@@ -762,15 +831,42 @@ public final class AgentChatStore {
             retryRequested = false
             currentMessageID = nil
             reached(promptId)
-            if !turns.contains(where: { $0.id == turnId }) {
+            // A steer into a running turn shares its id: only the message that opened the turn is its prompt.
+            promptedTurnID = nil
+            steeredPrompt = nil
+            // A turn on disk (`spillOlder`) is not new: a replay that brings its prompt again
+            // must not add it a second time, at the bottom.
+            if let index = turns.firstIndex(where: { $0.id == turnId }) {
+                // Another prompt id is a message steered in: it draws where it went in (once, a
+                // replay brings it again). A retried attempt's message is not one.
+                if !startsNewAttempt, let opened = turns[index].promptID, opened != promptId,
+                   !turns[index].items.contains(where: { if case .steer(let m) = $0 { m.promptID == promptId } else { false } }) {
+                    let sent = Self.sentAttachments(sentAttachments[promptId], recorded: attachments)
+                    turns[index].items.append(.steer(SteeredMessage(promptID: promptId, text: text, attachments: sent, at: at)))
+                    steeredPrompt = (turnId, promptId)
+                }
+            } else if !spilledTurnIDs.contains(turnId) {
+                // A steer the turn ended before the agent read it runs as this turn's prompt, under
+                // its own id (acpmux `steer_end.rs`): it draws once, here, not also as a steer in
+                // the turn before.
+                if let last = turns.indices.last {
+                    turns[last].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptId } else { false } }
+                }
+                promptedTurnID = turnId
                 startsNewAttempt = false
-                turns.append(AgentTurn(id: turnId, prompt: text, attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
+                turns.append(AgentTurn(id: turnId, prompt: text, promptID: promptId,
+                                       attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
                                        promptAt: at))
             }
             // The turn holds them now.
             sentAttachments[promptId] = nil
         case .queued(let text, let promptId, _):
             reached(promptId)
+            // A steer that lost a stop race waits in the queue now (the Mac's `dropDeferredSteer`):
+            // it is drawn there, not also in the turn it missed.
+            if let last = turns.indices.last {
+                turns[last].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptId } else { false } }
+            }
             queue.append(QueuedPrompt(id: promptId, text: text))
         case .dequeued(let promptId):
             queue.removeAll { $0.id == promptId }
@@ -790,6 +886,21 @@ public final class AgentChatStore {
             turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
         case .turnSeq(let turnId, let seq):
             turnSeqs[turnId] = seq
+        case .promptFrom(let turnId, let incoming):
+            if let steered = steeredPrompt, steered.turnID == turnId {
+                // Another agent's message steered in: its card, in the turn, under its sender.
+                mutateTurn(turnId) { turn in
+                    for index in turn.items.indices {
+                        if case .steer(var message) = turn.items[index], message.promptID == steered.promptID {
+                            message.incoming = incoming
+                            turn.items[index] = .steer(message)
+                        }
+                    }
+                }
+                return
+            }
+            guard promptedTurnID == turnId else { return }
+            mutateTurn(turnId) { $0.incoming = incoming }
         case .promptSeq(let turnId, let seq):
             promptSeqs[turnId] = seq
         case .bookmarks(let seqs):
@@ -868,6 +979,15 @@ public final class AgentChatStore {
                 return .permission(record)
             }
             summary.status = turns.last?.status == .running ? .running : .idle
+        case .elevationRequest(let ask):
+            pendingElevation = ask
+            sendingElevation = false
+            summary.status = .waiting
+        case .elevationDecision(let id):
+            guard pendingElevation?.id == id else { break }
+            pendingElevation = nil
+            sendingElevation = false
+            summary.status = turns.last?.status == .running ? .running : .idle
         case .questionAnswered(let questionId, let answer):
             decidedAsks.insert(questionId)
             updateItems { item in
@@ -884,10 +1004,12 @@ public final class AgentChatStore {
             self.modes = ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess)
             currentModeID = current
         case .earlierHistory(let earlier):
-            hasEarlierHistory = earlier
+            sourceHasEarlier = earlier
+            refreshEarlierHistory()
         case .earlierPage(let events, let hasEarlier):
             isLoadingEarlier = false
-            hasEarlierHistory = hasEarlier
+            sourceHasEarlier = hasEarlier
+            refreshEarlierHistory()
             prependEarlier(events)
         case .fullAccess(let on):
             fullAccess = on
@@ -900,6 +1022,7 @@ public final class AgentChatStore {
             if status == .disconnected { retryRequested = false }
         case .clientError(let message):
             approvingOptionID = nil
+            sendingElevation = false
             // The error that follows an answer whose ask is still open: it did not reach the
             // Mac (or its reply was lost). Another call's error says nothing about it.
             if awaitsPermissionReply, let sent = sentPermissionAnswer, pendingPermission?.request.id == sent.permissionID {
@@ -918,6 +1041,7 @@ public final class AgentChatStore {
             applySubagent(change)
         case .batch(let events):
             for event in events { applyEvent(event) }
+            inSpilledTurn = false
             markReplayed()
             lastChangeWasReplay = true
 
@@ -935,7 +1059,135 @@ public final class AgentChatStore {
     public func loadEarlier() {
         guard hasEarlierHistory, !isLoadingEarlier else { return }
         isLoadingEarlier = true
+        // Turns this phone spilled are newer than anything the Mac has not sent yet: they come
+        // back first, from disk, and only then does the Mac read further back.
+        if let spill, turnsOnDisk > 0 {
+            Task { @MainActor [weak self] in
+                let page = await spill.pop()
+                self?.restoreSpilled(page)
+            }
+            return
+        }
         source.loadEarlierHistory()
+    }
+
+    /// `loadEarlier` for a page on disk, returning once it is shown (tests).
+    func loadEarlierFromDisk() async {
+        guard let spill, turnsOnDisk > 0, !isLoadingEarlier else { return }
+        isLoadingEarlier = true
+        restoreSpilled(await spill.pop())
+    }
+
+    // MARK: Spill
+
+    /// Turns the chat keeps in memory once the reader is back at the newest (`spillOlder`).
+    public static let windowKeep = 80
+    /// The chat spills only past this many turns, so a reader at the bottom does not spill a
+    /// turn per new turn.
+    public static let windowTrigger = 120
+    /// Turns kept on a memory warning (with the reader's own and those after it).
+    public static let pressureKeep = 20
+
+    /// Older turns that left memory, on disk while the app runs (`RowSpill`), made on the first
+    /// spill. Each store has its own folder, deleted with it.
+    @ObservationIgnored private(set) var spill: RowSpill<AgentTurn>?
+    /// Turns in the spill.
+    public private(set) var turnsOnDisk = 0
+    /// A replay is going through a turn on disk: its records (a source that replays the whole
+    /// log, a reattach) are not applied to the turn shown last.
+    @ObservationIgnored private var inSpilledTurn = false
+
+    /// Whether `event` belongs to a turn on disk, which a replay brings again: it is skipped,
+    /// so the turn is neither added a second time at the bottom nor written into another.
+    private func replaysSpilledTurn(_ event: AgentSessionEvent) -> Bool {
+        switch event {
+        case .userMessage(_, _, let turnId, _, _):
+            inSpilledTurn = spilledTurnIDs.contains(turnId)
+            return inSpilledTurn
+        case .turnStarted(let turnId, _), .turnResult(let turnId, _, _, _), .turnSeq(let turnId, _),
+             .promptSeq(let turnId, _), .promptFrom(let turnId, _):
+            return spilledTurnIDs.contains(turnId)
+        case .update:
+            return inSpilledTurn
+        default:
+            return false
+        }
+    }
+    /// Their ids.
+    @ObservationIgnored private var spilledTurnIDs: Set<String> = []
+    /// The untitled chat's title, when its first turn is on disk. ("Agent Edits" covers the
+    /// turns in memory, as it covers only the pages read from the Mac.)
+    @ObservationIgnored private var spilledFirstPrompt: String?
+    /// Each turn on disk, oldest first, with whether it completed: Edit and Resend of the
+    /// oldest turn in memory forks through the newest of them.
+    @ObservationIgnored private var spilledTurns: [(id: String, completed: Bool)] = []
+    /// Makes the spill (tests put it in their own folder).
+    @ObservationIgnored public var makeSpill: @MainActor () -> RowSpill<AgentTurn> = {
+        // Turns are heavy (tool output, diffs): small pages. The cap is far above any chat, so
+        // the spill never leaves a gap between what it holds and what the Mac still has.
+        .forThisRun("agent-chat", scope: UUID().uuidString, pageSize: 20, maxRows: 100_000)
+    }
+
+    private func refreshEarlierHistory() {
+        assign(\.hasEarlierHistory, sourceHasEarlier || turnsOnDisk > 0)
+    }
+
+    /// Moves the oldest turns to disk, keeping the newest `keeping` and every turn from
+    /// `protecting` (the reader's first visible turn) on. A running turn and one with an open
+    /// ask, and every turn after it, stay. Scrolling up brings them back (`loadEarlier`).
+    @discardableResult
+    public func spillOlder(keeping: Int, protecting: String? = nil) -> Int {
+        // A page on its way (from disk or the Mac) goes in front of the turns shown: spilling
+        // now would put newer turns on disk below it, and bring them back above it.
+        guard !isLoadingEarlier else { return 0 }
+        var end = turns.count - keeping
+        if let protecting, let index = turns.firstIndex(where: { $0.id == protecting }) { end = min(end, index) }
+        if let live = turns.prefix(max(end, 0)).firstIndex(where: { turn in
+            turn.status == .running || Self.openPermission(turn) != nil || Self.openQuestion(turn) != nil
+        }) {
+            end = min(end, live)
+        }
+        guard end > 0 else { return 0 }
+        let spill = spill ?? makeSpill()
+        self.spill = spill
+        let older = Array(turns.prefix(end))
+        if turnsOnDisk == 0, !sourceHasEarlier { spilledFirstPrompt = older.first?.prompt }
+        spilledTurns += older.map { ($0.id, $0.status == .completed) }
+        spill.push(older.reversed())
+        diffs.forget(older)
+        spilledTurnIDs.formUnion(older.map(\.id))
+        turnsOnDisk += older.count
+        turns.removeFirst(end)
+        revision &+= 1
+        refreshEarlierHistory()
+        refreshDerived()
+        return end
+    }
+
+    /// A page of spilled turns (newest first) goes back in front of the shown ones.
+    private func restoreSpilled(_ page: [AgentTurn]) {
+        isLoadingEarlier = false
+        turnsOnDisk = page.isEmpty ? 0 : max(0, turnsOnDisk - page.count)
+        spilledTurnIDs.subtract(page.map(\.id))
+        spilledTurns.removeLast(min(page.count, spilledTurns.count))
+        if turnsOnDisk == 0 {
+            spilledTurnIDs = []
+            spilledTurns = []
+            spilledFirstPrompt = nil
+        }
+        let shown = Set(turns.map(\.id))
+        let back = page.reversed().filter { !shown.contains($0.id) }
+        if !back.isEmpty {
+            turns.insert(contentsOf: back, at: 0)
+            for turn in back {
+                replayedIDs.insert(turn.id)
+                for row in turn.rows { replayedIDs.insert(row.id) }
+            }
+            lastChangeWasReplay = true
+            revision &+= 1
+        }
+        refreshEarlierHistory()
+        refreshDerived()
     }
 
     /// Older turns go in front of the shown ones. They are built on their own: the queue, the

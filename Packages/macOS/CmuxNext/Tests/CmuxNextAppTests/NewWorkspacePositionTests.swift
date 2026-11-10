@@ -282,7 +282,7 @@ struct NewWorkspacePositionTests {
         #expect(Self.after(middle, in: frames.last ?? [], count: 1) != [made], "placed below the parked workspace")
     }
 
-    /// The default: first in the list, above the selected workspace, in every frame.
+    /// `top`: first in the list, above the selected workspace, in every frame.
     @Test func topDrawsCmdNFirstInEveryFrame() async throws {
         let launched = try await Self.launch("top")
         _ = try await Self.selectMiddle(in: launched)

@@ -157,6 +157,54 @@ pub(crate) fn mark_owner_gone() {
     OWNER_GONE.store(true, Ordering::Release);
 }
 
+/// The host's discovery record directory was removed (#36625): no daemon
+/// can discover or adopt it again, so it ends its terminal once it has had
+/// no client for [`RECORD_ROOT_REMOVED_ORPHAN_GRACE`], in every build.
+static RECORD_ROOT_REMOVED: AtomicBool = AtomicBool::new(false);
+
+/// How long a host whose record directory is gone waits with no client
+/// before it ends its terminal: a live daemon's reconnect gap, not a timer
+/// on a terminal anyone can still reach.
+pub(crate) const RECORD_ROOT_REMOVED_ORPHAN_GRACE: Duration = Duration::from_secs(5);
+
+pub(crate) fn mark_record_root_removed() {
+    RECORD_ROOT_REMOVED.store(true, Ordering::Release);
+}
+
+pub(crate) fn record_root_removed() -> bool {
+    RECORD_ROOT_REMOVED.load(Ordering::Acquire)
+}
+
+/// How long a host serves no client before it ends its terminal in every
+/// build, normal installs included: no cmux has shown the terminal for a
+/// week, so no daemon will adopt it again (a renamed tag's or a deleted
+/// build's record directory). A running daemon keeps a stream to every host
+/// it adopted. The holder's `cmux_holder::ABANDONED_GRACE` is the same week;
+/// the holder builds only on Unix, so this host-side copy stands on its own.
+/// Leo, 2026-11-09, on 35 terminal processes, some weeks old: "well those
+/// need to get auto cleaned up...".
+pub(crate) const ABANDONED_HOST_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// Whether a stray `SIGTERM` may end an orphaned host: only in a build with
+/// an orphan grace of its own, or once its record directory is gone. A
+/// normal install's host survives it (cx-t2sqm.17), whatever its
+/// [`ABANDONED_HOST_GRACE`].
+pub(crate) fn sigterm_ends_orphan() -> bool {
+    host_orphan_grace().is_some() || record_root_removed()
+}
+
+/// The orphan grace in force now: the build's grace, else
+/// [`ABANDONED_HOST_GRACE`], shortened to
+/// [`RECORD_ROOT_REMOVED_ORPHAN_GRACE`] once the record directory is gone.
+pub(crate) fn effective_orphan_grace() -> Duration {
+    orphan_grace_in_force(host_orphan_grace(), record_root_removed())
+}
+
+fn orphan_grace_in_force(build_grace: Option<Duration>, root_removed: bool) -> Duration {
+    let grace = build_grace.map_or(ABANDONED_HOST_GRACE, |grace| grace.min(ABANDONED_HOST_GRACE));
+    if root_removed { grace.min(RECORD_ROOT_REMOVED_ORPHAN_GRACE) } else { grace }
+}
+
 /// The exit to persist and publish: an owner-gone end is a host loss.
 pub(crate) fn owner_gone_exit(exit: TerminalExit) -> TerminalExit {
     if OWNER_GONE.load(Ordering::Acquire) {
@@ -748,4 +796,36 @@ pub(crate) fn snapshot_cwd(
         encode_hex(owner_token.as_bytes()),
         path.to_string_lossy()
     ))
+}
+
+#[cfg(test)]
+mod orphan_grace_tests {
+    use super::*;
+
+    #[test]
+    fn a_normal_install_ends_an_abandoned_host_after_a_week() {
+        assert_eq!(orphan_grace_in_force(None, false), ABANDONED_HOST_GRACE);
+        assert_eq!(ABANDONED_HOST_GRACE, Duration::from_secs(7 * 24 * 60 * 60));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosts_and_holders_end_abandoned_terminals_after_the_same_grace() {
+        assert_eq!(ABANDONED_HOST_GRACE, cmux_holder::ABANDONED_GRACE);
+    }
+
+    #[test]
+    fn a_build_grace_and_a_removed_record_directory_only_shorten_it() {
+        assert_eq!(
+            orphan_grace_in_force(Some(DEV_HOST_ORPHAN_GRACE), false),
+            DEV_HOST_ORPHAN_GRACE
+        );
+        let month = Duration::from_secs(30 * 24 * 60 * 60);
+        assert_eq!(orphan_grace_in_force(Some(month), false), ABANDONED_HOST_GRACE);
+        assert_eq!(orphan_grace_in_force(None, true), RECORD_ROOT_REMOVED_ORPHAN_GRACE);
+        assert_eq!(
+            orphan_grace_in_force(Some(Duration::from_secs(1)), true),
+            Duration::from_secs(1)
+        );
+    }
 }

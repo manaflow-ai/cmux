@@ -178,7 +178,9 @@ pub fn merge(ckpt: &Path, copy: &CloudCopy, chief: &str) -> Result<Merged, Strin
         .map_err(|e| format!("memory: {e}"))? as u64;
     if (copy.messages.len() as u64) < local {
         return Err(format!(
-            "the cloud memory holds {} messages, fewer than the {local} this home had: not this Chief's copy",
+            "the cloud memory holds {} messages, fewer than the {local} this home has: this home's Chief \
+             kept answering while the cloud copy ran, so the two copies split; nothing was merged and the \
+             Cloud Chief answers again",
             copy.messages.len()
         ));
     }
@@ -763,6 +765,7 @@ pub fn pull_back(options: &MoveOptions, home: &Path, host: &str, path: &str) -> 
         from: format!("ssh:{host}:{path}"),
         to: format!("local:{}", home.display()),
         moved: false,
+        forked: false,
         dry_run: options.dry_run,
         steps: Vec::new(),
         memory: migrate::Counts::default(),

@@ -149,6 +149,8 @@ fn list_agents_and_agent_changed_carry_the_hook_session_id() {
     .unwrap();
     mux.append_journal_ingress(&hook, "test", "hook-1").unwrap();
 
+    // The roster's owner folds the hook after the append answered.
+    assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
     let listed = cmd_frontend::list_agents(&mux, Some(surface.id), None).unwrap();
     let agents = listed["agents"].as_array().unwrap();
     assert_eq!(agents.len(), 1, "{listed}");
@@ -161,4 +163,45 @@ fn list_agents_and_agent_changed_carry_the_hook_session_id() {
         .find(|event| event["event"] == "agent-changed")
         .expect("the hook publishes agent-changed");
     assert_eq!(changed["agent_session_id"], "claude-session-1", "{changed}");
+}
+
+/// Done-until-seen: a finished turn lists as `status: done` (the roster
+/// `state` stays `idle`) until a frontend acknowledges the tab; reading the
+/// list again does not clear it, and the next turn is `working` again.
+#[test]
+fn agent_status_done_until_seen_survives_reads_and_clears_on_ack() {
+    let mux = Mux::new_for_test("agent-status-done-until-seen", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let hook = |event: &str, key: &str| {
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            json!({"session_id":"claude-session-done"}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&ingress, "test", key).unwrap();
+        assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
+    };
+    let listed = || {
+        let listed = cmd_frontend::list_agents(&mux, Some(surface.id), None).unwrap();
+        let agent = listed["agents"].as_array().unwrap().first().cloned().unwrap_or_default();
+        (agent["state"].as_str().map(str::to_owned), agent["status"].as_str().map(str::to_owned))
+    };
+    let pair = |state: &str, status: &str| (Some(state.to_owned()), Some(status.to_owned()));
+
+    hook("SessionStart", "done-1");
+    assert_eq!(listed(), pair("idle", "idle"), "a new session has nothing unseen");
+    hook("UserPromptSubmit", "done-2");
+    assert_eq!(listed(), pair("working", "working"));
+    hook("Stop", "done-3");
+    assert_eq!(listed(), pair("idle", "done"), "the finished turn is not seen yet");
+    assert_eq!(listed(), pair("idle", "done"), "a read must not clear done");
+
+    mux.acknowledge_tab_notifications(surface.id).unwrap();
+    assert_eq!(listed(), pair("idle", "idle"), "viewing the tab clears done");
+
+    hook("UserPromptSubmit", "done-4");
+    assert_eq!(listed(), pair("working", "working"));
 }

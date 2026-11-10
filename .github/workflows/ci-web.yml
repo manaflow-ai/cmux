@@ -461,7 +461,7 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
-          for check in check:design-tokens check:menu-gutters check:layers check:type-scale check:motion-scale check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
+          for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
@@ -482,7 +482,7 @@ jobs:
         id: engines
         continue-on-error: true
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       - name: Check PR-scoped webview rules
         id: pr-scoped-rules
@@ -513,6 +513,7 @@ jobs:
           CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
           CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
           # Every failed or timed-out file gets its alone retry before it counts
           # as red; CMUX_WEB_TEST_RETRY_DEADLINE, not a budget, keeps the step in
           # its job. A fixed budget left contention reds unretried, and the base
@@ -538,10 +539,23 @@ jobs:
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.
           mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
+          # A push records its webview inputs key with its verdicts (the history job's checkout is sparse, and the key
+          # reads files the router routes on). Best effort: no key, and the history job records nothing.
+          if [ "${GITHUB_EVENT_NAME:-}" = push ]; then
+            python3 ../scripts/ci/webviews_test_history.py inputs > "$RUNNER_TEMP/webviews-head-results/webviews-inputs-key" ||
+              rm -f "$RUNNER_TEMP/webviews-head-results/webviews-inputs-key"
+          fi
           # The comparison and the flake history are the head's too: the base's copies may predate --flaky.
           cp ../scripts/ci/run-webviews-tests.sh ../scripts/ci/webviews_test_results.py ../scripts/ci/webviews_test_shards.py \
-            ../scripts/ci/guards_new_reds.py ../scripts/ci/webviews_test_history.py \
+            ../scripts/ci/guards_new_reds.py ../scripts/ci/webviews_test_history.py ../scripts/ci/test_reds.py \
             "$RUNNER_TEMP/webviews-head-results/runner/"
+          # A pull request runs the test files its change can reach (scripts/ci/webviews_affected.py:
+          # the import graph, every test that reads files from disk, and every file for a build input
+          # or an unmapped path); empty output runs every file. A feat-cmux-next push and full-ci run all.
+          if [ -n "$BASE_REF" ] && [ "$FULL_CI" != true ]; then
+            CMUX_WEB_TEST_FILES="$(python3 ../scripts/ci/webviews_affected.py --base "$BASE_REF" --head HEAD)" || CMUX_WEB_TEST_FILES=""
+            export CMUX_WEB_TEST_FILES
+          fi
           ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
       - name: Upload head webview results
@@ -568,7 +582,9 @@ jobs:
         with:
           name: webviews-test-history-shard${{ matrix.shard }}
           overwrite: true
-          path: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
+          path: |
+            ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
+            ${{ runner.temp }}/webviews-head-results/webviews-inputs-key
           if-no-files-found: ignore
           retention-days: 1
 
@@ -647,7 +663,12 @@ jobs:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_32) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
-    timeout-minutes: 40
+    # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone).
+    timeout-minutes: 55
+    # actions: read: the base's webview test history is an artifact of its newest push.
+    permissions:
+      contents: read
+      actions: read
     name: react-apps-base-check (${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -673,16 +694,70 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      - name: Use the merge parent as the base
-        run: git checkout -q --detach HEAD^1
-
       - name: Download head webview results
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: react-apps-head-results-shard${{ matrix.shard }}
           path: ${{ runner.temp }}/head-results
 
+      # A head shard with no red has nothing to replay: the compare below then needs only python, so the
+      # bun install, the base bundle build and the browsers are skipped (3 to 11 min a shard, paid by every
+      # green head before the verdict). Reds, or results it cannot read, keep the whole replay.
+      - name: Use the merge parent as the base
+        id: head
+        run: |
+          # The head's font pin, kept for the base's engines: a base from before it has no such script, and the
+          # comparison has to draw the same face as the head did (pin-browser-test-font.sh needs no checkout).
+          cp scripts/ci/pin-browser-test-font.sh "$RUNNER_TEMP/pin-browser-test-font.sh"
+          git checkout -q --detach HEAD^1
+          if failed="$(python3 scripts/ci/webviews_test_results.py --failed-files "$RUNNER_TEMP/head-results/webviews-head-results.json")"; then
+            reds="$(printf '%s' "$failed" | grep -c . || true)"
+          else
+            reds=unknown
+          fi
+          echo "head shard reds: $reds"
+          echo "reds=$reds" >> "${GITHUB_OUTPUT:-/dev/null}"
+
+      # The base's recent push verdicts (the webviews-test-history artifact its newest push
+      # uploaded). A test whose verdict flipped by itself there passed this replay by chance
+      # as often as not, so it only warns: agent-pane-suggested-tasks was charged to 9 of 40
+      # sampled red pull request runs (2026-10-30). Read-only and optional: no history means no
+      # flakes. Two requests (the list and the download), unless the head's results show no reds.
+      # A push with the merge parent's webview inputs already ran its tree: the reds it answers
+      # for (known) need no replay, and when it answers all of them the bun install, the base
+      # bundle build and the browsers below are skipped too (replay=0). Any failure here leaves
+      # replay unset, and every red file replays as before.
+      - name: Restore the base's webview test history
+        id: history
+        if: ${{ steps.head.outputs.reds != '0' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_RESULTS: ${{ runner.temp }}/head-results/webviews-head-results.json
+        run: |
+          runner="$RUNNER_TEMP/head-results/runner"
+          history="$RUNNER_TEMP/webviews-test-history/history.json"
+          # Head results it cannot read are unknown, not "no reds": fetch the history then too.
+          if reds="$(python3 "$runner/webviews_test_results.py" --failed-files "$HEAD_RESULTS")" && [ -z "$reds" ]; then
+            echo "no head reds: the base's history is not needed"
+            exit 0
+          fi
+          python3 "$runner/webviews_test_history.py" fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF"
+          if [ -z "$reds" ]; then
+            echo "head results unreadable: every red file replays"
+            exit 0
+          fi
+          key="$(python3 scripts/ci/webviews_test_history.py inputs)"
+          python3 "$runner/webviews_test_history.py" known "$history" --inputs "$key" --names "$HEAD_RESULTS" \
+            --out "$RUNNER_TEMP/base-known.json" > "$RUNNER_TEMP/base-replay-files"
+          count="$(grep -c . "$RUNNER_TEMP/base-replay-files" || true)"
+          echo "the base's push history answers for $(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$RUNNER_TEMP/base-known.json") red tests at inputs $key; $count files still replay"
+          echo "replay=$count" >> "${GITHUB_OUTPUT:-/dev/null}"
+
       - name: Setup Bun
+        if: ${{ steps.head.outputs.reds != '0' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: "1.4.4"
@@ -691,48 +766,42 @@ jobs:
       # so a PR that moves the pin (or a base whose bun check is exact) compares like
       # with like; private-bun.sh is the base's copy and reads the base's devEngines.
       - name: Use the base's bun
+        if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
         run: scripts/cmux-next/private-bun.sh
 
       - name: Cache Bun package cache
+        if: ${{ steps.head.outputs.reds != '0' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Cache Playwright browsers
+        if: ${{ steps.head.outputs.reds != '0' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.cache/ms-playwright
           key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Setup Node
+        if: ${{ steps.head.outputs.reds != '0' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: "24.22.1"
 
       - name: Install webview dependencies
+        if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
         working-directory: webviews
         run: bun install --frozen-lockfile
 
       - name: Build base web bundles
+        if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
         run: ./scripts/cmux-next/build-web-bundles.sh --force
 
       - name: Install headless engines
+        if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
-
-      # The base's recent push verdicts (webviews-test-history), newest first. A test whose
-      # verdict flipped by itself there passed this replay by chance as often as not, so it
-      # only warns: agent-pane-suggested-tasks was charged to 9 of 40 sampled red pull
-      # request runs (2026-10-30). Read-only and optional: no history means no flakes.
-      - name: Restore the base's webview test history
-        continue-on-error: true
-        timeout-minutes: 2
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ runner.temp }}/webviews-test-history/history.json
-          key: webviews-test-history-${{ github.base_ref }}-none
-          restore-keys: webviews-test-history-${{ github.base_ref }}-
+        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
 
       # Its compare exits red on the change's reds and lists their files for the head re-run below;
       # the job's verdict is the last step's.
@@ -743,12 +812,17 @@ jobs:
         env:
           HEAD_RESULTS: ${{ runner.temp }}/head-results/webviews-head-results.json
           BASE_RESULTS: ${{ runner.temp }}/base-results.json
+          KNOWN_REPLAY: ${{ steps.history.outputs.replay }}
           CMUX_NEXT_STYLE_GUARDS: warn
           CMUX_WEB_TEST_JOBS: "1"
           CMUX_WEB_TEST_RETRIES: "0"
         run: |
           files="$RUNNER_TEMP/base-files"
-          python3 ../scripts/ci/webviews_test_results.py --failed-files "$HEAD_RESULTS" |
+          if [ -n "${KNOWN_REPLAY:-}" ]; then
+            cat "$RUNNER_TEMP/base-replay-files"
+          else
+            python3 ../scripts/ci/webviews_test_results.py --failed-files "$HEAD_RESULTS"
+          fi |
             while IFS= read -r file; do
               if [ -n "$file" ] && git cat-file -e "HEAD:webviews/$file" 2>/dev/null; then
                 printf '%s\n' "$file"
@@ -766,24 +840,44 @@ jobs:
               env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
               bash "$RUNNER_TEMP/head-results/runner/run-webviews-tests.sh" || true
           fi
+          if [ -n "${KNOWN_REPLAY:-}" ]; then
+            # The history's verdicts join the replay's (their files are disjoint).
+            python3 - "$RUNNER_TEMP/base-known.json" "$BASE_RESULTS" <<'PY'
+          import json, sys
+          known = json.load(open(sys.argv[1]))
+          try:
+              base = json.load(open(sys.argv[2]))
+          except (OSError, ValueError):
+              base = {}
+          json.dump({**known, **base}, open(sys.argv[2], "w"), sort_keys=True)
+          PY
+          fi
           runner="$RUNNER_TEMP/head-results/runner"
           flaky="$RUNNER_TEMP/flaky-on-base"
           python3 "$runner/webviews_test_history.py" flaky "$RUNNER_TEMP/webviews-test-history/history.json" \
             --names "$HEAD_RESULTS" > "$flaky" || : > "$flaky"
+          # TAP adds only active quarantines whose exact diagnostic matches a whole final head attempt.
+          # Raw artifacts retain green and red output; unavailable history contributes no waiver.
+          python3 "$runner/test_reds.py" tap-flaky --workflow 'cmux-next web' --job react-apps-check \
+            --log-dir "$RUNNER_TEMP/head-results/raw-logs" >> "$flaky"
+          sort -u "$flaky" -o "$flaky"
           if [ -s "$flaky" ]; then echo "flipped by themselves on recent base pushes:"; sed 's/^/  /' "$flaky"; fi
           status=0
           python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$flaky" "$HEAD_RESULTS" "$BASE_RESULTS" || status=$?
           python3 "$runner/guards_new_reds.py" --new-files --flaky "$flaky" "$HEAD_RESULTS" "$BASE_RESULTS" \
             > "$RUNNER_TEMP/head-rerun-files" || : > "$RUNNER_TEMP/head-rerun-files"
           count="$(grep -c . "$RUNNER_TEMP/head-rerun-files" || true)"
-          echo "rerun=$([ "$status" -ne 0 ] && [ "$count" -ge 1 ] && [ "$count" -le 10 ] && echo true || echo false)" >> "${GITHUB_OUTPUT:-/dev/null}"
+          echo "rerun=$([ "$status" -ne 0 ] && [ "$count" -ge 1 ] && [ "$count" -le 25 ] && echo true || echo false)" >> "${GITHUB_OUTPUT:-/dev/null}"
           exit "$status"
 
       # A red the base replay passed is re-run once, alone, on the head before it is charged to the
       # change: the head shard retries a red file alone only while its retry budget lasts, so a late
       # red on a long shard was never retried. #27710 (run 41525196343) went red on three
       # gallery-frame timeouts its shards had no budget left to retry; the base push after it merged
-      # passed all three. At most 10 files: a change with more reds than that is not flaking.
+      # passed all three. At most 25 files: a shard that ran out of budget keeps many files red at once,
+      # every one a timeout or an unretried first failure, so 10 skipped the very case this re-run is for.
+      # #35163 (run 41890002293) was charged with 13 such files at three heads (16 and 13 at the earlier
+      # two); the base replay passed every one. A change with more than 25 is not flaking.
       - name: Check out the head again
         if: ${{ steps.base.outputs.rerun == 'true' }}
         run: git checkout -q --detach "$GITHUB_SHA"
@@ -804,7 +898,7 @@ jobs:
       - name: Install head headless engines
         if: ${{ steps.base.outputs.rerun == 'true' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       - name: Re-run the change's reds alone on the head
         id: rerun
@@ -894,22 +988,32 @@ jobs:
           import os
           import sys
 
+          def exit_with_verdict(results, what, may_skip=()):
+              """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
+              def word(r):
+                  return (r or "").replace(":", " ").split(" ", 1)[0]
+              bad = {n: r for n, r in results.items() if word(r) != "success" and not (r == "skipped" and n in may_skip)}
+              if not bad:
+                  return
+              failed = {n: r for n, r in bad.items() if word(r) in ("failure", "invalid")}
+              for n, r in bad.items():
+                  print(f"{n}: {r or 'none'}", file=sys.stderr)
+              if failed:
+                  print(f"::error::summary red: {what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
+                  sys.exit(1)
+              named = ", ".join(f"{n} {r or 'none'}" for n, r in bad.items())
+              print(f"::error::no verdict: {what}: {named}; nothing it summarizes was judged: re-run the run")
+              sys.exit(3)
+
+
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
           required = inputs["web"] == "true" and needs["web-subarea-scope"]["outputs"].get("react_apps") == "true"
           required_jobs = ["react-apps-check-shard", "react-doctor"]
           if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
               required_jobs.append("react-apps-base-check")
-          allowed = {"success"} if required else {"success", "skipped"}
-          bad = {
-              name: needs[name]["result"]
-              for name in required_jobs
-              if needs[name]["result"] not in allowed
-          }
-          if bad:
-              for name, result in bad.items():
-                  print(f"{name}: {result}", file=sys.stderr)
-              sys.exit(1)
+          exit_with_verdict({name: needs[name]["result"] for name in required_jobs}, "react-apps-check",
+                            () if required else required_jobs)
           for name in required_jobs:
               print(f"{name}: required={str(required).lower()} result={needs[name]['result']}")
           PY
@@ -964,9 +1068,11 @@ jobs:
           key: webviews-test-durations-${{ github.run_id }}-${{ github.run_attempt }}
 
   # The base's flake history: each feat-cmux-next push's webview verdicts (the shards'
-  # results), appended to the newest saved history and saved again under this run's key.
-  # react-apps-base-check reads it (webviews_test_history.py flaky). Pushes only: a pull
-  # request saves nothing, so its restore falls through to its base branch's history.
+  # results), appended to the newest uploaded history and uploaded again as this run's
+  # webviews-test-history artifact. react-apps-base-check reads it (webviews_test_history.py
+  # fetch, then flaky). Pushes only: a pull request uploads nothing. An artifact, not a cache:
+  # the cache this job saved was never restored by the next push (2026-11-08: every push's
+  # history held one run). actions: read lets the token list and download it.
   # Optional upkeep outside the required gate, like webviews-test-durations; two pushes
   # finishing together may drop one of their runs, which costs one data point.
   webviews-test-history:
@@ -974,6 +1080,9 @@ jobs:
     if: ${{ always() && github.event_name == 'push' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Checkout the history helper
         id: history-checkout
@@ -995,35 +1104,47 @@ jobs:
           pattern: webviews-test-history-shard*
           path: ${{ runner.temp }}/history-results
 
+      # A history it cannot read (a missing one is fine) fails this step, and the push saves none: saving its own run
+      # alone would replace the whole accumulated history with one run.
       - name: Restore the history
+        id: history-restore
         if: ${{ steps.history-download.outcome == 'success' }}
         continue-on-error: true
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ runner.temp }}/webviews-test-history/history.json
-          key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: webviews-test-history-${{ github.ref_name }}-
+        timeout-minutes: 2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          python3 scripts/ci/webviews_test_history.py fetch "$RUNNER_TEMP/webviews-test-history/history.json" \
+            --repo "$GITHUB_REPOSITORY" --branch "$BRANCH" --need-read
 
       - name: Add this push to the history
         id: history-record
-        if: ${{ steps.history-download.outcome == 'success' }}
+        if: ${{ steps.history-restore.outcome == 'success' }}
         continue-on-error: true
         run: |
           shards=("$RUNNER_TEMP"/history-results/webviews-test-history-shard*/webviews-head-results.json)
           [ -e "${shards[0]}" ] || { echo "no shard recorded results"; exit 1; }
           history="$RUNNER_TEMP/webviews-test-history/history.json"
+          # The shards' full checkouts computed the key (this checkout is sparse); they must agree.
+          keys="$(cat "$RUNNER_TEMP"/history-results/webviews-test-history-shard*/webviews-inputs-key 2>/dev/null | sort -u)"
+          [ -n "$keys" ] && [ "$(printf '%s\n' "$keys" | wc -l)" -eq 1 ] || { echo "no single inputs key: '$keys'"; exit 1; }
           python3 scripts/ci/webviews_test_history.py record "$history" "$history.new" \
             --sha "$GITHUB_SHA" --attempt "$GITHUB_RUN_ATTEMPT" --time "$(git log -1 --format=%ct)" \
-            --inputs "$(python3 scripts/ci/webviews_test_history.py inputs)" "${shards[@]}"
+            --inputs "$keys" "${shards[@]}"
           mv "$history.new" "$history"
 
       - name: Save the history
         if: ${{ steps.history-record.outcome == 'success' }}
         continue-on-error: true
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        timeout-minutes: 2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          name: webviews-test-history
+          overwrite: true
           path: ${{ runner.temp }}/webviews-test-history/history.json
-          key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: ignore
+          retention-days: 3
 
   diff-sidecar-check:
     # Generated protocol checks and the sidecar tests only run for their owned inputs.
@@ -1178,24 +1299,47 @@ jobs:
           import os
           import sys
 
+          def exit_with_verdict(results, what, may_skip=()):
+              """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
+              def word(r):
+                  return (r or "").replace(":", " ").split(" ", 1)[0]
+              bad = {n: r for n, r in results.items() if word(r) != "success" and not (r == "skipped" and n in may_skip)}
+              if not bad:
+                  return
+              failed = {n: r for n, r in bad.items() if word(r) in ("failure", "invalid")}
+              for n, r in bad.items():
+                  print(f"{n}: {r or 'none'}", file=sys.stderr)
+              if failed:
+                  print(f"::error::summary red: {what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
+                  sys.exit(1)
+              named = ", ".join(f"{n} {r or 'none'}" for n, r in bad.items())
+              print(f"::error::no verdict: {what}: {named}; nothing it summarizes was judged: re-run the run")
+              sys.exit(3)
+
+
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
+          # One call with every result (scripts/ci/needs_verdict.py): a broken route or subarea is a red, a job that judged
+          # nothing is no verdict, and a failure anywhere wins.
+          results = {}
           for route in ("web", "macos", "agent_session_web"):
               if inputs.get(route) not in {"true", "false"}:
-                  print(f"invalid route {route}={inputs.get(route)!r}", file=sys.stderr)
-                  sys.exit(1)
+                  results[route] = f"invalid route {route}={inputs.get(route)!r}"
 
           scope = needs["web-subarea-scope"]
           scope_required = inputs["web"] == "true" or inputs["macos"] == "true"
-          if scope_required:
-              if scope["result"] != "success":
-                  print(f"web-subarea-scope: {scope['result']}", file=sys.stderr)
-                  sys.exit(1)
-              subareas = scope.get("outputs", {})
-              for name in ("db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests"):
+          subarea_names = ("db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests")
+          if scope_required and scope.get("outputs"):
+              subareas = scope["outputs"]
+              for name in subarea_names:
                   if subareas.get(name) not in {"true", "false"}:
-                      print(f"invalid web subarea {name}={subareas.get(name)!r}", file=sys.stderr)
-                      sys.exit(1)
+                      results[f"subarea {name}"] = f"invalid web subarea {name}={subareas.get(name)!r}"
+          elif scope_required:
+              # A scope that wrote no outputs names no job as required: each may skip, and its failure is still a red.
+              # Succeeding without them is a red of its own; any other result says why in the call below.
+              subareas = {name: "unknown" for name in subarea_names}
+              results["subareas"] = {"success": "invalid: web-subarea-scope succeeded with no outputs"}.get(
+                  scope["result"], "success")
           else:
               subareas = {
                   "db": "false",
@@ -1207,28 +1351,20 @@ jobs:
                   "unit_tests": "false",
               }
 
+          # .get: a scope with partial outputs leaves some names out (each is an invalid entry above), and the call below
+          # still has to name every failed child.
           required = {
               "web-subarea-scope": scope_required,
-              "web-typecheck": inputs["web"] == "true" and subareas["typecheck"] == "true",
-              "web-production-build": inputs["web"] == "true" and subareas["production_build"] == "true",
-              "web-tests": inputs["web"] == "true" and subareas["unit_tests"] == "true",
-              "web-instant-navigation": inputs["web"] == "true" and subareas["instant"] == "true",
-              "react-apps-check": inputs["web"] == "true" and subareas["react_apps"] == "true",
-              "diff-sidecar-check": scope_required and subareas["diff_sidecar"] == "true",
-              "web-db-migrations": inputs["web"] == "true" and subareas["db"] == "true",
+              "web-typecheck": inputs["web"] == "true" and subareas.get("typecheck") == "true",
+              "web-production-build": inputs["web"] == "true" and subareas.get("production_build") == "true",
+              "web-tests": inputs["web"] == "true" and subareas.get("unit_tests") == "true",
+              "web-instant-navigation": inputs["web"] == "true" and subareas.get("instant") == "true",
+              "react-apps-check": inputs["web"] == "true" and subareas.get("react_apps") == "true",
+              "diff-sidecar-check": scope_required and subareas.get("diff_sidecar") == "true",
+              "web-db-migrations": inputs["web"] == "true" and subareas.get("db") == "true",
           }
-          bad = {}
-          for job, is_required in sorted(required.items()):
-              result = needs[job]["result"]
-              if is_required:
-                  if result != "success":
-                      bad[job] = result
-              elif result not in {"success", "skipped"}:
-                  bad[job] = result
-          if bad:
-              for job, result in bad.items():
-                  print(f"{job}: {result}", file=sys.stderr)
-              sys.exit(1)
+          results.update({job: needs[job]["result"] for job in sorted(required)})
+          exit_with_verdict(results, "Web status", {job for job, is_required in required.items() if not is_required})
           for job, is_required in sorted(required.items()):
               print(f"{job}: required={str(is_required).lower()} result={needs[job]['result']}")
           PY

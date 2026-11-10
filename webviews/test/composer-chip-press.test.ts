@@ -11,7 +11,8 @@
 //   2026-10-19: no mousedown and mouseup click feedback).
 // - A mouse click leaves no focus ring, on the chip or on the menu it opens, even right after
 //   typing (WebKit draws a programmatic focus as keyboard focus once a key was pressed).
-//   Keyboard focus on the same chip still shows: the soft hover pill, with no outline (#23745, Leo
+//   Keyboard focus on the same chip (a real Tab; code focus earns nothing, FOCUS-RING,
+//   src/ui/focusModality.ts) still shows: the soft hover pill, with no outline (#23745, Leo
 //   2026-10-21: no focus rings in the agent pane).
 // - Every chip takes a press over a box at least 24 px tall, the small folder chip included.
 // - A menu row takes a press anywhere on it, its check gutter and trailing edge included.
@@ -22,6 +23,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -252,8 +254,7 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             // Keyboard focus on the chip draws the soft pill and no ring (#23745).
             await page.keyboard.press("Escape");
             await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-            await page.keyboard.press("Shift");
-            await page.locator(chip(name)).first().focus();
+            await focusByKey(page, chip(name));
             const keyboard = { ring: (await rings(page, name)).chip, pill: await pill(page, name) };
             expect({ name, keyboard }).toEqual({ name, keyboard: { ring: false, pill: true } });
             await page.close();
@@ -291,6 +292,10 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             '[role^="menuitem"], [role="option"], .acpmux-cols-tune [role="radio"], .acpmux-cols-tune [role="switch"]';
           const rows = page.locator(selector);
           expect(await rows.count()).toBeGreaterThan(0);
+          // Keep the menu open while probing real pointer targets at every row edge.
+          await page.evaluate(() =>
+            document.addEventListener("click", (event) => event.stopImmediatePropagation(), true),
+          );
           for (const target of await rows.all()) {
             // The columns scroll independently; bring each row into its own viewport before
             // probing its edges, including legacy models below the initial visible rows.
@@ -311,11 +316,27 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
               [row.x + row.w / 2, row.y + 1],
               [row.x + row.w / 2, row.y + row.h - 1],
             ];
-            const hits = await target.evaluate(
-              (row, points) => points.map(([x, y]) => row.contains(document.elementFromPoint(x!, y!))),
-              probes,
-            );
-            if (hits.includes(false)) misses.push(`${name} "${row.text}": ${hits.join(",")}`);
+            const hits: boolean[] = [];
+            const targets: (string | null)[] = [];
+            for (const [x, y] of probes) {
+              await target.evaluate((row) => {
+                row.removeAttribute("data-press-hit");
+                row.removeAttribute("data-press-target");
+                document.addEventListener(
+                  "pointerdown",
+                  (event) => {
+                    row.setAttribute("data-press-hit", String(row.contains(event.target as Node)));
+                    row.setAttribute("data-press-target", (event.target as Element).outerHTML.slice(0, 200));
+                  },
+                  { capture: true, once: true },
+                );
+              });
+              await page.mouse.click(x!, y!);
+              hits.push((await target.getAttribute("data-press-hit")) === "true");
+              targets.push(await target.getAttribute("data-press-target"));
+            }
+            if (hits.includes(false))
+              misses.push(`${name} "${row.text}": ${hits.join(",")} ${JSON.stringify({ row, targets })}`);
           }
           await page.close();
         }

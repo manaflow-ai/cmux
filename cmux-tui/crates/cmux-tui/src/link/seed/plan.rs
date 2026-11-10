@@ -29,6 +29,7 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 
 use super::{git, github, secrets};
+use crate::link::sync_cli::skips;
 
 /// The `git.seed.start` params, less `folder` and `bundle` (the remote
 /// paths the caller fills in).
@@ -89,8 +90,8 @@ pub struct Planned {
     /// Bytes of the bundle; 0 when [`Self::unchanged`] (no bundle is
     /// written then).
     pub bundle_bytes: u64,
-    /// A delta seed found HEAD, the index and the working tree as the
-    /// previous seed left them: nothing to send.
+    /// A delta seed found HEAD, the index, the working tree and refs/stash as
+    /// the previous seed left them: nothing to send.
     pub unchanged: bool,
 }
 
@@ -100,6 +101,8 @@ pub struct PreviousSeed {
     pub head: String,
     pub index: String,
     pub work: String,
+    /// Stash at the previous accepted seed (None means refs/stash was absent).
+    pub stash: Option<String>,
 }
 
 /// Why a folder takes the streamed copy instead of a seed.
@@ -210,8 +213,8 @@ pub fn plan_with_base(folder: &Path, out_bundle: &Path, base: &str) -> Result<Pl
 /// prerequisites, so the bundle holds only what changed since.
 /// [`SeedParams::base`] and [`SeedParams::since`] are `previous.work`;
 /// [`Planned::bases`] is empty. When HEAD, the index and the working tree
-/// are as `previous` left them, the answer is [`Planned::unchanged`] and
-/// no bundle is written. The stash is carried but not compared.
+/// and stash are as `previous` left them, the answer is [`Planned::unchanged`]
+/// and no bundle is written.
 pub fn plan_since(
     folder: &Path,
     out_bundle: &Path,
@@ -228,6 +231,91 @@ pub fn plan_since(
         }
     }
     build(&repo, out_bundle, &Since::Previous(previous), Vec::new())
+}
+
+/// The seed `recorded` (one this Mac sent before) again, from this repository's object store
+/// alone: no INDEX or WORK commit of the folder as it is now, nothing read from its working tree
+/// and nothing written to it, its index or its refs. The bundle carries `recorded`'s commits as
+/// `refs/cmux-seed/*` with `^BASE`, BASE the best base of `recorded.head`. Move to another
+/// Cloud machine seeds the second machine with it (`seed_cli::hop`), so both hold the seed
+/// Bring Back Local merges against.
+pub fn plan_recorded(
+    folder: &Path,
+    out_bundle: &Path,
+    recorded: &PreviousSeed,
+) -> Result<Planned, Fallback> {
+    let mut repo = Repo::open(folder)?;
+    let mut ids = vec![&recorded.head, &recorded.index, &recorded.work];
+    ids.extend(recorded.stash.as_ref());
+    for id in ids {
+        let hex = (4..=64).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_hexdigit());
+        if !hex || repo.commit(id).as_deref() != Some(id.as_str()) {
+            return Err(Fallback::new(
+                FallbackCode::NoPrevious,
+                format!("the recorded seed's commit {id} is not in this repository"),
+            ));
+        }
+    }
+    // The bases of the recorded HEAD, not of whatever this Mac checked out since.
+    repo.head = recorded.head.clone();
+    let bases = repo.bases();
+    let Some(base) = bases.first().cloned() else {
+        return Err(Fallback::new(
+            FallbackCode::NoBase,
+            format!("no commit on {} is known to share history with the seed", repo.remote),
+        ));
+    };
+    let scratch = Scratch::new()?;
+    let store = scratch.0.join("store.git");
+    git::output(git::at(&scratch.0).args(["init", "-q", "--bare", "--template="]).arg(&store))
+        .map_err(|error| failed("making the scratch repository", error))?;
+    let objects = repo.git_path("objects")?;
+    std::fs::create_dir_all(store.join("objects/info"))
+        .map_err(|error| failed("making the scratch object store", error.to_string()))?;
+    write(&store.join("objects/info/alternates"), format!("{}\n", objects.display()))?;
+    let shallow = repo.git_path("shallow")?;
+    if shallow.is_file() {
+        std::fs::copy(shallow, store.join("shallow"))
+            .map_err(|error| failed("copying the shallow list", error.to_string()))?;
+    }
+    let mut refs = vec![
+        ("refs/cmux-seed/head", recorded.head.as_str()),
+        ("refs/cmux-seed/index", recorded.index.as_str()),
+        ("refs/cmux-seed/work", recorded.work.as_str()),
+    ];
+    if let Some(stash) = &recorded.stash {
+        refs.push(("refs/cmux-seed/stash", stash.as_str()));
+    }
+    for (name, id) in &refs {
+        run(git::bare(&store).args(["update-ref", *name, *id]), "naming the seed commits")?;
+    }
+    let mut bundle = git::bare(&store);
+    bundle.args(["bundle", "create", "-q"]).arg(out_bundle);
+    bundle.args(refs.iter().map(|(name, _)| *name)).arg(format!("^{base}"));
+    run(&mut bundle, "making the bundle")?;
+    let bundle_bytes = std::fs::metadata(out_bundle)
+        .map_err(|error| failed("reading the bundle", error.to_string()))?
+        .len();
+    Ok(Planned {
+        params: SeedParams {
+            url: repo.github.url(),
+            repo: repo.github.slug(),
+            base,
+            head_ref: repo.head_ref.clone(),
+            head: recorded.head.clone(),
+            index: recorded.index.clone(),
+            work: recorded.work.clone(),
+            stash: recorded.stash.clone(),
+            sparse: None,
+            lfs: uses_lfs(&repo, &[]),
+            since: None,
+        },
+        skipped: Vec::new(),
+        submodules: Vec::new(),
+        bases,
+        bundle_bytes,
+        unchanged: false,
+    })
 }
 
 /// What the machine already has.
@@ -487,12 +575,31 @@ fn build(
     if let Some(stash) = &stash {
         refs.push(("refs/cmux-seed/stash", stash.as_str()));
     }
-    // The work commit's parents are the index commit and HEAD, so the same
-    // work sha means all three are as the previous seed left them.
+    // WORK's parents are INDEX and HEAD. The stash ref is independent of all three.
     let (base, unchanged) = match since {
         Since::Base(base) => ((*base).to_string(), false),
-        Since::Previous(previous) => (previous.work.clone(), previous.work == work_commit),
+        Since::Previous(previous) => {
+            (previous.work.clone(), previous.work == work_commit && previous.stash == stash)
+        }
     };
+    // A stash-only deletion has no new Git object. Git refuses an empty bundle,
+    // so carry a tiny synthetic commit, excluded from the destination's seed record.
+    // WORK remains stable: the next unchanged delta stays a zero-byte send.
+    let stash_clear_marker = if let Since::Previous(previous) = since
+        && previous.stash.is_some()
+        && stash.is_none()
+        && previous.work == work_commit
+    {
+        let tree =
+            git::text(git::at(&repo.top).args(["rev-parse", &format!("{work_commit}^{{tree}}")]))
+                .map_err(|error| failed("reading the work tree", error))?;
+        Some(commit(repo, &tree, &previous.work, "cmux seed stash cleared")?)
+    } else {
+        None
+    };
+    if let Some(marker) = &stash_clear_marker {
+        refs.push(("refs/cmux-seed/stash-cleared", marker.as_str()));
+    }
     let mut bundle_bytes = 0;
     if !unchanged {
         for (name, id) in &refs {
@@ -688,7 +795,8 @@ fn untracked_left_out(repo: &Repo) -> Result<Vec<Skipped>, Fallback> {
         let why = if path.ends_with('/') {
             Some("a separate git repository inside this folder (not a submodule)")
         } else {
-            secrets::reason(&repo.top, raw)
+            // A plain copy's credential rule too (`.aws/credentials`, `.config/gh/hosts.yml`).
+            secrets::reason(&repo.top, raw).or_else(|| skips::credential_text(&path))
         };
         if let Some(why) = why {
             skipped.push(Skipped { path, why: why.to_string(), raw: raw.to_vec() });

@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextSettings
+import CmuxNextCompat
 import CmuxNextDesign
 public import Foundation
 import AppKit
@@ -92,12 +93,7 @@ extension PageWebView {
     /// Ends this page's WebContent process (WebKit's `_killWebContentProcess`), so a live check can
     /// prove what the host does when the page crashes. False when WebKit has no such call. DEBUG
     /// verb only.
-    public func debugKillWebContent() -> Bool {
-        let selector = NSSelectorFromString("_killWebContentProcess")
-        guard webView.responds(to: selector) else { return false }
-        webView.perform(selector)
-        return true
-    }
+    public func debugKillWebContent() -> Bool { killWebContentProcess() }
 
     /// Whether a real AppKit key or mouse event reached the page in the last second: the same
     /// `PageCallContext.userGesture` a page call gets. DEBUG verb only.
@@ -237,7 +233,8 @@ extension PageWebView {
     /// A left click at `x`,`y` in CSS pixels. Chromium receives trusted DevTools
     /// input; WebKit receives native AppKit mouse events in its own view, including
     /// in a non-key capture window. No router gesture is granted directly.
-    public func debugPress(x: Double, y: Double, native: Bool = false) async -> Bool {
+    /// `beforeRelease` runs right before the release goes in (the instant the page's click fires: a bench's input time).
+    public func debugPress(x: Double, y: Double, native: Bool = false, beforeRelease: (() -> Void)? = nil) async -> Bool {
         if native, let page = chromiumSession?.page {
             guard x.isFinite, y.isFinite else { return false }
             let zoom = max(pageZoom, 0.01)
@@ -257,11 +254,11 @@ extension PageWebView {
                                               windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0) else { return false }
             // The view's ordinary overrides record input before WebKit handles it.
             // Direct native delivery is needed when a capture window never becomes key.
-            webView.mouseDown(with: down)
-            webView.mouseUp(with: up)
+            SyntheticInput.click(webView, down: down, up: up)
             return true
         }
         for type in ["mousePressed", "mouseReleased"] {
+            if type == "mouseReleased" { beforeRelease?() }
             guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
                 "type": type, "x": x, "y": y, "button": "left", "buttons": type == "mousePressed" ? 1 : 0,
                 "clickCount": 1, "modifiers": 0,

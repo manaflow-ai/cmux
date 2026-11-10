@@ -2,6 +2,7 @@
 import CmuxAgentQuestion
 import CmuxMobileDesign
 import CmuxMobileMarkdown
+import CmuxSpinner
 import SwiftUI
 
 /// SPEC 6.7 plan card with live step glyphs.
@@ -34,7 +35,7 @@ struct PlanCard: View {
         }
         .padding(16)
         .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
-        .animation(.cmuxMobileSmooth, value: entries)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: entries)
         .accessibilityElement(children: .combine)
     }
 
@@ -86,7 +87,10 @@ struct PermissionCard: View {
                     Image(systemName: "hand.raised.fill").foregroundStyle(Color.cmuxMobileWarning)
                     Text("\(agentName) wants to \(action)").font(.headline)
                 }
-                if let command = record.request.toolCall.command {
+                if let plan = record.request.plan {
+                    // The plan as the transcript renders a reply (the Mac pane's plan card).
+                    StreamingMarkdown(markdown: plan, isStreaming: false, animatesBlocks: false)
+                } else if let command = record.request.toolCall.command {
                     CodeCard(language: "bash", code: command, title: "Command", maxHeight: 6 * 19 + 60)
                 } else {
                     Text(record.request.toolCall.title).font(.subheadline.monospaced())
@@ -107,7 +111,8 @@ struct PermissionCard: View {
     }
 
     private var action: String {
-        switch record.request.toolCall.kind {
+        if record.request.plan != nil { return "start on this plan" }
+        return switch record.request.toolCall.kind {
         case .execute: "run a command"
         case .edit, .fileChange: "edit files"
         case .fetch: "fetch a URL"
@@ -134,7 +139,7 @@ public struct PermissionActionBar: View {
     let request: ACPPermissionRequest
     let respond: (ACPPermissionOption?) -> Void
     let replyInstead: (() -> Void)?
-    /// The allow waiting for Face ID: its button spins, the other allows are disabled,
+    /// The allow on its way: its button spins, the other allows are disabled,
     /// Deny stays available.
     var approvingOptionID: String?
 
@@ -146,8 +151,8 @@ public struct PermissionActionBar: View {
         self.replyInstead = replyInstead
     }
 
-    /// Shown on the allow while Face ID runs (the Feed's string).
-    public static let waitingForFaceID = "Waiting for Face ID…"
+    /// Shown on the allow while it is signed and sent (the Feed's string).
+    public static let sendingAllow = "Sending…"
     /// Taps on a choice, for the tap's haptic.
     @State private var taps = 0
 
@@ -155,27 +160,25 @@ public struct PermissionActionBar: View {
         VStack(spacing: 8) {
             ForEach(request.phoneOptions) { option in
                 Button {
-                    // The allow already waiting for Face ID ignores a second tap.
+                    // The allow already on its way ignores a second tap.
                     guard !(option.isAllow && approvingOptionID != nil) else { return }
                     taps += 1
                     respond(option)
                 } label: {
                     // Long options ("Always allow cargo test in this workspace")
-                    // wrap instead of truncating. An allow is signed after Face ID
-                    // (verify/phone-approvals.md), and says so.
+                    // wrap instead of truncating. An allow is signed with this
+                    // phone's approval key (verify/phone-approvals.md), with no prompt.
                     HStack(spacing: 6) {
                         if option.id == approvingOptionID {
-                            ProgressView().controlSize(.small).tint(option.kind == .allowOnce ? Color.cmuxMobileOnAccent : Color.primary).accessibilityHidden(true)
-                            Text(Self.waitingForFaceID).lineLimit(2).multilineTextAlignment(.center)
+                            CmuxSpinner(tint: option.kind == .allowOnce ? Color.cmuxMobileOnAccent : Color.primary).controlSize(.small).accessibilityHidden(true)
+                            Text(Self.sendingAllow).lineLimit(2).multilineTextAlignment(.center)
                         } else {
-                            if option.isAllow { Image(systemName: "faceid").accessibilityHidden(true) }
-                            Text(option.phoneLabel).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
+                            Text(request.label(for: option)).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
                         }
                     }
-                    .animation(.cmuxMobileSnap, value: approvingOptionID)
+                    .animation(.cmuxMobileSnap.unlessReduceMotion, value: approvingOptionID)
                 }
                     .disabled(approvingOptionID != nil && option.isAllow && option.id != approvingOptionID)
-                    .accessibilityHint(option.isAllow ? "Approve with Face ID" : "")
                     .buttonStyle(CmuxMobileCapsuleButtonStyle(style(option), size: .bar))
             }
             if let replyInstead {
@@ -232,7 +235,7 @@ public struct QuestionCard: View {
                 card.transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
             }
         }
-        .animation(.cmuxMobileSmooth, value: question.state)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: question.state)
         .onChange(of: question) { _, new in
             state.update(new)
             if !new.isPending { QuestionDraftStore.shared.clear(new.id) }
@@ -387,14 +390,14 @@ public struct QuestionCard: View {
 
     private func page(_ delta: Int) {
         forward = delta > 0
-        withAnimation(.cmuxMobileSmooth) { _ = state.send(delta > 0 ? .nextItem : .previousItem) }
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { _ = state.send(delta > 0 ? .nextItem : .previousItem) }
     }
 
     private func send(_ input: AgentQuestionCardState.Input) {
         let before = state.activeItem
         var effect = AgentQuestionCardState.Effect.none
         forward = true
-        withAnimation(.cmuxMobileSmooth) {
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
             effect = state.send(input)
         }
         if state.activeItem != before { forward = state.activeItem > before }
@@ -491,10 +494,8 @@ struct FailureCard: View {
             Text(message).font(.subheadline).foregroundStyle(.secondary)
             if let detail {
                 DisclosureGroup("Details") {
-                    Text(detail)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    // Range-selectable (CMUX-33): `.textSelection` grabbed the whole detail.
+                    SelectableTextView(detail, textStyle: .caption1, monospaced: true, scrolls: false, textColor: .secondaryLabel)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .font(.footnote)
@@ -518,8 +519,9 @@ struct FailureCard: View {
     }
 }
 
-/// The Mac's next-step card (#33269): a tagged ask a finished turn ended on, its question, a muted
-/// line, and its answers as buttons, the first filled. A tap sends the answer as the next prompt;
+/// The Mac's next-step card (#33269): a tagged ask a finished turn ended on, or the agent's own
+/// wrap-up call with its recap above (WrapUp.swift); its question, a muted line, and its answers as
+/// buttons, the first filled. A tap sends the answer as the next prompt;
 /// once a prompt follows, the card folds to the question and the answer in grey.
 struct NextStepCard: View {
     let ask: NextStepAsk
@@ -530,9 +532,19 @@ struct NextStepCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(ask.question)
-                .font(.headline)
-                .fixedSize(horizontal: false, vertical: true)
+            // The agent's wrap-up call carries a recap: what changed and where things stand.
+            if let recap = ask.recap {
+                Text(recap)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("agentChat.nextStep.recap")
+            }
+            if !ask.question.isEmpty {
+                Text(ask.question)
+                    .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let answer {
                 Label(answer, systemImage: "arrowshape.turn.up.left")
                     .font(.subheadline)

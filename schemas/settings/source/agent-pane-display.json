@@ -1,0 +1,1212 @@
+{
+  "$comment": "HAND-EDITED source of the Appearance section's Agent Chat rows, agentPane.display.* (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the row format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here.",
+  "lists": [
+    {
+      "name": "agentPaneDisplay",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.agentChat",
+        "text": "Agent Chat"
+      },
+      "note": "The agent chat's look (plans/cmux-next/chat-display-settings-DESIGN.md): the chat page reads the same names and ranges (webviews/src/agent-session/acpmux/chatDisplay.ts CHAT_DISPLAY), and its ... menu's Text & Width popover writes them. The font, code font and code size have no value of their own by default: the chat then follows the Markdown viewer's, and code follows the terminal font. Sizes and width never follow the viewer.",
+      "rows": [
+        {
+          "key": "agentPane.display.width",
+          "note": "The chat column's cap in points.",
+          "title": {
+            "key": "settings.agentPane.display.width",
+            "text": "Chat Text Width"
+          },
+          "help": {
+            "key": "settings.agentPane.display.width.help",
+            "text": "The widest the chat's column gets. On a wider pane the chat stays centered."
+          },
+          "kind": "number",
+          "range": {
+            "min": 480,
+            "max": 4000,
+            "step": 10,
+            "unit": "points",
+            "placeholder": 800
+          },
+          "default": 800,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "width",
+            "max width",
+            "column",
+            "measure",
+            "wide"
+          ]
+        },
+        {
+          "key": "agentPane.display.fullWidth",
+          "title": {
+            "key": "settings.agentPane.display.fullWidth",
+            "text": "Chat Full Width"
+          },
+          "help": {
+            "key": "settings.agentPane.display.fullWidth.help",
+            "text": "The chat fills the whole pane instead of the text width."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "full",
+            "width",
+            "wide"
+          ]
+        },
+        {
+          "key": "agentPane.display.vscodeMinimap",
+          "note": "The VS Code-style picture of the whole chat at its right edge (webviews chatMinimap/ChatMinimap.tsx). Off by default; the thread rail at the left (Toggle Thread Minimap) is its own thing.",
+          "title": {
+            "key": "settings.agentPane.display.vscodeMinimap",
+            "text": "VS Code Minimap"
+          },
+          "help": {
+            "key": "settings.agentPane.display.vscodeMinimap.help",
+            "text": "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "minimap",
+            "vscode",
+            "vs code",
+            "code",
+            "map",
+            "overview",
+            "scroll",
+            "scrollbar",
+            "right",
+            "toggle"
+          ]
+        },
+        {
+          "key": "agentPane.display.pinnedPlan",
+          "note": "The running turn's task list pinned under its latest message (webviews conversation/turns.ts). Off by default: the composer's hat shows it (subagents/SubagentTray.tsx plan; Leo, 2026-11-03).",
+          "title": {
+            "key": "settings.agentPane.display.pinnedPlan",
+            "text": "Pin Task List in Chat"
+          },
+          "help": {
+            "key": "settings.agentPane.display.pinnedPlan.help",
+            "text": "While the agent works, its task list stays under the latest message instead of in the bar over the composer."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "plan",
+            "task",
+            "tasks",
+            "todo",
+            "checklist",
+            "pin",
+            "pinned",
+            "list",
+            "progress"
+          ]
+        },
+        {
+          "key": "agentPane.display.trayTucked",
+          "note": "The hat over the composer tucked away to a pull tab at the composer's top middle (webviews subagents/TrayPullTab.tsx; Leo, 2026-11-04: \"what if you wanted to collapse that one line?\"). The hat's own chevron and the tab write it too.",
+          "title": {
+            "key": "settings.agentPane.display.trayTucked",
+            "text": "Tuck Away Running Tray"
+          },
+          "help": {
+            "key": "settings.agentPane.display.trayTucked.help",
+            "text": "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "tray",
+            "hat",
+            "tuck",
+            "hide",
+            "collapse",
+            "running",
+            "background",
+            "subagents",
+            "commands",
+            "bar",
+            "composer",
+            "toggle"
+          ]
+        },
+        {
+          "key": "agentPane.display.trayHandle",
+          "note": "Where along the composer's top edge the hat's tuck chevron and its pull tab sit (webviews subagents/TrayPullTab.tsx; Leo, 2026-11-04: \"I also wonder if we'd want the grabber/dogear/whatever design thing on maybe the left... or the right...\").",
+          "title": {
+            "key": "settings.agentPane.display.trayHandle",
+            "text": "Running Tray Handle"
+          },
+          "help": {
+            "key": "settings.agentPane.display.trayHandle.help",
+            "text": "Where the handle that tucks the running tray away and brings it back sits along the top of the composer."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "left",
+              "title": {
+                "key": "settings.choice.left",
+                "text": "Left"
+              }
+            },
+            {
+              "value": "middle",
+              "title": {
+                "key": "settings.choice.middle",
+                "text": "Middle"
+              }
+            },
+            {
+              "value": "right",
+              "title": {
+                "key": "settings.choice.right",
+                "text": "Right"
+              }
+            }
+          ],
+          "default": "middle",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "tray",
+            "hat",
+            "tuck",
+            "handle",
+            "grabber",
+            "pull",
+            "tab",
+            "side",
+            "left",
+            "middle",
+            "center",
+            "right",
+            "composer"
+          ]
+        },
+        {
+          "key": "agentPane.display.unreadBanner",
+          "note": "How the floating unread banner shows at the transcript's top start while the \"New\" line is off screen (webviews conversation/SinceDivider.tsx UnreadBanner, design/transcript-overlays.md; Leo, 2026-11-10: \"you can have the collapsed view. You can have the expanded view. You can have, like, right click to just hide it completely. You can right click to bring it back\"). The banner's chevron and the right-click menus of the banner and the line write it.",
+          "title": {
+            "key": "settings.agentPane.display.unreadBanner",
+            "text": "Unread Banner"
+          },
+          "help": {
+            "key": "settings.agentPane.display.unreadBanner.help",
+            "text": "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "expanded",
+              "title": {
+                "key": "settings.choice.expanded",
+                "text": "Expanded"
+              }
+            },
+            {
+              "value": "collapsed",
+              "title": {
+                "key": "settings.choice.collapsed",
+                "text": "Collapsed"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "expanded",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "unread",
+            "new",
+            "banner",
+            "since",
+            "jump",
+            "mark",
+            "read",
+            "collapse",
+            "expand",
+            "hide"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.lead",
+          "name": "senderIconLead",
+          "note": "A sender's icon (webviews subagents/SenderIcon.tsx, senderIconLook.ts): the model family's mark with a small badge in the session's own color (Leo, 2026-11-05: \"you either have the model family be the big one or the small one, and then you have the, like, colored either robot symbol or the sort of, you know, the diamond symbol, which I kind of personally like\"). Which of the two is big.",
+          "title": {
+            "key": "settings.agentPane.display.senderIcon.lead",
+            "text": "Sender Icon Emphasis"
+          },
+          "help": {
+            "key": "settings.agentPane.display.senderIcon.lead.help",
+            "text": "Which is big in a sender's icon: the model family's mark, or the session's own colored badge."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "family",
+              "title": {
+                "key": "settings.choice.senderIconFamily",
+                "text": "Model Family Big"
+              }
+            },
+            {
+              "value": "session",
+              "title": {
+                "key": "settings.choice.senderIconSession",
+                "text": "Session Badge Big"
+              }
+            }
+          ],
+          "default": "family",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "sender",
+            "icon",
+            "mark",
+            "badge",
+            "model",
+            "family",
+            "session",
+            "agent",
+            "big",
+            "small"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.badge",
+          "name": "senderIconBadge",
+          "note": "The small glyph in the session's color on a sender's icon (webviews subagents/SenderIcon.tsx); none draws the mark alone.",
+          "title": {
+            "key": "settings.agentPane.display.senderIcon.badge",
+            "text": "Sender Badge"
+          },
+          "help": {
+            "key": "settings.agentPane.display.senderIcon.badge.help",
+            "text": "The small colored glyph on a sender's icon that tells sessions of one model family apart."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "diamond",
+              "title": {
+                "key": "settings.choice.diamond",
+                "text": "Diamond Icon"
+              }
+            },
+            {
+              "value": "robot",
+              "title": {
+                "key": "settings.choice.robot",
+                "text": "Robot Icon"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "diamond",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "sender",
+            "icon",
+            "badge",
+            "diamond",
+            "sparkle",
+            "robot",
+            "bot",
+            "color",
+            "session",
+            "agent"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.corner",
+          "name": "senderIconCorner",
+          "note": "Where the badge sits on a sender's icon (webviews subagents/SenderIcon.tsx).",
+          "title": {
+            "key": "settings.agentPane.display.senderIcon.corner",
+            "text": "Sender Badge Corner"
+          },
+          "help": {
+            "key": "settings.agentPane.display.senderIcon.corner.help",
+            "text": "Where the small glyph sits on a sender's icon."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "bottom-right",
+              "title": {
+                "key": "settings.choice.bottomRight",
+                "text": "Bottom Right"
+              }
+            },
+            {
+              "value": "bottom-left",
+              "title": {
+                "key": "settings.choice.bottomLeft",
+                "text": "Bottom Left"
+              }
+            },
+            {
+              "value": "top-right",
+              "title": {
+                "key": "settings.choice.topRight",
+                "text": "Top Right"
+              }
+            },
+            {
+              "value": "top-left",
+              "title": {
+                "key": "settings.choice.topLeft",
+                "text": "Top Left"
+              }
+            }
+          ],
+          "default": "bottom-right",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "sender",
+            "icon",
+            "badge",
+            "corner",
+            "left",
+            "right",
+            "top",
+            "bottom",
+            "position"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.preset",
+          "name": "fontPreset",
+          "title": {
+            "key": "settings.agentPane.display.font",
+            "text": "Chat Font"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "markdown",
+              "title": {
+                "key": "settings.choice.agentChatFontMarkdown",
+                "text": "Same as Markdown Viewer"
+              }
+            },
+            {
+              "value": "system",
+              "title": {
+                "key": "settings.choice.markdownFontSystem",
+                "text": "System"
+              }
+            },
+            {
+              "value": "serif",
+              "title": {
+                "key": "settings.choice.markdownFontSerif",
+                "text": "Serif"
+              }
+            },
+            {
+              "value": "mono",
+              "title": {
+                "key": "settings.choice.markdownFontMono",
+                "text": "Monospaced"
+              }
+            }
+          ],
+          "default": "markdown",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "font",
+            "family",
+            "serif",
+            "monospace",
+            "typeface"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.ui",
+          "name": "uiFont",
+          "note": "The face of the whole chat (webviews .../chatUiFont.ts; Leo, 2026-11-05: \"I haven't tried switching fonts in my own app yet. So we could just try some stuff like that\"). The default is the macOS system font (Lawrence, 2026-11-07: \"default fonts on cmux for everything should be macos default, not inter\"); Inter, with its calculated tracking or stock, is a choice.",
+          "title": {
+            "key": "settings.agentPane.display.uiFont",
+            "text": "Chat Interface Font"
+          },
+          "help": {
+            "key": "settings.agentPane.display.uiFont.help",
+            "text": "The font of the whole chat: replies, the composer, cards and menus."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "system-ui",
+              "title": {
+                "key": "settings.choice.agentChatUiFontSystemUi",
+                "text": "System (default)"
+              }
+            },
+            {
+              "value": "system-ui-tight",
+              "title": {
+                "key": "settings.choice.agentChatUiFontSystemUiTight",
+                "text": "System, tight"
+              }
+            },
+            {
+              "value": "inter-tuned",
+              "title": {
+                "key": "settings.choice.agentChatUiFontInterTuned",
+                "text": "cmux Inter"
+              }
+            },
+            {
+              "value": "inter",
+              "title": {
+                "key": "settings.choice.agentChatUiFontInter",
+                "text": "Inter"
+              }
+            },
+            {
+              "value": "verdana",
+              "title": {
+                "key": "settings.choice.agentChatUiFontVerdana",
+                "text": "Verdana"
+              }
+            },
+            {
+              "value": "roboto",
+              "title": {
+                "key": "settings.choice.agentChatUiFontRoboto",
+                "text": "Roboto"
+              }
+            },
+            {
+              "value": "plex",
+              "title": {
+                "key": "settings.choice.agentChatUiFontPlex",
+                "text": "IBM Plex Sans"
+              }
+            },
+            {
+              "value": "source-sans",
+              "title": {
+                "key": "settings.choice.agentChatUiFontSourceSans",
+                "text": "Source Sans 3"
+              }
+            },
+            {
+              "value": "geist",
+              "title": {
+                "key": "settings.choice.agentChatUiFontGeist",
+                "text": "Geist"
+              }
+            },
+            {
+              "value": "cmux-sans",
+              "title": {
+                "key": "settings.choice.agentChatUiFontCmuxSans",
+                "text": "cmux Sans"
+              }
+            },
+            {
+              "value": "hanken",
+              "title": {
+                "key": "settings.choice.agentChatUiFontHanken",
+                "text": "Hanken Grotesk"
+              }
+            },
+            {
+              "value": "atkinson",
+              "title": {
+                "key": "settings.choice.agentChatUiFontAtkinson",
+                "text": "Atkinson Hyperlegible Next"
+              }
+            }
+          ],
+          "default": "system-ui",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "font",
+            "interface",
+            "ui",
+            "typeface",
+            "verdana",
+            "roboto",
+            "inter",
+            "plex",
+            "geist",
+            "source sans",
+            "cmux sans",
+            "hanken",
+            "atkinson",
+            "system"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.size",
+          "name": "fontSize",
+          "title": {
+            "key": "settings.agentPane.display.fontSize",
+            "text": "Chat Font Size"
+          },
+          "kind": "number",
+          "range": {
+            "min": 10,
+            "max": 28,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 14
+          },
+          "default": 14,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "font",
+            "size",
+            "text"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.lineHeight",
+          "name": "lineHeight",
+          "title": {
+            "key": "settings.agentPane.display.lineHeight",
+            "text": "Chat Line Height"
+          },
+          "kind": "number",
+          "range": {
+            "min": 1.2,
+            "max": 2.4,
+            "step": 0.05,
+            "unit": "fraction",
+            "placeholder": 1.625
+          },
+          "default": 1.625,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "line height",
+            "leading",
+            "line spacing"
+          ]
+        },
+        {
+          "key": "agentPane.display.code.family",
+          "name": "codeFamily",
+          "title": {
+            "key": "settings.agentPane.display.codeFont",
+            "text": "Chat Code Font"
+          },
+          "help": {
+            "key": "settings.agentPane.display.codeFont.help",
+            "text": "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font."
+          },
+          "kind": "font_family",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "code",
+            "font",
+            "monospace",
+            "family"
+          ]
+        },
+        {
+          "key": "agentPane.display.code.scale",
+          "name": "codeScale",
+          "note": "No value of its own by default: the chat follows markdown.code.scale; the placeholder is the Markdown viewer's default.",
+          "title": {
+            "key": "settings.agentPane.display.codeSize",
+            "text": "Chat Code Size"
+          },
+          "help": {
+            "key": "settings.agentPane.display.codeSize.help",
+            "text": "Code as a share of the chat's text size. Empty uses the Markdown viewer's."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0.6,
+            "max": 1.25,
+            "step": 0.025,
+            "unit": "fraction",
+            "placeholder": 0.875
+          },
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "code",
+            "font",
+            "size",
+            "monospace",
+            "scale"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.placement",
+          "name": "sessionInfoPlacement",
+          "note": "Where the chat's Session Info opens (webviews/src/agent-session/acpmux/session-info/SessionInfo.tsx). It was agentPane.display.inspector.placement (RenamedSettingKeys).",
+          "title": {
+            "key": "settings.agentPane.display.inspector",
+            "text": "Session Info"
+          },
+          "help": {
+            "key": "settings.agentPane.display.inspector.help",
+            "text": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "push",
+              "title": {
+                "key": "settings.choice.agentChatInspectorPush",
+                "text": "Push"
+              }
+            },
+            {
+              "value": "overlay",
+              "title": {
+                "key": "settings.choice.agentChatInspectorOverlay",
+                "text": "Overlay"
+              }
+            }
+          ],
+          "default": "overlay",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "session",
+            "info",
+            "inspector",
+            "panel",
+            "side",
+            "right",
+            "overlay",
+            "push",
+            "details"
+          ]
+        },
+        {
+          "key": "agentPane.display.environment.placement",
+          "name": "environmentPlacement",
+          "note": "The machine and folder chip below the tab row (webviews/.../header/EnvironmentLine.tsx).",
+          "title": {
+            "key": "settings.agentPane.display.environment",
+            "text": "Session Info Chip"
+          },
+          "help": {
+            "key": "settings.agentPane.display.environment.help",
+            "text": "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "left",
+              "title": {
+                "key": "settings.choice.left",
+                "text": "Left"
+              }
+            },
+            {
+              "value": "right",
+              "title": {
+                "key": "settings.choice.right",
+                "text": "Right"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "left",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "session",
+            "info",
+            "chip",
+            "environment",
+            "machine",
+            "folder",
+            "placement",
+            "left",
+            "right",
+            "off"
+          ]
+        },
+        {
+          "key": "agentPane.display.minimap",
+          "note": "What the chat's edge shows (webviews threadMinimap/ThreadMinimap.tsx): the prompt rail of ticks, the full map (ScrollMap.tsx), or nothing. The values are the thread-minimap-layout experiment's arms and the default is its default arm (webviews/test/thread-minimap-setting.test.ts checks both), so the row never says one thing while the chat shows another. The keywords are the words people search for it with (Leo, 2026-10-22, searching \"TICK RAIL\": \"doesn't show as an option\"). It was an on/off toggle; AgentPaneDisplaySettingsSchema.pageValue reads the old values.",
+          "title": {
+            "key": "settings.agentPane.display.minimap",
+            "text": "Chat Minimap"
+          },
+          "help": {
+            "key": "settings.agentPane.display.minimap.help",
+            "text": "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "compact",
+              "title": {
+                "key": "settings.choice.agentChatMinimapRail",
+                "text": "Rail"
+              }
+            },
+            {
+              "value": "full",
+              "title": {
+                "key": "settings.choice.agentChatMinimapFull",
+                "text": "Full Map"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            }
+          ],
+          "default": "compact",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "minimap",
+            "thread minimap",
+            "map",
+            "overview",
+            "scroll",
+            "vscode",
+            "rail",
+            "tick",
+            "ticks",
+            "wave",
+            "prompt rail",
+            "scroll rail",
+            "prompts"
+          ]
+        },
+        {
+          "key": "agentPane.display.transcriptView",
+          "note": "How much of each turn a chat shows (webviews conversation/transcriptView.ts), Claude Code desktop's Transcript view: a chat's ... menu changes its own, and its \"Make ... the default\" writes this row.",
+          "title": {
+            "key": "settings.agentPane.display.transcriptView",
+            "text": "Transcript View"
+          },
+          "help": {
+            "key": "settings.agentPane.display.transcriptView.help",
+            "text": "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "normal",
+              "title": {
+                "key": "settings.choice.transcriptViewNormal",
+                "text": "Normal"
+              }
+            },
+            {
+              "value": "thinking",
+              "title": {
+                "key": "settings.choice.transcriptViewThinking",
+                "text": "Thinking"
+              }
+            },
+            {
+              "value": "verbose",
+              "title": {
+                "key": "settings.choice.transcriptViewVerbose",
+                "text": "Verbose"
+              }
+            }
+          ],
+          "default": "normal",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "transcript",
+            "view",
+            "verbose",
+            "thinking",
+            "thoughts",
+            "reasoning",
+            "tool output",
+            "expand",
+            "collapse",
+            "fold",
+            "details"
+          ]
+        },
+        {
+          "key": "agentPane.display.presentation",
+          "title": {
+            "key": "settings.agentPane.display.presentation",
+            "text": "Chat Presentation"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "transcript",
+              "title": {
+                "key": "settings.choice.agentChatPresentationTranscript",
+                "text": "Transcript"
+              }
+            },
+            {
+              "value": "messages",
+              "title": {
+                "key": "settings.choice.agentChatPresentationMessages",
+                "text": "Messages"
+              }
+            }
+          ],
+          "default": "transcript",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "presentation",
+            "messages",
+            "bubbles",
+            "chat",
+            "tools"
+          ]
+        },
+        {
+          "key": "agentPane.display.promptCoach",
+          "note": "Prompt coach (webviews conversation/PromptCoachCard.tsx; Leo, 2026-11-08): after a chat in which the person corrected the agent three or more times before moving on, a card under that turn shows the chat's first prompt rewritten with what they added later, with Copy. Off: the chat asks acpmux for no rewrite (`_acpmux/prompt_coach`) and draws no card.",
+          "title": {
+            "key": "settings.agentPane.display.promptCoach",
+            "text": "Prompt Coach"
+          },
+          "help": {
+            "key": "settings.agentPane.display.promptCoach.help",
+            "text": "After a chat that took several corrections, shows how its first prompt could have said it all at once."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "prompt",
+            "coach",
+            "rewrite",
+            "corrections",
+            "tips",
+            "one shot",
+            "first prompt",
+            "copy"
+          ]
+        },
+        {
+          "key": "agentPane.display.statusVerbs.mode",
+          "name": "statusVerbsMode",
+          "note": "The live line's short working verbs (webviews/.../statusVerbs.ts). Thinking is the default; Rotate opts into the per-turn -ing verbs and Custom reads the comma list.",
+          "title": {
+            "key": "settings.agentPane.display.statusVerbs",
+            "text": "Working Status Verbs"
+          },
+          "help": {
+            "key": "settings.agentPane.display.statusVerbs.help",
+            "text": "Choose whether the live status line rotates through verbs or stays on Thinking."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "thinking",
+              "title": {
+                "key": "settings.choice.agentChatStatusVerbsThinking",
+                "text": "Thinking only"
+              }
+            },
+            {
+              "value": "rotate",
+              "title": {
+                "key": "settings.choice.agentChatStatusVerbsRotate",
+                "text": "Rotate"
+              }
+            },
+            {
+              "value": "custom",
+              "title": {
+                "key": "settings.choice.agentChatStatusVerbsCustom",
+                "text": "Custom"
+              }
+            }
+          ],
+          "default": "thinking",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "status",
+            "working",
+            "verbs",
+            "thinking",
+            "spinner",
+            "rotate",
+            "custom"
+          ]
+        },
+        {
+          "key": "agentPane.display.statusVerbs.custom",
+          "name": "statusVerbsCustom",
+          "title": {
+            "key": "settings.agentPane.display.statusVerbs.custom",
+            "text": "Custom Working Verbs"
+          },
+          "help": {
+            "key": "settings.agentPane.display.statusVerbs.custom.help",
+            "text": "Comma-separated -ing verbs for the live status line."
+          },
+          "kind": "text",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "status",
+            "working",
+            "verbs",
+            "custom",
+            "comma",
+            "thinking"
+          ]
+        },
+        {
+          "key": "agentPane.display.harnessPlacement",
+          "title": {
+            "key": "settings.agentPane.display.harnessPlacement",
+            "text": "Model Picker Harness Placement"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "symbols",
+              "title": {
+                "key": "settings.choice.harnessSymbols",
+                "text": "Top Row of Symbols"
+              }
+            },
+            {
+              "value": "left",
+              "title": {
+                "key": "settings.choice.harnessLeft",
+                "text": "Left Rail with Names"
+              }
+            },
+            {
+              "value": "top",
+              "title": {
+                "key": "settings.choice.harnessTop",
+                "text": "Top Strip with Names"
+              }
+            },
+            {
+              "value": "compact",
+              "title": {
+                "key": "settings.choice.harnessCompact",
+                "text": "Compact Left Rail"
+              }
+            }
+          ],
+          "default": "symbols",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "model",
+            "picker",
+            "harness",
+            "placement",
+            "left",
+            "top",
+            "symbols"
+          ]
+        },
+        {
+          "key": "agentPane.display.rail.side",
+          "name": "railSide",
+          "title": {
+            "key": "settings.agentPane.display.rail.side",
+            "text": "Prompt Rail Side"
+          },
+          "help": {
+            "key": "settings.agentPane.display.rail.side.help",
+            "text": "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "left",
+              "title": {
+                "key": "settings.choice.left",
+                "text": "Left"
+              }
+            },
+            {
+              "value": "right",
+              "title": {
+                "key": "settings.choice.right",
+                "text": "Right"
+              }
+            }
+          ],
+          "default": "left",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "rail",
+            "minimap",
+            "prompts",
+            "ticks",
+            "scroll",
+            "side",
+            "left",
+            "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.commandLabels",
+          "note": "How the chat's running tray names background commands no built-in rule knows (CommandLabelsSetting; webviews session-info/commandLabelSettings.ts): preset names and rules of one's own, edited as JSON.",
+          "title": {
+            "key": "settings.agentPane.display.commandLabels",
+            "text": "Command Labels"
+          },
+          "help": {
+            "key": "settings.agentPane.display.commandLabels.help",
+            "text": "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label."
+          },
+          "kind": "text",
+          "default": [],
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "command",
+            "label",
+            "rule",
+            "preset",
+            "background",
+            "tray",
+            "shell"
+          ],
+          "page_hidden": "a list of preset names and rule objects, edited in cmux-next.json"
+        }
+      ]
+    }
+  ]
+}

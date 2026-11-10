@@ -21,7 +21,51 @@ type Props = {
   connecting?: "text" | "spinner";
   /// The waiting line in place of the host line: how long the pane has waited for acpmux, in ms.
   waitedMs?: number;
+  /// Alternates the gallery weighs for the waiting line, not shipped (ask-083a4c92bc): the old
+  /// one-row line (`before`), the reassurance squeezed into the message row (`one-line`), or put
+  /// behind an "Is cmux OK?" toggle (`disclosure`).
+  alternate?: "before" | "one-line" | "disclosure";
+  /// The waiting line above the failure line it turns into, to compare their rows.
+  pair?: boolean;
 };
+
+/// The gallery's unshipped waiting-line alternates, drawn with the shipped classes.
+function AlternateWaiting({ kind, waited }: { kind: NonNullable<Props["alternate"]>; waited: string }) {
+  const [open, setOpen] = useState(false);
+  const restart = <button type="button">Restart agent service</button>;
+  if (kind === "before")
+    return (
+      <output className="acpmux-host-line">
+        <p className="acpmux-host-line-message">Waiting for the agent service ({waited})</p>
+        {restart}
+      </output>
+    );
+  if (kind === "one-line")
+    return (
+      <output className="acpmux-host-line">
+        <p className="acpmux-host-line-message">
+          Waiting for the agent service ({waited}). cmux is running, chats are kept, retrying on its own.
+        </p>
+        {restart}
+      </output>
+    );
+  return (
+    <output className="acpmux-host-line-group">
+      <div className="acpmux-host-line">
+        <p className="acpmux-host-line-message">Waiting for the agent service ({waited})</p>
+        <button type="button" className="acpmux-host-line-details" onClick={() => setOpen((was) => !was)}>
+          Is cmux OK?
+        </button>
+        {restart}
+      </div>
+      {open && (
+        <p className="acpmux-host-line-detail">
+          cmux is still running, and your chats are kept. It keeps retrying on its own.
+        </p>
+      )}
+    </output>
+  );
+}
 
 function GalleryHostError({
   message,
@@ -33,12 +77,21 @@ function GalleryHostError({
   detail,
   connecting,
   waitedMs,
+  alternate,
+  pair,
 }: Props) {
   const [retrying, setRetrying] = useState(initialRetrying);
   const [restarting, setRestarting] = useState(false);
   return (
     <div className="acpmux-shell" data-host-error-fixture>
-      {connecting ? (
+      {pair ? (
+        <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
+          <HostWaitingLine since={0} now={waitedMs ?? 95_000} onRestart={() => undefined} />
+          <HostUnavailableLine message={message} detail={detail} onRetry={() => undefined} />
+        </div>
+      ) : alternate ? (
+        <AlternateWaiting kind={alternate} waited="1:35" />
+      ) : connecting ? (
         <output className="acpmux-host-line" aria-live="polite">
           {connecting === "spinner" && <Spinner size={14} loading />}
           <span className="acpmux-host-line-message">{message}</span>
@@ -75,8 +128,10 @@ const retry: Play = async (ctx) => {
 };
 
 const restart: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Restart acpmux" });
-  await ctx.waitFor(() => ctx.find({ role: "button", name: "Restarting acpmux…" }).getAttribute("disabled") !== null);
+  await ctx.click({ role: "button", name: "Restart agent service" });
+  await ctx.waitFor(
+    () => ctx.find({ role: "button", name: "Restarting agent service…" }).getAttribute("disabled") !== null,
+  );
 };
 
 const details: Play = async (ctx) => {
@@ -85,7 +140,7 @@ const details: Play = async (ctx) => {
 };
 
 const PEER_WORDS =
-  "peer_unreachable: box (reconnecting, last seen 3m ago: connect timed out); the request was not sent; run `acpmux host ls` and retry after the peer reconnects";
+  "peer_unreachable: box (reconnecting, last seen 3m ago: connect timed out); the request was not sent; run `acpmux machine ls` and retry after the peer reconnects";
 
 const restartService: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Restart agent service" });
@@ -217,16 +272,45 @@ export default componentEntry<Props>({
     },
     "too-large": {
       props: {
-        message: "This chat is too large to open. Update acpmux, then Retry.",
+        message: "This chat is too large for this version of cmux to open. Update cmux, then Retry.",
         initialRetrying: false,
         withRetry: true,
       },
       note: 'acpmux refused the chat\'s open as larger than one message (message.too_large, an acpmux before #28754): said at once in plain words, never the byte count, and the pane does not ask again on its own; Retry still asks (Leo, 2026-10-31: "this is completely hardlocked bc of message size").',
     },
+    // Leo, 2026-11-06, on "Waiting for the agent service (8:25)": "I don't know how I feel about
+    // this error display. Also, what's going on with this? has my app completely crashed? Should I
+    // be restarting it?" The line now answers both in its own words. Picked: "waiting".
     waiting: {
       props: { message: "", initialRetrying: false, withRetry: false, waitedMs: 95_000 },
+      note: "Picked. acpmux is slow to answer (a loaded Mac): after 25 s the line says how long, and a muted row under it says cmux is still running, the chats are kept and it keeps retrying. Restart agent service is quiet text after the time, where the failure line has Retry: optional, never a filled button.",
+    },
+    "waiting-restart": {
+      props: { message: "", initialRetrying: false, withRetry: false, waitedMs: 95_000 },
       play: restartService,
-      note: "acpmux is slow to answer (a loaded Mac): the app never restarts it by itself. After 25 s the line says how long the pane has waited, and the person may restart the agent service.",
+      note: "The picked line after its optional Restart agent service: the step in flight, held.",
+    },
+    "waiting-before": {
+      props: { message: "", initialRetrying: false, withRetry: false, alternate: "before" },
+      note: "Before, not shipped: how long, and a filled Restart button as the only other thing. Reads as a crash with one fix.",
+    },
+    "waiting-one-line": {
+      props: { message: "", initialRetrying: false, withRetry: false, alternate: "one-line" },
+      note: "Alternate, not shipped: the reassurance in the message row. Cut off at narrow and normal widths, so the answer is the part that goes missing.",
+    },
+    "waiting-disclosure": {
+      props: { message: "", initialRetrying: false, withRetry: false, alternate: "disclosure" },
+      note: 'Alternate, not shipped: the reassurance behind an "Is cmux OK?" toggle. Asks the person to ask; the filled Restart still leads.',
+    },
+    "waiting-to-failure": {
+      props: {
+        message: "acpmux did not answer in time.",
+        detail: "native.timed_out: acpmux did not answer _acpmux/hello in 10 s",
+        initialRetrying: false,
+        withRetry: true,
+        pair: true,
+      },
+      note: "The waiting line above the failure line it turns into: the same two rows at the same heights, so the change moves nothing above the composer. The raw error stays behind Details.",
     },
     enable: {
       props: {

@@ -7,7 +7,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { EffortPicker } from "./EffortPicker";
-import { reasoningChoices } from "./ComposerPickers";
+import { reasoningChoices } from "./composerPickerModel";
 import { STRING_TABLES, translate } from "./i18n";
 
 let dom: JSDOM | undefined;

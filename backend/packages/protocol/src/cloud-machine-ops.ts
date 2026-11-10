@@ -29,6 +29,15 @@ export const CloudMachineSize = Schema.Struct({
   disk_mb: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1024, maximum: 1048576 })))
 }).annotate({ identifier: "CloudMachineSize", description: "A machine size. The plan decides which sizes are allowed (cloud.size.locked)." })
 
+export const CloudDeleteReason = Schema.Literals(["failed_create", "never_used", "unused", "requested"]).annotate({ identifier: "CloudDeleteReason" })
+
+export const CloudRetentionNotice = Schema.Struct({
+  kind: Schema.Literals(["heads_up", "last_note"]),
+  /** When the platform recorded it (ms); the app remembers a dismissal per machine and `at`. */
+  at: Millis,
+  delete_at: Millis
+}).annotate({ identifier: "CloudRetentionNotice" })
+
 export const CloudMachine = Schema.Struct({
   id: MachineId,
   team: TeamId,
@@ -58,8 +67,46 @@ export const CloudMachine = Schema.Struct({
    * has no rate.
    */
   hourly_rate_usd: Schema.optionalKey(Schema.NullOr(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)))),
+  /**
+   * What the machine costs while it is paused, in US dollars an hour: the provider's list price for keeping
+   * its disk and memory (cmux sets it; clients keep no rate table). Clients show it by the month ("about $X
+   * a month while paused"), since an hour of it is under a cent. For display only, not a bill. Absent or
+   * null when the size has no paused rate.
+   */
+  paused_hourly_rate_usd: Schema.optionalKey(Schema.NullOr(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)))),
   /** When the machine last started running (a start or a bind); null unless it is running. Clients show rate x time running as "about $X so far". */
   running_since: Schema.optionalKey(Schema.NullOr(Millis)),
+  /**
+   * The machine serves link service `desktop` (its agent display as cmux.rd/1): a Native machine whose daemon
+   * advertises CLOUD_DESKTOP_CAPABILITY in its bind or status report. Clients offer Open Desktop's `rd` viewer on
+   * it; the link_token mint stays the authority (the creator only). Absent from an older server: no desktop.
+   */
+  desktop: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Automatic cleanup (cmux-platform Retention.ts). evict_at: when the platform deletes this machine by itself (ms),
+   * null when nothing will (kept, running, a paid plan's worked-in machine, or cleanup off). delete_reason: why
+   * (failed_create and never_used go silently; unused is a worked-in machine on a plan that deletes them, after one
+   * heads-up; requested is a person's archive and delete). Absent from an older server: no date.
+   */
+  evict_at: Schema.optionalKey(Schema.NullOr(Millis)),
+  delete_reason: Schema.optionalKey(Schema.NullOr(CloudDeleteReason)),
+  /** A person pinned it (cloud.machine.keep): never deleted automatically. Absent: false. */
+  keep: Schema.optionalKey(Schema.Boolean),
+  /**
+   * The one in-app notice before an `unused` machine's delete: the heads-up (heads_up_days before) or the last note
+   * (last_note_days before). Each comes once per deadline; a use, a keep or a new deadline clears it.
+   */
+  notice: Schema.optionalKey(Schema.NullOr(CloudRetentionNotice)),
+  /**
+   * The team's spending cap paused this machine (cmux-platform SpendCap.ts); pause_reason stays null for it. A start
+   * clears it. Absent otherwise, and from a server without the cap.
+   */
+  paused_by: Schema.optionalKey(Schema.Literal("spend_cap")),
+  /**
+   * The team reached its spending cap: this running machine pauses at this time unless an admin raises the cap first
+   * (the 15-minute warning). A pause, a start or a raised cap clears it.
+   */
+  spend_cap_pause_at: Schema.optionalKey(Millis),
   revision: Revision
 }).annotate({ identifier: "CloudMachine" })
 
@@ -70,8 +117,48 @@ export const CloudSnapshot = Schema.Struct({
   size_mb: Schema.Int,
   status: Schema.Literals(["creating", "ready", "deleting", "failed"]),
   created_at: Millis,
+  /**
+   * The archive the platform took of a machine before deleting it (automatic cleanup or archive and delete), kept
+   * until `until` (ms) and then deleted. cloud.snapshot.restore makes a new machine from it. Absent: not an archive.
+   */
+  archive_of: Schema.optionalKey(Schema.NullOr(Schema.Struct({ machine: MachineId, name: Schema.NullOr(MachineName), until: Millis }))),
   revision: Revision
 }).annotate({ identifier: "CloudSnapshot" })
+
+/** A team's own cleanup numbers (cloud.retention.set), each within its plan's limit. */
+export const CloudRetentionOverrides = Schema.Struct({
+  failed_create_hours: Schema.optionalKey(Schema.Int),
+  never_used_hours: Schema.optionalKey(Schema.Int),
+  idle_pause_minutes: Schema.optionalKey(Schema.Int),
+  worked_in_days: Schema.optionalKey(Schema.Int),
+  heads_up_days: Schema.optionalKey(Schema.Int),
+  last_note_days: Schema.optionalKey(Schema.Int),
+  archive_days: Schema.optionalKey(Schema.Int)
+}).annotate({ identifier: "CloudRetentionOverrides" })
+
+/**
+ * The cleanup in force for the caller's machines: the plan's tier with the team's overrides inside its limits.
+ * worked_in_days null: a machine someone worked in is never deleted automatically (paid plans).
+ */
+export const CloudRetentionSettings = Schema.Struct({
+  tier: Schema.String,
+  failed_create_hours: Schema.Int,
+  never_used_hours: Schema.Int,
+  idle_pause_minutes: Schema.Int,
+  worked_in_days: Schema.NullOr(Schema.Int),
+  heads_up_days: Schema.Int,
+  last_note_days: Schema.Int,
+  archive_days: Schema.Int
+}).annotate({ identifier: "CloudRetentionSettings" })
+
+export const CloudRetention = Schema.Struct({
+  /** CLOUD_EVICT: on deletes, warn only stamps dates, off does neither. */
+  mode: Schema.Literals(["off", "warn", "on"]),
+  settings: Schema.NullOr(CloudRetentionSettings),
+  team: CloudRetentionOverrides,
+  /** Whether the caller gets the one email heads-up before one of their machines is deleted. */
+  email_heads_up: Schema.Boolean
+}).annotate({ identifier: "CloudRetention" })
 
 export const CloudPlan = Schema.Struct({
   plan_id: PlanId,
@@ -84,14 +171,37 @@ export const CloudPlan = Schema.Struct({
     locked_memory_options_mb: Schema.Array(Schema.Int),
     vm_hours_included: Schema.NullOr(Schema.Number)
   }),
-  /** vm_hours_used: null while the VM-hours meter is not wired (unknown, never a made-up 0). */
-  usage: Schema.Struct({ active: Schema.Int, saved: Schema.Int, vm_hours_used: Schema.NullOr(Schema.Number), period_end: Millis })
+  /**
+   * vm_hours_used: null while the VM-hours meter is not wired (unknown, never a made-up 0).
+   * vm_hours_used_by_you: the caller's share (machines they created), null while the split is unknown; absent from
+   * servers that do not split it (Team plan, per-member budgets).
+   */
+  usage: Schema.Struct({ active: Schema.Int, saved: Schema.Int, vm_hours_used: Schema.NullOr(Schema.Number), vm_hours_used_by_you: Schema.optionalKey(Schema.NullOr(Schema.Number)), period_end: Millis }),
+  /** Automatic machine cleanup (cmux-platform Retention.ts); absent or null from a server without it. */
+  retention: Schema.optionalKey(Schema.NullOr(CloudRetention)),
+  /**
+   * The team's spending cap on Cloud machines (cmux-platform SpendCap.ts `capView`), absent where the cap is off. The
+   * last read of the team's spend (state under, near or at_cap; null before the first read; cap_usd null when the
+   * team has no cap), when running member machines pause if the team is still at its cap (pause_at, null when none is
+   * pending), and when the cap paused them (paused_at, null when it has not).
+   */
+  spend_cap: Schema.optionalKey(
+    Schema.Struct({
+      state: Schema.NullOr(Schema.Literals(["under", "near", "at_cap"])),
+      spent_usd: Schema.NullOr(Schema.Number),
+      cap_usd: Schema.NullOr(Schema.Number),
+      period_end: Schema.NullOr(Millis),
+      checked_at: Schema.NullOr(Millis),
+      pause_at: Schema.NullOr(Millis),
+      paused_at: Schema.NullOr(Millis)
+    })
+  )
 }).annotate({ identifier: "CloudPlan" })
 
 /**
  * The caller's kind on one machine, the classic attach answer's `vmKind` (web vmKindForCaller):
- * `owner` only for the machine's creator on the creator's personal team, never an agent token;
- * every shared-team machine is `team`, its creator included. Computed per request, never stored.
+ * `owner` for the machine's creator on any team (personal or shared, any size), never an agent token;
+ * every other member is `team`. Computed per request, never stored.
  * A client grants owner privileges only on the exact value `owner`.
  */
 export const CloudVmKind = Schema.Literals(["owner", "team"])
@@ -134,6 +244,11 @@ const MUTATION = [...mutationErrors, ...GATES]
 export const PROVIDER = ["cloud.provider.unavailable", "mutation.indeterminate"]
 /** Create and delete are limited per team (CLOUD_MUTATION_LIMIT); retryable, retry after a minute. */
 export const LIMITED = ["cloud.rate_limited"]
+/**
+ * A member's start at the team's spending cap (cloud.spend_cap.reached {spent_usd, cap_usd, period_end, pause_at}) or
+ * over their own monthly budget (cloud.member_budget.reached {spent_usd, limit_usd}); cmux-platform SpendCap.ts.
+ */
+export const SPEND_CAP = ["cloud.spend_cap.reached", "cloud.member_budget.reached"]
 export const KEY = " After mutation.indeterminate, retry with the same idempotency key."
 /**
  * The G8 approval path (cx-wb5.65, domains/cloud.ts CLOUD_APPROVAL_OPS): a non-agent install
@@ -186,13 +301,13 @@ export const CloudMachineCreate = cloudMutation(
   "money",
   Schema.Struct({ name: Schema.optionalKey(MachineName), size: CloudMachineSize, image: Schema.optionalKey(ImageId), from_snapshot: Schema.optionalKey(SnapshotId) }),
   MachineResult,
-  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER, ...LIMITED, ...APPROVAL],
-  "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine." + KEY + APPROVAL_DOC,
+  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...SPEND_CAP, ...PROVIDER, ...LIMITED, ...APPROVAL],
+  "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine." + KEY + APPROVAL_DOC,
   "cloud machine create",
   true
 )
 export const CloudMachineRename = cloudMutation("cloud.machine.rename", "mutate-shared", Schema.Struct({ machine: MachineId, name: MachineName }), MachineResult, ["cloud.machine.not_found"], "Rename a machine.", "cloud machine rename")
-export const CloudMachineStart = cloudMutation("cloud.machine.start", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.machine.not_paused", "cloud.machine.not_bound", "cloud.quota.exceeded", "cloud.plan.required", ...LIMITED, ...PROVIDER], "Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team." + KEY, "cloud machine start", true)
+export const CloudMachineStart = cloudMutation("cloud.machine.start", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.machine.not_paused", "cloud.machine.not_bound", "cloud.quota.exceeded", "cloud.plan.required", ...SPEND_CAP, ...LIMITED, ...PROVIDER], "Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team." + KEY, "cloud machine start", true)
 export const CloudMachinePause = cloudMutation("cloud.machine.pause", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.machine.not_running", ...LIMITED, ...PROVIDER], "Pause a running machine (memory kept): answers status pausing; cloud.machine.upsert brings paused (or running again with the error). The active slot is freed when it lands; cloud.machine.not_running {machine, state} for any other status. A money op: a signed-in person only; limited per team." + KEY, "cloud machine pause", true)
 export const CloudMachineResize = cloudMutation(
   "cloud.machine.resize",
@@ -223,17 +338,64 @@ export const CloudMachineIdlePolicySet = cloudMutation(
   "Set this machine's idle policy (ours only; Freestyle's own timer is always off). It applies only with the team policy cloud.idlePause on, from the VM's own activity reports. 0 means no early pause. The 24 h backstop pauses every machine idle for 24 h by its reports, so any value above 24 h acts as 24 h.",
   "cloud machine idle-policy set"
 )
+/** cloud.machine.keep: pin a machine so nothing deletes it automatically (keep: false unpins it). */
+export const CloudMachineKeep = cloudMutation(
+  "cloud.machine.keep",
+  "mutate-shared",
+  Schema.Struct({ machine: MachineId, keep: Schema.Boolean }),
+  MachineResult,
+  ["cloud.machine.not_found"],
+  "Keep a machine: it is never deleted automatically, whatever the plan's retention. keep: false lets the plan's retention apply again. The machine's creator or a team admin only.",
+  "cloud machine keep"
+)
+/**
+ * cloud.machine.archive_delete: the one-click "archive and delete" of a paused or failed machine (a paid plan's way
+ * to stop paying for a paused machine's disk). The platform archives the disk first (a snapshot with archive_of, kept
+ * the plan's archive_days and restorable as a new machine), then deletes the machine once the archive is ready.
+ */
+export const CloudMachineArchiveDelete = cloudMutation(
+  "cloud.machine.archive_delete",
+  "destructive",
+  MachineParams,
+  MachineResult,
+  ["cloud.machine.not_found", "cloud.machine.not_paused"],
+  "Archive a paused machine's disk, then delete the machine. The archive is a snapshot (archive_of names the machine) kept for the plan's archive days; cloud.snapshot.restore makes a new machine from it. The machine's creator or a team admin only.",
+  "cloud machine archive-delete",
+  true
+)
+/**
+ * cloud.retention.set: a team admin's overrides of the plan's cleanup numbers (`settings`, null clears them; a
+ * non-admin is auth.forbidden), and the caller's own choice of the email heads-up (`email_heads_up`). cloud.plan.get
+ * answers both as `retention`.
+ */
+export const CloudRetentionSet = cloudMutation(
+  "cloud.retention.set",
+  "mutate-shared",
+  Schema.Struct({ settings: Schema.optionalKey(Schema.NullOr(CloudRetentionOverrides)), email_heads_up: Schema.optionalKey(Schema.Boolean) }),
+  Schema.Struct({ changed: Schema.Boolean }),
+  [],
+  "Set this team's cleanup numbers (a team admin; each within the plan's limit, a worked-in window never past the plan's) and whether you get the email heads-up before one of your machines is deleted. cloud.plan.get answers the settings in force as `retention`.",
+  "cloud retention set"
+)
+
 export const CloudMachineConnectInfo = cloudRead(
   "cloud.machine.connect_info",
   Schema.Struct({ machine: Schema.optionalKey(MachineId), host: Schema.optionalKey(HostId) }),
   CloudConnectInfo,
   ["cloud.machine.not_bound", "cloud.machine.not_found"],
-  "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner only for its creator on the creator's personal team; every shared-team machine is team).",
+  "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner for its creator on any team, never an agent token; every other member is team).",
   "cloud machine connect-info"
 )
 
-const LinkService = Schema.Literals(["daemon", "ssh"])
-const LinkServices = Schema.Array(LinkService).check(Schema.isMinLength(1), Schema.isMaxLength(2), Schema.isUnique())
+/**
+ * `desktop` is the person's view of the machine's agent display (`cmux.rd/1`, carried over the link). Only the
+ * machine's creator may mint it, and only on a machine whose daemon block advertises CLOUD_DESKTOP_CAPABILITY.
+ * connect_info never lists it: clients before it read that list strictly, so the mint is its only authority.
+ */
+const LinkService = Schema.Literals(["daemon", "ssh", "desktop"])
+const LinkServices = Schema.Array(LinkService).check(Schema.isMinLength(1), Schema.isMaxLength(3), Schema.isUnique())
+/** The bind/status daemon capability of a machine whose image serves the `desktop` link service. */
+export const CLOUD_DESKTOP_CAPABILITY = "link-desktop-v1"
 
 export const CloudMachineLinkToken = def({
   name: "cloud.machine.link_token",
@@ -257,7 +419,7 @@ export const CloudMachineLinkToken = def({
   }),
   // No key and no revision input, so no idempotency.conflict and no revision.conflict.
   errors: [...MUTATION.filter((code) => code !== "revision.conflict" && code !== "idempotency.conflict"), ...LIMITED, "cloud.link.install_refused", "cloud.machine.not_bound", "cloud.machine.not_found", "cloud.machine.paused"],
-  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
+  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists, or `desktop`, which connect_info never lists: the machine's creator only, on a machine whose daemon advertises link-desktop-v1) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
   cli: { path: "cloud machine link-token", visible: false },
   mcp: { expose: "never", group: "cloud" }
 })
@@ -295,7 +457,7 @@ export const CloudSnapshotRestore = cloudMutation(
   "money",
   Schema.Struct({ snapshot: SnapshotId, name: Schema.optionalKey(MachineName) }),
   MachineResult,
-  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...LIMITED, ...PROVIDER, ...APPROVAL],
+  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...SPEND_CAP, ...LIMITED, ...PROVIDER, ...APPROVAL],
   "Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team." + KEY + APPROVAL_DOC,
   "cloud snapshot restore",
   true
@@ -360,6 +522,9 @@ export const cloudMachineOps = [
   CloudMachineResize,
   CloudMachineDelete,
   CloudMachineIdlePolicySet,
+  CloudMachineKeep,
+  CloudMachineArchiveDelete,
+  CloudRetentionSet,
   CloudMachineConnectInfo,
   CloudMachineLinkToken,
   CloudMachineUpgrade,

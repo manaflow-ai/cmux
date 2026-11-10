@@ -57,8 +57,8 @@ const park =
   async (ctx) => {
     await ctx.waitFor(() => (ctx.document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollHeight ?? 0) > 1_000);
     await ctx.scroll({ selector: ".acpmux-scroll" }, 1_200);
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
-    const button = ctx.document.querySelector<HTMLElement>(".acpmux-jump-latest");
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+    const button = ctx.document.querySelector<HTMLElement>(".acpmux-jump-latest:not(.acpmux-jump-up)");
     // Lifted off the composer's soft edge into the prose, so the lens has words to bend.
     button?.style.setProperty("bottom", `calc(12px + var(--acpmux-dock-space, 0px) + ${LIFT_PX}px)`);
     if (strength) button?.style.setProperty("--glass-fisheye", `url(#${fisheyeFilterId(strength)})`);
@@ -73,7 +73,7 @@ export default agentPaneEntry({
   title: "Jump to latest fisheye lens",
   area: "Agent pane",
   height: 700,
-  covers: ["ui/glass/Fisheye.tsx", "agent-session/acpmux/App.tsx#VirtualTranscript"],
+  covers: ["ui/glass/Fisheye.tsx", "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
   checks: {
     anchorMovePx: { value: 0, reason: "The lens bends only what the button draws; no row or composer moves." },
   },

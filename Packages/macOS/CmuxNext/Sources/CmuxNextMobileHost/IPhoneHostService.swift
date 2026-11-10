@@ -1,7 +1,9 @@
 public import AppKit
 public import CmuxNextAgentPane
 public import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextKeepAwake
+import CmuxNextWakeups
 public import CmuxNextMobile
 public import Foundation
 public import Observation
@@ -50,9 +52,9 @@ public final class IPhoneHostService {
         var acpmux: @Sendable () async -> (url: URL, token: String)?
         /// Folders the phone may preview files from (the chat roots).
         var fileRoots: @MainActor () -> [String]
-        /// The folders of the tabs this Mac's daemon lists now (absolute, deduplicated):
-        /// a phone may start agent chats there (``MobileHostApproverSync/updateWorkspaceRoots(_:)``).
-        var workspaceFolders: @MainActor @Sendable () -> [String] = { [] }
+        /// The workspaces this Mac's daemon lists now: a phone may start agent chats in their tabs' folders
+        /// (``MobileHostWorkspaceFolders``, ``MobileHostApproverSync/updateWorkspaceRoots(_:)``).
+        var workspaces: @MainActor @Sendable () -> [WorkspaceModel] = { [] }
         /// This Mac's agent tab host (`install:<id>`), for agent tabs a phone creates.
         var agentTabHost: @MainActor () -> String? = { nil }
         /// The agent and model this Mac's New Tab page picked last (``NewChatPicks``):
@@ -72,6 +74,9 @@ public final class IPhoneHostService {
         /// and its socket once connected. hostd's `chief` service dials it; without it hostd
         /// guesses `~/.cmux/chief/default`, which is not a DEV or tagged build's Chief.
         var chief: (@MainActor () async -> ChiefPlacement?)?
+        /// Tests only: reads this Mac's identity key in place of the Keychain store
+        /// (``MobileHostMacIdentityStore/loadOrCreate(fileStoreOnRefusal:)``). Nil in the app.
+        var macIdentity: (@Sendable (_ fileStoreOnRefusal: Bool) throws -> MobileHostMacIdentity)?
     }
 
     /// Where this app's Chief owner listens (``Dependencies/chief``).
@@ -175,7 +180,8 @@ public final class IPhoneHostService {
     /// Observers that show a waiting prompt once a cmux window is on screen.
     @ObservationIgnored var pairWindowWatch: [any NSObjectProtocol] = []
     @ObservationIgnored var approverSync: MobileHostApproverSync?
-    @ObservationIgnored private var followingFolders: Task<Void, Never>?
+    /// The folders acpmux gets (``followWorkspaceFolders()``).
+    @ObservationIgnored private let folders = MobileHostWorkspaceFolders()
     @ObservationIgnored private var followingPicks: Task<Void, Never>?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
     /// App-lifetime wake observer; released on stop or deinit.
@@ -187,6 +193,34 @@ public final class IPhoneHostService {
     @ObservationIgnored private var followingAccount: Task<Void, Never>?
     /// The user and team hostd runs for now (the toggle on); a name or email change does not restart it.
     @ObservationIgnored private var running: String?
+    /// Counts the starts ``reconcile()`` makes: a start lets the Mac sleep only while no newer one has
+    /// begun since. The account key alone cannot tell (off and on again, or A to B to A, gives the
+    /// same key back), so an older start that finishes late would end the hold a newer one set
+    /// (review of #36149).
+    @ObservationIgnored private var reconcileGeneration = 0
+    /// Where this host holds off idle sleep while phones can reach it; tests record it instead.
+    @ObservationIgnored var setKeepAwake: @MainActor (Bool) -> Void = { KeepAwakeService.shared.setIPhoneServing($0) }
+    /// The next try at this Mac's identity key after the Keychain refused the read, and how many
+    /// were refused in a row (``MobileHostMacIdentityStore/loadOrCreate(fileStoreOnRefusal:)``).
+    @ObservationIgnored private var identityRetry: Task<Void, Never>?
+    @ObservationIgnored private var identityRefusals = 0
+    /// The spacing of those tries (1 s doubling to 30 s), and the clock it waits on (tests inject their own).
+    @ObservationIgnored private var identityBackoff = Backoff(initial: .seconds(1), maximum: .seconds(30))
+    @ObservationIgnored var identityRetryClock: any Clock<Duration> = ContinuousClock()
+    /// The spacing of tries while cmux-tui's socket is not there yet (1 s doubling to 30 s), on the same clock.
+    @ObservationIgnored private var daemonBackoff = Backoff(initial: .seconds(1), maximum: .seconds(30))
+    /// The account and team those refusals were counted for: another one starts from zero.
+    @ObservationIgnored private var identityRefusalsKey: String?
+    /// Refused reads in a row after which a DEV build uses the file store, as before (about a minute of
+    /// tries): a rebuilt or re-signed DEV app may never read the item an earlier signature made. A
+    /// Release build (nightly, stable) is always signed the same way, so a refusal there is a locked
+    /// or busy Keychain: it waits for it however long, and never makes a second identity.
+    static let identityRefusalsBeforeFileKey = 6
+    #if DEBUG
+    static let mayUseFileStoreOnRefusal = true
+    #else
+    static let mayUseFileStoreOnRefusal = false
+    #endif
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
@@ -243,10 +277,16 @@ public final class IPhoneHostService {
         }
     }
 
-    /// The app Feed's open requests for the phones (#33818): handed to hostd, which serves and
-    /// pushes them (`needs_you.rs`). One hop to the supervisor; it keeps the newest set.
-    public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest]) async {
-        await supervisor.setNeedsYou(requests)
+    /// The app Feed's open requests for the phones (#33818), from `user`'s feed: handed to hostd,
+    /// which serves and pushes them (`needs_you.rs`). One hop to the supervisor; it keeps the newest
+    /// set for that account's hostd only.
+    public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest], user: String) async {
+        await supervisor.setNeedsYou(requests, user: user)
+    }
+
+    /// The feed's account changed or signed out: the kept set is forgotten, so no hostd gets it.
+    public func clearNeedsYou() async {
+        await supervisor.clearNeedsYou()
     }
 
     /// Reads the account's phones from the mobile service (latest read wins).
@@ -336,20 +376,16 @@ public final class IPhoneHostService {
     /// Hands acpmux the folders of this Mac's workspaces while iPhone connections are allowed
     /// for a signed-in account (none otherwise), so a phone's agent chat starts there.
     func followWorkspaceFolders() {
-        followingFolders?.cancel()
-        // task-owner: lives as long as the app; re-reads the folders on each daemon tree change
-        followingFolders = Task { [weak self] in
-            for await folders in ObservationStream({ [weak self] in
-                guard let self, allowed, account != nil else { return [String]() }
-                return dependencies?.workspaceFolders() ?? []
-            }) {
-                guard let self else { return }
-                if approverSync == nil, !folders.isEmpty, let environment = dependencies?.acpmuxEnvironment {
-                    approverSync = makeApproverSync(environment)
-                }
-                approverSync?.updateWorkspaceRoots(folders)
+        folders.follow({ [weak self] in
+            guard let self, allowed, account != nil else { return nil }
+            return dependencies?.workspaces() ?? []
+        }, send: { [weak self] folders in
+            guard let self else { return }
+            if approverSync == nil, !folders.isEmpty, let environment = dependencies?.acpmuxEnvironment {
+                approverSync = makeApproverSync(environment)
             }
-        }
+            approverSync?.updateWorkspaceRoots(folders)
+        })
     }
 
     /// Hands acpmux the agent and model this Mac's New Tab page picked last while iPhone
@@ -391,7 +427,7 @@ public final class IPhoneHostService {
     /// hostd reported the removal: remember it (across relaunches) and forget the device id.
     private func recordRemoval() {
         removed = true
-        KeepAwakeService.shared.setIPhoneServing(false)
+        setKeepAwake(false)
         pairTokens.revoke()
         guard let dependencies, let key = running else { return }
         do {
@@ -438,13 +474,14 @@ public final class IPhoneHostService {
     /// `applicationWillTerminate`; the quit awaited the paired list's saves before it (``pairedSavesDrained()``).
     public func stop() {
         wakeObserver = nil
-        KeepAwakeService.shared.setIPhoneServing(false)
+        setKeepAwake(false)
         running = nil
         following?.cancel()
         followingAccount?.cancel()
         applying?.cancel()
+        identityRetry?.cancel()
         pairingWatch?.cancel()
-        followingFolders?.cancel()
+        folders.stop()
         followingPicks?.cancel()
         approverSync?.stop()
         quietAttention()
@@ -464,12 +501,60 @@ public final class IPhoneHostService {
         await pairedFile?.drained()
     }
 
+    /// Starts hostd again after a refused identity read for `key`, after the next ``identityBackoff`` wait.
+    private func retryIdentity(for key: String?) {
+        identityRefusalsKey = key
+        identityRefusals += 1
+        identityRetry?.cancel()
+        // The spacing advances here, on the main actor, so a success meanwhile (its reset) is never undone.
+        let delay = identityBackoff.next()
+        // task-owner: stored in `identityRetry`; stop() and the next refusal cancel it
+        identityRetry = Task { [weak self, clock = identityRetryClock] in
+            var wait = Backoff(initial: delay, maximum: delay, jitter: 0)
+            // concurrency-allow: Backoff.wait is an async sleep after a failure (a refused Keychain read), not a blocking wait.
+            do { try await wait.wait(owner: "iphone-host.identity", clock: clock) } catch { return }
+            self?.reconcile()
+        }
+    }
+
+    /// What `Dependencies.daemonSocket` throws when policy turned cmux-tui's endpoint off: the one
+    /// socket failure the start does not wait out.
+    public nonisolated struct DaemonSocketBlocked: Error, Sendable {
+        public let reason: String
+        public init(reason: String) { self.reason = reason }
+    }
+
+    /// Starts hostd again after cmux-tui's socket was not there for `key`, after the next
+    /// ``daemonBackoff`` wait. Shares the identity retry's slot, so turning connections off or
+    /// signing out ends it the same way; it never counts as a refused Keychain read.
+    private func retryStart(for key: String?) {
+        identityRetry?.cancel()
+        let delay = daemonBackoff.next()
+        // task-owner: stored in `identityRetry`; stop() and the next reconcile cancel it
+        identityRetry = Task { [weak self, clock = identityRetryClock] in
+            var wait = Backoff(initial: delay, maximum: delay, jitter: 0)
+            // concurrency-allow: Backoff.wait is an async sleep after a failure (no cmux-tui socket yet), not a blocking wait.
+            do { try await wait.wait(owner: "iphone-host.daemon", clock: clock) } catch { return }
+            guard let self, self.running == nil else { return }
+            self.reconcile()
+        }
+    }
+
     private func reconcile() {
-        KeepAwakeService.shared.setIPhoneServing(allowed && account != nil && !removed)
+        setKeepAwake(allowed && account != nil && !removed)
         let want = allowed ? account : nil
         let key = want.map { "\($0.userID)\u{0}\($0.teamID)" }
-        guard key != running else { return }
+        // A Keychain wait leaves `running` nil with a retry pending: turning connections off or
+        // signing out meanwhile must still stop it and show that state, not the wait.
+        let waitingOnIdentity = identityRetry != nil
+        guard key != running || (key == nil && waitingOnIdentity) else { return }
+        identityRetry?.cancel()
+        identityRetry = nil
         running = key
+        // A reconcile that changes nothing (same key) leaves the generation alone, so an in-flight
+        // start for that key still releases the hold when its endpoint turns out blocked.
+        reconcileGeneration += 1
+        let generation = reconcileGeneration
         let previous = applying
         let dependencies = dependencies
         let supervisor = supervisor
@@ -489,13 +574,41 @@ public final class IPhoneHostService {
             // Removed by the owner (this launch or an earlier one): stay stopped.
             if let key, MobileHostRemovalMarker(directory: dependencies.stateDirectory).account() == key {
                 self?.removed = true
-                KeepAwakeService.shared.setIPhoneServing(false)
+                self?.setKeepAwake(false)
                 self?.pairTokens.revoke()
                 await supervisor.stop(phase: .removed)
                 return
             }
+            let socket: String
             do {
-                let socket = try await dependencies.daemonSocket()
+                socket = try await dependencies.daemonSocket()
+                self?.daemonBackoff.reset()
+            } catch let blocked as DaemonSocketBlocked {
+                // The organization turned cmux-tui's endpoint off: that does not pass by itself, so no
+                // retry (review of #36099). `running` keeps the key: a toggle off or a sign-out then
+                // differs from it and stops the host as usual, and an account change or toggle back on
+                // starts again. Clearing it would let reconcile see nil == nil and skip that stop.
+                guard !Task.isCancelled, self?.running == key else { return }
+                logger.error("iPhone host not started: \(blocked.reason, privacy: .public)")
+                await supervisor.stop(phase: .unavailable(blocked.reason))
+                // Nothing to serve: the Mac may sleep (a later reconcile sets it again). Only while no
+                // newer reconcile ran: one that started meanwhile set the hold for its own start.
+                guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
+                self?.setKeepAwake(false)
+                return
+            } catch {
+                // cmux-tui is not connected yet (launch, a daemon restart or update). hostd needs its
+                // socket, so try again on the backoff: giving up here left the Mac unregistered until a
+                // relaunch or a toggle, and every phone showed it asleep while it was awake (2026-11-05).
+                guard !Task.isCancelled, self?.running == key else { return }
+                logger.error("iPhone host waits for cmux-tui: \(String(describing: error), privacy: .public)")
+                await supervisor.stop(phase: .waiting(String(describing: error)))
+                guard !Task.isCancelled, self?.running == key else { return }
+                self?.running = nil
+                self?.retryStart(for: key)
+                return
+            }
+            do {
                 let deviceID = try MobileHostDeviceIdentity(directory: dependencies.stateDirectory).deviceID()
                 // The key phones pin for this Mac (Keychain; created on first use), read off the
                 // main actor: a Keychain call must never hold launch (a re-signed rig app's access
@@ -503,7 +616,12 @@ public final class IPhoneHostService {
                 let store = MobileHostMacIdentityStore(bundleID: dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
                                                 stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
-                let identity = try await Task.detached { try store.loadOrCreate() }.value
+                if self?.identityRefusalsKey != key { self?.identityRefusals = 0; self?.identityBackoff.reset() }
+                let fileStore = Self.mayUseFileStoreOnRefusal && (self?.identityRefusals ?? 0) >= Self.identityRefusalsBeforeFileKey
+                let read = dependencies.macIdentity
+                let identity = try await Task.detached { try read?(fileStore) ?? store.loadOrCreate(fileStoreOnRefusal: fileStore) }.value
+                self?.identityRefusals = 0
+                self?.identityBackoff.reset()
                 let name = await dependencies.computerName()
                 let chief = await dependencies.chief?()
                 guard !Task.isCancelled, self?.running == key else { return }
@@ -515,6 +633,20 @@ public final class IPhoneHostService {
                     log: dependencies.stateDirectory.appendingPathComponent("cmux-mobile-host.log", isDirectory: false),
                     browserHosts: dependencies.browserHosts, macIdentity: identity,
                     surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks))
+            } catch MobileHostMacIdentityError.keychainRefused(let status) {
+                // The Keychain holds this Mac's identity but refused the read (locked at login or wake):
+                // try again shortly rather than prove a second key the phones would refuse. A stop() or a
+                // newer reconcile meanwhile owns what happens next: no retry from this one.
+                guard !Task.isCancelled, self?.running == key else { return }
+                logger.error("iPhone host waits for the Keychain (\(status, privacy: .public)) to read this Mac's identity")
+                await supervisor.stop(phase: .waiting(IPhoneHostStrings.keychainLocked))
+                // A newer reconcile (same key after off and on, or A to B to A) owns the state now:
+                // this stale start neither ends its hold nor clears its key for a retry of its own.
+                guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
+                // Nothing to serve while it waits: the Mac may sleep (the retry's reconcile sets it again).
+                self?.setKeepAwake(false)
+                self?.running = nil
+                self?.retryIdentity(for: key)
             } catch {
                 logger.error("iPhone host not started: \(String(describing: error), privacy: .public)")
                 await supervisor.stop(phase: .waiting(String(describing: error)))

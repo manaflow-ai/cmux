@@ -67,6 +67,7 @@ one move pool per push with the new-file rule (move_pools).
 from __future__ import annotations
 
 import argparse
+import bisect
 import collections
 import concurrent.futures
 import dataclasses
@@ -1667,6 +1668,357 @@ def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
     return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
 
 
+# ---- raw-observation (TERMINAL CREATE COST, lead 2026-11-05)
+# A local change costs O(changed items), never O(session) (CLAUDE.md "Go past Chrome", PATTERNS.md P3). A test proves
+# it by counting the observation trackings one change wakes (CmuxNextCompat `ObservationWakes`); it sees only the
+# three tracked wrappers, so an observer written on a raw `withObservationTracking` is invisible to it. New code
+# observes through a wrapper; the wrappers themselves are the only raw callers.
+RAW_OBSERVATION = re.compile(r"\bwithObservationTracking\b")
+OBSERVATION_WRAPPERS = frozenset({
+    SOURCES + "CmuxNextCompat/ObservationStream.swift",
+    SOURCES + "CmuxNextCompat/SingleArmedTracking.swift",
+    SOURCES + "CmuxNextBrowser/UI/ObservationLoop.swift",
+})
+
+
+def outside_observation_wrappers(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether VERSION is not one of the tracked observation wrappers (their own raw call is the point)."""
+    return version.path not in OBSERVATION_WRAPPERS, []
+
+
+# ---- observation-onchange / observation-scope (plans/cmux-next/main-thread-scheduling.md G2 and 1.4, MTS step 2)
+# A `withObservationTracking` will-set callback runs synchronously inside the write that fired it (the store drain):
+# an `onChange:` only marks dirty and enqueues; it never reads the model or computes (G2). An observation closure
+# (an `ObservationStream`, `ObservationLoop` or tracking apply closure) re-runs on any change to anything it read, so
+# a walk over every workspace or tab in it makes every change cost O(session) on main (the 03:03Z loop, O1-O9): it
+# reads one item, or the list an `ObservedItems` owner keeps (the list and the ids, no item field). Both rules are a
+# lexical early warning on what a push adds; the runtime record (G3, `ObservationWakes`) checks the effect.
+# The text is read as one string of code (comments dropped, string contents blanked), so a closure or a chain may span
+# lines; a hit is reported on the line of its `onChange:`, its `for` or its collection name.
+OBSERVATION_OPENER = re.compile(r"\b(?:ObservationStream(?:\s*\.\s*current)?|ObservationLoop|withObservationTracking)"
+                                r"\s*(?:\(\s*)?\{|\.track\s*\(\s*shape\s*:")
+OBSERVATION_ONCHANGE = re.compile(r"\bonChange\s*:\s*\{")
+ONCHANGE_LINE = re.compile(r"\bonChange\s*:")
+ONCHANGE_ALLOW = re.compile(r"//\s*onchange-allow:\s*\S")
+SCOPE_ALLOW = re.compile(r"//\s*observation-scope-allow:\s*\S")
+# The session-wide collections (1.4): every workspace, every tab, the screens of the windows, a store map's values.
+# `tabs` and `screens` are one item's own list when their receiver chain names one item (`workspace.screens`,
+# `pane.tabs`, `$0.tabs`): a per-workspace observation is the pattern, not the debt (section 3).
+SESSION_NAME = r"(?:\b(?:workspaces|allWorkspaces|tabs|allTabs|liveTabs|screens)\b(?:\s*\(\s*\))?\s*[?!]?|\.values\b)"
+SESSION_COLLECTION = re.compile(SESSION_NAME)
+ITEM_LISTS = frozenset({"tabs", "screens"})
+ONE_ITEM = re.compile(r"(?i)(?:workspace|pane|screen|window|tab|group|listed|item)$|^\$\d+$")
+WALK = (r"(?:\s*\.\s*(?:lazy|values|reversed\s*\(\s*\))\b)*\s*\.\s*(?P<walk>map|flatMap|compactMap|filter|forEach|reduce|"
+        r"contains|allSatisfy|sorted|min|max|enumerated|joined|first\s*\(\s*where|last\s*\(\s*where|count\s*\(\s*where"
+        r"|first\s*\{|last\s*\{)")
+SESSION_WALK = re.compile(SESSION_NAME + WALK)
+SESSION_FOR = re.compile(r"\bfor\b(?:\s+case)?[^{;]*?\bin\b(?P<seq>[^{;]*)\{")
+# A walk down from a collection into the collections of each item (`.flatMap(\.panes)`, `.map(\.tabs)`).
+NESTED_WALK = re.compile(r"\.\s*(?:map|flatMap|compactMap)\s*\(\s*\\\s*\.\s*(?:screens|panes|tabs)\b")
+SCOPE_LINE = re.compile(SESSION_NAME + r"|\bfor\b|\\\s*\.\s*(?:screens|panes|tabs)\b")
+# What an `ObservedItems` owner may read of its list: the ids (a `let`, untracked), never a field.
+IDS_ONLY = re.compile(r"\s*(?:\(\s*\\\s*\.\s*id\s*\)|\{\s*\$0\s*\.\s*id\s*\}|\(\s*ObjectIdentifier(?:\s*\.\s*init)?\s*\)"
+                      r"|\{\s*ObjectIdentifier\s*\(\s*\$0\s*\)\s*\})")
+CLOSURE_HEAD = re.compile(r"^\s*(?:@\w+\s+)*(?:\[[^\]]*\]\s*)?(?:\([^)]*\)|_|\w+(?:\s*,\s*\w+)*)?\s*\bin\b")
+# A closure handed to one of these runs after the write, so what it does is not the onChange's own work.
+DEFERRING = frozenset({"Task", "detached", "run", "enqueue", "schedule", "async", "asyncAfter", "perform", "post",
+                       "yield", "after"})
+CONTROL = re.compile(r"\b(?:if|guard|for|while|switch|let|var|do|repeat|return|defer|try|await)\b")
+COMPUTES = re.compile(r"\.\s*(?:map|flatMap|compactMap|filter|forEach|reduce|contains|allSatisfy|sorted|min|max|first|"
+                      r"last|joined|count)\b|\b(?:for|while|if|guard|switch)\b")
+DIRTY_MARK = re.compile(r"^[\w.?!]+\s*=\s*(?:true|false|nil|\d+)$")
+SELF_GUARD = re.compile(r"^guard\s+let\s+self(?:\s*=\s*self)?\s+else\s*\{\s*return\s*\}$")
+
+
+class ObservationText(NamedTuple):
+    """One file's code as a single string (comments dropped, string contents blanked) with each line's start."""
+    code: str
+    starts: list[int]
+
+    def line(self, pos: int) -> int:
+        """The 0-based line of POS."""
+        return bisect.bisect_right(self.starts, pos) - 1
+
+
+def observation_text(version: Version) -> ObservationText:
+    memo = version.memo.get("observation-text")
+    if memo is None:
+        starts, total, codes = [], 0, []
+        for line in version.lines:
+            code = code_of(line)
+            starts.append(total)
+            codes.append(code)
+            total += len(code) + 1
+        memo = version.memo["observation-text"] = ObservationText("\n".join(codes), starts)
+    return memo
+
+
+def matching(code: str, pos: int) -> int:
+    """The position of the bracket that closes the one at POS (`{`, `(` or `[`), or the end of CODE."""
+    depth = 0
+    for i in range(pos, len(code)):
+        c = code[i]
+        if c in "{([":
+            depth += 1
+        elif c in "})]":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(code)
+
+
+def matching_back(code: str, pos: int) -> int:
+    """The position of the bracket that opens the one that closes at POS, or -1."""
+    depth = 0
+    for i in range(pos, -1, -1):
+        c = code[i]
+        if c in "})]":
+            depth += 1
+        elif c in "{([":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def callee_before(code: str, pos: int) -> tuple[str, int]:
+    """(the name called just before POS: `Task` in `Task(priority: .x) {`, `track` in `t.track(shape: s) {`, and
+    the position of its call's `(` or -1)."""
+    i = pos - 1
+    while i >= 0 and code[i].isspace():
+        i -= 1
+    paren = -1
+    if i >= 0 and code[i] == ")":
+        paren = matching_back(code, i)
+        i = paren - 1
+        while i >= 0 and code[i].isspace():
+            i -= 1
+    end = i + 1
+    while i >= 0 and (code[i].isalnum() or code[i] == "_"):
+        i -= 1
+    return code[i + 1:end], paren
+
+
+def observation_closures(text: ObservationText) -> list[tuple[int, int, int]]:
+    """(start, end, opener position) of each observation closure's body: an `ObservationStream`, `ObservationLoop`
+    or `withObservationTracking` closure, or the apply closure of `SingleArmedTracking.track(shape:)`."""
+    code, spans = text.code, []
+    for match in OBSERVATION_OPENER.finditer(code):
+        if match.group().endswith("{"):
+            brace = match.end() - 1
+        else:  # `.track(shape: s) { apply }` or `.track(shape: s, { apply }, onChange: ...)`
+            paren = code.index("(", match.start())
+            close = matching(code, paren)
+            inner = code.find("{", paren, close)
+            if inner >= 0:
+                brace = inner
+            else:
+                after = close + 1
+                while after < len(code) and code[after].isspace():
+                    after += 1
+                if after >= len(code) or code[after] != "{":
+                    continue
+                brace = after
+        spans.append((brace + 1, matching(code, brace), match.start()))
+    return spans
+
+
+def observation_on_changes(text: ObservationText) -> list[tuple[int, int, int]]:
+    """(`onChange:` position, body start, body end) of each will-set callback of an observation tracking:
+    `withObservationTracking { } onChange: { }`, `withObservationTracking({ }, onChange: { })` and
+    `SingleArmedTracking.track(shape:_:onChange:)`. An `onChange:` of any other call (a file watcher, a pointer
+    hover) is a plain callback, not inside a write."""
+    code, found = text.code, []
+    for match in OBSERVATION_ONCHANGE.finditer(code):
+        i = match.start() - 1
+        while i >= 0 and code[i].isspace():
+            i -= 1
+        if i < 0:
+            continue
+        if code[i] == "}":  # the trailing-closure form: the call's last closure ends here
+            opener = matching_back(code, i)
+            name, paren = callee_before(code, opener)
+            args = code[paren:opener] if paren >= 0 else ""
+        elif code[i] == ",":  # an argument: the call's `(` is the innermost one open here
+            depth, j = 0, i
+            while j >= 0:
+                c = code[j]
+                if c in "})]":
+                    depth += 1
+                elif c in "{([":
+                    if depth == 0:
+                        break
+                    depth -= 1
+                j -= 1
+            if j < 0 or code[j] != "(":
+                continue
+            name, _ = callee_before(code, j)
+            args = code[j:matching(code, j)]
+        else:
+            continue
+        if name == "withObservationTracking" or (name == "track" and re.search(r"\bshape\s*:", args)):
+            brace = match.end() - 1
+            found.append((match.start(), brace + 1, matching(code, brace)))
+    return found
+
+
+def statements_of(body: str) -> list[str]:
+    """BODY's top-level statements (split at `;` and line ends outside brackets; a line that starts with `.`
+    continues the one before)."""
+    out, current, depth = [], [], 0
+    for c in body:
+        if c in "{([":
+            depth += 1
+        elif c in "})]":
+            depth -= 1
+        if depth == 0 and c in ";\n":
+            out.append("".join(current))
+            current = []
+        else:
+            current.append(c)
+    out.append("".join(current))
+    merged: list[str] = []
+    for statement in (s.strip() for s in out):
+        if not statement:
+            continue
+        if merged and statement.startswith("."):
+            merged[-1] += statement
+        else:
+            merged.append(statement)
+    return merged
+
+
+def without_deferred(statement: str) -> str:
+    """STATEMENT with the bodies of the closures it hands to a deferring call (`Task { }`, `queue.enqueue { }`)
+    blanked: they run after the write."""
+    out, i = [], 0
+    while i < len(statement):
+        if statement[i] == "{":
+            end = matching(statement, i)
+            name, _ = callee_before(statement, i)
+            if name in DEFERRING:
+                out.append("{}")
+                i = end + 1
+                continue
+        out.append(statement[i])
+        i += 1
+    return "".join(out)
+
+
+def computing_on_change(body: str) -> bool:
+    """Whether an onChange BODY does more than mark dirty and enqueue once: besides literal dirty marks
+    (`isDirty = true`) and `guard let self else { return }`, more than one statement, control flow, a declaration,
+    an assignment of a value, or a walk or a read of a collection outside a deferred closure."""
+    head = CLOSURE_HEAD.match(body)
+    statements = [s for s in statements_of(body[head.end():] if head else body)
+                  if not DIRTY_MARK.match(s) and not SELF_GUARD.match(s)]
+    if not statements:
+        return False
+    if len(statements) > 1:
+        return True
+    statement = without_deferred(statements[0])
+    if CONTROL.match(statement):
+        return True
+    if COMPUTES.search(statement):
+        return True
+    top = re.sub(r"==|!=|<=|>=|===|!==", "", statement)
+    return "=" in top or not statement.endswith((")", "}"))
+
+
+def chain_names(code: str, pos: int) -> list[str]:
+    """The names of the member chain that ends just before POS, nearest first: `store.workspace.screens` before
+    `.flatMap` gives [screens, workspace, store]; a call's arguments are skipped (`workspaces().map`)."""
+    names, i = [], pos - 1
+    while i >= 0:
+        while i >= 0 and code[i] in " \t\n?!":
+            i -= 1
+        if i >= 0 and code[i] in ")]":
+            i = matching_back(code, i) - 1
+            continue
+        end = i + 1
+        while i >= 0 and (code[i].isalnum() or code[i] in "_$"):
+            i -= 1
+        if end == i + 1:
+            break
+        names.append(code[i + 1:end])
+        while i >= 0 and code[i] in " \t\n?!":
+            i -= 1
+        if i < 0 or code[i] != ".":
+            break
+        i -= 1
+    return names
+
+
+def one_item_chain(names: list[str]) -> bool:
+    """Whether a member chain (nearest name first) reads one item's own list: a name in it names one item."""
+    return any(ONE_ITEM.search(name) for name in names)
+
+
+def observation_scope_hits(version: Version) -> dict[int, int]:
+    """{0-based line: 1-based line of its observation's opener} for each session-wide walk inside an observation
+    closure of VERSION (an id-only map of the list passes)."""
+    memo = version.memo.get("observation-scope")
+    if memo is not None:
+        return memo
+    text = observation_text(version)
+    code, hits = text.code, {}
+    spans = observation_closures(text)
+    if spans:
+        def inside(pos: int) -> int | None:
+            opener = None
+            for start, end, at in spans:
+                if start <= pos < end:
+                    opener = at  # the innermost: spans come in source order
+            return opener
+
+        def session_wide(match: re.Match) -> bool:
+            """Whether the collection MATCH names is the session's, not one item's own list."""
+            name = re.match(r"\.?(\w+)", match.group())
+            return name.group(1) not in ITEM_LISTS or not one_item_chain(chain_names(code, match.start() + name.end()))
+
+        for match in SESSION_WALK.finditer(code):
+            at = inside(match.start())
+            if at is None or not session_wide(match) \
+                    or (match.group("walk") in ("map", "compactMap") and IDS_ONLY.match(code, match.end())):
+                continue
+            hits.setdefault(text.line(match.start()), text.line(at) + 1)
+        for match in SESSION_FOR.finditer(code):
+            at = inside(match.start())
+            if at is None:
+                continue
+            if any(session_wide(m) for m in SESSION_COLLECTION.finditer(code, match.start("seq"), match.end("seq"))):
+                hits.setdefault(text.line(match.start()), text.line(at) + 1)
+        for match in NESTED_WALK.finditer(code):
+            at = inside(match.start())
+            if at is not None and not one_item_chain(chain_names(code, match.start())):
+                hits.setdefault(text.line(match.start() + match.group().index("\\")), text.line(at) + 1)
+    version.memo["observation-scope"] = hits
+    return hits
+
+
+def session_wide_observation(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether line INDEX walks a session-wide collection inside an observation closure (and the 1-based line of
+    that closure's opener: a push that opens an observation around an old walk makes it new debt)."""
+    opener = observation_scope_hits(version).get(index)
+    return (opener is not None, [opener] if opener is not None else [])
+
+
+def computing_observation_on_change(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether the observation `onChange:` on line INDEX computes (and the 1-based lines of its body: a push that
+    adds work to an old body makes it new debt). The tracked wrappers' own callbacks are their bookkeeping."""
+    if version.path in OBSERVATION_WRAPPERS:
+        return False, []
+    memo = version.memo.get("observation-onchange")
+    if memo is None:
+        text = observation_text(version)
+        memo = {}
+        for at, start, end in observation_on_changes(text):
+            body = list(range(text.line(start) + 1, text.line(min(end, len(text.code) - 1)) + 2))
+            memo.setdefault(text.line(at), (computing_on_change(text.code[start:end]), body))
+        version.memo["observation-onchange"] = memo
+    return memo.get(index, (False, []))
+
+
 RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
@@ -1678,8 +2030,9 @@ RULES = (
          unchecked_sendable),
     Rule("main-async", "`DispatchQueue.main.async`",
          "an untyped hop that reorders work and hides isolation (CLAUDE.md forbids it in new code)",
-         "annotate the destination `@MainActor` and `await` it, or hop once with `Task { @MainActor in ... }` "
-         "owned by the caller",
+         "annotate the destination `@MainActor` and `await` it, or go through the scheduler (`FrameBatchQueue.enqueue`, "
+         "`MainDelivery().run`, `AfterFrameCommit().run`; a direct `Task { @MainActor in` is main-hop's debt in a UI "
+         "target)",
          "// main-async-allow: <the API that forces a GCD hop>",
          line_rule(r"\bDispatchQueue\.main\.async\b|\bOperationQueue\.main\.addOperation\b", "main-async-allow:")),
     Rule("combine-state", "`ObservableObject` / `@Published` / Combine state",
@@ -1726,6 +2079,35 @@ RULES = (
          None,
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
+    Rule("raw-observation", "A direct `withObservationTracking` outside the tracked wrappers",
+         "the test that keeps a local change O(changed items) (NewTabWakesDoNotGrowWithSessionTests) counts only the "
+         "trackings the wrappers arm (CmuxNextCompat `ObservationWakes`): an observer on a raw call can read the whole "
+         "session and wake on every create while the count stays the same",
+         "observe through a wrapper: `ObservationStream({ ... })` (or `.current` for the first value in this turn), "
+         "CmuxNextCompat `SingleArmedTracking.track(shape:_:onChange:)` for a computation that also runs for other "
+         "reasons, or CmuxNextBrowser's `ObservationLoop`; read only the changed item's own state in it",
+         "// observation-allow: <why this tracking cannot go through a wrapper>",
+         matcher_rule(Matcher(RAW_OBSERVATION, re.compile(r"//\s*observation-allow:\s*\S"), outside_observation_wrappers))),
+    Rule("observation-onchange", "An observation `onChange:` that does more than mark dirty and enqueue once",
+         "a `withObservationTracking` will-set callback runs synchronously inside the write that fired it (the store "
+         "drain, one batch): work there runs inside every writer, unbudgeted and unowned, and a read of the model there "
+         "sees it half written (plans/cmux-next/main-thread-scheduling.md G2)",
+         "the `onChange:` only marks dirty (`self?.isDirty = true`, after `guard let self else { return }` if you "
+         "like) and enqueues in one call: `self?.markDirty()`, `continuation.yield(())`, "
+         "`Task { @MainActor in self?.arm() }`, `FrameBatchQueue.enqueue { ... }`; the read and the compute go in "
+         "the deferred work, or use `ObservationStream`, which re-evaluates on the main actor after the write",
+         "// onchange-allow: <why this work must run inside the write>",
+         matcher_rule(Matcher(ONCHANGE_LINE, ONCHANGE_ALLOW, computing_observation_on_change))),
+    Rule("observation-scope", "A walk over a session-wide collection inside an observation closure",
+         "an `ObservationStream` / `ObservationLoop` / tracking closure re-runs on a change to anything it read: a walk "
+         "over every workspace or tab (`workspaces`, `tabs`, `allTabs`, `screens`, a store map's `.values`) tracks "
+         "k x n entries and re-runs O(session) on main for every change anywhere (the 03:03Z NIGHTLY loop; "
+         "plans/cmux-next/main-thread-scheduling.md 1.4 and section 3)",
+         "one observation per item: the list owner observes the list only (`ObservationTrigger(workspaces())`, "
+         "`.map(\\.id)`) and hands it to `ObservedItems` / `ObservedItemsFeed` (CmuxNextCompat), whose per-item "
+         "closure reads that item's fields; a wait for one id observes that id's cell, not the list",
+         "// observation-scope-allow: <why the read set is bounded>",
+         matcher_rule(Matcher(SCOPE_LINE, SCOPE_ALLOW, session_wide_observation))),
     Rule("task-priority", "A detached Task or dispatch queue without a stated priority, or at a reserved level",
          "a task or queue that does not say how much a person waits for it runs at whatever QoS it inherits: work "
          "nobody waits for competes with typing and frames, and the main thread can wait on work that runs below it "
@@ -1930,13 +2312,13 @@ def main_actor_scope():
 
 def ui_targets() -> set[str]:
     """The targets HEAD's manifest builds with `uiSwiftSettings` (main-actor by default), as check-concurrency.sh
-    reads them."""
+    reads them (swift_scope.package_targets: each target from its own call, so a target with no swiftSettings
+    never takes the next target's); test targets are left out."""
     context = run_context()
     if "ui_targets" not in context:
         manifest = context.get("manifest")
-        found = re.findall(r'\.(?:target|executableTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)',
-                           manifest if isinstance(manifest, str) else "", re.S)
-        context["ui_targets"] = {name for name, settings in found if settings == "uiSwiftSettings"}
+        targets = swift_scope.package_targets(manifest if isinstance(manifest, str) else "")
+        context["ui_targets"] = {target.name for target in targets if target.main and target.path.startswith("Sources/")}
     return context["ui_targets"]
 
 
@@ -2142,6 +2524,67 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
     return changed_debt(changes, judge)
 
 
+# main-hop (cmux-ad m35 item 3): one entry point for main-thread work. A direct hop onto the main actor
+# (`Task { @MainActor in`, `Task(priority:) { @MainActor in`, `MainActor.run {`) in a uiSwiftSettings target runs
+# outside the scheduler's classes and frame budget (plans/cmux-next/main-thread-budget.md): it competes with the
+# person's input unseen. A count ratchet per file, as the other line rules: old hops and moved lines never count.
+# The scheduler's own entry points (FrameBatchQueue.enqueue, MainDelivery().run, AfterFrameCommit().run,
+# MainActorWorkQueue) are not hops. A plain `Task {` that inherits the main actor is not judged (too broad to
+# tell from a line); the counts (--main-thread-counts) report it.
+MAIN_HOP = re.compile(r"\bTask(?:\.detached)?\s*(?:\([^{}]*\))?\s*\{\s*@MainActor\b|\bMainActor\.run\b")
+MAIN_HOP_ALLOW = re.compile(r"//\s*main-hop-allow:\s*\S")
+
+
+def in_ui_target(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether VERSION's file is in a uiSwiftSettings target (main actor by default): main-hop's scope."""
+    module = version.path[len(SOURCES):].split("/", 1)[0] if version.path.startswith(SOURCES) else ""
+    return module in ui_targets(), []
+
+
+SCHEDULER_ENTRY = re.compile(r"\.enqueue\s*\{|\.enqueue\(|\bMainDelivery\(\)\.run\b|\bAfterFrameCommit\(\)\.run\b"
+                             r"|\bFrameBatchQueue\(|\bMainActorWorkQueue\b")
+INHERITED_TASK = re.compile(r"(?<![\w.])Task\s*(?:\([^{}]*\))?\s*\{(?!\s*@MainActor\b)")
+
+
+def main_thread_counts(repo: Path, rev: str) -> dict[str, object]:
+    """The main-thread ratchet's counts at REV (`--main-thread-counts`), per scope (the uiSwiftSettings targets,
+    and all of Sources): unescaped direct hops (main-hop's debt), escaped hops, scheduler entry calls, plain
+    `Task {` that inherits the caller's actor (not judged), raw blocking calls (raw-blocking and main-blocking's
+    raw primitives and sleeps, unescaped), and checked-seam calls; each with its file count. The seams' own files
+    are left out of the blocking counts. Comments are dropped; a `/* */` block is read as code."""
+    sha = git(repo, "rev-parse", rev).strip()
+    paths = [p for p in git(repo, "ls-tree", "-r", "--name-only", sha, "--", SOURCES).splitlines() if p.endswith(".swift")]
+    texts = blobs(repo, [(sha, p) for p in paths])
+    RUN_CONTEXT.values = {"manifest": blobs(repo, [(sha, PACKAGE_MANIFEST)]).get((sha, PACKAGE_MANIFEST), "")}
+    ui = ui_targets()
+    keys = ("main_hops", "main_hops_escaped", "scheduler_entries", "inherited_tasks", "raw_blocking", "checked_blocking")
+    scopes = {scope: {k: collections.Counter() for k in keys} for scope in ("ui_targets", "all_sources")}
+    for path in paths:
+        lines = texts.get((sha, path), "").split("\n")
+        module = path[len(SOURCES):].split("/", 1)[0]
+        seam = path.startswith(BLOCKING_SEAMS)
+        for index, line in enumerate(lines):
+            code = code_of(line)
+            found = []
+            if MAIN_HOP.search(code):
+                found.append("main_hops_escaped" if escaped(lines, index, MAIN_HOP_ALLOW) else "main_hops")
+            if SCHEDULER_ENTRY.search(code):
+                found.append("scheduler_entries")
+            if INHERITED_TASK.search(code):
+                found.append("inherited_tasks")
+            if not seam:
+                if (blocking_match(RAW_SCAN, code) or ALWAYS_SCAN.search(code)) and not escaped(lines, index, BLOCKING_ALLOW):
+                    found.append("raw_blocking")
+                if SEAM_BLOCKING.search(code):
+                    found.append("checked_blocking")
+            for scope in (("ui_targets", "all_sources") if module in ui else ("all_sources",)):
+                for key in found:
+                    scopes[scope][key][path] += 1
+    return {"rev": sha, "ui_target_count": len(ui),
+            **{scope: {k: {"lines": sum(c.values()), "files": len(c)} for k, c in counters.items()}
+               for scope, counters in scopes.items()}}
+
+
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
     """Keeps HEAD's threading doc and package manifest for the rules above, in this thread's run context (a
     missing doc fails thread-doc open)."""
@@ -2183,6 +2626,17 @@ BLOCKING_RULES = (
          "for a new kind); add a new BlockingAllowance to \"Reviewed blocking allowances\" in the same push",
          "// blocking-allow: <why this thread needs no entry>",
          undocumented_threads),
+    Rule("main-hop", "A direct hop onto the main actor (`Task { @MainActor in`, `MainActor.run {`) in a UI target",
+         "work that jumps onto the main actor directly runs outside the scheduler's priority classes and per-frame "
+         "budget (plans/cmux-next/main-thread-budget.md): it runs ahead of or between the person's input and frames "
+         "and nothing measures it (a root of Cmd-N p95 112-129 ms, cmux-ad m35)",
+         "go through the one entry point: a person's action changes the model in its own turn (an `ActionEffect`); "
+         "work for the next frame goes to a `FrameBatchQueue` (`enqueue`, a frame queue for what an action caused, "
+         "`budgeted: .visible/.automation/.background` on the app's `MainWorkScheduler` for the rest); a callback "
+         "on an unknown thread uses `MainDelivery().run`; work after the frame commit uses `AfterFrameCommit().run`; "
+         "an async caller that needs a value from main calls an `@MainActor` function with `await`",
+         "// main-hop-allow: <why no scheduler path fits and what bounds the hop's work>",
+         matcher_rule(Matcher(MAIN_HOP, MAIN_HOP_ALLOW, in_ui_target))),
 )
 RULES += BLOCKING_RULES
 # ---------------------------------------------------------------- end of main-blocking / thread-doc (PL-blocking)
@@ -2900,7 +3354,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
+    parser.add_argument("--main-thread-counts", metavar="REV", nargs="?", const="HEAD",
+                        help="print main-hop and blocking counts at REV (default HEAD) as JSON and exit")
     args = parser.parse_args(argv)
+    if args.main_thread_counts:
+        repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
+        print(json.dumps(main_thread_counts(repo, args.main_thread_counts), indent=2))
+        return 0
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")

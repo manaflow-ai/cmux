@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2ebf7bae09dd7bd531843e7f365bfc9b1a9aecfded17ee3d16a00b38b73d360a. */
+/* cmux-tui mux protocol 12, IR 70698813da86081998a473fd0da125280f1b749b042a1970dfc4065c4d9ec15e. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -31,6 +31,8 @@ export type AgentRecord = {
   "since_ms"?: bigint;
   "source": AgentSource;
   "state": AgentState;
+  /** What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`. */
+  "status"?: (AgentState) | null;
   "surface": Id;
   "updated_at_ms": bigint;
 };
@@ -370,6 +372,8 @@ export type ConversationTabRecord = {
 };
 
 export type ConversationTabSplit = {
+  /** The split the new split wraps whole, as split-around-v1 on split: pane must be that split's last pane and direction right or down. */
+  "around"?: (Id) | null;
   /** The side of pane the new pane takes: right, down, left or up. */
   "direction": string;
   /** Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed. */
@@ -665,6 +669,18 @@ export type Layout = ({ "type": "leaf" } & {
   "type": "stack";
 });
 
+export type LayoutSizePaneWidth = {
+  "pane": Id;
+  "width": number;
+};
+
+export type LayoutSizeSplitRatio = {
+  "ratio": number;
+  "split": Id;
+};
+
+export type LayoutSizeValue = (LayoutSizeSplitRatio) | (LayoutSizePaneWidth);
+
 export type LayoutUndoConfirmationRequired = {
   "closes_panes": Array<Id>;
   "confirmation_required": true;
@@ -739,14 +755,19 @@ export type MoveTerminalResult = {
   "generation": string;
   "lifecycle": TerminalLifecycle;
   "pane": (Id) | null;
+  "pane_id"?: string;
   "registry_id": string;
   "replayed": boolean;
   "screen": (Id) | null;
+  "screen_id"?: string;
   "surface": (Id) | null;
+  "tab_id"?: string;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
+  "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
+  "workspace_id"?: string;
   "workspace_key": string;
 };
 
@@ -755,11 +776,14 @@ export type NameSource = "user" | "auto";
 export type NewRowResult = {
   "pane": Id;
   "pane_id"?: string;
+  "screen_id"?: string;
   "surface": Id;
   "tab_id"?: string;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
+  "terminal_resource_id"?: string;
   "transaction"?: string;
+  "workspace_id"?: string;
 };
 
 export type NoteSizeActivityResult = {
@@ -798,10 +822,13 @@ export type PaneRef = JsonValue;
 export type PaneSurfaceResult = {
   "pane_id"?: (string) | null;
   "replayed"?: (boolean) | null;
+  "screen_id"?: string;
   "surface": Id;
   "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
+  "terminal_resource_id"?: string;
+  "workspace_id"?: string;
 };
 
 export type PingResult = {
@@ -844,6 +871,12 @@ export type ReadScrollbackResult = {
 export type ReattachViewResult = {
   "participant": string;
   "state": SizeState;
+};
+
+export type RemoteHostAppResult = {
+  "host_pid": number;
+  "secret": string;
+  "socket": string;
 };
 
 export type RenderCursor = {
@@ -937,11 +970,16 @@ export type ResolveTerminalResult = {
   "generation": string;
   "launch_spec": JsonValue;
   "lifecycle": TerminalLifecycle;
+  "pane_id"?: string;
   "registry_id": string;
+  "screen_id"?: string;
   "surface": (Id) | null;
+  "tab_id"?: string;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
+  "terminal_resource_id"?: string;
   "terminal_revision": bigint;
+  "workspace_id"?: string;
   "workspace_key": string;
 };
 
@@ -979,12 +1017,17 @@ export type RunResult = {
   "exit": (TerminalExit) | null;
   "lifecycle": TerminalLifecycle;
   "pane": (Id) | null;
+  "pane_id"?: string;
   "screen": (Id) | null;
+  "screen_id"?: string;
   "surface": (Id) | null;
+  "tab_id"?: string;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
+  "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
+  "workspace_id"?: string;
 };
 
 export type SavedTabGroupMember = {
@@ -1050,6 +1093,69 @@ export type ServerStatsConnections = {
   "limit": bigint;
   "peak": bigint;
   "refused": bigint;
+};
+
+export type ServerStatsDisk = {
+  "error": (string) | null;
+  "files": Array<ServerStatsDiskFile>;
+  "files_truncated": boolean;
+  "files_unlisted": bigint;
+  "freelist_pages": bigint;
+  "journal": (ServerStatsDiskJournal) | null;
+  "page_count": bigint;
+  "page_size": bigint;
+  "registry_bytes": bigint;
+  "segments": (ServerStatsDiskSegments) | null;
+  "shm_bytes": bigint;
+  "wal_bytes": bigint;
+};
+
+export type ServerStatsDiskFile = {
+  "bytes": bigint;
+  "files": bigint;
+  "name": string;
+};
+
+export type ServerStatsDiskJournal = {
+  "estimated_live_bytes": bigint;
+  "first_sequence": bigint;
+  "head_sequence": bigint;
+  "kinds": Array<ServerStatsDiskJournalKind>;
+  "live_rows": bigint;
+  "sample_bytes": bigint;
+  "sample_rows": bigint;
+  "sample_span_ms": bigint;
+};
+
+export type ServerStatsDiskJournalKind = {
+  "budget_bytes_per_day": bigint;
+  "bytes_per_day": (bigint) | null;
+  "kind": string;
+  "over_budget": boolean;
+  "sample_bytes": bigint;
+  "sample_rows": bigint;
+};
+
+export type ServerStatsDiskSegmentCodec = {
+  "codec": string;
+  "compressed_bytes": bigint;
+  "records": bigint;
+  "segments": bigint;
+  "uncompressed_bytes": bigint;
+};
+
+export type ServerStatsDiskSegmentKind = {
+  "kind": string;
+  "segments": bigint;
+};
+
+export type ServerStatsDiskSegments = {
+  "by_codec": Array<ServerStatsDiskSegmentCodec>;
+  "compressed_bytes": bigint;
+  "kinds": Array<ServerStatsDiskSegmentKind>;
+  "records": bigint;
+  "segments": bigint;
+  "uncompressed_bytes": bigint;
 };
 
 export type ServerStatsHistogram = {
@@ -1161,6 +1267,7 @@ export type ServerStatsResourceProjection = {
 
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
+  "disk"?: ServerStatsDisk;
   "hook_queue"?: ServerStatsHookQueue;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "locks"?: ServerStatsLocks;
@@ -1175,6 +1282,8 @@ export type ServerStatsWritePath = {
   "effect_intent_batches": bigint;
   "effect_intent_failures": bigint;
   "effect_intents": bigint;
+  "registry_wal_file_bytes"?: bigint;
+  "registry_wal_file_high_water_bytes"?: bigint;
   "registry_wal_frame_bytes"?: bigint;
   "request_effect_commits": bigint;
   "wal_commits"?: bigint;
@@ -1212,6 +1321,11 @@ export type SetTerminalKeepResult = {
   "keep": boolean;
   "terminal_id": string;
   "terminal_resource_id"?: (string) | null;
+};
+
+export type SetTerminalTailPinResult = {
+  "pinned": boolean;
+  "terminal": string;
 };
 
 export type ShownProgramStatus = {
@@ -1315,9 +1429,14 @@ export type SplitRespawn = {
 };
 
 export type SurfaceResult = {
+  "pane_id"?: (string) | null;
+  "screen_id"?: string;
   "surface": Id;
+  "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
+  "terminal_resource_id"?: string;
+  "workspace_id"?: string;
 };
 
 export type Tab = {
@@ -1340,6 +1459,8 @@ export type Tab = {
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: (string) | null;
   "title": string;
+  "title_activity"?: (string) | null;
+  "title_text"?: string;
 };
 
 export type TabGroupEndedTerminal = {
@@ -1508,6 +1629,18 @@ export type TerminalKeyInput = {
   "utf8": string;
 };
 
+export type TerminalLastCommand = {
+  "command": string;
+  "ended_at_ms": string;
+  "exit_code": (number) | null;
+  "started_at_ms": string;
+};
+
+export type TerminalLastCommandResult = {
+  "last_command": (TerminalLastCommand) | null;
+  "terminal_id": string;
+};
+
 export type TerminalLifecycle = "launching" | "adopting" | "running" | "exited" | "tombstoned";
 
 export type TerminalModifiers = {
@@ -1526,15 +1659,19 @@ export type TerminalPlacement = {
   "key": string;
   "lifecycle": TerminalLifecycle;
   "pane": (Id) | null;
+  "pane_id"?: string;
   "registry_id": string;
   "replayed": boolean;
   "screen": (Id) | null;
+  "screen_id"?: string;
   "surface": (Id) | null;
+  "tab_id"?: string;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
   "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
+  "workspace_id"?: string;
 };
 
 export type TerminalPortsListener = {

@@ -26,6 +26,7 @@ pub mod op_names {
     pub const CALENDAR_EVENT_CREATE: &str = "calendar.event.create";
     pub const CALENDAR_EVENT_RESPOND: &str = "calendar.event.respond";
     pub const CALENDAR_EVENTS_LIST: &str = "calendar.events.list";
+    pub const CHANNEL_CREATE: &str = "channel.create";
     pub const CHIEF_ARCHIVE: &str = "chief.archive";
     pub const CHIEF_CREATE: &str = "chief.create";
     pub const CHIEF_DELETE: &str = "chief.delete";
@@ -37,11 +38,13 @@ pub mod op_names {
     pub const CLOUD_ENVIRONMENT_DELETE: &str = "cloud.environment.delete";
     pub const CLOUD_ENVIRONMENT_LIST: &str = "cloud.environment.list";
     pub const CLOUD_ENVIRONMENT_SET: &str = "cloud.environment.set";
+    pub const CLOUD_MACHINE_ARCHIVE_DELETE: &str = "cloud.machine.archive_delete";
     pub const CLOUD_MACHINE_CONNECT_INFO: &str = "cloud.machine.connect_info";
     pub const CLOUD_MACHINE_CREATE: &str = "cloud.machine.create";
     pub const CLOUD_MACHINE_DELETE: &str = "cloud.machine.delete";
     pub const CLOUD_MACHINE_GET: &str = "cloud.machine.get";
     pub const CLOUD_MACHINE_IDLE_POLICY_SET: &str = "cloud.machine.idle_policy.set";
+    pub const CLOUD_MACHINE_KEEP: &str = "cloud.machine.keep";
     pub const CLOUD_MACHINE_LINK_TOKEN: &str = "cloud.machine.link_token";
     pub const CLOUD_MACHINE_LIST: &str = "cloud.machine.list";
     pub const CLOUD_MACHINE_PAUSE: &str = "cloud.machine.pause";
@@ -52,6 +55,7 @@ pub mod op_names {
     pub const CLOUD_MIGRATION_START: &str = "cloud.migration.start";
     pub const CLOUD_MIGRATION_STATUS: &str = "cloud.migration.status";
     pub const CLOUD_PLAN_GET: &str = "cloud.plan.get";
+    pub const CLOUD_RETENTION_SET: &str = "cloud.retention.set";
     pub const CLOUD_SHELL_OPEN: &str = "cloud.shell.open";
     pub const CLOUD_SNAPSHOT_CREATE: &str = "cloud.snapshot.create";
     pub const CLOUD_SNAPSHOT_DELETE: &str = "cloud.snapshot.delete";
@@ -167,6 +171,7 @@ pub mod op_names {
     pub const RUN_LIST: &str = "run.list";
     pub const SERVER_NETWORK_CONFIRM: &str = "server.network.confirm";
     pub const SERVER_PAIR_APPROVE: &str = "server.pair.approve";
+    pub const SERVER_PAIR_INVITE: &str = "server.pair.invite";
     pub const SERVER_PAIR_PREVIEW: &str = "server.pair.preview";
     pub const SERVER_REVOKE: &str = "server.revoke";
     pub const SLACK_POST_AS_BOT: &str = "slack.post_as_bot";
@@ -250,6 +255,7 @@ pub mod op_names {
         CALENDAR_EVENT_CREATE,
         CALENDAR_EVENT_RESPOND,
         CALENDAR_EVENTS_LIST,
+        CHANNEL_CREATE,
         CHIEF_ARCHIVE,
         CHIEF_CREATE,
         CHIEF_DELETE,
@@ -261,11 +267,13 @@ pub mod op_names {
         CLOUD_ENVIRONMENT_DELETE,
         CLOUD_ENVIRONMENT_LIST,
         CLOUD_ENVIRONMENT_SET,
+        CLOUD_MACHINE_ARCHIVE_DELETE,
         CLOUD_MACHINE_CONNECT_INFO,
         CLOUD_MACHINE_CREATE,
         CLOUD_MACHINE_DELETE,
         CLOUD_MACHINE_GET,
         CLOUD_MACHINE_IDLE_POLICY_SET,
+        CLOUD_MACHINE_KEEP,
         CLOUD_MACHINE_LINK_TOKEN,
         CLOUD_MACHINE_LIST,
         CLOUD_MACHINE_PAUSE,
@@ -276,6 +284,7 @@ pub mod op_names {
         CLOUD_MIGRATION_START,
         CLOUD_MIGRATION_STATUS,
         CLOUD_PLAN_GET,
+        CLOUD_RETENTION_SET,
         CLOUD_SHELL_OPEN,
         CLOUD_SNAPSHOT_CREATE,
         CLOUD_SNAPSHOT_DELETE,
@@ -391,6 +400,7 @@ pub mod op_names {
         RUN_LIST,
         SERVER_NETWORK_CONFIRM,
         SERVER_PAIR_APPROVE,
+        SERVER_PAIR_INVITE,
         SERVER_PAIR_PREVIEW,
         SERVER_REVOKE,
         SLACK_POST_AS_BOT,
@@ -477,6 +487,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "calendar.event.create" => visitor.visit::<CalendarEventCreateOp>(),
         "calendar.event.respond" => visitor.visit::<CalendarEventRespondOp>(),
         "calendar.events.list" => visitor.visit::<CalendarEventsListOp>(),
+        "channel.create" => visitor.visit::<ChannelCreateOp>(),
         "chief.archive" => visitor.visit::<ChiefArchiveOp>(),
         "chief.create" => visitor.visit::<ChiefCreateOp>(),
         "chief.delete" => visitor.visit::<ChiefDeleteOp>(),
@@ -488,11 +499,13 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "cloud.environment.delete" => visitor.visit::<CloudEnvironmentDeleteOp>(),
         "cloud.environment.list" => visitor.visit::<CloudEnvironmentListOp>(),
         "cloud.environment.set" => visitor.visit::<CloudEnvironmentSetOp>(),
+        "cloud.machine.archive_delete" => visitor.visit::<CloudMachineArchiveDeleteOp>(),
         "cloud.machine.connect_info" => visitor.visit::<CloudMachineConnectInfoOp>(),
         "cloud.machine.create" => visitor.visit::<CloudMachineCreateOp>(),
         "cloud.machine.delete" => visitor.visit::<CloudMachineDeleteOp>(),
         "cloud.machine.get" => visitor.visit::<CloudMachineGetOp>(),
         "cloud.machine.idle_policy.set" => visitor.visit::<CloudMachineIdlePolicySetOp>(),
+        "cloud.machine.keep" => visitor.visit::<CloudMachineKeepOp>(),
         "cloud.machine.link_token" => visitor.visit::<CloudMachineLinkTokenOp>(),
         "cloud.machine.list" => visitor.visit::<CloudMachineListOp>(),
         "cloud.machine.pause" => visitor.visit::<CloudMachinePauseOp>(),
@@ -503,6 +516,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "cloud.migration.start" => visitor.visit::<CloudMigrationStartOp>(),
         "cloud.migration.status" => visitor.visit::<CloudMigrationStatusOp>(),
         "cloud.plan.get" => visitor.visit::<CloudPlanGetOp>(),
+        "cloud.retention.set" => visitor.visit::<CloudRetentionSetOp>(),
         "cloud.shell.open" => visitor.visit::<CloudShellOpenOp>(),
         "cloud.snapshot.create" => visitor.visit::<CloudSnapshotCreateOp>(),
         "cloud.snapshot.delete" => visitor.visit::<CloudSnapshotDeleteOp>(),
@@ -618,6 +632,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "run.list" => visitor.visit::<RunListOp>(),
         "server.network.confirm" => visitor.visit::<ServerNetworkConfirmOp>(),
         "server.pair.approve" => visitor.visit::<ServerPairApproveOp>(),
+        "server.pair.invite" => visitor.visit::<ServerPairInviteOp>(),
         "server.pair.preview" => visitor.visit::<ServerPairPreviewOp>(),
         "server.revoke" => visitor.visit::<ServerRevokeOp>(),
         "slack.post_as_bot" => visitor.visit::<SlackPostAsBotOp>(),

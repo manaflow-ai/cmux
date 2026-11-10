@@ -34,9 +34,15 @@
 //! While it backs off, the writer takes no new records; appends end in `AppendError::Backlog`
 //! once `Config::max_pending_bytes` wait. Nothing waits for the disk except this thread.
 //!
+//! Kept records ([`crate::Journal::append_kept`]) are synced in idle time: once no record was
+//! taken for `Config::kept_sync_quiet` after the last write. A burst of them (a person typing, a
+//! script renaming) writes each batch at once and syncs none until it pauses, and the next acked
+//! batch then syncs only its own records: before, it synced the whole burst in its turn (316
+//! records, 1.17 MB: 7.3 ms against 2.3 ms, probe job 01189fd6, aws-m4pro-8).
+//!
 //! The thread sleeps on a condition variable while nothing is owed. It sets a timer only while
-//! written stream records wait for their sync, synced records for their full sync, or a failure
-//! for its retry.
+//! written stream or kept records wait for their sync, synced records for their full sync, or a
+//! failure for its retry.
 
 use std::io;
 use std::path::PathBuf;
@@ -46,7 +52,7 @@ use std::time::{Duration, Instant};
 use crate::Lsn;
 use crate::format::{self, RECORD_HEADER_LEN, SEGMENT_HEADER_LEN, SegmentHeader};
 use crate::journal::{Shared, State};
-use crate::recovery::{WriterStart, len64, make_segment};
+use crate::recovery::{LiveSegment, WriterStart, len64, make_segment};
 use crate::storage::{Storage, StorageFile, SyncLevel};
 
 /// Written and unsynced bytes past which a batch is synced at once, acked or not.
@@ -81,6 +87,7 @@ impl Drop for Ended {
     fn drop(&mut self) {
         let panicked = std::thread::panicking();
         self.0.listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        self.0.written_listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
         {
             let mut state = self.0.lock();
             state.ended = true;
@@ -108,10 +115,14 @@ pub(crate) struct Writer {
     /// The LSN of the last record in `retained`.
     retained_last: Lsn,
     retained_ack: bool,
+    /// `retained` holds a kept record: synced once the journal is quiet ([module docs](self)).
+    retained_kept: bool,
     /// Bytes of `retained` written to `active`.
     written: usize,
     /// When the oldest written and unsynced byte was written.
     unsynced_since: Option<Instant>,
+    /// When the newest written and unsynced byte was written.
+    written_at: Option<Instant>,
     /// Records were written to `active` after its last marker.
     unmarked: bool,
     /// A marker `active` owes, for this LSN.
@@ -146,8 +157,10 @@ impl Writer {
             retained: Vec::new(),
             retained_last: durable,
             retained_ack: false,
+            retained_kept: false,
             written: 0,
             unsynced_since: None,
+            written_at: None,
             unmarked: false,
             marker: None,
             marker_unsynced: false,
@@ -194,7 +207,14 @@ impl Writer {
             }
             let took = self.take(&mut state);
             let owed = !self.retained.is_empty() || self.durable > self.full_durable;
-            if took || (state.closed && owed) || self.sync_due(now) || self.full_due(now) {
+            let asked = self.take_sync_ask(&mut state);
+            if took
+                || asked
+                || (state.closed && owed)
+                || self.sync_due(now)
+                || self.kept_due(now)
+                || self.full_due(now)
+            {
                 return Job { close: state.closed, last: false };
             }
             let deadline = self.deadline();
@@ -235,9 +255,24 @@ impl Writer {
         }
         self.retained_last = state.pending_last;
         self.retained_ack |= state.pending_ack;
+        self.retained_kept |= state.pending_kept;
         state.pending_last = 0;
         state.pending_records = 0;
         state.pending_ack = false;
+        state.pending_kept = false;
+        true
+    }
+
+    /// A waiter asked for a sync ([`crate::Journal::wait_durable`]): the records held now are
+    /// synced in the next job, as an acked batch is. An ask with nothing held is spent.
+    fn take_sync_ask(&mut self, state: &mut State) -> bool {
+        if !std::mem::take(&mut state.sync_asked) {
+            return false;
+        }
+        if self.retained.is_empty() {
+            return false;
+        }
+        self.retained_ack = true;
         true
     }
 
@@ -248,6 +283,14 @@ impl Writer {
             && self
                 .unsynced_since
                 .is_some_and(|since| passed(since, self.shared.config.stream_sync_delay, now))
+    }
+
+    /// Written kept records, and the journal was quiet for `Config::kept_sync_quiet` since the
+    /// last write ([module docs](self)).
+    fn kept_due(&self, now: Instant) -> bool {
+        self.retained_kept
+            && self.written == self.retained.len()
+            && self.written_at.is_some_and(|at| passed(at, self.shared.config.kept_sync_quiet, now))
     }
 
     /// Synced records waited out the full-sync interval.
@@ -264,11 +307,13 @@ impl Writer {
         } else {
             None
         };
+        let kept = if written && self.retained_kept {
+            self.written_at.and_then(|at| at.checked_add(config.kept_sync_quiet))
+        } else {
+            None
+        };
         let full = self.unfull_since.and_then(|since| since.checked_add(config.full_sync_interval));
-        match (stream, full) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        [stream, kept, full].into_iter().flatten().min()
     }
 
     fn work(&mut self, close: bool) -> Result<(), Failure> {
@@ -301,8 +346,18 @@ impl Writer {
             if self.unsynced_since.is_none() {
                 self.unsynced_since = Some(now);
             }
+            self.written_at = Some(now);
             let last = self.retained_last;
             self.publish(|stats| stats.written_lsn = last);
+            let listeners = self
+                .shared
+                .written_listeners
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            for listener in listeners {
+                listener(last);
+            }
         }
         let segment_bytes = self.shared.config.segment_bytes;
         let full_segment = self.active.as_ref().is_some_and(|active| active.size >= segment_bytes);
@@ -313,7 +368,8 @@ impl Writer {
         let due = held
             && (self.retained_ack
                 || self.retained.len() >= MAX_UNSYNCED_BYTES
-                || self.unsynced_since.is_some_and(|since| passed(since, stream_delay, now)));
+                || self.unsynced_since.is_some_and(|since| passed(since, stream_delay, now))
+                || self.kept_due(now));
         if due || (full && owed) {
             let level = if full { SyncLevel::Full } else { SyncLevel::Barrier };
             self.sync(level).map_err(Failure::Segment)?;
@@ -356,8 +412,10 @@ impl Writer {
         }
         self.retained.clear();
         self.retained_ack = false;
+        self.retained_kept = false;
         self.written = 0;
         self.unsynced_since = None;
+        self.written_at = None;
         self.backoff = self.shared.config.retry_min;
         let (durable, full_durable) = (self.durable, self.full_durable);
         let advanced = self.publish(|stats| {
@@ -416,6 +474,11 @@ impl Writer {
             prev_last: self.durable,
         };
         let file = make_segment(self.storage.as_ref(), &self.dir, &header)?;
+        self.shared
+            .segments
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(LiveSegment { seq: header.seq, prev_last: header.prev_last });
         self.active = Some(Active { file, size: len64(SEGMENT_HEADER_LEN) });
         self.next_seq = header.seq.saturating_add(1);
         self.written = 0;
@@ -435,6 +498,7 @@ impl Writer {
                 self.active = None;
                 self.written = 0;
                 self.unsynced_since = None;
+                self.written_at = None;
                 self.unmarked = false;
                 self.marker = None;
                 self.marker_unsynced = false;

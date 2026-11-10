@@ -76,6 +76,10 @@ pub struct Spec {
     /// Its last output line is its summary once it ended (`run_wait` prints its outcome last).
     #[serde(default)]
     pub result_line: bool,
+    /// The Claude Code subagent whose MCP call started it, `{id, type}` (`subagent_call.rs`):
+    /// its end goes to that subagent while it runs (`hub/bg_notify.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent: Option<serde_json::Value>,
 }
 
 /// `<id>.json`, written whole (to a temporary file, then renamed) each time it changes.
@@ -109,6 +113,9 @@ pub struct Record {
     /// [`Spec::result_line`].
     #[serde(default)]
     pub result_line: bool,
+    /// [`Spec::subagent`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent: Option<serde_json::Value>,
 }
 
 fn file(dir: &Path, id: &str, ext: &str) -> PathBuf {
@@ -120,8 +127,9 @@ pub fn lock_path(dir: &Path, id: &str) -> PathBuf {
 pub fn ctl_path(dir: &Path, id: &str) -> PathBuf {
     file(dir, id, "ctl")
 }
-/// The mark that the task's end reached its chat (`hub/bg_tasks.rs` `bg_notify`): written once
-/// the chat took the message, so a restarted daemon never sends it again.
+/// The mark that the task's end reached its chat (`hub/bg_notify.rs`): written once the chat took
+/// the message, or once it was left for the subagent that started the task, so a restarted
+/// daemon never sends it again.
 pub fn notified_path(dir: &Path, id: &str) -> PathBuf {
     file(dir, id, "notified")
 }
@@ -549,6 +557,7 @@ pub fn main() -> anyhow::Result<()> {
             description: spec.description.clone(),
             notify: spec.notify,
             result_line: spec.result_line,
+            subagent: spec.subagent.clone(),
             ..Record::default()
         };
         // A closed answer pipe is an error here, never a SIGPIPE (ignored since the start).

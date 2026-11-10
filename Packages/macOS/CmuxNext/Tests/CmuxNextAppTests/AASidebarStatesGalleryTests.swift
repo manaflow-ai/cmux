@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextAgentLanes
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
@@ -10,7 +11,7 @@ import Testing
 /// critique their sizings ... legit representative screenshots in swift"): the playground view itself
 /// (``SidebarStatesPlaygroundView``, the Debug menu's window) hosted in a real window, each sheet captured whole
 /// (`sheet-light.png`, `sheet-dark.png`), then one crop per appearance and density with the state names beside it
-/// (`light-compact.png`, ...), and the pinned row with its hover card at each density (`light-pinned-card.png`). `measurements.tsv` lists every trailing mark's measured frame and ink, also printed as
+/// (`light-compact.png`, ...) and the pinned row with its hover card at each density (`light-pinned-card.png`). `measurements.tsv` lists every trailing mark's measured frame and ink, also printed as
 /// `SBSTATES|` lines. `CMUX_TEST_REQUIRE_GUI=1`; bundled to `sidebar-states-gallery.tar` for `cmux-ci run --artifact`.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarStatesGalleryTests {
     static func themes() throws -> SidebarStatesPlaygroundThemes {
@@ -106,7 +107,7 @@ import Testing
         // size, written as sheet-favicons-<appearance>-<style>.png.
         let faviconSheets = SidebarStatesPlaygroundAppearance.allCases.flatMap { playground.faviconSheets[$0] ?? [] }
         #expect(faviconSheets.count == 2 * SidebarFaviconStyle.allCases.count)
-        let sheets = stateSheets + faviconSheets
+        let sheets: [NSView] = stateSheets + faviconSheets
         // A window as large as the playground's content, so no sheet is clipped by its scroll view.
         let size = NSSize(width: sheets.map(\.frame.width).max() ?? 1200,
                           height: sheets.map(\.frame.height).reduce(0, +) + 80)
@@ -119,7 +120,7 @@ import Testing
         window.orderFrontRegardless()
         playground.layoutSubtreeIfNeeded()
         var rows = ["appearance\tdensity\ttextSize\tstate\trowView\trowHeight\tmark\tmarkState\tframe\tink\tcenterFromColumn"]
-        for sheet in sheets {
+        for sheet in stateSheets + faviconSheets {
             sheet.layoutSubtreeIfNeeded()
             sheet.display()
             let image = try Self.capture(sheet)

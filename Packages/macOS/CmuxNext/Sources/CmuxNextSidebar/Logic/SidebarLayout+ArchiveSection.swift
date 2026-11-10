@@ -84,7 +84,7 @@ nonisolated extension SidebarLayout {
                               metrics m: SidebarLayoutMetrics, to rows: inout [SidebarRow], y: inout CGFloat) {
         guard !split.archived.isEmpty else { return }
         if !firstRow { y += m.sectionSpacing }
-        let open = o.openDoneFolds.contains(.archive) && o.gap == nil && !o.showEmptyPinned
+        let open = o.openDoneFolds.contains(.archive) && o.gap == nil && !o.dragClosesArchive
         let h = m.height(for: WorkspaceRowContent())
         rows.append(SidebarRow(
             key: .doneFold(.archive), y: y, height: h, section: SidebarDoneFoldID.archive.section, group: nil, siblingIndex: 0,
@@ -96,11 +96,13 @@ nonisolated extension SidebarLayout {
         var inner = o
         (inner.archiveSection, inner.foldsArchived, inner.foldsDone, inner.rowLimit) = (false, false, false, 0)
         (inner.gap, inner.chatHistory, inner.blockHeights, inner.collapsedDocSections) = (nil, nil, [:], [])
+        // The opened Archive lists its rows whole: Recents would fold archived groups past five behind a Show more it skips.
+        if inner.grouping.by == .recents { inner.grouping.by = .none }
         let nested = make(sections: split.archived, metrics: base, options: inner)
         let dy = y - m.topPadding
         for var row in nested.rows {
             switch row.key {
-            case .section, .emptySection, .block, .folder, .status, .doneFold, .showMore: continue
+            case .section, .emptySection, .block, .folder, .status, .listHeader, .doneFold, .showMore: continue
             default:
                 row.y += dy
                 rows.append(row)

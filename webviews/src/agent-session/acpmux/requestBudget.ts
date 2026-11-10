@@ -21,11 +21,13 @@ const UNCOUNTED = new Set([
 
 /// Below the daemon's 64, so a page never meets its refusal from its own requests.
 export const WORK_LIMIT = 48;
-/// A busy reply's first wait before the request goes again; doubles per refusal up to BUSY_MAX_MS.
+/// A busy reply's first wait before the request goes again. The delay reaches BUSY_MAX_MS, but the
+/// request remains pending while the socket is alive; it never becomes a terminal busy failure.
 export const BUSY_BASE_MS = 250;
 export const BUSY_MAX_MS = 4_000;
-/// Refusals one request takes before its caller sees the busy error.
-export const BUSY_TRIES = 6;
+/// Busy reads retry for the life of their connection. `Infinity` is also a sentinel for controls,
+/// which are never retried (`requestBudget` only retries methods with a send callback).
+export const BUSY_TRIES = Number.POSITIVE_INFINITY;
 
 /// The reads that wait for a slot and go again after a busy refusal: side-effect free, so a late
 /// or repeated one changes nothing, and they are what floods a connection (a slow peer's chat list,
@@ -101,9 +103,16 @@ export function countsAgainstBudget(method: string): boolean {
   return !UNCOUNTED.has(method);
 }
 
+/// `_acpmux/presets` reads presets, and with `set`, `clear` or `approveMode` changes one (a preset
+/// approval card's Approve or Not now): that form is a write, so it goes at once and never again.
+const writesPreset = (method: string, params?: Record<string, unknown>) =>
+  method === "_acpmux/presets" &&
+  params !== undefined &&
+  (params.set !== undefined || params.clear !== undefined || params.approveMode !== undefined);
+
 /// Whether `method` waits for a slot and goes again after a busy refusal: reads only (`READS`).
-export function waitsForSlot(method: string): boolean {
-  return READS.has(method);
+export function waitsForSlot(method: string, params?: Record<string, unknown>): boolean {
+  return READS.has(method) && !writesPreset(method, params);
 }
 
 /// The wait before try `attempt` (1-based) of a refused request: exponential, with full jitter so
@@ -154,9 +163,9 @@ export class RequestBudget {
 
   /// Sends request `id` now, or once a slot frees when `limit` are unanswered. Only a read waits;
   /// any other request goes now whatever the count (the daemon's 64 leaves it room) and counts.
-  admit(id: number | string, method: string, send: () => void): void {
+  admit(id: number | string, method: string, send: () => void, params?: Record<string, unknown>): void {
     if (!countsAgainstBudget(method)) return send();
-    if (!waitsForSlot(method)) return this.start(id, send);
+    if (!waitsForSlot(method, params)) return this.start(id, send);
     if (this.unanswered.size < this.limit && !this.waiting.length) return this.start(id, send);
     this.waiting.push({ id, send });
   }

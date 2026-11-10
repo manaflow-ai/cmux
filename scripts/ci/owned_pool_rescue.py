@@ -310,6 +310,18 @@ _POOL_READ_WHY = ("its secretless Linux jobs read vars.RUNNER_POOLS.linux (cmux#
                   "on a live Linux member; the queue janitor re-runs a job queued on a dead one, and no owned Mac is "
                   "involved for the rescue to move")
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/ios-reliability-matrix.yml":
+        "feat-cmux-next only, with no copy on main to list in SIDE_WORKFLOW_PATHS yet: its phone cells take the kit "
+        "lane's pick (an owned simulator mini) on attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or "
+        "refused job ends at its 60-minute timeout and a person's re-run lands on Blacksmith",
+    ".github/workflows/cloud-chat-proof.yml":
+        "a manual proof that never takes an owned pool: pick-proof-runner runs e2e_runner_pool.py with --owned 0 and "
+        "keeps only a Blacksmith macOS 26 label, because each proof job holds a Stack account pair; a re-run takes "
+        "the declared macos_26 pool, and the person re-dispatches",
+    ".github/workflows/gateway-e2e.yml":
+        "a manual proof (the inference gateway on an owned Mac on the tailnet): its mac job holds the dev stack pair "
+        "and must stay on an owned Mac to reach the subscription router, so a Blacksmith rescue could only fail it; "
+        "its 45-minute timeout clears a stuck run and the person re-dispatches",
     ".github/workflows/backend.yml":
         "migrations-push-guard reads vars.RUNNER_POOLS.linux (cmux#30685, kept by #30761), which runner_pools.py "
         "keeps on a live Linux member, and it holds no secret; its job timeout or a person's cancel clears a stuck "
@@ -322,7 +334,6 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/ci-repo-variables.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-guest-install.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-image-bake.yml": _POOL_READ_WHY,
-    ".github/workflows/cloud-vm-image-contract.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-image-lock.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-base-tier-kick.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-chromium-currency.yml": _POOL_READ_WHY,
@@ -346,11 +357,8 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/ios-internal-nightly-trigger.yml": _POOL_READ_WHY,
     ".github/workflows/labels-sync.yml": _POOL_READ_WHY,
     ".github/workflows/mux.yml": _POOL_READ_WHY,
-    ".github/workflows/pr-capture-check.yml": _POOL_READ_WHY,
+    ".github/workflows/pr-body-checks.yml": _POOL_READ_WHY,
     ".github/workflows/pr-checks.yml": _POOL_READ_WHY,
-    ".github/workflows/pr-cloud-backend-check.yml": _POOL_READ_WHY,
-    ".github/workflows/pr-design-spec-check.yml": _POOL_READ_WHY,
-    ".github/workflows/pr-perf-section-check.yml": _POOL_READ_WHY,
     ".github/workflows/r2-upload-tests.yml": _POOL_READ_WHY,
     ".github/workflows/required-checks-drift.yml": _POOL_READ_WHY,
     ".github/workflows/risk-tier-tests.yml": _POOL_READ_WHY,

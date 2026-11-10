@@ -15,11 +15,14 @@
 import { useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";
-import type { BackgroundCommand } from "../session-info/processes";
-import { nestAgents } from "./AgentsPill";
+import type { SubagentStatus } from "../summary/subagentStatusListModel";
+import { arrivalKey, type BackgroundCommand } from "../session-info/processes";
+import { nestAgents } from "./agentsPillModel";
 import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./subagentRows";
-import type { Subagent } from "./subagentFold";
+import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";
+import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
+import { PrefixFlatCache } from "../conversation/prefixFlatMap";
 
 let trayOn = true;
 const listeners = new Set<() => void>();
@@ -45,8 +48,19 @@ export const useSubagentTray = (): boolean => useSyncExternalStore(subscribe, sn
 /// background command, or a chat the agent started.
 export type TrayItem =
   | { kind: "agent"; id: string; agent: Subagent; depth: number }
-  | { kind: "command"; id: string; command: BackgroundCommand }
+  | {
+      kind: "command";
+      id: string;
+      command: BackgroundCommand;
+      /// The subagent whose call started it, when one did and the chat knows it: its line names it.
+      owner?: Subagent;
+    }
   | { kind: "session"; id: string; session: StartedSession };
+
+/// A tray line's key: a command's is the call that started it, which stays when the registry lists a
+/// command only the transcript knew, so its line is the same node running and finished.
+export const trayItemKey = (item: TrayItem): string =>
+  item.kind === "command" ? `command:${arrivalKey(item.command)}` : `${item.kind}:${item.id}`;
 
 /// What the tray lists and its header counts: what runs or waits on the person, never what ended
 /// (Leo 2026-10-21 on "2 subagents running · 2 commands · 32 sessions": "THIS IS LYING"). The
@@ -77,14 +91,19 @@ export function trayItems(
     // sub-session's retry is on its own session row: its line carries it, to read "Retrying (2/4)".
     .flatMap((agent) => {
       if (agent.state === "running" && (working || agent.background === true)) return [agent];
+      // Stopped to wait on background work of its own: still live, its report still to come.
+      if (awaitsOwnWork(agent)) return [agent];
       const retry = retries(agent);
       return retry ? [agent.retry ? agent : { ...agent, retry }] : [];
     })
     .sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id));
   const items: TrayItem[] = nestAgents(live).map(({ agent, depth }) => ({ kind: "agent", id: agent.id, agent, depth }));
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
   for (const command of commands)
-    if (command.state === "running" && (working || command.processId !== undefined))
-      items.push({ kind: "command", id: command.id, command });
+    if (command.state === "running" && (working || command.processId !== undefined)) {
+      const owner = command.subagent === undefined ? undefined : byId.get(command.subagent);
+      items.push({ kind: "command", id: command.id, command, ...(owner ? { owner } : {}) });
+    }
   for (const session of sessions)
     if (session.subsession && liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
   return newestFirst(items);
@@ -122,7 +141,7 @@ const liveSession = (session: StartedSession) =>
 /// (their end is not known here), those with no creation time last.
 export function finishedTrayItems(agents: readonly Subagent[], sessions: readonly StartedSession[]): TrayItem[] {
   const retries = childRetries(sessions);
-  const ended = agents.filter((agent) => agent.state !== "running" && !retries(agent));
+  const ended = agents.filter((agent) => agent.state !== "running" && !awaitsOwnWork(agent) && !retries(agent));
   // Each subtree's latest end, in one pass over a parent-to-children map (a loop is cut where it
   // meets an agent already on the path).
   const ids = new Set(ended.map((agent) => agent.id));
@@ -165,6 +184,13 @@ export function finishedTrayItems(agents: readonly Subagent[], sessions: readonl
   return items;
 }
 
+/// A command's line status: running, done (exit 0), failed, or stopped (killed, or acpmux lost it).
+export function commandStatus(command: BackgroundCommand): SubagentStatus {
+  if (command.state === "running") return "running";
+  if (command.state === "completed") return "done";
+  return command.state === "failed" ? "failed" : "stopped";
+}
+
 /// When an item started, if known.
 export const itemStart = (item: TrayItem): number | undefined =>
   item.kind === "agent" ? item.agent.startedAt : item.kind === "command" ? item.command.startedAt : undefined;
@@ -198,8 +224,8 @@ function doneLine(
     agent.stopReason ?? "",
     retryKey(agent),
     inBackground ?? "",
-    // The chat's reaction to its end (ReactionMark.tsx): its new mark comes and goes, its reply grows.
-    agent.reaction ? `${agent.reaction.turn}:${agent.reaction.fresh ? 1 : 0}:${agent.reaction.text?.length ?? 0}` : "",
+    // The chat's reaction to its end (ReactionMark.tsx): its new mark comes and goes.
+    agent.reaction ? `${agent.reaction.turn}:${agent.reaction.fresh ? 1 : 0}` : "",
   ].join("\u0000");
   made.add(id);
   const kept = cache.get(id);
@@ -275,9 +301,60 @@ function workflowCard(row: AcpmuxRow, node: Subagent, cache: DoneLineCache, made
   return card;
 }
 
+/// The subagent a background turn answered: the line of a turn Claude Code started with a
+/// subagent's report (its task notification, acpmux `cause.kind` `subagent`), whose `origin` is the
+/// Agent call that started it.
+const reportOrigin = (row: AcpmuxRow): string | undefined =>
+  row.kind === BACKGROUND_TURN && row.background?.cause?.kind === "subagent" ? row.background.cause.origin : undefined;
+
+/// The report origin an agent answers to: Claude Code's notification names the Agent call
+/// (`toolu_…`), while acpmux's record names a Claude subagent `<session>/<tool call>`.
+function reportKey(id: string, reports: ReadonlyMap<string, number>): string | undefined {
+  if (reports.has(id)) return id;
+  const call = id.slice(id.lastIndexOf("/") + 1);
+  return call !== id && reports.has(call) ? call : undefined;
+}
+
+/// A report's line (conversation/BackgroundTurnLine.tsx) names the subagent that sent it: the same
+/// row with `subagentReport`, kept while the row and what the agent says hold, so the turn built on
+/// it stays the same object.
+function reportLine(
+  row: AcpmuxRow,
+  agent: Subagent,
+  first: boolean,
+  cache: DoneLineCache,
+  made: Set<string>,
+): AcpmuxRow {
+  const id = `report:${row.id}`;
+  const key = [
+    row.version,
+    first ? 1 : 0,
+    agent.state,
+    agent.name,
+    agent.task ?? "",
+    agent.result ?? "",
+    agent.lastMessage ?? "",
+    agent.error ?? "",
+  ].join("\u0000");
+  made.add(id);
+  const kept = cache.get(id);
+  if (kept?.key === key && kept.row.background === row.background) return kept.row;
+  const line: AcpmuxRow = {
+    ...row,
+    version: versionOf(key),
+    subagentReport: agent,
+    ...(first && { subagentReportFirst: true as const }),
+  };
+  cache.set(id, { key, row: line });
+  return line;
+}
+
 /// The transcript as the tray draws it: no subagent group where the subagents started (the tray
 /// shows them while they run), and for each subagent that ended a done line where it ended, after
-/// the last row that came before its end. With `workflowCards` (Labs), a workflow a group started
+/// the last row that came before its end. A subagent's report (the turn its end started, a
+/// background turn of kind `subagent`) names its subagent, and that subagent's done line goes right
+/// above its first report, so the two read as one (Leo, 2026-11-05, on the report's line under
+/// "Subagent finished": "what's up with this \"tool call\"?"). With `workflowCards` (Labs), a workflow a group started
 /// is a card in the group's place instead, running or ended, and leaves no done line. Rows are
 /// otherwise the same objects, so a transcript with no subagents is returned as it is.
 export function withSubagentLines(
@@ -285,14 +362,26 @@ export function withSubagentLines(
   cache: DoneLineCache = new Map(),
   workflowCards = false,
 ): readonly AcpmuxRow[] {
-  if (!rows.some(isSubagentGroup)) return rows;
-  // Each ended subagent goes before the first row after its group that came after its end.
+  // The groups and the reports come from passes that read only the rows a snapshot changed
+  // (conversation/prefixFlatMap.ts); every other row is copied as it is. A chat of 35,000 rows
+  // read each row three times per event here.
+  const groups = groupReads.read(rows).from;
+  if (groups.length === 0) return rows;
+  const reportPass = reportReads.read(rows);
+  // Each ended subagent goes before the first row after its group that came after its end, or
+  // right above its first report when one came after its group.
   const before = new Map<number, AcpmuxRow[]>();
+  const reports = new Map<string, number>();
+  reportPass.items.forEach((origin, at) => {
+    if (!reports.has(origin)) reports.set(origin, reportPass.from[at]!);
+  });
+  const reported = new Map<string, Subagent>();
   const cards = new Map<number, AcpmuxRow[]>();
   const made = new Set<string>();
-  rows.forEach((row, index) => {
+  for (const index of groups) {
+    const row = rows[index]!;
     // An agent a shell call started keeps its card where it started (AgentRunCard.tsx).
-    if (!isSubagentGroup(row) || isRunGroup(row)) return;
+    if (isRunGroup(row)) continue;
     const workflows = workflowCards ? (row.subagents ?? []).filter(isWorkflow) : [];
     if (workflows.length > 0)
       cards.set(
@@ -300,26 +389,61 @@ export function withSubagentLines(
         workflows.map((node) => workflowCard(row, node, cache, made)),
       );
     for (const agent of row.subagents ?? []) {
-      if (agent.state === "running" || (workflowCards && isWorkflow(agent))) continue;
+      // One waiting on background work of its own has not finished: its line waits for its report.
+      if (agent.state === "running" || awaitsOwnWork(agent) || (workflowCards && isWorkflow(agent))) continue;
       const endedAt = agent.endedAt ?? agent.startedAt;
       let at = index + 1;
       while (at < rows.length && (isSubagentGroup(rows[at]!) || rows[at]!.at <= endedAt)) at += 1;
+      const origin = reportKey(agent.id, reports);
+      const report = origin === undefined ? undefined : reports.get(origin);
+      if (origin !== undefined && report !== undefined && report > index) {
+        at = report;
+        reported.set(origin, { ...agent, endedAt });
+      }
       const line = doneLine(agent, endedAt, cache, made, row.inBackground);
       before.set(at, [...(before.get(at) ?? []), line]);
     }
+  }
+  // The rows drawn other than as they are: the groups (their cards, or nothing) and the reports
+  // of a reported subagent (its line); and where the done lines go.
+  const changed = new Map<number, (row: AcpmuxRow) => readonly AcpmuxRow[]>();
+  for (const index of groups) if (!isRunGroup(rows[index]!)) changed.set(index, () => cards.get(index) ?? NO_ROWS);
+  reportPass.items.forEach((origin, at) => {
+    const agent = reported.get(origin);
+    if (agent) {
+      const index = reportPass.from[at]!;
+      changed.set(index, (row) => [reportLine(row, agent, reports.get(origin) === index, cache, made)]);
+    }
   });
+  const marks = [...new Set([...changed.keys(), ...before.keys()])].sort((a, b) => a - b);
   const out: AcpmuxRow[] = [];
   const flush = (at: number) => {
     const lines = before.get(at);
     if (lines) out.push(...lines.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)));
   };
-  rows.forEach((row, index) => {
-    flush(index);
-    if (!isSubagentGroup(row) || isRunGroup(row)) out.push(row);
-    else out.push(...(cards.get(index) ?? []));
-  });
-  flush(rows.length);
+  let next = 0;
+  for (const mark of marks) {
+    for (; next < mark && next < rows.length; next += 1) out.push(rows[next]!);
+    flush(mark);
+    if (mark >= rows.length) continue;
+    const draw = changed.get(mark);
+    if (draw) out.push(...draw(rows[mark]!));
+    else out.push(rows[mark]!);
+    next = mark + 1;
+  }
+  for (; next < rows.length; next += 1) out.push(rows[next]!);
   // Only this pass's lines stay cached, so another chat's do not pile up.
   for (const id of cache.keys()) if (!made.has(id)) cache.delete(id);
   return out;
 }
+
+const NO_ROWS: readonly AcpmuxRow[] = [];
+/// The subagent groups of a transcript, by index (withSubagentLines).
+const groupReads = new PrefixFlatCache<AcpmuxRow, true>((row) => (isSubagentGroup(row) ? YES : NOTHING));
+const YES: readonly true[] = [true];
+const NOTHING: readonly never[] = [];
+/// The subagent each report answers (`reportOrigin`), by index.
+const reportReads = new PrefixFlatCache<AcpmuxRow, string>((row) => {
+  const origin = reportOrigin(row);
+  return origin === undefined ? NOTHING : [origin];
+});

@@ -4,6 +4,184 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmStatusReportParams {
+    pub machine: MachineId,
+    pub state: CloudVmStatusReportParamsState,
+    pub daemon: CloudVmStatusReportParamsDaemon,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<CloudVmStatusReportParamsHealth>,
+    pub activity: CloudVmStatusReportParamsActivity,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmStatusReportResult {
+    pub applied: bool,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.status.report declares.
+    CloudVmStatusReportError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.
+    ConversationCreateOp {
+        name: "conversation.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ConversationCreateParams,
+        result: ConversationCreateResult,
+        error: ConversationCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationCreateParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<LitGroup>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub participants: Vec<HomeParticipantInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<HomeConversationSettings>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationCreateResult {
+    pub conversation: HomeConversationSummary,
+}
+
+wire_errors! {
+    /// The error codes conversation.create declares.
+    ConversationCreateError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ConversationExists = "conversation_exists",
+        Forbidden = "forbidden",
+        HomeRateLimited = "home.rate_limited",
+        HomeUserNotReady = "home.user_not_ready",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParticipant = "invalid_participant",
+        InvalidTitle = "invalid_title",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        NotReachable = "not_reachable",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Page older messages before before_seq (newest first within the page).
+    ConversationHistoryOp {
+        name: "conversation.history",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConversationDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: ConversationHistoryParams,
+        result: ConversationHistoryResult,
+        error: ConversationHistoryError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationHistoryParams {
+    pub conversation: ConversationId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_seq: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationHistoryResult {
+    pub messages: Vec<HomeMessage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threads: Option<Vec<HomeThreadSummary>>,
+    pub next_before_seq: Option<i64>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes conversation.history declares.
+    ConversationHistoryError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same.
+    ConversationImportOp {
+        name: "conversation.import",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ConversationImportParams,
+        result: HomeConversationCommit,
+        error: ConversationImportError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationImportParamsSource {
+    pub kind: LitMac,
+    pub host: String,
+    pub local_id: String,
+}
+
+wire_enum! {
+    ConversationImportParamsKind {
+        Group = "group",
+        Chief = "chief",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationImportParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<ConversationId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<ConversationImportParamsSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<ConversationImportParamsKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub participants: Option<Vec<HomeParticipantInput>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_seq: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<bool>,
+    pub messages: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub read_cursors: Option<Value>,
+}
+
 wire_errors! {
     /// The error codes conversation.import declares.
     ConversationImportError {
@@ -719,187 +897,3 @@ wire_op! {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedCountsParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedCountsResult {
-    pub open_requests: i64,
-    pub unread: i64,
-    pub by_priority: BTreeMap<String, i64>,
-    pub by_poster_kind: BTreeMap<String, i64>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes feed.counts declares.
-    FeedCountsError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Read one feed item (its answer once it is answered). An agent reads only the items it posted.
-    FeedGetOp {
-        name: "feed.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:FeedDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: FeedGetParams,
-        result: FeedGetResult,
-        error: FeedGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedGetParams {
-    pub item: FeedItemId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedGetResult {
-    pub item: FeedItem,
-}
-
-wire_errors! {
-    /// The error codes feed.get declares.
-    FeedGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// The built-in request kinds with JSON Schemas of their prompt and answer; custom kinds x-<publisher>.<name> carry their own answer_schema.
-    FeedKindsOp {
-        name: "feed.kinds",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:FeedDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: FeedKindsParams,
-        result: FeedKindsResult,
-        error: FeedKindsError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedKindsParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedKindsResultKindsItem {
-    pub kind: String,
-    pub priority: FeedPriority,
-    pub needs_mac: bool,
-    pub docs: String,
-    pub prompt_schema: Value,
-    pub answer_schema: Value,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedKindsResult {
-    pub kinds: Vec<FeedKindsResultKindsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.kinds declares.
-    FeedKindsError {
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// List feed items in the owner's order (one order for every client), optionally grouped. An agent sees only the items it posted.
-    FeedListOp {
-        name: "feed.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:FeedDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: FeedListParams,
-        result: FeedListResult,
-        error: FeedListError,
-    }
-}
-
-wire_enum! {
-    FeedListParamsState {
-        Open = "open",
-        Closed = "closed",
-        All = "all",
-    }
-}
-
-wire_enum! {
-    FeedListParamsType {
-        Notice = "notice",
-        Request = "request",
-    }
-}
-
-wire_enum! {
-    FeedListParamsOrder {
-        Urgent = "urgent",
-        Recent = "recent",
-    }
-}
-
-wire_enum! {
-    FeedListParamsGroupBy {
-        Thread = "thread",
-        Poster = "poster",
-        Workspace = "workspace",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedListParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<FeedListParamsState>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub r#type: Option<FeedListParamsType>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<FeedKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unread: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub archived: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thread: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub needs_response: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub poster_kind: Option<FeedPosterKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub query: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub order: Option<FeedListParamsOrder>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub group_by: Option<FeedListParamsGroupBy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after: Option<FeedItemId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedListResultGroupsItem {
-    pub key: String,
-    pub label: String,
-    pub items: Vec<FeedItemId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedListResult {
-    pub items: Vec<FeedItem>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub groups: Option<Vec<FeedListResultGroupsItem>>,
-    pub next: Option<FeedItemId>,
-    pub revision: String,
-}

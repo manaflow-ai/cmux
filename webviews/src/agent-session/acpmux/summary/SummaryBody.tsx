@@ -1,10 +1,13 @@
 import React, { useMemo, type ReactNode } from "react";
 import { Counts } from "../changes/Counts";
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { TurnFile } from "../diff";
+import { cronWords } from "../session-info/cronWords";
+import { sourceLabels } from "../session-info/sourcesSectionModel";
 import { type BackgroundCommand, backgroundCommands } from "../session-info/processes";
+import { TASK_ICONS } from "../session-info/taskIcons";
 import { projectPathAllowed, type SessionSummary } from "./sessionSummary";
 import { SourcesAddMenu, type ChatToolsControl } from "./SourcesAddMenu";
 import { SubagentStack } from "./SubagentStack";
@@ -88,6 +91,9 @@ export function SummaryBody({
   workflowCapacity?: WorkflowCapacitySignal;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
+  // A failed call scheduled nothing.
+  const scheduled = summary.scheduled.filter((wakeup) => !wakeup.failed);
   // With tools to offer, Sources' + is a menu (Attach files or folders, Use tools), and Sources
   // draws with no sources so the menu has a place.
   const toolsMenu = tools && tools.rows.length > 0 ? tools : undefined;
@@ -99,6 +105,12 @@ export function SummaryBody({
   // The index follows the outputs' own revision, even when a live turn updates
   // unrelated rows or a checkpoint arrives while the Summary is open.
   const outputOf = useMemo(() => summaryOutputLookup(summary.outputs), [summary.outputs]);
+  // Each source's row name as Session Info's Sources gives it: a pasted image with no name of its
+  // own (WebKit's "image.png") is "Screenshot 1", "Screenshot 2", ... in chat order.
+  const sourceName = useMemo(() => {
+    const names = sourceLabels(t, summary.sources);
+    return new Map(summary.sources.map((source, index) => [source, names[index]!]));
+  }, [t, summary.sources]);
   const turnOf = new Map<string, (typeof lastTurn)[number]>();
   const checkpointOnly: (typeof lastTurn)[number][] = [];
   for (const file of lastTurn) {
@@ -130,7 +142,7 @@ export function SummaryBody({
     summary.subagents.length === 0 &&
     summary.sources.length === 0 &&
     summary.pullRequests.length === 0 &&
-    summary.scheduled.length === 0;
+    scheduled.length === 0;
   return (
     <>
       <SummaryTasks commands={tasks} onStop={onStopCommand} onFollow={onFollow} onOpenInPane={onOpenTasksInPane} />
@@ -215,7 +227,7 @@ export function SummaryBody({
             ) : (
               <span className="acpmux-summary-row">
                 <Icon name={source.image ? "site.permission.images" : "search.files"} size={ROW_ICON} row />
-                <span className="acpmux-summary-text">{source.label || t("image.viewer")}</span>
+                <span className="acpmux-summary-text">{sourceName.get(source) || t("image.viewer")}</span>
               </span>
             )}
           </li>
@@ -264,12 +276,12 @@ export function SummaryBody({
       />
       <SummarySection
         title={t("summary.scheduled")}
-        items={summary.scheduled}
+        items={scheduled}
         row={(wakeup) => (
           <li key={wakeup.id} className="acpmux-summary-row">
-            <Icon name="task.status.started" size={ROW_ICON} row />
+            <Icon name={TASK_ICONS[wakeup.kind].web} size={ROW_ICON} row />
             <span className="acpmux-summary-text">{wakeup.text}</span>
-            {wakeup.cron && <span className="acpmux-summary-meta">{wakeup.cron}</span>}
+            {wakeup.cron && <span className="acpmux-summary-meta">{cronWords(wakeup.cron, t, language)}</span>}
           </li>
         )}
       />

@@ -37,8 +37,10 @@ import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { t } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
+import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
 import {
   errorCode,
+  newIdempotencyKey,
   wireError,
   type AccountsRun,
   type AccountsState,
@@ -48,6 +50,8 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type SharesState,
+  type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -69,6 +73,27 @@ import {
   type WireError,
   type WorkspaceBackground,
 } from "./ops";
+
+/** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
+export type WorktreeProject = { path: string; name: string; saved?: WorktreeRecipe };
+
+/** `project.list`'s projects that are still on disk, as the card lists them. */
+export function readWorktreeProjects(value: unknown): WorktreeProject[] {
+  const list = (value as { projects?: unknown } | null)?.projects;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((item): WorktreeProject[] => {
+    const project = item as { path?: unknown; name?: unknown; state?: unknown; overlay?: { worktree?: unknown } };
+    if (typeof project.path !== "string" || !project.path || project.state === "missing") return [];
+    const name = typeof project.name === "string" && project.name ? project.name : project.path;
+    const saved = project.overlay?.worktree;
+    return [{ path: project.path, name, ...(saved && typeof saved === "object" ? { saved: readRecipe(saved) } : {}) }];
+  });
+}
+
+/** A refusal that means this build has no route for the op (not a failure of the op itself). */
+export function isUnsupported(error: WireError): boolean {
+  return /(^|\.)(unknown_op|unsupported|operation\.unsupported)$/.test(error.code);
+}
 
 /** A refused write: `message` is a page string; `detail` is the owner's own (English) text. */
 export type RowError = { code: string; message: string; detail?: string };
@@ -372,8 +397,10 @@ export class SettingsStore {
     return reply.ok && reply.value.accepts;
   }
 
-  /** The section's action buttons; empty when the host has none. */
-  async sectionActions(section: string): Promise<Array<{ id: string; title: string; enabled: boolean }>> {
+  /** The section's action buttons; empty when the host has none. `hint` says what one does. */
+  async sectionActions(
+    section: string,
+  ): Promise<Array<{ id: string; title: string; enabled: boolean; hint?: string | null }>> {
     const reply = await this.request("cmux.settings.section.actions", { section });
     return reply.ok ? reply.value : [];
   }
@@ -690,6 +717,31 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
+  /** Settings > Agents > Worktree Setup: the session host's projects with their saved recipes,
+   * or the host's refusal (a build whose page relay does not reach `project.list`). */
+  async worktreeProjects(): Promise<{ projects: WorktreeProject[]; error: string | null; unavailable: boolean }> {
+    const reply = await this.request("cmux.settings.worktree.list", { limit: 200 });
+    if (!reply.ok) return { projects: [], error: reply.error.message, unavailable: isUnsupported(reply.error) };
+    return { projects: readWorktreeProjects(reply.value), error: null, unavailable: false };
+  }
+
+  /** The recipe a new worktree of the project at `path` gets, and what each source says. */
+  async worktreeRecipe(path: string): Promise<{ recipe: ResolvedWorktreeRecipe | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.worktree.read", { path });
+    if (!reply.ok) return { recipe: null, error: reply.error.message };
+    return { recipe: readSetupReply(reply.value)?.recipe ?? null, error: null };
+  }
+
+  /** Saves the project's own recipe (null clears it); the host's failure text, else null. */
+  async saveWorktreeRecipe(path: string, worktree: WorktreeRecipe | null): Promise<string | null> {
+    const reply = await this.request("cmux.settings.worktree.save", {
+      path,
+      worktree,
+      idempotency_key: newIdempotencyKey(),
+    });
+    return reply.ok ? null : reply.error.message;
+  }
+
   /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
   async runEnvironments(
     run: CloudEnvironmentsRun,
@@ -698,6 +750,32 @@ export class SettingsStore {
     const state = await this.environments();
     if (!reply.ok) return { state, error: reply.error.message };
     return { state, error: reply.value?.error ?? null };
+  }
+
+  /** Settings > Privacy and Security > Shared Links: this Mac's chat shares; null when the host has
+   * no shares part or the read failed. */
+  async shares(): Promise<SharesState | null> {
+    const reply = await this.request("cmux.settings.shares.list", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Server > This Mac on Your Tailnet: one `_acpmux/tailnet/<verb>` the app relays; the node's
+   * snapshot, or null when acpmux has no tailnet, did not take the person's proof, or the host refused. */
+  async tailnet(verb: "state" | "start" | "login" | "logout"): Promise<TailnetState | null> {
+    const reply = await this.request(`cmux.settings.tailnet.${verb}`, {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Revokes each share in `ids` in turn (one for Revoke, every live one for Revoke All); the first
+   * refusal's text, else null. Every id is tried even after a refusal, so one stuck share never
+   * keeps the rest open. */
+  async revokeShares(ids: readonly string[]): Promise<string | null> {
+    let error: string | null = null;
+    for (const id of ids) {
+      const reply = await this.request("cmux.settings.shares.revoke", { share_id: id });
+      if (!reply.ok) error ??= reply.error.message;
+    }
+    return error;
   }
 
   /** One Devices gesture, then a fresh read of the part; answers the host's result (a refusal

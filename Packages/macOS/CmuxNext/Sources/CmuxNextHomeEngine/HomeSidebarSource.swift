@@ -1,6 +1,7 @@
 public import CmuxHomeCore
 public import CmuxNextDaemon
 public import CmuxNextHome
+public import CmuxNextHomeModel
 public import Foundation
 public import Observation
 
@@ -102,12 +103,9 @@ public final class HomeSidebarSource {
     /// This Mac's marks changed here (a Mark as Unread or Read of a row no owner lists): other
     /// sources over the same account read them again (``reloadMarks()``).
     @ObservationIgnored public var onMarksChanged: () -> Void = {}
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// DEBUG: conversations listed besides the store's (`debug.home.sidebar_fixture`).
-    @ObservationIgnored public var debugRows: [InboxRow] = []
-    /// DEBUG: team members listed besides the directory's (`debug.home.sidebar_fixture` `team`).
-    @ObservationIgnored public var debugTeam: [HomeContact] = []
-    #endif
+    /// This account's deleted conversations changed here (Delete Conversation…, Show Hidden
+    /// Conversations): other sources over the account read them again (``reloadPins()``).
+    @ObservationIgnored public var onHiddenChanged: () -> Void = {}
 
     public init(store: HomePinStore, inboxes: [HomeInboxSource] = [], account: @escaping @MainActor () -> String,
          rows: @escaping @MainActor () -> [InboxRow],
@@ -142,25 +140,13 @@ public final class HomeSidebarSource {
                                          chiefHarnesses: chiefHarnesses(), archivedChiefs: archivedChiefs, roster: chiefRoster())
     }
 
-    /// The store's rows (plus DEBUG fixture rows).
-    private func listed() -> [InboxRow] {
-        #if DEBUG
-        return debugRows.isEmpty ? rows() : rows() + debugRows
-        #else
-        return rows()
-        #endif
-    }
+    /// The store's rows.
+    private func listed() -> [InboxRow] { rows() }
 
     public func model(now: Date = Date()) -> HomeSidebarModel { model(query: query, now: now) }
 
-    /// The people the list offers (plus DEBUG fixture teammates).
-    private func people() -> [HomeContact] {
-        #if DEBUG
-        return debugTeam.isEmpty ? contacts() : debugTeam + contacts()
-        #else
-        return contacts()
-        #endif
-    }
+    /// The people the list offers.
+    private func people() -> [HomeContact] { contacts() }
 
     /// Whether `row` stays listed: not deleted, or a message came after the delete.
     private func shows(_ row: InboxRow) -> Bool {
@@ -200,6 +186,7 @@ public final class HomeSidebarSource {
     }
 
     /// Pins or unpins `id`: with the owner when it lists `id`, else for this account on this Mac.
+    /// Pinning a conversation that is already pinned changes nothing: it keeps its place.
     public func setPinned(_ on: Bool, _ id: ConversationID) {
         if let inbox = owner(of: id) { return inbox.setPinned(on, id.rawValue) }
         guard let row = listed().first(where: { $0.id == id }) else { return }
@@ -209,27 +196,25 @@ public final class HomeSidebarSource {
         store.save(pins, account: account())
     }
 
-    /// Puts `id` at `index` of the pinned grid (a drag: a new place, or a row pinned there) and
-    /// keeps the order: with the owner among its pinned rows when it lists `id`, else with this account's pins.
+    /// Puts `id` at `index` of the pinned grid (a drag: a new place, or a row pinned there). The whole
+    /// grid in its new order gets one numbering (the owners' scale: now in milliseconds plus the tile's
+    /// index), each pin kept by its own keeper: the owner that lists it, else this account on this Mac.
+    /// So the drawn order holds across both owners and this Mac's pins, and after a relaunch.
     public func place(_ id: ConversationID, at index: Int) {
-        let shown = model(query: "", now: Date()).pinned.map(\.id)
-        if owner(of: id) != nil {
-            // The whole grid in its new order gets positions, each pin with its own owner, so pins of both owners keep that order.
-            var order = shown.filter { $0 != id && owner(of: $0) != nil }
-            order.insert(id, at: min(max(0, index), order.count))
-            let base = HomeInboxSource.now()
-            for inbox in inboxes {
-                let mine = order.enumerated().filter { owner(of: $0.element) === inbox }.map { (id: $0.element.rawValue, position: base + UInt64($0.offset)) }
-                if !mine.isEmpty { inbox.place(mine) }
-            }
-            return
-        }
-        // Only rows no owner lists are this Mac's to order: an owner's pin kept here would move to it again.
-        var order = shown.filter { $0 != id }
+        var order = model(query: "", now: Date()).pinned.map(\.id).filter { $0 != id }
         order.insert(id, at: min(max(0, index), order.count))
-        let mine = order.filter { owner(of: $0) == nil }
+        let base = HomeInboxSource.now()
+        let numbered = order.enumerated().map { (id: $0.element, position: base + UInt64($0.offset)) }
+        let keepers = numbered.map { (pin: $0, owner: owner(of: $0.id)) }
+        for inbox in inboxes {
+            let mine = keepers.filter { $0.owner === inbox }.map { (id: $0.pin.id.rawValue, position: $0.pin.position) }
+            if !mine.isEmpty { inbox.place(mine) }
+        }
+        // Only rows no owner lists are this Mac's to keep: an owner's pin kept here would move to it again.
+        let local = keepers.filter { $0.owner == nil }.map(\.pin)
+        guard !local.isEmpty else { return }
         pins = store.pins(account: account())
-        pins.place(id, at: mine.firstIndex(of: id) ?? mine.count, shown: mine)
+        pins.arrange(local.map(\.id), positions: local.map(\.position))
         store.save(pins, account: account())
     }
 
@@ -250,13 +235,14 @@ public final class HomeSidebarSource {
         let replies = inboxes.compactMap(\.reply)
         guard !replies.isEmpty else {
             let (pinned, rest) = pins.split(listed)
-            return HomeSidebarModel.unreadConversations(pinned: pinned, rest: rest, unreadMarks: unreadMarks, mainChief: chiefRoster().main)
+            return HomeSidebarModel.unreadConversations(pinned: pinned, rest: rest, unreadMarks: unreadMarks,
+                                                        mainChief: pins.leading(chiefRoster().main))
         }
         let list = HomeInboxMapping(owned: HomeInboxMapping.ordered(replies.map(\.rows)), listed: listed, pins: pins, unreadMarks: unreadMarks)
         let rows = list.rows.filter(shows)
         return HomeSidebarModel.unreadConversations(pinned: rows.filter { list.pinned.contains($0.id) },
                                                     rest: rows.filter { !list.pinned.contains($0.id) },
-                                                    unreadMarks: list.unreadMarks, mainChief: chiefRoster().main)
+                                                    unreadMarks: list.unreadMarks, mainChief: nil)
     }
 
     /// Reads this account's marks again (another source changed them).
@@ -286,6 +272,7 @@ public final class HomeSidebarSource {
         hidden = store.hidden(account: account())
         hidden[id] = row.summary.lastSeq
         store.save(hidden: hidden, account: account())
+        onHiddenChanged()
         return true
     }
 
@@ -295,6 +282,7 @@ public final class HomeSidebarSource {
         let count = store.hidden(account: account()).count
         hidden = [:]
         store.save(hidden: [:], account: account())
+        onHiddenChanged()
         return count
     }
 

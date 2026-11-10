@@ -37,7 +37,9 @@ pub trait Storage: Send + Sync {
     fn list(&self, dir: &Path) -> io::Result<Vec<String>>;
     fn open(&self, path: &Path, mode: OpenMode) -> io::Result<Box<dyn StorageFile>>;
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()>;
-    /// Makes the entries of `dir` (a create or a rename in it) durable.
+    /// Removes the file at `path` (`Journal::retire_through`, the journal's only delete).
+    fn remove_file(&self, path: &Path) -> io::Result<()>;
+    /// Makes the entries of `dir` (a create, rename or remove in it) durable.
     fn sync_dir(&self, dir: &Path) -> io::Result<()>;
     /// An exclusive lock of `path`, held until the returned value is dropped, or `None` while
     /// another holder has it.
@@ -102,6 +104,10 @@ impl Storage for FsStorage {
 
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         std::fs::rename(from, to)
+    }
+
+    fn remove_file(&self, path: &Path) -> io::Result<()> {
+        std::fs::remove_file(path)
     }
 
     fn sync_dir(&self, dir: &Path) -> io::Result<()> {
@@ -210,7 +216,7 @@ fn write_all_at(file: &std::fs::File, mut offset: u64, mut bytes: &[u8]) -> io::
 /// durable. A call a signal interrupts (EINTR) is made again, as std does. std's `sync_data` and
 /// `sync_all` are both `F_FULLFSYNC` here, so they are not used.
 #[cfg(target_os = "macos")]
-fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
+pub fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
     use std::os::fd::AsRawFd;
     let fd = file.as_raw_fd();
     let command = match level {
@@ -250,7 +256,7 @@ fn retry_interrupted(call: impl Fn() -> libc::c_int) -> io::Result<()> {
 /// [`SyncLevel`] elsewhere: `fdatasync` (Linux; it also flushes a volatile drive cache) or `fsync`;
 /// `FlushFileBuffers` on Windows for both.
 #[cfg(not(target_os = "macos"))]
-fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
+pub fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
     match level {
         SyncLevel::Barrier => file.sync_data(),
         SyncLevel::Full => file.sync_all(),

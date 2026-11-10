@@ -85,9 +85,8 @@ select {
   overflow-wrap: anywhere;
 }
 
-/* The classic migration banner and a plan refusal: one row, text then actions. */
-.cloud-migration,
-.cloud-plan-notice {
+/* The classic migration banner: one row, text then actions. */
+.cloud-migration {
   display: flex;
   gap: 12px;
   align-items: center;
@@ -99,12 +98,13 @@ select {
   color: var(--cloud-text);
 }
 
-.cloud-create-sheet .cloud-plan-notice {
-  margin: 12px 0 0;
+/* A plan refusal is the shared notice's warning (ui/notice.css); the page only places it. */
+.cloud-plan-notice {
+  margin: 12px 16px 0;
 }
 
-.cloud-plan-notice {
-  border-color: color-mix(in srgb, var(--cloud-warn) 60%, transparent);
+.cloud-create-sheet .cloud-plan-notice {
+  margin: 12px 0 0;
 }
 
 .cloud-migration-text {
@@ -460,7 +460,7 @@ select {
   min-width: 0;
 }
 
-.cloud-input:focus {
+.cloud-input:focus-visible {
   border-color: var(--cloud-text-2);
 }
 
@@ -584,10 +584,7 @@ select {
   color: inherit;
   width: min(460px, 100%);
   padding: 18px;
-  border-radius: 12px;
-  background: var(--cloud-elevated);
-  border: 1px solid var(--cloud-separator);
-  box-shadow: var(--elevation-2);
+  /* The glass (.ui-glass .ui-glass-floats) in the sheet role's veil, radius and depth (ui/popupSurface.css .ui-dialog.ui-glass). */
 }
 
 .cloud-sheet-title {
@@ -721,6 +718,12 @@ select {
 
 .cloud-browser-url {
   overflow-wrap: anywhere;
+}
+
+.cloud-preview-share-status {
+  flex: 1 0 100%;
+  color: var(--cloud-text-2);
+  font-size: var(--text-caption);
 }
 
 .cloud-browser-refused {
@@ -1082,4 +1085,112 @@ select {
     width: 180px;
     align-self: center;
   }
+}
+
+/* Automatic cleanup (retention.ts): the row's quiet delete line, Keep, Archive and delete, the
+   one-time notice under a row, the archives and the cleanup settings. */
+.cloud-machine-deletes {
+  color: var(--cloud-text-2);
+}
+
+.cloud-machine-keep.on {
+  color: var(--cloud-text);
+  font-weight: 600;
+}
+
+.cloud-machine-keep,
+.cloud-machine-archive {
+  flex: none;
+}
+
+.cloud-machine-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--cloud-hover);
+  font-size: var(--text-caption);
+  white-space: normal;
+}
+
+.cloud-machine-notice-text {
+  flex: 1 1 200px;
+  color: var(--cloud-text);
+}
+
+.cloud-archives {
+  margin-top: 12px;
+}
+
+.cloud-archive-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cloud-archive {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--cloud-separator);
+}
+
+.cloud-archive-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.cloud-archive-name,
+.cloud-archive-until {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cloud-create-offer {
+  margin: 8px 0 0;
+}
+
+.cloud-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-detail);
+}
+
+.cloud-cleanup-policy {
+  margin: 0 0 8px;
+}
+
+.cloud-cleanup-team {
+  margin-top: 8px;
+  font-size: var(--text-detail);
+}
+
+.cloud-cleanup-team > summary {
+  cursor: default;
+  color: var(--cloud-text-2);
+}
+
+.cloud-cleanup-fields {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.cloud-cleanup-field .cloud-input {
+  width: 6em;
+}
+
+/* Live status lines are <output> (inline by default); they sit on their own line like the <p> notes. */
+.cloud-cleanup-admin,
+.cloud-create-waiting {
+  display: block;
+  margin: 8px 0;
 }

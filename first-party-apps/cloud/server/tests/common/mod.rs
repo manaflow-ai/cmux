@@ -44,6 +44,8 @@ pub struct FakeControlPlane {
     vm_kind: Option<&'static str>,
     /// `connect_info` answers this error code instead (access ended).
     connect_info_error: Option<&'static str>,
+    /// `connect_info` never gets an answer: the host's relay to Cloud failed.
+    connect_info_unreachable: bool,
     connect_info_action: Option<Box<dyn FnOnce() + Send>>,
     /// The current host-reported team identity for auth status tests.
     session_team: Option<String>,
@@ -51,14 +53,27 @@ pub struct FakeControlPlane {
     session_action: Option<Box<dyn FnOnce() + Send>>,
     /// Machines `vm-resume` started.
     started: Vec<String>,
+    /// The machines whose carrier socket was asked for, in order.
+    pub carrier_asks: Vec<String>,
+    /// The app refuses the carrier ask with this `(code, message)`.
+    carrier_refusal: Option<(&'static str, &'static str)>,
+    /// The app's answer has this socket instead of [`carrier_socket_of`].
+    carrier_socket: Option<std::path::PathBuf>,
+}
+
+/// The Mac app's carrier socket of `machine` as the fake answers it.
+pub fn carrier_socket_of(machine: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("/tmp/cmux-test/carrier-{machine}.sock"))
 }
 
 /// A link-test machine record (contract 1.2 shape).
 pub fn link_machine(id: &str, status: &str) -> Value {
-    json!({ "id": id, "team": "team_t0000000000000000001", "name": id, "status": status,
-        "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 },
+    json!({ "id": id, "team": "team_t0000000000000000001", "creator": "user_u0000000000000000001",
+        "name": id, "status": status, "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 },
+        "image": { "id": "img_i0000000000000000001", "daemon_version": "0.40.0" },
         "host": if status == "running" { json!(format!("host-{id}")) } else { Value::Null },
-        "classic": false, "revision": "1" })
+        "classic": false, "created_at": 1_790_000_001_000i64, "last_active_at": null,
+        "idle_policy": { "idle_seconds": 1800 }, "error": null, "revision": "1" })
 }
 
 /// A `cloud.machine.connect_info` answer (contract 1.7) for a bound,
@@ -86,11 +101,15 @@ impl FakeControlPlane {
             connect_info: None,
             vm_kind: None,
             connect_info_error: None,
+            connect_info_unreachable: false,
             connect_info_action: None,
             session_team: None,
             session_unavailable: false,
             session_action: None,
             started: Vec::new(),
+            carrier_asks: Vec::new(),
+            carrier_refusal: None,
+            carrier_socket: None,
         };
         for name in names {
             match *name {
@@ -137,6 +156,31 @@ impl FakeControlPlane {
     /// the caller's access to the machine ended).
     pub fn fail_connect_info(&mut self, code: &'static str) {
         self.connect_info_error = Some(code);
+    }
+
+    /// While `down`, `connect_info` calls get no answer: the host's relay to
+    /// Cloud is down (`RelayError::Unavailable`, `cmux.cloud.relay_unavailable`),
+    /// the way a transient owner read fails.
+    pub fn set_connect_info_relay_down(&mut self, down: bool) {
+        self.connect_info_unreachable = down;
+    }
+
+    /// `vm-get-unbound` ends: the machine is bound and runs from now on
+    /// (every get and `connect_info` answers it running).
+    pub fn bind_now(&mut self) {
+        self.get_unbound = false;
+        self.get_any = true;
+    }
+
+    /// Later carrier asks are refused by the app with `code` (a `cmux
+    /// carrier` step, `cloud.machine.not_found` or `unavailable`).
+    pub fn refuse_carrier(&mut self, code: &'static str, message: &'static str) {
+        self.carrier_refusal = Some((code, message));
+    }
+
+    /// Later carrier asks answer `socket` (a real listener in a test).
+    pub fn set_carrier_socket(&mut self, socket: std::path::PathBuf) {
+        self.carrier_socket = Some(socket);
     }
 
     /// True when nothing reached the backend.
@@ -222,6 +266,10 @@ impl ControlPlane for FakeControlPlane {
         {
             action();
         }
+        if call.op == "cloud.machine.connect_info" && self.connect_info_unreachable {
+            self.wire.calls.push(call.clone());
+            return Err(RelayError::Unavailable("the relay to cmux Cloud did not answer".into()));
+        }
         // The link-test names answer first: `vm-list` replaces the vectors'
         // `list {}` for the tests that name it.
         if self.wire.signed_in
@@ -245,5 +293,28 @@ impl ControlPlane for FakeControlPlane {
             status.team = self.session_team.clone();
         }
         Ok(status)
+    }
+
+    /// The Mac app's `credential.carrier_socket`: `{"socket"}` for a
+    /// signed-in host, never a credential.
+    fn carrier_socket(&mut self, machine: &str) -> Result<WireReply, RelayError> {
+        self.carrier_asks.push(machine.to_owned());
+        if !self.wire.signed_in {
+            return Err(RelayError::NotSignedIn);
+        }
+        if let Some((code, message)) = self.carrier_refusal {
+            return Ok(WireReply::Error(WireError {
+                code: code.into(),
+                message: message.into(),
+                details: None,
+                retryable: false,
+            }));
+        }
+        let socket = self.carrier_socket.clone().unwrap_or_else(|| carrier_socket_of(machine));
+        Ok(WireReply::Result(WireResult {
+            value: json!({ "socket": socket }),
+            revision: None,
+            replayed: false,
+        }))
     }
 }

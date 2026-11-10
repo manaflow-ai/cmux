@@ -139,21 +139,6 @@ Default: `always` for stable, nightly, and RC builds. DEV builds always behave a
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
-## `tabs.cmdWClosesPinnedTabs`
-
-What Cmd-W does on a pinned tab.
-
-```json
-{
-  "tabs": { "cmdWClosesPinnedTabs": false }
-}
-```
-
-- `true` (default): Cmd-W closes a pinned tab like any other tab, as in Chrome.
-- `false`: Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
-
-A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
-
 ## `tabs.swapCmdTAndCmdN`
 
 Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
@@ -215,7 +200,7 @@ The `tabs.tabBar.terminal`, `tabs.tabBar.browser` and `tabs.tabBar.agent` settin
 
 ## `tabs.newTabPosition`
 
-Where Cmd-T and the + button put a new tab.
+Where Cmd-T puts a new tab.
 
 ```json
 {
@@ -227,7 +212,7 @@ Where Cmd-T and the + button put a new tab.
 - `"end"`: after the pane's last tab, as in Chrome and Edge.
 - `"start"`: first, right after the pinned tabs.
 
-The setting applies to what you open with Cmd-T and the + button. A script's `cmux tab new` still adds the tab at the end.
+The setting applies to what you open with Cmd-T. The + button has its own setting, `tabs.newTabButtonPosition` (below). A script's `cmux tab new` still adds the tab at the end.
 
 To put one new tab in a specific place, whatever the setting, use these commands (Cmd-Shift-P, the CLI, or MCP). They have no default key; you can assign one in **Settings > Keyboard Shortcuts**.
 
@@ -238,6 +223,22 @@ To put one new tab in a specific place, whatever the setting, use these commands
 | **New Tab at End** | `cmux tab new-at-end` |
 
 **New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition end`.
+
+## `tabs.newTabButtonPosition`
+
+Where the + button after the last tab puts a new tab. The **New Tab** row of vertical tabs follows it too. It takes the same values as `tabs.newTabPosition`; the default is `"end"`.
+
+```json
+{
+  "tabs": { "newTabButtonPosition": "end" }
+}
+```
+
+- `"end"` (default): after the pane's last tab, next to the button.
+- `"afterCurrent"`: right after the selected tab, like Cmd-T's default.
+- `"start"`: first, right after the pinned tabs.
+
+Option-click on the + (a tab of the selected tab's kind) goes to the same place. Change the setting in **Settings > General > Tabs**, in the command palette, or with `cmux settings set tabs.newTabButtonPosition afterCurrent`.
 
 ## `tabs.newTabTemplate`
 
@@ -438,13 +439,13 @@ Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, N
 
 ```json
 {
-  "workspaces": { "newPlacement": "top" }
+  "workspaces": { "newPlacement": "afterCurrent" }
 }
 ```
 
-- `"top"` (default): right below the workspace the window shows, inside its group, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
-- `"beforeCurrent"`: right before the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
-- `"afterCurrent"` (cmux classic's default): right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"afterCurrent"` (default, as in cmux classic): right after the workspace the window shows, inside that workspace's group when it has one. If that workspace closes before the new one appears, the new one takes its place. Made from a group's + while none of that group's workspaces is shown, it goes last in that group. When the shown workspace is pinned, is Home, or is on another machine, the new one goes to the top. It never goes to the end of the sidebar.
+- `"top"`: first in the group of the workspace the window shows, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
+- `"beforeCurrent"`: the mirror of `"afterCurrent"`: right before the workspace the window shows, inside that workspace's group when it has one. If that workspace closes before the new one appears, the new one takes its place. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
 - `"bottom"`: last in the group of the workspace the window shows. When that workspace is not in a group, after the last workspace that is not in a group.
 
 So under every value, a new workspace opened while you are in a group stays in that group. While the window shows a page in place of a workspace (History, Bookmarks, a pinned page), no workspace is selected: `beforeCurrent` and `afterCurrent` put the new one at the top, and `top` and `bottom` do not keep it in the group of the workspace behind the page.
@@ -633,7 +634,8 @@ A binding you set yourself for either action stays when you pick a choice. Rebin
 
 | Keys | Action | Id |
 | --- | --- | --- |
-| Ctrl+Option+Cmd+Left / Right | Previous / Next Space | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+H / L | Previous / Next Space | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+Left / Right | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Option+Cmd+[ / ] | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Ctrl+Option+Cmd+1…9 | Select Space 1…9 (9 is the last) | `space.selectByNumber` |
 | Ctrl+Option+1…9 | Select Space 1…9 (the Number Keys default) | `space.selectByNumber` |

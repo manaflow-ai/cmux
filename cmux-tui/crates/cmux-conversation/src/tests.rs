@@ -151,3 +151,77 @@ fn agent(id: &str) -> Participant {
         person: None,
     }
 }
+
+// Widget parts (plans/cmux-next/chat-widgets-DESIGN.md section 3).
+
+fn pr_widget() -> serde_json::Value {
+    json!({
+        "type": "widget", "app": "cmux/pr-card", "widget": "cmux.chat.widget/1",
+        "props": {"repo": "manaflow-ai/cmux", "number": 38629},
+        "fallback": "PR #38629: Model picker finds any model",
+        "url": "https://github.com/manaflow-ai/cmux/pull/38629"
+    })
+}
+
+fn send_parts(host: &mut Host, actor: &str, key: &str, parts: Vec<Part>) -> Result<Commit, Reject> {
+    let op = Op::MessageSend {
+        client_msg_id: key.to_string(),
+        parts,
+        reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
+        thread_root: None,
+    };
+    host.run(actor, key, op)
+}
+
+#[test]
+fn a_widget_part_is_a_tagged_part_and_round_trips() {
+    let part: Part = serde_json::from_value(pr_widget()).unwrap();
+    let Part::Widget(widget) = &part else { panic!("not a widget part: {part:?}") };
+    assert_eq!(widget.app, "cmux/pr-card");
+    assert_eq!(widget.props["number"], 38629);
+    assert_eq!(serde_json::to_value(&part).unwrap(), pr_widget());
+}
+
+#[test]
+fn an_agent_sends_a_widget_and_search_finds_its_fallback() {
+    let mut host = Host::new();
+    let part: Part = serde_json::from_value(pr_widget()).unwrap();
+    let commit = send_parts(&mut host, MUX, "w1", vec![part]).unwrap();
+    let message = commit.message.unwrap();
+    assert!(message_text(&message).contains("Model picker finds any model"));
+}
+
+#[test]
+fn a_person_cannot_send_a_widget() {
+    let mut host = Host::new();
+    let part: Part = serde_json::from_value(pr_widget()).unwrap();
+    assert_eq!(send_parts(&mut host, ALICE, "w1", vec![part]).unwrap_err(), Reject::InvalidParts);
+}
+
+#[test]
+fn malformed_widgets_are_refused() {
+    let big = "x".repeat(MAX_WIDGET_PROPS_BYTES);
+    let cases = [
+        ("/props", json!(["not", "an", "object"])),
+        ("/props", json!({"blob": big})),
+        ("/fallback", json!("")),
+        ("/fallback", json!("a\u{0007}b")),
+        ("/url", json!("http://example.com/x")),
+        ("/app", json!("no-slash")),
+        ("/app", json!("cmux/Bad Name")),
+        ("/widget", json!("")),
+    ];
+    for (pointer, value) in cases {
+        let mut raw = pr_widget();
+        *raw.pointer_mut(pointer).unwrap() = value;
+        let part: Part = serde_json::from_value(raw).unwrap();
+        let mut host = Host::new();
+        assert_eq!(
+            send_parts(&mut host, MUX, "w1", vec![part]).unwrap_err(),
+            Reject::InvalidParts,
+            "{pointer}"
+        );
+    }
+}

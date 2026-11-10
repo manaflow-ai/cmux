@@ -324,7 +324,12 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
         .fallback
         .as_ref()
         .map(|f| move |_: &CompactRequest| gated(f));
-    let result = build_with(|_| gated(&shared.model), fallback, &request).map(|built| built.text);
+    let result = build_with(|_| gated(&shared.model), fallback, &request).map(|built| {
+        if let Some(error) = built.oversized {
+            (shared.reporter)(&Report::NodeOversized { node, error });
+        }
+        built.text
+    });
     let mut st = shared.lock();
     if !st.writable() {
         return;
@@ -360,30 +365,33 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
         *t += 1;
         *t
     };
-    // The first error is kept, but a setup error replaces an ordinary one:
-    // it is why the node is stuck.
-    let replaces = error.setup
-        && st
-            .failing
-            .get(&node)
-            .is_some_and(|e| !e.starts_with(crate::model::SETUP_ERROR));
-    if replaces || !st.failing.contains_key(&node) {
+    // The status names the latest error (a node stuck for hours showed the
+    // first one, from a session long gone: issue 36026), but a setup error
+    // stays over an ordinary one: it is why the node is stuck. Only the
+    // first error, and a setup error replacing an ordinary one, is reported.
+    let previous = st.failing.get(&node);
+    let was_setup = previous.is_some_and(|e| e.starts_with(crate::model::SETUP_ERROR));
+    let report = previous.is_none() || (error.setup && !was_setup);
+    if error.setup || !was_setup {
         // The status keeps the type: a setup error reads "setup error: ...".
         let message = if error.setup {
             format!("{}{}", crate::model::SETUP_ERROR, error.message)
         } else {
             error.message.clone()
         };
-        st.reports.push(Report::NodeFailed {
-            node,
-            error: message.clone(),
-        });
+        if report {
+            st.reports.push(Report::NodeFailed {
+                node,
+                error: message.clone(),
+            });
+        }
         st.failing.insert(node, message);
     }
     // A request error repeats on every try; a transient one may pass, up to
     // COMPACT_TRIES; an exhausted route (a capacity error naming a wait past
     // MAX_RETRY_WAIT) will not clear soon. In each case the node stops
-    // holding turns; only the first two post a notice (the turn's).
+    // holding turns; only a request error or a setup error posts a notice
+    // (the turn's `stuck_notice`); the others are retried quietly.
     let permanent = class.as_ref().is_some_and(|c| c.permanent());
     let capacity = crate::model::capacity_wait(&error.message);
     let exhausted = capacity.is_some_and(|w| w > crate::MAX_RETRY_WAIT);
@@ -457,6 +465,9 @@ pub struct Built {
     /// No model wrote a line: the text stands in for one (the node's input,
     /// kept so its facts are not lost).
     pub stand_in: bool,
+    /// The API refused the request as too large (the error's head): the
+    /// stand-in is the line.
+    pub oversized: Option<String>,
 }
 
 /// Builds one node as the host does: `run_node` on `model`, and when it
@@ -489,10 +500,32 @@ fn build_with(
         stand_in: text == stand_in,
         text,
         by_fallback,
+        oversized: None,
     };
-    let Some(fallback) = fallback else {
-        return main(request).map(|t| built(t, false));
+    let result = match fallback {
+        None => main(request).map(|t| built(t, false)),
+        Some(fallback) => with_fallback(&main, fallback, request, &stand_in, &built),
     };
+    match result {
+        // The API refuses the request as too large on every try: the input,
+        // cut to the room, is the line, so the node is built and holds no
+        // turn (https://github.com/manaflow-ai/cmux/issues/36026).
+        Err(e) if crate::model::oversized_request(&e.message) => Ok(Built {
+            oversized: Some(optchat_core::cut_at_bytes(&e.message, 200).to_owned()),
+            ..built(stand_in.clone(), false)
+        }),
+        other => other,
+    }
+}
+
+/// The main model, then the fallback model when it declines.
+fn with_fallback(
+    main: &impl Fn(&CompactRequest) -> Result<String, ModelError>,
+    fallback: impl Fn(&CompactRequest) -> Result<String, ModelError>,
+    request: &CompactRequest,
+    stand_in: &str,
+    built: &impl Fn(String, bool) -> Built,
+) -> Result<Built, ModelError> {
     match main(request) {
         // A refusal repeats on every try: ask the fallback model, in a fresh
         // conversation (the declined model's blocks mean nothing to it).

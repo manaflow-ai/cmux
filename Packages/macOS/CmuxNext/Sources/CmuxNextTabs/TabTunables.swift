@@ -24,6 +24,20 @@ public nonisolated enum TabLoadingAnimation: String, Sendable, CaseIterable, Tun
     }
 }
 
+/// How a hovered tab's x takes its status's slot (`TabStripMetrics.hoverCloseSwap`; the tab bar
+/// playground's Hover Close page compares them). In every treatment but `beside` only the x shows on
+/// hover, in the slot the spinner or status mark holds at rest (Leo 2026-11-05).
+public nonisolated enum TabHoverCloseSwap: String, Sendable, CaseIterable {
+    /// The status fades out on the hover curve while the x fades in, and back on leaving.
+    case crossFade
+    /// The status gives way at once and the x fades in, as a sidebar workspace row's hover controls.
+    case instant
+    /// As `crossFade`, with the x's hover fill drawn while it stands in for the status.
+    case disc
+    /// Before: the x appears beside the status. The playground's comparison only.
+    case beside
+}
+
 /// What the tab bar's trailing controls (the plus, the pane's pins and "…") show at rest
 /// (`TabTunables.crowdedControls`). Their room is kept either way, so no tab moves on hover.
 public nonisolated enum TabCrowdedControls: String, Sendable, CaseIterable, TunableChoice {
@@ -83,12 +97,13 @@ public nonisolated enum TabTunables {
     public static let separatorHeight = points("separatorHeight", "Separator height", help: "Height of the line between tabs. Default: 55% of the tab height.") {
         (Metrics.tabHeight * 0.55).rounded()
     }
-    // @intent Leo 2026-10-14 asked for lines between tabs; Lawrence removed them in 7f9fc1ed, so they
-    // stay opt-in until the default call is made.
+    // @intent Lawrence 2026-11-05: "for horizontal tabs, we should have subtle border between all the
+    // tabs (and also between the last tab and plus button)". On by default; hidden only beside the
+    // selected tab, whose fill already makes that edge.
     public static let separators = Tunable<Bool>.toggle(
         "tabs.separators", .tabs, "Tab separators",
-        help: "A short line between tabs, hidden beside the selected and the hovered tab.",
-        default: false, code: "TabTunables.separators")
+        help: "A short line between tabs and before +, hidden beside the selected tab.",
+        default: true, code: "TabTunables.separators")
     public static let pinnedDivider = Tunable<Bool>.toggle(
         "tabs.pinnedDivider", .tabs, "Pinned group divider",
         help: "A short line between the pinned tabs and the other tabs.",
@@ -146,18 +161,31 @@ public nonisolated enum TabTunables {
         "tabs.hoverPreviews", .tabs, "Tab hover previews",
         help: "Full shows a thumbnail on a tab's hover card; Compact shows only its facts.",
         default: .full, code: "TabTunables.hoverPreviews")
+    // @intent Leo 2026-11-07 asked whether the card should "morph together with the tab" ("goo ...
+    // that water surface tension thing"): the three entrances side by side in the tab bar
+    // playground's Hover Card page; the card grows out of its tab by default.
+    public static let hoverCardEntrance = Tunable<HoverCardEntrance>.choice(
+        "tabs.hoverCardEntrance", .tabs, "Tab hover card entrance",
+        help: "How a tab's hover card first shows: a fade, a fade and slide, or growing out of its tab.",
+        default: .morph, code: "TabTunables.hoverCardEntrance")
     /// Debug-only loading transition prototypes. Instant is the production
     /// default until one of the variants is selected for dogfood.
     public static let loadingAnimation = Tunable<TabLoadingAnimation>.choice(
         "tabs.loadingAnimation", .tabs, "Tab loading animation",
         help: "Prototype for a busy tab's indicator entering or leaving. Instant preserves the current behavior.",
         default: .instant, code: "TabTunables.loadingAnimation")
+    // @intent Lawrence 2026-11-07 ("i still dont like these UIs", the tab bar's `+ ⌄ ⋮`): one look for the three
+    // trailing controls. Glyphs only is the default; the tab bar playground's Trailing Buttons page compares them.
+    public static let trailingButtons = Tunable<TabTrailingButtons>.choice(
+        "tabs.trailingButtons", .tabs, "Tab bar buttons",
+        help: "How the tab bar's plus, pane-type chevron and More look and show hover.",
+        default: .glyphs, code: "TabTunables.trailingButtons")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, loadingAnimation.descriptor] + VerticalTabTunables.all
+               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, trailingButtons.descriptor] + VerticalTabTunables.all
     }
 }

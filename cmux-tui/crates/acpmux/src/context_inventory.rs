@@ -1,0 +1,984 @@
+//! Structured effective prompt context for the Context viewer.
+//!
+//! Harnesses expose different levels of detail. This module deliberately keeps the
+//! inventory honest: token counts reported by a harness are retained, while text is
+//! returned only for cmux-owned additions (or a verified local preset file).
+
+use crate::config::Config;
+use crate::store::SessionMeta;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
+use std::path::Path;
+
+/// A token count plus its origin. `text` is absent when the harness did not expose
+/// the underlying bytes (for example Claude's built-in system prompt).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextPart {
+    pub id: String,
+    pub source: String,
+    pub label: String,
+    pub tokens: u64,
+    pub included: bool,
+    pub editable: bool,
+    /// `measured` comes from the harness, `estimated` is derived by cmux, and
+    /// `unavailable` means the provider did not expose this part.
+    pub measurement: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_bytes: Option<u64>,
+    /// Delivery channel, when known. Describing a source never injects it again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextInventory {
+    pub parts: Vec<ContextPart>,
+    /// Provider total when reported; otherwise the cmux-only estimate. Detail rows overlap.
+    pub total_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_total_tokens: Option<u64>,
+    pub cmux_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u64>,
+    pub can_edit_overrides: bool,
+    pub overrides: ContextOverrideView,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextOverrideView {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_text: Option<String>,
+    pub user: Option<String>,
+    pub project: Option<String>,
+    pub project_key: String,
+    pub cwd: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub parts: BTreeMap<String, ContextPromptOverrideView>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextPromptOverrideView {
+    pub label: String,
+    pub default_text: String,
+    pub user: Option<String>,
+    pub project: Option<String>,
+}
+
+/// Approximate tokens for text we own. A harness-reported count is always preferred.
+pub fn estimated_tokens(text: &str) -> u64 {
+    text.chars().count().saturating_add(3).checked_div(4).unwrap_or(0) as u64
+}
+
+fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
+    for (index, category) in
+        breakdown.get("categories").and_then(Value::as_array).into_iter().flatten().enumerate()
+    {
+        let id = category
+            .get("id")
+            .and_then(Value::as_str)
+            .or_else(|| category.get("name").and_then(Value::as_str))
+            .unwrap_or("category");
+        let label = category.get("name").and_then(Value::as_str).unwrap_or(id);
+        let kind = category.get("kind").and_then(Value::as_str).unwrap_or("used");
+        let tokens = category.get("tokens").and_then(Value::as_u64).unwrap_or(0);
+        parts.push(ContextPart {
+            id: format!("harness-category-{index}-{id}"),
+            source: "harness".into(),
+            label: label.into(),
+            tokens,
+            included: kind != "free",
+            editable: false,
+            measurement: "measured".into(),
+            source_bytes: None,
+            channel: None,
+            text: None,
+        });
+    }
+    for (index, file) in
+        breakdown.get("memoryFiles").and_then(Value::as_array).into_iter().flatten().enumerate()
+    {
+        let path = file.get("path").and_then(Value::as_str).unwrap_or("memory file");
+        parts.push(ContextPart {
+            id: format!("memory-{index}"),
+            source: "memory".into(),
+            label: path.into(),
+            tokens: file.get("tokens").and_then(Value::as_u64).unwrap_or(0),
+            included: true,
+            editable: false,
+            measurement: "measured".into(),
+            source_bytes: None,
+            channel: None,
+            text: None,
+        });
+    }
+    for (index, tool) in
+        breakdown.get("mcpTools").and_then(Value::as_array).into_iter().flatten().enumerate()
+    {
+        let name = tool.get("name").and_then(Value::as_str).unwrap_or("MCP tool");
+        parts.push(ContextPart {
+            id: format!("mcp-tool-{index}"),
+            source: "mcp".into(),
+            label: name.into(),
+            tokens: tool.get("tokens").and_then(Value::as_u64).unwrap_or(0),
+            included: tool.get("isLoaded").and_then(Value::as_bool).unwrap_or(true),
+            editable: false,
+            measurement: "measured".into(),
+            source_bytes: None,
+            channel: None,
+            text: None,
+        });
+    }
+    if let Some(skills) = breakdown.get("skills") {
+        for (index, skill) in skills.as_array().into_iter().flatten().enumerate() {
+            let name = skill.get("name").and_then(Value::as_str).unwrap_or("skill");
+            parts.push(ContextPart {
+                id: format!("skill-{index}"),
+                source: "skill".into(),
+                label: name.into(),
+                tokens: skill.get("tokens").and_then(Value::as_u64).unwrap_or(0),
+                included: true,
+                editable: false,
+                measurement: "measured".into(),
+                source_bytes: None,
+                channel: None,
+                text: None,
+            });
+        }
+    }
+}
+
+fn verified_prompt_text(meta: &SessionMeta, cfg: &Config) -> Option<String> {
+    if meta.remote_origin
+        || cfg.harnesses.get(&meta.harness)?.kind != crate::config::HarnessKind::ClaudeStdio
+    {
+        return None;
+    }
+    let name = meta.preset.as_deref()?;
+    let preset = cfg.presets.get(name)?;
+    let sha = preset.system_prompt_sha256.as_deref()?;
+    let dir = cfg.presets_dir()?;
+    let path = crate::config::checked_system_prompt(&dir, name, sha).ok()?;
+    std::fs::read_to_string(path).ok()
+}
+
+/// Select an override only for a verified local preset. The session stores this
+/// selection so editing settings cannot change a running chat's next respawn.
+pub fn preset_override(meta: &SessionMeta, cfg: &Config) -> Option<String> {
+    verified_prompt_text(meta, cfg)?;
+    cfg.context_overrides
+        .preset_prompts
+        .get(meta.preset.as_deref()?)?
+        .for_project(&meta.cwd)
+        .map(str::to_owned)
+}
+
+pub fn preset_is_editable(meta: &SessionMeta, cfg: &Config) -> bool {
+    verified_prompt_text(meta, cfg).is_some()
+}
+
+/// What a remote viewer (a WebSocket or peer link) gets: harness-reported counts, never cmux-owned
+/// prompt text, the saved override contents or this machine's paths (a memory file keeps only its file name).
+pub fn redact_for_remote(inventory: &mut ContextInventory) {
+    inventory.can_edit_overrides = false;
+    for part in &mut inventory.parts {
+        part.text = None;
+        if part.source == "memory" {
+            let name = Path::new(&part.label).file_name().and_then(|n| n.to_str());
+            part.label = name.unwrap_or("Memory file").to_owned();
+        }
+    }
+    inventory.overrides.project_key.clear();
+    inventory.overrides.cwd.clear();
+    inventory.overrides.default_text = None;
+    inventory.overrides.user = None;
+    inventory.overrides.project = None;
+    inventory.overrides.parts.clear();
+}
+
+/// Build an inventory from the latest harness report and cmux-owned state.
+pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
+    let mut parts = Vec::new();
+    let breakdown = meta.context_breakdown.as_ref();
+    if let Some(breakdown) = breakdown {
+        push_breakdown(&mut parts, breakdown);
+    }
+    let project_key = crate::config::ContextOverrides::project_key(&meta.cwd);
+    let user = cfg.context_overrides.user.clone();
+    let project = cfg.context_overrides.projects.get(&project_key).cloned();
+    let mut override_parts = BTreeMap::new();
+    if let Some(default_text) = verified_prompt_text(meta, cfg) {
+        let values =
+            meta.preset.as_deref().and_then(|name| cfg.context_overrides.preset_prompts.get(name));
+        override_parts.insert(
+            "cmux-system-prompt".into(),
+            ContextPromptOverrideView {
+                label: "Preset system prompt".into(),
+                default_text,
+                user: values.and_then(|v| v.user.clone()),
+                project: values.and_then(|v| v.projects.get(&project_key).cloned()),
+            },
+        );
+    }
+    // These are the additions captured at creation, not settings edited since then.
+    if let Some(snapshot) = &meta.cmux_context {
+        parts.extend(snapshot.iter().cloned());
+    }
+    for part in parts.iter_mut().filter(|p| p.id == "cmux-system-prompt") {
+        part.editable = override_parts.contains_key("cmux-system-prompt");
+    }
+    if breakdown.is_none() {
+        parts.push(ContextPart {
+            id: "harness-context-unavailable".into(),
+            source: "harness".into(),
+            label: "Harness context report unavailable".into(),
+            tokens: 0,
+            included: false,
+            editable: false,
+            measurement: "unavailable".into(),
+            source_bytes: None,
+            channel: None,
+            text: None,
+        });
+    }
+    let provider_total_tokens = breakdown
+        .and_then(|v| v.get("totalTokens").and_then(Value::as_u64))
+        .or_else(|| meta.usage.as_ref().and_then(|v| v.get("used")).and_then(Value::as_u64));
+    // Category rows and their memory/tool/skill detail rows overlap. Never sum them.
+    let cmux_tokens = parts
+        .iter()
+        .filter(|p| p.included && p.source.starts_with("cmux-"))
+        .map(|p| p.tokens)
+        .sum();
+    let total_tokens = provider_total_tokens.unwrap_or(cmux_tokens);
+    let max_tokens = breakdown
+        .and_then(|v| v.get("maxTokens").and_then(Value::as_u64))
+        .or_else(|| meta.usage.as_ref().and_then(|v| v.get("size")).and_then(Value::as_u64));
+    ContextInventory {
+        parts,
+        total_tokens,
+        provider_total_tokens,
+        cmux_tokens,
+        max_tokens,
+        can_edit_overrides: true,
+        overrides: ContextOverrideView {
+            default_text: Some(crate::agent_tools::CONCURRENT_WORK_RULE.into()),
+            user,
+            project,
+            project_key: project_key.clone(),
+            cwd: meta.cwd.to_string_lossy().into_owned(),
+            parts: override_parts,
+        },
+    }
+}
+
+/// A prompt block that is hidden from the transcript but delivered to the harness.
+pub fn override_block(text: &str, scope: &str) -> Value {
+    json!({"type":"text", "text": format!("<cmux-{scope}-context>{text}</cmux-{scope}-context>"),
+        "_meta":{"acpmux":{"context":true,"contextSource":format!("cmux-{scope}")}}})
+}
+
+/// Capture preset bytes as well as the injected addition so later config edits do not
+/// change the effective text reported for an existing chat.
+pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
+    let mut parts = snapshot_for(cfg, &meta.cwd, &meta.harness, meta.remote_origin);
+    // A folder set up for another harness: its instructions, which this one does not read itself.
+    let family = family_for_folder(cfg, &meta.harness);
+    parts.extend(crate::folder_instructions::part(&family, &meta.cwd));
+    if let Some(default) = verified_prompt_text(meta, cfg) {
+        let text = meta.cmux_preset_prompt.clone().unwrap_or(default);
+        parts.push(ContextPart {
+            id: "cmux-system-prompt".into(),
+            source: "cmux-preset".into(),
+            label: "Preset system prompt".into(),
+            tokens: estimated_tokens(&text),
+            included: true,
+            editable: true,
+            measurement: "estimated".into(),
+            source_bytes: Some(text.len() as u64),
+            channel: Some("system-prompt-file".into()),
+            text: Some(text),
+        });
+    }
+    parts
+}
+
+fn preset_part(text: String) -> ContextPart {
+    ContextPart {
+        id: "cmux-system-prompt".into(),
+        source: "cmux-preset".into(),
+        label: "Preset system prompt".into(),
+        tokens: estimated_tokens(&text),
+        included: true,
+        editable: false,
+        measurement: "estimated".into(),
+        source_bytes: Some(text.len() as u64),
+        channel: Some("system-prompt-file".into()),
+        text: Some(text),
+    }
+}
+
+/// Refresh only the preset part from the actual launch argv, after preset
+/// resolution. Reading later settings would describe a future launch instead.
+pub fn preset_source(argv: &[String]) -> Option<ContextPart> {
+    let file = argv.windows(2).rev().find_map(|words| match words {
+        [flag, file] if flag == "--system-prompt-file" => Some(file),
+        _ => None,
+    })?;
+    std::fs::read_to_string(file).ok().map(preset_part)
+}
+
+pub fn record_preset_source(meta: &mut SessionMeta, part: Option<ContextPart>) {
+    let snapshot = meta.cmux_context.get_or_insert_with(Vec::new);
+    snapshot.retain(|part| part.source != "cmux-preset");
+    if let Some(part) = part {
+        snapshot.push(part);
+    }
+}
+
+/// The first message of a chat, as hidden blocks beside the person's words: the channel of
+/// a harness with no system-level one, of folder instructions, and of a chat made before
+/// cmux's rules moved into the system prompt (its snapshot still names this channel).
+pub const USER_CONTEXT: &str = "user-context";
+/// Claude Code's `--append-system-prompt`, given at every spawn: part of the system prompt,
+/// so of the prefix every chat shares and the prompt cache reuses, and never in the transcript.
+pub const APPEND_SYSTEM_PROMPT: &str = "append-system-prompt";
+/// Codex's `developer_instructions` (`codex app-server -c developer_instructions=...`): the
+/// developer message Codex puts ahead of the first user message of each thread it starts.
+pub const DEVELOPER_INSTRUCTIONS: &str = "developer-instructions";
+
+/// The channel cmux's rules (the default rule or its override, and the chat guidance) take
+/// for a new chat of profile `harness` in `cwd`: the harness's own system-level instructions
+/// when it has one acpmux can set, else the first message. A profile that passes Claude's
+/// `--append-system-prompt` itself, or a Codex whose command line or config sets
+/// `developer_instructions`, keeps the first message: the harness takes one value, so cmux's
+/// would replace theirs. The spawn checks again with the profile as it really starts
+/// ([`launch_args`]), and a start that did not carry the rules owes them to the next message
+/// ([`append_owed_rules`]).
+pub fn rules_channel(cfg: &Config, cwd: &Path, harness: &str) -> &'static str {
+    let Some(profile) = cfg.harnesses.get(harness) else { return USER_CONTEXT };
+    if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+        let own = profile.argv.iter().any(|a| a.starts_with("--append-system-prompt"));
+        return if own { USER_CONTEXT } else { APPEND_SYSTEM_PROMPT };
+    }
+    if crate::codex_app_server::is_profile_launch(&profile.argv)
+        && !codex_has_own(profile, cwd, false)
+    {
+        return DEVELOPER_INSTRUCTIONS;
+    }
+    USER_CONTEXT
+}
+
+/// Whether a Codex `profile` started in `cwd` may set `developer_instructions` itself: on its
+/// command line, or in any config file it may read, trusted or not, so cmux never decides for
+/// Codex which of them counts. Every home it may start with is checked: the profile's
+/// `CODEX_HOME` (as given, and with its `${env:…}` references resolved: `resolved`), the
+/// daemon's, the login shell's, else `~/.codex`. A home that is not the one it starts with
+/// only sends the rules to the first message, which reaches it all the same.
+fn codex_has_own(profile: &crate::config::HarnessProfile, cwd: &Path, resolved: bool) -> bool {
+    let key = "developer_instructions";
+    let mut homes: Vec<Option<std::path::PathBuf>> = vec![None];
+    let mut add = |home: Option<String>| {
+        if let Some(home) = home.filter(|h| !h.is_empty()) {
+            homes.push(Some(home.into()));
+        }
+    };
+    add(profile.env.get("CODEX_HOME").cloned());
+    if resolved {
+        add(crate::agent::resolved_profile_env(profile)
+            .ok()
+            .and_then(|e| e.get("CODEX_HOME").cloned()));
+    }
+    add(std::env::var("CODEX_HOME").ok());
+    add(crate::login_env::reference_var("CODEX_HOME"));
+    homes.into_iter().any(|home| crate::harness_limits::codex_sets(&profile.argv, cwd, home, key))
+}
+
+/// The most text cmux's rules put in one launch argument. Linux refuses any one argument over
+/// 128 KiB (`E2BIG`), and the rules share the command line with everything else; longer rules
+/// (a long saved override) stay in the first message, which has no such bound.
+pub const MAX_LAUNCH_RULES_BYTES: usize = 32 * 1024;
+
+/// The included rules on `channel`, joined as the harness reads them.
+fn rules_text(parts: &[ContextPart], channel: &str) -> Option<String> {
+    let texts: Vec<&str> = parts
+        .iter()
+        .filter(|p| p.included && is_rule(p) && p.channel.as_deref() == Some(channel))
+        .filter_map(|p| p.text.as_deref())
+        .filter(|t| !t.trim().is_empty())
+        .collect();
+    (!texts.is_empty()).then(|| texts.join("\n\n"))
+}
+
+/// Whether `part` is one of cmux's rules: the default rule or the person's override of it,
+/// or the chat guidance.
+fn is_rule(part: &ContextPart) -> bool {
+    matches!(part.source.as_str(), "cmux-default" | "cmux-user" | "cmux-project" | GUIDANCE_SOURCE)
+}
+
+/// The words a spawn of `profile` (as resolved for this start: its presets, route and
+/// expanded env) in `cwd` adds for the captured rules on a system-level channel
+/// (`APPEND_SYSTEM_PROMPT`, `DEVELOPER_INSTRUCTIONS`), at every spawn: a resumed chat's
+/// harness takes them as its system prompt again, never as a second copy in the transcript.
+/// None when that start has its own value (a Claude `--append-system-prompt`, a Codex
+/// `developer_instructions`: the harness takes one, and theirs stays), for a profile that is not
+/// the kind the channel names, or for words longer than one launch argument may carry. The
+/// rules such a start did not carry go in its next message ([`append_owed_rules`]).
+pub fn launch_args(
+    parts: Option<&[ContextPart]>,
+    profile: &crate::config::HarnessProfile,
+    cwd: &Path,
+) -> Vec<String> {
+    let parts = parts.unwrap_or_default();
+    let fits = |t: &String| t.len() <= MAX_LAUNCH_RULES_BYTES;
+    if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+        if profile.argv.iter().any(|a| a.starts_with("--append-system-prompt")) {
+            return Vec::new();
+        }
+        if let Some(text) = rules_text(parts, APPEND_SYSTEM_PROMPT).filter(fits) {
+            return claude_args(text);
+        }
+    } else if crate::codex_app_server::is_profile_launch(&profile.argv)
+        && !codex_has_own(profile, cwd, true)
+        && let Some(text) = rules_text(parts, DEVELOPER_INSTRUCTIONS).filter(fits)
+    {
+        return codex_args(text);
+    }
+    Vec::new()
+}
+
+fn claude_args(text: String) -> Vec<String> {
+    vec!["--append-system-prompt".into(), text]
+}
+
+/// A TOML string, so Codex reads the text as given (`-c` parses its value as TOML).
+fn codex_args(text: String) -> Vec<String> {
+    vec!["-c".into(), format!("developer_instructions={}", toml::Value::String(text))]
+}
+
+/// Whether the agent started with `argv` (the chat's `spawn_argv`) carries `parts`' rules on
+/// their system-level channel, as [`launch_args`] gives them.
+fn carried(parts: &[ContextPart], argv: &[String]) -> bool {
+    let has = |words: Vec<String>| argv.windows(2).any(|w| w == words.as_slice());
+    let claude = rules_text(parts, APPEND_SYSTEM_PROMPT).is_none_or(|t| has(claude_args(t)));
+    let codex = rules_text(parts, DEVELOPER_INSTRUCTIONS).is_none_or(|t| has(codex_args(t)));
+    claude && codex
+}
+
+/// The rules captured on a system-level channel that the running agent's start (`spawn_argv`)
+/// did not carry, appended as hidden blocks like the first message's: a start with its own
+/// value, rules too long for one argument, a chat moved under a guard (`transfer_guard.rs`,
+/// which starts with no cmux words). True when it appended any; the caller records that they
+/// are in the transcript (`cmux_rules_in_transcript`), so they go once.
+pub fn append_owed_rules(
+    parts: Option<&[ContextPart]>,
+    spawn_argv: Option<&[String]>,
+    blocks: &mut Vec<Value>,
+) -> bool {
+    let parts = parts.unwrap_or_default();
+    if carried(parts, spawn_argv.unwrap_or_default()) {
+        return false;
+    }
+    let before = blocks.len();
+    let system = |p: &&ContextPart| {
+        matches!(p.channel.as_deref(), Some(APPEND_SYSTEM_PROMPT | DEVELOPER_INSTRUCTIONS))
+    };
+    push_blocks(parts.iter().filter(|p| p.included && is_rule(p)).filter(system), blocks);
+    blocks.len() > before
+}
+
+/// Records that a written message, the turn at `turn_seq`, carried the rules
+/// ([`append_owed_rules`]): the first such turn is where they entered the transcript.
+pub fn record_rules_in_transcript(meta: &mut SessionMeta, turn_seq: u64) {
+    if !meta.cmux_rules_in_transcript {
+        meta.cmux_rules_in_transcript = true;
+        meta.cmux_rules_seq = Some(turn_seq);
+    }
+}
+
+/// Whether a native fork cut at `fork_seq` keeps a transcript that carries the rules its parent
+/// recorded (`cmux_rules_in_transcript`, `cmux_rules_seq`): only when the turn that carried them
+/// is at or before the cut. A record with no seq (made before it was kept) counts as kept, as
+/// it did then.
+pub fn fork_keeps_rules(recorded: bool, seq: Option<u64>, fork_seq: u64) -> bool {
+    recorded && seq.is_none_or(|seq| seq <= fork_seq)
+}
+
+/// The captured parts on the first-message channel ([`USER_CONTEXT`]), as hidden blocks.
+/// Preset text and the rules on a system-level channel are given by the harness's launch
+/// arguments instead (`--system-prompt-file`, [`launch_args`]).
+pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
+    push_blocks(
+        parts.into_iter().flatten().filter(|p| {
+            p.included
+                && (is_rule(p) || p.source == crate::folder_instructions::SOURCE)
+                && p.channel.as_deref().is_none_or(|channel| channel == USER_CONTEXT)
+        }),
+        blocks,
+    );
+}
+
+fn push_blocks<'a>(parts: impl Iterator<Item = &'a ContextPart>, blocks: &mut Vec<Value>) {
+    for part in parts {
+        if let Some(text) = part.text.as_deref() {
+            let scope = part.source.strip_prefix("cmux-").unwrap_or("user");
+            blocks.push(override_block(text, scope));
+        }
+    }
+}
+
+/// Refresh launch-derived rows while preserving creation-time guidance/preset bytes.
+pub fn record_tool_sources(meta: &mut SessionMeta, parts: Vec<ContextPart>) {
+    let snapshot = meta.cmux_context.get_or_insert_with(Vec::new);
+    snapshot.retain(|part| !part.id.starts_with("cmux-source-"));
+    snapshot.extend(parts);
+}
+
+/// The source of cmux's built-in chat guidance and the person's skill index
+/// (`agent_guidance.rs`), sent as `<cmux-guidance-context>`.
+pub const GUIDANCE_SOURCE: &str = "cmux-guidance";
+
+/// [`snapshot`] plus the chat guidance for a session of profile `harness`. The guidance is
+/// its own part, so a person's guidance override (which replaces the default rule) keeps it;
+/// the `agents.guidance.*` settings turn it off.
+/// Both take the channel [`rules_channel`] picks for the harness, or the first message when
+/// they are longer than one launch argument may carry ([`MAX_LAUNCH_RULES_BYTES`]).
+pub fn snapshot_for(
+    cfg: &Config,
+    cwd: &Path,
+    harness: &str,
+    remote_origin: bool,
+) -> Vec<ContextPart> {
+    let guidance = crate::agent_guidance::for_session(cfg, harness, remote_origin);
+    let on = |channel: &str| {
+        let mut parts = snapshot_on(cfg, cwd, channel);
+        parts.extend(guidance.clone().map(|t| guidance_part_on(t, channel)));
+        parts
+    };
+    let channel = rules_channel(cfg, cwd, harness);
+    let parts = on(channel);
+    let too_long = rules_text(&parts, channel).is_some_and(|t| t.len() > MAX_LAUNCH_RULES_BYTES);
+    if channel != USER_CONTEXT && too_long { on(USER_CONTEXT) } else { parts }
+}
+
+/// The guidance part on the first-message channel.
+pub fn guidance_part(text: String) -> ContextPart {
+    guidance_part_on(text, USER_CONTEXT)
+}
+
+/// Where the Context viewer says a part goes.
+fn channel_label(channel: &str) -> &'static str {
+    match channel {
+        APPEND_SYSTEM_PROMPT => "system prompt",
+        DEVELOPER_INSTRUCTIONS => "developer instructions",
+        _ => "first-turn context",
+    }
+}
+
+pub fn guidance_part_on(text: String, channel: &str) -> ContextPart {
+    ContextPart {
+        id: "cmux-guidance".into(),
+        source: GUIDANCE_SOURCE.into(),
+        label: format!("cmux chat guidance and your skills ({})", channel_label(channel)),
+        tokens: estimated_tokens(&text),
+        included: true,
+        editable: false,
+        measurement: "estimated".into(),
+        source_bytes: Some(text.len() as u64),
+        channel: Some(channel.into()),
+        text: Some(text),
+    }
+}
+
+/// The family whose own instruction files a profile reads: a Claude Code
+/// profile under its own family name (`claude-sr2`) still reads `CLAUDE.md`.
+pub fn family_for_folder(cfg: &Config, harness: &str) -> String {
+    cfg.harnesses
+        .get(harness)
+        .map(|p| crate::config::store_family(harness, p))
+        .unwrap_or_else(|| harness.to_string())
+}
+
+/// Capture settings once when the session is created. Project text replaces user text.
+/// On the first-message channel; [`snapshot_for`] picks the harness's own.
+pub fn snapshot(cfg: &Config, cwd: &Path) -> Vec<ContextPart> {
+    snapshot_on(cfg, cwd, USER_CONTEXT)
+}
+
+fn snapshot_on(cfg: &Config, cwd: &Path, channel: &str) -> Vec<ContextPart> {
+    let (scope, text) = cfg
+        .context_overrides
+        .for_project(cwd)
+        .unwrap_or(("default", crate::agent_tools::CONCURRENT_WORK_RULE));
+    let whose = match scope {
+        "project" => "Project guidance",
+        "user" => "User guidance",
+        _ => "cmux guidance",
+    };
+    vec![ContextPart {
+        id: format!("cmux-{scope}-override"),
+        source: format!("cmux-{scope}"),
+        label: format!("{whose} ({})", channel_label(channel)),
+        tokens: estimated_tokens(text),
+        included: !text.is_empty(),
+        editable: true,
+        measurement: "estimated".into(),
+        source_bytes: Some(text.len() as u64),
+        channel: Some(channel.into()),
+        text: Some(text.to_owned()),
+    }]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::ContextOverrides;
+
+    #[test]
+    fn inventory_preserves_harness_counts_and_marks_cmux_text_editable() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        meta.context_breakdown = Some(
+            json!({"categories":[{"id":"system_prompt","name":"System prompt","tokens":20,"kind":"used"}],"totalTokens":20,"maxTokens":100}),
+        );
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("read concurrently".into());
+        meta.cmux_context = Some(snapshot(&cfg, &meta.cwd));
+        let got = inventory(&meta, &cfg);
+        assert_eq!(got.total_tokens, 20);
+        assert_eq!(got.provider_total_tokens, Some(20));
+        assert!(got.parts.iter().any(|p| p.source == "harness" && p.tokens == 20 && !p.editable));
+        assert!(got.parts.iter().any(|p| p.source == "cmux-user" && p.editable));
+    }
+
+    #[test]
+    fn a_remote_viewer_gets_counts_but_no_local_paths_or_cmux_text() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/Users/me/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        meta.context_breakdown = Some(json!({
+            "categories":[{"id":"memory","name":"Memory files","tokens":30,"kind":"used"}],
+            "memoryFiles":[{"path":"/Users/me/.claude/CLAUDE.md","tokens":30}],
+            "totalTokens":30,"maxTokens":100
+        }));
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("read concurrently".into());
+        meta.cmux_context = Some(snapshot(&cfg, &meta.cwd));
+        let mut got = inventory(&meta, &cfg);
+        redact_for_remote(&mut got);
+        let memory = got.parts.iter().find(|p| p.source == "memory").expect("memory part");
+        assert_eq!(memory.tokens, 30);
+        assert_eq!(memory.label, "CLAUDE.md");
+        let wire = serde_json::to_string(&got).unwrap();
+        assert!(!wire.contains("/Users/me"), "a local path reached a remote viewer: {wire}");
+        assert!(!wire.contains("read concurrently"), "cmux text reached a remote viewer: {wire}");
+        assert!(!got.can_edit_overrides);
+    }
+
+    #[test]
+    fn inventory_keeps_snapshot_and_does_not_sum_overlapping_details() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"codex","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("user text".into());
+        cfg.context_overrides.set("project", Some(&meta.cwd), Some("project text".into())).unwrap();
+        meta.cmux_context = Some(snapshot(&cfg, &meta.cwd));
+        cfg.context_overrides.set("project", Some(&meta.cwd), Some("future text".into())).unwrap();
+        meta.context_breakdown = Some(
+            json!({"categories":[{"id":"skills","name":"Skills","tokens":10}],"skills":[{"name":"reading","tokens":10}],"totalTokens":10}),
+        );
+        let got = inventory(&meta, &cfg);
+        assert_eq!(got.total_tokens, 10);
+        assert_eq!(got.provider_total_tokens, Some(10));
+        assert_eq!(got.cmux_tokens, estimated_tokens("project text"));
+        assert!(got.parts.iter().any(|p| p.source == "skill" && p.tokens == 10));
+        assert!(!got.parts.iter().any(|p| p.source == "cmux-user"));
+        assert!(got.parts.iter().any(|p| p.text.as_deref() == Some("project text")));
+        assert_eq!(got.overrides.project.as_deref(), Some("future text"));
+        // ACP harnesses such as Codex can report aggregate usage without a breakdown.
+        meta.context_breakdown = None;
+        meta.usage = Some(json!({"used":42,"size":200000}));
+        let usage = inventory(&meta, &cfg);
+        assert_eq!(usage.provider_total_tokens, Some(42));
+        assert_eq!(usage.total_tokens, 42);
+        assert_eq!(usage.max_tokens, Some(200000));
+        assert!(usage.parts.iter().any(|p| p.measurement == "unavailable"));
+    }
+
+    #[test]
+    fn override_block_is_hidden_context_and_has_approximate_tokens() {
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("read concurrently".into());
+        let captured = snapshot(&cfg, Path::new("/repo"));
+        let mut blocks = vec![json!({"type":"text", "text":"user words"})];
+        append_snapshot(Some(&captured), &mut blocks);
+        assert_eq!(blocks.len(), 2);
+        let block = &blocks[1];
+        assert!(crate::prompt_context::is_context(block));
+        assert!(crate::prompt_context::is_context_text(block["text"].as_str().unwrap()));
+        assert_eq!(estimated_tokens("12345678"), 2);
+    }
+
+    #[test]
+    fn project_override_uses_one_key_for_lexical_and_symlink_paths() {
+        let dir = cmux_unix_socket::short_test_dir("context-project-key");
+        let cwd = dir.path();
+        let lexical = cwd.join(".");
+        let mut overrides = ContextOverrides::default();
+        overrides.set("project", Some(cwd), Some("project text".into())).unwrap();
+        assert_eq!(overrides.for_project(&lexical), Some(("project", "project text")));
+        #[cfg(unix)]
+        {
+            let link = cwd.join("link");
+            std::os::unix::fs::symlink(cwd, &link).unwrap();
+            assert_eq!(overrides.for_project(&link), Some(("project", "project text")));
+        }
+    }
+
+    #[test]
+    fn new_sessions_capture_default_guidance_and_empty_text_disables_it() {
+        let cfg = Config::default();
+        let captured = snapshot(&cfg, Path::new("/repo"));
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].source, "cmux-default");
+        assert!(captured[0].included);
+        assert_eq!(captured[0].text.as_deref(), Some(crate::agent_tools::CONCURRENT_WORK_RULE));
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&captured), &mut blocks);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(captured[0].channel.as_deref(), Some("user-context"));
+        assert!(
+            blocks[0]["text"].as_str().unwrap().contains(crate::agent_tools::CONCURRENT_WORK_RULE)
+        );
+
+        let mut disabled = Config::default();
+        disabled.context_overrides.user = Some(String::new());
+        let captured = snapshot(&disabled, Path::new("/repo"));
+        assert_eq!(captured[0].source, "cmux-user");
+        assert!(!captured[0].included);
+        assert_eq!(captured[0].text.as_deref(), Some(""));
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&captured), &mut blocks);
+        assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn chat_guidance_is_its_own_first_turn_block_beside_a_persons_override() {
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("my rule".into());
+        let mut parts = snapshot(&cfg, Path::new("/repo"));
+        parts.push(guidance_part(crate::agent_guidance::AGENT_GUIDANCE.into()));
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&parts), &mut blocks);
+        assert_eq!(blocks.len(), 2, "{blocks:?}");
+        let text = blocks[1]["text"].as_str().unwrap();
+        assert!(
+            text.starts_with("<cmux-guidance-context>") && text.contains("update_plan"),
+            "{text}"
+        );
+        assert_eq!(blocks[1]["_meta"]["acpmux"]["contextSource"], "cmux-guidance");
+        assert!(blocks[0]["text"].as_str().unwrap().contains("my rule"));
+    }
+
+    #[test]
+    fn overrides_choose_project_over_user_and_clear() {
+        let mut overrides = ContextOverrides { user: Some("u".into()), ..Default::default() };
+        let cwd = Path::new("/repo");
+        overrides.set("project", Some(cwd), Some("p".into())).unwrap();
+        assert_eq!(overrides.for_project(cwd), Some(("project", "p")));
+        overrides.set("project", Some(cwd), None).unwrap();
+        assert_eq!(overrides.for_project(cwd), Some(("user", "u")));
+    }
+    #[test]
+    fn tool_source_snapshots_are_replaced_without_reinjecting_or_replacing_guidance() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("read concurrently".into());
+        meta.cmux_context = Some(snapshot(&cfg, &meta.cwd));
+        let mut description = meta.cmux_context.as_ref().unwrap()[0].clone();
+        description.id = "cmux-source-skill-example".into();
+        description.source = "cmux-skill-listing".into();
+        description.editable = false;
+        description.text = Some("name: example\ndescription: skill listing only".into());
+        description.channel = Some("skill-listing".into());
+        record_tool_sources(&mut meta, vec![description.clone()]);
+        record_tool_sources(&mut meta, vec![description]);
+        let snapshot = meta.cmux_context.as_deref().unwrap();
+        assert_eq!(snapshot.len(), 2);
+        let mut blocks = Vec::new();
+        append_snapshot(Some(snapshot), &mut blocks);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0]["text"].as_str().unwrap().contains("read concurrently"));
+        record_tool_sources(&mut meta, Vec::new());
+        assert_eq!(meta.cmux_context.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn preset_context_follows_actual_launch_file_after_edits_and_removal() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("context-source-preset-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("prompt.md");
+        let argv =
+            vec!["claude".into(), "--system-prompt-file".into(), path.to_string_lossy().into()];
+        std::fs::write(&path, "first preset").unwrap();
+        record_preset_source(&mut meta, preset_source(&argv));
+        assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("first preset"));
+        // A settings/file edit alone cannot change what the current launch received.
+        std::fs::write(&path, "next preset").unwrap();
+        assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("first preset"));
+        record_preset_source(&mut meta, preset_source(&argv));
+        assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("next preset"));
+        record_preset_source(&mut meta, preset_source(&["claude".into()]));
+        assert!(meta.cmux_context.as_ref().unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn profile(json: Value) -> crate::config::HarnessProfile {
+        serde_json::from_value(json).unwrap()
+    }
+
+    fn rules_on(channel: &str) -> Vec<ContextPart> {
+        let mut parts = snapshot_on(&Config::default(), Path::new("/repo"), channel);
+        parts.push(guidance_part_on(crate::agent_guidance::CLAUDE_GUIDANCE.into(), channel));
+        parts
+    }
+
+    #[test]
+    fn claude_gets_the_rules_in_its_system_prompt_and_none_after_the_prompt() {
+        let claude = profile(json!({"kind":"claude-stdio","argv":["claude"]}));
+        let mut cfg = Config::default();
+        cfg.harnesses.insert("claude".into(), claude.clone());
+        assert_eq!(rules_channel(&cfg, Path::new("/repo"), "claude"), APPEND_SYSTEM_PROMPT);
+        let parts = rules_on(APPEND_SYSTEM_PROMPT);
+        assert!(parts.iter().all(|p| p.label.ends_with("(system prompt)")), "{parts:?}");
+        let mut blocks = vec![json!({"type":"text","text":"my words"})];
+        append_snapshot(Some(&parts), &mut blocks);
+        assert_eq!(blocks, vec![json!({"type":"text","text":"my words"})]);
+        let want = format!(
+            "{}\n\n{}",
+            crate::agent_tools::CONCURRENT_WORK_RULE,
+            crate::agent_guidance::CLAUDE_GUIDANCE
+        );
+        assert_eq!(
+            launch_args(Some(&parts), &claude, Path::new("/repo")),
+            vec!["--append-system-prompt".to_owned(), want]
+        );
+        // Not a Claude Code command line (the profile changed since): nothing it cannot read.
+        let other = profile(json!({"argv":["python3","agent.py"]}));
+        assert!(launch_args(Some(&parts), &other, Path::new("/repo")).is_empty());
+        // The person's own appended prompt stays theirs, and the rules stay in the first message.
+        let own = profile(
+            json!({"kind":"claude-stdio","argv":["claude","--append-system-prompt","mine"]}),
+        );
+        cfg.harnesses.insert("claude".into(), own.clone());
+        assert_eq!(rules_channel(&cfg, Path::new("/repo"), "claude"), USER_CONTEXT);
+        assert!(launch_args(Some(&parts), &own, Path::new("/repo")).is_empty());
+    }
+
+    #[test]
+    fn codex_gets_the_rules_as_developer_instructions_unless_it_has_its_own() {
+        let home = tempfile::tempdir().unwrap();
+        let codex = profile(json!({"argv":["codex","app-server"],
+            "env":{"CODEX_HOME": home.path().to_string_lossy()}}));
+        let mut cfg = Config::default();
+        cfg.harnesses.insert("codex".into(), codex.clone());
+        assert_eq!(rules_channel(&cfg, home.path(), "codex"), DEVELOPER_INSTRUCTIONS);
+        let parts = rules_on(DEVELOPER_INSTRUCTIONS);
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&parts), &mut blocks);
+        assert!(blocks.is_empty(), "{blocks:?}");
+        let args = launch_args(Some(&parts), &codex, home.path());
+        assert_eq!(args[0], "-c");
+        // Codex parses the value as TOML: it reads back as the rules, quotes and newlines intact.
+        let table: toml::Table = args[1].parse().unwrap();
+        let text = table["developer_instructions"].as_str().unwrap();
+        assert!(text.starts_with(crate::agent_tools::CONCURRENT_WORK_RULE), "{text}");
+        assert!(text.ends_with(crate::agent_guidance::CLAUDE_GUIDANCE), "{text}");
+        let mut argv = codex.argv.clone();
+        argv.extend(args);
+        assert!(crate::codex_app_server::is_profile_launch(&argv), "{argv:?}");
+        // The start carried them: nothing is owed to a message.
+        let mut blocks = Vec::new();
+        assert!(!append_owed_rules(Some(&parts), Some(argv.as_slice()), &mut blocks), "{blocks:?}");
+        // The person's own developer instructions are never replaced, nor read into cmux's
+        // value (a project's config may not be one Codex trusts): a new chat keeps the first
+        // message, and a start that finds theirs (its real `CODEX_HOME`) carries no rules and
+        // owes them to the next message.
+        std::fs::write(home.path().join("config.toml"), "developer_instructions = \"mine\"\n")
+            .unwrap();
+        assert_eq!(rules_channel(&cfg, home.path(), "codex"), USER_CONTEXT);
+        assert!(launch_args(Some(&parts), &codex, home.path()).is_empty());
+        assert!(append_owed_rules(Some(&parts), Some(codex.argv.as_slice()), &mut blocks));
+        assert_eq!(blocks.len(), 2, "{blocks:?}");
+        assert!(blocks[0]["text"].as_str().unwrap().starts_with("<cmux-default-context>"));
+        // A moved chat's start (no command line recorded): owed too.
+        let mut blocks = Vec::new();
+        assert!(append_owed_rules(Some(&parts), None, &mut blocks));
+        // Codex's compact `-ckey=value` form counts as their own too.
+        let mut compact = codex.clone();
+        std::fs::remove_file(home.path().join("config.toml")).unwrap();
+        compact.argv.push("-cdeveloper_instructions=\"mine\"".into());
+        cfg.harnesses.insert("codex".into(), compact.clone());
+        assert_eq!(rules_channel(&cfg, home.path(), "codex"), USER_CONTEXT);
+        assert!(launch_args(Some(&parts), &compact, home.path()).is_empty());
+        // Any other ACP agent: the first message.
+        cfg.harnesses.insert("fake".into(), profile(json!({"argv":["python3","agent.py"]})));
+        assert_eq!(rules_channel(&cfg, Path::new("/repo"), "fake"), USER_CONTEXT);
+        let parts = rules_on(USER_CONTEXT);
+        assert!(parts.iter().all(|p| p.label.ends_with("(first-turn context)")), "{parts:?}");
+        let mut blocks = vec![json!({"type":"text","text":"my words"})];
+        append_snapshot(Some(&parts), &mut blocks);
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0]["text"], "my words");
+        assert!(blocks[1]["text"].as_str().unwrap().starts_with("<cmux-default-context>"));
+        assert!(launch_args(Some(&parts), &codex, home.path()).is_empty());
+    }
+
+    #[test]
+    fn rules_too_long_for_one_launch_argument_stay_in_the_first_message() {
+        let mut cfg = Config::default();
+        cfg.harnesses
+            .insert("claude".into(), profile(json!({"kind":"claude-stdio","argv":["claude"]})));
+        cfg.context_overrides.user = Some("x".repeat(MAX_LAUNCH_RULES_BYTES + 1));
+        let parts = snapshot_for(&cfg, Path::new("/repo"), "claude", false);
+        assert!(parts.iter().all(|p| p.channel.as_deref() == Some(USER_CONTEXT)), "{parts:?}");
+        let mut blocks = vec![json!({"type":"text","text":"my words"})];
+        append_snapshot(Some(&parts), &mut blocks);
+        assert!(blocks.len() >= 2, "{blocks:?}");
+        assert!(launch_args(Some(&parts), &cfg.harnesses["claude"], Path::new("/repo")).is_empty());
+    }
+
+    #[test]
+    fn a_switched_off_rule_reaches_no_channel() {
+        let claude = profile(json!({"kind":"claude-stdio","argv":["claude"]}));
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some(String::new());
+        let parts = snapshot_on(&cfg, Path::new("/repo"), APPEND_SYSTEM_PROMPT);
+        assert!(!parts[0].included);
+        assert!(launch_args(Some(&parts), &claude, Path::new("/repo")).is_empty());
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&parts), &mut blocks);
+        assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn a_fork_keeps_the_rules_only_when_cut_after_the_turn_that_carried_them() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        assert!(!fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 100));
+        record_rules_in_transcript(&mut meta, 40);
+        // A later message does not move where they entered.
+        record_rules_in_transcript(&mut meta, 90);
+        assert_eq!(meta.cmux_rules_seq, Some(40));
+        assert!(fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 100));
+        assert!(fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 40));
+        // Cut through an earlier turn: its transcript has neither the rules nor their record.
+        assert!(!fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 39));
+        // Recorded before the seq was kept: kept, as before.
+        meta.cmux_rules_seq = None;
+        assert!(fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 0));
+    }
+}

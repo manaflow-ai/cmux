@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2ebf7bae09dd7bd531843e7f365bfc9b1a9aecfded17ee3d16a00b38b73d360a.
+// cmux-tui mux protocol 12, IR 70698813da86081998a473fd0da125280f1b749b042a1970dfc4065c4d9ec15e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -375,6 +375,8 @@ pub struct ConversationTypingEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct DaemonShutdownEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub restart: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -394,6 +396,19 @@ pub struct DetachedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct EmptyEvent {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedReportsChangedEvent {
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedViewChangedEvent {
+    pub changed: Vec<String>,
+    pub revision: u64,
 }
 
 #[rustfmt::skip]
@@ -739,6 +754,12 @@ pub struct SizeStateEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StashChangedEvent {
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StatusEvent {
     pub message: String,
 }
@@ -864,7 +885,11 @@ pub struct TerminalRegistryChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TitleChangedEvent {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub activity: Optional<String>,
     pub surface: T::Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
 }
@@ -889,6 +914,8 @@ pub struct VtStateEvent {
     pub colors: Option<T::TerminalColors>,
     pub cols: u16,
     pub data: T::Base64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub history_rows_omitted: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub kitty_graphics_state: Option<T::KittyGraphicsState>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -1034,6 +1061,8 @@ pub enum Event {
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
     Empty(EmptyEvent),
+    FeedReportsChanged(FeedReportsChangedEvent),
+    FeedViewChanged(FeedViewChangedEvent),
     Frame(FrameEvent),
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
@@ -1062,6 +1091,7 @@ pub enum Event {
     SelectionChanged(SelectionChangedEvent),
     SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
+    StashChanged(StashChangedEvent),
     Status(StatusEvent),
     SurfaceExited(SurfaceExitedEvent),
     SurfaceOutput(SurfaceOutputEvent),
@@ -1131,6 +1161,8 @@ impl Event {
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
             Self::Empty(_) => Some("empty"),
+            Self::FeedReportsChanged(_) => Some("feed-reports-changed"),
+            Self::FeedViewChanged(_) => Some("feed-view-changed"),
             Self::Frame(_) => Some("frame"),
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
@@ -1159,6 +1191,7 @@ impl Event {
             Self::SelectionChanged(_) => Some("selection-changed"),
             Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
+            Self::StashChanged(_) => Some("stash-changed"),
             Self::Status(_) => Some("status"),
             Self::SurfaceExited(_) => Some("surface-exited"),
             Self::SurfaceOutput(_) => Some("surface-output"),
@@ -1227,6 +1260,8 @@ impl Event {
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
+            Self::FeedReportsChanged(_) => Some(&FEED_REPORTS_CHANGED_EVENT_METADATA),
+            Self::FeedViewChanged(_) => Some(&FEED_VIEW_CHANGED_EVENT_METADATA),
             Self::Frame(_) => Some(&FRAME_EVENT_METADATA),
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
@@ -1255,6 +1290,7 @@ impl Event {
             Self::SelectionChanged(_) => Some(&SELECTION_CHANGED_EVENT_METADATA),
             Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
+            Self::StashChanged(_) => Some(&STASH_CHANGED_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
             Self::SurfaceExited(_) => Some(&SURFACE_EXITED_EVENT_METADATA),
             Self::SurfaceOutput(_) => Some(&SURFACE_OUTPUT_EVENT_METADATA),
@@ -1585,6 +1621,22 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("feed-reports-changed") => match serde_json::from_value::<FeedReportsChangedEvent>(raw.clone()) {
+            Ok(event) => Event::FeedReportsChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("feed-view-changed") => match serde_json::from_value::<FeedViewChangedEvent>(raw.clone()) {
+            Ok(event) => Event::FeedViewChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("frame") => match serde_json::from_value::<FrameEvent>(raw.clone()) {
             Ok(event) => Event::Frame(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1803,6 +1855,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("size-state") => match serde_json::from_value::<SizeStateEvent>(raw.clone()) {
             Ok(event) => Event::SizeState(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("stash-changed") => match serde_json::from_value::<StashChangedEvent>(raw.clone()) {
+            Ok(event) => Event::StashChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

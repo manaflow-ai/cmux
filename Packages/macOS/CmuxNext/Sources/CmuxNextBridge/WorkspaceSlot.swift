@@ -28,6 +28,9 @@ public enum WorkspaceSlot: Hashable, Sendable {
     case at(DropPosition)
     /// A sidebar gap's neighbors, captured before its asynchronous create.
     case gap(WorkspaceGap)
+    /// The first of these slots that resolves: a new workspace's place with what stands in for its anchor when that
+    /// one closed while it was made (right below the selected row, else where that row was, else its group's end).
+    indirect case first([WorkspaceSlot])
 
     /// The drop position that puts `moving` at this slot of `section` in
     /// `sections`, counted after `moving`'s own rows are removed
@@ -61,6 +64,8 @@ public enum WorkspaceSlot: Hashable, Sendable {
         case .endOfGroup(let group):
             guard let node = nodes.lazy.compactMap(\.group).first(where: { $0.id == group }) else { return nil }
             return DropPosition(section: section, group: group, index: Self.members(node, moving).count)
+        case .first(let slots):
+            return slots.lazy.compactMap { $0.position(moving: moving, section: section, in: sections) }.first
         }
     }
 

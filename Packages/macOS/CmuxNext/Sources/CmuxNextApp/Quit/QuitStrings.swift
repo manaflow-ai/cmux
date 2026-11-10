@@ -1,56 +1,10 @@
 import Foundation
 
-/// Quit dialog text (Resources/Quit.xcstrings).
+/// Quit text: the unsaved and failure dialogs, recovery (Resources/Quit.xcstrings).
 enum QuitStrings {
-    static var title: String {
-        String(localized: "quit.title", defaultValue: "Quit cmux?", table: "Quit", bundle: .module)
-    }
-
-    /// What each choice does to running sessions, in one short paragraph.
-    static var choicesExplained: String {
-        String(localized: "quit.choicesExplained",
-               defaultValue: "Keep Sessions Running leaves your terminals and agents running. End Sessions stops them and keeps your tabs and splits; End Everything also closes the workspaces.",
-               table: "Quit", bundle: .module)
-    }
-
-    static func programsRunning(_ count: Int) -> String {
-        String(localized: "quit.programsRunning", defaultValue: "\(count) programs are running.", table: "Quit", bundle: .module)
-    }
-
-    static func agentsWorking(_ count: Int) -> String {
-        String(localized: "quit.agentsWorking", defaultValue: "Agents still working: \(count).", table: "Quit", bundle: .module)
-    }
-
-    static var incognitoCloses: String {
-        String(localized: "quit.incognitoCloses", defaultValue: "Incognito windows close, and their programs end.",
-               table: "Quit", bundle: .module)
-    }
-
+    /// The check box of `DestructiveConfirmation`'s questions.
     static var dontAskAgain: String {
         String(localized: "quit.dontAskAgain", defaultValue: "Don’t ask again", table: "Quit", bundle: .module)
-    }
-
-    static var keepSessionsRunning: String {
-        String(localized: "quit.button.keep", defaultValue: "Keep Sessions Running", table: "Quit", bundle: .module)
-    }
-
-    static var endKeepLayout: String {
-        String(localized: "quit.button.endKeepLayout", defaultValue: "End Sessions, Keep Layout", table: "Quit", bundle: .module)
-    }
-
-    static var endEverything: String {
-        String(localized: "quit.button.endEverything", defaultValue: "End Everything", table: "Quit", bundle: .module)
-    }
-
-    static var endEverythingTitle: String {
-        String(localized: "quit.endEverything.title", defaultValue: "Quit and close every workspace?", table: "Quit",
-               bundle: .module)
-    }
-
-    static var endEverythingLine: String {
-        String(localized: "quit.endEverything.line",
-               defaultValue: "Every terminal and agent ends. The workspaces stay in Recently Closed.",
-               table: "Quit", bundle: .module)
     }
 
     static var failedTitle: String {
@@ -111,7 +65,7 @@ enum QuitStrings {
     /// acpmux is already shutting down; it may not have ended its agents.
     static var agentsShutdownInProgress: String {
         String(localized: "quit.failed.agentsShutdownInProgress",
-               defaultValue: "acpmux is already shutting down, so agents may still be running. Retry waits for the shutdown to finish.",
+               defaultValue: "Agents are still shutting down. Retry waits for them to finish.",
                table: "Quit", bundle: .module)
     }
 

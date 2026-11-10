@@ -141,7 +141,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // A tapped disclosure in a row holds its line while it opens or closes (DisclosureReveal).
         list.context.foldHold = TranscriptFoldHold(
             begin: { [weak self] in self?.holdForDisclosure() },
-            end: { [weak self] in self?.endFoldHold() }
+            end: { [weak self] in self?.endFoldHold() },
+            swap: { [weak self] in self?.list.showSettlingRows() },
+            resize: { [weak self] in self?.list.resizeForFold() }
         )
         if let dock {
             dockHost?.rootView = Self.measuring(dock, alignment: .bottom) { _ in }
@@ -220,6 +222,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.backgroundColor = .cmuxMobileBackground
         scrollView.topEdgeEffect.style = .soft
         list.scrollDelegate = self
+        // Safari's bottom bar: a tap on the page while the field is being edited ends the
+        // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
+        // tap still reaches the row under it (a disclosure, a link).
+        transcriptTap.addTarget(self, action: #selector(transcriptTapped(_:)))
+        transcriptTap.cancelsTouchesInView = false
+        transcriptTap.delegate = TranscriptTapDelegate.shared
+        scrollView.addGestureRecognizer(transcriptTap)
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
 
@@ -709,6 +718,24 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         UIView.performWithoutAnimation { view.layoutIfNeeded() }
     }
 
+    /// The tap on the transcript that ends editing (`transcriptTapped`).
+    let transcriptTap = UITapGestureRecognizer()
+
+    @objc private func transcriptTapped(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended else { return }
+        endEditingFromTranscriptTap()
+    }
+
+    /// A tap on the transcript while the composer is focused: the composer lets go of focus
+    /// and the keyboard goes down, as Safari's address bar does on a tap on the page. Only
+    /// the composer's focus changes (its binding resigns the field), never a text field in
+    /// a row (the question card's "Other..." answer). Nothing happens when the composer is
+    /// not focused, so a tap while reading moves nothing.
+    func endEditingFromTranscriptTap() {
+        guard surface.composerFocused else { return }
+        surface.composerFocused = false
+    }
+
     @objc private func dockPanned(_ pan: UIPanGestureRecognizer) {
         guard pan.state == .changed else { return }
         let t = pan.translation(in: view)
@@ -760,7 +787,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                                           maxOffsetY: bottomOffset.y, keyboardDragging: keyboardDragging)
         }
         guard surface.showJump != shown else { return }
-        withAnimation(.cmuxMobileSnap) { surface.showJump = shown }
+        withAnimation(.cmuxMobileSnap.unlessReduceMotion) { surface.showJump = shown }
         jumpHost?.view.isUserInteractionEnabled = shown
     }
 
@@ -954,6 +981,21 @@ private final class DragLinkTarget: NSObject {
     weak var owner: ChatTranscriptController?
     init(_ owner: ChatTranscriptController) { self.owner = owner }
     @objc func tick() { owner?.draggedKeyboardFrame() }
+}
+
+/// The transcript's end-editing tap runs beside the rows' own taps, and never takes a touch
+/// on a text input in a row (tapping into it must keep the focus it gets).
+private final class TranscriptTapDelegate: NSObject, UIGestureRecognizerDelegate {
+    @MainActor static let shared = TranscriptTapDelegate()
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let current = view {
+            if current is UITextInput { return false }
+            view = current.superview
+        }
+        return true
+    }
 }
 
 /// Lets the composer's swipe-down recognizer run beside the text view's own.

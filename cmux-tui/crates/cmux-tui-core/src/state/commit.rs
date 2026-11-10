@@ -44,6 +44,7 @@ impl Mux {
         apply: impl FnOnce(&Transaction<'_>, &State) -> anyhow::Result<StateChanges>,
     ) -> anyhow::Result<StateCommit> {
         let mut registry = self.workspace_registry.lock().unwrap();
+        let unchanged = std::cell::Cell::new(false);
         let commit = {
             // The session lock covers only `apply`, which reads the session
             // to resolve its targets; the registry transaction's own writes,
@@ -53,6 +54,7 @@ impl Mux {
             // no session state but the revision below, and the registry lock
             // keeps every other registry -> state writer out meanwhile.
             let state = self.lock_state_pinned(&registry).unwrap();
+            let unchanged = &unchanged;
             let commit = registry.commit_state_mutation(
                 mutation,
                 operation,
@@ -61,10 +63,16 @@ impl Mux {
                 move |transaction| {
                     let changes = apply(transaction, &state);
                     drop(state);
+                    unchanged.set(changes.as_ref().is_ok_and(|changes| changes.unchanged));
                     self.run_state_commit_after_apply_hook();
                     changes
                 },
             )?;
+            if unchanged.get() {
+                // Nothing was committed (`StateChanges::unchanged`): no
+                // revision moved, so there is no event and no reload.
+                return Ok(commit);
+            }
             if !commit.replayed {
                 self.state
                     .lock()
@@ -103,6 +111,7 @@ impl Mux {
                 machine_name: None,
                 session_id: &self.session_public_id,
                 session_name: &self.session,
+                in_process_host: Some(&|host: &str| self.in_process_terminal_by_host(host)),
             },
             target,
             selectors,
@@ -125,6 +134,15 @@ impl Mux {
             fingerprint,
             expected_revision,
         )
+    }
+
+    /// Write registry metadata under its lock ([`WorkspaceRegistry::write_meta`]).
+    #[track_caller]
+    pub(crate) fn write_registry_meta<T>(
+        &self,
+        write: impl FnOnce(&Transaction<'_>) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        self.workspace_registry.lock().unwrap().write_meta(write)
     }
 
     /// Read the registry under its lock.

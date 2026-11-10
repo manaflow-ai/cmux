@@ -7,6 +7,7 @@ import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHistoryPages
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
 import CmuxNextPages
@@ -25,14 +26,45 @@ import CmuxNextWebUpdates
 struct PageFactory {
     unowned let services: AppServices
 
-    /// The React History page when Debug Settings `history.surface` is `web`, else nil (the
-    /// Swift page). The tunable goes when the React page becomes the default (react-pages.md H3).
+    /// The History page (react-pages.md 2): ``HistoryCookieBackupsPageProvider`` takes `cmux.history.` (the app's
+    /// cookie backups, a remove or clear only on a click) and relays the rest. Nil only when the resources are missing.
     func historyWebPage() -> PageWebView? {
-        guard PageTunables.history.value == .web else { return nil }
-        let routes = pageRoutes(for: .history)
+        let backups = HistoryCookieBackupsPageProvider { [weak services] in services?.browserHost?.driver.cookieBackups }
+        backups.relay = DaemonPageRelay(services: services)
+        backups.history = services.history
+        services.history.pages.add(backups)
+        let routes = [PageRoute(prefix: "cmux.history.", provider: backups)] + pageRoutes(for: .history)
         guard let page = services.pageHostPool.claim(.history, routes: routes,
                                                       window: services.windows.active?.window, focus: false)
             ?? PageWebView(descriptor: .history, routes: routes) else { return nil }
+        backups.anchor = { [weak page] in page }
+        PageConnectionWatch(page: page, store: services.machines.local.store).start()
+        return page
+    }
+
+    /// The Stashed Tabs page (``StashPageProvider``): the daemon's `stash.list` and `stash.import`
+    /// through the relay, restore and delete in the app. `route` `#/import` opens its OneTab box.
+    func stashWebPage(route: String?) -> PageWebView? {
+        let relay = DaemonPageRelay(services: services)
+        let stash = StashPageProvider(stash: services.historyPage.stash, relay: relay)
+        let routes = [PageRoute(prefix: "cmux.stash.", provider: stash)]
+        guard let page = PageWebView(descriptor: .stash, routes: routes, route: route) else { return nil }
+        stash.anchor = { [weak page] in page }
+        PageConnectionWatch(page: page, store: services.machines.local.store).start()
+        return page
+    }
+
+    /// The Feed page (plans/cmux-next/feed-page.md) on `route` (`#/inbox?surface=page`,
+    /// `#/list?surface=sidebar`, `#/needs-you`); nil only when the page
+    /// resources are missing. `cmux.feed.` goes to the daemon's feed client through the page relay,
+    /// `cmux.app.` runs the page's actions (open an item, a GitHub action, Settings).
+    func feedWebPage(route: String) -> PageWebView? {
+        let relay = DaemonPageRelay(services: services)
+        let native = AppPageNativeProvider(services: services, page: .feed)
+        native.forward = { op, params, context in try await relay.call(op, params: params, context: context) }
+        let routes = [PageRoute(prefix: "cmux.feed.", provider: relay), PageRoute(prefix: "cmux.app.", provider: native)]
+        guard let page = PageWebView(descriptor: .feed, routes: routes, route: route) else { return nil }
+        native.anchor = { [weak page] in page }
         PageConnectionWatch(page: page, store: services.machines.local.store).start()
         return page
     }
@@ -100,7 +132,7 @@ struct PageFactory {
     /// sign-in and sign-out run the app's own account flow after the native sheet.
     func cloudWebPage() -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .cloud)
-        let cloud = Self.cloudProvider(cloud: services.cloud, registry: services.machines)
+        let cloud = Self.cloudProvider(cloud: services.cloud)
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
         let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
@@ -113,21 +145,15 @@ struct PageFactory {
         return page
     }
 
-    /// The Cloud page's provider for `cloud`'s link. The Cloud app server reaches its backend only
-    /// through the credential relay, which the classic link never registers (cx-t2rz P3-1): there
-    /// the page reads Cloud's own `/api/vm` list (``CloudClassicPageOps``), as the CLI and the
-    /// sidebar do, instead of answering "not available until cmux reconnects" for good.
-    static func cloudProvider(cloud account: CloudService, registry: MachineRegistry) -> CloudPageProvider {
-        let classic = account.configuration.linkSource == .legacy
-            ? CloudClassicPageOps(backend: .app(cloud: account, registry: registry)) : nil
-        return CloudPageProvider(op: classic.map(CloudAppLinks.ops(classic:)) ?? account.appOps,
-                                 signIn: { [weak account] in await account?.auth.signIn() ?? false },
-                                 signOut: { [weak account] in await account?.signOut() },
-                                 feed: classic.map(CloudAppLinks.feed(classic:)),
-                                 account: { [weak account] in
-                                     CloudPageProvider.accountValue(signedIn: account?.isSignedIn ?? false, user: account?.auth.user?.id,
-                                                                    team: account?.auth.teamID)
-                                 })
+    /// The Cloud page's provider for `cloud`: the Cloud app server's ops through the credential relay.
+    static func cloudProvider(cloud account: CloudService) -> CloudPageProvider {
+        CloudPageProvider(op: account.appOps,
+                          signIn: { [weak account] in await account?.auth.signIn() ?? false },
+                          signOut: { [weak account] in await account?.signOut() },
+                          account: { [weak account] in
+                              CloudPageProvider.accountValue(signedIn: account?.isSignedIn ?? false, user: account?.auth.user?.id,
+                                                             team: account?.auth.teamID)
+                          })
     }
 
     /// The Settings page's engine options.
@@ -161,19 +187,20 @@ struct PageFactory {
         provider.agents = services.agentHarnesses
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-            openTerminal: { [weak services] line in _ = services?.inFrontPane { $0.newTerminalTab(typing: line + "\r") } },
+            openTerminal: { [weak services] line in services?.inFrontPane { $0.newTerminalTab(typing: line + "\r") } ?? false },
             runUpdate: { [weak services] params, context in
                 guard let services, let updates = services.agentHarnesses.updates else { throw PageError.closed }
                 return try await updates.runPage(params, context: context, registry: services.registry)
             },
             updateState: { [weak services] in services?.agentHarnesses.updates?.state ?? .array([]) },
-            refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() }
+            refreshUpdates: { [weak services] in await services?.agentHarnesses.updates?.refresh() },
+            unsupported: { AgentHarnessStrings.unsupported }
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
         let cloud = services.cloud
         let environments = CloudEnvironmentsSettings(
-            available: { [weak cloud] in cloud.map { $0.configuration.linkSource == .appServer && $0.auth.isSignedIn } ?? false },
+            available: { [weak cloud] in cloud?.auth.isSignedIn ?? false },
             list: { [weak cloud] in
                 guard let cloud else { throw PageError.closed }
                 return try JSONEncoder().encode(await cloud.appOps("cloud.environment.list", .object([:]), nil, .script))
@@ -214,6 +241,8 @@ struct PageFactory {
             let result = await devices.run(run)
             return (try? JSONValue.parse(JSONEncoder().encode(result))) ?? .object([:])
         }
+        provider.sharesList = { [weak services] in try await SettingsSharedLinks.list(services) }
+        provider.sharesRevoke = { [weak services] id in try await SettingsSharedLinks.revoke(services, shareID: id) }
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         provider.integrations = SettingsAgentIntegrations(cli: { [bundled = services.bundledCLI] in await bundled.resolve() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
@@ -224,8 +253,8 @@ struct PageFactory {
             .array(SettingsSchema.actions(in: section).compactMap { id in
                 // An action a setting turns off (Import from Browser with `browser.import.enabled` off) leaves the page.
                 guard let descriptor = registry.descriptor(for: id), registry.settingOffReason(id) == nil else { return nil }
-                return ["id": .string(id.rawValue), "title": .string(descriptor.title),
-                        "enabled": .bool(registry.isAvailable(id))]
+                return ["id": .string(id.rawValue), "title": .string(descriptor.title), "enabled": .bool(registry.isAvailable(id)),
+                        "hint": descriptor.hint.map(JSONValue.string) ?? .null]
             })
         }
         provider.pickFolders = { [weak services] in
@@ -277,6 +306,8 @@ struct PageFactory {
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
+                      PageRoute(prefix: WorktreeSetupPageRoute.prefix,
+                                provider: WorktreeSetupPageRoute { [weak services] in services?.machines.local.connection }),
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
                       PageRoute(prefix: ChannelsPageProvider.prefix,
                                 provider: ChannelsPageProvider(updater: services.updater, daemon: { @MainActor [weak services, daemons = services.acpmuxDaemons] in
@@ -295,6 +326,8 @@ struct PageFactory {
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
                       // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).
                       PageRoute(prefix: ContextMenusPageProvider.prefix, provider: services.settingsWindow.contextMenusRoute),
+                      // Settings > Server > This Mac on Your Tailnet: sign in and out on the app's person connection to acpmux.
+                      PageRoute(prefix: SettingsTailnet.prefix, provider: SettingsTailnet { [weak services] in services.flatMap(QuitAgents.environment) }),
                       // Settings > Server: Restart… (the toast's confirm) and Pair (the Server panel).
                       PageRoute(prefix: ServerSettingsPageRoute.prefix, provider: ServerSettingsPageRoute(
                           confirmRestart: { [weak services] in services?.serverUpdates.confirmRestart(kind: $0, host: $1) },
@@ -340,3 +373,5 @@ struct PageFactory {
                                              updateLabel: DaemonUpdateBoard.updateLabel)
     }
 }
+
+extension HistoryService: HistoryPageEditing {}

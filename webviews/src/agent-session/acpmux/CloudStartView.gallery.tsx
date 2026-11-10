@@ -80,6 +80,64 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         },
       },
     },
+    "signed-out": {
+      note: "The first Cloud send is kept in the composer while the inline sign-in action opens the browser callback.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "not_signed_in",
+          message: "Sign in to use Cloud.",
+        },
+        onSignIn: async () => undefined,
+      },
+    },
+    "spend-cap": {
+      note: "The team's spending cap refused the machine: an admin can raise it; Run on This Mac sends the same prompt here.",
+      props: {
+        start: {
+          ...begun,
+          step: "machine",
+          state: "failed",
+          code: "cloud_spend_cap",
+          message:
+            "Your team reached its spending cap, so no Cloud machine can start. A team admin can raise it, or run this chat on this Mac.",
+        },
+        onRunHere: () => undefined,
+        onDismiss: () => undefined,
+      },
+    },
+    "member-budget": {
+      note: "The member's own monthly budget refused the machine: an admin can raise it; Run on This Mac goes on here.",
+      props: {
+        start: {
+          ...begun,
+          step: "machine",
+          state: "failed",
+          code: "cloud_member_budget",
+          message:
+            "You've spent your monthly budget, so no Cloud machine can start. A team admin can raise it, or run this chat on this Mac.",
+        },
+        onRunHere: () => undefined,
+        onDismiss: () => undefined,
+      },
+    },
+    "signing-in": {
+      note: "The person clicked Sign in to continue: the card waits on the browser sign-in, not on Cloud.",
+      props: { start: { ...begun, signingIn: true } },
+    },
+    "sign-in-timed-out": {
+      note: "The browser sign-in never came back within its limit: the card offers sign in again.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "not_signed_in",
+          message: "Sign-in timed out. Sign in again to continue.",
+        },
+        onSignIn: async () => undefined,
+      },
+    },
     "checklist-machine": {
       note: "Cloud machine is being created; the machine step spins while later steps remain quiet.",
       props: { start: { ...begun, machineStartedAt: 10_000, machine: known.machine } },

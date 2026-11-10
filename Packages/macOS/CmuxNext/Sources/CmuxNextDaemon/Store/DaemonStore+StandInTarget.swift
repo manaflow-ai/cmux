@@ -71,6 +71,10 @@ extension DaemonStore {
     /// over and its first tab's daemon surface (``WorkspaceModel/tookOverStandIn``), for a create pressed on that
     /// stand-in that is sent after the hand-over (a window that still shows the stand-in for a frame).
     func noteIntentLeft(_ entry: PendingIntent, rejected: Bool) {
+        if !rejected { intentLog.noteStandInSettled(entry) }
+        // A settled close changes `closedLately` for its tabs: the tab lists publish (`tabListRevision`), so a new tab's
+        // move waiting for one of them stops even when its `tab-closed` applied before the reply.
+        if !rejected, case .closeTabs = entry.kind { index.noteTabOrderChanged() }
         guard !rejected, case .createWorkspace(let provisional, _) = entry.kind,
               let workspace = workspacesByKey[provisional.key], !workspace.isProvisional else { return }
         workspace.tookOverStandIn = (provisional.pane, entry.createdConfirmed ? entry.createdSurface : nil)
@@ -80,5 +84,14 @@ extension DaemonStore {
     /// for a stand-in handle no pending intent names (rare: a create sent after its stand-in's hand-over).
     func adoptedStandIn(_ handle: PaneID) -> WorkspaceKey? {
         workspaces.first { $0.tookOverStandIn?.pane == handle }?.key
+    }
+
+    /// The daemon's pane that took stand-in pane `handle` over (Cmd-N's first pane, a split's) once the records hold it; nil
+    /// while the stand-in still shows, and for a pane that is no stand-in. A window shows Cmd-N's daemon pane under another
+    /// layout id than its stand-in, so it hands the stand-in's selection to that pane's new controller by this.
+    public func daemonPane(takingOver handle: PaneID) -> PaneID? {
+        guard ProvisionalPane.isStandIn(handle), let origin = standInTargets[handle] ?? ProvisionalSplit.standInOrigin(of: handle, in: self),
+              let pane = ProvisionalSplit.daemonPane(of: origin, showing: handle, in: self), !ProvisionalPane.isStandIn(pane) else { return nil }
+        return pane
     }
 }

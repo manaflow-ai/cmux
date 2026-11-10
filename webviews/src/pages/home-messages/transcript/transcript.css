@@ -1,0 +1,847 @@
+/* The Messages transcript (home-messages/transcript). The bubble metrics are MessagesLab's measured
+   Messages values (Layout.swift, RowDrawing.swift), defined once here as tokens: a 17 pt corner, the
+   tail, 12 pt side padding, a 36 pt avatar in a glass name pill header. Colours come from the look
+   (iMessage's blue and grey, the theme's accent and surface, or an outline) and the chat's own
+   colours over it (colors.ts sets --mt-sent, --mt-sent-text, --mt-received, --mt-received-text). */
+.mt-transcript {
+  /* iMessage: MessagesLab's measured sent blue (catalyst Fixture.outgoing) and Messages' greys. */
+  --mt-imessage-blue: #0284fe;
+  --mt-imessage-grey: light-dark(#e9e9eb, #3b3b3d);
+  --mt-bubble-radius: 17px;
+  --mt-bubble-pad-block: 6px;
+  --mt-bubble-pad-inline: 12px;
+  --mt-bubble-max: min(70%, 560px);
+  /* The tail: 12 x 16 pt, reaching 6 pt past the bubble's side. */
+  --mt-tail-reach: -6px;
+  --mt-tail-width: 12px;
+  --mt-tail-height: 16px;
+  /* The typing bubble and its dots, the tapback badge's lift (Messages' measures). */
+  --mt-typing-height: 34px;
+  --mt-typing-dot: 8px;
+  --mt-tapback-lift: -22px;
+  --mt-hairline-gap: 2px;
+  --mt-on-danger: #ffffff;
+  /* A loop, not a transition: the typing dots' cycle. */
+  --mt-typing-period: 1200ms;
+  --mt-side: 20px;
+  --mt-avatar-col: 36px;
+  --mt-header-avatar: 36px;
+  --mt-caption: var(--page-text-2, color-mix(in srgb, var(--page-text) 55%, transparent));
+  --mt-danger: var(--cmux-app-danger, light-dark(#d70015, #ff453a));
+  --mt-look-sent: var(--mt-imessage-blue);
+  --mt-look-sent-text: #ffffff;
+  --mt-look-received: var(--mt-imessage-grey);
+  --mt-look-received-text: var(--page-text);
+  --mt-look-received-line: transparent;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  color: var(--page-text);
+  font: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+
+  /* The agent pane's Markdown tokens, at bubble density. */
+  --agent-text: currentColor;
+  --agent-muted: color-mix(in srgb, currentColor 70%, transparent);
+  --agent-soft: color-mix(in srgb, currentColor 50%, transparent);
+  --agent-accent: var(--cmux-app-accent, var(--page-text));
+  --agent-on-accent: var(--cmux-app-on-accent, Canvas);
+  --agent-border: color-mix(in srgb, currentColor 18%, transparent);
+  --agent-page-bg: transparent;
+  --agent-danger: var(--mt-danger);
+  --cv-font: var(--font-ui);
+  --cv-para-after: var(--ds-space-1);
+  --cv-column: none;
+}
+
+/* The theme's look: my bubbles in the theme's accent, theirs on its surface. */
+.mt-transcript.look-theme {
+  --mt-look-sent: var(--cmux-app-accent, var(--page-text));
+  --mt-look-sent-text: var(--cmux-app-on-accent, Canvas);
+  --mt-look-received: color-mix(in srgb, var(--page-text) 9%, transparent);
+}
+
+/* The outline look: my bubbles in the accent, theirs a hairline outline on the page. */
+.mt-transcript.look-outline {
+  --mt-look-sent: var(--cmux-app-accent, var(--mt-imessage-blue));
+  --mt-look-sent-text: var(--cmux-app-on-accent, #ffffff);
+  --mt-look-received: transparent;
+  --mt-look-received-line: color-mix(in srgb, var(--page-text) 22%, transparent);
+}
+
+.mt-scroller {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.mt-stack {
+  position: relative;
+  width: 100%;
+  will-change: transform;
+}
+
+.mt-slot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  /* The window renders only near rows; each slot is its own layout and paint island. */
+  contain: layout paint style;
+}
+
+.mt-top {
+  width: 100%;
+}
+
+/* The header: avatar over the name pill, centered, over the rows' blurred top. */
+.mt-header {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  padding: var(--ds-space-1) var(--ds-space-3) var(--ds-space-2);
+  background: color-mix(in srgb, var(--cmux-surface-solid, Canvas) 72%, transparent);
+  backdrop-filter: var(--surface-blur, none);
+  -webkit-backdrop-filter: var(--surface-blur, none);
+  pointer-events: none;
+}
+
+.mt-header-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-1);
+  pointer-events: auto;
+}
+
+.mt-header-avatar {
+  display: grid;
+  width: var(--mt-header-avatar);
+  height: var(--mt-header-avatar);
+  place-items: center;
+}
+
+.mt-header-initials {
+  display: grid;
+  width: var(--mt-header-avatar);
+  height: var(--mt-header-avatar);
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--page-text) 40%, transparent);
+  color: var(--cmux-surface-solid, Canvas);
+  font: var(--text-detail);
+  font-weight: 600;
+}
+
+.mt-header-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.mt-name-pill {
+  display: inline-flex;
+  max-width: 280px;
+  height: 24px;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
+  border: 0.5px solid color-mix(in srgb, var(--page-text) 12%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--page-text) 6%, transparent);
+  color: var(--page-text);
+  font: var(--text-detail);
+  font-weight: 600;
+  cursor: default;
+}
+
+.mt-name-pill .hc-icon {
+  width: 12px;
+  height: 12px;
+  opacity: 0.5;
+}
+
+.mt-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The Chief's face as the app read it (a picture, or its profile's text in the initials tile). */
+.mt-header-picture {
+  width: var(--mt-header-avatar);
+  height: var(--mt-header-avatar);
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+/* The location chip beside a Chief's name (ChiefTeleportChip, plain): caption words, the place's
+   glyph, a chevron; the running move and a failure in their colours. */
+.mt-place-chip {
+  display: inline-flex;
+  max-width: 200px;
+  height: 20px;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mt-caption);
+  font: var(--text-caption);
+  cursor: default;
+}
+
+.mt-place-chip:hover {
+  background: color-mix(in srgb, var(--page-text) 6%, transparent);
+}
+
+.mt-place-chip.running {
+  color: var(--page-text);
+}
+
+.mt-place-chip.failed {
+  color: var(--mt-danger);
+}
+
+.mt-place-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mt-place-chevron {
+  flex: none;
+  opacity: 0.6;
+}
+
+.mt-faces {
+  display: inline-flex;
+}
+
+.mt-face {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  margin-left: calc(var(--ds-space-1) * -1);
+  place-items: center;
+  border: 1.5px solid var(--cmux-surface-solid, Canvas);
+  border-radius: 999px;
+  background: hsl(var(--mt-face-hue) 55% 48%);
+  color: var(--mt-look-sent-text);
+  font: var(--text-caption);
+  font-weight: 600;
+}
+
+.mt-face:first-child {
+  margin-left: 0;
+}
+
+.mt-header-panels {
+  position: absolute;
+  top: var(--ds-space-1);
+  right: var(--ds-space-2);
+  display: flex;
+  gap: var(--mt-hairline-gap);
+  pointer-events: auto;
+}
+
+.mt-panel-toggle {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mt-caption);
+}
+
+.mt-panel-toggle:hover {
+  background: color-mix(in srgb, var(--page-text) 8%, transparent);
+}
+
+.mt-panel-toggle.on {
+  color: var(--cmux-app-accent, var(--page-text));
+}
+
+.mt-pinned {
+  position: absolute;
+  z-index: var(--layer-raised);
+  top: var(--mt-header-room);
+  left: 50%;
+  width: min(calc(100% - var(--ds-space-6)), 640px);
+  transform: translateX(-50%);
+}
+
+/* Needs you gives way to the card on a short pane (it clips); the Set Up cmux card scrolls in the room
+ * left above the message box (pinnedLayout.ts, the native layoutPinnedSection). */
+.mt-pinned-section {
+  overflow: hidden;
+}
+
+.mt-setup-slot {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.mt-setup-card {
+  display: flex;
+  justify-content: center;
+}
+
+/* Rows. */
+.mt-older {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+}
+
+.mt-separator {
+  padding-bottom: var(--ds-space-1);
+  color: var(--mt-caption);
+  font: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  line-height: 26px;
+  text-align: center;
+}
+
+.mt-separator b {
+  font-weight: 600;
+}
+
+.mt-name {
+  padding-left: calc(var(--mt-side) + var(--mt-avatar-col) + var(--mt-bubble-pad-inline));
+  color: var(--mt-caption);
+  font: var(--text-caption);
+  line-height: 14px;
+}
+
+.mt-label,
+.mt-unsent,
+.mt-receipt {
+  padding: 0 var(--mt-side);
+  color: var(--mt-caption);
+  font: var(--text-caption);
+  line-height: 15px;
+}
+
+.mt-label.out,
+.mt-unsent.out,
+.mt-receipt {
+  text-align: right;
+}
+
+.mt-label.notDelivered,
+.mt-label.notKept {
+  color: var(--mt-danger);
+}
+
+.mt-unsent {
+  text-align: center;
+}
+
+.mt-receipt b {
+  font-weight: 600;
+}
+
+.mt-bubble-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--ds-space-1);
+  padding: 0 var(--mt-side);
+}
+
+.mt-bubble-row.out {
+  flex-direction: row-reverse;
+}
+
+.mt-avatar-col {
+  display: grid;
+  flex: none;
+  width: var(--mt-avatar-col);
+  place-items: end start;
+}
+
+.mt-bubble {
+  position: relative;
+  max-width: var(--mt-bubble-max);
+  padding: var(--mt-bubble-pad-block) var(--mt-bubble-pad-inline);
+  border-radius: var(--mt-bubble-radius);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.mt-bubble.md {
+  white-space: normal;
+}
+
+.mt-bubble.out {
+  /* glass-opaque-allow: a sent message bubble is message content in the transcript, not an overlay; the native transcript fills it solid with the chat's colour */
+  background: var(--mt-sent, var(--mt-look-sent));
+  color: var(--mt-sent-text, var(--mt-look-sent-text));
+  --agent-accent: currentColor;
+}
+
+.mt-bubble.in {
+  background: var(--mt-received, var(--mt-look-received));
+  box-shadow: inset 0 0 0 1px var(--mt-look-received-line);
+  color: var(--mt-received-text, var(--mt-look-received-text));
+}
+
+/* The tail: Messages' curl on the group's last bubble, in the bubble's own fill. */
+.mt-bubble.tail::before {
+  position: absolute;
+  bottom: 0;
+  width: var(--mt-tail-width);
+  height: var(--mt-tail-height);
+  background: inherit;
+  box-shadow: inherit;
+  clip-path: path("M0 0 H6 C6 9 8 14 12 16 C7 16.6 3 15 0 12 Z");
+  content: "";
+}
+
+.mt-bubble.tail.out::before {
+  right: var(--mt-tail-reach);
+}
+
+.mt-bubble.tail.in::before {
+  left: var(--mt-tail-reach);
+  transform: scaleX(-1);
+}
+
+.mt-bubble.sending {
+  opacity: 0.6;
+}
+
+.mt-bubble .cv-md,
+.mt-bubble .hc-md {
+  color: inherit;
+}
+
+.mt-media {
+  max-width: var(--mt-bubble-max);
+  overflow: hidden;
+  border-radius: var(--mt-bubble-radius);
+}
+
+.mt-media.sending {
+  opacity: 0.6;
+}
+
+.mt-failed-mark {
+  display: grid;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--mt-danger);
+  color: var(--mt-on-danger);
+  font: var(--text-detail);
+  font-weight: 600;
+}
+
+/* A tapback badge sits over the bubble's top corner, on the side away from its sender. */
+.mt-tapbacks {
+  position: absolute;
+  top: var(--mt-tapback-lift);
+  display: flex;
+  gap: var(--mt-hairline-gap);
+}
+
+.mt-tapbacks.in {
+  right: -12px;
+}
+
+.mt-tapbacks.out {
+  left: -12px;
+}
+
+.mt-tapback {
+  display: grid;
+  min-width: 28px;
+  height: 24px;
+  place-items: center;
+  padding: 0 var(--ds-space-1);
+  border: 2px solid var(--cmux-surface-solid, Canvas);
+  border-radius: 999px;
+  background: var(--mt-look-received);
+  font: var(--text-detail);
+}
+
+.mt-tapback.mine {
+  background: var(--mt-sent, var(--mt-look-sent));
+}
+
+/* The typing bubble: three dots that pulse in turn. */
+.mt-typing-row {
+  display: flex;
+  padding: 0 var(--mt-side);
+}
+
+.mt-bubble.mt-typing {
+  display: inline-flex;
+  height: var(--mt-typing-height);
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: 0 var(--ds-space-3);
+}
+
+.mt-typing i {
+  width: var(--mt-typing-dot);
+  height: var(--mt-typing-dot);
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.35;
+  animation: mt-dot var(--mt-typing-period) var(--cmux-ease-out, linear) infinite;
+}
+
+.mt-typing i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.mt-typing i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes mt-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 0.9;
+  }
+}
+
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .mt-typing i {
+  animation: none;
+}
+
+/* The compose bar. */
+.mt-compose {
+  position: relative;
+  flex: none;
+  padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3);
+}
+
+.mt-compose-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--ds-space-2);
+}
+
+.mt-plus,
+.mt-send {
+  display: grid;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+}
+
+.mt-plus {
+  background: color-mix(in srgb, var(--page-text) 8%, transparent);
+  color: var(--mt-caption);
+}
+
+.mt-send {
+  background: color-mix(in srgb, var(--page-text) 12%, transparent);
+  color: var(--mt-caption);
+}
+
+.mt-send.ready {
+  background: var(--mt-sent, var(--mt-look-sent));
+  color: var(--mt-sent-text, var(--mt-look-sent-text));
+}
+
+.mt-field {
+  display: flex;
+  min-width: 0;
+  min-height: 28px;
+  flex: 1 1 auto;
+  align-items: flex-end;
+  gap: var(--ds-space-1);
+  padding: 0 var(--ds-space-1) 0 var(--ds-space-3);
+  border: 1px solid color-mix(in srgb, var(--page-text) 16%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--cmux-surface-solid, Canvas) 60%, transparent);
+}
+
+.mt-field-editor {
+  min-width: 0;
+  max-height: 40vh;
+  flex: 1 1 auto;
+  align-self: center;
+  overflow-y: auto;
+  padding: var(--ds-space-1) 0;
+}
+
+.mt-field-button,
+.mt-field .acpmux-mic {
+  display: grid;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  align-self: center;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mt-caption);
+}
+
+.mt-compose[data-offline] .mt-field {
+  opacity: 0.8;
+}
+
+.mt-notice {
+  padding-bottom: var(--ds-space-1);
+  color: var(--mt-caption);
+  font: var(--text-caption);
+  text-align: center;
+}
+
+.mt-notice.alert {
+  color: var(--mt-danger);
+}
+
+/* The pane's drop target while files are dragged over it (HomeDropHighlightView). */
+.mt-drop-highlight {
+  position: absolute;
+  inset: var(--ds-space-1);
+  border: 2px solid var(--cmux-app-accent, var(--mt-imessage-blue));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--cmux-app-accent, var(--mt-imessage-blue)) 8%, transparent);
+  pointer-events: none;
+}
+
+.mt-sr {
+  --mt-sr-size: 1px;
+  position: absolute;
+  width: var(--mt-sr-size);
+  height: var(--mt-sr-size);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .mt-header {
+    background: var(--cmux-surface-solid, Canvas);
+  }
+}
+
+/* What an empty conversation shows under the header (a Chief's first run): it fills the room the
+   rows would, so the composer under it never moves when the first message replaces it. */
+.mt-empty {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: calc(100% - var(--mt-top-room));
+  padding: 0 var(--ds-space-3);
+}
+
+/* The message a link or the host opened at. */
+.mt-bubble.highlighted,
+.mt-media.highlighted {
+  box-shadow: 0 0 0 2px var(--cmux-app-accent, var(--mt-imessage-blue));
+}
+
+/* Tapback Details…: who reacted, with what (the native popover's lines). */
+.mt-tapback-details ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mt-tapback-details p {
+  margin: 0;
+}
+
+/* "N Replies" under a root (and, in a thread, under a reply with replies): it opens them. */
+.mt-replies-row {
+  padding: 0 var(--mt-side);
+}
+
+.mt-replies-row.out {
+  text-align: right;
+}
+
+.mt-replies-row.indent {
+  padding-left: calc(var(--mt-side) + var(--mt-avatar-col));
+}
+
+.mt-replies {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--cmux-app-accent);
+  font: var(--text-caption);
+  font-weight: 600;
+  line-height: 22px;
+}
+
+/* Reply to Selection's card above the message box: a thin neutral bar, who and the words, a remove button. */
+.mt-quote-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
+  border-radius: 12px;
+  /* The message box's own glass (.mt-field): the card sits on the composer, so what is behind shows. */
+  background: color-mix(in srgb, var(--cmux-surface-solid, Canvas) 60%, transparent);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .mt-quote-card {
+    background: var(--cmux-surface-solid, Canvas);
+  }
+}
+
+.mt-quote-card::before {
+  content: "";
+  align-self: stretch;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--mt-caption);
+}
+
+.mt-quote-text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+
+.mt-quote-title {
+  color: var(--mt-caption);
+  font: var(--text-caption);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mt-quote-words {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mt-quote-remove {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--mt-caption);
+  display: grid;
+  place-items: center;
+}
+
+/* A Chief's Stop and Continue take the emoji button's place (ChatController+Stop.swift). */
+.mt-field-button.mt-chief-stop,
+.mt-field-button.mt-chief-continue {
+  color: var(--page-text);
+}
+
+/* A toast rests over the message box, never over the newest message: the transcript ends with a
+   row of its height while it shows (+ToastRoom.swift). */
+.mt-toast-room {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  width: min(calc(100% - var(--ds-space-6)), 420px);
+  transform: translateX(-50%);
+}
+
+.mt-toast-line {
+  display: block;
+}
+
+/* The Chief's status line while its turn runs (HomeTurnProgress): one caption line, a click lists the steps. */
+.mt-chief-status {
+  display: flex;
+  padding: var(--ds-space-1) var(--ds-space-3) 0;
+}
+
+.mt-chief-status-line {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  gap: var(--ds-space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--mt-caption);
+  font: var(--text-caption);
+  text-align: start;
+}
+
+.mt-chief-status-part {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mt-chief-status-part:last-child {
+  flex: none;
+}
+
+.mt-turn-details {
+  display: flex;
+  min-width: 220px;
+  max-width: 420px;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  font: var(--text-caption);
+}
+
+.mt-turn-title,
+.mt-turn-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+}
+
+.mt-turn-line {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mt-turn-time {
+  flex: none;
+  color: var(--mt-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.mt-turn-row.running .mt-turn-time {
+  color: var(--page-text);
+}

@@ -95,6 +95,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     // triggers drop an archive with its group.
     crate::workspace_registry::terminal_archive_store::create_schema(transaction)?;
     super::agent_folder::create_agent_folder_schema(transaction)?;
+    super::created_by::create_schema(transaction)?;
     super::agent_message_schema::create_agent_message_schema(transaction)?;
     super::window_record_store::create_window_record_schema(transaction)?;
     super::sidebar_layout_store::create_sidebar_layout_schema(transaction)?;
@@ -102,6 +103,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     super::projects_store::create_projects_schema(transaction)?;
     super::palette_usage_store::create_palette_usage_schema(transaction)?;
     super::stash_store::create_stash_schema(transaction)?;
+    super::conductor_import_store::create_conductor_import_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
     super::status_meta::create_status_meta_schema(transaction)?;
     super::workspace_checklist_store::create_checklist_schema(transaction)?;
@@ -160,11 +162,23 @@ pub(crate) fn migrate_saved_tab_groups_to_personal(connection: &Connection) -> a
 pub(crate) struct StateChanges {
     pub(crate) result: Value,
     pub(crate) changes: Vec<Value>,
+    /// The mutation found the stored state equal to what it asks for and
+    /// wrote nothing ([`StateChanges::unchanged`]).
+    pub(crate) unchanged: bool,
 }
 
 impl StateChanges {
     pub(crate) fn new(result: Value, changes: Vec<Value>) -> Self {
-        Self { result, changes }
+        Self { result, changes, unchanged: false }
+    }
+
+    /// The answer of a mutation that changes nothing: the stored state is
+    /// already what it asks for, and `apply` wrote no row. The registry then
+    /// commits nothing: no revision, no ledger row, no journal record, no
+    /// WAL frame. A retry under the same key applies again and gets the same
+    /// answer, so no ledger row is needed to replay it.
+    pub(crate) fn unchanged(result: Value) -> Self {
+        Self { result, changes: Vec::new(), unchanged: true }
     }
 }
 
@@ -264,7 +278,18 @@ impl WorkspaceRegistry {
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
         let personal_before = personal_revision(&tx)?;
-        let StateChanges { result, changes } = apply(&tx)?;
+        let StateChanges { result, changes, unchanged } = apply(&tx)?;
+        if unchanged {
+            // `apply` wrote nothing: the transaction ends with no write, and
+            // the answer names the revision that already holds this state.
+            drop(tx);
+            return Ok(StateCommit {
+                revision: previous_revision,
+                result,
+                replayed: false,
+                personal_revision: None,
+            });
+        }
         let changes = Value::Array(finish_changes(changes));
         // Personal mutations advance `personal_revision` and append their own
         // `personal.*` fact; the raw `personal-changed` event follows it.
@@ -327,6 +352,19 @@ impl WorkspaceRegistry {
             }
         }
         Ok(None)
+    }
+
+    /// Write registry metadata that is no resource and no state change in one transaction:
+    /// it takes no resource revision, writes no journal record and publishes nothing.
+    pub(crate) fn write_meta<T>(
+        &self,
+        write: impl FnOnce(&Transaction<'_>) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let db = self.connection.get();
+        let transaction = db.unchecked_transaction()?;
+        let value = write(&transaction)?;
+        transaction.commit()?;
+        Ok(value)
     }
 
     /// Run a read against the registry connection.

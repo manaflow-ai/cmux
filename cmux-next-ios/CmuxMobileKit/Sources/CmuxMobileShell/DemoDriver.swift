@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -50,6 +50,21 @@ struct DemoDriver {
         case "settings-middle": await settingsScrolled(to: "appearance")
         case "states": await states()
         case "retry-workspaces":
+            // Nothing cached: the error page (cached rows would stay, CMUX-49).
+            shell.tab = .workspaces
+            shell.store.workspaces = []
+            shell.store.teams = shell.store.teams.map { var team = $0; team.macs = []; return team }
+            shell.store.teamDataState = .failed
+        // CMUX-49: the launch states (`retry-` names: public captures, no real names).
+        // A first launch (nothing cached) loading, waiting offline, or failed; and a
+        // cached list whose refresh failed (the rows stay, marked last known).
+        case "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed":
+            shell.tab = .workspaces
+            shell.store.workspaces = []
+            shell.store.teams = shell.store.teams.map { var team = $0; team.macs = []; return team }
+            shell.store.isOffline = name != "retry-first-launch"
+            shell.store.teamDataState = name == "retry-first-launch-failed" ? .failed : .loading
+        case "retry-refresh-failed":
             shell.tab = .workspaces
             shell.store.teamDataState = .failed
         case "retry-feed":
@@ -69,6 +84,10 @@ struct DemoDriver {
         case "chief": await chief()
         case "chief-parity": await chiefParity()
         case "chief-settings": await chiefSettings()
+        case "call-scope": await callScope()
+        case "call-scope-home":
+            ChiefSources.shared.showDemoCloudChief(named: "Atlas")
+            shell.tab = .home
         case "chief-open":
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).
             shell.tab = .home
@@ -80,6 +99,7 @@ struct DemoDriver {
             shell.tab = .workspaces
             await pause(1.0)
             if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+        case "ws-terminal-kbd-toggles": await workspaceTerminalKeyboardToggles()
         case "ws-terminal-armed":
             // The zsh tab with a draft in the composer and Control armed: the
             // Send button and an armed key, for screenshots of the key row.
@@ -190,6 +210,52 @@ struct DemoDriver {
             shell.terminalTabs.model(forTabID: "t-zsh")?.toggleKeyboard()
         default: break
         }
+    }
+
+    /// `ws-terminal-kbd-toggles` (KeyboardToggleInterruptUITests): the zsh
+    /// tab, then the key row's keyboard key pressed again while the keyboard
+    /// is still moving, both ways, at several intervals, as quick taps do. The
+    /// keyboard-pin probe counts any frame where the composer jumps instead of
+    /// riding the keyboard; `demo=done` marks the end.
+    private func workspaceTerminalKeyboardToggles() async {
+        shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+        shell.tab = .workspaces
+        await pause(1.0)
+        guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
+        shell.workspacesPath = [ws]
+        await pause(2.0)
+        guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+        func toggle(_ label: String) {
+            KeyboardPinTrace.note(label)
+            model.toggleKeyboard()
+        }
+        let intervals = [0.05, 0.1, 0.15, 0.2, 0.3, 0.45]
+        // Shown, then hide and show again before the hide ends.
+        toggle("show")
+        await pause(1.5)
+        for interval in intervals {
+            toggle("hide")
+            await pause(interval)
+            toggle("reshow")
+            await pause(1.5)
+        }
+        // Hidden, then show and hide again before the show ends.
+        toggle("hide")
+        await pause(1.5)
+        for interval in intervals {
+            toggle("show")
+            await pause(interval)
+            toggle("rehide")
+            await pause(1.5)
+        }
+        // Three presses in a row.
+        for _ in 0..<2 {
+            toggle("burst")
+            await pause(0.08)
+        }
+        toggle("burst")
+        await pause(1.5)
+        KeyboardPinTrace.note("done")
     }
 
     private func pause(_ seconds: Double) async {
@@ -489,8 +555,8 @@ struct DemoDriver {
     /// Phone approvals end to end (verify/phone-approvals.md): waits for the link and
     /// the Mac's pairing, then works through the plan in the `cmuxMobile.demo.approve` default
     /// (comma separated; default `allow,allow,allow`). Each `allow` or `deny` answers the
-    /// next ask that reaches the Feed through the card's own path: Allow (Face ID signs
-    /// it) or the reject option for a permission, the first option (signed) or Decline
+    /// next ask that reaches the Feed through the card's own path: Allow (signed
+    /// with the approval key) or the reject option for a permission, the first option (signed) or Decline
     /// for a question. `signout` signs out as Settings does (the phone asks the Mac to
     /// forget it).
     private func approve() async {
@@ -676,10 +742,23 @@ struct DemoDriver {
         for (label, change) in [("hide alerts on", { session.setMuted(true) }), ("hide alerts off", { session.setMuted(false) }),
                                 ("receipts off", { session.setSendsReadReceipts(false) }), ("receipts on", { session.setSendsReadReceipts(true) })] {
             mark(label)
-            withAnimation { change() }
+            withAnimation(.default.unlessReduceMotion) { change() }
             await pause(1.5)
         }
         mark("end")
+    }
+
+    /// A call is to the Chief called (Aziz 2026-11-05): a Cloud Chief "Atlas" is the default
+    /// Chief, and the Mac Chief's info page is open; its Call must reach the Mac Chief, not Atlas.
+    /// The UI test taps Call (CMUX_MOBILE_CALL_DEMO=1: the scripted call link).
+    private func callScope() async {
+        ChiefSources.shared.showDemoCloudChief(named: "Atlas")
+        shell.tab = .home
+        await pause(1.5)
+        shell.homePath.append(ChiefRoute(place: .mac))
+        await pause(2.0)
+        ChiefDemoHook.shared.openSettings()
+        mark("mac chief info")
     }
 
     private func chiefParity() async {

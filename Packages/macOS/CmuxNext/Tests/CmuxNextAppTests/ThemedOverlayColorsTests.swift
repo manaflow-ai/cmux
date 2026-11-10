@@ -36,7 +36,7 @@ import Testing
     @Test func theTerminalStatusPillDrawsInTheTheme() throws {
         let scope = try Self.purpleRoom()
         let banner = TerminalStatusBanner()
-        banner.show(try #require(TerminalStatusBanner.text(for: .exited)), fadeIn: false)
+        banner.show(try #require(TerminalStatusBanner.text(for: .exited)), inBetween: false, fadeIn: false)
         scope.root(banner)
 
         let fill = try #require(banner.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
@@ -58,11 +58,8 @@ import Testing
 
     @Test func homeSheetNotesDrawInTheTheme() throws {
         let scope = try Self.purpleRoom()
-        let invite = HomeInviteSheet(pending: ["ada@example.com"])
-        // New Message is a page now: its To: field's label and its suggestions' note.
-        let to = HomeRecipientField(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
-        to.suggestions.show([], empty: "No teammates yet.")
-        for root in [invite.view, to, to.suggestions] {
+        let invite = HomeTeamInviteSheet(team: "Acme", prefill: "ada@example.com", requestedByAgent: true)
+        for root in [invite.view] {
             scope.root(root)
             for label in Self.labels(in: root) {
                 #expect(Self.isThemeInk(label.textColor, scope), "\(label.stringValue)")
@@ -75,11 +72,11 @@ import Testing
         let settings = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
         let restart = TerminalRestartButton()
         let placeholder = RemoteTerminalPlaceholderView(frame: .zero)
-        let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Move Tab", fields: [
-            .choice(id: "window", label: nil, options: [.init(label: "Window A", value: "a")], selected: "a"),
-        ], buttons: [.ok()]))
-        let invite = HomeInviteSheet(pending: [])
-        let views: [NSView] = [settings, restart, placeholder, dialog, invite.view]
+        // A native card's choice picker (Move Tab's window list); cmux dialogs themselves draw on the overlay page.
+        let picker = ThemedPopUpButton(frame: .zero, pullsDown: false)
+        picker.addItem(withTitle: "Window A")
+        let invite = HomeTeamInviteSheet(team: "Acme")
+        let views: [NSView] = [settings, restart, placeholder, picker, invite.view]
         for view in views { scope.root(view) }
 
         // The sheets' factory-made buttons keep the system's automatic style, so they are named.

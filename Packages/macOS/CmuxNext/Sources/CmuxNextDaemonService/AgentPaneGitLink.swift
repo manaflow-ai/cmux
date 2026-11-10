@@ -94,6 +94,43 @@ public final class AgentPaneGitLink {
         }
     }
 
+    /// Session host mutation `operation` with `params` (a JSON object, as sent), under
+    /// `idempotencyKey`, on the write connection (the diff page's `diff.comments.save` and
+    /// `.delete`). Throws like ``write(_:in:)``; params that are no JSON object are `native.failed`.
+    public func mutate(_ operation: String, params: Data, idempotencyKey: String) async throws(AgentPaneGitFailure) -> Data {
+        guard let params = try? JSONDecoder().decode([String: JSONValue].self, from: params) else { throw AgentPaneGitFailure.failed }
+        let connection: DaemonConnection
+        do {
+            let writes = writeLink ?? AgentPaneGitLink(daemon: daemon, clientName: clientName + "-write")
+            writeLink = writes
+            connection = try await writes.connection()
+        } catch {
+            throw AgentPaneGitFailure.notConnected
+        }
+        do {
+            let result = try await GitResourceClient(connection: connection).write(operation, params: params, idempotencyKey: idempotencyKey)
+            return try await Self.encode(result)
+        } catch {
+            throw AgentPaneGitFailure(reading: error)
+        }
+    }
+
+    /// Session host mutation `operation` with `params` under `idempotencyKey`, on the write
+    /// connection, answering its `MutationResult` (the palette's git worktree and checkpoint
+    /// actions). Throws `DaemonError.notConnected` when the link does not open, else the
+    /// mutation's own `DaemonError`, whose message is the session host's reason.
+    public func perform(_ operation: String, params: [String: JSONValue], idempotencyKey: String) async throws -> JSONValue {
+        let connection: DaemonConnection
+        do {
+            let writes = writeLink ?? AgentPaneGitLink(daemon: daemon, clientName: clientName + "-write")
+            writeLink = writes
+            connection = try await writes.connection()
+        } catch {
+            throw DaemonError.notConnected
+        }
+        return try await GitResourceClient(connection: connection).write(operation, params: params, idempotencyKey: idempotencyKey)
+    }
+
     /// Opens the connection on the first read; afterwards it reconnects by
     /// itself, finding a restarted daemon through the control connection's
     /// endpoint. A failed open is tried again by the next read.
@@ -157,6 +194,8 @@ extension AgentPaneGitRequest {
             ["path": .string(cwd), "from": .string(from), "include_patch": .bool(includePatch)]
                 .merging(to.map { ["to": JSONValue.string($0)] } ?? [:]) { first, _ in first }
                 .merging(options.sessionHostParams) { first, _ in first }
+        case .worktreeSetup(let cwd, let since):
+            ["path": .string(cwd)].merging(since.map { ["since": JSONValue.string($0)] } ?? [:]) { first, _ in first }
         }
     }
 }

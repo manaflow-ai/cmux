@@ -113,8 +113,36 @@ SCAN_RULES = (
         "crates/cmux-tui/src/cli",
         frozenset({".rs"}),
         cli_literals_only=True,
+        # `cmux live` reads web-overlay.sh's state folder, `~/Library/Caches/cmux-next/web-slot`:
+        # a file path on this Mac, not a resource identity.
+        private_identity_exceptions=frozenset({"web-slot"}),
     ),
 )
+
+
+# A terminal inherits identity variables from the macOS CLI (`CMUX_SURFACE_ID`).
+# Their names are fixed process-environment keys that the CLI reads, not
+# resource vocabulary, so the `surface` rule skips exactly the names in this
+# Rust table. Reading the table, not a copy here, keeps the exemption in step
+# with the variables terminals actually carry; any other spelling still fails.
+TERMINAL_IDENTITY_ENV_SOURCE = "crates/cmux-daemon-launch-core/src/terminal_env.rs"
+TERMINAL_IDENTITY_ENV_TABLE_RE = re.compile(
+    r"pub\s+const\s+EXCLUDED_KEYS\s*:\s*\[\s*&str\s*;\s*\d+\s*\]\s*=\s*\[(?P<body>[^\]]*)\]"
+)
+
+
+def terminal_identity_env_names(tui: Path) -> frozenset[str]:
+    """The `CMUX_*` names in terminal_env.rs `EXCLUDED_KEYS`, or none if it is absent."""
+    try:
+        text = (tui / TERMINAL_IDENTITY_ENV_SOURCE).read_text(encoding="utf-8")
+    except OSError:
+        return frozenset()
+    match = TERMINAL_IDENTITY_ENV_TABLE_RE.search(text)
+    if match is None:
+        return frozenset()
+    return frozenset(
+        name for name in re.findall(r'"([^"]+)"', match.group("body")) if name.startswith("CMUX_")
+    )
 
 
 # These handwritten v10 modules remain reachable only through `cmux::raw`.
@@ -1194,12 +1222,42 @@ def _validate_catalog_type(
                 # passed through unchanged (its turn summaries grow fields).
                 "operations.chief.engine.get.result",
                 "operations.chief.engine.set.result.arguments[0]",
+                # Import from Conductor's dry run, owned by the
+                # cmux-conductor-import crate (plan::Plan) and passed
+                # through unchanged; the app that confirms it reads it.
+                "types.ConductorImportPlanResult.fields.plan.value",
+                # The move from classic cmux: the source, decision, plan and
+                # preview are the cmux-classic-import crate's (source::Source,
+                # plan::Decision, plan::Plan, plan::Preview), passed through
+                # unchanged; the app that makes the workspaces reads them, and
+                # begin hands the plan's source back as it was read.
+                "types.ClassicImportPlanResult.fields.source.value",
+                "types.ClassicImportPlanResult.fields.decision.value",
+                "types.ClassicImportPlanResult.fields.plan.value",
+                "types.ClassicImportPlanResult.fields.preview.value",
+                "operations.classic_import.record.params.fields.source",
+                # A diff review comment is the diff page's own object, kept
+                # until it is sent to the agent; the daemon stamps only id,
+                # createdAt and updatedAt (diff-comments-v1).
+                "types.DiffComment.values",
             }
             is_explicit_extra = (
                 context.startswith("types.")
                 and context.endswith(".fields.extra.values")
             )
-            if context not in allowed_json_contexts and not is_explicit_extra:
+            # The Cloud API calls (server/cloud_api.rs): each call's args and
+            # answer are the cmux-cloud-api crate's and the Cloud API's,
+            # passed through unchanged (the crate validates every argument).
+            is_cloud_api_call = re.fullmatch(
+                r"operations\.cloud\.(vm|runs|owner|previews|machine)\.[a-z_]+"
+                r"\.(params\.fields\.args\.values|result|result\.arguments\[0\])",
+                context,
+            ) is not None
+            if (
+                context not in allowed_json_contexts
+                and not is_explicit_extra
+                and not is_cloud_api_call
+            ):
                 fail("JsonValue reference is not an audited extension-point exception", "JsonValue")
         return
     if kind == "parameter":
@@ -2070,7 +2128,10 @@ def _operation_catalog(
                 "shell",
                 "focus",
                 "placement",
+                "created_by",
             }
+            or create_fields.get("created_by", {}).get("required") is not False
+            or create_fields.get("created_by", {}).get("type", {}).get("kind") != "object"
             or create_fields.get("placement", {}).get("required") is not False
             or create_fields.get("placement", {}).get("type")
             != {"kind": "enum", "values": ["top", "after_current", "bottom"]}
@@ -2107,7 +2168,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, focus, placement, correlation_key, and expected_revision plus required initial_content",
+                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, focus, placement, created_by, correlation_key, and expected_revision plus required initial_content",
                 "workspace.create",
             )
 
@@ -3498,6 +3559,7 @@ def _scan_region(
     start: int,
     end: int,
     private_identity_exceptions: frozenset[str] = frozenset(),
+    terminal_env_names: frozenset[str] = frozenset(),
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     region = text[start:end]
@@ -3517,14 +3579,24 @@ def _scan_region(
             # browser; only the dash-prefixed compatibility flag is exempt.
             if match.group(0) == "surface" and region[max(0, match.start() - 2):match.start()] == "--":
                 continue
+            # A terminal identity variable's name (`CMUX_SURFACE_ID`) is a
+            # process-environment key the terminal carries, not vocabulary.
+            if match.group(0) in terminal_env_names:
+                continue
             offset = start + match.start()
+            message = f"legacy public resource word in {match.group(0)!r}; use terminal or browser"
+            if re.fullmatch(r"CMUX_[A-Z0-9_]+", match.group(0)):
+                message += (
+                    "; an environment variable name passes only when it is a terminal identity "
+                    f"variable listed in {TERMINAL_IDENTITY_ENV_SOURCE} EXCLUDED_KEYS"
+                )
             diagnostics.append(
                 _diagnostic_at(
                     path,
                     text,
                     offset,
                     "boundary.surface",
-                    f"legacy public resource word in {match.group(0)!r}; use terminal or browser",
+                    message,
                 )
             )
             occupied.add(("surface", offset))
@@ -3593,6 +3665,7 @@ def _scan_region(
 def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
     diagnostics: list[Diagnostic] = []
     generated = _generated_manifest_paths(tui, diagnostics)
+    terminal_env_names = terminal_identity_env_names(tui)
     scanned: set[Path] = set()
     for rule in SCAN_RULES:
         for path in _files_for_rule(tui, rule):
@@ -3618,6 +3691,7 @@ def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
                         start,
                         end,
                         rule.private_identity_exceptions,
+                        terminal_env_names,
                     )
                 )
     return sorted(set(diagnostics)), len(scanned)

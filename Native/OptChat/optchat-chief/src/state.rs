@@ -171,6 +171,11 @@ pub struct HostState {
     /// The number of the last watch started (`w<N>`); ids never repeat.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub last_watch: u64,
+    /// The cloud peers whose VMs this Chief paused (B4,
+    /// cloud-subagents-DESIGN.md). Saved, so a Chief that restarts or moves to
+    /// another Mac resumes such a VM before it tells a subagent there.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub cloud_paused: std::collections::BTreeSet<String>,
 }
 
 /// One watch the Chief started with `watch`: the host runs `command` off
@@ -389,7 +394,7 @@ pub struct SubRecord {
     #[serde(default)]
     pub workspace: Option<String>,
     /// Where `control show` opens its workspace while it has none (hidden,
-    /// `subagents.showWorkspaces` off, #26386, or closed by `control hide`).
+    /// as the Chief chose, sidebar_choice.rs, or closed by `control hide`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_slot: Option<WorkspaceSlot>,
     /// That workspace's public id (`ws_…`), when its place can name it: its
@@ -513,6 +518,10 @@ pub struct SubRecord {
     /// The stuck note of this run was sent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stuck_noted: bool,
+    /// Who made it, its lifetime and its expiry (action_lifetime.rs): what the one reaper
+    /// reads. None on a record from before lifetimes, which the reaper leaves alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub made: Option<crate::action_lifetime::Made>,
     /// Its task as spawned (the start, for `control status`).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub task: String,
@@ -923,6 +932,13 @@ impl StateFile {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join("attachments")
+    }
+
+    /// The Chief's home (`$MUX_HOME`): the state is `<home>/optchat/host.json`
+    /// (paths.rs), so its folder's parent.
+    pub fn mux_home(&self) -> PathBuf {
+        let optchat = self.path.parent().unwrap_or_else(|| Path::new("."));
+        optchat.parent().unwrap_or(optchat).to_path_buf()
     }
 
     pub fn new(path: &Path) -> StateFile {

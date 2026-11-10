@@ -11,17 +11,22 @@ public import StackAuth
 public struct StackAuthClient: AuthClient {
     let stack: StackClientApp
     let apiBaseURL: URL?
+    /// Whether a sign-out leaves the server session of this refresh token alone (``revokeSession(accessToken:refreshToken:)``).
+    let keepsServerSession: (@Sendable (_ refreshToken: String) async -> Bool)?
 
     /// Wrap a Stack client app.
     /// - Parameter stack: The configured Stack client to delegate to.
     public init(stack: StackClientApp) {
         self.stack = stack
         self.apiBaseURL = nil
+        self.keepsServerSession = nil
     }
 
-    private init(stack: StackClientApp, apiBaseURL: URL?) {
+    private init(stack: StackClientApp, apiBaseURL: URL?,
+                 keepsServerSession: (@Sendable (_ refreshToken: String) async -> Bool)?) {
         self.stack = stack
         self.apiBaseURL = apiBaseURL
+        self.keepsServerSession = keepsServerSession
     }
 
     /// Build a Stack client from resolved config and a token-store choice.
@@ -34,12 +39,16 @@ public struct StackAuthClient: AuthClient {
     ///   - baseURL: Stack API origin. Defaults to Stack's production API.
     ///   - noAutomaticPrefetch: Disables Stack project prefetch when the host
     ///     owns startup sequencing.
+    ///   - keepsServerSession: True for a refresh token whose server session another app
+    ///     shares (``ImportingTokenStore/isShared(refreshToken:)``): a sign-out then clears only
+    ///     this app's copy and leaves the session, and so the other app, signed in.
     public init(
         config: AuthConfig,
         tokenStore: TokenStoreInit,
         oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared,
         baseURL: String = "https://api.stack-auth.com",
-        noAutomaticPrefetch: Bool = false
+        noAutomaticPrefetch: Bool = false,
+        keepsServerSession: (@Sendable (_ refreshToken: String) async -> Bool)? = nil
     ) {
         self.init(
             stack: StackClientApp(
@@ -50,7 +59,8 @@ public struct StackAuthClient: AuthClient {
                 noAutomaticPrefetch: noAutomaticPrefetch,
                 oauthBrowserSessionPrivacy: oauthBrowserSessionPrivacy
             ),
-            apiBaseURL: URL(string: config.apiBaseURL)
+            apiBaseURL: URL(string: config.apiBaseURL),
+            keepsServerSession: keepsServerSession
         )
     }
 
@@ -98,7 +108,7 @@ public struct StackAuthClient: AuthClient {
         var summaries: [CMUXAuthTeam] = []
         summaries.reserveCapacity(teams.count)
         for team in teams {
-            summaries.append(CMUXAuthTeam(id: team.id, displayName: await team.displayName))
+            summaries.append(CMUXAuthTeam(id: team.id, displayName: await team.displayName, plan: await team.cmuxPlan))
         }
         return summaries
     }
@@ -170,6 +180,7 @@ public struct StackAuthClient: AuthClient {
     public func revokeSession(accessToken: String?, refreshToken: String?) async throws {
         // Nothing to authenticate the DELETE with; skip the round trip.
         guard accessToken != nil || refreshToken != nil else { return }
+        if let refreshToken, let keepsServerSession, await keepsServerSession(refreshToken) { return }
         try await stack.revokeSession(accessToken: accessToken, refreshToken: refreshToken)
     }
 
@@ -205,5 +216,13 @@ extension CurrentUser {
         CMUXAuthUser.demonstrationContentEnabled(
             fromClientReadOnlyMetadata: clientReadOnlyMetadata
         )
+    }
+}
+
+extension Team {
+    /// The team's plan id, read inside the team actor so the non-`Sendable` metadata dictionary
+    /// never crosses an isolation boundary (``CMUXAuthTeam/plan(fromClientReadOnlyMetadata:)``).
+    var cmuxPlan: String? {
+        CMUXAuthTeam.plan(fromClientReadOnlyMetadata: clientReadOnlyMetadata)
     }
 }

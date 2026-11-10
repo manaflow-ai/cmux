@@ -7,7 +7,9 @@ extension ActionRegistry {
     /// is not bound.
     /// `context` is the menu's effective context (the window's plus the
     /// menu's implied names), the same one every other row is shown by.
-    func makeChoicesItem(for descriptor: ActionDescriptor, target: ActionTargetRef?, in context: ActionContext) -> NSMenuItem? {
+    /// `arguments`: the menu's own arguments (the divider's split), which every choice runs with.
+    func makeChoicesItem(for descriptor: ActionDescriptor, target: ActionTargetRef?, in context: ActionContext,
+                         arguments: [String: ActionValue] = [:]) -> NSMenuItem? {
         guard let title = title(for: descriptor.id), let action = action(for: descriptor.id),
               Self.isAvailable(descriptor, in: context), action.isEnabled(),
               let (argument, cases, current) = ActionTargetChoices.resolve(descriptor, target: target, in: self)
@@ -28,7 +30,8 @@ extension ActionRegistry {
             } else {
                 .string(choice.value)
             }
-            item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: [argument.name: value])
+            item.representedObject = ActionMenuPayload(id: descriptor.id, target: target,
+                                                       arguments: arguments.merging([argument.name: value]) { _, choice in choice })
             item.state = choice.value == current ? .on : .off
             submenu.addItem(item)
         }
@@ -47,6 +50,16 @@ extension ActionRegistry {
         let item = NSMenuItem(title: title.hasSuffix("…") ? String(title.dropLast()) : title, action: nil, keyEquivalent: "")
         item.submenu = submenu
         return item
+    }
+
+    /// `id`'s choices as a menu of their own, run on `target` with `context`'s menu facts: the submenu its
+    /// choices entry shows, the target's current value checked (the group editor's Sort row opens
+    /// `workspaceGroup.setSort`'s). Nil when the action shows no choices there.
+    public func makeChoicesMenu(for id: ActionID, in context: ActionMenuContext, target: ActionTargetRef?) -> NSMenu? {
+        guard let row = makeContextMenu(for: context, target: target, entries: [.choices(id)], customize: false).items.first,
+              let choices = row.submenu else { return nil }
+        row.submenu = nil
+        return choices
     }
 
     /// The row a choices submenu always ends with, under its own title (Move Workspace to Group >

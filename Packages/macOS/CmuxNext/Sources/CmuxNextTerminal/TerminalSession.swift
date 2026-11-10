@@ -156,6 +156,8 @@ public final class TerminalSession {
     public var closeCancels: [Task<Void, Never>] = []
     /// Latest `.resize` grid, re-applied to a swapped-in surface.
     private var canonicalGrid: TerminalGridSize?
+    /// The current link's last "Sized for" notice (nil: it fits, or the link said nothing yet).
+    private var linkSizedFor: TerminalSizedFor?
     /// True once the current surface received a replay or output; a later
     /// replay then needs a fresh surface.
     private(set) var surfaceHasContent = false
@@ -174,11 +176,17 @@ public final class TerminalSession {
     /// Local-history READYs restored with the surface's own reflowed history
     /// (proves the local path ran in dogfood).
     private(set) var localSnapshots = 0
-    /// Kitty images the owner left out of its image replays (its cap).
-    private(set) var skippedImages = 0
 
-    public init(io: any TerminalIO, ownsGeometry: Bool = true) {
+    /// Reports a pane that still shows nothing after a reveal (``TerminalBlankWatch``).
+    let blankWatch: TerminalBlankWatch
+    /// Predictive local echo, for an IO whose keys make a network round trip (``TerminalIO/predictsEcho``); nil
+    /// otherwise, so a local terminal pays nothing per key or chunk.
+    let echo: TerminalEchoPredictor?
+
+    /// - Parameter blankClock: The clock of the blank-pane check after a reveal; tests pass a manual clock.
+    public init(io: any TerminalIO, ownsGeometry: Bool = true, blankClock: any Clock<Duration> = ContinuousClock()) {
         self.io = io
+        blankWatch = TerminalBlankWatch(clock: blankClock)
         self.ownsGeometry = ownsGeometry
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
@@ -187,7 +195,9 @@ public final class TerminalSession {
         input = TerminalInputSink(continuation: continuation)
 
         view = TerminalHostView()
-        surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil)
+        echo = io.predictsEcho
+            ? TerminalEchoPredictor(engine: TerminalEchoPrediction(enabled: true, remote: true)) : nil
+        surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, prediction: echo?.engine)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
@@ -195,12 +205,20 @@ public final class TerminalSession {
         view.install(surfaceView)
         find.target = self
         view.attachFind(find)
+        echo?.colors = { [weak self] in self?.theme?.colors ?? GhosttyRuntime.shared.themeColors }
+        echo?.attach(to: surfaceView)
 
-        writerTask = Task.detached(priority: .userInitiated) { [io] in
+        writerTask = Task.detached(priority: .userInitiated) { [io, weak self] in
             for await item in outgoing {
                 switch item {
                 case .bytes(let data):
                     await io.write(data)
+                case .filePaste(let pasteboard):
+                    do { try await io.pasteFiles(pasteboard) }
+                    catch {
+                        if Task.isCancelled { return }
+                        await self?.filePasteFailed()
+                    }
                 case .resize(let grid, let width, let height):
                     await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
                 case .focusGained:
@@ -329,6 +347,10 @@ public final class TerminalSession {
         }
     }
 
+    func enqueueFilePaste(_ pasteboard: TerminalFilePaste) {
+        input.pasteFiles(pasteboard)
+    }
+
     /// Downscaled image of the last presented frame, for static previews.
     public func snapshot(maxPixelSize: CGFloat = 480) -> CGImage? {
         surfaceView.snapshot(maxPixelSize: maxPixelSize)
@@ -427,12 +449,15 @@ public final class TerminalSession {
         view.onClose = nil
         onClose?()
         surfaceView.clipboardRequests.cancelPendingWrite()
+        surfaceView.cancelGridReport()
         eventsTask?.cancel()
         eventsTask = nil
         closeCancels.forEach { $0.cancel() }
         closeCancels = []
         input.finish()
         frameHold.end() // a held frame has no time limit: it goes with the session, not with the object
+        blankWatch.cancel()
+        echo?.close()
         surfaceView.removeFromSuperview()
     }
 
@@ -479,7 +504,7 @@ public final class TerminalSession {
         switch event {
         case .replay(let data):
             if surfaceHasContent { swapSurface() }
-            surfaceView.lane?.processOutput(data)
+            surfaceView.lane?.processOutput(data, replacesScreen: true)
             surfaceHasContent = true
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
@@ -490,7 +515,7 @@ public final class TerminalSession {
             // replayed and on-screen Kitty images come back only when the
             // program draws them again.
             if surfaceHasContent { swapSurface() }
-            surfaceView.lane?.processOutput(replay.vt)
+            surfaceView.lane?.processOutput(replay.vt, replacesScreen: true)
             surfaceHasContent = true
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
@@ -523,9 +548,14 @@ public final class TerminalSession {
             model.hasExited = status == .exited
             surfaceView.updateReflowPreview()
             view.showStatus(status)
-            // A disconnected or exited view no longer knows who sets the grid.
-            if status != .connected { view.showSizedFor(nil) }
+            // A disconnected or exited view no longer knows who sets the grid; the next link says
+            // again. A connected one shows what its link said while it attached.
+            if status != .connected { linkSizedFor = nil }
+            view.showSizedFor(status == .connected ? linkSizedFor : nil)
         case .sizedFor(let sizedFor):
+            // Kept even before the link is connected: a restored tab or a re-attach can get its size
+            // state before the replay connects it, and the daemon sends it again only when it changes.
+            linkSizedFor = sizedFor
             view.showSizedFor(model.connection == .connected ? sizedFor : nil)
         }
     }
@@ -549,6 +579,7 @@ public final class TerminalSession {
     /// `.resize` applies; the event is the PTY's size at this point in the
     /// stream.
     private func applyCanonicalGrid(_ grid: TerminalGridSize) async {
+        if canonicalGrid != grid { echo?.gridChanged() }
         canonicalGrid = grid
         surfaceView.applyAnnouncedGrid(grid)
     }
@@ -558,8 +589,9 @@ public final class TerminalSession {
     private func swapSurface() {
         let old = surfaceView
         old.clipboardRequests.cancelPendingWrite()
+        old.cancelGridReport() // detached: its waiting grid is not this session's any more
         let wasFirstResponder = old.isFirstResponder
-        let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
+        let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, prediction: echo?.engine)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
@@ -571,6 +603,7 @@ public final class TerminalSession {
         fresh.bridge.takeUnretainedValue().installLinkFilter(linkCheck)
         fresh.bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
         view.install(fresh)
+        echo?.attach(to: fresh)
         frameHold.begin(old: old, fresh: fresh, in: view) // no empty frame until the fresh one draws (cx-6so.23)
         applyTheme(to: fresh, clearing: false, animated: false)
         TerminalFontScale(old).carry(to: fresh) // after the theme: its config update can reset the size
@@ -604,10 +637,6 @@ public final class TerminalSession {
 
     // MARK: From the surface view
 
-    func noteSkippedImages(_ count: Int) {
-        skippedImages += max(0, count)
-    }
-
     func noteLocalSnapshot() {
         localSnapshots += 1
     }
@@ -621,13 +650,12 @@ public final class TerminalSession {
         input.focusGained()
     }
 
-    /// The surface reports its grid to the PTY owner. `final`: the grid its pane's layout spring will
-    /// land at (``TerminalIO/resizeOnMain(cols:rows:final:window:)``).
-    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int, final: Bool = false) {
+    /// The surface reports its grid to the PTY owner (``TerminalIO/resizeOnMain(cols:rows:window:)``).
+    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
         guard ownsGeometry else { return }
         // An IO with a main-actor path takes every grid there, so a final grid never overtakes, or
         // is overtaken by, an older grid still in the ordered input stream.
-        if io.resizeOnMain(cols: grid.columns, rows: grid.rows, final: final, window: surfaceView.window) { return }
+        if io.resizeOnMain(cols: grid.columns, rows: grid.rows, window: surfaceView.window) { return }
         input.resize(grid, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
     }
 }

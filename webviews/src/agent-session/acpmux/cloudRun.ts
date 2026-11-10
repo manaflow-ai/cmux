@@ -8,7 +8,7 @@
 /// opens on the machine.
 
 import { isAgentHome } from "./sessionList";
-import { pickFolder } from "./startFolder";
+import { pickFolder } from "./startFolderModel";
 import type { ComposerAttachment } from "./attachments";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
@@ -21,6 +21,13 @@ export type CloudStart = {
   harness?: string;
   model?: string;
   environment?: string;
+  reservationKey?: string;
+  /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
+  gestureTicket?: string;
+  /** The send again after `cloud.signIn` signed in: the host's kept click authorizes it (cloudSignIn.ts startAfterSignIn). */
+  signedIn?: true;
+  /** The plan card's Switch to <team>: the host switches to this team (as the team picker does), then starts. */
+  team?: string;
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -116,7 +123,47 @@ export function grantedCloudStart(
 }
 
 /// The host's answer: ok, or a code with the host's own words when it has them.
-export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string };
+/// `retryable`: another try of the same start can help (the machine didn't connect, a copy timed out), so the card offers Retry.
+export type CloudStartAnswer =
+  | { ok: true }
+  | { ok: false; code: string; message?: string; retryable?: boolean; details?: unknown };
+
+/// Keeps the failed first-send prompt in the composer while Cloud account sign-in runs, then
+/// resumes it once. Concurrent clicks share one browser callback, and a later click after a
+/// successful callback cannot send the prompt a second time.
+export type CloudSignInRetry = (() => Promise<boolean>) & { reset: () => void };
+
+export function makeCloudSignInRetry(resume: () => Promise<CloudStartAnswer> | undefined): CloudSignInRetry {
+  let inFlight: Promise<boolean> | undefined;
+  let resumed = false;
+  // A reset (another card) makes an older retry's late answer count for nothing.
+  let epoch = 0;
+  const retry = (() => {
+    if (resumed) return Promise.resolve(false);
+    if (inFlight) return inFlight;
+    const started = resume();
+    if (!started) return Promise.resolve(false);
+    const mine = epoch;
+    const attempt = started
+      .then((answer) => {
+        if (mine !== epoch || !answer.ok || resumed) return false;
+        resumed = true;
+        return true;
+      })
+      .catch(() => false)
+      .finally(() => {
+        if (inFlight === attempt) inFlight = undefined;
+      });
+    inFlight = attempt;
+    return attempt;
+  }) as CloudSignInRetry;
+  retry.reset = () => {
+    epoch += 1;
+    inFlight = undefined;
+    resumed = false;
+  };
+  return retry;
+}
 
 /// A page-side refusal before anything goes to the host: Cloud is picked but not offered now
 /// (a chat is starting here). Attachment contents go with the prompt; the native host checks them
@@ -139,20 +186,28 @@ export async function startCloudChat(
   if (start.harness) params.harness = start.harness;
   if (start.model) params.model = start.model;
   if (start.environment) params.environment = start.environment;
+  if (start.reservationKey) params.reservationKey = start.reservationKey;
+  if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
+  if (start.signedIn) params.signedIn = true;
+  if (start.team) params.team = start.team;
   try {
     await call("cloud.startChat", params);
     return { ok: true };
   } catch (error) {
-    const { code, message, userMessage } = (error ?? {}) as {
+    const { code, message, userMessage, retryable, details } = (error ?? {}) as {
       code?: unknown;
       message?: unknown;
       userMessage?: unknown;
+      retryable?: unknown;
+      details?: unknown;
     };
     const words = typeof userMessage === "string" ? userMessage : typeof message === "string" ? message : undefined;
     return {
       ok: false,
       code: typeof code === "string" && code ? code : "unavailable",
       ...(words ? { message: words } : {}),
+      ...(retryable === true ? { retryable: true } : {}),
+      ...(details !== undefined && details !== null ? { details } : {}),
     };
   }
 }
@@ -185,7 +240,8 @@ const CLOUD_START_KEYS = "cmux.cloudStart.keys";
 const CLOUD_START_KEY_TTL_MS = 24 * 60 * 60 * 1000;
 
 /// What makes two sends the same start: the prompt, its chips (by id, name and size, never their
-/// bytes), the folder, the agent, the model and the environment. An edited prompt is a new start.
+/// bytes), the folder, the agent, the model and the environment. An edited prompt is a new start, and so
+/// is a send in another team (the plan card's Switch to <team>): the first team's ledger entry is not its.
 export function cloudStartFingerprint(start: CloudStart): string {
   const chips = (start.attachments ?? []).map((chip) => [chip.id, chip.kind, chip.name, chip.size]);
   const text = JSON.stringify([
@@ -196,6 +252,8 @@ export function cloudStartFingerprint(start: CloudStart): string {
     start.harness ?? null,
     start.model ?? null,
     start.environment ?? null,
+    // Only a send that switches team names it, so every other start keeps the key it had.
+    ...(start.team ? [start.team] : []),
   ]);
   // FNV-1a, two 32-bit lanes: a short stable name for the entry, never the prompt itself.
   let a = 0x811c9dc5;
@@ -281,9 +339,37 @@ export function cloudStartKeys(
   };
 }
 
-/// A failure the host already said in a toast (it ran the start): the page says nothing more.
-export function cloudStartToasted(answer: CloudStartAnswer): boolean {
-  return !answer.ok && answer.code === "cloud_start_failed";
+/// The team a Cloud send switches to (the plan card's Switch to <team>). It stays with the start it
+/// began, so the card's Retry of that start names the team too and reaches the same start key (its
+/// machine and copy); it goes once that start ends in a chat (or on this Mac), or the person leaves
+/// Cloud or the chat (`reset`).
+export function cloudStartTeam() {
+  let team: string | undefined;
+  return {
+    pick(id: string) {
+      team = id;
+    },
+    forSend(): string | undefined {
+      return team;
+    },
+    ended(answer: CloudStartAnswer) {
+      if (answer.ok || cloudRunsHere(answer)) team = undefined;
+    },
+    reset() {
+      team = undefined;
+    },
+  };
+}
+
+/// A failure the card already says in the host's words (with Retry when another try can help, or the
+/// sign-in's own reason), so the page says nothing more.
+export function cloudStartSaid(answer: CloudStartAnswer): boolean {
+  return (
+    !answer.ok &&
+    ["cloud_start_failed", "cloud_plan_required", "cloud_chat_already_started", "cloud_prompt_changed"].includes(
+      answer.code,
+    )
+  );
 }
 
 /// The host's card at the plan's machine cap answered Run on This Mac (CloudMachineCap.runHereCode): no machine was

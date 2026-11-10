@@ -140,7 +140,7 @@ function allKinds(): AcpmuxSnapshot {
     },
   );
   // A Claude Code chat, as acpmux names its family: its runs fold per run (turns.ts), so the work
-  // reads "Ran 2 commands" as in Leo's capture once its turn's Worked for opens (openWorked).
+  // reads "Ran 2 commands" as in Leo's capture, not under "Worked for".
   return { ...snapshot, summary: { ...snapshot.summary!, family: "claude" } };
 }
 
@@ -209,13 +209,14 @@ const peerLines = () => {
     },
   );
   // A Claude Code chat, as acpmux names its family: its turn's runs fold per run (turns.ts), so the
-  // work reads "Ran 2 commands, received a message" as in Leo's capture once its Worked for opens.
+  // work reads "Ran 2 commands, received a message" as in Leo's capture, not under "Worked for".
   return { ...snapshot, summary: { ...snapshot.summary!, family: "claude" } };
 };
 
 /// Leo's 2026-11-03 04:44Z captures ("this is pretty bad spacing and formatting" / "i thought we made
 /// this stuff smaller"), the bottom of a running Claude Code turn, two ways. `working-bottom`: its
-/// work folded to "Sent a message, ran 3 commands, used 3 tools", a subagent that finished, the live
+/// work in sight as it runs (a message sent, 3 commands, 3 reads; nothing folds before the turn
+/// ends, cmux#38339), a subagent that finished, the live
 /// "Thinking" line and "1 message from 1 session" waiting. `reply-received`: a finished reply, then
 /// another machine's lane's message, the turn it started sending a message on, and "Thinking". Every
 /// one of those status rows sits on the tool rows' 22 pitch, 16 from the prose around them
@@ -431,16 +432,6 @@ const chipLook =
     style.textContent = css;
     ctx.document.head.append(style);
   };
-/// Opens each finished turn's Worked for, so its runs' lines show as in Leo's captures (a Claude turn
-/// folds under one too since Leo, 2026-11-04).
-const openWorked: Play = async (ctx) => {
-  const closed = () => ctx.document.querySelector<HTMLButtonElement>("button.cv-worked[aria-expanded='false']");
-  await ctx.waitFor(() => closed(), { capMs: 10_000 });
-  for (let i = 0; i < 4 && closed(); i++) {
-    closed()!.click();
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-tool"), { capMs: 10_000 });
-  }
-};
 const CHIP_BEFORE = `button.cv-agent-tag.is-open { height: 22px; line-height: 22px; font-size: var(--text-control); border-radius: 6px; background: color-mix(in srgb, var(--cv-text) 9%, transparent); box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 18%, transparent); }`;
 const CHIP_UNDERLINE = `button.cv-agent-tag.is-open { padding: 0; background: none; box-shadow: none; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 3px; }`;
 
@@ -459,10 +450,9 @@ export default agentPaneEntry({
       note: 'Every row kind of Leo\'s 2026-11-02 capture: a reply and its footer, a received message, "Scheduled check", "Ran 2 commands", a reply and footer, the next prompt, a finished compaction, a two-line reply, a command and "Compacting the conversation…".',
       height: 1100,
       snapshot: allKinds(),
-      play: openWorked,
     },
     shipped: {
-      note: 'A finished reply and its footer; an inbox row; then a running turn: "Sent 3 messages", a reply line, "Ran 2 commands", an inbox row, "Sending message to …" and "2 messages from 2 sessions".',
+      note: 'A finished reply and its footer; an inbox row; then a running turn: a send, a command and a send, a reply line, "Ran 2 commands", an inbox row, "Sending message to …" and "2 messages from 2 sessions".',
       snapshot: chat(
         [
           user("Where are the three polish lanes?", 14),
@@ -472,8 +462,10 @@ export default agentPaneEntry({
           user("Hand the three polish lanes their briefs.", 6),
           activity(
             [
+              // A command between the sends keeps three one-line rows: two sends in a row would be one
+              // "Sent 2 messages" line (toolGroups.ts `sendGroup`; Leo, 2026-11-04).
               send("grid-lane", "Take the one-line row pitch."),
-              send("picker-lane", "Take the menu polish."),
+              run("Listed the polish lanes", "acpmux ls --json"),
               send("review-box", "Review #2214 at its head."),
             ],
             5.9,
@@ -497,7 +489,7 @@ export default agentPaneEntry({
       ),
     },
     "working-bottom": {
-      note: 'Leo\'s 2026-11-03 capture, the bottom of a running turn: "Sent a message, ran 3 commands, used 3 tools", a finished subagent, "Thinking" and "1 message from 1 session", each on the 22 pitch.',
+      note: 'Leo\'s 2026-11-03 capture, the bottom of a running turn: its work in sight (a message sent, 3 commands, 3 reads), a finished subagent, "Thinking" and "1 message from 1 session", each on the 22 pitch.',
       snapshot: workingBottom(),
     },
     "reply-received": {
@@ -525,7 +517,6 @@ export default agentPaneEntry({
     "peer-lines": {
       note: "A reply's footer, a lane on another machine's message, then \"Ran 2 commands, received a message\": one line height, one icon column, the sender once.",
       snapshot: peerLines(),
-      play: openWorked,
     },
   },
 });

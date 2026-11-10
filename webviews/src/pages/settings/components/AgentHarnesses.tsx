@@ -1,10 +1,10 @@
 // Settings > Agents > Your Agents (BRING-YOUR-OWN-HARNESS H2), after the Harnesses card (cx-mg91)
 // that lists every harness: the profiles you added, with Check (the doctor's steps inline) and
-// Remove (Undo keeps the backup), and Add: one-click rows from the ACP Registry, or a custom
-// command. The host runs each gesture through the same
+// Remove (Undo keeps the backup), and Add: one-click rows from the ACP Registry, a custom
+// command, or your own model endpoint (EndpointForm.tsx). The host runs each gesture through the same
 // operations as the `agent.harness.*` actions (cmux.settings.agents.run) and sends the list live
 // (cmux.settings.agents.changed) only while this card is mounted. The route's focus opens a panel:
-// `agents.add` (Add ACP Agent…, the model picker's +) or `agents.registry`.
+// `agents.add` (Add ACP Agent…, the model picker's +), `agents.registry` or `agents.endpoint`.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../../../ui/Button";
@@ -14,15 +14,22 @@ import { StableLabel } from "../../../ui/StableLabel";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../../../agent-session/shared/harnessIcons";
 import { useStore } from "../context";
+import { EndpointForm } from "./EndpointForm";
 import { Icon } from "../icons";
 import { AGENTS_KEY, agentsQuery } from "../sectionQueries";
 import type { AgentDoctorResult, AgentHarnessRow, AgentRegistryAgent, AgentsRun, AgentsState } from "../ops";
 import { t } from "../strings";
 
-type Panel = "registry" | "custom" | null;
+type Panel = "registry" | "custom" | "endpoint" | null;
 
 const panelFor = (focus: string | null): Panel =>
-  focus === "agents.registry" ? "registry" : focus === "agents.add" ? "custom" : null;
+  focus === "agents.registry"
+    ? "registry"
+    : focus === "agents.add"
+      ? "custom"
+      : focus === "agents.endpoint"
+        ? "endpoint"
+        : null;
 
 const field = "field w-full";
 
@@ -391,6 +398,7 @@ function AddPanel({
       <TabsList className="mb-2">
         <TabsTrigger value="registry">{t("settingsPage.agents.tabRegistry")}</TabsTrigger>
         <TabsTrigger value="custom">{t("settingsPage.agents.tabCustom")}</TabsTrigger>
+        <TabsTrigger value="endpoint">{t("settingsPage.agents.tabEndpoint")}</TabsTrigger>
         <span className="flex-1" />
         <Button type="button" className="button" onClick={() => setPanel(null)}>
           {t("settingsPage.agents.cancel")}
@@ -401,6 +409,14 @@ function AddPanel({
       </TabsContent>
       <TabsContent value="custom">
         <CustomForm run={run} done={() => setPanel(null)} />
+      </TabsContent>
+      <TabsContent value="endpoint">
+        <EndpointForm
+          done={() => {
+            setPanel(null);
+            void run({ action: "refresh" });
+          }}
+        />
       </TabsContent>
     </Tabs>
   );
@@ -460,8 +476,8 @@ function RegistryRow({ agent, run }: { agent: AgentRegistryAgent; run: (gesture:
   const [busy, setBusy] = useState(false);
   const added = agent.harnessId !== undefined;
   return (
-    <div className="flex items-center gap-2.5 py-1.5" data-registry-agent={agent.id}>
-      <AgentMark agent={agent.harnessId ?? agent.id} size={18} />
+    <div className="flex items-center gap-2 py-1.5" data-registry-agent={agent.id}>
+      <AgentMark agent={agent.harnessId ?? agent.id} size={20} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] text-fg">
           {agent.name}

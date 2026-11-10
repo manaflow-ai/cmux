@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextTabs
 import CmuxNextDaemon
 import Foundation
 
@@ -14,99 +15,104 @@ extension AgentTabStore {
 
     /// Tab `key` as its machine's store lists it (surface, session once started); waits for a tab
     /// being created, starts nothing; nil until the tree lists it (the start reads it again).
-    func existingRemoteChat(_ key: String) async throws -> (surface: UInt64, session: String?)? {
-        if let pending = remoteCreations[key] ?? remoteCreations[resolveRemote(key)] { _ = try await pending.value() }
-        let key = resolveRemote(key)
-        guard let (record, store) = lookup(key), let tab = store.tab(id: key), !ProvisionalTab.isProvisional(key) else {
+    func existingRemoteChat(_ key: String, machine: String? = nil) async throws -> (surface: UInt64, session: String?)? {
+        let scoped = tabKey(key, machine: machine)
+        if let pending = remoteCreations[scoped] { _ = try await pending.value() }
+        let key = resolveRemote(key, machine: scoped.machine)
+        let scopedKey = AgentTabKey(machine: scoped.machine, key: key)
+        guard let (record, store) = record(for: scopedKey), let tab = store.tab(id: key), !ProvisionalTab.isProvisional(key) else {
             return nil
         }
-        if let session = sessions[key] ?? record.session {
-            let seed = await remoteSeeds[key]?.peek()
+        if let session = sessions[scopedKey] ?? record.session {
+            let seed = await remoteSeeds[scopedKey]?.peek()
             onRemoteChatStarted?(record.host, session, seed?.cwd ?? tab.cwd, record.harness)
         }
-        return (tab.surface.rawValue, sessions[key] ?? record.session)
+        return (tab.surface.rawValue, sessions[scopedKey] ?? record.session)
     }
 
     /// Starts tab `key`'s chat on its machine (`agent-session-start`) once, from the page's first
     /// send, in the page's folder and agent (nil: the seed's, then a workspace folder there).
-    func startRemoteChat(_ key: String, machine: String, cwd: String? = nil, harness: String? = nil, model: String? = nil,
+    func startRemoteChat(_ key: String, machine: String, machineName: String? = nil, cwd: String? = nil, harness: String? = nil, model: String? = nil,
                          personKey: AgentSessionAttachClient.PersonKey? = nil, ownerLink: AgentSessionAttachClient.OwnerLink? = nil,
                          teammate: AgentSessionAttachClient.Teammate? = nil, reconnect: AgentSessionAttachClient.Reconnect? = nil,
                          endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
-        if let running = remoteStarts[resolveRemote(key)] { return try await running.value }
+        let scoped = resolvedRemoteKey(AgentTabKey(machine: machine, key: key)) // a start under the provisional id outlives its dropped alias
+        if let running = remoteStarts[scoped] { return try await running.value }
         // task-owner: one start per tab, stored before its first wait, so a ready and a reconnect
         // handshake that overlap share it (the daemon refuses a second start with `limit`)
         let task = Task<AgentTabRemoteStart.Started, any Error> { [weak self] in
             guard let self else { throw CancellationError() }
-            return try await runRemoteStart(key, machine: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
+            return try await runRemoteStart(key, machine: machine, machineName: machineName, cwd: cwd, harness: harness, model: model, personKey: personKey,
                                             ownerLink: ownerLink, teammate: teammate, reconnect: reconnect, endpoint: endpoint)
         }
-        remoteStarts[resolveRemote(key)] = task
-        defer { if remoteStarts[resolveRemote(key)] == task { remoteStarts[resolveRemote(key)] = nil } }
+        remoteStarts[scoped] = task
+        defer { for entry in remoteStarts.entries where entry.value == task { _ = remoteStarts.removeValue(forKey: entry.key) } } // wherever a rekey moved it
         return try await task.value
     }
 
-    private func runRemoteStart(_ key: String, machine: String, cwd chosen: String?, harness chosenHarness: String?, model chosenModel: String?,
+    private func runRemoteStart(_ key: String, machine: String, machineName: String?, cwd chosen: String?, harness chosenHarness: String?, model chosenModel: String?,
                                 personKey: AgentSessionAttachClient.PersonKey?, ownerLink: AgentSessionAttachClient.OwnerLink?,
                                 teammate: AgentSessionAttachClient.Teammate?, reconnect: AgentSessionAttachClient.Reconnect?,
                                 endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
-        if let pending = remoteCreations[key] ?? remoteCreations[resolveRemote(key)] { _ = try await pending.value() }
-        let key = resolveRemote(key)
-        guard let (record, store) = lookup(key), let tab = store.tab(id: key), !ProvisionalTab.isProvisional(key) else {
-            throw AgentRemoteStartRefusal(code: "agent_session.unknown_tab", machine: machine)
+        let scoped = resolvedRemoteKey(AgentTabKey(machine: machine, key: key))
+        if let pending = remoteCreations[scoped] { _ = try await pending.value() }
+        let key = resolveRemote(key, machine: machine)
+        let scopedKey = AgentTabKey(machine: machine, key: key)
+        guard let (record, store) = record(for: scopedKey), let tab = store.tab(id: key), !ProvisionalTab.isProvisional(key) else {
+            throw AgentRemoteStartRefusal(code: "agent_session.unknown_tab", machine: machineName ?? machine)
         }
         let surface = tab.surface.rawValue
-        let seed = await remoteSeeds[key]?.peek()
-        if let session = sessions[key] ?? record.session {
+        let seed = await remoteSeeds[scopedKey]?.peek()
+        if let session = sessions[scopedKey] ?? record.session {
             onRemoteChatStarted?(record.host, session, chosen ?? seed?.cwd, chosenHarness ?? record.harness)
             return .init(surface: surface, session: session)
         }
         // A teammate's Cloud machine (the Cloud API's answer on its link): its owner starts chats
         // there, so none is sent, and the card offers New Cloud Machine (cmux#29214). The owner
         // check below is unchanged: only an owner answer ever sends a start.
-        if ownerLink != nil, let teammate, await teammate() { throw AgentRemoteStartRefusal.teamMachine(machine: machine) }
+        if ownerLink != nil, let teammate, await teammate() { throw AgentRemoteStartRefusal.teamMachine(machine: machineName ?? machine) }
         // Only an absolute folder of that machine (a `~` or relative one is not its path).
         let absolute = { (path: String?) in path.flatMap { $0.hasPrefix("/") ? $0 : nil } }
-        // Non-Cloud hosts retain the folder picker fallback. A Cloud host owns
-        // the no-folder choice in Rust and receives no cwd so it can create a
-        // fresh `~/chats/<chat-id>` folder on the machine.
-        var fallback = absolute(chosen) ?? absolute(seed?.cwd) ?? (ownerLink == nil ? remoteFolder?(key) : nil)
+        // Non-Cloud hosts keep the folder fallback and refusal; a Cloud host gets no cwd and makes `~/chats/<id>` (its unread link fails as that).
+        var fallback = absolute(chosen) ?? absolute(seed?.cwd) ?? (ownerLink == nil ? remoteFolderScoped?(scopedKey) ?? remoteFolder?(key) : nil)
         var supportsNoCwd = false
         if fallback == nil {
             let lister = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-            if ownerLink != nil { supportsNoCwd = (try? await lister.supportsNoCwd()) == true }
-            if !supportsNoCwd { fallback = try? await lister.folders().work }
+            do { if ownerLink != nil { supportsNoCwd = try await lister.supportsNoCwd() }; if !supportsNoCwd { fallback = try await lister.folders().work } } catch where ownerLink != nil {
+                await lister.close(); throw (error as? AgentSessionAttachError).map { AgentRemoteStartRefusal(code: $0.code, machine: machineName ?? machine, detail: $0.message) } ?? error
+            } catch {}
             await lister.close()
         }
         if fallback == nil && !supportsNoCwd {
-            throw AgentRemoteStartRefusal.folderNeeded(machine: machine)
+            throw AgentRemoteStartRefusal.folderNeeded(machine: machineName ?? machine)
         }
         let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, reconnect: reconnect, endpoint: endpoint)
         let result: Result<String, any Error>
-        let home = fallback.map { existingView(key)?.model.transport.remoteHomeChosen.contains($0) == true } ?? false // the person's Use Home Folder (cx-1bhjj)
+        let home = fallback.map { existingView(key, machine: machine)?.model.transport.remoteHomeChosen.contains($0) == true } ?? false // the person's Use Home Folder (cx-1bhjj)
         let harness = chosenHarness ?? seed?.harness
         // A default model pick is omitted by the page. After a harness switch it must remain
         // that harness's default, rather than restoring the previous harness's seeded model.
         let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
         do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model)) } catch { result = .failure(error) }
+        let phases = await client.startPhases
         await client.close()
         switch result {
         case .success(let session):
             // The daemon bound the session on its tab (it is the record's writer); this is the view mirror.
-            if lookup(resolveRemote(key)) != nil { sessions[resolveRemote(key)] = session }
+            if self.record(for: scopedKey) != nil { sessions[scopedKey] = session }
             onRemoteChatStarted?(record.host, session, fallback, harness)
-            return .init(surface: surface, session: session)
+            return .init(surface: surface, session: session, phases: phases)
         case .failure(let error as AgentSessionAttachError):
             // A start whose answer was lost already bound the tab: show that chat.
-            if error.code == "agent_session.bound", let session = lookup(resolveRemote(key))?.record.session {
+            if error.code == "agent_session.bound", let session = self.record(for: scopedKey)?.record.session {
                 onRemoteChatStarted?(record.host, session, fallback, harness)
                 return .init(surface: surface, session: session)
             }
             // A link that came up as a teammate's while the start connected is refused as one.
             let code = AgentSessionAttachError.classified(error.code, teammate: await teammate?() ?? false)
-            throw AgentRemoteStartRefusal(code: code, machine: machine, folder: fallback, detail: error.message,
+            throw AgentRemoteStartRefusal(code: code, machine: machineName ?? machine, folder: fallback, detail: error.message,
                                           keyedRestartSafe: error.keyedRestartSafe)
         case .failure(let error):
             throw error
@@ -130,6 +136,8 @@ nonisolated enum AgentTabRemoteStart {
     struct Started: Sendable, Equatable {
         let surface: UInt64
         let session: String
+        /// The machine's own phases of the start (`timings_ms`), when its daemon sent them.
+        var phases: [String: Int]?
     }
 }
 

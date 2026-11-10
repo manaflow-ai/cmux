@@ -1,12 +1,14 @@
 import { type ReactNode, useId, useState } from "react";
-import { DialogButton } from "../../ui/DialogButton";
-import { HOST_ERROR_DEADLINE_MS } from "./hostRetry";
-import { useNow } from "./subagents/SubagentGroup";
+import { Notice } from "../../ui/Notice";
+import { HOST_ERROR_DEADLINE_MS, type HostRestoring, hostRecoveryLine } from "./hostRetry";
+import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
+import { waitedText } from "./hostErrorModel";
 
 /// A chat acpmux would not start (a folder harness without its Enable or Trust): the reason above
-/// the composer in a card, with its own `hint` (null: none) and button (`action`, the label for
-/// `onRetry`); without `onRetry` it has no button.
+/// the composer as the shared notice (ui/Notice.tsx), with its own `hint` (null: none) and button
+/// (`action`, the label for `onRetry`); without `onRetry` it has no button. With its own action it is
+/// a warning that waits for that step; with plain Retry it is an error whose Retry leads.
 export function HostError({
   message,
   retrying,
@@ -21,19 +23,18 @@ export function HostError({
   action?: string;
 }) {
   const t = useT();
+  const label = action ?? t(retrying ? "host.retryQueued" : "host.retry");
   return (
-    <div className="acpmux-host-error" role="alert">
-      <div className="acpmux-host-error-card">
-        <p className="acpmux-host-error-message selectable">{message}</p>
-        {hint && <p className="acpmux-host-error-hint">{hint}</p>}
-        {onRetry && (
-          <div className="acpmux-host-error-actions">
-            <button type="button" onClick={onRetry} disabled={retrying}>
-              {action ?? t(retrying ? "host.retryQueued" : "host.retry")}
-            </button>
-          </div>
-        )}
-      </div>
+    <div className="acpmux-host-error">
+      <Notice
+        kind={action ? "warning" : "error"}
+        title={hint ? message : undefined}
+        message={hint ?? message}
+        retry={!action && onRetry ? { label, onRetry, disabled: retrying } : undefined}
+        actions={
+          action && onRetry ? [{ id: "action", label, onSelect: onRetry, disabled: retrying, primary: true }] : []
+        }
+      />
     </div>
   );
 }
@@ -48,6 +49,12 @@ export function HostError({
 /// showing that kind of fucking message"). The action is Restart acpmux when another binary's daemon
 /// holds this app's socket (`onRestart`, in flight while `restarting`), else Retry, which asks again
 /// now (`retrying` while it waits on the attempt in flight).
+///
+/// Under it, one muted line answers what the person wonders first (Leo, 2026-11-06: "has my app
+/// completely crashed? Should I be restarting it?"): cmux is running and the chats are kept, and,
+/// while the pane asks again by itself (`selfRetrying`, every failure but one asking again cannot
+/// change), that it keeps retrying. The waiting line has the same two rows at the same heights, so
+/// one turning into the other moves nothing.
 export function HostUnavailableLine({
   message,
   detail,
@@ -55,6 +62,7 @@ export function HostUnavailableLine({
   onRetry,
   restarting,
   onRestart,
+  selfRetrying = true,
 }: {
   message: string;
   detail?: string;
@@ -62,6 +70,7 @@ export function HostUnavailableLine({
   onRetry?(): void;
   restarting?: boolean;
   onRestart?(): void;
+  selfRetrying?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -100,6 +109,7 @@ export function HostUnavailableLine({
           </button>
         )}
       </div>
+      <HostReassurance selfRetrying={selfRetrying} />
       {detail && open && (
         <p id={detailId} className="acpmux-host-line-detail selectable">
           {detail}
@@ -109,17 +119,24 @@ export function HostUnavailableLine({
   );
 }
 
-/// How long the pane has waited, as `m:ss` (a count, the same in every language).
-export function waitedText(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+/// The host line's second row: cmux is running and the chats are kept, and whether the pane keeps
+/// asking by itself. It holds no button in either line, so its height is its text's in both, and
+/// the waiting line turning into the failure line moves nothing.
+function HostReassurance({ selfRetrying }: { selfRetrying: boolean }) {
+  const t = useT();
+  return (
+    <div className="acpmux-host-line acpmux-host-line-reassure">
+      <p className="acpmux-host-line-note">{t(selfRetrying ? "host.keptRetrying" : "host.kept")}</p>
+    </div>
+  );
 }
 
 /// The pane's handshake waits for this app's acpmux, which has not answered yet. The app never
 /// restarts a slow acpmux on its own (rule R5: a late answer is not a crash, and under load a
-/// restart reloads every chat), so the person sees how long the pane has waited and decides:
-/// Restart agent service stops that daemon (its chats are kept) and the pane asks again, which
-/// starts a new one. Nothing shows while a wait is short (`HOST_ERROR_DEADLINE_MS`, the pane's
+/// restart reloads every chat), so the person sees how long the pane has waited, that cmux is
+/// running, the chats are kept and the pane keeps asking, and may decide: Restart agent service, a
+/// quiet text button after the time (optional, never a filled button), stops that daemon (its
+/// chats are kept) and the pane asks again, which starts a new one. Nothing shows while a wait is short (`HOST_ERROR_DEADLINE_MS`, the pane's
 /// one rule for saying a recovery: "STOP SHOWING BULLSHIT ON LOAD"); that only decides what is
 /// drawn, never whether acpmux is restarted. `since`: when the wait began (`Date.now()` time).
 /// One host line shows at a time and the newest state wins: until this line shows, `otherwise`
@@ -144,13 +161,47 @@ export function HostWaitingLine({
   const waited = (fixedNow ?? ticking) - since;
   if (waited < HOST_ERROR_DEADLINE_MS && !restarting) return otherwise;
   return (
-    <output className="acpmux-host-line" data-host-waiting>
-      <p className="acpmux-host-line-message">{t("host.waitingService", { time: waitedText(waited) })}</p>
-      {onRestart && (
-        <DialogButton dialogKey={null} onClick={onRestart} disabled={restarting}>
-          {t(restarting ? "host.restartingService" : "host.restartService")}
-        </DialogButton>
-      )}
+    <output className="acpmux-host-line-group" data-host-waiting>
+      <div className="acpmux-host-line">
+        <p className="acpmux-host-line-message">{t("host.waitingService", { time: waitedText(waited) })}</p>
+        {onRestart && (
+          <button type="button" className="acpmux-host-line-quiet" onClick={onRestart} disabled={restarting}>
+            {t(restarting ? "host.restartingService" : "host.restartService")}
+          </button>
+        )}
+      </div>
+      <HostReassurance selfRetrying />
+    </output>
+  );
+}
+
+/// The quiet line while the pane gets its chat back on its own (hostRetry.ts `hostRecoveryLine`):
+/// "Restoring sessions… m:ss" while the host says acpmux restores its chats, "Reconnecting…" while
+/// a lost connection comes back. No button and no card: nothing waits on the person. Otherwise
+/// (`otherwise`) the host's other line, if any.
+export function HostRecoveringLine({
+  relinkingSince,
+  restoring,
+  otherwise = null,
+  now: fixedNow,
+}: {
+  relinkingSince?: number;
+  restoring?: HostRestoring;
+  otherwise?: ReactNode;
+  /// A fixed clock for the gallery and tests; the pane passes none and the line counts each second.
+  now?: number;
+}) {
+  const t = useT();
+  const ticking = useNow(fixedNow === undefined && (relinkingSince !== undefined || restoring !== undefined));
+  const line = hostRecoveryLine({ relinkingSince, restoring, now: fixedNow ?? ticking });
+  if (!line) return otherwise;
+  return (
+    <output className="acpmux-host-line" data-host-recovering={line.kind}>
+      <p className="acpmux-host-line-message">
+        {line.kind === "restoring"
+          ? t("host.restoringSessions", { time: waitedText(line.waitedMs) })
+          : t("host.reconnecting")}
+      </p>
     </output>
   );
 }

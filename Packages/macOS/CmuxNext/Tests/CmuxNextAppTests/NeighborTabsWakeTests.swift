@@ -58,7 +58,8 @@ import Testing
         #expect(rig.hibernation.coldShows == cold + 1)
     }
 
-    /// The pointer on a far tab thaws it before the click; the click is then warm.
+    /// The pointer resting on a far tab thaws it before the click (after the dwell,
+    /// plans/cmux-next/hover-preload-DESIGN.md); the click is then warm.
     @Test func aHoveredTabThawsBeforeTheClick() async throws {
         let rig = try Rig()
         defer { rig.close() }
@@ -66,7 +67,7 @@ import Testing
         try await rig.until("every hidden page freezes") { keys.allSatisfy(rig.hibernation.frozen.contains) }
         rig.show(keys[0], order: keys)
         rig.hibernation.noteHover(keys[2])
-        #expect(!rig.hibernation.frozen.contains(keys[2]))
+        try await rig.until("the hovered tab thaws after the dwell") { !rig.hibernation.frozen.contains(keys[2]) }
         #expect(rig.hibernation.exemptions[keys[2]] == .neighbor)
         let cold = rig.hibernation.coldShows
         rig.show(keys[2], order: keys)
@@ -109,7 +110,7 @@ import Testing
     @Test func aPageThePersonHibernatedRestoresOnlyWhenShownOrWoken() async throws {
         let rig = try Rig(freezes: false)
         defer { rig.close() }
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, discardsAutomatically: false, wakesOnHover: true))
         let keys = try await rig.pages(["a", "b", "c", "d", "e"])
         let asleep = Array(keys.dropFirst())
         for key in asleep { #expect(rig.hibernation.hibernateNow(key) == nil) }
@@ -126,7 +127,8 @@ import Testing
         #expect(!rig.hibernation.mayPrewarmRestore(keys[1]))
 
         // A timeout written to cmux.json: pages the person hibernated still wait for a show.
-        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate, freezeSeconds: nil, wakesOnHover: true))
+        rig.hibernation.noteHover(nil) // a new stay on the tab (the gate fires once per stay)
         rig.hibernation.noteHover(keys[2])
         try await Task.sleep(for: BrowserHibernation.hoverDwellDelay * 3)
         #expect(rig.services.cache.phase(of: keys[2]) == .hibernated)
@@ -193,7 +195,7 @@ import Testing
             services = AppServices(environment: AppEnvironment.current([:]))
             hibernation = BrowserHibernation(cache: services.cache, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), lowPower: lowPower)
             services.cache.hibernation = hibernation
-            hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: freezes ? 0.05 : nil))
+            hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: freezes ? 0.05 : nil, wakesOnHover: true))
             hibernation.start()
             folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cn-neighbor-tabs-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)

@@ -41,7 +41,6 @@ public struct CodeCard: View {
                     .padding(.bottom, 16)
                     // Wrapping: as wide as the card, so lines break instead of scrolling.
                     .containerRelativeFrame(wrapCode ? .horizontal : [], alignment: .leading)
-                    .textSelection(.enabled)
             }
             .scrollIndicators(.hidden)
             .trailingOverflowFade()
@@ -53,7 +52,7 @@ public struct CodeCard: View {
                         LinearGradient(colors: [.cmuxMobileCodeBackground.opacity(0), .cmuxMobileCodeBackground], startPoint: .top, endPoint: .bottom)
                             .frame(height: 48)
                         Button("Show all \(lineCount) lines") {
-                            withAnimation(.cmuxMobileSmooth) { expanded = true }
+                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expanded = true }
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -70,6 +69,7 @@ public struct CodeCard: View {
         }
         .contextMenu {
             Button("Copy", systemImage: "doc.on.doc") { copy() }
+            Button("Select Text", systemImage: "selection.pin.in.out") { SelectableTextView(code, monospaced: true).present() }
             Button("Copy as Markdown", systemImage: "text.document") {
                 UIPasteboard.general.string = "```\(language ?? "")\n\(code)\n```"
             }
@@ -120,10 +120,10 @@ public struct CodeCard: View {
 
     private func copy() {
         UIPasteboard.general.string = code
-        withAnimation(.cmuxMobileSnap) { copied = true }
+        withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = true }
         Task {
             try? await Task.sleep(for: .seconds(1.5))
-            withAnimation(.cmuxMobileSnap) { copied = false }
+            withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = false }
         }
     }
 }

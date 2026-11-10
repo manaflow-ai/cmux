@@ -7,7 +7,7 @@ extension DaemonLanePolicy {
     static let commandFields: [String: Set<String>] = [
         "ack-tab-notifications": ["surface"],
         "add-tabs-to-tab-group": ["group", "surfaces", "transaction"],
-        "attach-surface": ["cols", "expected_generation", "expected_terminal_id", "mode", "rows", "snapshot", "snapshot_images", "snapshot_local_history", "snapshot_version", "surface", "viewer_backlog_bytes"],
+        "attach-surface": ["cols", "expected_generation", "expected_terminal_id", "mode", "replay_history_rows", "rows", "snapshot", "snapshot_images", "snapshot_local_history", "snapshot_version", "surface", "viewer_backlog_bytes"],
         "browser-activate": ["surface"],
         "browser-back": ["surface"],
         "browser-forward": ["surface"],
@@ -117,7 +117,7 @@ extension DaemonLanePolicy {
         "set-terminal-idle-policy": ["idle_close_seconds", "surface", "terminal_id"],
         "set-viewport-pane-width": ["pane", "transaction", "width"],
         "set-workspace-metadata": ["color", "expected_generation", "expected_revision", "icon", "key", "marked_unread", "mutation_id", "origin", "pinned", "title", "workspace"],
-        "split": ["cols", "dir", "keep", "kind", "pane", "pane_id", "rows", "split_id", "tab_id", "terminal_id", "url"],
+        "split": ["around", "before", "cols", "dir", "keep", "kind", "pane", "pane_id", "rows", "split_id", "tab_id", "terminal_id", "url"],
         "subscribe": ["surface", "tree_events"],
         "swap-pane": ["dir", "pane", "target"],
         "terminal-events": ["after_revision"],

@@ -67,7 +67,7 @@ final class RestartNoticePanel {
         stack.edgeInsets = NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 10)
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: 12)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: Metrics.surfaceCornerRadius)
         glass.setAccessibilityIdentifier(Self.accessibilityID)
         glass.setAccessibilityLabel(text)
         NSLayoutConstraint.activate([

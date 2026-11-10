@@ -19,6 +19,7 @@ mod kimi;
 mod muse;
 mod opencode;
 pub use codex::forget as forget_codex_reads;
+pub use codex::{CodexThreadRow, thread_rows as codex_thread_rows};
 pub use opencode::find_session as find_opencode_session;
 mod openhands;
 mod pi;

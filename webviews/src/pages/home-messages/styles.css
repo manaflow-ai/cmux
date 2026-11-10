@@ -1,0 +1,112 @@
+/* The Messages page's shell (App.tsx): the list column, the 1 pt divider with its grab area, the
+   detail slot and the chat's compose button over its top-left. One fill under all of it (the page's
+   own), so the list and the chat read as one colour over the window. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+.hm-page {
+  position: relative;
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  color: var(--page-text);
+  /* The compose button: the list header's circle (list/layout.ts HEADER.side). */
+  --hm-circle: 30px;
+}
+
+.hm-column {
+  position: relative;
+  flex: none;
+  height: 100%;
+}
+
+.hm-divider {
+  position: relative;
+  flex: none;
+  z-index: var(--layer-raised);
+  width: 1px;
+  background: var(--page-separator);
+  cursor: col-resize;
+  touch-action: none;
+}
+.hm-divider::after {
+  content: "";
+  position: absolute;
+  inset: 0 calc(-1 * var(--ds-space-1));
+}
+/* The lit band on hover and drag (DividerGlowBand): the line itself in the accent, 2 pt, no halo;
+   dimmer while hovered, full while dragged; in with the hover fade, out at once. */
+.hm-divider::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  translate: -50% 0;
+  background: var(--cmux-accent, var(--page-text));
+  opacity: 0;
+  pointer-events: none;
+}
+.hm-divider:hover::before {
+  opacity: 0.55;
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.hm-divider.dragging::before {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hm-divider:hover::before {
+    transition: none;
+  }
+}
+
+.hm-detail {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.hm-compose {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: var(--layer-sticky);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hm-circle);
+  height: var(--hm-circle);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--page-text) 7%, transparent);
+  color: var(--page-text-2);
+  cursor: default;
+}
+.hm-compose:hover {
+  background: color-mix(in srgb, var(--page-text) 11%, transparent);
+  color: var(--page-text);
+}
+.hm-compose:focus-visible {
+  outline: 2px solid var(--page-text-3);
+  outline-offset: 1px;
+}
+
+/* The see-through Chief (seeThrough.ts; ChiefPanelStyle.seeThrough and .seeThroughBar): no page fill
+   (pageBase.css paints it on html) and no fill or blur on the header, so the workspace shows between the
+   bubbles and the panel's own veils behind the header and the message box are their one plate, as the
+   native transcript's clearsBackground left them. No halo on any text (94888846). */
+:root[data-home-see-through] {
+  background: transparent;
+}
+:root[data-home-see-through] .mt-header {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

@@ -64,11 +64,26 @@ impl Hub {
         // The calls that wait for the load (`wait_logs`) answer even when it fails.
         let _ready = LogsReady(&self.logs_ready);
         let mut sessions = self.sessions();
+        // A cold-archived chat's log is not read (`cold_archive.rs`): it holds nothing to restore,
+        // and a read would bring it back. Its first open reads it. A preview whose log is back
+        // (a crash between the rehydrate and its preview's drop) goes now, and the log is read.
+        // A chat left here waits for its own read once it is back, not for this pass's end
+        // (`session_log_loaded`).
+        sessions.retain(|s| {
+            let cold = self.cold_at_start(s);
+            if cold {
+                s.log_skipped.store(true, Ordering::SeqCst);
+            }
+            !cold
+        });
         sessions.sort_by_cached_key(|s| {
             let m = s.meta();
             (m.status == SessionStatus::Closed, std::cmp::Reverse(m.updated_at))
         });
         self.load_session_logs(&sessions);
+        // Deferred startup must restore ownership epochs before the move watchdog can issue an
+        // automatic commit/abort. Starting it earlier could fence a valid in-flight move.
+        self.watch_transfers();
         // Every log is read: a person's prompt no longer resumes pairs ahead of their logs.
         self.logs_ready.send_replace(true);
         self.forget_pair_peers();
@@ -123,6 +138,19 @@ impl Hub {
     }
 
     async fn session_log_at(self: &Arc<Self>, session: &Arc<Session>, on_screen: bool) {
+        // A cold-archived chat being opened: its log comes back, then is read as any other's
+        // (`cold_archive.rs`; the startup pass left it).
+        if session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold.is_some() {
+            let (hub, s) = (self.clone(), session.clone());
+            let warm = move || {
+                hub.warm_chat(&s);
+                hub.load_session_log(&s);
+            };
+            if let Err(e) = tokio::task::spawn_blocking(warm).await {
+                tracing::error!(session = %session.id, "rehydrating the chat failed: {e}");
+            }
+            return;
+        }
         if self.session_log_loaded(session) {
             return;
         }
@@ -140,9 +168,13 @@ impl Hub {
         }
     }
 
-    /// Whether `session`'s log is read, or every log is (or their load failed).
+    /// Whether `session`'s log is read, or every log is (or their load failed). The pass's end
+    /// does not count for a chat it left cold: decompressed after it, by a request or a read
+    /// through the store, its log is still to be read (second review of #39141: its transfer
+    /// authority stayed unset, and the ownership checks refused the chat).
     pub(crate) fn session_log_loaded(&self, session: &Session) -> bool {
-        session.log_loaded.load(Ordering::SeqCst) || self.logs_loaded()
+        session.log_loaded.load(Ordering::SeqCst)
+            || (self.logs_loaded() && !session.log_skipped.load(Ordering::SeqCst))
     }
 
     /// Reads one chat's log, once: its tail, a permission wait or turn the restart cut off, its
@@ -165,6 +197,10 @@ impl Hub {
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
         }
         self.catch_up(session);
+        if let Err(error) = self.restore_ownership_epoch(session) {
+            session.invalidate_ownership_epoch();
+            tracing::warn!(session = %session.id, "ownership epoch unreadable: {error}");
+        }
         self.restore_transfer_authority(session);
         let (hosted, waiting) = {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
@@ -360,5 +396,31 @@ pub(crate) struct AdoptionReady<'a>(pub(crate) &'a tokio::sync::watch::Sender<bo
 impl Drop for AdoptionReady<'_> {
     fn drop(&mut self) {
         self.0.send_replace(true);
+    }
+}
+
+/// Tests: a one-shot note a thread sends when it reaches a point of the catch-up
+/// (`Hub::catch_up`): a test knows from it where that thread is, with no timer.
+#[cfg(test)]
+pub(crate) type CatchUpNote = std::cell::RefCell<Option<std::sync::mpsc::Sender<&'static str>>>;
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: this thread says so, once, when its catch-up of a chat is under way (past the check
+    /// that the chat is not caught up yet, before it counts the tail).
+    pub(crate) static NOTE_IN_CATCH_UP: CatchUpNote = const { std::cell::RefCell::new(None) };
+    /// Tests: this thread says so, once, right before its catch-up takes the chat's append lock.
+    pub(crate) static NOTE_BEFORE_CATCH_UP_LOCK: CatchUpNote =
+        const { std::cell::RefCell::new(None) };
+    /// Tests: this thread's replay (`Hub::scan_events`) says so, once, right before it reads the
+    /// log, past its catch-up or its skip of it.
+    pub(crate) static NOTE_BEFORE_REPLAY_SCAN: CatchUpNote = const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: sends `what` on the note in `slot`, if this thread has one, and drops the note.
+#[cfg(test)]
+pub(super) fn catch_up_note(slot: &'static std::thread::LocalKey<CatchUpNote>, what: &'static str) {
+    if let Some(note) = slot.with(|note| note.borrow_mut().take()) {
+        let _ = note.send(what);
     }
 }

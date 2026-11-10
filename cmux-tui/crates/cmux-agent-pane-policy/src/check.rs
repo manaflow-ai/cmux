@@ -40,14 +40,17 @@ pub struct FrameState<'a> {
     pub local_app_token: Option<&'a str>,
     /// The daemon's mode field names (P1), when known.
     pub mode_fields: Option<&'a BTreeSet<String>>,
+    /// The connection is a chat on another machine (`AgentPaneTransport
+    /// .remoteWire`): its `session/new` starts no session on this Mac.
+    pub remote_wire: bool,
     pub scope: &'a dyn PaneScope,
     pub options: &'a PermissionOptions,
 }
 
 /// The pick a gesture ticket is bound to (`AgentPaneGesturePick`): the method
 /// and the scalar params but `sessionId` and `_meta`; `params` is None when a
-/// param is an object or a list. A session/prompt picks its promptId, and a
-/// permission answer its session, permission and option.
+/// param is an object or a list. A session/prompt picks its promptId, a Cloud
+/// start its key, and a permission answer its session, permission and option.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GesturePick {
     pub method: Option<String>,
@@ -56,33 +59,56 @@ pub struct GesturePick {
 
 impl GesturePick {
     pub fn new(method: Option<&str>, params: &Map<String, Value>) -> Self {
+        let method_name = method.map(str::to_owned);
         // A session/prompt picks only its `_meta.acpmux.promptId` (its blocks
-        // are no pick).
+        // are no pick), as the prompt's own id: without a hand-off turn's
+        // `handoff-<turn>-` (Swift `AgentPaneHandoffPrompt.ownID`).
         if method == Some("session/prompt") {
             let id =
                 params.get("_meta").and_then(|m| m.get("acpmux")).and_then(|a| a.get("promptId"));
-            let params = id
+            let params = id.and_then(Value::as_str).map(|id| {
+                BTreeMap::from([(
+                    "promptId".to_owned(),
+                    Value::String(own_prompt_id(id).to_owned()),
+                )])
+            });
+            return GesturePick { method: method_name, params };
+        }
+        // A Cloud start picks only its send's `key` (its task, folder and
+        // attachments are no pick); without a string key it picks nothing
+        // (Swift `AgentPaneGesturePick`, #34487).
+        if method == Some("cloud.startChat") {
+            let params = params
+                .get("key")
                 .and_then(Value::as_str)
-                .map(|id| BTreeMap::from([("promptId".to_owned(), Value::String(id.to_owned()))]));
-            return GesturePick { method: method.map(str::to_owned), params };
+                .map(|key| BTreeMap::from([("key".to_owned(), Value::String(key.to_owned()))]));
+            return GesturePick { method: method_name, params };
         }
         // A permission answer's pick names its session too (the ticket binds
-        // the prompt); one with answers picks nothing (AgentPaneGesturePick).
+        // the prompt), and a question's answers and annotations by the sha256
+        // of their canonical JSON (Swift `AgentPaneGesturePick`; a null one is
+        // no key, one that is not an object or has no digest picks nothing).
         if method == Some("_acpmux/permission_respond") {
             let text = |key: &str| params.get(key).and_then(Value::as_str);
-            let params = match (text("sessionId"), text("permissionId"), text("optionId")) {
-                (Some(session), Some(permission), Some(option))
-                    if !params.contains_key("answers") =>
-                {
-                    Some(BTreeMap::from([
-                        ("sessionId".to_owned(), Value::String(session.to_owned())),
-                        ("permissionId".to_owned(), Value::String(permission.to_owned())),
-                        ("optionId".to_owned(), Value::String(option.to_owned())),
-                    ]))
-                }
-                _ => None,
+            let (Some(session), Some(permission), Some(option)) =
+                (text("sessionId"), text("permissionId"), text("optionId"))
+            else {
+                return GesturePick { method: method_name, params: None };
             };
-            return GesturePick { method: method.map(str::to_owned), params };
+            let mut pick = BTreeMap::from([
+                ("sessionId".to_owned(), Value::String(session.to_owned())),
+                ("permissionId".to_owned(), Value::String(permission.to_owned())),
+                ("optionId".to_owned(), Value::String(option.to_owned())),
+            ]);
+            for key in ["answers", "annotations"] {
+                let Some(value) = params.get(key).filter(|v| !v.is_null()) else { continue };
+                let digest = value.is_object().then(|| crate::canonical::canonical_digest(value));
+                let Some(Some(digest)) = digest else {
+                    return GesturePick { method: method_name, params: None };
+                };
+                pick.insert(key.to_owned(), Value::String(digest));
+            }
+            return GesturePick { method: method_name, params: Some(pick) };
         }
         let mut scalars = BTreeMap::new();
         for (key, value) in params {
@@ -90,11 +116,40 @@ impl GesturePick {
                 continue;
             }
             if value.is_object() || value.is_array() {
-                return GesturePick { method: method.map(str::to_owned), params: None };
+                return GesturePick { method: method_name, params: None };
             }
-            scalars.insert(key.clone(), value.clone());
+            scalars.insert(key.clone(), as_double(value));
         }
-        GesturePick { method: method.map(str::to_owned), params: Some(scalars) }
+        GesturePick { method: method_name, params: Some(scalars) }
+    }
+}
+
+/// A number as Swift's `AgentPaneJSONScalar.number(Double)` holds it, so
+/// `1` and `1.0` pick the same; every other scalar as it is.
+fn as_double(value: &Value) -> Value {
+    match value.as_f64() {
+        Some(f) if value.is_number() => {
+            serde_json::Number::from_f64(f).map_or(Value::Null, Value::Number)
+        }
+        _ => value.clone(),
+    }
+}
+
+/// A prompt's own id: `id` without one hand-off turn's `handoff-<turn>-`
+/// (`turn` 1 to 15 ASCII digits, no leading 0, something after it); an id
+/// under two labels is its own id as it is (Swift `AgentPaneHandoffPrompt
+/// .ownID`), so a ticket for `handoff-2-x` never allows it.
+pub fn own_prompt_id(id: &str) -> &str {
+    fn stripped(id: &str) -> Option<&str> {
+        let (turn, own) = id.strip_prefix("handoff-")?.split_once('-')?;
+        let digits = (1..=15).contains(&turn.len())
+            && !turn.starts_with('0')
+            && turn.bytes().all(|b| b.is_ascii_digit());
+        (digits && !own.is_empty()).then_some(own)
+    }
+    match stripped(id) {
+        Some(own) if stripped(own).is_none() => own,
+        _ => id,
     }
 }
 
@@ -141,6 +196,9 @@ pub struct Facts {
     /// `confirmHarnessEnable`); refused with [`Refusal::HarnessNotConfirmed`]
     /// when the user does not enable it.
     pub harness_enable: bool,
+    /// A `session/new` on this Mac (not a remote wire's): a send's gesture
+    /// goes on to its first prompt (Swift `startCredit`).
+    pub starts_local_session: bool,
 }
 
 impl Facts {
@@ -153,6 +211,34 @@ impl Facts {
             && self.attach_session.is_none()
             && !self.foreign_source
             && !self.harness_enable
+            && !self.starts_local_session
+    }
+
+    /// The facts as JSON, in the layout of `tests/cases/check.json`'s
+    /// `expect.facts` (the app reads this through [`crate::ffi`]).
+    pub fn to_json(&self) -> Value {
+        let setting = self.setting.as_ref().map(|s| {
+            let asked = match &s.asked {
+                SettingAsk::Mode(v) => serde_json::json!({"mode": v}),
+                SettingAsk::Option { id, value } => {
+                    serde_json::json!({"option": {"id": id, "value": value}})
+                }
+            };
+            serde_json::json!({
+                "session_id": s.session_id, "config_id": s.config_id, "value": s.value, "asked": asked,
+            })
+        });
+        let pick =
+            self.pick.as_ref().map(|p| serde_json::json!({"method": p.method, "params": p.params}));
+        serde_json::json!({
+            "is_first": self.is_first, "method": self.method, "page_id": self.page_id,
+            "ticket": self.ticket, "other_meta": self.other_meta, "pick": pick,
+            "session_id": self.session_id, "needs_gesture": self.needs_gesture,
+            "needs_path_check": self.needs_path_check, "setting": setting,
+            "attach_session": self.attach_session, "foreign_source": self.foreign_source,
+            "handoff_id": self.handoff_id, "harness_enable": self.harness_enable,
+            "starts_local_session": self.starts_local_session, "free": self.free(),
+        })
     }
 }
 
@@ -266,6 +352,7 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
             facts.handoff_id = params.get("handoffId").and_then(Value::as_str).map(str::to_owned);
         }
         facts.harness_enable = method.as_deref() == Some("_acpmux/harness_enable");
+        facts.starts_local_session = method.as_deref() == Some("session/new") && !state.remote_wire;
     }
     if let Some(requested) = requested_setting(&frame) {
         let value = requested.value.clone().unwrap_or_else(|| config_value_text(&frame));

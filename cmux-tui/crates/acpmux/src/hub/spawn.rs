@@ -168,17 +168,19 @@ impl Hub {
     /// read here goes with the profile, and only a cold start records it
     /// (`Hub::ensure_child`, `hub/start_gate/preset_bind.rs`): a request that
     /// finds the agent running spawns nothing and records nothing.
+    /// `launch_digest`: the launch of the entry `profile` comes from, as the entry is written
+    /// (`Resolved::launch_digest`; `profile.launch_digest()` when `profile` is the entry itself).
     pub(super) async fn spawn_profile(
         &self,
         session: &Session,
         profile: &HarnessProfile,
+        launch_digest: String,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Spawn, RpcError> {
         // A fork resumes its parent's conversation: it runs in the parent's folder.
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
         let meta = session.meta();
         let opencode = super::policy_mode::is_opencode(&meta, profile);
-        let launch_digest = profile.launch_digest();
         let (profile, preset_digest, account_home) =
             self.spawn_profile_read(&meta, forking, profile, defaults_env).await?;
         Ok(Spawn { profile, preset_digest, account_home, opencode, launch_digest })
@@ -237,10 +239,20 @@ impl Hub {
                             "preset {name:?} has a system prompt, but this daemon has no state directory"
                         ))
                     })?;
-                    prompt_file = Some(
-                        crate::config::checked_system_prompt(&dir, name, sha)
-                            .map_err(RpcError::invalid_params)?,
-                    );
+                    let original = crate::config::checked_system_prompt(&dir, name, sha)
+                        .map_err(RpcError::invalid_params)?;
+                    prompt_file = Some(if let Some(text) = meta.cmux_preset_prompt.as_deref() {
+                        let overrides = dir.join(".context-overrides");
+                        let key = crate::sha256::sha256_hex(text.as_bytes());
+                        let hash = crate::config::write_system_prompt(&overrides, &key, text)
+                            .map_err(|e| {
+                                RpcError::internal(format!("save selected prompt: {e}"))
+                            })?;
+                        crate::config::checked_system_prompt(&overrides, &key, &hash)
+                            .map_err(RpcError::invalid_params)?
+                    } else {
+                        original
+                    });
                 }
             }
         }
@@ -269,8 +281,10 @@ impl Hub {
         // transferable directory and therefore leaves the bridge disabled.
         if p.family.as_deref() == Some("cmux-harness") {
             p.env.remove("CMUX_HARNESS_SESSION_STORE_DIR");
-            if let Some(dir) =
-                self.store.session_dir(&meta.id).and_then(|dir| dir.parent().map(Path::to_path_buf))
+            if let Some(dir) = self
+                .store
+                .session_path(&meta.id)
+                .and_then(|dir| dir.parent().map(Path::to_path_buf))
             {
                 let root = dir.to_string_lossy().into_owned();
                 if let Some(agent_id) = meta.agent_session_id.as_deref() {
@@ -291,6 +305,36 @@ impl Hub {
         // The bound route last: it owns the provider variables (routes.rs).
         let account_home = self.apply_route(meta, forking, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);
+        // Codex on a cmux Cloud machine: the image's own-or-team rule, as its launcher applies it
+        // (codex_cloud_auth.rs). A bound route owns the provider instead.
+        if crate::codex_app_server::is_profile_launch(&p.argv)
+            && !p.env.contains_key(crate::routes::NAME_KEY)
+        {
+            let env = p.env.clone();
+            let var = move |k: &str| {
+                env.get(k)
+                    .cloned()
+                    .or_else(|| crate::login_env::var(k))
+                    .or_else(|| std::env::var(k).ok())
+                    .filter(|v| !v.is_empty())
+            };
+            let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+            let root = self.vm_marker_root();
+            #[cfg(unix)]
+            let broker = matches!(crate::codex_auth_file::read(), Ok(Some(_)));
+            #[cfg(not(unix))]
+            let broker = false;
+            let inputs =
+                crate::codex_cloud_auth::Inputs { root: &root, home: &home, var: &var, broker };
+            if let Some(reason) =
+                crate::codex_cloud_auth::own_reason(&inputs, crate::codex_cloud_auth::host_resolves)
+                    .await
+            {
+                tracing::info!(session = %meta.id, reason, "codex on this Cloud machine uses its own sign-in");
+                let cmux_config = inputs.cmux_config();
+                crate::codex_cloud_auth::apply(&mut p.argv, &mut p.env, &var, cmux_config);
+            }
+        }
         p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
         if meta.remote_origin {
             // Validate every executable after expansion and launcher
@@ -314,6 +358,17 @@ impl Hub {
         if let Some(file) = prompt_file {
             p.argv.push("--system-prompt-file".into());
             p.argv.push(file.to_string_lossy().into_owned());
+        }
+        // cmux's rules as the chat captured them, on the harness's own system-level channel
+        // (Claude's appended system prompt, Codex's developer instructions), at every spawn: the
+        // prefix every chat shares, never a hidden addition after the person's first prompt.
+        // A remote-origin chat captures none, and a chat moved under a guard takes its rules in
+        // its next message instead (`turns.rs`, `append_owed_rules`), as does one whose
+        // transcript already has them.
+        if !meta.remote_origin && !meta.cmux_rules_in_transcript {
+            let rules =
+                crate::context_inventory::launch_args(meta.cmux_context.as_deref(), &p, &meta.cwd);
+            p.argv.extend(rules);
         }
         // Claude Code defers MCP tools behind its tool search, which it turns
         // off by itself behind a router; the cmux server lists every tool

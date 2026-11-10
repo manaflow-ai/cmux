@@ -26,6 +26,9 @@ where
     );
     #[cfg(target_vendor = "apple")]
     fatal_faults_end_the_owner();
+    // Under `dx serve --hot-patch`, take patches for this process.
+    #[cfg(feature = "hotpatch")]
+    cmux_tui_core::hotpatch::connect();
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
@@ -69,9 +72,13 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
-    // An app session's owner stops once its app has left and nothing keeps
-    // it (R-LIFECYCLE stage 1, behind its switch; owner_keepers.rs). Only an
-    // owner that clients reach through its socket alone, as below.
+    // Other sessions' terminal hosts that no live daemon owns end after a
+    // grace, off the restore (cmux-tui-core mux/unowned_hosts.rs).
+    let unowned_hosts = mux.start_unowned_host_reaper();
+    // An app session's or its Chief session's owner stops once its app has
+    // left and nothing keeps it (R-LIFECYCLE stage 1, on unless its switch
+    // is 0; owner_keepers.rs). Only an owner that clients reach through its
+    // socket alone, as below.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     let keepers = start_owner_keepers(mux, reachable.is_some());
     // An owner whose socket or state directory is gone, with no client
@@ -81,8 +88,10 @@ where
     // `--exit-with-pid`: armed once startup work has begun, so the stop
     // ends every terminal that work made (a starter already gone stops the
     // owner at once).
+    // Under a test, the test process when no `--exit-with-pid` names one
+    // (cx-leo45).
     #[cfg(any(target_vendor = "apple", target_os = "linux"))]
-    local_owner::exit_with(mux, exit_with);
+    local_owner::exit_with(mux, exit_with.or_else(local_owner::test_owner_exit_with));
     #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
     let _ = exit_with;
     let (lock, wake) = &HEADLESS_WAKE;
@@ -109,6 +118,9 @@ where
     if let Some(orphan_exit) = orphan_exit {
         orphan_exit.stop();
     }
+    if let Some(unowned_hosts) = unowned_hosts {
+        unowned_hosts.stop();
+    }
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     if let Some(lost_paths) = lost_paths {
         lost_paths.stop();
@@ -120,62 +132,44 @@ where
     Ok(())
 }
 
-/// R-LIFECYCLE stage 1's switch (handoff/rewrites/R-LIFECYCLE/DESIGN.md
-/// section 7): `1` arms the keepers rule; it is deleted when the stage passes.
-pub(crate) const OWNER_KEEPERS_ENV: &str = "CMUX_TUI_OWNER_KEEPERS";
-
-/// The switch as this process started with it ([`take_owner_keepers_switch`]).
-static OWNER_KEEPERS_SWITCH: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-
-/// Reads [`OWNER_KEEPERS_ENV`] once and removes it from this process, so no
-/// terminal, hook or agent the owner starts inherits it (a `server ensure`
-/// run from such a shell would otherwise turn the rule on unasked). An
-/// `ensure` passes it on to the owner it spawns ([`owner_keepers_switch`]).
-///
-/// # Safety
-///
-/// Call it while no other thread exists: removing an environment variable
-/// is unsound while another thread can read the environment.
-pub(crate) unsafe fn take_owner_keepers_switch() {
-    let on = std::env::var(OWNER_KEEPERS_ENV).is_ok_and(|value| value == "1");
-    // SAFETY: forwarded from this function's contract (no other thread yet).
-    unsafe { std::env::remove_var(OWNER_KEEPERS_ENV) };
-    let _ = OWNER_KEEPERS_SWITCH.set(on);
+/// Whether `session` is an app's: its session (`cmux-app`, `cmux-app-*`,
+/// BuildIdentity+AppNames.swift) or its Chief session (`cmux-chief-<home
+/// hash>`, ChiefHome.swift; `cmux chief` starts the same one). Both are
+/// started detached by `ensure` and connected to with a role-main hello.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn app_owned_session(session: &str) -> bool {
+    session == "cmux-app" || session.starts_with("cmux-app-") || session.starts_with("cmux-chief-")
 }
 
-/// Whether this process started with the stage's switch on.
-pub(crate) fn owner_keepers_switch() -> bool {
-    OWNER_KEEPERS_SWITCH.get().copied().unwrap_or(false)
-}
-
-/// The keepers watch for an app session's owner (`cmux-app`, `cmux-app-*`)
-/// that clients reach only through its socket, when the stage's switch is on.
+/// The keepers watch for an app's owner ([`app_owned_session`]) that
+/// clients reach only through its socket. R-LIFECYCLE stage 1 has no switch
+/// (PERF FLAGS deleted `CMUX_TUI_OWNER_KEEPERS`): the rule always runs.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn start_owner_keepers(
     mux: &Arc<Mux>,
     reached_only_by_socket: bool,
 ) -> Option<cmux_tui_core::server::OwnerKeepersWatch> {
-    let app_session = mux.session == "cmux-app" || mux.session.starts_with("cmux-app-");
-    if !(owner_keepers_switch() && app_session && reached_only_by_socket) {
+    if !(app_owned_session(&mux.session) && reached_only_by_socket) {
         return None;
     }
     let watched = cmux_tui_core::server::watch_owner_keepers(mux, |mux, keepers| {
         crate::client_log::stderr_log!(
             "lifecycle",
             "{BIN}: stopped the owner of session {}: its app left and nothing keeps it \
-             (clients {}, terminals {:?}, browser host {}, app servers {}); its terminals and \
-             state stay for the next owner",
+             (clients {}, terminals {:?}, browser host {}, app servers {}, Chief brains {}); its \
+             terminals and state stay for the next owner",
             mux.session,
             keepers.clients,
             keepers.terminals,
             keepers.browser_host,
-            keepers.app_servers
+            keepers.app_servers,
+            keepers.chief_brains
         );
     });
     match watched {
         Ok(watch) => Some(watch),
         Err(error) => {
-            // No watch thread: the owner runs on as it would without the switch.
+            // No watch thread: the owner runs on until something stops it.
             crate::client_log::stderr_log!(
                 "lifecycle",
                 "{BIN}: cannot start the owner keepers watch: {error}"

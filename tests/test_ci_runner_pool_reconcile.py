@@ -24,7 +24,8 @@ LINUX_EPHEMERAL = {"blacksmith-8vcpu-ubuntu-2404", LARGE, SMALL}
 BACKEND_SECRET_JOBS = (
     "vitess-development", "migrations-development", "preview", "deploy-staging",
     "deploy-development", "promote-gates", "promote-production", "rollback-production",
-    "chief-off-production", "deploy-production", "preview-cleanup",
+    "chief-off-production", "deploy-production", "preview-cleanup", "deploy-dashboard-staging",
+    "journey-preview", "journey-staging", "journey-production",
 )
 
 

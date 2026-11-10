@@ -2,7 +2,7 @@ import CmuxNextApps
 import CmuxNextCompat
 public import CmuxNextControl
 public import CmuxNextDaemon
-import Foundation
+public import Foundation
 import os
 
 // The launch snapshot (`launch-snapshot-v1`, plans/cmux-next/cmux-tui-contract.md):
@@ -11,24 +11,37 @@ import os
 extension DaemonService {
     /// Applies the daemon's launch snapshot as a provisional tree, so the
     /// first frame shows the last layout instead of the connecting state.
-    /// The path comes from the last handshake, else from the daemon's state
-    /// directory (`stateDirectory`, a tagged build's), so cleared defaults do
-    /// not lose the snapshot; a missing, stale or unreadable file shows
-    /// nothing. The file is small (the daemon caps it at 8 MiB) and local,
-    /// and reading it replaces waiting for the daemon, so it is read before
-    /// the first window.
-    func showLaunchSnapshot(session: String, stateDirectory: URL?) {
-        guard let path = launchSnapshotLocation.path(session: session)
-            ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else { return }
-        let snapshot: LaunchSnapshot
-        do { snapshot = try LaunchSnapshot.load(path: path, session: session) } catch {
-            logger.error("launch snapshot skipped: \(String(describing: error), privacy: .public)")
-            return
-        }
+    /// `snapshot` was read and decoded off the main thread (`LaunchSnapshot.saved`, started in `main`): this
+    /// runs on the main actor before the first window, and the file grows with the session (51 ms to read and
+    /// decode at 826 workspaces), so it never goes to the disk here. Nil (no file, a stale or unreadable one)
+    /// or the snapshot of another session shows nothing.
+    func showLaunchSnapshot(_ snapshot: LaunchSnapshot?, session: String) {
+        guard let snapshot, snapshot.session == session else { return }
         store.applyProvisional(snapshot: snapshot.tree)
         launchSnapshotWindows = snapshot.windows
-        launchSnapshotSidebarDoc = snapshot.sidebarDoc
+        receiveLaunchSnapshotSidebarDoc(snapshot.sidebarDoc)
         Self.launchMark("launch_snapshot_applied")
+    }
+
+    /// Keeps the launch snapshot's sidebar document for the sidebar document's start, or hands it to the one
+    /// that started already (`onLaunchSnapshotSidebarDoc`), so the first window's sidebar draws the document
+    /// (its pins and top items in the list) in its first frame rather than moving them there when the daemon answers.
+    func receiveLaunchSnapshotSidebarDoc(_ data: Data?) {
+        guard let data, let take = onLaunchSnapshotSidebarDoc else {
+            launchSnapshotSidebarDoc = data
+            return
+        }
+        onLaunchSnapshotSidebarDoc = nil
+        launchSnapshotSidebarDoc = nil
+        take(data)
+    }
+
+    /// Calls `take` once with the launch snapshot's sidebar document: now when the snapshot was applied already,
+    /// else when it is (`receiveLaunchSnapshotSidebarDoc`). Never without a document.
+    public func whenLaunchSnapshotSidebarDoc(_ take: @escaping @MainActor (Data) -> Void) {
+        guard let data = launchSnapshotSidebarDoc else { onLaunchSnapshotSidebarDoc = take; return }
+        launchSnapshotSidebarDoc = nil
+        take(data)
     }
 
     /// Records the snapshot path the local daemon reported, for the next launch.
@@ -45,14 +58,16 @@ extension DaemonService {
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false,
                                      echoesPlacementShift: Bool = false) -> DaemonPrestart? {
+        // App health's sink for the attempt; `start` forwards it to the service's own.
+        let health = DaemonHealthSink()
         guard let launcher = try? DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
-                                                webSocketPageOrigins: pageOrigins) else { return nil }
+                                                webSocketPageOrigins: pageOrigins, health: health) else { return nil }
         return DaemonPrestart(launcher: launcher, configuration: launcher.handingOffIncompatibleOwners(localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift,
-            requestLatency: newRequestLatency())))
+            requestLatency: newRequestLatency(), health: health)))
     }
 
     /// What the local daemon's supervisor needs from this app at launch: the
@@ -95,7 +110,8 @@ extension DaemonService {
     nonisolated static func localConfiguration(terminalEnvironment: (@Sendable () async -> [String: String])?,
                                                resolvesShellIntegration: Bool, installKey: FrontendInstallKey?,
                                                echoesPlacementShift: Bool, retryWake: RetryWake? = nil,
-                                               requestLatency: DaemonRequestLatency? = nil) -> DaemonConnection.Configuration {
+                                               requestLatency: DaemonRequestLatency? = nil,
+                                               health: DaemonHealthSink? = nil) -> DaemonConnection.Configuration {
         // sessionEvents: the state resources (closed history, workspace status,
         // tab records) come only through session.events (nxdog50).
         var configuration = DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
@@ -109,6 +125,7 @@ extension DaemonService {
         configuration.retry = .localReconnect
         configuration.echoesPlacementShift = echoesPlacementShift
         configuration.requestLatency = requestLatency
+        configuration.health = health
         return configuration
     }
 
@@ -134,6 +151,14 @@ extension DaemonService {
     /// not a retry, so terminals drawn from the snapshot attach at once.
     public func firstConnection() async {
         await withCheckedContinuation { connectionWaiters.append($0) }
+    }
+
+    /// The connection, waiting for the first one only while startup runs and still tries (a cold launch); nil
+    /// once startup gave up, for a service never started, and after a teardown. Those resume no later waiter, so
+    /// this never waits on them.
+    public func connectionOnceStarted() async -> DaemonConnection? {
+        if connection == nil, isStarting, startup == .connecting { await firstConnection() }
+        return connection
     }
 
     func resumeConnectionWaiters() {

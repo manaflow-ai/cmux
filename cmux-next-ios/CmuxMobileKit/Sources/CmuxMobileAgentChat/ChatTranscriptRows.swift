@@ -19,6 +19,12 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// says where what is shown starts instead of when the session started.
         case sessionStart(Date, earlier: Bool)
         case prompt(text: String, attachments: [AgentAttachment], at: Date, isLast: Bool)
+        /// The turn's prompt is another agent's message: its card (AgentIncomingCard), not the person's
+        /// bubble, with the images and files the prompt carried.
+        case incoming(AgentIncoming, attachments: [AgentAttachment], at: Date)
+        /// A message steered into the running turn, where it went in: the person's bubble, or
+        /// another agent's card (`incoming`). It takes none of the turn prompt's edit actions.
+        case steer(SteeredMessage)
         /// One block of the agent message `messageID` (the whole message is copied).
         case block(messageID: String, block: MarkdownBlock)
         case thought(text: String, isLive: Bool)
@@ -40,6 +46,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// The tagged ask a finished turn's answer ended on (the Mac's next-step card):
         /// `answer` once a prompt followed it (the card folds), `canAnswer` while its buttons send.
         case nextStep(NextStepAsk, answer: String?, canAnswer: Bool)
+        /// An acpmux "who else is working on these files" call (`toolCallID`) as its card
+        /// (`WhoElseCard`), in place of the tool row.
+        case whoElse(String, WhoElseCall)
     }
 
     /// The session line's text: "Session started …", or "Showing messages since …" when
@@ -70,6 +79,8 @@ struct ChatTurnContext: Equatable, Sendable {
     var choicesFor: String?
     /// The next turn's prompt: a next-step card this turn ended on folds to the answer it gave.
     var nextPrompt: String?
+    /// The tones the chat gave this turn's senders' sessions (`AgentTones`), by session id.
+    var senderTones: [String: Int] = [:]
 }
 
 /// A turn's rows, built once per change to the turn.
@@ -99,6 +110,11 @@ final class ChatTranscriptBuilder {
     private var memos: [String: Memo] = [:]
     private var parses: [String: MarkdownStreamParse] = [:]
     private var generation = 0
+    /// The chat's senders' tones: each session that sent a message, from when the chat first heard
+    /// from it (`AgentTones`, as the Mac tones a chat's agents).
+    private var tones = AgentTones()
+    private var senderFirstSeen: [String: Double] = [:]
+    private var senderTones: [String: Int] = [:]
     /// Turns built (tests: one per changed turn, not one per turn per update).
     private(set) var turnBuilds = 0
 
@@ -115,12 +131,14 @@ final class ChatTranscriptBuilder {
         out.reserveCapacity(turns.count)
         var followsActions = false
         let choicesFor = permissionBarHidden ? pendingPermission?.request.id : nil
+        assignSenderTones(turns)
         for (index, turn) in turns.enumerated() {
             let isLast = index == turns.count - 1
             let context = ChatTurnContext(isFirst: index == 0, isLast: isLast, earlierHistory: index == 0 && earlierHistory,
                                           followsActions: followsActions, askOpen: isLast && askOpen,
                                           choicesFor: isLast ? choicesFor : nil,
-                                          nextPrompt: isLast ? nil : Self.reply(turns[index + 1].prompt))
+                                          nextPrompt: isLast ? nil : Self.reply(turns[index + 1].prompt),
+                                          senderTones: turnTones(turn))
             let rows: ChatTurnRows
             if let memo = memos[turn.id], memo.context == context, memo.turn == turn,
                !memo.waitsForDiff || memo.diffVersion == diffs.version {
@@ -153,6 +171,48 @@ final class ChatTranscriptBuilder {
         last?.isActions == true ? 18 : 24
     }
 
+    /// `incoming` with each message's assigned tone.
+    private static func toned(_ incoming: AgentIncoming, _ tones: [String: Int]) -> AgentIncoming {
+        guard !tones.isEmpty else { return incoming }
+        var toned = incoming
+        for index in toned.messages.indices {
+            toned.messages[index].tone = toned.messages[index].senderID.flatMap { tones[$0] }
+        }
+        return toned
+    }
+
+    /// Records the sessions that first sent a message in `turns` and, when there is a new one, assigns
+    /// the chat's tones again. One look at each turn's senders, as the memo pass looks at each turn.
+    private func assignSenderTones(_ turns: [AgentTurn]) {
+        var added = false
+        for turn in turns {
+            for message in Self.incomingMessages(turn) {
+                guard let id = message.senderID, senderFirstSeen[id] == nil else { continue }
+                senderFirstSeen[id] = turn.promptAt.timeIntervalSince1970
+                added = true
+            }
+        }
+        guard added else { return }
+        senderTones = tones.assign(senderFirstSeen.map { AgentTones.Agent(id: $0.key, startedAt: $0.value) })
+    }
+
+    /// Other agents' messages in `turn`: its prompt's card, then the cards steered into it.
+    private static func incomingMessages(_ turn: AgentTurn) -> [AgentIncoming.Message] {
+        var out = turn.incoming?.messages ?? []
+        for case .steer(let steered) in turn.items {
+            out += steered.incoming?.messages ?? []
+        }
+        return out
+    }
+
+    private func turnTones(_ turn: AgentTurn) -> [String: Int] {
+        var out: [String: Int] = [:]
+        for message in Self.incomingMessages(turn) {
+            if let id = message.senderID, let tone = senderTones[id] { out[id] = tone }
+        }
+        return out
+    }
+
     private func buildTurn(_ turn: AgentTurn, context: ChatTurnContext) -> (rows: [ChatRow], waitsForDiff: Bool) {
         var rows: [ChatRow] = []
         var waits = false
@@ -165,15 +225,26 @@ final class ChatTranscriptBuilder {
         if context.isFirst {
             rows.append(ChatRow(id: "session-start", turnID: turnID, kind: .sessionStart(turn.promptAt, earlier: context.earlierHistory), gap: 0))
         }
-        rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
-                            kind: .prompt(text: turn.prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
-                            gap: context.isFirst ? 0 : (context.followsActions ? 18 : 24)))
+        // An inbox notice with nothing to show (AgentIncoming with no messages) draws no prompt row.
+        if turn.incoming?.messages.isEmpty != true {
+            rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
+                                kind: turn.incoming.map { .incoming(Self.toned($0, context.senderTones), attachments: turn.attachments, at: turn.promptAt) }
+                                    ?? .prompt(text: turn.prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
+                                gap: context.isFirst ? 0 : (context.followsActions ? 18 : 24)))
+        }
         let turnRows = turn.rows
         let running = turn.status == .running
+        // The agent's own wrap-up call (WrapUp.swift) is the card, not a row of its work, and goes
+        // before a tagged ask in its prose. Where nothing can answer it, it keeps its recap alone.
+        let wrote = turn.status == .completed ? NextStepAsk.lastWrapUp(turnRows) : nil
+        var wrapUp = wrote
+        if let ask = wrapUp, !ask.question.isEmpty, !context.isLast, context.nextPrompt == nil {
+            wrapUp = ask.recap.map { NextStepAsk(tag: ask.tag, recap: $0, question: "", detail: nil, options: [], rest: "") }
+        }
         // A finished turn's answer that ends on one tagged ask: the ask draws as a card under it.
         var nextStep: (rowID: String, ask: NextStepAsk)?
         // An earlier turn's card shows only with the reply that answered it (the Mac's rule).
-        if turn.status == .completed, context.isLast || context.nextPrompt != nil,
+        if wrote == nil, turn.status == .completed, context.isLast || context.nextPrompt != nil,
            let index = turnRows.lastIndex(where: { if case .message = $0 { true } else { false } }),
            case .message(_, let markdown) = turnRows[index], let ask = NextStepAsk.parse(markdown) {
             nextStep = (turnRows[index].id, ask)
@@ -198,9 +269,15 @@ final class ChatTranscriptBuilder {
             case .thought(_, let text):
                 add(row.id, .thought(text: text, isLive: running && isLastRow))
             case .tool(let call):
-                add(row.id, .tool(call))
+                if let whoElse = WhoElseCall(call) {
+                    add(row.id, .whoElse(call.id, whoElse))
+                } else if wrapUp == nil || !NextStepAsk.drawsWrapUp(call) {
+                    // A wrap-up call's row goes only where its card draws in its place.
+                    add(row.id, .tool(call))
+                }
             case .toolGroup(_, let calls):
-                add(row.id, .toolGroup(calls, turnRunning: running))
+                let shown = wrapUp == nil ? calls : calls.filter { !NextStepAsk.drawsWrapUp($0) }
+                if !shown.isEmpty { add(row.id, .toolGroup(shown, turnRunning: running)) }
             case .edit(let call):
                 if call.isRunning {
                     add(row.id, .edit(call, files: nil))
@@ -217,7 +294,14 @@ final class ChatTranscriptBuilder {
                 if let question = turn.question(id) { add(row.id, .question(question)) }
             case .subagents(_, let ids):
                 add(row.id, .subagents(ids))
+            case .steer(var message):
+                message.incoming = message.incoming.map { Self.toned($0, context.senderTones) }
+                add(row.id, .steer(message))
             }
+        }
+        if let wrapUp {
+            let answer = wrapUp.question.isEmpty ? nil : context.nextPrompt.map { wrapUp.chosenAnswer($0) }
+            add("n-\(turnID)", .nextStep(wrapUp, answer: answer, canAnswer: answer == nil && context.isLast))
         }
         if running, turnRows.needsWorkingIndicator, !context.askOpen {
             add("w-\(turnID)", .working(label: turn.retry?.label ?? "Working", since: turn.startedAt))
@@ -262,8 +346,17 @@ enum ChatNativeEligibility {
     /// Drawn natively: a native kind in its resting state at a standard text size. At
     /// accessibility sizes every row is SwiftUI (its views stack and wrap there); an open tool
     /// row, group or thought shows its SwiftUI view. `isOpen` reads a disclosure by key.
-    static func drawsNatively(_ row: ChatRow, accessibilitySize: Bool, wrapCode: Bool = false, isOpen: (String) -> Bool?) -> Bool {
+    /// `isSettling`: a disclosure the person just tapped, opening or closing (`ChatDisclosures.settle`):
+    /// its row is SwiftUI until the animation completes.
+    static func drawsNatively(_ row: ChatRow, accessibilitySize: Bool, wrapCode: Bool = false, isOpen: (String) -> Bool?,
+                              isSettling: (String) -> Bool = { _ in false }) -> Bool {
         guard !accessibilitySize, isCandidate(row.kind) else { return false }
+        switch row.kind {
+        case .tool(let call) where isSettling("tool-\(call.id)"): return false
+        case .toolGroup(let calls, _) where isSettling("group-\(calls.first?.id ?? "")"): return false
+        case .thought where isSettling("thought-\(row.id)"): return false
+        default: break
+        }
         switch row.kind {
         // The native snippet draws its lines unwrapped; with "Wrap code and diff lines" on, the
         // SwiftUI snippet wraps them.

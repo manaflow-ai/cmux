@@ -15,7 +15,7 @@ import { createContext, type ReactNode } from "react";
 import type { HunkReview } from "../changes/hunkReview";
 import type { AccessOffer } from "../accessOffer";
 import type { ChatAccount } from "../chatAccounts";
-import type { HarnessHealth } from "../HarnessHealthNotice";
+import type { HarnessHealth } from "../harnessHealthNoticeModel";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
 import type { RetryNote, RetryTarget } from "../subagents/retryState";
@@ -25,6 +25,15 @@ import type { RetryModel } from "./retryModelSections";
 import type { QueuedMessageActionsValue } from "./QueuedMessageCard";
 
 export type TurnActions = {
+  /// Cloud chats can fork their current machine and transcript into one sibling. The action is
+  /// intentionally latest-turn-only until platform checkpoint inputs are available.
+  tryAnotherApproach?: (throughSeq: number) => Promise<void>;
+  /// Back to before this turn (a sent prompt's rewind, MessageActions.tsx RewindButton): `ready`, the
+  /// prompt row ids whose turn has a whole-machine Cloud checkpoint taken before it ran, and `before`,
+  /// the rewind that puts the machine back to that checkpoint, settling with how long it took.
+  /// Absent where the chat is not a Cloud chat or the host serves no rewind (App.tsx
+  /// `cloudTurnRewind`), so no prompt draws it.
+  rewind?: { ready: ReadonlySet<string>; before(rowId: string): Promise<{ seconds: number }> };
   /// Fork the session through the turn whose summary event is `throughSeq`; absent when
   /// acpmux does not serve forks.
   fork?: (throughSeq: number) => void;
@@ -50,8 +59,10 @@ export type TurnActions = {
   /// The image `id` a prompt of this chat sent (its `images`), as a data URL; undefined when acpmux
   /// has none.
   promptImage?: (id: string) => Promise<string | undefined>;
-  /// Send a turn's prompt again (the last turn's Retry), preserving its attachments.
-  retry?: (rowId: string, prompt: string) => void;
+  /// Send a turn's prompt again (the last turn's Retry), preserving its attachments. It may settle
+  /// with whether the send went (never rejecting): a failed turn's card says Retry could not run
+  /// only for `false` (errorRecovery.ts); any other answer counts as sent.
+  retry?: (rowId: string, prompt: string) => unknown;
   /// A failed last turn's Retry (turnRetry.ts): acpmux's turn retry of the chat the row was drawn
   /// for, else `retry` where the turn has a prompt to send (`rowId`, `prompt`). Settles with the
   /// note a refusal leaves on the failure's card.
@@ -75,6 +86,13 @@ export type TurnActions = {
   /// path, so it shows as the reader's prompt and starts the next turn. Absent where the pane cannot
   /// send (View Only, a read-only pane); the card then draws no buttons.
   answer?: (text: string) => Promise<void>;
+  /// Who asks in this chat, the chat's agent by name (agents.ts `agentName`): an answer to its ask
+  /// quotes the ask under this name (nextStepAsk.ts `answerPrompt`).
+  asker?: string;
+  /// Scrolls to call `toolCallId`'s row and opens it, opening the fold and run that hold it (App.tsx
+  /// `showToolRow`): a turn waterfall's bar (TurnWaterfall.tsx). `startedAt` picks the call among
+  /// several with a reused id. False when no loaded row holds it.
+  showCall?: (toolCallId: string, startedAt?: number) => boolean;
   /// A waiting tagged-ask card hands its first answer to the composer's ⌘↩ on an empty prompt, the
   /// way the recap card's yes takes it (Composer.tsx `onEmptyCommandReturn`), so the composer's own
   /// rules hold: never in the Quick Composer (whose ⌘↩ opens a window), shell mode or a running turn.
@@ -128,6 +146,11 @@ export type TurnActions = {
 
 export const TurnActionsContext = createContext<TurnActions>({});
 
+/// The transcript's one Retry target (turns.ts retryTargetIn), which VirtualTranscript provides
+/// (App.tsx). Unset where a footer or a prompt draws on its own (a test, a gallery entry): a footer
+/// that offers Retry draws it, and a prompt draws none outside the Messages view.
+export const RetryTargetContext = createContext<{ promptId?: string; footerId?: string } | undefined>(undefined);
+
 /// The prompt Continue sends after a stopped turn. Claude Code and Codex both resume on a plain
 /// "continue"; it goes to the agent, never shown as UI. l10n-allow: a prompt to the agent, not UI
 export const CONTINUE_PROMPT = "Continue";
@@ -142,14 +165,26 @@ export const resumeThrough =
       () => undefined,
     );
 
+/// What an answer from a pane that moved to another chat since rejects with: the card says it was not
+/// sent. An error code, never shown.
+export const CHAT_CHANGED = "chat changed"; // l10n-allow: an error code for the card, never shown
+
 /// A tagged ask's answer (NextStepCard.tsx) through the composer's send (`chat.send`), as Continue
-/// sends its prompt. Settles once the send does; a send that fails says so on its own row.
+/// sends its prompt: the person's next message, in order behind anything already sent. Settles once
+/// the send does. A send that fails rejects, so the card says it was not sent and keeps its buttons:
+/// an answer is never dropped without a word (Leo, 2026-11-06: "I already replied to that"). One
+/// acpmux already took (its error is `taken`, direct.ts `send`: the turn it started failed, or the
+/// connection dropped after its echo) was sent: it is in the transcript, and sending it again would
+/// answer twice.
 export const answerThrough =
   (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) =>
   (text: string): Promise<void> =>
     callNative("chat.send", { text }).then(
       () => undefined,
-      () => undefined,
+      (error: unknown) => {
+        if ((error as { taken?: unknown } | null)?.taken === true) return;
+        throw error;
+      },
     );
 
 /// The prompt Compact sends: the harness's own slash command (Claude Code's and Codex's).

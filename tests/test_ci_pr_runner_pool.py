@@ -3213,9 +3213,12 @@ class IOSRouting(unittest.TestCase):
             def runs_since(self, workflow, since):
                 return {"test-ios.yml": [{"id": 1, "status": "in_progress"}, {"id": 2, "status": "completed"},
                                          {"id": 9, "status": "queued"}],
-                        "ios-screenshots.yml": [{"id": 3, "status": "queued"}], "cmux-next-ios-kit.yml": []}[workflow]
-        # Untitled runs are charged in full: two in flight, two simulators each.
-        self.assertEqual(ios_pool.ios_runs_since(Client(), "2026-09-24T10:00:00Z", exclude_run_id=9), 4)
+                        "ios-screenshots.yml": [{"id": 3, "status": "queued"}], "cmux-next-ios-kit.yml": [],
+                        "ios-reliability-matrix.yml": [{"id": 4, "status": "in_progress",
+                                                        "path": ".github/workflows/ios-reliability-matrix.yml"}]}[workflow]
+        # Untitled runs are charged in full: two in flight, two simulators each; the
+        # reliability matrix holds one simulator, like the kit.
+        self.assertEqual(ios_pool.ios_runs_since(Client(), "2026-09-24T10:00:00Z", exclude_run_id=9), 5)
 
     def test_in_flight_ios_runs_are_charged_what_their_title_needs(self):
         def title(package="simulator", family="both", runner="auto"):
@@ -3389,6 +3392,30 @@ class IOSRouting(unittest.TestCase):
         job["conclusion"] = "success"
         self.assertEqual(ios_pool.hold(kit, [job], MINI, None, NOW), ios_pool.Hold())
 
+    def test_matrix_phone_job_is_a_simulator_job(self):
+        # The phone cells hold the simulator only while they run, like the kit's job; read as a
+        # build, a finished phone job kept one runner and one simulator charged until the run ended.
+        workflow = yaml.safe_load((WORKFLOWS / "ios-reliability-matrix.yml").read_text())
+        self.assertEqual(workflow["jobs"]["runner"].get("name", "runner"), ios_pool.PICKER_JOB)
+        matrix = {"id": 1, "path": ".github/workflows/ios-reliability-matrix.yml", "run_attempt": 1}
+        job = {"name": workflow["jobs"]["ios"]["name"], "labels": [MINI, IOS_SIM],
+               "status": "in_progress", "runner_name": "mini-a-glaeda"}
+        self.assertEqual(ios_pool.hold(matrix, [job], MINI, None, NOW),
+                         ios_pool.Hold(0, 0, frozenset({"mini-a"})))
+        job["status"] = "completed"
+        job["conclusion"] = "success"
+        self.assertEqual(ios_pool.hold(matrix, [job], MINI, None, NOW), ios_pool.Hold())
+
+    def test_matrix_nightly_dispatch_may_take_the_owned_pool(self):
+        # The nightly arrives as a workflow_dispatch from main's copy (cmux#40397): GitHub fires
+        # `schedule` only from the default branch, so this file's own cron never runs.
+        steps = yaml.safe_load((WORKFLOWS / "ios-reliability-matrix.yml").read_text())["jobs"]["runner"]["steps"]
+        mint = next(step for step in steps if step.get("id") == "route-token")
+        pick = next(step for step in steps if step.get("id") == "pool")
+        for event in ("workflow_dispatch", "push"):
+            self.assertIn(f"github.event_name == '{event}'", mint["if"], event)
+            self.assertIn(f"github.event_name == '{event}'", pick["env"]["PR_XCODE_APP"], event)
+
     def test_live_placements_reads_markers_again_after_a_picker_finishes(self):
         title = "iOS tests · main · simulator · full suite · both · iOS default · on auto"
         runs = [{"id": n, "run_attempt": 1, "display_title": title,
@@ -3504,7 +3531,8 @@ class IOSRouting(unittest.TestCase):
             def runs_since(self, workflow, since):
                 return {"test-ios.yml": [{"id": n, "status": "in_progress", "run_attempt": 1,
                                           "display_title": title, "created_at": old} for n in (1, 2, 3)],
-                        "ios-screenshots.yml": [], "cmux-next-ios-kit.yml": []}[workflow]
+                        "ios-screenshots.yml": [], "cmux-next-ios-kit.yml": [],
+                        "ios-reliability-matrix.yml": []}[workflow]
         since = "2026-09-24T10:00:00Z"
         self.assertEqual(ios_pool.ios_runs_since(Client(), since, exclude_run_id=None), 6)
         placed = ios_pool.Placements(frozenset({2}))
@@ -3569,7 +3597,7 @@ class IOSRouting(unittest.TestCase):
         self.assertIn("::error::", err.getvalue())
         out = io.StringIO()
         with unittest.mock.patch("sys.stdout", out):
-            ios_pool.main(["--lane", "test-ios", "--swift-package", "CmuxSyncStore"], env={})
+            ios_pool.main(["--lane", "test-ios", "--swift-package", "CmuxHomeCore"], env={})
         outputs = dict(line.split("=", 1) for line in out.getvalue().splitlines())
         self.assertEqual((outputs["jobs"], outputs["sim_jobs"]), ("1", "0"))
 
@@ -3586,8 +3614,8 @@ class IOSRouting(unittest.TestCase):
         self.assertFalse(self.live(1, 2).persistent)
         self.assertTrue(self.live(2, 1, device_family="iphone").persistent)
         # A package run holds one machine and no simulator.
-        self.assertTrue(self.live(1, 0, swift_package="CmuxSyncStore").persistent)
-        self.assertFalse(self.live(0, 0, swift_package="CmuxSyncStore").persistent)
+        self.assertTrue(self.live(1, 0, swift_package="CmuxHomeCore").persistent)
+        self.assertFalse(self.live(0, 0, swift_package="CmuxHomeCore").persistent)
         # Not even a live read moves a non-default or blocked run.
         self.assertFalse(self.live(9, 9, variable="blacksmith-12vcpu-macos-26").persistent)
         self.assertFalse(self.live(9, 9, ios_version="26.4").persistent)
@@ -3616,7 +3644,7 @@ class IOSRouting(unittest.TestCase):
         title = "iOS tests · main · {} · all · {} · default · on {}"
         fresh = pool.iso(NOW - dt.timedelta(minutes=1))
         recent = [{"display_title": title.format("simulator", "iphone", "auto"), "created_at": fresh},  # 2, 1 sim
-                  {"display_title": title.format("CmuxSyncStore", "all", "auto"), "created_at": fresh},  # 1, 0
+                  {"display_title": title.format("CmuxHomeCore", "all", "auto"), "created_at": fresh},  # 1, 0
                   {"display_title": title.format("simulator", "all", "blacksmith-6vcpu-macos-26")},  # none
                   {"display_title": "iOS screenshots"}]  # unparsed: in full
         # Unread runs are charged their whole need, and neither count goes below zero.
@@ -4182,6 +4210,59 @@ class SharedRunnerStateTests(unittest.TestCase):
             snapshot = client.snapshot(now=now)
         self.assertEqual(snapshot["generated_at"], document["queue_snapshot"]["snapshot"]["generated_at"])
 
+    def test_expired_runner_capacity_does_not_discard_valid_queue_evidence(self):
+        observed = NOW - dt.timedelta(minutes=10)
+        document = self.queue_document(observed, created=observed, generated=observed)
+        client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(document)}), \
+                unittest.mock.patch.object(client, "get", side_effect=AssertionError("artifact list")), \
+                unittest.mock.patch.object(client, "download", side_effect=AssertionError("artifact zip")):
+            self.assertIsNone(pool.runner_state("manaflow-ai/cmux", now=NOW))
+            snapshot = client.snapshot(now=NOW)
+        self.assertEqual(snapshot, document["queue_snapshot"]["snapshot"])
+        self.assertEqual(snapshot["generated_at"], pool.iso(observed))
+
+    def test_queue_and_roster_expiry_are_checked_independently(self):
+        for roster_age, queue_age, accepted in (
+                (301, 301, True), (45 * 60, 45 * 60, True),
+                (10 * 60, 45 * 60 + 1, False), (60, 45 * 60 + 1, False),
+                (45 * 60 + 1, 60, False)):
+            with self.subTest(roster_age=roster_age, queue_age=queue_age):
+                queued = NOW - dt.timedelta(seconds=queue_age)
+                document = self.queue_document(NOW - dt.timedelta(seconds=roster_age),
+                                               created=queued, generated=queued)
+                client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+                with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(document)}), \
+                        unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get, \
+                        unittest.mock.patch.object(client, "download", side_effect=AssertionError("artifact zip")):
+                    snapshot = client.snapshot(now=NOW)
+                    self.assertEqual(pool.runner_state("manaflow-ai/cmux", now=NOW) is not None,
+                                     roster_age <= pool.RUNNER_STATE_MAX_AGE_SECONDS)
+                self.assertEqual(snapshot is not None, accepted)
+                self.assertEqual(get.call_count, 0 if accepted else 1)
+
+    def test_expired_roster_keeps_queue_trust_checks(self):
+        observed = NOW - dt.timedelta(minutes=10)
+        for change in ("fork", "wrong branch", "expired", "naive time", "unapproved group"):
+            with self.subTest(change=change):
+                document = self.queue_document(observed, created=observed, generated=observed)
+                artifact = document["queue_snapshot"]["artifact"]
+                if change == "fork":
+                    artifact["workflow_run"]["head_repository_id"] = 2
+                elif change == "wrong branch":
+                    artifact["workflow_run"]["head_branch"] = "feature"
+                elif change == "expired":
+                    artifact["expired"] = True
+                elif change == "naive time":
+                    artifact["created_at"] = observed.strftime("%Y-%m-%dT%H:%M:%S")
+                else:
+                    document["runner_groups"]["unapproved"] = []
+                client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
+                with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(document)}), \
+                        unittest.mock.patch.object(client, "get", return_value={"artifacts": []}) as get:
+                    self.assertIsNone(client.snapshot(now=NOW))
+                get.assert_called_once()
+
     def test_embedded_queue_snapshot_rejects_stale_artifact_without_redating(self):
         now = dt.datetime.now(dt.timezone.utc)
         client = pool.GitHub("synthetic-token", "manaflow-ai/cmux")
@@ -4329,17 +4410,6 @@ class SharedRunnerStateTests(unittest.TestCase):
             self.assertIsNotNone(rows)
             self.assertEqual(picker.idle_runner(rows), picker.FLEET)
 
-    def test_nightly_control_picker_selects_linux_from_document_without_live_read(self):
-        import nightly_next_control_runner as picker
-        doc = self.linux_document()
-        env = {"ROUTE_TOKEN": "synthetic-token", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-               "CI_CONTROL_CANDIDATE": "cmux-fleet-linux-x64"}
-        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
-                unittest.mock.patch.object(pool.GitHub, "get_api", side_effect=AssertionError("live read")):
-            rows = picker.read_live(env)
-            self.assertIsNotNone(rows)
-            self.assertEqual(picker.idle_runner(rows, picker.candidates(env)), "cmux-fleet-linux-x64")
-
     def test_portable_live_capacity_accepts_linux_from_document(self):
         import portable_job_placement as picker
         doc = self.linux_document()
@@ -4387,8 +4457,7 @@ class SharedRunnerStateTests(unittest.TestCase):
             "ios-internal-nightly.yml": ("ios_internal_runner.py",),
             "cmux-next-guards.yml": ("portable_job_placement.py",),
             "cmux-tui-artifacts.yml": ("portable_job_placement.py",),
-            "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py",
-                             "nightly_sign_runner.py", "signing_runner.py"),
+            "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py", "signing_runner.py"),
         }
 
         def mappings(value):

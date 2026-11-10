@@ -34,6 +34,22 @@ impl Mux {
         *self.tab_changed_after_decorations.lock().unwrap_or_else(|e| e.into_inner()) = hook;
     }
 
+    /// The next `count` hosted readers' frame demultiplexers fail to start,
+    /// as a failed socket clone or thread spawn does.
+    #[cfg(test)]
+    pub(crate) fn fail_host_frames_spawns_for_test(&self, count: u64) {
+        self.host_frames_spawn_failures.store(count, Ordering::Release);
+    }
+
+    /// Whether this frame demultiplexer start fails
+    /// ([`Self::fail_host_frames_spawns_for_test`]).
+    #[cfg(test)]
+    pub(crate) fn take_host_frames_spawn_failure_for_test(&self) -> bool {
+        self.host_frames_spawn_failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(1))
+            .is_ok()
+    }
+
     #[cfg(test)]
     pub(super) fn last_resource_mutation_metrics(&self) -> ResourceMutationMetrics {
         self.resource_mutation_metrics
@@ -139,6 +155,52 @@ impl Mux {
             serde_json::json!({}),
         )?;
         Ok(surface.id)
+    }
+
+    /// Makes `surface`, a live hosted runtime a test built for seeded terminal
+    /// `terminal` (`seed_running_terminal_for_test`, same host identity), the
+    /// terminal's catalog runtime in place of its placeholder, and a session
+    /// surface, so its publications and host-link callbacks find it. A fresh
+    /// surface id: one the mux has not handed out.
+    #[cfg(all(test, unix))]
+    pub(crate) fn install_live_terminal_runtime_for_test(
+        &self,
+        terminal: &TerminalPublicId,
+        surface: Arc<Surface>,
+    ) -> anyhow::Result<()> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.remove_catalog_terminal(terminal);
+        state.insert_catalog_terminal(terminal, &surface)?;
+        insert_surface_checked(&mut state, surface)
+    }
+
+    /// A surface id the mux has not handed out.
+    #[cfg(all(test, unix))]
+    pub(crate) fn next_surface_id_for_test(&self) -> SurfaceId {
+        self.next_id()
+    }
+
+    /// Commits host terminal `terminal_id` to `lifecycle` with `incarnation`,
+    /// as adoption does (Adopting, then Running once its runtime is live).
+    #[cfg(all(test, unix))]
+    pub(crate) fn commit_terminal_lifecycle_for_test(
+        &self,
+        terminal_id: &str,
+        lifecycle: TerminalLifecycle,
+        incarnation: &str,
+    ) -> anyhow::Result<()> {
+        let event_kind = match lifecycle {
+            TerminalLifecycle::Adopting => "terminal-adopting",
+            _ => "terminal-ready",
+        };
+        self.transition_terminal_lifecycle(
+            event_kind,
+            "test-terminal-lifecycle",
+            terminal_id,
+            lifecycle,
+            Some(incarnation),
+        )
+        .map(drop)
     }
 
     #[cfg(test)]

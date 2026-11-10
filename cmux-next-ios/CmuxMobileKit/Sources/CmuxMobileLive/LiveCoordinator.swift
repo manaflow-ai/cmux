@@ -30,7 +30,7 @@ public final class LiveCoordinator {
     public private(set) var presenceConnected = false
     public internal(set) var chiefStatus: String?
     /// Pairing with the linked Mac (verify/phone-approvals.md): the Mac asks the
-    /// user the first time; Allow then signs with Face ID.
+    /// user the first time; Allow then signs with the approval key.
     public internal(set) var pairingState: LinkPairing.State = .idle
     /// The last time the phone moved to another team because one of the
     /// account's Macs is there (the shell shows a toast).
@@ -144,6 +144,9 @@ public final class LiveCoordinator {
     @ObservationIgnored private let snapshots: LiveSnapshotStore
     @ObservationIgnored private var snapshot: LiveSnapshot?
     @ObservationIgnored private var snapshotSavePending = false
+    /// The spaces on screen are the launch snapshot's one space, not the account's list yet
+    /// (Stack's team list has not answered): a pairing code is not judged against them.
+    @ObservationIgnored private(set) var spacesFromSnapshot = false
     /// The team whose registration, Macs and presence are running or done.
     @ObservationIgnored private var startedTeamID: String?
     /// The team the Feed's items came from. Feed items carry no Mac, so on a switch they
@@ -211,6 +214,8 @@ public final class LiveCoordinator {
         // The Feed as this phone last saw it; the Mac's history merges in on connect.
         let archive = FeedArchive.forAccount(userID)
         feedStore.useReadMarks(readMarks ?? .forAccount(userID))
+        // Events past the Feed's window wait on disk while the app runs, not in memory.
+        feedStore.useSpill(.inCaches("feed", scope: userID))
         feedStore.replaceAll(archive.load())
         feedStore.onItemsChange = { [weak self] items in
             self?.scheduleFeedSave(archive)
@@ -288,15 +293,18 @@ public final class LiveCoordinator {
         case .lost:
             log.info("network lost")
             ConnectTimeline.shared.mark("network_lost")
+            // The offline banner and the Workspaces page's offline wording (CMUX-49).
+            if !store.isOffline { store.isOffline = true }
         case .changed(let path):
             log.info("network changed: \(path, privacy: .public)")
+            if store.isOffline { store.isOffline = false }
             presence?.kick()
             guard let teamID = registeredTeamID else { return }
             // Every link roams in place (one signaling socket carries them all);
             // one controller asks the dialer, the others only redial a failed link.
             focused.link.networkChanged(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
             for session in sessions.values where session !== focused {
-                if case .waiting = session.link.phase { session.link.send(.foreground) }
+                session.link.send(.networkChanged)
             }
         }
     }
@@ -313,6 +321,7 @@ public final class LiveCoordinator {
         self.snapshot = snapshot
         store.teams = [Team(id: snapshot.teamID, name: snapshot.teamName, macs: snapshot.macs)]
         store.activeTeamID = snapshot.teamID
+        spacesFromSnapshot = true
         var workspaces: [Workspace] = []
         for mac in snapshot.macs {
             guard let saved = snapshot.workspaces[mac.id] else { continue }
@@ -375,6 +384,7 @@ public final class LiveCoordinator {
         // A team the phone already shows (picked, or followed to a Mac) stays active.
         let keep = list.contains { $0.id == store.activeTeamID } ? store.activeTeamID : selectedID
         store.applyLiveTeams(list, selectedID: keep)
+        spacesFromSnapshot = false
         activeTeamChanged()
         for team in list { loadPrefs(team.id) }
         if discoveryTask == nil { startDiscovery() }
@@ -458,8 +468,10 @@ public final class LiveCoordinator {
         } catch {
             guard !Task.isCancelled else { return }
             log.error("team start failed: \(String(describing: error), privacy: .public)")
-            // A warm start keeps its cached list; the retry below catches up.
-            if !warm { store.teamDataState = .failed }
+            // Failed either way: a warm start's cached rows stay on screen
+            // (WorkspacesLaunchState keeps them and says they are the last known);
+            // the retry below catches up.
+            store.teamDataState = .failed
             // Try again on its own (the list's Retry also works).
             do { try await clock.sleep(for: .seconds(5)) } catch { return }
             guard store.activeTeamID == teamID, registeredTeamID == nil || warm else { return }
@@ -806,7 +818,7 @@ public final class LiveCoordinator {
     }
 
     /// Signs Chief question answers for the linked Mac with this phone's
-    /// approval key (Face ID); nil without pairing keys or a paired Mac.
+    /// approval key; nil without pairing keys or a paired Mac.
     public func chiefAnswerSigner() -> ChiefAnswerSigner? {
         guard let pairing, let macID = link.target?.macID, focused.pairingState == .paired else { return nil }
         return ChiefAnswerSigner(keys: pairing.keys, macDevice: macID, phoneID: pairing.phoneID)

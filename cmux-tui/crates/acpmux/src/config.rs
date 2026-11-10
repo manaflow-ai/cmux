@@ -288,7 +288,7 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
 }
 
 #[cfg(unix)]
-fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> {
+pub(crate) fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     let metadata = file.metadata()?;
@@ -327,6 +327,25 @@ pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .with_context(|| format!("open private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
+/// Create an owner-only state file without following a pre-positioned final
+/// symlink. Callers can distinguish an existing incident archive through the
+/// `AlreadyExists` error, so this deliberately does not open existing files.
+#[cfg(unix)]
+pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    refuse_lost_home(path)?;
+
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("create private state file {}", path.display()))?;
     validate_private_state_file(&file, path)?;
     Ok(file)
 }
@@ -453,6 +472,11 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
 #[cfg(windows)]
 pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
     Ok(crate::owner_only::open_rw(path)?)
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::create_new(path)?)
 }
 
 #[cfg(windows)]
@@ -832,54 +856,6 @@ pub fn turn_cut(name: &str, profile: &HarnessProfile) -> Option<TurnCut> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-#[derive(Default)]
-pub enum StoreMode {
-    Memory,
-    #[default]
-    Local,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct StoreConfig {
-    #[serde(default)]
-    pub mode: StoreMode,
-    /// Segment roll size in bytes for the event log.
-    #[serde(default = "default_segment_bytes")]
-    pub segment_bytes: u64,
-    /// Days a closed chat's event log is kept whole (`hub/retention.rs`): after them, the
-    /// harness's raw lines and long tool output are removed from it, the chat's messages kept.
-    /// Default 14; 0 keeps every log whole.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub closed_log_days: Option<u32>,
-}
-
-impl StoreConfig {
-    /// How long a closed chat's log is kept whole; None: always.
-    pub fn closed_log_retention(&self) -> Option<std::time::Duration> {
-        match self.closed_log_days.unwrap_or(14) {
-            0 => None,
-            days => Some(std::time::Duration::from_secs(u64::from(days) * 86_400)),
-        }
-    }
-}
-
-fn default_segment_bytes() -> u64 {
-    8 * 1024 * 1024
-}
-
-impl Default for StoreConfig {
-    fn default() -> Self {
-        Self {
-            mode: StoreMode::Local,
-            segment_bytes: default_segment_bytes(),
-            closed_log_days: None,
-        }
-    }
-}
-
 /// Permission policy applied when no attached client answers.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -893,6 +869,11 @@ pub enum PermissionPolicy {
     /// Claude Code's "accept edits" without needing Claude's own mode.
     ApproveEdits,
     DenyAll,
+    /// A reviewer's read-only shell: what approve-reads approves runs unasked (reads, searches
+    /// and read-only shell commands such as `git log`, `git diff`, `grep`, `rg`, `ls`, `cat`,
+    /// `sed -n`, `hub/shell_readonly.rs`), and every other tool call is denied at once, so a
+    /// session with no person to ask never waits.
+    Review,
 }
 
 impl std::str::FromStr for PermissionPolicy {
@@ -904,6 +885,7 @@ impl std::str::FromStr for PermissionPolicy {
             "approve-reads" => Ok(Self::ApproveReads),
             "approve-edits" | "accept-edits" => Ok(Self::ApproveEdits),
             "deny-all" => Ok(Self::DenyAll),
+            "review" => Ok(Self::Review),
             other => Err(format!("unknown permission policy: {other}")),
         }
     }
@@ -917,6 +899,7 @@ impl std::fmt::Display for PermissionPolicy {
             Self::ApproveReads => "approve-reads",
             Self::ApproveEdits => "approve-edits",
             Self::DenyAll => "deny-all",
+            Self::Review => "review",
         };
         f.write_str(s)
     }
@@ -1078,7 +1061,8 @@ pub struct SessionResourceConfig {
     pub sessions_tasks_max: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
     /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
-    /// overrides it, a profile's env overrides both. Unset: `background`.
+    /// overrides it, a profile's env overrides both. Unset: `background`, or `normal` for a
+    /// Claude Code launcher (`cpu_class::default_for`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
 }
@@ -1149,6 +1133,111 @@ impl ArtifactsSyncConfig {
     }
 }
 
+/// Persisted cmux-added prompt overrides. The `user` value applies to every new
+/// session on this daemon; project entries are keyed by a canonical working directory.
+/// Harness-owned prompts never live here: this store contains only text the user explicitly
+/// added through the Context viewer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub projects: BTreeMap<String, String>,
+    /// Overrides of a verified preset prompt, kept separate for each preset name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub preset_prompts: BTreeMap<String, ContextPromptOverrides>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextPromptOverrides {
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub projects: BTreeMap<String, String>,
+}
+
+impl ContextPromptOverrides {
+    pub fn for_project(&self, cwd: &Path) -> Option<&str> {
+        self.projects
+            .get(&ContextOverrides::project_key(cwd))
+            .map(String::as_str)
+            .or(self.user.as_deref())
+    }
+}
+
+impl ContextOverrides {
+    pub fn is_empty(&self) -> bool {
+        self.user.is_none() && self.projects.is_empty() && self.preset_prompts.is_empty()
+    }
+
+    pub fn project_key(cwd: &Path) -> String {
+        std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned()).to_string_lossy().into_owned()
+    }
+
+    pub fn for_project(&self, cwd: &Path) -> Option<(&str, &str)> {
+        let key = Self::project_key(cwd);
+        self.projects
+            .get(&key)
+            .map(|text| ("project", text.as_str()))
+            .or_else(|| self.user.as_deref().map(|text| ("user", text)))
+    }
+
+    pub fn set(
+        &mut self,
+        scope: &str,
+        cwd: Option<&Path>,
+        text: Option<String>,
+    ) -> Result<(), String> {
+        match scope {
+            "user" => self.user = text,
+            "project" => {
+                let cwd = cwd.ok_or("cwd is required for a project override")?;
+                let key = Self::project_key(cwd);
+                if let Some(text) = text {
+                    self.projects.insert(key, text);
+                } else {
+                    self.projects.remove(&key);
+                }
+            }
+            _ => return Err("scope must be user or project".into()),
+        }
+        Ok(())
+    }
+
+    pub fn set_preset(
+        &mut self,
+        preset: &str,
+        scope: &str,
+        cwd: Option<&Path>,
+        text: Option<String>,
+    ) -> Result<(), String> {
+        if scope != "user" && scope != "project" {
+            return Err("scope must be user or project".into());
+        }
+        if scope == "project" && cwd.is_none() {
+            return Err("cwd is required for a project override".into());
+        }
+        let values = self.preset_prompts.entry(preset.into()).or_default();
+        match scope {
+            "user" => values.user = text,
+            "project" => {
+                let key = Self::project_key(cwd.ok_or("cwd is required for a project override")?);
+                if let Some(text) = text {
+                    values.projects.insert(key, text);
+                } else {
+                    values.projects.remove(&key);
+                }
+            }
+            _ => return Err("scope must be user or project".into()),
+        }
+        if values.user.is_none() && values.projects.is_empty() {
+            self.preset_prompts.remove(preset);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -1170,6 +1259,9 @@ pub struct Config {
     pub write_journal: WriteJournalConfig,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
+    /// User and project cmux-added context shown in the Context viewer and captured for new sessions.
+    #[serde(default, skip_serializing_if = "ContextOverrides::is_empty")]
+    pub context_overrides: ContextOverrides,
     /// More login-shell variables agents get, beyond the allow-list
     /// (`login_env::allowed`): exact names or `PREFIX_*`. Default empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1944,13 +2036,14 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 mod nested_env;
+pub(crate) use nested_env::inherited_caller_scoped_keys;
 #[cfg(windows)]
 pub(crate) use nested_env::nested_claude_keys;
 pub use nested_env::{
     CHIEF_CREDENTIAL_ENV, LAUNCH_CREDENTIAL_ENV, scrub_nested_claude_env,
     scrub_nested_claude_env_for, scrub_nested_claude_env_tokio, scrub_nested_claude_env_tokio_for,
 };
-pub(crate) use nested_env::{inherited_caller_scoped_keys, is_nested_claude_key};
+pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
 pub(crate) use launchers::which;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
@@ -1965,6 +2058,8 @@ pub use discover::{
 };
 mod peer;
 pub use peer::PeerConfig;
+mod store_config;
+pub use store_config::{StoreConfig, StoreMode};
 mod pool;
 pub use pool::PoolConfig;
 mod btw;

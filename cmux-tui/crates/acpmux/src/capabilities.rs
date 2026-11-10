@@ -117,6 +117,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
     // older daemons treat that field as legacy side-session input, so this id gates the shape.
     Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },
+    // A guest from another harness: `_acpmux/btw` with `targetHarness` answers from that
+    // harness, gated on its own folder trust. Older daemons ignore the field and ask the chat's own.
+    Capability { id: "btw-guest-v1", wire: &[method::MUX_BTW] },
     // Owner-VM Codex app-server bridge: access-only external tokens are read
     // from the private broker file and never exposed through ACP frames.
     Capability {
@@ -126,6 +129,13 @@ pub const CAPABILITIES: &[Capability] = &[
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.
     Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
+    // Who else works on these files, topic, branch or folder, here and on peers
+    // (`hub/touched.rs`).
+    Capability { id: "who-else-v1", wire: &[method::MUX_WHO_ELSE] },
+    // What turns cost, indexed by day and session (`hub/ledger`).
+    Capability { id: "cost-ledger-v1", wire: &[method::MUX_LEDGER] },
+    // The team's agent spend from cmux-platform (`server/chats/team_audit.rs`).
+    Capability { id: "team-audit-v1", wire: &[method::MUX_TEAM_AUDIT] },
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
     Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
@@ -188,6 +198,13 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "agent-hold-v1", wire: &[method::MUX_AGENT_HOLD] },
     // Retry a chat's failed last turn now: the Retry button (`hub/auto_resume/retry_turn.rs`).
     Capability { id: "turn-retry-v1", wire: &[method::MUX_RETRY] },
+    // The sudo card (`hub/elevation.rs`): `elevation_request` / `elevation_decision` records, and
+    // an approver-signed `secret_submit` that answers one. A phone asks for those kinds only
+    // under this id, since an older peer refuses an attach with more than 8 kinds.
+    Capability {
+        id: "elevation-cards-v1",
+        wire: &[method::MUX_ELEVATION_REQUEST, method::MUX_SECRET_SUBMIT],
+    },
     // `_acpmux/retry` with `subagentId`: resume a failed subagent now
     // (`hub/subagent_retry_manual.rs`). A daemon without this id does not
     // retry a subagent, so the pane shows a subagent's Retry button only
@@ -243,6 +260,10 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "agent-session-turn-rewind-v1",
         wire: &[method::AGENT_SESSION_TURN_PREPARE, method::AGENT_SESSION_TURN_ABANDON],
     },
+    // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
+    Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
+    // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
+    Capability { id: "prompt-coach-v1", wire: &[method::MUX_PROMPT_COACH] },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",

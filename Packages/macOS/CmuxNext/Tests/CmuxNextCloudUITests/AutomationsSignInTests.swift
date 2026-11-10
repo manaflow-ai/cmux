@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextCloudUI
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import SwiftUI
 import Testing
@@ -8,7 +9,7 @@ import Testing
 /// Lawrence, msg 3790: "everywhere we say sign in, we need to have a button for signing in". The
 /// Automations page's "Sign in to cmux to see your Cloud automations." line shows the shared Sign In
 /// button when the app gives the page a sign-in, and only on that line.
-@MainActor @Suite(.serialized) struct AutomationsSignInTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AutomationsSignInTests {
     @Test func onlyCloudsSignedOutLineOffersSignIn() {
         let actions = AutomationsPageView.Actions(signIn: {})
         #expect(AutomationsPageView.signIn(for: .cloud, code: "automation.signed_out", actions: actions) != nil)

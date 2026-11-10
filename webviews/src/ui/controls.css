@@ -69,20 +69,29 @@
   height: var(--ds-icon-14);
 }
 
-/* ghost: nothing at rest; the hover fill on its own box. */
+/* ghost: nothing at rest, the hover fill under the pointer, the pressed fill while held or while
+   its menu is open (design-tokens.md section 1: hoverFill, then pressedFill). Hover went straight to
+   the pressed fill, so a press showed nothing new. */
 .ui-btn[data-variant="ghost"] {
   background: transparent;
+}
+.ui-btn[data-variant="ghost"]:hover:not([data-disabled], [data-popup-open]) {
+  background: var(--ds-color-hover);
 }
 /* subtle (the default): a quiet fill at rest, one step stronger on hover. */
 .ui-btn[data-variant="subtle"] {
   background: var(--ds-color-hover);
 }
-.ui-btn:is([data-variant="ghost"], [data-variant="subtle"]):hover:not([data-disabled]),
-.ui-btn:is([data-variant="ghost"], [data-variant="subtle"])[data-popup-open] {
+.ui-btn[data-variant="subtle"]:hover:not([data-disabled], [data-popup-open]) {
   background: var(--ds-color-pressed);
 }
-.ui-btn:is([data-variant="ghost"], [data-variant="subtle"]):active:not([data-disabled]) {
+.ui-btn:is([data-variant="ghost"], [data-variant="subtle"])[data-popup-open],
+.ui-btn[data-variant="ghost"]:active:not([data-disabled]) {
   background: var(--ds-color-pressed);
+}
+/* A held subtle button goes one step past its hover, the same distance the ghost one moves. */
+.ui-btn[data-variant="subtle"]:active:not([data-disabled]) {
+  background: color-mix(in srgb, var(--ds-color-fg) 6%, var(--ds-color-pressed));
 }
 /* solid: the theme accent (the text colour unless the theme names a hue; never system blue). */
 .ui-btn[data-variant="solid"] {
@@ -101,8 +110,62 @@
   background: var(--ds-color-danger);
   color: var(--ds-color-on-accent);
 }
+/* Keep destructive solids in the danger colour family while hovering or holding a popup open. */
+.ui-btn[data-danger][data-variant="solid"]:hover:not([data-disabled]),
+.ui-btn[data-danger][data-variant="solid"][data-popup-open] {
+  background: color-mix(in srgb, var(--ds-color-danger) 88%, var(--ds-color-on-accent));
+}
 .ui-btn[data-disabled] {
   opacity: 0.4;
+}
+
+/* A dialog button's keycap (ui/DialogButton) in a shared button: caption size in the button's own ink,
+   quieter, in every host (the agent pane loads no ui.css). */
+.ui-btn .ui-keyhint {
+  font: inherit;
+  color: inherit;
+  font-size: var(--text-caption);
+  line-height: 1;
+  opacity: 0.6;
+}
+
+/* SELECT TRIGGER: a Select given `buttonClassName="ui-btn"` is a subtle button with its value and a
+   chevron, the height, radius, fill and type of every other button beside it. Here, not in ui.css, so
+   the agent pane (which loads no ui.css) draws it the same: without this its trigger was the
+   browser's grey bezel with no chevron (Leo, 2026-11-07, the Share dialog: "all the buttons are weird"). */
+.ui-button.ui-btn.ui-select-button {
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding-inline: var(--ds-space-3) var(--ds-space-2);
+  background: var(--ds-color-hover);
+}
+.ui-button.ui-btn.ui-select-button:hover:not([data-disabled]),
+.ui-button.ui-btn.ui-select-button[data-popup-open] {
+  background: var(--ds-color-pressed);
+}
+.ui-button.ui-btn.ui-select-button:active:not([data-disabled]) {
+  background: color-mix(in srgb, var(--ds-color-fg) 6%, var(--ds-color-pressed));
+}
+.ui-btn.ui-select-button:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: 1px;
+}
+.ui-btn.ui-select-button :where(.ui-select-value) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-btn.ui-select-button :where(.ui-select-chevron) {
+  flex: none;
+  /* ui.css's chevron: a 6 px corner turned down. */
+  width: calc(var(--ds-space-1) * 1.5);
+  height: calc(var(--ds-space-1) * 1.5);
+  border-block-end: 1.5px solid currentColor;
+  border-inline-end: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  opacity: 0.65;
 }
 
 /* SWITCH: track and thumb from the control scale; the thumb is inset 2 (grid.md's half-step). */
@@ -196,8 +259,9 @@
 .ui-input[data-variant="outline"] {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-separator);
 }
-.ui-input:is([data-variant="filled"], [data-variant="outline"])[data-focused],
-.ui-input:is([data-variant="filled"], [data-variant="outline"]):focus {
+/* Its edge steps up only for focus the keyboard moved here (FOCUS-RING, ui/focusModality.ts); Base
+   UI's `data-focused` is set by any focus, a click's too, so it is not the gate. */
+.ui-input:is([data-variant="filled"], [data-variant="outline"]):focus-visible {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-muted);
 }
 .ui-input[data-disabled] {

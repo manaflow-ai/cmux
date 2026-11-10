@@ -174,33 +174,6 @@ struct CloudMachineChangeStateTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func aStartWaitsForANewMachineToRun() async throws {
-        let services = MachineIconTests.services()
-        let session = CloudMachineSession(machine: CloudMachine(id: "booting", status: .provisioning),
-            appLink: CloudLinkSession(key: CloudLinkKey(machine: "booting"), resolver: StartingLinkResolver()),
-            localIdentity: { nil }, mainWork: services.mainWork)
-        defer { session.disconnect() }
-        var reads = 0
-        session.refresher = { force in
-            #expect(force)
-            reads += 1
-            if reads == 3 { session.machine.status = .running }
-        }
-        await session.untilRunning(pause: { _ in await Task.yield() })
-        #expect(reads == 3 && session.machine.status == .running, "the start stopped reading before the machine ran")
-        reads = 0
-        session.machine.status = .provisioning
-        session.refresher = { _ in reads += 1; session.machine.status = .failed }
-        await session.untilRunning(pause: { _ in await Task.yield() })
-        #expect(reads == 1, "a machine that failed while provisioning is not read again")
-        reads = 0
-        session.machine.status = .provisioning
-        session.refresher = { _ in reads += 1 }
-        await session.untilRunning(pause: { _ in session.machine.status = .running })
-        #expect(reads == 0, "a machine another read saw running during the pause is not read again")
-    }
-
-    @Test(.timeLimit(.minutes(1)))
     func runningBeforeResumeAcknowledgementConnectsWhenPendingClears() async throws {
         let services = MachineIconTests.services()
         let cloud = services.cloud
@@ -228,14 +201,14 @@ struct CloudMachineChangeStateTests {
         #expect(await resolver.attempts == 1, "later identical records do not restart the connection")
     }
 
-    @Test func transitionsRejectUserConnectAttachAndActionCallers() async throws {
+    @Test func transitionsKeepPauseAndDeleteClosedToUserConnect() async throws {
         let services = MachineIconTests.services()
         let resolver = StartingLinkResolver()
         let session = CloudMachineSession(machine: CloudMachine(id: "transition-gate", status: .running),
             appLink: CloudLinkSession(key: CloudLinkKey(machine: "transition-gate"), resolver: resolver),
             localIdentity: { nil }, mainWork: services.mainWork)
         defer { session.disconnect() }
-        for status: CloudMachine.Status in [.pausing, .starting, .deleting] {
+        for status: CloudMachine.Status in [.pausing, .deleting] {
             session.machine.pendingChange = status
             session.connect(origin: .user)
             session.attach(origin: .user)
@@ -244,6 +217,43 @@ struct CloudMachineChangeStateTests {
             #expect(throws: ActionFailure.self) { try CloudHandlers.requireAttachableState(session) }
         }
         #expect(await resolver.attempts == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func userConnectRetriesAnAppLinkDuringPassiveStarting() async throws {
+        let services = MachineIconTests.services()
+        let resolver = HeldFailingLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "passive-start", status: .starting),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "passive-start"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+
+        // This is the authoritative raw `starting` record from a passive wake. The user's
+        // connect must survive the provider's asynchronous failure, rather than being treated
+        // as a transition cancellation with no mutation id to recover.
+        session.connect(origin: .user)
+        await resolver.waitForOpen()
+        #expect(await resolver.attempts == 1)
+        await resolver.release()
+
+        // The old cancellation guard settles at idle with no link-ended error. Observe the
+        // phase directly so that regression fails immediately instead of waiting for timeout.
+        for await phase in ObservationStream({ session.linkPhase }) where phase != .starting { break }
+        #expect(session.linkEnded != nil, "the user retry failure must remain visible")
+        guard case .failed = session.linkPhase else {
+            Issue.record("an explicit retry during passive starting was treated as cancellation: \(session.linkPhase)")
+            return
+        }
+
+        // The provider's failed resume is now authoritative: the machine is paused with its
+        // reason, and the same app link remains available for an explicit retry.
+        session.applyRecord(CloudMachine(id: session.machineID, status: .paused,
+                                         lastChangeFailure: .init(code: "cloud.provider.unavailable", message: "provider refused", text: "provider refused")))
+        #expect(session.machine.status == .paused)
+        #expect(session.machine.lastChangeFailure?.text == "provider refused")
+        session.retryNow()
+        await resolver.waitForAttempts(2)
+        #expect(await resolver.attempts == 2)
     }
 
     @Test func killAcknowledgementReportsPendingDeletion() {
@@ -373,7 +383,7 @@ struct CloudMachineChangeStateTests {
         services.machines.add(session)
         defer { cloud.changes.stop(); session.disconnect() }
         let failed = CloudMachine(id: session.machineID, status: .running,
-            lastChangeFailure: .init(code: "pause_failed", message: "provider refused"))
+            lastChangeFailure: .init(code: "pause_failed", message: "provider refused", text: "provider refused"))
         session.connect()
         await resolver.waitForOpen()
         try await cloud.changes.run(.pausing, machineID: session.machineID, of: { session }) {
@@ -399,7 +409,7 @@ struct CloudMachineChangeStateTests {
         try await changes.run(.pausing, machineID: session.machineID, of: { session }) {}
         let mutationID = session.machine.pendingMutationID
         let failure = CloudMachine(id: session.machineID, status: .running,
-            lastChangeFailure: .init(code: "pause_failed", message: "provider refused"))
+            lastChangeFailure: .init(code: "pause_failed", message: "provider refused", text: "provider refused"))
         let stale = changes.applyingPending(to: failure, read: 1)
         #expect(stale.pendingMutationID == mutationID)
         #expect(stale.failedMutationID == nil)
@@ -416,7 +426,7 @@ struct CloudMachineChangeStateTests {
         let pauseID = session.machine.pendingMutationID
         try await changes.run(.deleting, machineID: session.machineID, of: { session }) {}
         let failure = CloudMachine(id: session.machineID, status: .running,
-            lastChangeFailure: .init(code: "delete_failed", message: "provider refused"))
+            lastChangeFailure: .init(code: "delete_failed", message: "provider refused", text: "provider refused"))
         let restored = changes.applyingPending(to: failure)
         #expect(restored.pendingMutationID == pauseID)
         #expect(restored.shownStatus == .pausing)
@@ -498,7 +508,7 @@ struct CloudMachineChangeStateTests {
 
     @Test func aResumeRefreshFailureKeepsTheRawPausedRecord() async {
         let session = Self.session(status: .paused)
-        session.resumer = { [session] _ in
+        session.resumer = { [session] _, _ in
             // CloudService's accepted resume leaves this optimistic status until a list settles it.
             session.machine.pendingChange = .starting
         }
@@ -581,7 +591,7 @@ struct CloudMachineChangeStateTests {
         #expect(try Self.next(#"{"id":"vm_1","status":"running","error":"odd"}"#).lastChangeFailure == nil)
         #expect(try Self.next(#"{"id":"vm_1","status":"running","error":{"code":"x","message":""}}"#).lastChangeFailure?.text == "x")
         // The `/api/vm` record decodes the same fields.
-        let decoded = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-1","status":"pausing","error":{"code":"x","message":"y"}}"#.utf8))
+        let decoded = try CloudMachine.classic(Data(#"{"id":"vm-1","status":"pausing","error":{"code":"x","message":"y"}}"#.utf8))
         #expect(decoded.status == .pausing)
         #expect(decoded.lastChangeFailure?.text == "y")
     }
@@ -635,7 +645,7 @@ struct CloudMachineChangeStateTests {
 
     @Test func aFailedChangeShowsOnTheHeader() {
         let session = Self.session(status: .paused)
-        session.machine.lastChangeFailure = .init(code: "cloud.provider.unavailable", message: "no capacity")
+        session.machine.lastChangeFailure = .init(code: "cloud.provider.unavailable", message: "no capacity", text: "no capacity")
         let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.status == .paused, "the machine went back to paused")
         #expect(header.detail?.contains(CloudStrings.changeFailed("no capacity")) == true)
@@ -675,7 +685,7 @@ struct CloudMachineChangeStateTests {
         // A Resume shown from the click does not resume it a second time through an attach.
         session.machine.status = .paused
         session.machine.pendingChange = .starting
-        session.resumer = { _ in }
+        session.resumer = { _, _ in }
         session.attach()
         #expect(!session.resuming)
         session.disconnect()
@@ -720,7 +730,7 @@ struct CloudMachineChangeStateTests {
 
     @Test func aFailedMachineSaysTheRecordsErrorOnce() {
         let session = Self.session(status: .failed)
-        session.machine.lastChangeFailure = .init(code: "cloud.provider.unavailable", message: "no capacity")
+        session.machine.lastChangeFailure = .init(code: "cloud.provider.unavailable", message: "no capacity", text: "no capacity")
         let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.detail?.components(separatedBy: "no capacity").count ?? 0 <= 2, "the reason is not repeated")
         session.disconnect()

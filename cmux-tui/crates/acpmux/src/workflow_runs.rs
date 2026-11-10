@@ -88,6 +88,12 @@ pub struct RunRecord {
     pub state: State,
     pub activities: BTreeMap<String, ActivityRecord>,
     pub outcome: Option<Result<Value, Value>>,
+    /// The Claude Code subagent (`{id, type}`, plain words) whose MCP call started the run
+    /// (`subagent_call.rs`): the run's commands run as that subagent's Bash would
+    /// (`cli::sender::SUBAGENT_ENV`). A label within the owner session, never a proof. Absent
+    /// in records of runs the chat itself, the person or an older build started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caller_subagent: Option<Value>,
 }
 
 /// Private, per-daemon run records, independent of any chat's purge-owned background folder.

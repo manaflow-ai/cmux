@@ -72,7 +72,7 @@ import Testing
         }))
         let current = try #require(store.workspaces.first { $0.resourceID?.rawValue == "ws-2" }).id
         let doc = SidebarDocSections(document: { nil })
-        doc.placesNewRowsFirst = { newRowsFirst }
+        doc.newRowsPlace = { newRowsFirst ? .first : .last }
         doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-new" ? .after(current) : nil }
         let order = Self.order(doc.sections(empty, session: Self.session, workspaces: store.workspaces))
         #expect(order == (newRowsFirst ? ["ws-3", "ws-2", "ws-new", "ws-1"] : ["ws-1", "ws-2", "ws-new", "ws-3"]))
@@ -84,7 +84,7 @@ import Testing
         let store = Self.store(fresh: ["ws-a", "ws-b"])
         let a = try #require(store.workspaces.first { $0.resourceID?.rawValue == "ws-a" }).id
         let doc = SidebarDocSections(document: { nil })
-        doc.placesNewRowsFirst = { false }
+        doc.newRowsPlace = { .last }
         doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-a" ? .first : $0.resourceID?.rawValue == "ws-b" ? .after(a) : nil }
         #expect(Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces))
             == ["ws-home", "ws-a", "ws-b", "ws-1", "ws-2", "ws-3"])
@@ -96,7 +96,7 @@ import Testing
             Self.machine: SidebarDocSection(id: Self.machine, kind: .machine(session: Self.session)),
         ], items: [:]), revision: 1)
         let doc = SidebarDocSections(document: { nil })
-        doc.placesNewRowsFirst = { false }
+        doc.newRowsPlace = { .last }
         doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-a" ? .first : nil }
         #expect(Self.order(doc.sections(empty, session: Self.session, workspaces: Self.store(fresh: ["ws-a"]).workspaces))
             == ["ws-home", "ws-a", "ws-1", "ws-2", "ws-3"])
@@ -105,7 +105,7 @@ import Testing
     @Test(arguments: [NewWorkspacePlacement.beforeCurrent, .afterCurrent])
     func aMissingCurrentWorkspaceFallsBackToTopFromItsFirstFrame(placement: NewWorkspacePlacement) {
         let doc = SidebarDocSections(document: { nil })
-        doc.placesNewRowsFirst = { false }
+        doc.newRowsPlace = { .last }
         let anchor = NewWorkspacePlacements.anchor(slot: nil, byDefault: .init(placement: placement, current: "not-in-this-machine"), home: nil)
         doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-new" ? anchor : nil }
         #expect(Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: Self.store(fresh: ["ws-new"]).workspaces))
@@ -162,7 +162,7 @@ import Testing
         }))
         let a = try #require(store.workspaces.first { $0.resourceID?.rawValue == "ws-a" }).id
         let doc = SidebarDocSections(document: { nil })
-        doc.placesNewRowsFirst = { false }
+        doc.newRowsPlace = { .last }
         doc.unplacedAnchor = { workspace in
             switch workspace.resourceID?.rawValue {
             case "ws-d": .after("missing", fallbackFirst: true)
@@ -175,4 +175,51 @@ import Testing
         #expect(sections.filter { $0.group != nil }.count == 1)
     }
 
+    /// Under `afterCurrent` (the default) a workspace made by the CLI or an agent (no pending row of the window's own)
+    /// lists right below the window's current workspace, inside its group, from its first frame: it no longer shows at
+    /// the sidebar's end and jumps when its item comes (Leo 2026-11-06: a new workspace goes "right next to" the selected one).
+    @Test func underAfterCurrentANewRowListsRightBelowTheCurrentWorkspaceInItsGroup() throws {
+        let store = Self.store(fresh: ["ws-new"])
+        let current = try #require(store.workspaces.first { $0.resourceID?.rawValue == "ws-2" }).id
+        let doc = SidebarDocSections(document: { nil })
+        doc.newRowsPlace = { .below(current) }
+        let sections = doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
+        #expect(Self.order(sections) == ["ws-home", "ws-1", "ws-2", "ws-new", "ws-3"])
+        #expect(sections.first { $0.group != nil }?.workspaces.compactMap(\.resourceID?.rawValue) == ["ws-2", "ws-new"])
+    }
+
+    /// Below a loose current workspace, newest right below it; first below Home when the current one does not list
+    /// (a top page such as Home); last only under `bottom`. Each from a fresh sidebar: a new row keeps the place it first
+    /// took (`SidebarDocHeldSlotTests.aNewRowKeepsThePlaceItFirstTook`).
+    @Test func underAfterCurrentANewRowFollowsALooseCurrentElseListsFirst() throws {
+        let store = Self.store(fresh: ["ws-a", "ws-b"])
+        let current = try #require(store.workspaces.first { $0.resourceID?.rawValue == "ws-1" }).id
+        func order(_ place: SidebarDocSections.NewRowsPlace) -> [String] {
+            let doc = SidebarDocSections(document: { nil })
+            doc.newRowsPlace = { place }
+            return Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces))
+        }
+        #expect(order(.below(current)) == ["ws-home", "ws-1", "ws-b", "ws-a", "ws-2", "ws-3"])
+        #expect(order(.below("gone")) == ["ws-home", "ws-b", "ws-a", "ws-1", "ws-2", "ws-3"])
+        #expect(order(.last) == ["ws-home", "ws-1", "ws-2", "ws-3", "ws-a", "ws-b"])
+    }
+
+    /// Rapid Cmd-N selects each new workspace before its item comes, so the current one is itself unplaced: each went
+    /// below the one before it, so they list in press order below the latest current workspace that lists, never
+    /// newest first at the top (RapidWorkspaceCreateTests.fiftyCmdNDrawEachRowAtItsPressInPressOrder).
+    @Test func aChainOfCreatesEachSelectedListsInPressOrderBelowWhereItStarted() throws {
+        let doc = SidebarDocSections(document: { nil })
+        let id = { (store: DaemonStore, key: String) in try #require(store.workspaces.first { $0.resourceID?.rawValue == key }).id }
+        let settled = Self.store(fresh: [])
+        let one = try id(settled, "ws-1")
+        doc.newRowsPlace = { .below(one) }
+        _ = doc.sections(Self.projection(), session: Self.session, workspaces: settled.workspaces)
+        let store = Self.store(fresh: ["ws-a", "ws-b"])
+        let a = try id(store, "ws-a"), b = try id(store, "ws-b")
+        doc.newRowsPlace = { .below(a) }
+        _ = doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
+        doc.newRowsPlace = { .below(b) }
+        #expect(Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces))
+            == ["ws-home", "ws-1", "ws-a", "ws-b", "ws-2", "ws-3"])
+    }
 }

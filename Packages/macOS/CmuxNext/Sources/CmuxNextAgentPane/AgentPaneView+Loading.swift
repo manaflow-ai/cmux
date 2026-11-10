@@ -232,6 +232,7 @@ extension AgentPaneView {
 
     /// The page shows and the loading state goes (``AgentPaneLoadingView/leave(over:fades:)``).
     func endLoadingState() {
+        ground.isHidden = false // a picture that stood in below (``standOverPicture()``) ends with the page's paint
         #if DEBUG || CMUX_BENCH_HOOKS
         // The handshake's painted answer ends the loading state in the same turn.
         ChatOpenTrace.shared.mark(.panePainted, view: self)
@@ -265,8 +266,9 @@ extension AgentPaneView {
 
     func themeLoadingState(_ tokens: ThemeTokens) {
         guard loadingView.superview != nil else { return }
-        // In this view's scope: over its workspace's picture the loading state stays clear (#28867).
-        loadingView.paint(performWithTheme { AgentPaneTheme.underPageColor(tokens, surface: surfaceKind) }.nsColor)
+        // In this view's scope: over its workspace's picture the loading state stays clear (#28867), and over the chat's own
+        // background (`appearance.surfaces` of this scope, which ``AgentPaneGround`` paints under it) too.
+        loadingView.paint(performWithTheme { AgentPaneTheme.pageColor(tokens, surface: surfaceKind, backgrounds: themeScope.surfaceBackgrounds) }.nsColor)
     }
 }
 
@@ -283,8 +285,11 @@ extension AgentPaneView {
         }
         if pageContent.alphaValue == 0 { return .cover }
         // The page's own first frame (``PagePaintProbe``), the same signal in both engines.
-        guard page != nil else { return model.hasPainted ? .page : .pageEmpty }
-        return ChatOpenTrace.shared.has(.pagePainted) ? .page : .pageEmpty
+        guard let page else { return model.hasPainted ? .page : .pageEmpty }
+        // A spare adopted for this chat (``adoptSession(_:revealTurn:moved:)``) painted its first frame
+        // as New Tab, before this trace began: its chat's frame is the pane's paint report.
+        return .shownPage(probed: ChatOpenTrace.shared.has(.pagePainted) || (page.hasPainted && model.hasPainted),
+                          pageReported: model.pageReportedPaint, contentfulPaint: ChatOpenTrace.shared.has(.firstContentfulPaint))
     }
 }
 #endif

@@ -165,6 +165,24 @@ pub(super) fn no_secret(text: &str) {
 }
 
 #[test]
+fn selected_team_uses_the_platform_team_header() {
+    let (origin, requests) = fake(Arc::new(|_| (200, "[]".into())));
+    let platform = platform(&origin).with_team(Some("team_0123456789abcdef0123".into()));
+    platform.post("/v1/machines/credentials", json!({})).unwrap();
+    let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(
+        request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("x-cmux-team: team_0123456789abcdef0123"))
+    );
+    assert!(
+        !request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("x-cmux-team-id: team_0123456789abcdef0123"))
+    );
+}
+
+#[test]
 fn add_without_a_host_is_ours_and_with_one_is_the_apps_card() {
     assert_eq!(command(&["machine", "add"]).verb, Verb::Add(AddArgs::default()));
     assert_eq!(
@@ -251,9 +269,10 @@ fn the_credential_comes_from_stdin_a_file_or_the_env_and_errors_name_neither() {
 }
 
 #[test]
-fn the_platform_is_https_and_defaults_to_development() {
+fn the_platform_is_https_and_defaults_to_production() {
     let none = |_: &str| -> Option<String> { None };
-    assert_eq!(platform_origin(None, &none).unwrap(), DEV_ORIGIN);
+    assert_eq!(platform_origin(None, &none).unwrap(), DEFAULT_ORIGIN);
+    assert_eq!(DEFAULT_ORIGIN, "https://cmux-platform-production.debussy.workers.dev");
     let env = |key: &str| -> Option<String> {
         (key == PLATFORM_ENV).then(|| "https://platform.example/".to_owned())
     };
@@ -624,6 +643,26 @@ fn a_name_on_two_machines_needs_its_id() {
 }
 
 #[test]
+fn joined_online_follows_the_platform_and_falls_back_to_the_heartbeat() {
+    let now = now_ms();
+    // The platform's `online` wins over the local clock either way: it follows the hub's row TTL.
+    let fresh_but_down =
+        joined(&json!({"machineId": "m_1", "lastHeartbeat": now, "online": false})).unwrap();
+    assert_eq!(fresh_but_down.state(now), "offline");
+    let old_but_up =
+        joined(&json!({"machineId": "m_2", "lastHeartbeat": now - 600_000, "online": true}))
+            .unwrap();
+    assert_eq!(old_but_up.state(now), "online");
+    let revoked = joined(&json!({"machineId": "m_3", "online": true, "revoked": true})).unwrap();
+    assert_eq!(revoked.state(now), "revoked");
+    // A platform without the field: the heartbeat within the legacy window.
+    let legacy =
+        |ago: u64| joined(&json!({"machineId": "m_4", "lastHeartbeat": now - ago})).unwrap();
+    assert_eq!(legacy(LEGACY_ONLINE_WITHIN_MS - 1_000).state(now), "online");
+    assert_eq!(legacy(LEGACY_ONLINE_WITHIN_MS + 1_000).state(now), "offline");
+}
+
+#[test]
 fn joined_rows_degrade_when_optional_fields_are_missing() {
     let now = now_ms();
     let full = joined(&entry("jt_1")).unwrap();
@@ -704,6 +743,13 @@ fn the_platforms_row_shape_reads_with_mesh_identity_and_a_null_label() {
         CallError::Status { status: 503, code: known_code(Some("machine.join.unavailable")) }
             .failure("the join token");
     assert_eq!(failure.message, "joining isn't available on this server yet (it answered 503)");
+}
+
+/// A plan refusal keeps its code through the reserve, the bind and a workspace's machine, so the
+/// pane can say the team has no Cloud plan instead of a generic refusal.
+#[test]
+fn a_plan_refusal_keeps_its_code() {
+    assert_eq!(known_code(Some("cloud.plan.required")), "cloud.plan.required");
 }
 
 #[test]

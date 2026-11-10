@@ -1,0 +1,338 @@
+name: Inference gateway E2E (development)
+
+# One manual trip through a team's inference gateway on the DEVELOPMENT backend
+# (https://cmux-api-development.debussy.workers.dev): scripts/cmux-next/cloud-journey.ts --gateway makes a
+# chat machine and a second, tiny machine, runs `cmux inference setup --gateway-machine` with the cmux-tui
+# built from the run's commit (it names the second machine the team's gateway and starts
+# `cmux inference gateway` there in front of a model stub standing in for the person's own proxy), then
+# chats with Codex on the first machine. The step passes only when the reply carries the stub's nonce,
+# the gateway's log shows the call, and the chat machine holds no login. Both machines are deleted at the
+# end. Nothing gates on this run; the step table is the run summary.
+#
+# Leo, 2026-11-07: "what we are willing to do for now is a tiny vm per subscription (user)/per team. that's it."
+#
+# Secrets: the repo-level dev stack account (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD, as in
+# machine-join-e2e.yml) reaches the one journey step through env only; cloud-journey.ts keeps the session
+# and tokens in memory and hands `cmux inference setup` the install token in a 0600 temporary file.
+# Runs on feat-cmux-next only: a push there that changes .github/gateway-e2e/request (land a PR that edits it), or a
+# manual dispatch once this file is on the default branch. A pull request run would not get the environment, whose
+# branch policy admits feat-cmux-next alone.
+#
+# mac: the same chat with the gateway on one of our own Mac runners (picked by the runner job), which sit on the
+# tailnet, in front of our subscription router (sr) at http://100.89.225.106:31415/v1, which only the tailnet reaches.
+# The gateway holds the job's own install token (its own sign-in, the same stack pair through env only), so no
+# secret is copied, and sr's accounts stay on sr. It runs after the VM job, because both set the test team's gateway
+# mode. The cmux CLI is the published, attestation-checked client of this commit's cmux-tui (no build on the mini).
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/gateway-e2e/request
+
+permissions:
+  contents: read
+
+# One run at a time: every run sets the test team's gateway mode, so two would steer each other's chats.
+concurrency:
+  group: gateway-e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    # The environment machine-join-e2e.yml uses: limited to feat-cmux-next by GitHub's branch policy.
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    # An ephemeral Blacksmith VM, never LINUX_RUNNER (which may name a persistent host): this job holds the
+    # stack pair.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 60
+    steps:
+      - name: Refuse any ref but feat-cmux-next
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != refs/heads/feat-cmux-next ]; then
+            echo "::error::gateway-e2e runs on feat-cmux-next only (got $REF)"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Initialize Ghostty protocol submodules
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Zig for Ghostty
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Build cmux-tui
+        id: build
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          set -euo pipefail
+          target_dir="${CARGO_TARGET_DIR:-target}"
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          binary="$target_dir/debug/cmux-tui"
+          [[ "$binary" = /* ]] || binary="$PWD/$binary"
+          test -x "$binary"
+          echo "path=$binary" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Chat through the team's gateway machine
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CMUX_BIN: ${{ steps.build.outputs.path }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/gateway-e2e"
+          mkdir -p "$out"
+          status=0
+          bun scripts/cmux-next/cloud-journey.ts --backend dev --agent codex \
+            --gateway "$CMUX_BIN" --gateway-upstream stub --skip sync --out "$out" || status=$?
+          cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no summary written)" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+  runner:
+    environment:
+      name: ci-routing-agent
+      deployment: false
+    # Offers the mac job to the owned Macs, which sit on the tailnet (copied from iroh-release-gate.yml's
+    # placement): an owned pool while CI_PR_POOL_OWNED is 1 and a machine is free now, else nothing, and the
+    # mac job takes Blacksmith macOS, which cannot reach sr; its first step then says so.
+    needs: e2e
+    if: always() && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
+    # and the owned runners through the routing App's own budget.
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      # An owned label (glaeda-...) or empty.
+      label: ${{ steps.pool.outputs.label }}
+    steps:
+      # Only this repository's own code may run on an owned Mac: a `ref` that
+      # is not the head of one of its branches (resolve-dispatch-ref.yml's
+      # trusted_ref) keeps Blacksmith, as for the side lanes.
+      - name: Checkout pool helper
+        if: github.repository_owner == 'manaflow-ai' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
+            scripts/ci/simple_pool_picker.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        # Idle owned runners are read live. Any failure leaves
+        # the token empty and the janitor snapshot decides.
+        if: github.repository_owner == 'manaflow-ai' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      - name: Pick the macOS pool
+        id: pool
+        if: github.repository_owner == 'manaflow-ai' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1'
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          GH_TOKEN: ${{ github.token }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+        run: |
+          set -uo pipefail
+          label="$(python3 scripts/ci/e2e_runner_pool.py \
+            --requested auto \
+            --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" \
+            --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" \
+            --pr-xcode-app "$PR_XCODE_APP")" || label=""
+          case "$label" in
+            glaeda-*) ;;
+            *) echo "No owned Mac free now (picker said '${label:-nothing}'); Blacksmith macOS 15 takes the job."; label="" ;;
+          esac
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          [ -z "$label" ] || echo "Runner: $label (a re-run takes Blacksmith macOS 15)"
+
+      # ci-owned-pool-rescue.yml's sweeper watches a run with these markers and
+      # re-runs a job an owned Mac leaves queued or refuses (attempt 2 takes
+      # Blacksmith); the queue janitor counts the first one against the pool.
+      # Fail-safe: without them the run is only not watched.
+      - name: Mark a run on a persistent macOS pool
+        id: marker
+        if: ${{ steps.pool.outputs.label != '' && github.run_attempt == 1 }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          echo '{}' > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the persistent pool marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
+      - name: Upload the owned-pool watch marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
+  mac:
+    needs: [e2e, runner]
+    # The runner job is only a placement: its failure keeps Blacksmith.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    # actions: read lets resolve-exact see whether a cmux-tui artifacts run is still building this tree, so a tree
+    # nobody is building fails at once instead of after the whole wait.
+    permissions:
+      contents: read
+      actions: read
+    # Attempt 1 takes the runner job's owned label when it named one; a re-run takes Blacksmith macOS.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15)) }}
+    # 30 of these may go to waiting for this commit's tree to be published (below).
+    timeout-minutes: 75
+    steps:
+      - name: Refuse any ref but feat-cmux-next
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != refs/heads/feat-cmux-next ]; then
+            echo "::error::gateway-e2e runs on feat-cmux-next only (got $REF)"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Reach sr over the tailnet
+        env:
+          RUNNER_LABEL: ${{ needs.runner.outputs.label }}
+        run: |
+          if ! curl -fsS -m 15 -o /dev/null http://100.89.225.106:31415/v1/models; then
+            echo "::error::sr is not reachable from this runner (${RUNNER_LABEL:-Blacksmith macOS}); only an owned Mac on the tailnet reaches it. Run it again (edit .github/gateway-e2e/request) when an owned Mac is free."
+            exit 1
+          fi
+
+      - name: Install this commit's published cmux-tui client
+        id: client
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The client must be built from this commit's cmux-tui. cmux-tui artifacts publishes a client per source
+          # tree, under the commit whose run built it, so a commit whose tree an earlier commit already published has
+          # no manifest of its own (run 9: tree 70fc2edd, published by 77a50e53). resolve-exact names that commit for
+          # HEAD's tree key, as release builds do; an equal key means the same cmux-tui inputs. A tree still being
+          # built is waited for, up to 30 minutes, and the wait ends early when no artifacts run is building it.
+          resolved="$(CMUX_TUI_TREE_WAIT_SECONDS=1800 CMUX_TUI_TREE_PUBLISHER_SHA="$GITHUB_SHA" scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"
+          printf '%s\n' "$resolved"
+          client_commit="$(sed -n 's/^commit=//p' <<<"$resolved")"
+          [[ "$client_commit" =~ ^[0-9a-f]{40}$ ]]
+          client_bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
+          mkdir -p "$client_bundle/Contents"
+          env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" \
+            --manifest-url "https://files.cmux.com/cmux-tui/$client_commit/manifest.json" \
+            --expected-commit "$client_commit" \
+            --attest-signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml"
+          client="$client_bundle/Contents/Resources/bin/cmux"
+          "$client" inference gateway --help >/dev/null
+          echo "path=$client" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Chat through this Mac's gateway in front of sr
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CMUX_BIN: ${{ steps.client.outputs.path }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/gateway-e2e-mac"
+          rm -rf "$out"
+          mkdir -p "$out"
+          status=0
+          bun scripts/cmux-next/cloud-journey.ts --backend dev --agent codex \
+            --gateway-local "$CMUX_BIN" --gateway-upstream http://100.89.225.106:31415/v1 --skip sync --out "$out" || status=$?
+          cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no summary written)" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

@@ -65,11 +65,10 @@ export function hostErrorShows(
 }
 
 /// The wait before the next handshake. Looking for a daemon is cheap, so while the host is
-/// recovering it is asked again within 2 s and the chat appears soon after the daemon answers (a
-/// 30 s cap saw a ready daemon up to 32 s late, #27283's replay); a refusal that waits on the
-/// person backs off to 30 s, so a host without a daemon is not asked four times a second.
+/// recovering it is asked again within 2 s and the chat appears soon after the daemon answers; a
+/// refusal that waits on the person backs off without a terminal retry cap.
 export function nextRetryDelay(delay: number, recovering: boolean): number {
-  return Math.min(delay * 2, recovering ? 2_000 : 30_000);
+  return Math.min(delay * 2, recovering ? 2_000 : 2_147_483_647);
 }
 
 /// What the pane's handshake loop does around a Restart acpmux.
@@ -111,4 +110,40 @@ export class AcpmuxRestartGate {
       if (!hooks.connected()) hooks.ask();
     }
   }
+}
+
+/// How long a lost connection stays unsaid before the pane's quiet "Reconnecting…" line shows: a
+/// reconnect that lands sooner (the usual one, well under a second) shows nothing.
+export const RECONNECT_LINE_AFTER_MS = 1_500;
+
+/// What the host says while acpmux restores its chats after a start (`restoring`): how long it has
+/// waited so far, in milliseconds, as of `at` (this page's `Date.now()` when it heard it).
+export type HostRestoring = { waitedMs: number; at: number };
+
+/// The host's word on a restore in progress, from its `acpmux-host-status` event's detail or a
+/// refused handshake's `details` (`{restoring: {waitedMs}}`); undefined when it says none (a
+/// missing, null or malformed `restoring` ends one).
+export function readHostRestoring(source: unknown, at: number): HostRestoring | undefined {
+  const restoring = (source as { restoring?: unknown } | null | undefined)?.restoring;
+  const waited = (restoring as { waitedMs?: unknown } | null | undefined)?.waitedMs;
+  if (typeof waited !== "number" || !Number.isFinite(waited) || waited < 0) return undefined;
+  return { waitedMs: waited, at };
+}
+
+/// The quiet line the pane shows while it gets its chat back on its own (Leo, 2026-11-08: "it
+/// fixes itself"): "Restoring sessions… m:ss" while the host says acpmux restores its chats, else
+/// "Reconnecting…" once a lost connection has been coming back for RECONNECT_LINE_AFTER_MS. Past
+/// HOST_ERROR_DEADLINE_MS a reconnect is the waiting line's or the failure's (HostWaitingLine,
+/// HostUnavailableLine), so this says nothing then.
+export function hostRecoveryLine(state: {
+  relinkingSince?: number;
+  restoring?: HostRestoring;
+  now: number;
+}): { kind: "restoring"; waitedMs: number } | { kind: "reconnecting" } | undefined {
+  const { relinkingSince, restoring, now } = state;
+  if (restoring) return { kind: "restoring", waitedMs: restoring.waitedMs + Math.max(0, now - restoring.at) };
+  if (relinkingSince === undefined) return undefined;
+  const waited = now - relinkingSince;
+  if (waited < RECONNECT_LINE_AFTER_MS || waited >= HOST_ERROR_DEADLINE_MS) return undefined;
+  return { kind: "reconnecting" };
 }

@@ -16,6 +16,7 @@ export type DiffViewerTheme = {
 export type DiffViewerAppearance = {
   backgroundOpacity?: number;
   fontFamily?: string;
+  fallbackFamilies?: string[];
   fontSize?: number;
   lineHeight?: number;
   theme?: {
@@ -69,6 +70,7 @@ type HostTerminalTheme = {
   palette?: Record<string, string>;
   selectionBackground?: string;
   fontFamily?: string | null;
+  fallbackFamilies?: string[];
 };
 
 /**
@@ -80,6 +82,14 @@ export function hostTerminalFontFamily(): string | null {
   if (typeof window === "undefined") return null;
   const family = (window as HostThemeWindow).cmuxTheme?.current?.terminal?.fontFamily;
   return typeof family === "string" && family.trim() !== "" ? family.trim() : null;
+}
+
+export function hostTerminalFontFallbackFamilies(): string[] {
+  if (typeof window === "undefined") return [];
+  const families = (window as HostThemeWindow).cmuxTheme?.current?.terminal?.fallbackFamilies;
+  return Array.isArray(families)
+    ? families.filter((family): family is string => typeof family === "string" && family.trim() !== "")
+    : [];
 }
 
 /** The terminal theme the host sends with every theme change (WebTheme.swift `terminal`), or null. */
@@ -95,7 +105,19 @@ export function hostTerminalTheme(): DiffViewerTheme | null {
   // The app's one highlight color (WebTheme.swift `terminal.selectionBackground`), so code pages
   // select in it rather than a fixed blue (user 2026-10-28).
   if (typeof terminal.selectionBackground === "string") theme.selectionBackground = terminal.selectionBackground;
+  if (terminal.type === "light" || terminal.type === "dark") theme.type = terminal.type;
   return theme;
+}
+
+/**
+ * The host's terminal theme as one scheme's: its colors when it is that scheme's (or names none),
+ * else only the app's one highlight color. The host sends its App Theme's palette, so a fixed
+ * `markdown.theme` paper of the other scheme keeps the default palette that reads on it, rather
+ * than a light theme's dark-grey code on dark paper.
+ */
+function hostThemeFor(host: DiffViewerTheme | null, scheme: "light" | "dark"): DiffViewerTheme | null {
+  if (!host || !host.type || host.type === scheme) return host;
+  return host.selectionBackground === undefined ? null : { selectionBackground: host.selectionBackground };
 }
 
 /**
@@ -116,8 +138,8 @@ export function followHostTerminalTheme(apply: () => void): () => void {
  */
 export function resolveDiffViewerAppearance(appearance?: DiffViewerAppearance): ResolvedDiffViewerAppearance {
   const host = appearance?.themes ? null : hostTerminalTheme();
-  const lightTheme = { ...defaultLightTheme, ...host, ...appearance?.themes?.light };
-  const darkTheme = { ...defaultDarkTheme, ...host, ...appearance?.themes?.dark };
+  const lightTheme = { ...defaultLightTheme, ...hostThemeFor(host, "light"), ...appearance?.themes?.light };
+  const darkTheme = { ...defaultDarkTheme, ...hostThemeFor(host, "dark"), ...appearance?.themes?.dark };
   lightTheme.foreground = readableColor(lightTheme.foreground, lightTheme.background, defaultLightTheme.foreground);
   lightTheme.selectionForeground = readableColor(
     lightTheme.selectionForeground,
@@ -133,6 +155,7 @@ export function resolveDiffViewerAppearance(appearance?: DiffViewerAppearance): 
   return {
     backgroundOpacity: normalizedOpacity(appearance?.backgroundOpacity),
     fontFamily: appearance?.fontFamily ?? hostTerminalFontFamily() ?? "Menlo",
+    fallbackFamilies: appearance?.fallbackFamilies ?? hostTerminalFontFallbackFamilies(),
     fontSize: metric(appearance?.fontSize, 10),
     lineHeight: metric(appearance?.lineHeight, 20),
     theme: {
@@ -206,7 +229,10 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   }
   rootStyle.setProperty("--cmux-diff-selection-bg-light", colorString(lightTheme.selectionBackground, "#abd8ff"));
   rootStyle.setProperty("--cmux-diff-selection-bg-dark", colorString(darkTheme.selectionBackground, "#3f638b"));
-  rootStyle.setProperty("--cmux-diff-code-font-family", codeFontFamily(appearance.fontFamily));
+  rootStyle.setProperty(
+    "--cmux-diff-code-font-family",
+    codeFontFamily(appearance.fontFamily, appearance.fallbackFamilies),
+  );
   // Keep the host fallback aligned with the shared code type step used by the
   // page stylesheet (12/18), including hosts that do not provide appearance
   // metrics yet.
@@ -287,9 +313,18 @@ function colorString(value: unknown, fallback: string) {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : fallback;
 }
 
-function codeFontFamily(fontFamily: unknown) {
+/** Shared fallback faces keep private-use symbols and CJK in the same code/chat stack. */
+export const TERMINAL_FONT_FALLBACK_STACK =
+  '"Symbols Nerd Font Mono", "Noto Sans Mono CJK JP", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+
+export function codeFontFamily(fontFamily: unknown, fallbackFamilies: unknown[] = []) {
   const family = typeof fontFamily === "string" && fontFamily.trim() !== "" ? fontFamily.trim() : "Menlo";
-  return `${JSON.stringify(family)}, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
+  const configured = fallbackFamilies
+    .filter((value): value is string => typeof value === "string" && value.trim() !== "")
+    .map((value) => value.trim())
+    .filter((value, index, values) => values.indexOf(value) === index && value !== family)
+    .map((value) => JSON.stringify(value));
+  return [JSON.stringify(family), ...configured, TERMINAL_FONT_FALLBACK_STACK].join(", ");
 }
 
 function metric(value: unknown, fallback: number) {

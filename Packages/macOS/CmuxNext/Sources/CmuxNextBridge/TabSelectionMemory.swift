@@ -4,7 +4,9 @@ public import Observation
 
 /// Client-local tab selection per pane (the daemon's `active_tab` is only a
 /// shared default). When the selected tab disappears, the selection goes to
-/// the tab that took its slot, else the new last tab.
+/// the tab before it, else the one after it (`FocusAfterClose.tab`). It also keeps the pane
+/// this window last focused in each workspace (the daemon's `focused_at` is a
+/// default the app never writes, focus.md 2), which a sidebar row's face reads.
 ///
 /// Keyed (`ObservedMap`, perf-speed-of-light.md I2): reading pane X's
 /// selection observes pane X only, and a selection in another pane re-runs
@@ -13,11 +15,15 @@ public import Observation
 @MainActor @Observable
 public final class TabSelectionMemory {
     private let selected = ObservedMap<String, String>()
+    /// The pane last focused per workspace id: reading workspace X's observes X only.
+    private let focused = ObservedMap<String, String>()
     /// The order `resolve` last saw per pane (for the neighbor after a close); never observed.
     @ObservationIgnored private var lastOrder: [String: [String]] = [:]
     /// Bumped by every selection change in any pane: for a reader that follows
     /// all of this window's selections (one read, no walk of the panes).
     public private(set) var revision: UInt64 = 0
+    /// Each pane whose selection changed since ``takeChanges()`` last ran, with its selection now; never observed.
+    @ObservationIgnored private var changes: [String: String?] = [:]
 
     public init() {}
 
@@ -25,6 +31,19 @@ public final class TabSelectionMemory {
         guard selected[pane] != tab else { return }
         selected[pane] = tab
         revision &+= 1
+        changes.updateValue(tab, forKey: pane)
+    }
+
+    /// Each pane whose selection changed (set, replaced or dropped: nil) since the last call, with its selection
+    /// now. For the one reader that keeps a copy of every selection of this window (its saved record,
+    /// `WindowRecordSaver`): it applies these and reads no pane. ONE caller only: a second one would take changes
+    /// that the first never sees. One entry per pane at most, so it never holds more than the panes this window
+    /// selected a tab in.
+    package func takeChanges() -> [String: String?] {
+        guard !changes.isEmpty else { return [:] }
+        var taken: [String: String?] = [:]
+        swap(&taken, &changes)
+        return taken
     }
 
     public func select(_ tab: String, in pane: String) {
@@ -33,14 +52,35 @@ public final class TabSelectionMemory {
 
     public func selection(in pane: String) -> String? { selected[pane] }
 
+    /// Records `pane` as the one this window last focused in `workspace`. A focus that stays on
+    /// the same pane (every key typed into it) writes nothing, so no sidebar row re-maps.
+    public func focus(_ pane: String, in workspace: String) {
+        guard focused[workspace] != pane else { return }
+        focused[workspace] = pane
+    }
+
+    /// Records a settled focus: `pane` in `workspace`, nothing when either is nil (no shown workspace or pane).
+    public func focus(_ pane: String?, in workspace: String?) {
+        guard let pane, let workspace else { return }
+        focus(pane, in: workspace)
+    }
+
+    /// Takes a saved window's last focused panes (`focusedPanes` per workspace, `pane` in the `shown`
+    /// workspace), so the sidebar rows show each workspace's focused tab from the first frame after a relaunch.
+    public func restoreFocus(_ focusedPanes: [String: String], shown: String?, pane: String?) {
+        for (workspace, pane) in focusedPanes { focus(pane, in: workspace) }
+        focus(pane, in: shown)
+    }
+
+    /// The pane this window last focused in `workspace`; nil before any focus there.
+    public func focusedPane(in workspace: String) -> String? { focused[workspace] }
+
     /// The tab to show for `pane` given its current order. Remembers the
     /// order so a later removal can pick the neighbor
-    /// (`FocusAfterClose.tab`: the next shown tab, else the previous one;
-    /// a member of a collapsed group in `hidden` is skipped while a shown
-    /// tab survives; a link tab goes back to its opener family first, from
-    /// `openers`, read only when the selected tab closed).
-    public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = [],
-                        openers: () -> [String: String] = { [:] }) -> String? {
+    /// (`FocusAfterClose.tab`: the shown tab before it, else the one after
+    /// it; a member of a collapsed group in `hidden` is skipped while a shown
+    /// tab survives).
+    public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = []) -> String? {
         defer { lastOrder[pane] = tabs }
         guard !tabs.isEmpty else {
             set(nil, in: pane)
@@ -50,7 +90,7 @@ public final class TabSelectionMemory {
             if tabs.contains(current) { return current }
             if let old = lastOrder[pane], old.contains(current) {
                 let pick = FocusAfterClose.tab(selected: current, old: old, surviving: tabs,
-                                               shown: Set(tabs).subtracting(hidden), opener: openers()) ?? tabs[0]
+                                               shown: Set(tabs).subtracting(hidden)) ?? tabs[0]
                 set(pick, in: pane)
                 return pick
             }

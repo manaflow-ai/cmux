@@ -6,18 +6,20 @@
 // their words come from the page's own helpers, so both panels say the same thing.
 import { formatDuration } from "../../conversation/turns";
 import type { PaneLanguage, Translate } from "../../i18n";
-import { isRepeatedAgentKind } from "../../subagents/AgentIdentity";
-import { nestAgents } from "../../subagents/AgentsPill";
-import { elapsed } from "../../subagents/SubagentGroup";
+import { isRepeatedAgentKind } from "../../subagents/agentIdentityModel";
+import { agentTone } from "../../subagents/agentTones";
+import { nestAgents } from "../../subagents/agentsPillModel";
+import { elapsed } from "../../subagents/subagentGroupModel";
 import { subagentProgress } from "../../subagents/subagentProgress";
+import { namedAction } from "../../subagents/trayDetail";
 import { retrying } from "../../subagents/retryState";
-import { subagentStateText, subagentStatus, type SubagentStatus } from "../../summary/SubagentStatusList";
-import { orderedSessions, sessionStatus, sessionStateText } from "../ChildSessionRows";
+import { subagentStateText, subagentStatus, type SubagentStatus } from "../../summary/subagentStatusListModel";
+import { orderedSessions, sessionStatus, sessionStateText } from "../childSessionRowsModel";
 import type { SubsessionLimits } from "../../model";
 import type { StartedSession } from "../../started/startedSessions";
 import type { Subagent } from "../../subagents/subagentFold";
 import { clampRunning, MAX_RUNNING, slotCounts } from "../../subsessionLimits";
-import { SUBAGENTS_SHOWN, subagentCounts } from "../SubagentsSection";
+import { SUBAGENTS_SHOWN, subagentCounts } from "../subagentsSectionModel";
 import type { NativeInfoActions, NativeInfoButton, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 import { nativeInfoWave } from "./wave";
 
@@ -115,7 +117,7 @@ export function subagentsSection(
       identity: agent.id,
       agent,
       name: agent.name,
-      detail: working(status) ? agent.action : undefined,
+      detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       status,
       state: subagentStateText(t, agent, waiting, now),
       time: formatDuration(elapsed(agent, input.now)),
@@ -176,6 +178,7 @@ export function subagentsSection(
     ...(item.progress ? { progress: item.progress } : {}),
     trailing: [item.time, item.state].filter(Boolean).join(" · "),
     tone: TONE[item.status],
+    identityTone: agentTone(item.identity),
     ...(item.working ? { working: true } : {}),
     ...(waveIndex !== undefined ? { wave: nativeInfoWave(waveIndex) } : {}),
     ...(item.depth > 0 ? { indent: Math.min(item.depth, 3) } : {}),

@@ -15,6 +15,7 @@ const PROTECTED_FOLDERS_JSON: &str = include_str!("../data/protected-folders.jso
 #[derive(serde::Deserialize)]
 struct ProtectedEntry {
     path: String,
+    kind: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -38,6 +39,23 @@ fn protected_list() -> Option<&'static ProtectedList> {
         }
     })
     .as_ref()
+}
+
+/// A known privacy-protected location, without the broader startup refusal for `/` or home.
+/// This is a hint for an OS-denied read, not proof that TCC caused the denial.
+pub fn protected_kind_in(path: &Path, home: Option<&Path>) -> Option<&'static str> {
+    let list = protected_list()?;
+    let path = fold(path);
+    let under = |root: &str| path == root || path.starts_with(&format!("{root}/"));
+    for entry in &list.roots {
+        if under(&entry.path.to_lowercase()) {
+            return Some(&entry.kind);
+        }
+    }
+    let home = fold(home?);
+    list.in_home.iter().find_map(|entry| {
+        under(&format!("{home}/{}", entry.path.to_lowercase())).then_some(entry.kind.as_str())
+    })
 }
 
 /// Why an agent may not be started in `cwd` unasked, or `None` when it may.
@@ -69,6 +87,41 @@ pub fn refusal_in(cwd: &Path, home: Option<&Path>) -> Option<String> {
     }
     let resolved = std::fs::canonicalize(cwd).ok()?;
     guarded(&resolved, &homes).and_then(refused)
+}
+
+/// Why a spare (`hub/pool/`, the shape of a session the person already
+/// started in `cwd`) may not start there, or `None` when it may. As
+/// `unasked_refusal`, except that off macOS the home folder itself is
+/// allowed: there no privacy prompt guards it, and a machine whose chats run
+/// in the home folder (a cmux Cloud machine) is the one a spare is for. The
+/// root folder, other volumes and the privacy-protected folders stay refused.
+pub fn spare_refusal(cwd: &Path) -> Option<String> {
+    spare_refusal_in(cwd, dirs::home_dir().as_deref(), cfg!(target_os = "macos"))
+}
+
+/// Why a daemon start may not go on by itself with a chat's restored work in `cwd` (its queued
+/// prompts, a cut turn, held agent messages: `hub/protected_hold.rs`), or `None` when it may. As
+/// `spare_refusal`: off macOS the home folder itself raises no privacy prompt, and a machine whose
+/// chats all run there (a fleet lane VM, a cmux Cloud machine) has no person to open each chat, so
+/// a hold there left every queue waiting for good after an update restarted the daemon.
+pub fn restored_work_refusal(cwd: &Path) -> Option<String> {
+    spare_refusal(cwd)
+}
+
+/// `spare_refusal` for the user whose home folder is `home`, on macOS or not.
+pub fn spare_refusal_in(cwd: &Path, home: Option<&Path>, macos: bool) -> Option<String> {
+    let refusal = refusal_in(cwd, home)?;
+    let is_home = |h: &Path| {
+        fold(cwd) == fold(h)
+            || std::fs::canonicalize(cwd)
+                .ok()
+                .zip(std::fs::canonicalize(h).ok())
+                .is_some_and(|(c, h)| fold(&c) == fold(&h))
+    };
+    if !macos && home.is_some_and(is_home) {
+        return None;
+    }
+    Some(refusal)
 }
 
 /// The folder for agents acpmux starts with no person asking (the model
@@ -170,5 +223,21 @@ mod owner_only_tests {
         assert_eq!(dir, home.join("unattended"));
         assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
         let _ = std::fs::remove_dir_all(&home);
+    }
+}
+
+#[cfg(test)]
+mod spare_tests {
+    use super::*;
+
+    #[test]
+    fn a_spare_may_start_in_the_home_folder_off_macos_only() {
+        let home = Path::new("/home/someone");
+        assert!(spare_refusal_in(home, Some(home), false).is_none());
+        assert!(spare_refusal_in(Path::new("/home/someone/"), Some(home), false).is_none());
+        assert!(spare_refusal_in(home, Some(home), true).is_some(), "macOS keeps the refusal");
+        assert!(spare_refusal_in(Path::new("/"), Some(home), false).is_some());
+        assert!(spare_refusal_in(Path::new("relative"), Some(home), false).is_some());
+        assert!(spare_refusal_in(Path::new("/home/someone/work"), Some(home), false).is_none());
     }
 }

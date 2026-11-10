@@ -64,9 +64,9 @@ import Testing
         let sections = [SidebarSection(kind: .machine(Self.machine), nodes: [.workspace(Self.ws("a"))])]
         let rule = NewWorkspaceDefaultSlot(placement: .top, current: "grouped", currentMachine: Self.machine.id.rawValue)
         let row = PendingWorkspaceRows.Row(id: "new", window: "w", machine: Self.machine.id, face: Self.ws("new"), slot: nil, byDefault: rule)
-        let waiting = PendingWorkspaceRows.adding([row], to: sections, home: nil, catchingUp: true)
+        let waiting = PendingWorkspaceRow.adding([row], to: sections, home: nil, catchingUp: true)
         #expect(!waiting.flatMap(\.workspaces).contains { $0.id.rawValue == "new" }, "drawn before the current row listed")
-        let caughtUp = PendingWorkspaceRows.adding([row], to: sections, home: nil, catchingUp: false)
+        let caughtUp = PendingWorkspaceRow.adding([row], to: sections, home: nil, catchingUp: false)
         #expect(caughtUp.flatMap(\.workspaces).map(\.id.rawValue) == ["new", "a"])
     }
 }

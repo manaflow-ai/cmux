@@ -9,8 +9,9 @@
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { TenantId as TenantIdBrand, type TenantId } from "../lib/ids.ts";
 import type { AclDocument, MeshProtocol } from "../mesh/acl.ts";
-import { SqlClient, StoreError } from "./sql.ts";
+import { SqlClient, StoreError, type SqlParam } from "./sql.ts";
 import { sqlOverlayServerCodes, type OverlayServerCodeStore } from "./overlay-server-codes.ts";
+import { sqlDeviceIntents, type DeviceIntentStore } from "./mesh-intents.ts";
 import { sqlOverlayServers, type OverlayServerStore } from "./overlay-servers.ts";
 
 export interface MeshDeviceRow {
@@ -64,7 +65,7 @@ export interface MeshRuleRow {
   readonly createdAt: Date;
 }
 
-export interface MeshStoreService extends OverlayServerStore, OverlayServerCodeStore {
+export interface MeshStoreService extends OverlayServerStore, OverlayServerCodeStore, DeviceIntentStore {
   /** Claims address slot `slot` for the mesh; false when another mesh holds it. */
   readonly claimSlot: (tenantId: TenantId, meshId: string, slot: number, cidr: string) => Effect.Effect<boolean, StoreError>;
   readonly releaseSlot: (tenantId: TenantId, meshId: string) => Effect.Effect<void, StoreError>;
@@ -99,6 +100,18 @@ export interface MeshStoreService extends OverlayServerStore, OverlayServerCodeS
 
   /** Stores an accepted signed message (and prunes expired ones); false when it was stored before (a replay). */
   readonly claimSignedRequest: (tenantId: TenantId, messageSha256: string, purpose: string, expiresAt: Date, now: Date) => Effect.Effect<boolean, StoreError>;
+  /**
+   * The same claim for an enroll with an intent (migration 0018): a first use binds the message to the intent and is
+   * "fresh"; a repeat of a message first accepted for this same intent is "same_intent"; anything else is "replayed".
+   */
+  readonly claimSignedRequestForIntent: (
+    tenantId: TenantId,
+    messageSha256: string,
+    purpose: string,
+    expiresAt: Date,
+    now: Date,
+    intent: { readonly meshId: string; readonly intentId: string },
+  ) => Effect.Effect<"fresh" | "same_intent" | "replayed", StoreError>;
 
   readonly insertEnrollmentCode: (code: Omit<MeshEnrollmentCodeRow, "usedAt">) => Effect.Effect<void, StoreError>;
   /** Codes created for this mesh since `since` (the hourly budget). */
@@ -136,7 +149,11 @@ export interface MeshStoreService extends OverlayServerStore, OverlayServerCodeS
 
   readonly listRules: (tenantId: TenantId, meshId: string) => Effect.Effect<ReadonlyArray<MeshRuleRow>, StoreError>;
   readonly recordRule: (tenantId: TenantId, rule: MeshRuleRow) => Effect.Effect<void, StoreError>;
+  /** `recordRule` for many rules in one statement: all of them are recorded, or none. */
+  readonly recordRules: (tenantId: TenantId, rules: ReadonlyArray<MeshRuleRow>) => Effect.Effect<void, StoreError>;
   readonly markRuleDeleted: (tenantId: TenantId, meshId: string, key: string, at: Date) => Effect.Effect<void, StoreError>;
+  /** `markRuleDeleted` for many keys of one mesh in one statement. */
+  readonly markRulesDeleted: (tenantId: TenantId, meshId: string, keys: ReadonlyArray<string>, at: Date) => Effect.Effect<void, StoreError>;
 }
 
 export class MeshStore extends Context.Tag("cmux-vm/MeshStore")<MeshStore, MeshStoreService>() {}
@@ -188,6 +205,7 @@ const CidrRow = Schema.Struct({ cidr: Schema.String });
 const TenantRow = Schema.Struct({ tenant_id: Schema.String });
 const WhenRow = Schema.Struct({ created_at: When });
 const ClaimedRow = Schema.Struct({ claimed: Count });
+const IntentClaimRow = Schema.Struct({ fresh: Count, same_intent: Count });
 const DeviceAddressRow = Schema.Struct({ device_cmux_id: Schema.String, public_ipv6: Schema.String });
 const DeviceAddressAtRow = Schema.Struct({
   public_ipv6: Schema.NullOr(Schema.String),
@@ -230,6 +248,7 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
     const service: MeshStoreService = {
       ...sqlOverlayServers(sql),
       ...sqlOverlayServerCodes(sql),
+      ...sqlDeviceIntents(sql),
       claimSlot: (tenantId, meshId, slot, cidr) =>
         sql
           .query(
@@ -404,6 +423,35 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [messageSha256, tenantId, purpose, expiresAt.toISOString(), now.toISOString()],
           )
           .pipe(Effect.flatMap(decode(ClaimedRow, "mesh.claimSignedRequest")), Effect.map((rows) => (rows[0]?.claimed ?? 0) > 0)),
+      claimSignedRequestForIntent: (tenantId, messageSha256, purpose, expiresAt, now, intent) =>
+        sql
+          .query(
+            "mesh.claimSignedRequestForIntent",
+            // One statement: the message is claimed and bound to the intent together, so a message is never accepted
+            // without its intent recorded. A repeat reads the binding that statement wrote earlier.
+            `WITH pruned AS (
+               DELETE FROM cmux_vm.mesh_signed_requests
+                WHERE message_sha256 IN (SELECT message_sha256 FROM cmux_vm.mesh_signed_requests WHERE expires_at < $5::timestamptz LIMIT 100)),
+             pruned_bindings AS (
+               DELETE FROM cmux_vm.mesh_device_intent_nonces
+                WHERE message_sha256 IN (SELECT message_sha256 FROM cmux_vm.mesh_device_intent_nonces WHERE expires_at < $5::timestamptz LIMIT 100)),
+             claimed AS (
+               INSERT INTO cmux_vm.mesh_signed_requests (message_sha256, tenant_id, purpose, expires_at)
+               VALUES ($1, $2, $3, $4::timestamptz)
+               ON CONFLICT DO NOTHING RETURNING 1),
+             bound AS (
+               INSERT INTO cmux_vm.mesh_device_intent_nonces (message_sha256, tenant_id, mesh_cmux_id, intent_id, expires_at)
+               SELECT $1, $2, $6, $7, $4::timestamptz FROM claimed
+               RETURNING 1)
+             SELECT (SELECT count(*)::int FROM bound) AS fresh,
+                    (SELECT count(*)::int FROM cmux_vm.mesh_device_intent_nonces
+                      WHERE message_sha256 = $1 AND tenant_id = $2 AND mesh_cmux_id = $6 AND intent_id = $7 AND expires_at >= $5::timestamptz) AS same_intent`,
+            [messageSha256, tenantId, purpose, expiresAt.toISOString(), now.toISOString(), intent.meshId, intent.intentId],
+          )
+          .pipe(
+            Effect.flatMap(decode(IntentClaimRow, "mesh.claimSignedRequestForIntent")),
+            Effect.map((rows) => ((rows[0]?.fresh ?? 0) > 0 ? "fresh" : (rows[0]?.same_intent ?? 0) > 0 ? "same_intent" : "replayed")),
+          ),
       insertEnrollmentCode: (code) =>
         sql
           .query(
@@ -591,6 +639,24 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [rule.meshId, tenantId, rule.key, rule.upstreamRuleId, rule.deviceId, rule.vmId, rule.protocol, rule.port, rule.createdAt.toISOString()],
           )
           .pipe(Effect.asVoid),
+      recordRules: (tenantId, rules) => {
+        if (rules.length === 0) return Effect.void;
+        const params: Array<SqlParam> = [];
+        const rows = rules.map((rule) => {
+          const at = params.length;
+          params.push(rule.meshId, tenantId, rule.key, rule.upstreamRuleId, rule.deviceId, rule.vmId, rule.protocol, rule.port, rule.createdAt.toISOString());
+          return `($${at + 1}, $${at + 2}, $${at + 3}, $${at + 4}, $${at + 5}, $${at + 6}, $${at + 7}, $${at + 8}, $${at + 9}::timestamptz)`;
+        });
+        return sql
+          .query(
+            "mesh.recordRules",
+            `INSERT INTO cmux_vm.mesh_firewall_rules
+               (mesh_cmux_id, tenant_id, rule_key, upstream_rule_id, device_cmux_id, vm_cmux_id, protocol, port, created_at)
+             VALUES ${rows.join(", ")}`,
+            params,
+          )
+          .pipe(Effect.asVoid);
+      },
       markRuleDeleted: (tenantId, meshId, key, at) =>
         sql
           .query(
@@ -600,6 +666,19 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [meshId, tenantId, key, at.toISOString()],
           )
           .pipe(Effect.asVoid),
+      markRulesDeleted: (tenantId, meshId, keys, at) =>
+        keys.length === 0
+          ? Effect.void
+          : sql
+              .query(
+                "mesh.markRulesDeleted",
+                // The keys go as one JSON array parameter (SqlParam is scalar), cast as text first (sql.ts).
+                `UPDATE cmux_vm.mesh_firewall_rules SET deleted_at = $3::timestamptz
+                  WHERE mesh_cmux_id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+                    AND rule_key IN (SELECT jsonb_array_elements_text($4::text::jsonb))`,
+                [meshId, tenantId, at.toISOString(), JSON.stringify(keys)],
+              )
+              .pipe(Effect.asVoid),
     };
     return service;
   }),

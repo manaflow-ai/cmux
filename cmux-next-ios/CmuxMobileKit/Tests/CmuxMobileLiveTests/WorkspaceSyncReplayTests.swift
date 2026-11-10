@@ -234,8 +234,14 @@ import Testing
 
 private enum ReplayWaitError: Error { case timedOut, streamEnded }
 
+/// How long a replay wait may take before it counts as a hang (`replayValue`).
+private let replayHangGuard: Duration = .seconds(30)
+
 /// Event-driven wait with a real deadline. Cancellation ends the stream
 /// iterator, so a failure cannot leave a continuation or polling task alive.
+/// The deadline only catches a hang: the tests check request and publication
+/// counts, not time. A loaded macOS runner took more than 5 s for one wait
+/// (2026-11-06), so the guard is generous.
 private func replayTree(_ updates: AsyncStream<DaemonTree>,
                         matching predicate: @escaping @Sendable (DaemonTree) -> Bool) async throws -> DaemonTree {
     try await replayValue(updates, matching: predicate)
@@ -249,7 +255,7 @@ private func replayValue<Value: Sendable>(_ updates: AsyncStream<Value>,
             throw ReplayWaitError.streamEnded
         }
         group.addTask {
-            try await Task.sleep(for: .seconds(5))
+            try await Task.sleep(for: replayHangGuard)
             throw ReplayWaitError.timedOut
         }
         defer { group.cancelAll() }

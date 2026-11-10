@@ -49,8 +49,8 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
     }
 
     /// Answers the question part `partIndex` of `messageID` (`question.answer`).
-    /// The Mac counts it only with this iPhone's Face ID approval
-    /// (cmux-mobile-host `chief_answers.rs`): `signer` asks for Face ID and signs this
+    /// The Mac counts it only with this iPhone's signed approval
+    /// (cmux-mobile-host `chief_answers.rs`): `signer` signs this
     /// exact answer for this Mac, conversation and question.
     public func answerQuestion(messageID: String, partIndex: Int, answer: JSONValue,
                                signer: any ChiefAnswerSigning) async throws -> ConversationMessage {
@@ -551,7 +551,7 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
     }
 }
 
-/// Signs one Chief question answer with the iPhone's approval key after Face ID
+/// Signs one Chief question answer with the iPhone's approval key
 /// (CmuxMobileLive `ChiefAnswerSigner`, cmux-mobile-host `chief_answers.rs`).
 public protocol ChiefAnswerSigning: Sendable {
     /// `{approver, nonce, expiresAt, signature}` for this exact answer.

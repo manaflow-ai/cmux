@@ -400,14 +400,14 @@ class VerdictTests(unittest.TestCase):
         import io
         import json
 
-        def fake_urlopen(request, timeout=0):
+        def fake_request(request, seconds=None, **_kwargs):
             calls.append(request.full_url)
             body = graphql if request.full_url.endswith("/graphql") else {"workflow_runs": runs}
-            return io.BytesIO(json.dumps(body).encode())
+            return 200, json.dumps(body).encode(), {}
 
-        original = delta.urllib.request.urlopen
-        delta.urllib.request.urlopen = fake_urlopen
-        self.addCleanup(setattr, delta.urllib.request, "urlopen", original)
+        original = delta.deadline_http.request
+        delta.deadline_http.request = fake_request
+        self.addCleanup(setattr, delta.deadline_http, "request", original)
         return delta.github_verdicts("o/r", "t", "https://api.github.com/graphql", 7, "main")
 
     def test_a_retargeted_pull_request_keeps_its_whole_diff(self) -> None:
@@ -433,19 +433,19 @@ class VerdictTests(unittest.TestCase):
             with self.subTest(label):
                 calls = []
 
-                def fake_urlopen(request, timeout=0, runs=runs):
+                def fake_request(request, seconds=None, runs=runs, **_kwargs):
                     calls.append(request.full_url)
                     body = graphql if request.full_url.endswith("/graphql") else {"workflow_runs": runs}
-                    import io, json
-                    return io.BytesIO(json.dumps(body).encode())
+                    import json
+                    return 200, json.dumps(body).encode(), {}
 
-                original = delta.urllib.request.urlopen
-                delta.urllib.request.urlopen = fake_urlopen
+                original = delta.deadline_http.request
+                delta.deadline_http.request = fake_request
                 try:
                     lookup = delta.github_verdicts("o/r", "t", "https://api.github.com/graphql", 7, "main")
                     self.assertEqual(lookup([oid]), {oid: expected})
                 finally:
-                    delta.urllib.request.urlopen = original
+                    delta.deadline_http.request = original
                 self.assertIn(f"head_sha={oid}", calls[1])
 
 
@@ -551,6 +551,10 @@ class WorkflowTests(unittest.TestCase):
         condition = jobs["dogfood-build"]["if"]
         self.assertIn(label, condition)
         condition = condition.replace(label, "github.has_dev_build == 'true'")
+        # These runs are not cancelled; why the job calls !cancelled() is tested in
+        # tests/test_ci_portable_job_placement.py (SkippedPlacementKeepsRouting).
+        self.assertIn("(!cancelled() && ", condition)
+        condition = condition.replace("(!cancelled() && ", "(", 1)
         # The label-event guard is tested in tests/test_ci_label_events_skip_full_ci.py.
         condition = re.sub(r" && !\(github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == "
                            r"'feat-cmux-next' && \(github\.event\.action == 'labeled'.*\)\) }}$", " }}", condition)

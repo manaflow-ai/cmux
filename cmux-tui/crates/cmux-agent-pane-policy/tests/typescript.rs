@@ -5,7 +5,7 @@
 //! direct.ts (the typed protocol client, #20576, #20894), `SIDE_SESSION_METHOD`
 //! (needsYou/asks.ts), `HANDOFF_OPS` (handoff/protocol.ts),
 //! `PERMISSION_GROUP_OPS` (permissions/protocol.ts), `FORK_OP`
-//! (operations.ts), `PREWARM_METHOD` and `MCP_RECONNECT_METHOD` (direct.ts), `this.send("...")` in
+//! (operations.ts), `PREWARM_METHOD`, `MCP_RECONNECT_METHOD` and `PROJECT_NEW_METHOD` (direct.ts), `this.send("...")` in
 //! multiplayer/presenceClient.ts, `RETRY_METHOD` (subagents/retryState.ts), and the raw
 //! `session/cancel` notification. `file.search` (and the git reads, sent by a
 //! variable) go to the socket only in mock mode and stay off the list. Folder
@@ -93,6 +93,7 @@ fn the_allowlist_is_what_the_page_sends() {
     sent.insert(constant(&read(&dir, "operations.ts"), "FORK_OP"));
     sent.insert(constant(&direct, "PREWARM_METHOD"));
     sent.insert(constant(&direct, "MCP_RECONNECT_METHOD"));
+    sent.insert(constant(&direct, "PROJECT_NEW_METHOD"));
     // A chat's typing (multiplayer/presenceClient.ts) and a failed subagent's, sub-session's or
     // turn's Retry (subagents/retryState.ts `RETRY_METHOD`, sent through direct.ts `retry`).
     sent.extend(quoted_after(&read(&dir, "multiplayer/presenceClient.ts"), "this.send("));
@@ -306,23 +307,37 @@ fn trust_refusal_reasons_are_the_daemons() {
 /// AGENT-TRUST-GATE: the page sends `sessionId` on `acp.trust.get` and
 /// `acp.trust.set` when a chat is selected (direct.ts `trustGet`,
 /// `trustSet`; acpmux routes a remote session's answer to its peer), and the
-/// hosts allow it (`knownParams`) when the session is the pane's
+/// shared trustTarget helper selects a peer before a session exists. The
+/// hosts allow both (`knownParams`) when the session is the pane's
 /// (`optionallySessionScoped`, sessions.json).
 #[test]
 fn trust_session_id_is_sent_and_scoped() {
     let dir = pane();
     let direct = read(&dir, "direct.ts");
+    let start = direct.find("private trustTarget()").expect("trustTarget in direct.ts");
+    let target = &direct[start..];
+    let target = &target[..target.find("\n  }").unwrap()];
+    assert!(
+        target.contains("sessionId: this.selectedSessionId"),
+        "selected chat routes by session"
+    );
+    assert!(target.contains("const peer = this.trustPeer"), "new chat uses its trust peer");
+    assert!(target.contains("return peer ? { peer } : {}"), "local new chat has no selector");
     for (function, method) in [("trustGet(", "acp.trust.get"), ("trustSet(", "acp.trust.set")] {
         let start = direct.find(function).unwrap_or_else(|| panic!("{function} in direct.ts"));
         let body = &direct[start..];
         let body = &body[..body.find("\n  }").unwrap()];
         assert!(
-            body.contains("sessionId: this.selectedSessionId"),
-            "{method}: the page sends sessionId"
+            body.contains("...this.trustTarget()"),
+            "{method}: the page uses the shared trust target"
         );
         assert!(
             policy().known_params[method].params.contains("sessionId"),
             "{method}: the hosts allow sessionId"
+        );
+        assert!(
+            policy().known_params[method].params.contains("peer"),
+            "{method}: the hosts allow a peer before session creation"
         );
         assert!(
             policy().optionally_session_scoped.contains(method),

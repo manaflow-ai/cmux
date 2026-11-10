@@ -200,6 +200,7 @@ extension AgentPaneTransport {
             let snapshot = Snapshot(isFirst: !sentFirst, localAppToken: localAppToken, socketPath: socketPath, modeFields: modeFields,
                                     sessions: sessions, options: permissionOptions, remoteWire: remoteWire)
             let batch = await Self.analyze(texts, snapshot, socket: socket, ids: ids)
+            await afterAnalyze?()
             if batch.firstSent {
                 sentFirst = true
                 localAppToken = nil
@@ -330,6 +331,10 @@ extension AgentPaneTransport {
 
     /// The main actor's part of one frame: small values only (the frame stays in its box).
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
+        // The pane reconnected while the frame was read off the main actor: it goes nowhere, and it
+        // spends nothing, so the person's send ticket it names stays for the prompt on the next
+        // connection (``AgentPaneUserGestures/carrySendTickets(to:)``).
+        guard id == current, self.socket === socket else { return .stop(.staleConnection) }
         // A start or open while a Sandboxed send runs is refused before it spends the gesture or
         // leaves a start credit (the count below still decides).
         if socket.refusesPageFrame(method: facts.method) {
@@ -391,7 +396,7 @@ extension AgentPaneTransport {
                 } ?? false
                 let redeemed = redeemedQuestion || gestures.redeem(ticket, connection: id, pick: facts.pick, sessionId: facts.sessionId)
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
-                    && facts.sessionId.map(sessions.contains) == true
+                    && (facts.method == "chat.fix_from_link" || facts.sessionId.map(sessions.contains) == true)
                 ticketPick = granted
                 // A prompt that goes with its own ticket spends the start's credit too, as one
                 // without a ticket does: the credit never grants a later prompt (#23031).
@@ -545,8 +550,12 @@ extension AgentPaneTransport {
         let answer = !facts.isFirst
             && (facts.method == "_acpmux/permission_respond" || facts.method == "_acpmux/permission_group_respond")
         if answer, let pageID = facts.pageID {
-            decisions.sent(pageID: pageID, proved: box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions"),
-                           single: facts.method == "_acpmux/permission_respond")
+            let proved = box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions")
+            let single = facts.method == "_acpmux/permission_respond"
+            // One click, one answer (Leo, 2026-11-04): a peer that has not enrolled this Mac yet
+            // gets the same signed answer again after this Mac enrolls there (``enrollThenRetry``).
+            let retry = proved && single && !remoteWire && peerApprover?.enroll != nil ? box.encoded(id: nil) : nil
+            decisions.sent(pageID: pageID, proved: proved, single: single, retry: retry)
         }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
             socket.pageFrameNotSent(method: facts.method)

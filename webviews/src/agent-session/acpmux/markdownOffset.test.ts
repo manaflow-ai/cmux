@@ -5,7 +5,7 @@
 // mention read the id and an insert wrote into the token.
 import { expect, test } from "bun:test";
 import { inlineToken } from "./attachments";
-import { markdownOffset, mentionQuery } from "./MentionMenu";
+import { markdownOffset, mentionQuery } from "./mentionMenuModel";
 
 test("an attachment before the caret counts as one shown place", () => {
   const token = inlineToken("6f1d2c3a-1b2c-4d5e-8f90-123456789abc");

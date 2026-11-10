@@ -46,11 +46,8 @@ final class ContentPresentationScheduler {
         schedule()
     }
 
-    /// Shows `pane`'s selection now when that fits this frame's budget (its
-    /// content is alive, or no surface was created since the last frame),
-    /// else queues it. Used when a pane comes on screen, so a split's new
-    /// pane draws in the same frame as the layout change instead of one
-    /// blank frame later. Returns true when it was shown now.
+    /// Shows `pane`'s selection now when that fits this frame's budget (its content is alive, or no surface was made since the
+    /// last frame: only a surface really made spends it), else queues it: a split's new pane shows with the layout change.
     @discardableResult
     func showNow(_ pane: any PresentablePane) -> Bool {
         let alive = pane.selectedContentIsAlive
@@ -59,8 +56,8 @@ final class ContentPresentationScheduler {
             return false
         }
         cancel(pane)
-        if !alive { createdThisFrame = true }
         BenchSpans.measure("presentation.showNow") { pane.showSelected() }
+        if !alive, pane.selectedContentIsAlive { createdThisFrame = true }
         schedule()
         return true
     }
@@ -85,19 +82,20 @@ final class ContentPresentationScheduler {
     private func drain() {
         var created = false
         var remaining: [ObjectIdentifier] = []
+        // The queue is taken first: a show can queue a pane (a stale strip's sync can apply the layout); it waits behind the panes kept here.
+        let queued = order
+        order = []
         // The focused pane first; the others keep their order.
-        let focused = order.filter { pending[$0]?.isFocusedInWorkspace == true }
-        for key in focused + order.filter({ !focused.contains($0) }) {
+        let focused = queued.filter { pending[$0]?.isFocusedInWorkspace == true }
+        for key in focused + queued.filter({ !focused.contains($0) }) {
             guard let pane = pending[key] else { continue }
-            if pane.selectedContentIsAlive || !created {
-                if !pane.selectedContentIsAlive { created = true }
-                pending[key] = nil
-                BenchSpans.measure("presentation.frame") { pane.showSelected() }
-            } else {
-                remaining.append(key)
-            }
+            let alive = pane.selectedContentIsAlive
+            guard alive || !created else { remaining.append(key); continue }
+            pending[key] = nil
+            BenchSpans.measure("presentation.frame") { pane.showSelected() }
+            if !alive, pane.selectedContentIsAlive { created = true }
         }
-        order = remaining
+        order = remaining + order
         createdThisFrame = created
         schedule()
     }

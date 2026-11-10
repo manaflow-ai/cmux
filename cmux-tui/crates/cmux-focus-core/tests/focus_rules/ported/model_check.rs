@@ -7,7 +7,7 @@
 //! step. Each mutant breaks one rule and must be caught.
 //! `CMUX_MODELCHECK_DEPTH` and `CMUX_MODELCHECK_PANES` deepen a run.
 
-use cmux_focus_core::close_focus::{neighbor, pane, tab, workspace};
+use cmux_focus_core::close_focus::{TabRelations, neighbor, pane, tab, workspace};
 use cmux_focus_core::state::CloseFocusPolicy;
 use std::collections::{HashMap, HashSet};
 
@@ -557,6 +557,8 @@ fn explore_tabs(rule: TabRule) -> (usize, Vec<String>) {
                 && let Some(i) = tabs.iter().position(|t| *t == closed)
                 && !shown.is_empty()
             {
+                // Chrome with no relations: the shown tab after it, else
+                // the shown tab before it.
                 let expected = tabs[i + 1..]
                     .iter()
                     .find(|t| shown.contains(t))
@@ -590,20 +592,23 @@ fn explore_tabs(rule: TabRule) -> (usize, Vec<String>) {
 }
 
 #[test]
-fn tab_rule_holds_for_every_close_sequence() {
+fn tab_close_like_chrome_for_every_close_sequence() {
+    let none = TabRelations::<Id>::default();
     let (sequences, violations) = explore_tabs(&|selected, old, surviving, shown| {
-        tab(selected.as_ref(), old, surviving, shown, &HashMap::new())
+        tab(selected.as_ref(), old, surviving, shown, &none)
     });
     assert!(violations.is_empty(), "{violations:?}");
     println!("close_focus::tab: {sequences} close sequences");
 }
 
 #[test]
-fn tab_mutants_are_caught() {
-    // The old rule ignored hidden tabs; another picks the left neighbor first.
+fn tab_close_like_chrome_mutants_are_caught() {
+    // An old rule ignored hidden tabs; another picked the left neighbor
+    // first (2026-11-08's "the tab before it").
+    let none = TabRelations::<Id>::default();
     let (_, ignores_hidden) = explore_tabs(&|selected, old, surviving, _| {
         let all: HashSet<Id> = surviving.iter().copied().collect();
-        tab(selected.as_ref(), old, surviving, &all, &HashMap::new())
+        tab(selected.as_ref(), old, surviving, &all, &none)
     });
     assert!(!ignores_hidden.is_empty());
     let (_, left_first) = explore_tabs(&|selected, old, surviving, shown| {

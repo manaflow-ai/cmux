@@ -239,6 +239,10 @@ public:
     [[nodiscard]] Result<AttachedViewOutcomeResult> release_attached_view_size(const ReleaseAttachedViewSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> release_surface_size(const ReleaseSurfaceSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReloadConfigResult> reload_config(const ReloadConfigRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<RemoteHostAppResult> remote_host_app(const RemoteHostAppRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> remote_host_call(const RemoteHostCallRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> remote_host_config(const RemoteHostConfigRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> remote_host_status(const RemoteHostStatusRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> remote_terminal_snapshot(const RemoteTerminalSnapshotRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> remove_screens_from_screen_group(const RemoveScreensFromScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<RemoveTabsFromTabGroupResult> remove_tabs_from_tab_group(const RemoveTabsFromTabGroupRequest& request, RequestOptions options = {});
@@ -271,8 +275,10 @@ public:
     [[nodiscard]] Result<EmptyResult> set_client_sizing(const SetClientSizingRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_column_dock(const SetColumnDockRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_default_colors(const SetDefaultColorsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> set_divider_visible(const SetDividerVisibleRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_frontend_browser_history(const SetFrontendBrowserHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetHostSizePolicyResult> set_host_size_policy(const SetHostSizePolicyRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> set_layout_sizes(const SetLayoutSizesRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_personal_terminal(const SetPersonalTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_personal_workspace(const SetPersonalWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_profile_follows(const SetProfileFollowsRequest& request, RequestOptions options = {});
@@ -288,9 +294,13 @@ public:
     [[nodiscard]] Result<TerminalCommandHistoryResult> set_terminal_command_history(const SetTerminalCommandHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetTerminalIdlePolicyResult> set_terminal_idle_policy(const SetTerminalIdlePolicyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SetTerminalKeepResult> set_terminal_keep(const SetTerminalKeepRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<SetTerminalTailPinResult> set_terminal_tail_pin(const SetTerminalTailPinRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ViewportPaneWidthResult> set_viewport_pane_width(const SetViewportPaneWidthRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_window_title(const SetWindowTitleRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_workspace_metadata(const SetWorkspaceMetadataRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> shell_read(const ShellReadRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> shell_run(const ShellRunRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> shell_stop(const ShellStopRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ShutdownDaemonResult> shutdown_daemon(const ShutdownDaemonRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SidebarPluginResult> sidebar_plugin(const SidebarPluginRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SnapshotRequestResult> snapshot_request(const SnapshotRequestRequest& request, RequestOptions options = {});
@@ -302,6 +312,7 @@ public:
     [[nodiscard]] Result<EventStream> terminal_clipboard_subscribe(const TerminalClipboardSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalEventsResult> terminal_events(const TerminalEventsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TerminalHistoryPagesResult> terminal_history(const TerminalHistoryRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<TerminalLastCommandResult> terminal_last_command(const TerminalLastCommandRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TerminalPortsResult> terminal_ports(const TerminalPortsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalReadRangeResult> terminal_read_range(const TerminalReadRangeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalResourcesResult> terminal_resources(const TerminalResourcesRequest& request = {}, RequestOptions options = {});

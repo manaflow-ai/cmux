@@ -49,6 +49,19 @@ pub(crate) type PendingAgentHookProjection = (String, String, String, u64, Journ
 /// `(event_sequence, idempotency_key, rowid)` resume cursor for paged reads.
 pub(crate) type PendingAgentHookCursor = (u64, String, i64);
 
+/// Indexes every open adds to a registry of any age (each `IF NOT EXISTS`,
+/// so older builds keep opening it). The live panes of one screen were read
+/// by scanning every pane row: once per screen at each open (the resource
+/// invariants), so an open at 4,000 workspaces spent 0.5 s there, and once
+/// per create (its stored subtree).
+pub(crate) fn create_lookup_indexes(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "CREATE INDEX IF NOT EXISTS live_resource_panes_by_screen
+           ON resource_panes(screen_id) WHERE deleted_revision IS NULL;",
+    )?;
+    Ok(())
+}
+
 pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS resource_identities (
@@ -1450,6 +1463,12 @@ impl WorkspaceRegistry {
     }
 
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
+        #[cfg(test)]
+        if self.topology_snapshot_failures_remaining.get() > 0 {
+            self.topology_snapshot_failures_remaining
+                .set(self.topology_snapshot_failures_remaining.get() - 1);
+            anyhow::bail!("injected topology snapshot failure");
+        }
         load_resource_topology(
             &self.connection.get(),
             self.session_id.clone(),
@@ -1905,6 +1924,10 @@ pub enum RegistryLayoutNode {
         ratio: f32,
         first: Box<RegistryLayoutNode>,
         second: Box<RegistryLayoutNode>,
+        /// The split's divider is hidden (`split-divider-visibility-v1`).
+        /// Absent in layouts stored before it, which load as visible.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        divider_hidden: bool,
     },
     Stack {
         panes: Vec<PanePublicId>,
@@ -2100,6 +2123,8 @@ pub(crate) fn resource_patch_replay(
     let Some((stored_operation, stored_fingerprint, result, revision)) = stored else {
         return Ok(None);
     };
+    let ids = StoredIds::load(transaction)?;
+    let (stored_fingerprint, result) = (ids.fingerprint(stored_fingerprint)?, ids.text(result));
     if stored_operation != operation || stored_fingerprint != fingerprint {
         anyhow::bail!(
             "idempotency.conflict: key {} committed_operation {} from {} was reused with different input",
@@ -2229,7 +2254,7 @@ fn validate_layout_node<'a>(
                 anyhow::bail!("pane {pane} appears twice in one layout");
             }
         }
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+        RegistryLayoutNode::Split { split, direction, ratio, first, second, .. } => {
             if !splits.insert(split) {
                 anyhow::bail!("duplicate split public id: {split}");
             }
@@ -2665,9 +2690,13 @@ pub(crate) fn prune_unchanged_resource_changes(
                 | ResourceChange::SetTabOrder { .. }
         )
     };
+    let mut workspace_rows = None;
     let mut kept = Vec::with_capacity(patch.changes.len());
     for change in &patch.changes {
-        kept.push(!is_order(change) && !resource_change_is_stored(transaction, change)?);
+        kept.push(
+            !is_order(change)
+                && !resource_change_is_stored(transaction, &mut workspace_rows, change)?,
+        );
     }
     let mut workspace_order = false;
     let mut screen_parents = HashSet::<String>::new();
@@ -2731,15 +2760,16 @@ pub(crate) fn prune_unchanged_resource_changes(
         let keep = kept
             || match change {
                 ResourceChange::SetWorkspaceOrder { .. } => {
-                    workspace_order || !resource_change_is_stored(transaction, change)?
+                    workspace_order
+                        || !resource_change_is_stored(transaction, &mut workspace_rows, change)?
                 }
                 ResourceChange::SetScreenOrder { workspace_id, .. } => {
                     screen_parents.contains(workspace_id.as_str())
-                        || !resource_change_is_stored(transaction, change)?
+                        || !resource_change_is_stored(transaction, &mut workspace_rows, change)?
                 }
                 ResourceChange::SetTabOrder { pane_id, .. } => {
                     tab_parents.contains(pane_id.as_str())
-                        || !resource_change_is_stored(transaction, change)?
+                        || !resource_change_is_stored(transaction, &mut workspace_rows, change)?
                 }
                 _ => false,
             };
@@ -2763,8 +2793,17 @@ fn content_tab_panes(
         .collect::<Result<Vec<_>, _>>()?)
 }
 
-fn resource_change_is_stored(
-    transaction: &Transaction<'_>,
+const STORED_WORKSPACE_ROW: &str =
+    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id,
+            w.name_source, w.name_revision
+     FROM resource_workspaces rw
+     JOIN workspaces w ON w.workspace_key = rw.workspace_key
+     WHERE rw.public_id = ?1 AND rw.workspace_key = ?2
+       AND rw.deleted_revision IS NULL AND w.tombstoned = 0";
+
+fn resource_change_is_stored<'t>(
+    transaction: &'t Transaction<'_>,
+    workspace_rows: &mut Option<rusqlite::Statement<'t>>,
     change: &ResourceChange,
 ) -> anyhow::Result<bool> {
     Ok(match change {
@@ -2773,26 +2812,25 @@ fn resource_change_is_stored(
                 workspace.name_source,
                 workspace.name_revision,
             )?;
-            let stored = transaction
-                .query_row(
-                    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id,
-                            w.name_source, w.name_revision
-                     FROM resource_workspaces rw
-                     JOIN workspaces w ON w.workspace_key = rw.workspace_key
-                     WHERE rw.public_id = ?1 AND rw.workspace_key = ?2
-                       AND rw.deleted_revision IS NULL AND w.tombstoned = 0",
-                    params![workspace.public_id.as_str(), workspace.key],
-                    |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, Option<i64>>(3)?,
-                            row.get::<_, Option<String>>(4)?,
-                            (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
-                        ))
-                    },
-                )
+            // One statement for every workspace upsert of the patch: a
+            // projection restates each live workspace, so preparing it per
+            // upsert was most of a create's cost at thousands of them.
+            if workspace_rows.is_none() {
+                *workspace_rows = Some(transaction.prepare(STORED_WORKSPACE_ROW)?);
+            }
+            let stored = workspace_rows
+                .as_mut()
+                .context("the stored workspace row statement was just prepared")?
+                .query_row(params![workspace.public_id.as_str(), workspace.key], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<i64>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
+                    ))
+                })
                 .optional()?;
             stored.is_some_and(
                 |(numeric_id, name, group_key, stored_position, screen, (source, revision))| {
@@ -4248,9 +4286,12 @@ fn validate_touched_resource_invariants(
                     &mut browsers,
                 )?;
             }
-            ResourceChange::SetTabOrder { pane_id, tab_ids } => {
+            // An order change writes only the pane's tabs' positions: the set (set_resource_tab_order) and the
+            // contiguous positions (below) are its invariants, so it touches no tab's own rows, as
+            // `SetWorkspaceOrder` above. Validating every tab of the pane per create cost O(tabs in the pane):
+            // about 5 queries per tab, under the registry lock a person's next click waits on.
+            ResourceChange::SetTabOrder { pane_id, .. } => {
                 panes.insert(pane_id.to_string());
-                tabs.extend(tab_ids.iter().map(ToString::to_string));
             }
             ResourceChange::UpsertTerminal { public_id, .. }
             | ResourceChange::TombstoneTerminal { public_id, .. } => {
@@ -4579,7 +4620,15 @@ fn validate_touched_pane(transaction: &Transaction<'_>, pane_id: &str) -> anyhow
     Ok(())
 }
 
+/// Tabs [`validate_touched_tab`] checked in this test process (nextest runs each test alone): a commit's
+/// validation must be O(changed), never O(tabs in the pane).
+#[cfg(test)]
+pub(crate) static TABS_VALIDATED: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 fn validate_touched_tab(transaction: &Transaction<'_>, tab_id: &str) -> anyhow::Result<()> {
+    #[cfg(test)]
+    TABS_VALIDATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stored = transaction
         .query_row(
             "SELECT pane_id, content_kind, content_id, deleted_revision

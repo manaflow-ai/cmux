@@ -24,15 +24,33 @@ struct SplitMotion {
     /// from rest.
     /// `moved` / `movedDividers`: the frames the release's layout change retargeted; a frame already on its way
     /// for another reason keeps its own velocity. Nil: every frame (callers that know no better).
+    /// `edges` (FRAME OWNER S2B, the drag's `DividerDragState.sharedEdges`): only the edges each frame's
+    /// target moved get the release's velocity; an edge that did not move keeps its own spring's (`SharedEdgeMotion`).
     static func seed(velocity: CGFloat, along axis: SplitAxis, divider: AnimatedFrame,
                      panes: inout [PaneID: AnimatedFrame], dividers: inout [DividerHandleView.Kind: AnimatedFrame],
-                     moved: Set<PaneID>? = nil, movedDividers: Set<DividerHandleView.Kind>? = nil) {
+                     moved: Set<PaneID>? = nil, movedDividers: Set<DividerHandleView.Kind>? = nil,
+                     edges: (panes: [PaneID: CGRect], dividers: [DividerHandleView.Kind: CGRect])? = nil) {
         let travel = axis == .horizontal ? divider.x.target - divider.x.value : divider.y.target - divider.y.value
         guard abs(travel) > 0.5 else { return }
         let fraction = velocity / travel
         guard fraction > 0 else { return }
-        // A fling faster than the spring could start (10 travels a second) is capped there.
+        // A fling faster than 10 travels a second is capped there. That is under the limit of every pane token (omega,
+        // 20 a second or more at speed normal), so no edge starts faster than it can stop on its place; the frames
+        // apply that limit at each step whatever a caller wrote (`SpringParameters.admitted`).
         let rate = min(fraction, 10)
+        if let edges {
+            for (key, frame) in panes where moved?.contains(key) ?? true {
+                var seeded = frame
+                SharedEdgeMotion.seed(&seeded, moved: .init(before: edges.panes[key], after: frame.targetRect), rate: rate)
+                panes[key] = seeded
+            }
+            for (key, frame) in dividers where movedDividers?.contains(key) ?? true {
+                var seeded = frame
+                SharedEdgeMotion.seed(&seeded, moved: .init(before: edges.dividers[key], after: frame.targetRect), rate: rate)
+                dividers[key] = seeded
+            }
+            return
+        }
         for key in Array(panes.keys) where moved?.contains(key) ?? true { panes[key]?.seed(fractionVelocity: rate) }
         for key in Array(dividers.keys) where movedDividers?.contains(key) ?? true { dividers[key]?.seed(fractionVelocity: rate) }
     }
@@ -78,10 +96,12 @@ extension SplitMotion {
     /// pane that is still moving sideways (a column growing in, then split down) starts under that pane, at its shown
     /// x and width and with its velocity, not at its column's rest (RESIZE VIDEOS O1: 31 pt off for 12 frames). Only
     /// that pane: a neighbour whose edge is on the same line follows its own motion.
-    static func ride(_ frame: inout AnimatedFrame, panes: [PaneID: AnimatedFrame], skipping: Set<PaneID>, giver: PaneID? = nil) {
+    /// `slides`: the pane enters at its final width (``PaneArrival/slides``): it rides the edge as a sliver would.
+    static func ride(_ frame: inout AnimatedFrame, panes: [PaneID: AnimatedFrame], skipping: Set<PaneID>, giver: PaneID? = nil,
+                     slides: Bool = false) {
         let seed = frame.rect
         let horizontal: Bool
-        if seed.width == 0 { horizontal = true } else if seed.height == 0 { horizontal = false } else { return }
+        if seed.width == 0 || slides { horizontal = true } else if seed.height == 0 { horizontal = false } else { return }
         let reach: CGFloat = 16
         var best: (distance: CGFloat, shift: CGFloat, velocity: CGFloat)?
         func consider(_ distance: CGFloat, _ shift: CGFloat, _ velocity: CGFloat) {

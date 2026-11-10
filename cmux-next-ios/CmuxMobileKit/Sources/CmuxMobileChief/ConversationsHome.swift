@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -35,6 +36,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     @State private var listMemo = MacHomeList.Memo()
     @State private var query = ""
     @State private var unreadOnly = false
+    @State private var homeRetries = 0
     /// The New Chief name prompt is up.
     @State private var namingChief = false
     @State private var newChiefName = ""
@@ -72,6 +74,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// The Mac whose Home shows: the one its rows came from, else the Mac Chief's.
     private var homeMacID: String? { feed.macID ?? sources.mac.macID }
+
+    /// Home's "Couldn't load" row with its Retry: shown while the read failed or the
+    /// Mac is offline, and kept for as long as a retry from it runs.
+    private var showsHomeProblem: Bool { feed.problem != nil || homeIsOffline || homeRetries > 0 }
 
     private var homeIsOffline: Bool {
         guard store.tracksMacData, let homeMacID else { return false }
@@ -237,15 +243,20 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                stamp: stamp, identifier: "home.chief", place: .cloud) { cloudTileMenu }
                 case .macChief:
                     sessionRow(sources.mac, name: String(localized: "Chief"), tag: chiefTag(main: !sources.isCloudReady, place: macTag),
-                               stamp: stamp, identifier: "home.chief.mac", place: .mac) { callChiefItem }
+                               stamp: stamp, identifier: "home.chief.mac", place: .mac) { CallChiefItem(chief: sources.mac) }
                 }
             }
-            if !searching, feed.problem != nil || homeIsOffline {
+            if !searching, showsHomeProblem {
                 VStack(spacing: 6) {
                     Text(RecoveryMessage.home.text)
                         .font(.footnote)
                         .foregroundStyle(theme.colors.label2.color)
                     RetryButton {
+                        // The row stays (its spinner turning) until the retry answers: reconnecting
+                        // clears the offline state first, and the row leaving then would swap in
+                        // "Connecting…" and cancel the button's own retry mid-flight.
+                        homeRetries += 1
+                        defer { homeRetries -= 1 }
                         await HomeRetryAction(feed: feed, reconnect: reconnect).retry(macID: homeMacID, reconnectNeeded: homeIsOffline)
                     }
                     .accessibilityIdentifier("home.retry")
@@ -263,7 +274,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 // The Mac's Show Hidden Conversations: what Delete Conversation from List hid lists again.
                 Button {
                     theme.haptics.selection()
-                    withAnimation(theme.motion.smooth.animation) { hiddenRows.showAll() }
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { hiddenRows.showAll() }
                 } label: {
                     Text(hiddenCount == 1 ? String(localized: "Show 1 Hidden Conversation")
                         : String(localized: "Show \(hiddenCount) Hidden Conversations"))
@@ -307,7 +318,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 // The Mac's Unread toggle: all or unread only, the filled glyph while on.
                 Button {
                     theme.haptics.selection()
-                    withAnimation(theme.motion.smooth.animation) { unreadOnly.toggle() }
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { unreadOnly.toggle() }
                 } label: {
                     Label("Unread", systemImage: unreadOnly ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
@@ -336,7 +347,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                             titleVisibility: .visible, presenting: deleting) { row in
             Button(String(localized: "Delete"), role: .destructive) {
                 theme.haptics.selection()
-                withAnimation(theme.motion.smooth.animation) { hiddenRows.hide(row) }
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { hiddenRows.hide(row) }
             }
             .accessibilityIdentifier("home.delete.confirm")
             Button(String(localized: "Cancel"), role: .cancel) {}
@@ -365,7 +376,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             Text("A new Cloud Chief with its own conversation and memory.")
         }
         // The memo's revision moves only when the shown list does (no comparison of every row per pass).
-        .animation(theme.motion.smooth.animation, value: listMemo.revision)
+        .animation(theme.motion.smooth.animation.unlessReduceMotion, value: listMemo.revision)
+        // A retry's outcome (the rows in, or the note back) settles in place instead of jumping.
+        .animation(theme.motion.smooth.animation.unlessReduceMotion, value: showsHomeProblem)
     }
 
     private func rowModel(_ row: MacHomeRow, stamp: MessagesStamp) -> HomeListRow.Model {
@@ -422,15 +435,13 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The Mac's row menu, the actions that are the person's list state:
     /// Pin or Unpin, Mark as Read or Mark as Unread; Chief's row also calls Chief.
     private func rowMenu(_ row: MacHomeRow) -> some View {
-        HomeRowMenu(id: row.id, isMacChief: isMacChief(row), isPinned: row.isPinned, isUnread: row.unreadCount > 0, feed: feed,
+        HomeRowMenu(id: row.id, isMacChief: isMacChief(row), macChief: sources.mac, isPinned: row.isPinned, isUnread: row.unreadCount > 0, feed: feed,
                     delete: askToDelete)
     }
 
-    private var callChiefItem: some View { CallChiefItem() }
-
     @ViewBuilder private var cloudTileMenu: some View {
         let cloud = sources.cloud
-        callChiefItem
+        CallChiefItem(chief: cloud)
         if cloud.conversationID != nil {
             Button(cloud.isMuted ? "Show Alerts" : "Hide Alerts", systemImage: cloud.isMuted ? "bell" : "bell.slash") {
                 cloud.setMuted(!cloud.isMuted)
@@ -490,7 +501,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     private func selectHome(_ id: String) {
         guard let team = store.activeTeam, id != homeMacID else { return }
         theme.haptics.selection()
-        withAnimation(theme.motion.smooth.animation) { macFilter.select(.mac(id), in: team.id) }
+        withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { macFilter.select(.mac(id), in: team.id) }
         // The chosen Mac is linked and focused: its Chief and its Home show.
         if macs.contains(where: { $0.id == id && $0.isOnline }) { selectMac?(id) }
     }
@@ -535,7 +546,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .buttonStyle(.borderless)
         .disabled(sources.isChanging)
         if sources.isChanging {
-            ProgressView().controlSize(.small)
+            CmuxSpinner().controlSize(.small)
         }
         if let error = sources.changeError {
             Text(error)
@@ -645,6 +656,8 @@ struct HomeRowSwipeButtons: View {
 struct HomeRowMenu: View {
     let id: String
     let isMacChief: Bool
+    /// The Mac Chief its Call Chief calls (the row is the Mac Chief's).
+    var macChief: ChiefSession = ChiefSources.shared.mac
     let isPinned: Bool
     let isUnread: Bool
     let feed: MacHomeFeed
@@ -654,7 +667,7 @@ struct HomeRowMenu: View {
     var body: some View {
         // Settings → Long-Press Menus: the items the person hid stay out.
         let hidden = CmuxMobileMenuCustomization.hidden()
-        if isMacChief { CallChiefItem() }
+        if isMacChief { CallChiefItem(chief: macChief) }
         if !hidden.contains("homeRow.pin") {
             Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin") {
                 theme.haptics.selection()
@@ -676,10 +689,12 @@ struct HomeRowMenu: View {
     }
 }
 
-/// A live voice call with Chief (``ChiefCallLauncher``).
+/// A live voice call with this row's Chief, and only it (``ChiefCallLauncher``).
 struct CallChiefItem: View {
+    let chief: ChiefSession
+
     var body: some View {
-        Button("Call Chief", systemImage: "phone") { ChiefCallLauncher.shared.call() }
+        Button("Call Chief", systemImage: "phone") { ChiefCallLauncher.shared.call(chief) }
             .accessibilityIdentifier("home.chief.call")
     }
 }
@@ -719,8 +734,8 @@ struct HomeTile: View, Identifiable {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier(identifier)
-        .animation(theme.motion.snappy.animation, value: working)
-        .animation(theme.motion.snappy.animation, value: bubble)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: working)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: bubble)
     }
 
     private var accessibilityLabel: Text {
@@ -812,13 +827,23 @@ struct MacConversationScreen: View {
                     .accessibilityIdentifier("home.conversation.retry")
                 }
             } else {
-                ProgressView().accessibilityIdentifier("home.conversation.loading")
+                CmuxSpinner().accessibilityIdentifier("home.conversation.loading")
             }
         }
         // Owned by the screen: a retry button disappearing cannot cancel the load it requested.
         .task(id: SessionKey(route: route, epoch: feed.sessionEpoch, retry: loader.retryID,
                              hasRows: feed.rows != nil, homeProblem: feed.problem)) {
-            await loader.load { try await feed.session(for: route) }
+            // A dropped link keeps the open conversation on screen with its bar's Try Again
+            // (CMUX-30), never a full-screen error over the transcript and the composer.
+            await loader.load({ try await feed.session(for: route) }, tryAgain: { [loader, feed, macID, reconnect] in
+                Task { @MainActor in
+                    await loader.retry(macID: macID, reconnect: reconnect, refresh: { await feed.refresh() })
+                }
+            })
+        }
+        .onChange(of: loader.isStale) { _, stale in
+            guard stale else { return }
+            AccessibilityNotification.Announcement(MacConversationLoader.staleTitle).post()
         }
     }
 }

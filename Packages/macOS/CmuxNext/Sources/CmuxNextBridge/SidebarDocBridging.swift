@@ -83,15 +83,21 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
 @MainActor
 public final class SidebarDocSections {
     private var groups: [String: WorkspaceGroupModel] = [:]
-    /// Whether the daemon puts a new workspace first in its machine section (`workspaces.newPlacement`
-    /// `top`, the default); false lists it last, as `bottom` does (`afterCurrent` keeps a pending row
-    /// at the window's slot meanwhile). A live workspace the document does not place
-    /// yet lists at that slot, so its item's arrival moves nothing (plans/cmux-next/sidebar-ordering-DESIGN.md).
-    public var placesNewRowsFirst: @MainActor () -> Bool = { true }
+    /// Where the daemon's create puts a new workspace (`workspaces.newPlacement`): first in its machine section
+    /// (`top`), right below the window's current workspace (`afterCurrent`, the default; first when there is
+    /// none), right above it (`beforeCurrent`), or last (`bottom`). A live workspace the document does not place
+    /// yet lists at that slot, so its item's arrival moves nothing, and none made by the CLI or an agent shows at the sidebar's end first and
+    /// then jumps (Leo 2026-11-06; plans/cmux-next/sidebar-ordering-DESIGN.md).
+    public enum NewRowsPlace: Hashable, Sendable {
+        case first, below(String), above(String), last
+    }
+
+    public var newRowsPlace: @MainActor () -> NewRowsPlace = { .first }
+
     /// Where a live workspace the document does not place yet lists when its creator named a neighbour
     /// (`beforeCurrent` / `afterCurrent`, New Workspace Above or Below, or `top` / `bottom` from inside a
     /// group): beside that workspace, where the daemon's create puts it, so its item's arrival moves
-    /// nothing. Nil, or a neighbour not listed: first or last (``placesNewRowsFirst``).
+    /// nothing. Nil, or a neighbour not listed: where ``newRowsPlace`` lists new rows.
     public var unplacedAnchor: @MainActor (WorkspaceModel) -> UnplacedAnchor? = { _ in nil }
 
     /// A listed workspace a new one lists beside (``unplacedAnchor``).
@@ -115,6 +121,14 @@ public final class SidebarDocSections {
             }
         }
 
+        /// The workspace it lists beside; nil for `.first`.
+        public var neighbour: String? {
+            switch self {
+            case .before(let id, _), .after(let id, _), .firstInGroupOf(let id), .lastInGroupOf(let id): id
+            case .first: nil
+            }
+        }
+
         /// Whether it applies only inside a group.
         public var isGroupAnchor: Bool {
             switch self {
@@ -124,6 +138,45 @@ public final class SidebarDocSections {
         }
     }
 
+    /// Whether new rows list first (`top`).
+    public func placesNewRowsFirst() -> Bool { newRowsPlace() == .first }
+
+    /// The current workspaces seen per session, latest last (at most `currentsKept`): the anchor of a chain of creates.
+    private var currents: [String: [String]] = [:]
+    /// Where each workspace last listed per session: its group (nil: a loose run) and the row above it there (nil:
+    /// first). A listed workspace the document stops placing for a moment (its item or ref in flight) keeps that slot,
+    /// so no row leaves its group or moves (Leo 2026-11-07, a collapsed group's running rows jumping out of it).
+    private var slots: [String: [String: Slot]] = [:]
+    /// `before`: for a loose row, the group just above its loose run (nil: the machine's first section).
+    private struct Slot: Equatable { var group: String?; var after: String?; var before: String? }
+    /// The place each new row took when it first listed, per session: a selection change does not move it.
+    private var anchors: [String: [String: NewRowsPlace]] = [:]
+    private static let currentsKept = 64
+
+    /// Where `session`'s new rows list for `place`, and whether newest first. Below a current workspace that lists,
+    /// newest first: the daemon put each right below it. When the current one is itself new (Cmd-N selects each new
+    /// workspace, so each went below the one before it), in the order made, below the latest current one that lists.
+    /// `lists`: whether a workspace lists already. Call it on every pass, so the anchor is known before a create.
+    public func newRows(_ place: NewRowsPlace, session: String, fresh: Set<String>,
+                        lists: (String) -> Bool) -> (place: NewRowsPlace, newestFirst: Bool) {
+        let current: String
+        switch place {
+        case .below(let id), .above(let id): current = id
+        case .first, .last: return (place, true)
+        }
+        var seen = currents[session, default: []]
+        if seen.last != current { seen.removeAll { $0 == current }; seen.append(current); currents[session] = Array(seen.suffix(Self.currentsKept)) }
+        guard fresh.contains(current) else { return (place, true) }
+        // `beforeCurrent`: each new one went right above the one before it, so newest first above the latest listed one.
+        if case .above = place { return (seen.last(where: lists).map(NewRowsPlace.above) ?? .first, true) }
+        return (seen.last(where: lists).map(NewRowsPlace.below) ?? .first, false)
+    }
+
+    /// ``newRows(_:session:fresh:lists:)`` for ``newRowsPlace`` over a flat list: `ordered` lists, but not its `fresh` rows.
+    public func newRows(session: String, ordered: [WorkspaceModel], fresh: [WorkspaceModel]) -> (place: NewRowsPlace, newestFirst: Bool) {
+        let new = Set(fresh.map(\.id)), shown = Set(ordered.map(\.id)).subtracting(new)
+        return newRows(newRowsPlace(), session: session, fresh: new, lists: { shown.contains($0) })
+    }
     /// The app's own document store (its confirmed folds, its shown projection); nil before it starts.
     let document: @MainActor () -> SidebarDocStore?
 
@@ -141,8 +194,8 @@ public final class SidebarDocSections {
     /// the window's room shows). Consecutive loose rows share a section; a
     /// live workspace the document does not place yet (a new one: its item
     /// comes on `session.events`, after `workspace-added`) lists where the
-    /// daemon's create puts it: first in the machine section, below a leading
-    /// Home row and above every group (``placesNewRowsFirst``), else last. One
+    /// daemon's create puts it (``newRowsPlace``): first in the machine section,
+    /// below a leading Home row and above every group, right below the current workspace, or last. One
     /// placed in another section (Pinned, a custom section) lists only as a
     /// member of its group there. `unplacedOrder` orders those rows (the App's
     /// personal order, newest first under `top`); it runs only when there are some. `room`: the window's space; a
@@ -193,7 +246,7 @@ public final class SidebarDocSections {
         // A group of Pinned or a custom section is mapped with its machine's rows; the sidebar
         // model lists it in that section (`SidebarDocProjection.arrange`).
         flush()
-        let machineSections = sections.count
+        var machineSections = sections.count
         // A band group lists with this machine's rows when it or a group under it holds one of them.
         let bandMembers = projection.bandGroups.map { group in
             group.members.filter { $0.sessionID == session }.compactMap { byResource[$0.workspaceID] }
@@ -210,66 +263,117 @@ public final class SidebarDocSections {
             sections.append(CmuxNextDaemon.SidebarSection(group: model(group), workspaces: members))
         }
         let placed = Set(projection.items.keys.filter { $0.sessionID == session }.map(\.workspaceID))
-        let unplaced = workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }
-        // In creation order, so a new workspace beside another new one finds it listed. One whose neighbour is
-        // not listed yet (itself unplaced: the document has not placed it either) waits for the unplaced rows.
-        var waiting: [(WorkspaceModel, UnplacedAnchor)] = []
+        var unplaced = workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }
+        // One that listed before keeps its slot (its group, under the same row) until the document places it again.
+        let waiting = holdSlots(unplaced, session: session, in: &sections, machineSections: &machineSections)
+        let held = Set(unplaced.map(\.id)).subtracting(waiting.map(\.id))
+        unplaced = waiting
+        // A create that named a neighbour (`beforeCurrent` / `afterCurrent` sent to the daemon, New Workspace Above or
+        // Below, `top` / `bottom` inside a group) lists beside it, where the daemon's create puts it, so its item's
+        // arrival moves nothing. One whose neighbour is itself unplaced waits for the other new rows; `.first` and
+        // an anchor with no neighbour listed go where ``newRowsPlace`` lists new rows.
+        let unplacedNow = Set(unplaced.map(\.id))
+        var besideNew: [(WorkspaceModel, UnplacedAnchor)] = []
+        var listsFirst = Set<String>() // `.first`, or a neighbour that is gone with a fallback to the top
+        // With no row of the machine placed and the others listing last, the machine's first rows are that trailing run:
+        // a first row goes there, below its leading Home row, not above it.
+        let firstInTail = machineSections == 0 && newRowsPlace() == .last
         var leading: [WorkspaceModel] = []
-        let first = placesNewRowsFirst()
-        let unanchored = unplaced.filter { workspace in
+        unplaced = unplaced.filter { workspace in
             guard let anchor = unplacedAnchor(workspace) else { return true }
-            // First as the unanchored ones go under `top`; else listed first below, once the machine's rows are.
-            if anchor == .first {
-                if !first { leading.append(workspace) }
-                return first
-            }
-            if !Self.insert(workspace, beside: anchor, into: &sections, within: machineSections) { waiting.append((workspace, anchor)) }
-            return false
+            let neighbour = anchor.neighbour
+            if neighbour != nil, Self.insert(workspace, beside: anchor, into: &sections, within: machineSections) { return false }
+            if let neighbour, unplacedNow.contains(neighbour) { besideNew.append((workspace, anchor)); return false }
+            guard neighbour == nil || anchor.fallsBackToFirst else { return true }
+            if firstInTail { leading.append(workspace); return false }
+            listsFirst.insert(workspace.id)
+            return true
         }
-        var own = machineSections
-        if !unanchored.isEmpty {
-            if first {
-                // Newest first, as the daemon places them: the store lists a new workspace last, and its
-                // personal row comes with its item, so the unplaced ones have none to order them by yet.
-                let before = sections.count
-                Self.insertFirst(unplacedOrder(Array(unanchored.reversed())), into: &sections, machineSections: machineSections)
-                own += sections.count - before
-            } else {
-                loose += unplacedOrder(unanchored)
+        let (place, newestFirst) = newRows(newRowsPlace(), session: session, fresh: Set(unplaced.map(\.id)), lists: { listed.contains($0) })
+        // A new row stays where it first listed: the place it took then, not the current workspace now.
+        let unplacedIDs = Set(unplaced.map(\.id))
+        var firstPlaces = anchors[session, default: [:]].filter { id, _ in unplacedIDs.contains(id) }
+        for id in listsFirst where firstPlaces[id] == nil { firstPlaces[id] = .first }
+        // As the daemon places them: the store lists a new workspace last, and its personal row comes with its item, so
+        // the unplaced ones have none to order them by yet.
+        let ordered = unplacedOrder(newestFirst ? Array(unplaced.reversed()) : unplaced)
+        // A new row made below a chain of new rows still waiting for their items goes under the chain's last row, so a
+        // chain of creates keeps its order as their items arrive one at a time. One pass: each chain's start and end.
+        var chainEnd: [NewRowsPlace: String] = [:]
+        var chainStart: [String: NewRowsPlace] = [:]
+        for w in ordered {
+            if firstPlaces[w.id] == nil {
+                if case .below = place, !newestFirst, let end = chainEnd[place] { firstPlaces[w.id] = .below(end) } else { firstPlaces[w.id] = place }
+            }
+            guard let at = firstPlaces[w.id] else { continue }
+            var start = at
+            if case .below(let id) = at, let of = chainStart[id] { start = of }
+            chainStart[w.id] = start
+            chainEnd[start] = w.id
+        }
+        anchors[session] = firstPlaces
+        let tail = unplaced.filter { firstPlaces[$0.id] == .last }
+        if !tail.isEmpty { loose += unplacedOrder(tail) }
+        let rest = ordered.filter { firstPlaces[$0.id] != .last }
+        var machineCount = machineSections
+        if !rest.isEmpty {
+            // One run per place among listed rows; a row anchored under another new row joins that row's run right
+            // under it (a row listed later in `rest`, as newest first lists it, takes the ones waiting under it along).
+            let newIDs = Set(rest.map(\.id))
+            var runs: [(NewRowsPlace, [WorkspaceModel])] = []
+            var runAt: [NewRowsPlace: Int] = [:]
+            var runOf: [String: Int] = [:]
+            var waitingUnder: [String: [WorkspaceModel]] = [:]
+            func add(_ w: WorkspaceModel) {
+                let at = firstPlaces[w.id] ?? place
+                if case .below(let id) = at, newIDs.contains(id) {
+                    guard let i = runOf[id] else { waitingUnder[id, default: []].append(w); return }
+                    let after = runs[i].1.last?.id == id ? runs[i].1.count : (runs[i].1.firstIndex { $0.id == id } ?? runs[i].1.count - 1) + 1
+                    runs[i].1.insert(w, at: after)
+                    runOf[w.id] = i
+                } else if let i = runAt[at] {
+                    runs[i].1.append(w)
+                    runOf[w.id] = i
+                } else {
+                    runAt[at] = runs.count
+                    runOf[w.id] = runs.count
+                    runs.append((at, [w]))
+                }
+                for next in waitingUnder.removeValue(forKey: w.id) ?? [] { add(next) }
+            }
+            for w in rest { add(w) }
+            // Rows under a row that never listed (a cycle): at the new-row place.
+            for w in rest where runOf[w.id] == nil {
+                firstPlaces[w.id] = place
+                add(w)
+            }
+            for (at, rows) in runs {
+                let count = sections.count
+                Self.insertNew(rows, at, into: &sections, machineSections: machineCount)
+                machineCount += sections.count - count // a run listed first can open a loose section on top
             }
         }
         flush()
         if !leading.isEmpty {
-            // Newest first, each above the one before it. With no row placed in the machine section, the unplaced
-            // run (Home among them) is the machine's first: below its leading Home row, not above it (below any
-            // band groups too, until the document places the row above them).
-            let inTrailingRun = own == 0 && !first && !unanchored.isEmpty
-            let before = sections.count, start = inTrailingRun ? sections.count - 1 : 0
-            var rest = Array(sections[start...])
-            Self.insertFirst(Array(leading.reversed()), into: &rest, machineSections: inTrailingRun ? 1 : own)
-            sections.replaceSubrange(start..., with: rest)
-            own += sections.count - before
-        }
-        // The trailing loose run of unplaced rows is the machine's own too (band groups sit before it).
-        var trailing = !first && !unanchored.isEmpty ? sections.count - 1 : nil
-        for (workspace, anchor) in waiting {
-            if Self.insert(workspace, beside: anchor, into: &sections, within: own) { continue }
-            if let trailing, Self.insert(workspace, beside: anchor, into: &sections, within: trailing + 1, from: trailing) { continue }
-            // Its neighbour is not listed here: where the others go.
-            if first || anchor.fallsBackToFirst {
-                let before = sections.count
-                Self.insertFirst([workspace], into: &sections, machineSections: own)
-                let inserted = sections.count - before
-                own += inserted
-                if let last = trailing { trailing = last + inserted }
-            } else if let last = trailing {
-                sections[last] = CmuxNextDaemon.SidebarSection(group: nil, workspaces: sections[last].workspaces + [workspace])
+            // Newest first, each above the one before it.
+            if !tail.isEmpty, let last = sections.indices.last, last >= machineCount, sections[last].group == nil {
+                var run = [sections[last]]
+                Self.insertFirst(Array(leading.reversed()), into: &run, machineSections: 1)
+                sections[last] = run[0]
             } else {
-                // Last of all, below every group, as the unanchored ones go.
-                sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [workspace]))
-                trailing = sections.count - 1
+                let count = sections.count
+                Self.insertFirst(Array(leading.reversed()), into: &sections, machineSections: machineCount)
+                machineCount += sections.count - count
             }
         }
+        // Beside a new row listed above: among the machine's rows, else in the trailing loose run of `.last` rows.
+        for (workspace, anchor) in besideNew where !Self.insert(workspace, beside: anchor, into: &sections, within: sections.count, from: machineCount) {
+            if Self.insert(workspace, beside: anchor, into: &sections, within: machineCount) { continue }
+            let count = sections.count
+            Self.insertNew([workspace], anchor.fallsBackToFirst ? .first : place, into: &sections, machineSections: machineCount)
+            machineCount += sections.count - count
+        }
+        noteSlots(sections, session: session, placed: listed, held: held)
         if sections.isEmpty { sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [])) }
         return sections
     }
@@ -304,6 +408,122 @@ public final class SidebarDocSections {
             return true
         }
         return false
+    }
+
+    /// Puts each of `unplaced` that listed before back in its slot among the machine's rows (the first `machineSections`
+    /// of `sections`): under the row it was under, in the same group (or loose run). Returns the ones with no slot to
+    /// go back to. Rows go back in a chain (one under another held one), so a run of them keeps its order.
+    private func holdSlots(_ unplaced: [WorkspaceModel], session: String, in sections: inout [CmuxNextDaemon.SidebarSection],
+                           machineSections: inout Int) -> [WorkspaceModel] {
+        let known = slots[session] ?? [:]
+        var waiting = unplaced.filter { known[$0.id] != nil }
+        var held = Set<String>() // only rows put back: a row with no slot (a new one) is no row's to hold
+        guard !waiting.isEmpty else { return unplaced }
+        var progress = true
+        while progress && !waiting.isEmpty {
+            progress = false
+            for w in waiting {
+                guard let slot = known[w.id] else { continue }
+                let machine = sections.indices.prefix(machineSections)
+                let found: Int?
+                if slot.group == nil && slot.after == nil {
+                    // First in its loose run: the run under the same group, else the run opens again there.
+                    found = machine.first { i in sections[i].group == nil && (i == 0 ? nil : sections[i - 1].group?.id.rawValue) == slot.before }
+                    if found == nil {
+                        let at = slot.before.flatMap { group in machine.first { sections[$0].group?.id.rawValue == group } }.map { $0 + 1 } ?? 0
+                        sections.insert(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [w]), at: at)
+                        machineSections += 1
+                        waiting.removeAll { $0.id == w.id }
+                        held.insert(w.id)
+                        progress = true
+                        continue
+                    }
+                } else {
+                    found = machine.first { i in
+                        sections[i].group?.id.rawValue == slot.group
+                            && (slot.after.map { after in sections[i].workspaces.contains { $0.id == after } } ?? true)
+                    }
+                }
+                guard let index = found else { continue }
+                var rows = sections[index].workspaces
+                let at = slot.after.flatMap { after in rows.firstIndex { $0.id == after } }.map { $0 + 1 } ?? 0
+                rows.insert(w, at: at)
+                sections[index] = CmuxNextDaemon.SidebarSection(group: sections[index].group, workspaces: rows)
+                waiting.removeAll { $0.id == w.id }
+                held.insert(w.id)
+                progress = true
+            }
+        }
+        return unplaced.filter { !held.contains($0.id) }
+    }
+
+    /// Records where each row the document places lists now, for ``holdSlots``; a `held` row keeps the slot it had. A
+    /// new row (no item yet) gets none: it keeps the place it first took (`anchors`), and is no row's `after`.
+    private func noteSlots(_ sections: [CmuxNextDaemon.SidebarSection], session: String, placed: Set<String>, held: Set<String>) {
+        let old = slots[session] ?? [:]
+        var next: [String: Slot] = [:]
+        next.reserveCapacity(placed.count + held.count)
+        var groupAbove: String?
+        for section in sections {
+            var above: String?
+            let before = section.group == nil ? groupAbove : nil
+            groupAbove = section.group?.id.rawValue
+            for w in section.workspaces {
+                if held.contains(w.id) {
+                    next[w.id] = old[w.id]
+                } else if placed.contains(w.id) {
+                    next[w.id] = Slot(group: section.group?.id.rawValue, after: above, before: before)
+                } else {
+                    continue
+                }
+                above = w.id
+            }
+        }
+        slots[session] = next
+    }
+
+    /// Puts `rows` where `place` lists new rows among the machine's rows (the first `machineSections` of
+    /// `sections`): right below (`above`: right above) workspace `current` in its section (its group, else its loose
+    /// run), as the daemon's `afterCurrent` (`beforeCurrent`) create does, else first (``insertFirst(_:into:machineSections:)``). The caller
+    /// lists `.last` rows itself.
+    public static func insertNew(_ rows: [WorkspaceModel], _ place: NewRowsPlace, into sections: inout [CmuxNextDaemon.SidebarSection],
+                                 machineSections: Int) {
+        let current: String
+        let offset: Int
+        switch place {
+        case .below(let id):
+            current = id
+            offset = 1
+        case .above(let id):
+            current = id
+            offset = 0
+        case .first, .last:
+            insertFirst(rows, into: &sections, machineSections: machineSections)
+            return
+        }
+        for index in sections.indices.prefix(machineSections) {
+            guard let at = sections[index].workspaces.firstIndex(where: { $0.id == current }) else { continue }
+            var workspaces = sections[index].workspaces
+            workspaces.insert(contentsOf: rows, at: at + offset)
+            sections[index] = CmuxNextDaemon.SidebarSection(group: sections[index].group, workspaces: workspaces)
+            return
+        }
+        insertFirst(rows, into: &sections, machineSections: machineSections)
+    }
+
+    /// `fresh` (new workspaces, in the order they list) placed into the flat `ordered` list where `place` puts
+    /// them: first below a leading Home row, right below or above `current`, or last.
+    public static func insertNew(_ fresh: [WorkspaceModel], _ place: NewRowsPlace, into ordered: [WorkspaceModel]) -> [WorkspaceModel] {
+        var placed = ordered
+        if place == .last { return placed + fresh }
+        if case .below(let current) = place, let at = placed.firstIndex(where: { $0.id == current }) {
+            placed.insert(contentsOf: fresh, at: at + 1)
+        } else if case .above(let current) = place, let at = placed.firstIndex(where: { $0.id == current }) {
+            placed.insert(contentsOf: fresh, at: at)
+        } else {
+            placed.insert(contentsOf: fresh, at: placed.first?.kind == SidebarMapping.homeKind ? 1 : 0)
+        }
+        return placed
     }
 
     /// Puts `rows` first among the machine's rows (the first `machineSections` of `sections`): after a

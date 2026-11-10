@@ -1,9 +1,9 @@
 name: Cloudflare relay
 
-# The Durable Object relay under cmux-tui/relays/cloudflare-do is verified here,
-# on the pull request that changes it.
+# The carrier relay: the Durable Object Worker under cmux-tui/relays/cloudflare-do.
 #
-# It used to be a job inside cmux-tui-build-package.yml behind a
+# Every pull request that changes it runs `cloudflare-relay` (tests, lint, audit, a
+# Wrangler dry run). It used to be a job inside cmux-tui-build-package.yml behind a
 # `build_cloudflare_relay` input that defaulted to true. Four of the five callers
 # passed false, so in practice the only run that ever executed it was
 # relay-publish-npm.yml -- a publishing run. That put the verification in the
@@ -13,31 +13,104 @@ name: Cloudflare relay
 # `cargo clippy -- -D warnings` both go red on a third-party advisory or a new
 # lint with no change to this repository at all, so an unrelated upstream event
 # could stop a release.
+#
+# A push to feat-cmux-next deploys it, one stage at a time, every stage at the same commit:
+#
+#   cloudflare-relay (tests) -> deploy-staging (record the serving version, deploy, health
+#   and /version check; a red check rolls back) -> journey-staging (the staging Cloud
+#   journey, whose carrier dial crosses the staging relay; must pass) ->
+#   journey-production-baseline (the production journey on the version serving now) ->
+#   deploy-production (same rails as staging) -> journey-production (a step green on the
+#   baseline and red now) -> rollback-production (back to the recorded version).
+#
+# A push deploys nothing when both relays already serve this relay source (the relay and
+# cmux-remote-protocol trees are unchanged since the commit their /version reports), so a
+# workflow-only or toolchain-only change does not reconnect anyone.
+#
+# What a deploy costs live sessions: a new version restarts every Durable Object, which
+# closes every daemon Register and client Connect socket once. Nothing drains them first;
+# both ends reconnect on their own (cmux-remote provider/relay_liveness.rs: the daemon
+# retries after 0-100 ms, doubling to 5 s; connection.rs: the client redials at once, then
+# 150 ms, 600 ms, at most 5 s apart) and the client's Interactive, Control and Bulk lanes
+# resume from their cursors within the daemon's 120 s resume lease. Tunnel-lane streams
+# (port forwards) do not resume.
+#
+# Rollback (workflow_dispatch on feat-cmux-next, action=rollback):
+#   rollback_to=<Worker version id>  `wrangler rollback` to it. Every deploy run prints the
+#                                    version it replaced in its summary. One Worker per id:
+#                                    target staging or production, not both.
+#   rollback_to=<40-hex commit>      builds and deploys the relay at that feat-cmux-next
+#                                    commit to target (both: staging, then production).
+#   Rollbacks skip the tests and the journeys; the health and /version checks still run.
+#
+# Setup a person does once (the deploy jobs fail before deploying while it is missing):
+#   environments relay-staging, relay-production   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+#     (environment or repository secrets) for the account that serves the
+#     cmux-remote-relay-* Workers; the token needs Account > Workers Scripts: Edit.
+#     Limit both environments to the feat-cmux-next branch.
+#   environment relay-migrations                   a required reviewer. A run whose relay
+#     wrangler.toml [[migrations]] differ from the ones production serves waits there before
+#     either relay deploys.
+#   The journeys use the existing environments cmux-next-vm-image-dev (staging) and
+#   cmux-next-cloud-journey (production) and their CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD.
 on:
   pull_request:
     paths:
       - cmux-tui/relays/cloudflare-do/**
+      - cmux-tui/crates/cmux-remote-protocol/**
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - .github/workflows/cloudflare-relay.yml
   push:
     branches:
       - main
+      - feat-cmux-next
     paths:
       - cmux-tui/relays/cloudflare-do/**
+      - cmux-tui/crates/cmux-remote-protocol/**
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - .github/workflows/cloudflare-relay.yml
   workflow_dispatch:
+    inputs:
+      action:
+        description: "deploy: this feat-cmux-next commit, staging then production. rollback: to rollback_to"
+        type: choice
+        options: [deploy, rollback]
+        default: deploy
+      target:
+        description: "Relays to act on (deploy: both or staging)"
+        type: choice
+        options: [both, staging, production]
+        default: both
+      rollback_to:
+        description: "action=rollback only: a Worker version id (from a deploy run's summary) or a 40-hex feat-cmux-next commit"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
+# One deploy at a time, never cancelled mid-deploy: every feat-cmux-next run (push or
+# dispatch) shares one group. A newer run waits for the running one; a pending one is
+# replaced by a newer pending one, which carries the same or newer relay source. Pull
+# requests keep their own cancelling group.
 concurrency:
-  group: cloudflare-relay-${{ github.ref }}
+  group: ${{ github.event_name == 'pull_request' && format('cloudflare-relay-pr-{0}', github.event.pull_request.number) || github.ref == 'refs/heads/feat-cmux-next' && 'cloudflare-relay-deploy' || format('cloudflare-relay-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # The Workers cmux-platform's CLOUD_CARRIER_RELAY_HOST names, on the account's workers.dev subdomain.
+  RELAY_STAGING: cmux-remote-relay-staging
+  RELAY_PRODUCTION: cmux-remote-relay-production
+  RELAY_HOST_SUFFIX: debussy.workers.dev
 
 jobs:
   cloudflare-relay:
     name: Cloudflare Durable Object relay
+    if: github.event_name != 'workflow_dispatch' || inputs.action != 'rollback'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 30
     permissions:
@@ -83,3 +156,588 @@ jobs:
 
       - name: Validate Wrangler deployment bundle
         run: npx --no-install wrangler deploy --dry-run --outdir "$RUNNER_TEMP/cmux-cloudflare-relay"
+
+  # What this run deploys, where, and whether it needs the migration approval. No secrets.
+  plan:
+    if: github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      sha: ${{ steps.plan.outputs.sha }}
+      version: ${{ steps.plan.outputs.version }}
+      staging: ${{ steps.plan.outputs.staging }}
+      production: ${{ steps.plan.outputs.production }}
+      journeys: ${{ steps.plan.outputs.journeys }}
+      migrations_changed: ${{ steps.plan.outputs.migrations_changed }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: |
+            cmux-tui/relays/cloudflare-do
+            cmux-tui/crates/cmux-remote-protocol
+            scripts/ci
+      - name: Plan
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          ACTION: ${{ inputs.action || 'deploy' }}
+          TARGET: ${{ inputs.target || 'both' }}
+          ROLLBACK_TO: ${{ inputs.rollback_to }}
+        # scripts/ci/relay_deploy_plan.py: a deploy never moves a relay to an older source, and a
+        # [[migrations]] change, or a relay whose served commit is unknown, waits on relay-migrations.
+        run: |
+          set -euo pipefail
+          served() { # worker -> the commit its /version reports, or nothing
+            curl -fsS --max-time 10 --retry 2 "https://$1.$RELAY_HOST_SUFFIX/version" 2>/dev/null \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_revision",""))' 2>/dev/null || true
+          }
+          if ! out="$(python3 scripts/ci/relay_deploy_plan.py plan --tip "$GITHUB_SHA" --event "$EVENT" --ref "$REF" \
+            --action "$ACTION" --target "$TARGET" --rollback-to "$ROLLBACK_TO" \
+            --served-staging "$(served "$RELAY_STAGING")" --served-production "$(served "$RELAY_PRODUCTION")")"; then
+            echo "$out"
+            exit 1
+          fi
+          echo "$out"
+          echo "$out" >> "$GITHUB_OUTPUT"
+
+  migration-approval:
+    needs: plan
+    if: needs.plan.outputs.migrations_changed == 'true' && (needs.plan.outputs.staging == 'true' || needs.plan.outputs.production == 'true')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    environment: relay-migrations
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Approved
+        env:
+          SHA: ${{ needs.plan.outputs.sha }}
+        run: echo "Relay Durable Object migrations at $SHA approved for staging and production."
+
+  deploy-staging:
+    needs: [plan, cloudflare-relay, migration-approval]
+    if: >-
+      !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.staging == 'true' &&
+      (needs.cloudflare-relay.result == 'success' || needs.plan.outputs.mode != 'deploy') &&
+      (needs.migration-approval.result == 'success' || needs.plan.outputs.migrations_changed != 'true')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    environment: relay-staging
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      previous: ${{ steps.previous.outputs.version }}
+    env:
+      WORKER: cmux-remote-relay-staging
+      MODE: ${{ needs.plan.outputs.mode }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      TOOLS: ${{ github.workspace }}/.relay-tools/scripts/cmux-next/release
+    defaults:
+      run:
+        working-directory: cmux-tui/relays/cloudflare-do
+    steps:
+      - name: Check Cloudflare secrets
+        working-directory: .
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=()
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing+=(CLOUDFLARE_API_TOKEN)
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing+=(CLOUDFLARE_ACCOUNT_ID)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error title=Relay deploy not configured::environment relay-staging lacks ${missing[*]}." \
+              "Add them (an API token with Account > Workers Scripts: Edit on the account serving $WORKER," \
+              "and that account's id) in Settings > Environments > relay-staging. Nothing was deployed."
+            exit 1
+          fi
+      - name: Checkout the relay at the commit to deploy
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      # The release rails and the ordering guard at this workflow's own commit, so a rollback to an
+      # old commit still has them.
+      - name: Checkout the release rails
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: .relay-tools
+          persist-credentials: false
+          # Every commit (no trees or blobs beyond the sparse paths) for the ancestry check.
+          fetch-depth: 0
+          filter: tree:0
+          sparse-checkout: |
+            scripts/cmux-next/release
+            scripts/ci
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.23.4"
+          cache: npm
+          cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Set up pinned Rust toolchain
+        if: needs.plan.outputs.mode != 'version'
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Install the Worker builder
+        if: needs.plan.outputs.mode != 'version'
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo install --locked worker-build@0.8.5
+      - name: Install pinned npm dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Record the serving version (the rollback target)
+        id: previous
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          bun "$TOOLS/worker-release.ts" previous --worker "$WORKER" --wrangler node_modules/.bin/wrangler --out "$RUNNER_TEMP/previous-version"
+          previous="$(cat "$RUNNER_TEMP/previous-version")"
+          echo "version=$previous" >> "$GITHUB_OUTPUT"
+          printf '%s serves version `%s` before this run. Roll back to it: dispatch Cloudflare relay on feat-cmux-next with action=rollback, target=staging, rollback_to=%s\n' \
+            "$WORKER" "$previous" "$previous" >> "$GITHUB_STEP_SUMMARY"
+      # Again here, not only in plan: a re-run of this job alone must not ship an older source.
+      - name: Refuse a source older than the one serving
+        working-directory: .
+        run: |
+          set -euo pipefail
+          served="$(curl -fsS --max-time 10 --retry 2 "https://$WORKER.$RELAY_HOST_SUFFIX/version" 2>/dev/null \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_revision",""))' 2>/dev/null || true)"
+          python3 .relay-tools/scripts/ci/relay_deploy_plan.py guard --repo .relay-tools --worker "$WORKER" \
+            --mode "$MODE" --source "$SHA" --served "$served"
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python3 tests/validate_wrangler_config.py
+          if [ "$MODE" = version ]; then
+            npx --no-install wrangler rollback "$VERSION" --name "$WORKER" -y --message "rollback by run $GITHUB_RUN_ID"
+          else
+            # --config and --name: the relay's own wrangler.toml, as the staging Worker.
+            npx --no-install wrangler deploy --config wrangler.toml --name "$WORKER" \
+              --var "CMUX_SOURCE_REVISION:$SHA" --message "cmux $SHA (run $GITHUB_RUN_ID)"
+          fi
+      - name: Health and /version check; roll back on red
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/relay-routes.json" <<'PY'
+          import json, os, sys
+          routes = [
+              {"name": "healthz", "method": "GET", "path": "/healthz", "expect": [200], "bodyIncludes": "ok"},
+              {"name": "websocket only", "method": "GET", "path": "/v1/slots/health/control", "expect": [426]},
+          ]
+          if os.environ["MODE"] != "version":
+              routes.append({"name": "version", "method": "GET", "path": "/version", "expect": [200],
+                             "bodyIncludes": f'"source_revision":"{os.environ["SHA"]}"'})
+          json.dump({"routes": routes}, open(sys.argv[1], "w"))
+          PY
+          bun "$TOOLS/worker-release.ts" verify --worker "$WORKER" --url "https://$WORKER.$RELAY_HOST_SUFFIX" \
+            --routes "$RUNNER_TEMP/relay-routes.json" --previous-file "$RUNNER_TEMP/previous-version" \
+            --wrangler node_modules/.bin/wrangler --attempts 12
+
+  # The Linux cmux-tui the journeys dial the carrier with (`--cmux`), built once for all three.
+  build-journey-cmux:
+    needs: plan
+    if: needs.plan.outputs.journeys == 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Initialize Ghostty protocol submodules
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+      - name: Install Linux cmux-tui build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+      - name: Set up cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Set up Zig for Ghostty
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+      - name: Build Linux cmux-tui for the journeys
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          set -euo pipefail
+          target_dir="${CARGO_TARGET_DIR:-target}"
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          mkdir -p "$RUNNER_TEMP/journey-cmux"
+          cp "$target_dir/debug/cmux-tui" "$RUNNER_TEMP/journey-cmux/cmux-tui"
+          file "$RUNNER_TEMP/journey-cmux/cmux-tui" | grep -q 'ELF 64-bit'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: relay-journey-cmux
+          path: ${{ runner.temp }}/journey-cmux/cmux-tui
+          retention-days: 1
+          if-no-files-found: error
+
+  # The staging Cloud journey (scripts/cmux-next/cloud-journey-ci.sh, as backend.yml's
+  # journey-staging runs it): cloud-api-staging hands out cmux-remote-relay-staging, so its
+  # carrier dials cross the relay just deployed. Production follows only on a pass.
+  journey-staging:
+    needs: [plan, deploy-staging, build-journey-cmux]
+    if: >-
+      !cancelled() && needs.plan.outputs.journeys == 'true' &&
+      needs.deploy-staging.result == 'success' && needs.build-journey-cmux.result == 'success'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    timeout-minutes: 50
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next
+            scripts/ci/api_call_log
+            Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
+            tests/fixtures/model-stub
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: relay-journey-cmux
+          path: ${{ runner.temp }}/journey-cmux
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Cloud journey (staging), against the staging relay
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          JOURNEY_MODEL: stub
+          TARGET: staging
+        run: |
+          set -euo pipefail
+          # "not run" is a pass for cloud-journey-ci.sh; here it would promote an unproven relay.
+          if [ -z "$CMUX_DOGFOOD_STACK_EMAIL" ] || [ -z "$CMUX_DOGFOOD_STACK_PASSWORD" ]; then
+            echo "::error title=Relay staging gate::environment cmux-next-vm-image-dev has no CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD; production is not deployed"
+            exit 1
+          fi
+          chmod +x "$RUNNER_TEMP/journey-cmux/cmux-tui"
+          CMUX_PATH="$RUNNER_TEMP/journey-cmux/cmux-tui" bash scripts/cmux-next/cloud-journey-ci.sh
+
+  # The production journey on the version serving now, so the run after the deploy can tell
+  # the deploy's own reds from ones that were already there (cmux-vm.yml does the same).
+  journey-production-baseline:
+    needs: [plan, journey-staging]
+    if: "!cancelled() && needs.plan.outputs.production == 'true' && needs.journey-staging.result == 'success'"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    environment:
+      name: cmux-next-cloud-journey
+      deployment: false
+    timeout-minutes: 50
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next
+            scripts/ci/api_call_log
+            Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
+            tests/fixtures/model-stub
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: relay-journey-cmux
+          path: ${{ runner.temp }}/journey-cmux
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Check the production journey account
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          if [ -z "$CMUX_DOGFOOD_STACK_EMAIL" ] || [ -z "$CMUX_DOGFOOD_STACK_PASSWORD" ]; then
+            echo "::error title=Relay production guard::environment cmux-next-cloud-journey has no CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD; production is not deployed"
+            exit 1
+          fi
+      - name: Cloud journey baseline (before the deploy)
+        continue-on-error: true
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          JOURNEY_PHASE: baseline
+          JOURNEY_MODEL: stub
+          TARGET: prod
+        run: |
+          chmod +x "$RUNNER_TEMP/journey-cmux/cmux-tui"
+          CMUX_PATH="$RUNNER_TEMP/journey-cmux/cmux-tui" bash scripts/cmux-next/cloud-journey-ci.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: relay-journey-production-baseline
+          path: ${{ runner.temp }}/cloud-journey
+          retention-days: 1
+          if-no-files-found: warn
+
+  deploy-production:
+    needs: [plan, cloudflare-relay, migration-approval, deploy-staging, journey-staging, journey-production-baseline]
+    if: >-
+      !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.production == 'true' &&
+      (needs.migration-approval.result == 'success' || needs.plan.outputs.migrations_changed != 'true') &&
+      ((needs.plan.outputs.journeys == 'true' && needs.journey-staging.result == 'success' && needs.journey-production-baseline.result == 'success') ||
+      (needs.plan.outputs.journeys != 'true' && needs.plan.outputs.mode != 'deploy' && (needs.plan.outputs.staging != 'true' || needs.deploy-staging.result == 'success')))
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    environment: relay-production
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      previous: ${{ steps.previous.outputs.version }}
+    env:
+      WORKER: cmux-remote-relay-production
+      MODE: ${{ needs.plan.outputs.mode }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      TOOLS: ${{ github.workspace }}/.relay-tools/scripts/cmux-next/release
+    defaults:
+      run:
+        working-directory: cmux-tui/relays/cloudflare-do
+    steps:
+      - name: Check Cloudflare secrets
+        working-directory: .
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=()
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing+=(CLOUDFLARE_API_TOKEN)
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing+=(CLOUDFLARE_ACCOUNT_ID)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error title=Relay deploy not configured::environment relay-production lacks ${missing[*]}." \
+              "Add them (an API token with Account > Workers Scripts: Edit on the account serving $WORKER," \
+              "and that account's id) in Settings > Environments > relay-production. Nothing was deployed."
+            exit 1
+          fi
+      - name: Checkout the relay at the commit to deploy
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - name: Checkout the release rails
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: .relay-tools
+          persist-credentials: false
+          # Every commit (no trees or blobs beyond the sparse paths) for the ancestry check.
+          fetch-depth: 0
+          filter: tree:0
+          sparse-checkout: |
+            scripts/cmux-next/release
+            scripts/ci
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.23.4"
+          cache: npm
+          cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Set up pinned Rust toolchain
+        if: needs.plan.outputs.mode != 'version'
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Install the Worker builder
+        if: needs.plan.outputs.mode != 'version'
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo install --locked worker-build@0.8.5
+      - name: Install pinned npm dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Record the serving version (the rollback target)
+        id: previous
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          bun "$TOOLS/worker-release.ts" previous --worker "$WORKER" --wrangler node_modules/.bin/wrangler --out "$RUNNER_TEMP/previous-version"
+          previous="$(cat "$RUNNER_TEMP/previous-version")"
+          echo "version=$previous" >> "$GITHUB_OUTPUT"
+          printf '%s serves version `%s` before this run. Roll back to it: dispatch Cloudflare relay on feat-cmux-next with action=rollback, target=production, rollback_to=%s\n' \
+            "$WORKER" "$previous" "$previous" >> "$GITHUB_STEP_SUMMARY"
+      # Again here, not only in plan: a re-run of this job alone must not ship an older source.
+      - name: Refuse a source older than the one serving
+        working-directory: .
+        run: |
+          set -euo pipefail
+          served="$(curl -fsS --max-time 10 --retry 2 "https://$WORKER.$RELAY_HOST_SUFFIX/version" 2>/dev/null \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_revision",""))' 2>/dev/null || true)"
+          python3 .relay-tools/scripts/ci/relay_deploy_plan.py guard --repo .relay-tools --worker "$WORKER" \
+            --mode "$MODE" --source "$SHA" --served "$served"
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python3 tests/validate_wrangler_config.py
+          if [ "$MODE" = version ]; then
+            npx --no-install wrangler rollback "$VERSION" --name "$WORKER" -y --message "rollback by run $GITHUB_RUN_ID"
+          else
+            npx --no-install wrangler deploy --config wrangler.toml --name "$WORKER" \
+              --var "CMUX_SOURCE_REVISION:$SHA" --message "cmux $SHA (run $GITHUB_RUN_ID)"
+          fi
+      - name: Health and /version check; roll back on red
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/relay-routes.json" <<'PY'
+          import json, os, sys
+          routes = [
+              {"name": "healthz", "method": "GET", "path": "/healthz", "expect": [200], "bodyIncludes": "ok"},
+              {"name": "websocket only", "method": "GET", "path": "/v1/slots/health/control", "expect": [426]},
+          ]
+          if os.environ["MODE"] != "version":
+              routes.append({"name": "version", "method": "GET", "path": "/version", "expect": [200],
+                             "bodyIncludes": f'"source_revision":"{os.environ["SHA"]}"'})
+          json.dump({"routes": routes}, open(sys.argv[1], "w"))
+          PY
+          bun "$TOOLS/worker-release.ts" verify --worker "$WORKER" --url "https://$WORKER.$RELAY_HOST_SUFFIX" \
+            --routes "$RUNNER_TEMP/relay-routes.json" --previous-file "$RUNNER_TEMP/previous-version" \
+            --wrangler node_modules/.bin/wrangler --attempts 12
+
+  # The production guard: the production journey again, now on the new relay. A step green
+  # on the baseline and red now (exit 3) is the deploy's own red and rolls production back.
+  journey-production:
+    needs: [plan, deploy-production, build-journey-cmux, journey-production-baseline]
+    if: "!cancelled() && needs.plan.outputs.journeys == 'true' && needs.deploy-production.result == 'success'"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    environment:
+      name: cmux-next-cloud-journey
+      deployment: false
+    timeout-minutes: 50
+    permissions:
+      contents: read
+    outputs:
+      regressed: ${{ steps.after.outputs.regressed }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next
+            scripts/ci/api_call_log
+            Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
+            tests/fixtures/model-stub
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: relay-journey-cmux
+          path: ${{ runner.temp }}/journey-cmux
+      - name: Restore the baseline journey
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: relay-journey-production-baseline
+          path: ${{ runner.temp }}/cloud-journey
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Cloud journey after the deploy
+        id: after
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          JOURNEY_PHASE: after
+          JOURNEY_MODEL: stub
+          TARGET: prod
+        run: |
+          chmod +x "$RUNNER_TEMP/journey-cmux/cmux-tui"
+          set +e
+          CMUX_PATH="$RUNNER_TEMP/journey-cmux/cmux-tui" bash scripts/cmux-next/cloud-journey-ci.sh
+          rc=$?
+          set -e
+          if [ "$rc" = 3 ]; then
+            echo "regressed=true" >> "$GITHUB_OUTPUT"
+            echo "::error title=Relay production guard::the deploy turned production journey steps red; rollback-production restores the recorded version"
+            exit 1
+          fi
+          echo "regressed=false" >> "$GITHUB_OUTPUT"
+
+  rollback-production:
+    needs: [plan, deploy-production, journey-production]
+    if: always() && needs.journey-production.outputs.regressed == 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    environment: relay-production
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      WORKER: cmux-remote-relay-production
+      PREVIOUS: ${{ needs.deploy-production.outputs.previous }}
+    defaults:
+      run:
+        working-directory: cmux-tui/relays/cloudflare-do
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            cmux-tui/relays/cloudflare-do
+            scripts/ci/api_call_log
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.23.4"
+          cache: npm
+          cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Roll production back to the recorded version
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PREVIOUS" ]; then
+            echo "::error title=Relay rollback::no previous version was recorded; fix forward now"
+            exit 1
+          fi
+          npx --no-install wrangler rollback "$PREVIOUS" --name "$WORKER" -y --message "auto-rollback: production journey red (run $GITHUB_RUN_ID)"
+          test "$(curl -fsS --retry 5 --retry-all-errors "https://$WORKER.$RELAY_HOST_SUFFIX/healthz")" = ok
+          echo "::error title=Relay rolled back::$WORKER is back on $PREVIOUS; the deployed commit turned production journey steps red"
+          exit 1

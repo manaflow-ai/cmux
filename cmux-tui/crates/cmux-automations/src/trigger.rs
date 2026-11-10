@@ -22,7 +22,18 @@ pub enum Trigger {
     At { at: i64 },
     /// Only when someone runs it (`cmux automation run`).
     Manual,
+    /// Whenever the long-running `command` prints a line (`--watch`). Lines
+    /// closer together than `debounce_seconds` are one event. It has no due
+    /// times: the runner keeps the command alive ([`crate::watch`]).
+    Watch { command: String, debounce_seconds: u64 },
 }
+
+/// A watch's default debounce: a burst of lines inside it is one event.
+pub const DEFAULT_DEBOUNCE_SECONDS: u64 = 5;
+
+/// The longest debounce: a stream that never pauses is one event at most this
+/// long (`watch::MAX_HOLD_MS`), so a longer one would mean nothing.
+pub const MAX_DEBOUNCE_SECONDS: u64 = 30;
 
 /// A trigger that cannot be scheduled.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,6 +76,18 @@ impl Trigger {
             Trigger::Every { seconds, .. } if *seconds < MIN_EVERY_SECONDS => {
                 Err(ScheduleError(format!("every {seconds}s is shorter than the one-minute floor")))
             }
+            Trigger::Watch { command, .. } if command.trim().is_empty() => {
+                Err(ScheduleError("--watch needs a command".into()))
+            }
+            Trigger::Watch { debounce_seconds: 0, .. } => {
+                Err(ScheduleError("a watch's debounce is at least one second".into()))
+            }
+            Trigger::Watch { debounce_seconds, .. } if *debounce_seconds > MAX_DEBOUNCE_SECONDS => {
+                Err(ScheduleError(format!(
+                    "a watch's debounce is at most {MAX_DEBOUNCE_SECONDS} seconds (a stream is held \
+                     no longer); space runs out with --cooldown"
+                )))
+            }
             _ => Ok(()),
         }
     }
@@ -86,7 +109,7 @@ impl Trigger {
                 Ok(Some(anchor + ((t - anchor) / step + 1) * step))
             }
             Trigger::At { at } => Ok((*at > t).then_some(*at)),
-            Trigger::Manual => Ok(None),
+            Trigger::Manual | Trigger::Watch { .. } => Ok(None),
         }
     }
 
@@ -101,6 +124,7 @@ impl Trigger {
             },
             Trigger::At { at } => format!("once at {at}"),
             Trigger::Manual => "manual".into(),
+            Trigger::Watch { command, .. } => format!("watch `{command}`"),
         }
     }
 }

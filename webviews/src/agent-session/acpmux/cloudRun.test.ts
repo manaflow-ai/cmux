@@ -9,12 +9,47 @@ import {
   cloudRunsHere,
   cloudStartFolder,
   cloudStartKeys,
-  cloudStartToasted,
+  cloudStartSaid,
   grantedCloudStart,
+  makeCloudSignInRetry,
   newTabProjectPick,
   oneCloudStart,
   startCloudChat,
 } from "./cloudRun";
+
+test("sign-in recovery can be reused after its card resets", async () => {
+  let starts = 0;
+  const retry = makeCloudSignInRetry(async () => {
+    starts += 1;
+    return { ok: true };
+  });
+  await expect(retry()).resolves.toBe(true);
+  await expect(retry()).resolves.toBe(false);
+  retry.reset();
+  await expect(retry()).resolves.toBe(true);
+  expect(starts).toBe(2);
+});
+
+test("a reset while a sign-in is out leaves the next card its own retry", async () => {
+  const pending: ((answer: { ok: true }) => void)[] = [];
+  const retry = makeCloudSignInRetry(
+    () =>
+      new Promise((resolve) => {
+        pending.push(resolve);
+      }),
+  );
+  const stale = retry();
+  retry.reset();
+  const fresh = retry();
+  expect(fresh).not.toBe(stale);
+  expect(pending).toHaveLength(2);
+  // The old card's sign-in comes back first: it counts for nothing and leaves the new one out.
+  pending[0]!({ ok: true });
+  await expect(stale).resolves.toBe(false);
+  expect(retry()).toBe(fresh);
+  pending[1]!({ ok: true });
+  await expect(fresh).resolves.toBe(true);
+});
 
 test("a Cloud start sends the prompt, folder, agent and model with a key, and answers ok", async () => {
   const calls: [string, Record<string, unknown>][] = [];
@@ -44,9 +79,10 @@ test("a refusal keeps its code and the host's words; only a start the host ran w
     { task: "t" },
   );
   expect(failed).toEqual({ ok: false, code: "cloud_start_failed", message: "Could not copy the folder." });
-  expect(cloudStartToasted(failed)).toBe(true);
+  expect(cloudStartSaid(failed)).toBe(true);
+  expect(cloudStartSaid({ ok: false, code: "cloud_plan_required" })).toBe(true);
   const off = await startCloudChat(async () => Promise.reject({ code: "not_signed_in" }), { task: "t" });
-  expect(cloudStartToasted(off)).toBe(false);
+  expect(cloudStartSaid(off)).toBe(false);
   const lost = await startCloudChat(async () => Promise.reject(new Error("bridge gone")), { task: "t" });
   expect(lost.ok).toBe(false);
 });
@@ -55,7 +91,7 @@ test("Run on This Mac from the cap card is no toasted failure: the page sends th
   const here = await startCloudChat(async () => Promise.reject({ code: "run_on_this_mac" }), { task: "t" });
   expect(here).toMatchObject({ ok: false, code: "run_on_this_mac" });
   expect(cloudRunsHere(here)).toBe(true);
-  expect(cloudStartToasted(here)).toBe(false);
+  expect(cloudStartSaid(here)).toBe(false);
   const failed = await startCloudChat(async () => Promise.reject({ code: "cloud_start_failed" }), { task: "t" });
   expect(cloudRunsHere(failed)).toBe(false);
   expect(cloudRunsHere({ ok: true })).toBe(false);
@@ -300,6 +336,17 @@ test("the cap card's Run on This Mac ends the start; a changed prompt, folder or
   expect(keys.keyFor(start)).not.toBe(first);
 });
 
+test("a refused plan keeps the retry key until the person chooses Run Here inline", () => {
+  const keys = cloudStartKeys(memoryStore(), () => 1_000, counter());
+  const start = { task: "fix it", home: true };
+  const first = keys.keyFor(start);
+  keys.ended(start, { ok: false, code: "cloud_plan_required" });
+  expect(keys.keyFor(start)).toBe(first);
+  // The inline action must send the same explicit local-choice answer as the native cap card.
+  keys.ended(start, { ok: false, code: "run_on_this_mac" });
+  expect(keys.keyFor(start)).not.toBe(first);
+});
+
 test("a kept key expires after a day, and a store that refuses writes still dedupes this page's retries", () => {
   let now = 1_000;
   const store = memoryStore();
@@ -425,7 +472,7 @@ test("the pane builds its Cloud start from grantedCloudStart and hands every Clo
   const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
   expect(source).toMatch(/const \[cloudFolderGrant\] = useState\(\(\) => cloudFolderGrants\(\)\);/);
   expect(source).toMatch(
-    /const \[startCloud\] = useState\(\(\) => grantedCloudStart\(callNative, cloudFolderGrant\)\);/,
+    /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(reservedCloudCall\(callNative, cloudReservation\), cloudFolderGrant\),?\s*\);/,
   );
   expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
   expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);

@@ -4,27 +4,40 @@
 use super::*;
 use std::collections::HashMap;
 
+#[cfg(unix)]
+mod agent_activity;
 mod agent_hook_fences;
 mod agent_hook_retry;
+#[cfg(unix)]
+mod agent_hooks_at_rest;
 mod agent_presence;
+mod agent_reply_text;
 mod agent_reports;
 mod agent_roster_catch_up;
 mod agent_roster_fold_lock;
+mod agent_roster_kind_scope;
 mod agent_roster_poison;
 mod agent_roster_restore;
+mod agent_screen_exit;
+mod agent_start_mark;
 mod cell_pixel_fanout;
 mod cell_pixels;
+mod checkpoint_retention;
 mod column_update;
 mod create_entity_cost;
 mod creation_burst;
 mod diagnostics;
+mod disk_budget;
+mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
 mod history_agent_fold;
+mod journal_lane_full;
 mod journal_roster;
 mod kitty_budget;
 mod kitty_reservation;
 mod layout_apply_focus;
+mod layout_sizes;
 mod layout_undo;
 mod layout_undo_commit;
 mod lone_dock;
@@ -32,7 +45,9 @@ mod matrix;
 mod new_terminal_folder_delta;
 mod notifications;
 mod pane_close;
+mod project_observe_at_rest;
 mod read_paths;
+mod registry_premigrate;
 mod registry_reads;
 mod resource_effects;
 mod resource_restore;
@@ -48,6 +63,7 @@ mod tab_workspace_move;
 mod tabs;
 mod terminal_exit_restart;
 mod terminal_moves;
+mod terminal_publisher;
 mod terminal_registry;
 mod terminal_views;
 mod view_close_replay;
@@ -224,6 +240,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
     let boundary_split = restore_split_id(2);
     let base_column = restore_split_id(3);
     let first_column_layout = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: internal_split,
         direction: "down".into(),
         ratio: 0.6,
@@ -234,6 +251,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
         second: Box::new(RegistryLayoutNode::Leaf { pane: panes[2].clone() }),
     };
     let first_layout = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: boundary_split.clone(),
         direction: "right".into(),
         ratio: 0.8 / (0.8 + 0.4),
@@ -500,8 +518,18 @@ fn append_journal_hook(
     mux.append_journal_ingress(&ingress, "test", &key).unwrap();
 }
 
+/// `mux` once the agent roster's owner finished the work recorded so far. It
+/// folds after the request that asked for it answered (`agent_roster_worker.rs`),
+/// so a test reads the roster through this.
+#[track_caller]
+fn settled(mux: &Mux) -> &Mux {
+    assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
+    mux
+}
+
 fn roster_agent_state(mux: &Mux, terminal_id: &TerminalPublicId) -> Option<String> {
-    mux.agent_roster
+    settled(mux)
+        .agent_roster
         .lock()
         .unwrap()
         .roster

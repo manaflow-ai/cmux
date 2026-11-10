@@ -28,6 +28,9 @@ mod browser_devices_data_tests;
 pub(crate) mod browser_devices_ops;
 #[cfg(test)]
 mod churn_tree_events_tests;
+pub(crate) mod classic_import_router;
+#[cfg(test)]
+mod classic_import_tests;
 #[cfg(test)]
 mod closed_browser_history_tests;
 pub(crate) mod closed_history;
@@ -46,10 +49,19 @@ mod closed_pane_split;
 mod closed_relaunch_tests;
 mod closed_screen_layout;
 mod closed_tab_groups;
+#[cfg(test)]
+mod command_clear_until_tests;
 pub(crate) mod command_history_store;
 pub(crate) mod commit;
+pub(crate) mod conductor_import_router;
+pub(crate) mod conductor_import_store;
+#[cfg(test)]
+mod conductor_import_tests;
 pub(crate) mod conversation_tabs;
 pub(crate) mod conversation_tabs_store;
+pub(crate) mod created_by;
+#[cfg(test)]
+mod created_by_tests;
 pub(crate) mod ephemeral_moves;
 #[cfg(test)]
 mod ephemeral_moves_tests;

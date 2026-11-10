@@ -13,7 +13,9 @@
 //! - `trust.untrusted`: the user answered Don't trust.
 //!
 //! The level is `trust::session_level`: acpmux's decision, else the session's
-//! own agent's level. A record that cannot be read is no answer. The check is
+//! own agent's level. A record that cannot be read is no answer. A queued or started
+//! prompt's check with no answer once the daemon's shutdown began answers that the daemon
+//! restarts instead (`Hub::check_dispatch`): the next daemon checks it again. The check is
 //! here, in the daemon, so a page cannot get around it.
 //!
 //! A Web client cannot answer the question (`acp.trust.set` is refused for it
@@ -89,6 +91,7 @@ pub(super) async fn check(
         | method::SESSION_SET_MODE
         | method::SESSION_SET_CONFIG_OPTION
         | method::MUX_SET_TOOLS
+        | method::MUX_SET_DIRECTORIES
         // A reconnect starts the server's configured command again, in the chat's folder.
         | method::MUX_MCP_RECONNECT => session_key(params).ok().map(str::to_owned),
         method::MUX_HANDOFF_START => params
@@ -107,7 +110,13 @@ pub(super) async fn check(
     // folder, which the remote guard made canonical: that folder answers.
     let fork_cwd = params.get("cwd").and_then(Value::as_str).filter(|_| m == method::SESSION_FORK);
     let cwd = fork_cwd.map_or_else(|| meta.cwd.to_string_lossy().into_owned(), str::to_owned);
-    let family = meta.family.clone().unwrap_or_else(|| meta.harness.clone());
+    // A guest from another harness (`_acpmux/btw` with `targetHarness`, hub/btw.rs) starts that
+    // harness's agent in the folder: its family's answer counts, before anything starts.
+    let target = params.get("targetHarness").and_then(Value::as_str).map(str::trim);
+    let family = match target.filter(|h| m == method::MUX_BTW && !h.is_empty()) {
+        Some(target) => resolve_family(hub, target).await,
+        None => meta.family.clone().unwrap_or_else(|| meta.harness.clone()),
+    };
     let answered = folder_answered(paths, cwd, family, web).await;
     // A fork, a side session and a handoff start an agent of their own: not a running chat's.
     let same_agent = matches!(
@@ -116,6 +125,7 @@ pub(super) async fn check(
             | method::SESSION_SET_MODE
             | method::SESSION_SET_CONFIG_OPTION
             | method::MUX_SET_TOOLS
+            | method::MUX_SET_DIRECTORIES
             | method::MUX_MCP_RECONNECT
     );
     if same_agent && !web && running(&session) { pending_passes(answered) } else { answered }
@@ -135,13 +145,16 @@ fn running(session: &crate::hub::Session) -> bool {
 /// Web client still waits: its folder needs a person's decision.
 fn pending_passes(answered: Result<(), RpcError>) -> Result<(), RpcError> {
     match answered {
-        Err(e)
-            if e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!("trust.pending")) =>
-        {
-            Ok(())
-        }
+        Err(e) if is_pending(&e) => Ok(()),
         answered => answered,
     }
+}
+
+/// The gate's refusal for a folder with no answer (`trust.pending`): no answer was read, which
+/// is also what a record that cannot be read gives (`folder_answered`). Not `trust.untrusted`,
+/// the person's own No.
+pub(crate) fn is_pending(e: &RpcError) -> bool {
+    e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!("trust.pending"))
 }
 
 /// `web`: the prompt came from a Web client or a peer forwarding for one.

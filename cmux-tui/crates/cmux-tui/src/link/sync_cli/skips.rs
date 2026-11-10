@@ -17,6 +17,10 @@ pub(super) enum Why {
     EnvFile,
     /// A private key or certificate store (`id_rsa*`, `*.pem`, `*.key`, ...).
     KeyFile,
+    /// A folder of keys and logins ([`credential`]: `.ssh`, `.aws`, `.config/gh`, ...).
+    CredentialFolder,
+    /// A file of tokens or passwords ([`credential`]: `.netrc`, `.cargo/credentials.toml`, ...).
+    CredentialFile,
     SymlinkInside,
     SymlinkOutside,
     /// A symlink to nothing.
@@ -44,7 +48,9 @@ impl Why {
     /// The category, a stable code the App may group by.
     pub(super) fn kind(self) -> &'static str {
         match self {
-            Self::EnvFile | Self::KeyFile => "secret",
+            Self::EnvFile | Self::KeyFile | Self::CredentialFolder | Self::CredentialFile => {
+                "secret"
+            }
             Self::SymlinkInside
             | Self::SymlinkOutside
             | Self::SymlinkBroken
@@ -63,6 +69,8 @@ impl Why {
         match self {
             Self::EnvFile => "secret: .env files are shared only on purpose",
             Self::KeyFile => "secret: key files are shared only on purpose",
+            Self::CredentialFolder => "secret: credential folders are shared only on purpose",
+            Self::CredentialFile => "secret: credential files are shared only on purpose",
             Self::SymlinkInside => "a symlink (to a place inside the folder)",
             Self::SymlinkOutside => "a symlink (to a place outside the folder)",
             Self::SymlinkBroken => "a symlink (to nothing)",
@@ -154,7 +162,7 @@ impl Skips {
 
 /// Why the machine cannot hold a file named `relative` (its name has a
 /// control character, else it is too long).
-fn unholdable(relative: &str) -> Why {
+pub(super) fn unholdable(relative: &str) -> Why {
     if relative.chars().any(char::is_control) { Why::NameControl } else { Why::NameTooLong }
 }
 
@@ -172,16 +180,116 @@ pub(super) fn secret(name: &str) -> Option<Why> {
     key.then_some(Why::KeyFile)
 }
 
+/// Folders of keys and logins, as paths of one or more names, left out at
+/// any depth (by case too). The same list, in the same order, as the App's
+/// `AgentPaneCloudFolderRefusal.secretFolders`, which refuses home's as a
+/// selected folder (a test reads that list and compares): one list for both.
+/// A project's own `.cargo/` and `.docker/` stay here too.
+const CREDENTIAL_FOLDERS: &[&str] = &[
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".config/gcloud",
+    ".config/gh",
+    ".kube",
+    ".docker",
+    ".secrets",
+    ".azure",
+    ".cargo",
+    ".gem",
+    ".terraform.d",
+    ".password-store",
+    "Library/Keychains",
+];
+
+/// Files of tokens or passwords by name, anywhere. Home's own sit in home,
+/// which the App refuses as a whole, so only a copy needs them by name.
+const CREDENTIAL_NAMES: &[&str] =
+    &[".netrc", "_netrc", ".npmrc", ".pypirc", ".git-credentials", ".pgpass"];
+
+/// Files of tokens by path (`.config/hub`: hub's GitHub token).
+const CREDENTIAL_FILES: &[&str] = &[".config/hub"];
+
+/// Whether the names of `names` that end at `end` (exclusive) are `path`.
+fn ends_with(names: &[String], end: usize, path: &str) -> bool {
+    let parts: Vec<String> = path.split('/').map(str::to_ascii_lowercase).collect();
+    end.checked_sub(parts.len())
+        .and_then(|start| names.get(start..end))
+        .is_some_and(|tail| tail == parts.as_slice())
+}
+
+/// Whether `relative` (a folder when `folder`) is, or is in, a folder of
+/// keys and logins, or is a file of tokens or passwords: never copied
+/// (gh's `hosts.yml`, Cargo's `credentials.toml`, `.netrc`, ...).
+pub(super) fn credential(relative: &str, folder: bool) -> Option<Why> {
+    let names: Vec<String> = relative.split('/').map(str::to_ascii_lowercase).collect();
+    let folders = if folder { names.len() } else { names.len().saturating_sub(1) };
+    for end in 1..=folders {
+        if CREDENTIAL_FOLDERS.iter().any(|path| ends_with(&names, end, path)) {
+            return Some(Why::CredentialFolder);
+        }
+    }
+    if folder {
+        return None;
+    }
+    let last = names.last().map_or("", String::as_str);
+    (CREDENTIAL_NAMES.contains(&last)
+        || CREDENTIAL_FILES.iter().any(|path| ends_with(&names, names.len(), path)))
+    .then_some(Why::CredentialFile)
+}
+
+/// The first of [`CREDENTIAL_FOLDERS`] that the canonical `folder` is in anywhere on this Mac
+/// (`/Users/me/backup/.aws`), in any case: a copy of it would hold only the files inside, whose
+/// own names say nothing. Mirrors the App's `AgentPaneCloudFolderRefusal.nestedSecretFolder`.
+pub(crate) fn credential_folder_of(folder: &str) -> Option<&'static str> {
+    let names: Vec<String> = folder.split('/').map(str::to_ascii_lowercase).collect();
+    (1..=names.len()).find_map(|end| {
+        CREDENTIAL_FOLDERS.iter().copied().find(|path| ends_with(&names, end, path))
+    })
+}
+
+/// Why an untracked file at `relative` (in its working copy) stays on this Mac as a credential, for the
+/// seed's untracked files: the same rule a plain copy leaves files out by ([`credential`]).
+pub(crate) fn credential_text(relative: &str) -> Option<&'static str> {
+    credential(relative, false).map(Why::text)
+}
+
+/// The first of [`CREDENTIAL_FOLDERS`] under `home` that the canonical `folder` is in or holds, in any case:
+/// a selected folder the App refuses too (`AgentPaneCloudFolderRefusal.secretFolder`), which
+/// `cloud start-chat --from-folder` checks before any machine is made.
+pub(crate) fn home_credential_folder(folder: &str, home: &str) -> Option<&'static str> {
+    CREDENTIAL_FOLDERS.iter().copied().find(|relative| {
+        let secret = format!("{}/{relative}", home.trim_end_matches('/'));
+        within(&secret, folder) || within(folder, &secret)
+    })
+}
+
+/// Whether `path` is `root` or inside it, by path components and in any case (this Mac's disk does
+/// not tell `~/.SSH` from `~/.ssh`). The root `/` holds every path.
+pub(crate) fn within(path: &str, root: &str) -> bool {
+    let (root, path) = (root.trim_end_matches('/').to_lowercase(), path.to_lowercase());
+    root.is_empty()
+        || path == root
+        || path.strip_prefix(&root).is_some_and(|rest| rest.starts_with('/'))
+}
+
 /// Whether the folder `name` in `dir` is a dependency or build folder its
 /// project rebuilds on the machine. The ambiguous names (`target`, `build`,
 /// `dist`, `venv`, `Pods`) count only beside the file that makes them one.
 pub(super) fn heavy(dir: &Path, name: &str) -> bool {
-    let beside = |files: &[&str]| files.iter().any(|file| dir.join(file).is_file());
+    heavy_by(name, |file| dir.join(file).is_file())
+}
+
+/// [`heavy`] for a folder that is not on this Mac: `has_file` says whether
+/// the folder holding `name` has the file at that relative path (a sibling
+/// such as `Cargo.toml`, or `venv/pyvenv.cfg`).
+pub(super) fn heavy_by(name: &str, mut has_file: impl FnMut(&str) -> bool) -> bool {
+    let mut beside = |files: &[&str]| files.iter().any(|file| has_file(file));
     match name {
         "node_modules" | ".venv" | "__pycache__" | ".next" | ".nuxt" | "DerivedData"
         | ".gradle" | ".tox" | ".mypy_cache" | ".pytest_cache" | ".cache" | ".turbo"
         | ".parcel-cache" => true,
-        "venv" => dir.join("venv/pyvenv.cfg").is_file(),
+        "venv" => beside(&["venv/pyvenv.cfg"]),
         "Pods" => beside(&["Podfile", "Podfile.lock"]),
         "target" => beside(&["Cargo.toml", "pom.xml"]),
         "build" => beside(&[
@@ -201,6 +309,25 @@ pub(super) fn heavy(dir: &Path, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{LISTED, Skips, Why, heavy, secret};
+
+    /// The credential folders a copy leaves out at any depth are exactly the
+    /// ones the App refuses as a selected folder
+    /// (`AgentPaneCloudFolderRefusal.secretFolders`), read from its source.
+    #[test]
+    fn credential_folders_are_the_apps_secret_folders() {
+        let swift = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift",
+        );
+        let source = std::fs::read_to_string(&swift).unwrap();
+        let list = source
+            .split("public static let secretFolders = [")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .expect("secretFolders in AgentPaneCloudFolder.swift");
+        let apps: Vec<&str> = list.split('"').skip(1).step_by(2).collect();
+        assert!(!apps.is_empty());
+        assert_eq!(super::CREDENTIAL_FOLDERS, apps.as_slice());
+    }
 
     #[test]
     fn secrets_are_env_files_and_keys() {

@@ -346,18 +346,52 @@ test("focus in the card keeps it; Escape there or focus leaving rail and card cl
 
 test("the rail never outgrows a short transcript", async () => {
   const { railHeight, RAIL_HEIGHTS } = await import("../src/agent-session/acpmux/threadMinimap/model");
-  // 60 prompts in an 820 px window over a 400 px transcript: the rail fits the transcript, less the
+  // 60 prompts in an 820 px window over a 200 px transcript: the rail fits the transcript, less the
   // mask's 18 px bands and 4 px past each.
-  expect(railHeight(60, 820, 400)).toBe(400 - 22 - 22);
-  expect(railHeight(60, 820, 820)).toBe(600);
+  expect(railHeight(60, 820, 200)).toBe(200 - 22 - 22);
   // Not measured yet: the window caps it alone.
   expect(railHeight(60, 820, 0)).toBe(railHeight(60, 820));
-  // The selected height arm starts a short thread tall and grows toward the cleared pane room.
-  expect(railHeight(4, 720, 720)).toBe(320);
-  expect(railHeight(70, 720, 720)).toBe(Math.floor(720 * 0.92));
   // The visible transcript band no longer controls the rail's initial height.
   expect(railHeight(18, 720, 720, 720, 1)).toBe(railHeight(18, 720, 720, 720, 4));
   expect(railHeight(18, 720, 720, 720, 4, RAIL_HEIGHTS["initial-240-max-80"])).toBe(240);
+});
+
+test("the rail is never taller than 480 px, whatever the prompt count or the pane's height", async () => {
+  const { railHeight } = await import("../src/agent-session/acpmux/threadMinimap/model");
+  // Leo, 2026-11-04: "make it look like codex's size" and "the height of the left scroll rail should
+  // never be affected by anything". As tall as its ticks up to 480 px; past 48 prompts its list scrolls.
+  for (const count of [1, 4, 12, 24, 70, 1000])
+    for (const view of [540, 720, 1100, 2100]) expect(railHeight(count, view, view)).toBe(Math.min(count * 10, 480));
+  // Nor the prompts on screen: a view showing 50 short prompts at once keeps 480, and its list
+  // scrolls to keep them in view (railScrollTop).
+  for (const band of [1, 24, 50, 1000]) expect(railHeight(1000, 1000, 1000, 1000, band)).toBe(480);
+});
+
+test("the rail keeps one tick pitch at every prompt count, as tall as its ticks up to 480 px, at one top", async () => {
+  // Leo, 2026-11-05, on a rail whose ticks sat 20 px apart in a fixed 480 px box: "the rail, ok keep it at
+  // this max size, but don't reduce the density. y'all reduced the density". The ticks go back to the
+  // 10 px pitch in a rail as tall as they are, and it never shifts as it grows ("i just don't like it
+  // when the thing shifts").
+  const drawn: { count: number; pitch: number; height: number; top: number }[] = [];
+  for (const count of [3, 13, 24, 100]) {
+    const view = await mount(count);
+    try {
+      const rail = document.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
+      const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+      drawn.push({
+        count,
+        pitch: Number.parseFloat(list.style.getPropertyValue("--acpmux-minimap-pitch")),
+        height: Number.parseFloat(rail.style.height),
+        top: Number.parseFloat(rail.style.top),
+      });
+    } finally {
+      await view.unmount();
+    }
+  }
+  expect(drawn.map(({ count, pitch, height }) => ({ count, pitch, height }))).toEqual(
+    [3, 13, 24, 100].map((count) => ({ count, pitch: 10, height: Math.min(count * 10, 480) })),
+  );
+  expect(new Set(drawn.map(({ top }) => top)).size).toBe(1);
 });
 
 test("wheel browsing belongs to the rail and is not snapped back by transcript scrolling", async () => {
@@ -452,7 +486,7 @@ test("a wheel over a rail that scrolls itself is not the reader's: the transcrip
     input.mockClear();
     await act(async () => {
       list.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true }));
-      tick(40).dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -40, bubbles: true, cancelable: true }));
+      tick(10).dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -40, bubbles: true, cancelable: true }));
     });
     expect(captured).toEqual([-120, -40]);
     expect(input).not.toHaveBeenCalled();
@@ -650,10 +684,13 @@ test("a bookmark shows as the tick's dot; the prompt row, dot and card share its
     await act(async () => cardButton().click());
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(true);
     expect(tick(2).querySelector(".acpmux-minimap__dot")).not.toBeNull();
+    // Its spoken label says so: a row's kept label (TickList `labelOf`) follows its mark.
+    expect(tick(2).getAttribute("aria-label")).toBe("Message 3 of 8, bookmarked: Question 2");
     // The card shows it filled, and its button removes it.
     expect(cardButton().getAttribute("aria-pressed")).toBe("true");
     await act(async () => cardButton().click());
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(false);
+    expect(tick(2).getAttribute("aria-label")).toBe("Message 3 of 8: Question 2");
     // A click on the dot's spot past a hovered tick toggles the mark and does not jump.
     const before = view.scroller.scrollTop;
     await enter(5);

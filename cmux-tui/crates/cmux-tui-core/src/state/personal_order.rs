@@ -14,6 +14,7 @@ use std::collections::HashSet;
 use cmux_layout_reducer::sidebar_doc::{WorkspaceRef, machine_section_id};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
+use super::created_by::CreatedBy;
 use super::values::{local_registry_id, workspace_public_id_for_key};
 use crate::user_settings::NewWorkspacePlacement;
 use crate::workspace_registry::personal_store::{
@@ -126,6 +127,10 @@ pub(crate) struct CreatedWorkspaces {
     /// The creating client's `workspaces.newPlacement`, so the daemon places
     /// the row by the value the client places it by, whatever its own file says.
     placement: Option<NewWorkspacePlacement>,
+    /// Who makes them (`workspace.create {created_by}`), and the live key of
+    /// the workspace it names: an agent or script create goes there.
+    created_by: Option<CreatedBy>,
+    creator: Option<String>,
 }
 
 /// The workspaces `patch` creates (no live resource row yet). Read before
@@ -151,9 +156,21 @@ pub(crate) fn created_workspaces(
             }
         }
     }
+    let created_by = if keys.is_empty() { None } else { CreatedBy::current() };
+    let creator = match created_by.as_ref().and_then(|by| by.workspace.as_deref()) {
+        Some(named) => super::created_by::live_workspace_key(transaction, named)?,
+        None => None,
+    };
     let client = if keys.is_empty() { None } else { client_current() };
     if let Some(ClientCurrent { current, placement }) = client {
-        return Ok(CreatedWorkspaces { keys, current, from_client: true, placement });
+        return Ok(CreatedWorkspaces {
+            keys,
+            current,
+            from_client: true,
+            placement,
+            created_by,
+            creator,
+        });
     }
     let current = if keys.is_empty() {
         None
@@ -170,12 +187,19 @@ pub(crate) fn created_workspaces(
             None => None,
         }
     };
-    Ok(CreatedWorkspaces { keys, current, from_client: false, placement: None })
+    Ok(CreatedWorkspaces {
+        keys,
+        current,
+        from_client: false,
+        placement: None,
+        created_by,
+        creator,
+    })
 }
 
 /// Give each created workspace its personal row, unless it already has one
 /// (a reopened workspace keeps its old place), at the place cmux.json
-/// `workspaces.newPlacement` names (`NewWorkspacePlacement`; default top),
+/// `workspaces.newPlacement` names (`NewWorkspacePlacement`; default afterCurrent),
 /// so a workspace made by any client (the app, iOS, the TUI, the CLI, an
 /// agent) lands in the same place. A caller that wants another place moves
 /// it after the creation (`workspace.place`, `set-personal-workspace`);
@@ -244,15 +268,27 @@ fn place_created_rows(
         )?;
         placed.push(key.clone());
     }
+    if let Some(created_by) = &created.created_by {
+        super::created_by::record(
+            transaction,
+            &created.keys,
+            created_by,
+            created.creator.as_deref(),
+        )?;
+    }
     if placed.is_empty() {
         return Ok(());
     }
     bump_personal_revision(transaction)?;
     // The slot of the first new row; the others follow it in creation order.
     let current = created.current.as_deref();
+    // An agent or script workspace goes below its creator and the creator's
+    // earlier children, never next to the person's selection; with no live
+    // creator, last (ask-48544d7525).
+    let by_creator = created.created_by.as_ref().is_some_and(CreatedBy::places_by_creator);
     // The client's current workspace in a group: `top` first in it and
     // `bottom` last in that group, as the client places it.
-    let in_group = if created.from_client {
+    let in_group = if created.from_client && !by_creator {
         beside_current_slot(transaction, &local, &placed, current, true)?
             .filter(|(_, group)| group.is_some())
     } else {
@@ -262,6 +298,13 @@ fn place_created_rows(
     // above that row stay above the new rows, as the app draws them.
     let mut below_groups: Option<(&str, &str)> = None;
     let slot = match placement {
+        _ if by_creator => match created.creator.as_deref() {
+            Some(creator) => match after_row_slot(transaction, &local, &placed, creator, true)? {
+                Some(slot) => Some(slot),
+                None => Some(top_slot(transaction, &local, &placed)?),
+            },
+            None => None,
+        },
         NewWorkspacePlacement::Bottom => match in_group {
             Some((_, group)) => Some(end_of_group_slot(transaction, &local, &placed, group)?),
             None => None,
@@ -457,9 +500,18 @@ fn beside_current_slot(
     };
     let slot = if after { index + 1 } else { index };
     let Some(group) = row.group.clone() else { return Ok(Some((slot, None))) };
-    // Into the group only when the new workspace shows in the group's room:
-    // a workspace pinned to another room (the app pins before it creates)
-    // goes to the top instead.
+    Ok(in_group_room(transaction, local, placed, &group)?.then_some((slot, Some(group))))
+}
+
+/// Into the group only when the new workspace shows in the group's room:
+/// a workspace pinned to another room (the app pins before it creates)
+/// goes to the top instead.
+fn in_group_room(
+    transaction: &Transaction<'_>,
+    local: &str,
+    placed: &[String],
+    group: &str,
+) -> anyhow::Result<bool> {
     let room = read_groups(transaction)?.into_iter().find(|candidate| candidate.id == group);
     let pins = read_pins(transaction)?;
     let elsewhere = placed.iter().any(|key| {
@@ -469,5 +521,45 @@ fn beside_current_slot(
                 && room.as_ref().is_some_and(|room| room.profile != pin.profile)
         })
     });
-    Ok((!elsewhere).then_some((slot, Some(group))))
+    Ok(!elsewhere)
+}
+
+/// Right after the row of `anchor` (with `subtree`, after the rows below it
+/// that `anchor` made, directly or through its children), in its group.
+/// None when it is a new row, has no row, or is the home workspace.
+fn after_row_slot(
+    transaction: &Transaction<'_>,
+    local: &str,
+    placed: &[String],
+    anchor: &str,
+    subtree: bool,
+) -> anyhow::Result<Option<(usize, Option<String>)>> {
+    if placed.iter().any(|key| key == anchor) {
+        return Ok(None);
+    }
+    if super::home_store::live_home(transaction)?.is_some_and(|(_, home)| home == anchor) {
+        return Ok(None);
+    }
+    let rows = read_workspaces(transaction)?
+        .into_iter()
+        .filter(|row| !(row.session_id == local && placed.contains(&row.workspace_key)))
+        .collect::<Vec<_>>();
+    let Some(index) =
+        rows.iter().position(|row| row.session_id == local && row.workspace_key == anchor)
+    else {
+        return Ok(None);
+    };
+    let group = rows[index].group.clone();
+    let mut last = index;
+    while subtree
+        && let Some(row) = rows.get(last + 1)
+        && row.session_id == local
+        && row.group == group
+        && super::created_by::descends_from(transaction, &row.workspace_key, anchor)?
+    {
+        last += 1;
+    }
+    let index = last;
+    let Some(group) = group else { return Ok(Some((index + 1, None))) };
+    Ok(in_group_room(transaction, local, placed, &group)?.then_some((index + 1, Some(group))))
 }

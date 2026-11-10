@@ -49,9 +49,11 @@ pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
 pub(crate) struct Events {
     tx: broadcast::Sender<HubEvent>,
     changes: AtomicU64,
-    /// Any event may change a field in a closed row (for example attached/shown or usage), save
-    /// a live chat's streamed chunk ([`Events::send_live_stream`]). Closed summary bytes carry
-    /// this generation so they are rebuilt only after a change.
+    /// Changes that may reach any closed row: a send with no session of its own
+    /// ([`Events::send`], [`Events::changed`]), a parent's tags, a session coming or going.
+    /// Closed summary bytes carry this generation and their own session's
+    /// (`Session::summary_gen`, [`Events::send_row`], [`Events::row_changed`]), so a change of one
+    /// chat rebuilds its own row only (`Hub::cached_closed_summary`).
     pub(super) summary_generation: Arc<AtomicU64>,
 }
 
@@ -64,11 +66,13 @@ impl Events {
         }
     }
 
-    /// Counts the change, then sends it.
+    /// Counts the change, then sends it. A peer's event goes through [`Events::send_remote`]:
+    /// sent here, it made every local closed row stale (a peer's reattach notice did).
     pub(super) fn send(
         &self,
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        debug_assert!(event.remote.is_none(), "a peer's event goes through Events::send_remote");
         self.changed();
         self.tx.send(event)
     }
@@ -90,7 +94,36 @@ impl Events {
         self.tx.send(event)
     }
 
-    /// A change no event carries (an attach): the next list is built anew.
+    /// Sends a peer's change ([`HubEvent::remote`], `peers.rs`): the next list is built anew, and
+    /// every local closed row keeps its bytes, since none reads a peer's rows.
+    pub(super) fn send_remote(
+        &self,
+        event: HubEvent,
+    ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        debug_assert!(event.remote.is_some(), "a local event goes through Events::send");
+        self.changes.fetch_add(1, Ordering::SeqCst);
+        self.tx.send(event)
+    }
+
+    /// Sends a change of `session`'s own row, which no other row reads (`Hub::append`): the
+    /// next list is built anew, and of the closed rows' cached bytes only `session`'s go stale.
+    pub(super) fn send_row(
+        &self,
+        session: &Session,
+        event: HubEvent,
+    ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        self.row_changed(session);
+        self.tx.send(event)
+    }
+
+    /// A change of `session`'s own row no event carries (an attach, a start under way): the next
+    /// list is built anew, with only `session`'s cached closed row stale.
+    pub(super) fn row_changed(&self, session: &Session) {
+        self.changes.fetch_add(1, Ordering::SeqCst);
+        session.summary_gen.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// A change no event carries that may reach any row: the next list is built anew.
     pub(super) fn changed(&self) {
         self.changes.fetch_add(1, Ordering::SeqCst);
         self.summary_generation.fetch_add(1, Ordering::SeqCst);
@@ -101,6 +134,15 @@ impl Events {
 pub(super) fn streamed_chunk(dir: &str, kind: &str) -> bool {
     dir == "in"
         && matches!(kind, "agent_message_chunk" | "agent_thought_chunk" | "user_message_chunk")
+}
+
+/// Whether a record may change another session's row: `tags` (a parent's `archived` and
+/// `spawnedBy` tags decide whether its children fold under it, `Hub::spawned_by`), and a session
+/// that comes or goes (a child names it as its parent). Every other record of a session changes
+/// its own row only; a child's count in its parent follows its status
+/// (`subsession_index::Index::generation`).
+pub(super) fn reaches_other_rows(dir: &str, kind: &str) -> bool {
+    dir == "mux" && matches!(kind, "tags" | "created" | "purged" | "reopened")
 }
 
 /// One build of the list, kept serialized: a JSON tree of every summary is several
@@ -181,10 +223,27 @@ impl Snapshot {
     /// Keep only serialized bytes and paging keys as summaries are produced. A full
     /// JSON tree of every row amplifies the list's peak heap, even when it is freed
     /// immediately after serialization.
-    fn build(hub: &Hub) -> Built {
+    pub(super) fn build(hub: &Hub) -> Built {
+        Self::build_rows(hub, false, true)
+    }
+
+    /// This daemon's rows (the live ones built now, the closed ones' cached bytes already in
+    /// list order, `closed_rows.rs`) and, with `remote`, the peers' rows, in `with_tools`'s
+    /// form. Only the live and the peers' rows are sorted; no closed row is parsed or sorted.
+    fn build_rows(hub: &Hub, with_tools: bool, remote: bool) -> Built {
         let mut rows = Rows::default();
-        hub.visit_session_summaries(false, |row| rows.push(&row));
-        rows.finish()
+        let closed = hub.own_rows_in_order(with_tools, |row| rows.push(&row));
+        if remote {
+            hub.visit_remote_rows(
+                |_| true,
+                |row| {
+                    let row =
+                        if with_tools { row } else { super::views::without_summary_tools(row) };
+                    rows.push(&row);
+                },
+            );
+        }
+        rows.finish_with(closed)
     }
 
     fn build_live(hub: &Hub) -> Built {
@@ -197,9 +256,7 @@ impl Snapshot {
     /// This daemon's own sessions only, no peer's row, serialized as a list reply: what a
     /// peer's link reads in its watch (`server/list_reply.rs` `watch`).
     pub(crate) fn own_whole(hub: &Hub, with_tools: bool) -> String {
-        let mut rows = Rows::default();
-        hub.visit_own_session_summaries(with_tools, |row| rows.push(&row));
-        rows.finish().0
+        Self::build_rows(hub, with_tools, false).0
     }
 
     pub(crate) fn full_whole(&self, hub: &Hub) -> Arc<String> {
@@ -210,13 +267,13 @@ impl Snapshot {
     pub(crate) fn full_rows(&self, hub: &Hub) -> Arc<FullRows> {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
-            let mut rows = Rows::default();
-            if self.live_only {
+            let (whole, spans, keys) = if self.live_only {
+                let mut rows = Rows::default();
                 hub.visit_live_session_summaries(true, |row| rows.push(&row));
+                rows.finish()
             } else {
-                hub.visit_session_summaries(true, |row| rows.push(&row));
-            }
-            let (whole, spans, keys) = rows.finish();
+                Self::build_rows(hub, true, true)
+            };
             Arc::new(FullRows { whole: Arc::new(whole), spans, keys })
         })
         .clone()
@@ -427,6 +484,12 @@ fn too_large_stub(key: &Value, bytes: usize) -> String {
     stub.to_string()
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Rows this thread's list builds sorted: what a list's tests count of its sort.
+    static ROWS_SORTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// A byte arena and small keys, rather than all the summaries' nested allocations.
 /// Sort only captured keys: reading live timestamps in a comparator is not a total order.
 #[derive(Default)]
@@ -438,12 +501,57 @@ struct Rows {
 
 /// The fields needed for ordering, filtering, and cursors. Keeping these typed avoids
 /// allocating a JSON object for every row while the snapshot is being built.
-struct RowKey {
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RowKey {
     at: usize,
-    session_id: Option<String>,
-    updated_at: u64,
-    peer: Option<String>,
-    status: Option<String>,
+    pub(crate) session_id: Option<String>,
+    pub(crate) updated_at: u64,
+    pub(crate) peer: Option<String>,
+    pub(crate) status: Option<String>,
+}
+
+impl RowKey {
+    /// Row `row`'s keys, at `at` in its arena.
+    pub(crate) fn of(row: &Value, at: usize) -> Self {
+        Self {
+            at,
+            session_id: row.get("sessionId").and_then(Value::as_str).map(str::to_owned),
+            updated_at: row.get("updatedAt").and_then(Value::as_u64).unwrap_or_default(),
+            peer: row.get("peer").and_then(Value::as_str).map(str::to_owned),
+            status: row.get("status").and_then(Value::as_str).map(str::to_owned),
+        }
+    }
+
+    /// The order `sort_session_summaries` gives: a chat's copies local first, then by peer,
+    /// the order their cursors (`session_pages.rs`) read them in.
+    fn order(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .updated_at
+            .cmp(&self.updated_at)
+            .then_with(|| {
+                let (a, b) = (self.session_id.as_deref(), other.session_id.as_deref());
+                a.unwrap_or("").cmp(b.unwrap_or(""))
+            })
+            .then_with(|| self.peer.cmp(&other.peer))
+    }
+
+    /// The paging keys a snapshot keeps of a row at `at`.
+    fn value(&self, at: usize) -> Value {
+        let mut value = json!({"at": at});
+        if let Some(session_id) = &self.session_id {
+            value.set("sessionId", Value::String(session_id.clone()));
+        }
+        if self.updated_at != 0 {
+            value.set("updatedAt", Value::from(self.updated_at));
+        }
+        if let Some(peer) = &self.peer {
+            value.set("peer", Value::String(peer.clone()));
+        }
+        if let Some(status) = &self.status {
+            value.set("status", Value::String(status.clone()));
+        }
+        value
+    }
 }
 
 impl Rows {
@@ -452,60 +560,58 @@ impl Rows {
         // A Value always serializes, and Vec's writer cannot fail.
         let _ = serde_json::to_writer(&mut self.text, row);
         self.spans.push(start..self.text.len());
-        self.keys.push(RowKey {
-            at: self.keys.len(),
-            session_id: row.get("sessionId").and_then(Value::as_str).map(str::to_owned),
-            updated_at: row.get("updatedAt").and_then(Value::as_u64).unwrap_or_default(),
-            peer: row.get("peer").and_then(Value::as_str).map(str::to_owned),
-            status: row.get("status").and_then(Value::as_str).map(str::to_owned),
-        });
+        self.keys.push(RowKey::of(row, self.keys.len()));
     }
 
-    fn finish(mut self) -> Built {
-        // The order `sort_session_summaries` gives: a chat's copies local first, then by peer,
-        // the order their cursors (`session_pages.rs`) read them in.
-        self.keys.sort_by(|a, b| {
-            b.updated_at
-                .cmp(&a.updated_at)
-                .then_with(|| {
-                    a.session_id.as_deref().unwrap_or("").cmp(b.session_id.as_deref().unwrap_or(""))
-                })
-                .then_with(|| a.peer.cmp(&b.peer))
-        });
+    fn finish(self) -> Built {
+        self.finish_with(Vec::new())
+    }
+
+    /// The rows pushed, sorted, merged with `closed`, already in list order
+    /// (`Hub::own_rows_in_order`): of a tie, the closed (local) row first, as a stable sort of
+    /// local rows before the peers' put it.
+    fn finish_with(mut self, closed: Vec<super::closed_rows::ClosedRow>) -> Built {
+        #[cfg(test)]
+        ROWS_SORTED.with(|n| n.set(n.get() + self.keys.len()));
+        self.keys.sort_by(RowKey::order);
         let prefix = br#"{"sessions":["#;
+        let closed_bytes: usize = closed.iter().map(|row| row.bytes.len()).sum();
+        let count = self.keys.len() + closed.len();
         let mut whole = Vec::with_capacity(
-            prefix.len() + self.text.len() + self.keys.len().saturating_sub(1) + 2,
+            prefix.len() + self.text.len() + closed_bytes + count.saturating_sub(1) + 2,
         );
         whole.extend_from_slice(prefix);
-        let mut spans = Vec::with_capacity(self.spans.len());
-        let mut keys = Vec::with_capacity(self.keys.len());
-        for (at, key) in self.keys.into_iter().enumerate() {
+        let mut spans = Vec::with_capacity(count);
+        let mut keys = Vec::with_capacity(count);
+        let mut pushed = self.keys.into_iter().peekable();
+        let mut closed = closed.into_iter().peekable();
+        loop {
+            let take_closed = match (pushed.peek(), closed.peek()) {
+                (None, None) => break,
+                (Some(_), None) => false,
+                (None, Some(_)) => true,
+                (Some(key), Some(row)) => row.key.order(key) != std::cmp::Ordering::Greater,
+            };
+            let at = keys.len();
             if at > 0 {
                 whole.push(b',');
             }
-            let source = key.at;
             let start = whole.len();
-            whole.extend_from_slice(
-                self.spans
-                    .get(source)
-                    .and_then(|span| self.text.get(span.clone()))
-                    .unwrap_or_default(),
-            );
+            if take_closed {
+                let Some(row) = closed.next() else { break };
+                whole.extend_from_slice(row.bytes.as_bytes());
+                keys.push(row.key.value(at));
+            } else {
+                let Some(key) = pushed.next() else { break };
+                whole.extend_from_slice(
+                    self.spans
+                        .get(key.at)
+                        .and_then(|span| self.text.get(span.clone()))
+                        .unwrap_or_default(),
+                );
+                keys.push(key.value(at));
+            }
             spans.push(start..whole.len());
-            let mut value = json!({"at": at});
-            if let Some(session_id) = key.session_id {
-                value.set("sessionId", Value::String(session_id));
-            }
-            if key.updated_at != 0 {
-                value.set("updatedAt", Value::from(key.updated_at));
-            }
-            if let Some(peer) = key.peer {
-                value.set("peer", Value::String(peer));
-            }
-            if let Some(status) = key.status {
-                value.set("status", Value::String(status));
-            }
-            keys.push(value);
         }
         whole.extend_from_slice(b"]}");
         // serde_json writes UTF-8, and rows are copied only at their boundaries.
@@ -516,9 +622,11 @@ impl Rows {
 #[derive(Default)]
 pub(crate) struct ListGuard {
     state: Arc<tokio::sync::Mutex<State>>,
-    /// The last build's window (ns) and row count, read without waiting for a build.
+    /// The last build's window (ns), row count and whole list's bytes, read without waiting for
+    /// a build.
     window_nanos: AtomicU64,
     rows: std::sync::atomic::AtomicUsize,
+    bytes: std::sync::atomic::AtomicUsize,
     /// Every connection's lists together (`reserve`).
     replies: StdMutex<Pacer>,
     /// Builds begun: a request shares any build begun after it arrived.
@@ -540,6 +648,13 @@ impl ListGuard {
     pub(crate) fn share(&self, limit: Option<u64>) -> f64 {
         let rows = self.rows.load(Ordering::Relaxed).max(1) as f64;
         limit.map_or(1.0, |limit| (limit as f64 / rows).clamp(PAGE_MIN, 1.0))
+    }
+
+    /// The share of the list a page of at most `budget` bytes costs: a whole list cut into
+    /// byte pages costs about one list in all, not one per page.
+    pub(crate) fn share_bytes(&self, budget: usize) -> f64 {
+        let bytes = self.bytes.load(Ordering::Relaxed).max(1) as f64;
+        (budget as f64 / bytes).clamp(PAGE_MIN, 1.0)
     }
 
     /// Reserves `share` of a list on a connection's `pace`, then on every connection's
@@ -607,6 +722,7 @@ impl ListGuard {
         let nanos = u64::try_from(window.as_nanos()).unwrap_or(u64::MAX);
         self.window_nanos.store(nanos, Ordering::Relaxed);
         self.rows.store(built.1.len(), Ordering::Relaxed);
+        self.bytes.store(built.0.len(), Ordering::Relaxed);
         let snapshot =
             Arc::new(Snapshot { started, ..Snapshot::new(key, serial, window, live_only, built) });
         state.last = Some(snapshot.clone());
@@ -863,6 +979,17 @@ mod tests {
         let mut cached_list = Vec::new();
         hub.visit_session_summaries(false, |row| cached_list.push(row));
         assert_eq!(cached_list, uncached_list);
+
+        // The list a client is sent, its full form and a peer's copy: the closed rows' bytes
+        // in their kept order are the rows a full sort gives.
+        let built = Snapshot::build(hub);
+        let snapshot = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, false, built);
+        assert_eq!(snapshot.values(), uncached_list);
+        let full = snapshot.full_rows(hub);
+        let full: Vec<Value> = (0..full.keys().len()).map(|at| full.row(at)).collect();
+        assert_eq!(full, uncached);
+        let own: Value = serde_json::from_str(&Snapshot::own_whole(hub, false)).unwrap();
+        assert_eq!(own["sessions"], json!(uncached_list));
     }
 
     /// Closed rows are serialized once, but every metadata and list-visible runtime change must
@@ -1034,15 +1161,163 @@ mod tests {
         assert!(hub.events.changes.load(Ordering::SeqCst) >= changes + CHUNKS);
         cached_rows_equal_uncached(&hub);
 
-        // Any other record still marks the closed rows stale.
+        // Another record of the live chat changes its own row only: no closed row is rebuilt.
         let before = builds();
         hub.append(&live, "mux", "status", json!({"status": "running"}));
         hub.visit_session_summaries(false, |_| {});
-        assert_eq!(builds() - before, CLOSED);
+        assert_eq!(builds() - before, 0);
 
-        // A chunk that reaches a closed chat rebuilds the closed rows, its own included.
+        // A chunk that reaches a closed chat rebuilds that chat's row, and only it.
         let closed = hub.sessions().into_iter().find(|s| s.id == "closed-0").unwrap();
+        let before = builds();
         hub.append(&closed, "in", "agent_message_chunk", chunk("late"));
+        hub.visit_session_summaries(false, |_| {});
+        assert_eq!(builds() - before, 1);
+        cached_rows_equal_uncached(&hub);
+
+        // A record that may reach other rows (a parent's tags) still marks them all stale.
+        let before = builds();
+        hub.append(&closed, "mux", "tags", json!({}));
+        hub.visit_session_summaries(false, |_| {});
+        assert_eq!(builds() - before, CLOSED);
+    }
+
+    /// The list after one chat's record parses no closed row and sorts none (Leo 2026-11-04:
+    /// "never ... acceptable ... linear time growth degradation"): the closed rows stay in list
+    /// order between lists, so one chat's change costs its own row's removal and insert. Before,
+    /// each list parsed every closed row's cached bytes and sorted every row: 38 ms at 3,000.
+    /// The same at 10 and 400 closed rows.
+    #[tokio::test]
+    async fn a_list_after_one_chats_record_parses_and_sorts_no_closed_row() {
+        for closed in [10_u64, 400] {
+            let cfg: crate::config::Config =
+                serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+            let hub = Hub::new(
+                cfg.clone(),
+                crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap(),
+            );
+            let meta = |id: String, status: &str, at: u64| -> crate::store::SessionMeta {
+                serde_json::from_value(json!({
+                    "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+                    "harness": "claude", "family": "claude", "cwd": "/w", "status": status,
+                    "createdAt": 1, "updatedAt": at, "preview": "a reply",
+                }))
+                .unwrap()
+            };
+            // Ids in the reverse of their order, so no walk of the map happens to be sorted.
+            for n in 0..closed {
+                hub.insert_test_session(meta(format!("closed-{n:04}"), "closed", n + 1));
+            }
+            let live = hub.insert_test_session(meta("live".into(), "idle", closed / 2));
+            let list = |hub: &Hub| {
+                let built = Snapshot::build(hub);
+                Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, false, built).values()
+            };
+            let uncached = |hub: &Hub| {
+                let mut rows: Vec<Value> =
+                    hub.sessions().iter().map(|s| hub.session_list_summary(s)).collect();
+                super::super::session_pages::sort_session_summaries(&mut rows);
+                rows
+            };
+            assert_eq!(list(&hub), uncached(&hub));
+            let counts = || {
+                (
+                    hub.closed_summary_builds.load(Ordering::SeqCst),
+                    hub.closed_summary_parses.load(Ordering::SeqCst),
+                    ROWS_SORTED.with(std::cell::Cell::get),
+                )
+            };
+
+            // A live chat's record: no closed row is built, parsed or sorted.
+            let before = counts();
+            hub.append(&live, "mux", "status", json!({"status": "running"}));
+            let rows = list(&hub);
+            let after = counts();
+            assert_eq!(after.0 - before.0, 0, "closed rows built at {closed}");
+            assert_eq!(after.1 - before.1, 0, "closed rows parsed at {closed}");
+            assert!(after.2 - before.2 <= 1, "rows sorted at {closed}: {}", after.2 - before.2);
+            assert_eq!(rows, uncached(&hub));
+
+            // A closed chat's record: its own row only is built again, and moves into place.
+            let one = hub.sessions().into_iter().find(|s| s.id == "closed-0001").unwrap();
+            let before = counts();
+            hub.append(&one, "in", "agent_message_chunk", json!({}));
+            let rows = list(&hub);
+            let after = counts();
+            assert_eq!(after.0 - before.0, 1, "closed rows built at {closed}");
+            assert_eq!(after.1 - before.1, 0, "closed rows parsed at {closed}");
+            assert!(after.2 - before.2 <= 1, "rows sorted at {closed}: {}", after.2 - before.2);
+            assert_eq!(rows, uncached(&hub));
+        }
+    }
+
+    /// A one-chat change rebuilds that chat's closed row, never every closed row: each status,
+    /// turn or metadata commit of one chat rebuilt all ~3,000 closed rows on the next list. What
+    /// other rows read of a chat still reaches them: a closed parent's open-children count when
+    /// its child closes, a child's fold when its parent is archived.
+    #[tokio::test]
+    async fn a_one_chat_change_rebuilds_only_its_own_closed_row() {
+        const CLOSED: u64 = 100;
+        let cfg: crate::config::Config =
+            serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+        let hub = Hub::new(
+            cfg.clone(),
+            crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap(),
+        );
+        let meta = |id: String, status: &str| -> crate::store::SessionMeta {
+            serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+                "harness": "claude", "family": "claude", "cwd": "/w", "status": status,
+                "createdAt": 1, "updatedAt": 1,
+            }))
+            .unwrap()
+        };
+        for n in 0..CLOSED {
+            hub.insert_test_session(meta(format!("closed-{n}"), "closed"));
+        }
+        let one = hub.sessions().into_iter().find(|s| s.id == "closed-7").unwrap();
+        hub.visit_session_summaries(false, |_| {});
+        let builds = || hub.closed_summary_builds.load(Ordering::SeqCst);
+
+        let before = builds();
+        one.meta.lock().unwrap().title = Some("renamed".into());
+        hub.save_meta_answered(&one).unwrap();
+        hub.append(&one, "mux", "turn_end", json!({}));
+        hub.attach_count(&one, 1, true);
+        hub.attach_count(&one, -1, true);
+        hub.visit_session_summaries(false, |_| {});
+        assert_eq!(builds() - before, 1, "one chat's changes rebuilt other closed rows");
+        cached_rows_equal_uncached(&hub);
+
+        // A closed parent's `children` follows its child's status.
+        let parent = hub.sessions().into_iter().find(|s| s.id == "closed-3").unwrap();
+        let mut child = meta("child".into(), "ready");
+        child.subsession = Some(
+            serde_json::from_value(
+                json!({"startedBy": "closed-3", "shortName": "child", "depth": 1}),
+            )
+            .unwrap(),
+        );
+        let child = hub.insert_test_session(child);
+        hub.subsessions.note_status(&parent.id, &child.id, SessionStatus::Ready);
+        cached_rows_equal_uncached(&hub);
+        hub.set_status(&child, SessionStatus::Closed);
+        cached_rows_equal_uncached(&hub);
+
+        // Archiving a parent folds its children no more: their rows change with its tags.
+        let mut folded = meta("folded".into(), "closed");
+        folded.tags.insert(
+            "spawnedBy".into(),
+            crate::store::Tag { value: "closed-5".into(), expires_at: None },
+        );
+        hub.insert_test_session(folded);
+        cached_rows_equal_uncached(&hub);
+        let five = hub.sessions().into_iter().find(|s| s.id == "closed-5").unwrap();
+        five.meta.lock().unwrap().tags.insert(
+            "archived".into(),
+            crate::store::Tag { value: "true".into(), expires_at: None },
+        );
+        hub.save_meta_answered(&five).unwrap();
         cached_rows_equal_uncached(&hub);
     }
 
@@ -1147,6 +1422,29 @@ mod tests {
         let held = hold(&hub, minute).await;
         hub.settle_profile_respawn(&session);
         assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "nothing pending: no change");
+    }
+
+    /// An agent start's spawn lease and its end each change the list: an update's `ls` never reads
+    /// a cached `starting: false` while a start runs (review of #36854).
+    #[tokio::test]
+    async fn an_agent_start_and_its_end_rebuild_the_list() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s1", "name": "lane", "harness": "claude",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        let session = hub.insert_test_session(meta);
+        let (guard, minute) = (&hub.list_guard, Duration::from_secs(60));
+        assert_eq!(hub.session_summary(&session)["starting"], json!(false));
+        let held = hold(&hub, minute).await;
+        let lease = hub.spawn_lease(&session).await;
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a start rebuilds");
+        assert_eq!(hub.session_summary(&session)["starting"], json!(true));
+        let held = hold(&hub, minute).await;
+        drop(lease);
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "its end rebuilds");
+        assert_eq!(hub.session_summary(&session)["starting"], json!(false));
     }
 
     #[tokio::test]

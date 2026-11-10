@@ -10,9 +10,9 @@ import QuartzCore
 /// it is larger. Nothing in them lays out or resizes during the hold. When it ends they take the area's size once,
 /// before anything hears that the motion ended.
 ///
-/// With ``PaneMotionHold/containersFollow`` (FRAME OWNER S3) a container in it (``PaneMotionHoldFollowing``: a
-/// terminal's host, a browser's chrome) takes the area's bounds in every frame instead and hears the hold once, so its
-/// own ground covers the pane; only its producer keeps its size.
+/// A container in it (``PaneMotionHoldFollowing``: a terminal's host, a browser's chrome; FRAME OWNER S3) takes the
+/// area's bounds in every frame instead and hears the hold once, so its own ground covers the pane; only its producer
+/// keeps its size (a terminal's surface follows too, cmux-ad m6 and m18).
 public final class PaneContentAreaView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -32,6 +32,19 @@ public final class PaneContentAreaView: NSView {
             if hold != nil, heldSize == nil { heldSize = bounds.size }
             if hold == nil, let held = heldSize { release(from: held) } else { showHeld(handing: true) }
         }
+    }
+
+    /// The ground the area shows under its content: its pane's (the window's color where panes paint it), else none.
+    public var restingGround: CGColor? { didSet { paintGround() } }
+
+    /// The ground of content that comes next but is not made yet (SPLIT NEW PANE GROUND, m81: a split's stand-in terminal
+    /// waits for its surface until after its key's frame): it shows instead of ``restingGround`` until then, so the new
+    /// pane has its terminal's ground from the key's frame, never the window's color.
+    public var waitingGround: CGColor? { didSet { paintGround() } }
+
+    private func paintGround() {
+        let ground = waitingGround ?? restingGround
+        if layer?.backgroundColor != ground { layer?.backgroundColor = ground }
     }
 
     /// The area's size when the hold began: the size its subviews keep; nil at rest.
@@ -88,7 +101,6 @@ public final class PaneContentAreaView: NSView {
         guard let heldSize, let hold else { return }
         let origin = hold.boundsOrigin(holding: heldSize, in: bounds.size)
         if bounds.origin != origin { setBoundsOrigin(origin) }
-        guard hold.containersFollow else { return }
         for case let follower as any PaneMotionHoldFollowing in subviews {
             let id = ObjectIdentifier(follower)
             if !handed.contains(id) {
@@ -107,9 +119,49 @@ public final class PaneContentAreaView: NSView {
         }
     }
 
+    /// Draw ahead (cmux-ad m26): the area will be `sizeChange` larger (negative: smaller) at the next refresh of its pane's
+    /// spring; each shown follower hears its size then (it follows the area's bounds).
+    public func drawAhead(sizeChange: CGSize) { // perf-hot: 1ms motion-frame
+        guard hold != nil, sizeChange != .zero else { return }
+        let next = CGSize(width: max(0, bounds.width + sizeChange.width), height: max(0, bounds.height + sizeChange.height))
+        for case let follower as any PaneMotionHoldFollowing in subviews where !follower.isHidden && handed.contains(ObjectIdentifier(follower)) {
+            follower.drawAhead(nextHostSize: next)
+        }
+    }
+
+    /// Draw ahead of a key hold's first frame (T-KEYS 3): the area will be `sizeChange` larger (negative: smaller) at the
+    /// first refresh of its pane's spring, whose layout begins the hold. Each follower that hold will hand hears its size
+    /// then, in the key's turn, as ``drawAhead(sizeChange:)`` tells it each later refresh's. `keyPress`: false for a
+    /// snapped structural change (``PaneMotionHoldFollowing/drawAheadOfFollow(nextHostSize:keyPress:)``).
+    public func drawAheadOfHold(sizeChange: CGSize, keyPress: Bool) {
+        guard hold == nil, sizeChange != .zero else { return }
+        let next = CGSize(width: max(0, bounds.width + sizeChange.width), height: max(0, bounds.height + sizeChange.height))
+        for case let follower as any PaneMotionHoldFollowing in subviews where follows(follower) {
+            follower.drawAheadOfFollow(nextHostSize: next, keyPress: keyPress)
+        }
+    }
+
+    /// A snapped change that drew its followers' sizes ahead (``drawAheadOfHold(sizeChange:keyPress:)``) showed: each
+    /// follower lets a size its placement did not take go (``PaneMotionHoldFollowing/aheadOfFollowShown()``).
+    public func aheadOfHoldShown() {
+        for case let follower as any PaneMotionHoldFollowing in subviews { follower.aheadOfFollowShown() }
+    }
+
+    /// Whether a key press's snap must keep waiting for a follower's size drawn ahead
+    /// (``PaneMotionHoldFollowing/aheadOfFollowAwaitsContent(refreshesWaited:)``, RESIZE P0 20).
+    public func aheadOfHoldAwaitsContent(refreshesWaited: Int) -> Bool {
+        subviews.contains { ($0 as? any PaneMotionHoldFollowing)?.aheadOfFollowAwaitsContent(refreshesWaited: refreshesWaited) == true }
+    }
+
+    /// A key press's held snap shows in this turn: no follower waits longer
+    /// (``PaneMotionHoldFollowing/aheadOfFollowWillShow()``, RESIZE P0 21).
+    public func aheadOfHoldWillShow() {
+        for case let follower as any PaneMotionHoldFollowing in subviews { follower.aheadOfFollowWillShow() }
+    }
+
     /// A container in it was shown again during a following hold (a parked tab): it joins in this frame's layout pass.
     public func followerDidShow() {
-        if hold?.containersFollow == true { needsLayout = true }
+        if hold != nil { needsLayout = true }
     }
 
     public override func layout() { // perf-hot: 4ms motion-frame
@@ -125,7 +177,7 @@ public final class PaneContentAreaView: NSView {
     /// containers that were there when the hold began.
     public override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
-        guard let heldSize, let hold, hold.containersFollow, let follower = subview as? any PaneMotionHoldFollowing, follows(follower),
+        guard let heldSize, let hold, let follower = subview as? any PaneMotionHoldFollowing, follows(follower),
               handed.insert(ObjectIdentifier(follower)).inserted else { return }
         follower.followPaneMotion(hold, heldSize: heldSize)
         if follower.frame != bounds {
@@ -163,12 +215,24 @@ public final class PaneContentAreaView: NSView {
     /// The pane's own ground as it shows now (FRAME OWNER S3c, read once when the pane closes): the background of the
     /// topmost shown view that fills the area (a terminal's host paints the terminal's ground), else the area's own; nil
     /// when the pane shows the window's sheet (a see-through window).
+    /// A view that reports its own ground (``PaneGroundReporting``: a browser's chrome, whose page paints over the chrome's
+    /// window-colored layer) gives that one first.
     public var groundColor: CGColor? {
         for view in subviews.reversed() where !view.isHidden && view.frame.contains(bounds.insetBy(dx: 0.5, dy: 0.5)) {
+            if let ground = (view as? any PaneGroundReporting)?.paneGround, ground.alpha > 0 { return ground }
             if let color = view.layer?.backgroundColor, color.alpha > 0 { return color }
         }
         return layer?.backgroundColor.flatMap { $0.alpha > 0 ? $0 : nil }
     }
+}
+
+/// A view in a pane's content area whose ground is not its layer's background (CLOSE MOTION 2 case 3, cmux-ad m48): a
+/// browser's chrome paints the window's color under the page, and a closing page pane must show the page's own
+/// background, not the window's. Read once when its pane closes, on the main thread: O(1), no page script.
+@MainActor
+public protocol PaneGroundReporting: NSView {
+    /// The ground its pane shows when it closes; nil: its layer's background, as any other view.
+    var paneGround: CGColor? { get }
 }
 
 public extension NSView {

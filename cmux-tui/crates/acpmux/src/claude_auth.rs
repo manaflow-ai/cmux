@@ -397,12 +397,45 @@ fn explains(original: &str) -> bool {
         && !original.starts_with("Claude is not signed in here")
 }
 
+/// Whether [`explain`] would explain `original` for `session_id`'s agent: a sign-in failure of a
+/// plain Claude Code agent acpmux started. A caller asks it before work only such a failure
+/// needs (`hub/turns.rs` asks the Cloud image whether cmux's gateway serves Claude).
+pub fn would_explain(session_id: &str, original: &str) -> bool {
+    explains(original) && spawned(session_id).is_some_and(|s| s.explains)
+}
+
+/// The words that say the sign-in card also offers cmux's gateway ([`compose_cloud`] with
+/// `gateway`): the web's `offersGateway` (cloudAgentLogin.ts) reads them, so the third choice
+/// shows only when the machine's team has the gateway.
+pub const GATEWAY_OFFER: &str = "Use cmux's gateway";
+
+/// The words that say acpmux moved the chat's agent onto cmux's gateway by itself
+/// ([`gateway_fallback_text`]); its first send goes again on them (`first_send.rs`).
+pub const GATEWAY_FALLBACK: &str = "now uses cmux's gateway";
+
+/// The failure of a chat whose Claude had no credential and that acpmux moved onto cmux's gateway
+/// without asking (the gateway fallback, `agent_login::GATEWAY_FALLBACK_ENV`). `original` is
+/// Claude's own text, kept at the end.
+pub fn gateway_fallback_text(original: &str) -> String {
+    format!(
+        "Claude is not signed in here, so this chat {GATEWAY_FALLBACK} (your team's account); the message goes again there. (Claude said: {})",
+        original.trim()
+    )
+}
+
+/// Whether `error` is a failure the gateway fallback answered ([`gateway_fallback_text`]).
+pub fn is_gateway_fallback(error: &str) -> bool {
+    error.starts_with("Claude is not signed in here") && error.contains(GATEWAY_FALLBACK)
+}
+
 /// The explanation for a Claude agent's sign-in failure, or None when this
 /// session is not a Claude agent acpmux started (or the text says another
 /// thing). `original` is Claude's own text, kept at the end. `cloud`: this
 /// machine is a cmux Cloud VM (`cloud_host.rs`), signed in from the Mac: the
 /// text says only that ([`compose_cloud`]), never a terminal's sign-in.
-pub fn explain(session_id: &str, original: &str, cloud: bool) -> Option<String> {
+/// `gateway`: the Cloud image says cmux's gateway serves Claude for this machine's team, so
+/// the text names that choice too ([`GATEWAY_OFFER`]).
+pub fn explain(session_id: &str, original: &str, cloud: bool, gateway: bool) -> Option<String> {
     if !explains(original) {
         return None;
     }
@@ -411,7 +444,7 @@ pub fn explain(session_id: &str, original: &str, cloud: bool) -> Option<String> 
     let work = || {
         let agent = find(&spawned.env);
         if cloud {
-            return compose_cloud(&agent, original);
+            return compose_cloud(&agent, original, gateway);
         }
         let terminal_env = terminal_env();
         let terminal = find(&terminal_env);
@@ -448,7 +481,7 @@ fn rc_file(shell: Option<&str>) -> &'static str {
 /// Mac's "Set up Claude Code credentials" on the failed turn (the turn card's button). No
 /// terminal, no shell file and no fallback route: the person is not on this machine (Leo,
 /// 2026-10-31: "STOP USING CODEROUTER").
-fn compose_cloud(agent: &Found, original: &str) -> String {
+fn compose_cloud(agent: &Found, original: &str, gateway: bool) -> String {
     let mut out = String::from("Claude is not signed in here.");
     if agent.signed_in() {
         out.push_str(&format!(
@@ -464,6 +497,12 @@ fn compose_cloud(agent: &Found, original: &str) -> String {
     out.push_str(
         " Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again.",
     );
+    if gateway {
+        // The card's third way in (`server/agent_login.rs` `use_gateway`): the team's own account.
+        out.push_str(&format!(
+            " Or click {GATEWAY_OFFER}: this machine's team has an account there."
+        ));
+    }
     out.push_str(&format!(" (Claude said: {})", original.trim()));
     out
 }
@@ -502,23 +541,25 @@ fn compose(
         out.push_str(" Your terminal has no Claude sign-in either.");
     }
     let api_key = agent.env_keys.iter().any(|k| k == "ANTHROPIC_API_KEY");
+    // Each fix names `claude auth login`, never `claude /login`: the REPL asks to trust the
+    // folder before it signs in, and on a fresh home that dialog stops a scripted sign-in.
     let fix = if routed && api_key {
         "Replace the credential in the selected model route, or select another route, then start a new chat."
             .to_owned()
     } else if agent.endpoint.is_none() && api_key {
-        // Claude Code prefers ANTHROPIC_API_KEY over a `claude /login` sign-in, so logging in
+        // Claude Code prefers ANTHROPIC_API_KEY over a `claude auth login` sign-in, so logging in
         // again does not help while a rejected key is set. Not with an endpoint: a route or a
         // proxy set that key (routes.rs), and removing it would break the route.
         format!(
-            "Claude uses ANTHROPIC_API_KEY before your `claude /login` sign-in. To use your Claude sign-in, remove ANTHROPIC_API_KEY from {} or this agent's profile and open a new terminal; or replace the key. Then send the message again.",
+            "Claude uses ANTHROPIC_API_KEY before your `claude auth login` sign-in. To use your Claude sign-in, remove ANTHROPIC_API_KEY from {} or this agent's profile and open a new terminal; or replace the key. Then send the message again.",
             rc_file(shell)
         )
     } else if agent.signed_in() {
-        "Run `claude /login` in a terminal, or check that key, then send the message again."
+        "Run `claude auth login` in a terminal, or check that key, then send the message again."
             .to_owned()
     } else if terminal.signed_in() && agent.home != terminal.home {
         format!(
-            "This agent uses the Claude home {}, your terminal uses {}. Remove CLAUDE_CONFIG_DIR from this agent's profile, or sign in for that home with `CLAUDE_CONFIG_DIR={} claude /login`, then send the message again.",
+            "This agent uses the Claude home {}, your terminal uses {}. Remove CLAUDE_CONFIG_DIR from this agent's profile, or sign in for that home with `CLAUDE_CONFIG_DIR={} claude auth login`, then send the message again.",
             tilde(&agent.home),
             tilde(&terminal.home),
             agent.home.display()
@@ -540,7 +581,7 @@ fn compose(
         )
     } else {
         format!(
-            "Run `claude /login` in a terminal, or set ANTHROPIC_API_KEY (or ANTHROPIC_BASE_URL with ANTHROPIC_AUTH_TOKEN) in {} and open a new terminal, then send the message again.",
+            "Run `claude auth login` in a terminal, or set ANTHROPIC_API_KEY (or ANTHROPIC_BASE_URL with ANTHROPIC_AUTH_TOKEN) in {} and open a new terminal, then send the message again.",
             rc_file(shell)
         )
     };
@@ -572,8 +613,10 @@ mod tests {
             home: dirs::home_dir().unwrap_or_default().join(".claude"),
             ..super::Found::default()
         };
-        let text = super::compose_cloud(&none, "Not logged in · Please run /login");
+        let text = super::compose_cloud(&none, "Not logged in · Please run /login", false);
         assert!(text.starts_with("Claude is not signed in here."), "{text}");
+        // The gateway is named only where the machine's team has it.
+        assert!(!text.contains(super::GATEWAY_OFFER), "{text}");
         assert!(text.contains("no Claude sign-in (Claude home ~/.claude)"), "{text}");
         assert!(text.contains("Set up Claude Code credentials"), "{text}");
         assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
@@ -583,8 +626,25 @@ mod tests {
         // Not explained twice.
         assert!(!super::explains(&text));
         let had = super::Found { sources: vec!["a Claude.ai login".into()], ..none };
-        let text = super::compose_cloud(&had, "API Error: 401 OAuth token has expired");
+        let text = super::compose_cloud(&had, "API Error: 401 OAuth token has expired", false);
         assert!(text.contains("had a Claude.ai login, and Claude did not accept it"), "{text}");
+    }
+
+    /// A Cloud machine whose team cmux's gateway serves names that choice beside the sign-in,
+    /// and the gateway fallback's own failure is never explained again.
+    #[test]
+    fn a_cloud_machine_with_the_gateway_offers_it() {
+        let none = super::Found::default();
+        let text = super::compose_cloud(&none, "Not logged in · Please run /login", true);
+        assert!(text.contains("Or click Use cmux's gateway"), "{text}");
+        assert!(text.contains("Set up Claude Code credentials"), "{text}");
+        assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
+        assert!(!super::explains(&text));
+        let fell_back = super::gateway_fallback_text("Not logged in · Please run /login");
+        assert!(super::is_gateway_fallback(&fell_back), "{fell_back}");
+        assert!(!super::explains(&fell_back));
+        assert!(!super::is_gateway_fallback(&text));
+        assert!(!super::is_gateway_fallback("Not logged in · Please run /login"));
     }
 
     /// Dogfood 2026-10-26: Claude Code's 401 ("Failed to authenticate") reached the person as
@@ -597,7 +657,7 @@ mod tests {
         assert!(!is_sign_in_failure("API Error: 529 overloaded_error"));
     }
 
-    /// A rejected ANTHROPIC_API_KEY wins over `claude /login`, so the fix names the key, not a
+    /// A rejected ANTHROPIC_API_KEY wins over `claude auth login`, so the fix names the key, not a
     /// login that would not help.
     #[test]
     fn a_rejected_env_api_key_says_to_remove_it() {
@@ -615,7 +675,7 @@ mod tests {
             false,
         );
         assert!(text.contains("remove ANTHROPIC_API_KEY from ~/.zshrc"), "{text}");
-        assert!(!text.contains("Run `claude /login`"), "{text}");
+        assert!(!text.contains("Run `claude auth login`"), "{text}");
 
         // Review of #25950: a route's key (with its endpoint) is not the person's to remove.
         let routed = Found { endpoint: Some("router.example:443".to_owned()), ..agent };
@@ -633,7 +693,7 @@ mod tests {
     fn a_subscription_route_without_a_key_keeps_login_advice() {
         let agent = Found::default();
         let text = compose(&agent, &agent, None, "Not logged in", true);
-        assert!(text.contains("Run `claude /login`"), "{text}");
+        assert!(text.contains("Run `claude auth login`"), "{text}");
         assert!(!text.contains("selected model route"), "{text}");
     }
 
@@ -667,7 +727,7 @@ mod tests {
             Some((id, "route auth test")),
         )
         .unwrap();
-        let text = explain(id, "Failed to authenticate. API Error: 401", false).unwrap();
+        let text = explain(id, "Failed to authenticate. API Error: 401", false, false).unwrap();
         forget(id);
         assert!(text.contains("route"), "{text}");
         assert!(!text.contains("remove ANTHROPIC_API_KEY"), "{text}");

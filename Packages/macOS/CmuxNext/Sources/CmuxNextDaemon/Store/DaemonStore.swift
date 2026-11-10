@@ -1,6 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextWakeups
-import Foundation
+public import Foundation
 public import Observation
 import os
 
@@ -18,7 +18,25 @@ public enum DaemonConnectionState: Sendable, Equatable {
 /// batches at most once per frame (`run(connection:scheduler:)`).
 @Observable @MainActor
 public final class DaemonStore: StateResourceQueries {
-    public internal(set) var workspaces: [WorkspaceModel] = [] { didSet { adoptUnread() } }
+    /// The workspaces in daemon order. While the intent overlay is lifted, writes are held and the lift publishes
+    /// only the net change, once (`DaemonStore+OverlayPublication.swift`).
+    public internal(set) var workspaces: [WorkspaceModel] {
+        get {
+            access(keyPath: \.workspaces)
+            return workspaceList
+        }
+        set {
+            guard listBeforeLift == nil else {
+                workspaceList = newValue
+                return
+            }
+            withMutation(keyPath: \.workspaces) { workspaceList = newValue }
+            adoptUnread()
+        }
+    }
+    @ObservationIgnored var workspaceList: [WorkspaceModel] = []
+    /// The list when the overlay lifted (writes held until it is back); nil otherwise.
+    @ObservationIgnored var listBeforeLift: [WorkspaceModel]?
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
     @ObservationIgnored public internal(set) var unreadTabReads = 0
@@ -53,6 +71,11 @@ public final class DaemonStore: StateResourceQueries {
     /// tabs the tree lists, their panes or their order: one read for an
     /// observer that follows every tab list, instead of a walk of every pane.
     public private(set) var tabListRevision: UInt64 = 0
+    /// Bumped once per apply (batch, snapshot, intent) that changed which panes the tree lists, or the screen or
+    /// the workspace of one. A tab that comes, goes or moves does not move it, and neither does a snapshot that
+    /// applies a workspace again as it was (``tabListRevision`` moves for both). Not observed: its reader compares
+    /// two values.
+    @ObservationIgnored public private(set) var paneListRevision: UInt64 = 0
     /// Tabs a pending close only hides while the daemon's read decides (``holdTabs(_:)``); the live tree still lists them.
     @ObservationIgnored var heldTabIDs: Set<String> = []
     public let session = SessionStateStore()
@@ -181,6 +204,8 @@ public final class DaemonStore: StateResourceQueries {
     /// Workspace snapshots the main actor compared or keyed for ``snapshotMemo`` since creation
     /// (tests: a live resync with its off-main ``SnapshotDiff`` walks none).
     @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
+    /// Confirmed workspace records an incremental apply walked to rebuild the list (none when no workspace moved).
+    @ObservationIgnored var workspaceListWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
     /// Test seam (nil in the app): while it returns true for the buffered events, `drain` leaves them
@@ -216,6 +241,16 @@ public final class DaemonStore: StateResourceQueries {
     /// change to one workspace: observers that track membership read it
     /// instead of `workspaces`, whose order every move changes.
     public internal(set) var workspaceSetRevision: UInt64 = 0
+    /// This Mac's former `install:<id>` hosts (its other Cloud backends' ids, #35284) -> its current one,
+    /// set on this Mac's own daemon's store only: a tab this tree saved under one reads as this Mac's
+    /// (``TabModel/agentSession``) at every check, where a host is compared exactly (#36015's `listedHere`
+    /// rule). Every other store has none, so another machine's listing keeps the host it saved.
+    @ObservationIgnored public var formerLocalHosts: [String: String] = [:] {
+        didSet {
+            guard formerLocalHosts != oldValue else { return }
+            for tab in index.tabsBySurface.values where tab.formerLocalHosts != formerLocalHosts { tab.formerLocalHosts = formerLocalHosts }
+        }
+    }
 
     public init() {}
 
@@ -262,10 +297,34 @@ public final class DaemonStore: StateResourceQueries {
         _ = tabListRevision
         return index.tabsByID[id] ?? index.tabsByResource[ResourceID(rawValue: id)]
     }
-    /// The pane with public id or pane resource id `id`.
+    /// The pane with public id or pane resource id `id`, in O(1) from the index. A miss reads
+    /// `tabListRevision`, so a tracked caller hears a pane come.
     public func pane(idOrResource id: String) -> PaneModel? {
-        index.panesByResource[ResourceID(rawValue: id)]
-            ?? workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.id == id || $0.resourceID?.rawValue == id }
+        if let pane = index.panesByResource[ResourceID(rawValue: id)] ?? index.pane(id: id) { return pane }
+        _ = tabListRevision
+        return nil
+    }
+    /// The screen with `ScreenModel.id` `id`, in O(1) from the index. It reads `workspaces` first,
+    /// as ``workspace(id:)`` does.
+    public func screen(id: String) -> ScreenModel? {
+        _ = workspaces
+        return index.screensByID[id]
+    }
+    /// The screen with `ScreenModel.id` or screen resource id `id`.
+    public func screen(idOrResource id: String) -> ScreenModel? {
+        screen(id: id) ?? index.screensByResource[ResourceID(rawValue: id)]
+    }
+    /// The workspace whose tree holds this very `screen` (by identity), from the index's parents.
+    public func workspace(holding screen: ScreenModel) -> WorkspaceModel? {
+        _ = workspaces
+        return index.workspace(holding: screen)
+    }
+    /// The workspace and screen whose tree holds this very `pane` (by identity), from the index's
+    /// parents; nil when this store does not hold it.
+    public func location(of pane: PaneModel) -> (workspace: WorkspaceModel, screen: ScreenModel)? {
+        _ = workspaces
+        guard let screen = index.screen(holding: pane), let workspace = index.workspace(holding: screen) else { return nil }
+        return (workspace, screen)
     }
     public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { index.tabGroupsByID[id] }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
@@ -319,7 +378,7 @@ public final class DaemonStore: StateResourceQueries {
         stage?.commitAll()
         withOverlayLifted(snapshot: true) {
             if let diff = incrementalDiff(tree, diff: diff) {
-                applyTreeIncrementally(tree, touching: touchedWorkspaces(diff))
+                applyTreeIncrementally(tree, touching: touchedWorkspaces(diff), diff: diff)
                 advanceSnapshotMemo(tree, applying: diff)
             } else {
                 applyTree(tree)
@@ -413,10 +472,38 @@ public final class DaemonStore: StateResourceQueries {
     /// (`DaemonConnection.observeRetriesSpent`): its header reads offline, not connecting (HQ
     /// #4877 G4). Cleared by the next connect and by a new attempt.
     public private(set) var retriesSpent = false
+    /// The reconnect parked while the store still read connected: its disconnect drains on a later
+    /// frame, which then applies the mark (``DaemonConnectionChange``). Cleared by the next connect.
+    private(set) var parkedBeforeDisconnect = false
+    /// Connections the store applied (``DaemonConnectionChange/connected(_:_:)``).
+    public private(set) var connects = 0
+    /// The last connection the store applied: its connection and serial (``DaemonEventEnvelope``).
+    private(set) var connectedSerial: (source: UUID, serial: UInt64)?
 
-    public func noteRetriesSpent(_ spent: Bool) {
-        if spent, case .connected = connectionState { return }
+    /// `source` and `serial`: the connection and attempt that parked. A park from an attempt older
+    /// than the last connection applied is stale (the link recovered before the delivery landed)
+    /// and changes nothing, so it never marks the next disconnect offline.
+    public func noteRetriesSpent(_ spent: Bool, source: UUID? = nil, serial: UInt64? = nil) {
+        if spent, let source, let serial, let last = connectedSerial, last.source == source, last.serial > serial { return }
+        if spent, case .connected = connectionState {
+            parkedBeforeDisconnect = true
+            return
+        }
+        if !spent { parkedBeforeDisconnect = false }
         if retriesSpent != spent { retriesSpent = spent }
+    }
+
+    /// The disconnect drained: a park noted before it applies now.
+    func applyParkedBeforeDisconnect() {
+        guard parkedBeforeDisconnect else { return }
+        parkedBeforeDisconnect = false
+        noteRetriesSpent(true)
+    }
+
+    func noteConnected(_ envelope: DaemonEventEnvelope? = nil) {
+        connects += 1
+        connectedSerial = envelope.flatMap { envelope in envelope.sourceID.map { ($0, envelope.connectionSerial) } }
+        noteRetriesSpent(false)
     }
 
     // MARK: Derived state
@@ -477,8 +564,9 @@ public final class DaemonStore: StateResourceQueries {
         for tab in pane.tabs { prime(tab) }
     }
 
-    /// What a tab learns when it is indexed: its agent and its observed folder.
+    /// What a tab learns when it is indexed: its agent, its observed folder and this Mac's former hosts.
     private func prime(_ tab: TabModel) {
+        if tab.formerLocalHosts != formerLocalHosts { tab.formerLocalHosts = formerLocalHosts }
         if tab.agent == nil, let agent = agents.bySurface[tab.surface] { tab.setAgent(agent) }
         if let presence = heldPresence.removeValue(forKey: tab.surface) { tab.setPresence(presence) }
         tab.setObservedCwd(directories.directory(for: tab.surface))
@@ -487,6 +575,7 @@ public final class DaemonStore: StateResourceQueries {
     /// Publishes a tab list change once the visible state is complete.
     func publishTabListChange() {
         if index.takeTabListChange() { tabListRevision &+= 1 }
+        if index.takePaneListChange() { paneListRevision &+= 1 }
     }
 
     /// Runs `onWorkspaceListChanged` when the workspace set differs from

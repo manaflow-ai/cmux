@@ -4,12 +4,15 @@
 // then cmux's Edit; under the answer Claude's Copy, Fork, Pin, Read aloud and its age. Each age shows
 // its exact date and time above it on hover (the *-time-tooltip plays). Edit shows on a Claude
 // chat's prompts after its first turn, which acpmux can fork through (cx-ncc.60). The icon buttons
-// name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first ten
-// lines, fading out, with Show more; a pasted block is a chip that opens in place (PromptText.tsx).
+// name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first twenty
+// lines, fading out, with Show more; a pasted block is the bubble's own text (PromptText.tsx).
+// A Cloud chat's prompt whose turn has a machine checkpoint adds Back to before this turn (the
+// rewind-* plays): three placements to compare, then the shipped one's pending, done and failed.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../model";
+import { answerPrompt } from "./nextStepAsk";
 
 const claude = (snapshot: AcpmuxSnapshot): AcpmuxSnapshot => ({
   ...snapshot,
@@ -25,6 +28,20 @@ const turns = (family: (snapshot: AcpmuxSnapshot) => AcpmuxSnapshot) =>
       user("Now cover it with a test that fakes two timeouts", 6, { seq: 4 }),
       assistant("Added `uploader.retry.test.ts`; it passes and fails without the retry.", 5),
       summary(5, { seq: 6, status: "completed" }),
+    ]),
+  );
+
+/// A turn that ended on an agent's ask, then the person's answer to it (NextStepCard.tsx). Leo,
+/// 2026-11-08, on a bare "Not now" bubble: "wait this thing should've shown that it was a reply to
+/// an ask from you". `reply` is the answer's prompt as sent.
+const ASKED = "Should I open a PR for this?";
+const answeredAsk = (reply: string): AcpmuxSnapshot =>
+  claude(
+    chat([
+      user("Fix the layout shift on the product grid", 9, { seq: 1 }),
+      assistant(`The grid reserves a 4:5 box while images load, so nothing shifts.\n\n[outward] ${ASKED}`, 8.5),
+      summary(8.5, { seq: 3, status: "completed" }),
+      user(reply, 1, { seq: 4 }),
     ]),
   );
 
@@ -95,6 +112,26 @@ const pastedPrompt = () => {
   );
 };
 
+/// One long paragraph pasted under a typed ask, as dictation or a chat message gives it: about
+/// 1,100 words on a single line (Leo, 2026-11-05: "it says pasted text one line, but there's a lot
+/// more than this").
+const PARAGRAPH = Array.from(
+  { length: 40 },
+  (_, index) =>
+    `Okay, but at the same time the retry helper in step ${index + 1} should back off a little longer each attempt, log why it gave up, and keep the`,
+).join(" ");
+const TIGHTEN = "Can you tighten this up?";
+const pastedParagraph = () => {
+  const text = `${TIGHTEN}\n${PARAGRAPH}`;
+  return claude(
+    chat([
+      user(text, 9, { seq: 1, pasted: [{ start: TIGHTEN.length + 1, end: text.length }] }),
+      assistant("Here it is in half the words.", 8.5),
+      summary(8.5, { seq: 3, status: "completed" }),
+    ]),
+  );
+};
+
 /// A chat from 15 hours ago: its rows read "15 hours ago", their exact time above it on hover.
 const yesterday = () =>
   claude(
@@ -104,6 +141,54 @@ const yesterday = () =>
       summary(15 * 60, { seq: 3, status: "completed" }),
     ]),
   );
+
+/// A Cloud chat of two turns whose prompts each have a machine checkpoint taken before they ran, as
+/// the handshake's `cloudTurnRewind` names them (`user-<seq>`, the marks cloudTurnCheckpoints.ts
+/// reads; App.tsx). `answer`: how the host's `chat.rewindTurn` answers; `delayMs`: how long it takes.
+const REWIND_PROMPT = "Now cover it with a test that fakes two timeouts";
+const rewindChat = (answer: unknown = { seconds: 9.4 }, delayMs?: number) => ({
+  ready: { cloudMachineID: "vm_gallery_cloud", cloudTurnRewind: ["user-1", "user-4"] },
+  native: { "chat.rewindTurn": answer },
+  ...(delayMs !== undefined && { nativeDelayMs: { "chat.rewindTurn": delayMs } }),
+  snapshot: claude(
+    chat([
+      user("Add retry with backoff to the uploader", 9, { id: "user-1", seq: 1 }),
+      assistant("Done: three tries, doubling from 200 ms, only on 5xx and timeouts.", 8.5),
+      summary(8.5, { seq: 3, status: "completed" }),
+      user(REWIND_PROMPT, 6, { id: "user-4", seq: 4 }),
+      assistant("Added `uploader.retry.test.ts`; it passes and fails without the retry.", 5),
+      summary(5, { seq: 6, status: "completed" }),
+    ]),
+  ),
+});
+const REWIND = ".cv-user__actions .cv-turn-rewind";
+/// The latest prompt's rewind button.
+const LATEST_REWIND = `[data-row-id="user-4"] ${REWIND}`;
+
+/// Hovers the latest prompt and waits for its rewind button to show.
+const hoverRewind = async (ctx: PlayContext) => {
+  await ctx.hover({ text: REWIND_PROMPT });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(REWIND).length === 2);
+};
+
+/// Clicks the latest prompt's rewind, then points at the composer, away from the prompt, and waits
+/// for the button to reach `state` with its row still shown. A failed rewind keeps no row shown, so
+/// that play points at the prompt again to show it.
+const rewindTo = (state: "pending" | "done" | "failed") => async (ctx: PlayContext) => {
+  await hoverRewind(ctx);
+  await ctx.click({ selector: LATEST_REWIND });
+  await ctx.hover({ selector: ".acpmux-composer" });
+  const selector = `${LATEST_REWIND}[data-rewind-state="${state}"]`;
+  if (state === "failed") {
+    await ctx.waitFor(() => ctx.document.querySelector(selector));
+    await ctx.hover({ text: REWIND_PROMPT });
+    return;
+  }
+  await ctx.waitFor(() => {
+    const row = ctx.document.querySelector(selector)?.closest(".cv-user__actions");
+    return row != null && ctx.document.defaultView!.getComputedStyle(row).opacity === "1";
+  });
+};
 
 /// Hovers the `selector` time and waits for its exact date and time to show above it.
 const hoverTime = (selector: string) => async (ctx: PlayContext) => {
@@ -135,6 +220,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/conversation/icons.tsx#Pin",
     "agent-session/acpmux/conversation/icons.tsx#Speaker",
+    "agent-session/acpmux/conversation/icons.tsx#Undo",
   ],
   anchors: [{ selector: ".acpmux-composer" }, { selector: ".acpmux-header" }],
   variants: {
@@ -183,7 +269,7 @@ export default agentPaneEntry({
       play: hoverTime("time.cv-user__time"),
     },
     "answer-time-tooltip": {
-      note: "Play: point at an answer's footer; its exact date and time shows at the row's end, after the buttons (hidden at rest, as ChatGPT's: #31609), its tooltip the turn's time and tokens.",
+      note: "Play: point at an answer's footer; its age (15 hours ago) shows at the row's end, after the buttons (hidden at rest: #31609), as a prompt's does; its tooltip the exact date and time, the turn's time and tokens under it.",
       snapshot: yesterday(),
       play: async (ctx) => {
         const selector = "time.cv-turn-time";
@@ -193,7 +279,7 @@ export default agentPaneEntry({
           const time = ctx.document.querySelector<HTMLElement>(selector);
           return (
             time !== null &&
-            /\d:\d\d/.test(time.textContent ?? "") &&
+            (time.textContent ?? "").endsWith(" ago") &&
             ctx.document.defaultView!.getComputedStyle(time).opacity === "1"
           );
         });
@@ -215,7 +301,7 @@ export default agentPaneEntry({
       play: hoverTooltip("Copy"),
     },
     "long-collapsed": {
-      note: "A 60-line prompt opens on its first ten lines, the last ones fading out, with Show more under them.",
+      note: "A 60-line prompt opens on its first twenty lines, the last ones fading out, with Show more under them.",
       snapshot: longPrompt(),
     },
     "long-expanded": {
@@ -239,6 +325,28 @@ export default agentPaneEntry({
           summary(8.5, { seq: 3, status: "completed" }),
         ]),
       ),
+    },
+    "answered-ask": {
+      note: "Shipped. A click on an ask's Not now sends a reply to the ask: the question quoted under who asked, as Quote in Reply quotes, the answer under it. The card above folds to the answer.",
+      snapshot: answeredAsk(answerPrompt(ASKED, "Not now", "Claude Code")),
+    },
+    "answered-ask-typed": {
+      note: "Shipped. The hat's Type puts the same quote in the draft: a typed answer goes under it.",
+      snapshot: answeredAsk(
+        answerPrompt(ASKED, "Not yet, the CI fix lands first.\nThen open it as a draft.", "Claude Code"),
+      ),
+    },
+    "answered-ask-asked": {
+      note: 'Variant, not shipped: "asked" after the name. Reads well, but one word longer on every answer than the name and colon.',
+      snapshot: answeredAsk(`> Claude Code asked: ${ASKED}\n\nNot now`),
+    },
+    "answered-ask-name-line": {
+      note: "Variant, not shipped: the name on a line of its own over the question. Clearer as a header, but every answer's quote is a line taller.",
+      snapshot: answeredAsk(`> **Claude Code**\n> ${ASKED}\n\nNot now`),
+    },
+    "answered-ask-bare": {
+      note: "Variant, not shipped: the question alone. The shortest, but it does not say who asked.",
+      snapshot: answeredAsk(answerPrompt(ASKED, "Not now")),
     },
     "markdown-parity": {
       note: "Sent prompts render quotes, lists, inline code, fenced code and links with the transcript renderer. The second prompt has no quote marker.",
@@ -279,15 +387,27 @@ export default agentPaneEntry({
       ),
     },
     "pasted-chip": {
-      note: "A pasted 2,300-line stack trace is a chip under the typed question: its first words and line count.",
+      note: "A pasted 2,300-line stack trace under the typed question: its own lines as the bubble's text, folded under the prompt's Show more (the card is gallery agent-pane.sent-bubble-size, arm card).",
       snapshot: pastedPrompt(),
     },
     "pasted-chip-open": {
-      note: "Play: the chip opens the whole paste in place, under it, with Show less to fold the prompt again.",
+      note: "Play: Show more opens the whole paste in place, with Show less to fold the prompt again.",
       snapshot: pastedPrompt(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-user__paste" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
+        await ctx.click({ selector: ".cv-user__more" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__more[aria-expanded='true']"));
+      },
+    },
+    "pasted-paragraph": {
+      note: "One pasted paragraph of 1,100 words: its words wrapped at the bubble's width as its own text, folded under Show more.",
+      snapshot: pastedParagraph(),
+    },
+    "pasted-paragraph-open": {
+      note: "Play: Show more opens the whole paragraph in place.",
+      snapshot: pastedParagraph(),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-user__more" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__more[aria-expanded='true']"));
       },
     },
     editing: {
@@ -298,6 +418,47 @@ export default agentPaneEntry({
         await ctx.click({ selector: '.cv-user__actions button[aria-label="Edit"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-user__edit"));
       },
+    },
+    "rewind-row": {
+      note: "Shipped (A, the default). A Cloud chat's prompt whose turn has a machine checkpoint: hover it for Back to before this turn, an undo arrow after Fork in the same 24 px row, named in its tooltip. It reads as one of the row's own actions, beside Retry's rotate arrow and Fork, takes no room until the row shows, and the row keeps one grammar of glyphs (cmux/live/transcript-sent-message-footer-actions).",
+      ...rewindChat(),
+      play: async (ctx) => {
+        await hoverRewind(ctx);
+        await ctx.hover({ selector: LATEST_REWIND });
+        await ctx.waitFor(
+          () =>
+            ctx.document
+              .querySelector(".ui-title-tooltip:not([hidden])")
+              ?.textContent?.startsWith("Back to before this turn") ?? false,
+        );
+      },
+    },
+    "rewind-label": {
+      note: "Variant B, not shipped: Undo turn written out in the row after Fork. The plainest to find, but the only words among the row's glyphs, and it widens the row on every Cloud prompt.",
+      ...rewindChat(),
+      documentAttributes: { "turn-rewind-look": "label" },
+      play: hoverRewind,
+    },
+    "rewind-corner": {
+      note: "Variant C, not shipped: the undo arrow inside the bubble's bottom-right corner. Closest to the prompt it undoes, but it sits over the bubble's last line and apart from Retry and Fork.",
+      ...rewindChat(),
+      documentAttributes: { "turn-rewind-look": "corner" },
+      play: hoverRewind,
+    },
+    "rewind-pending": {
+      note: "Play: Back to before this turn clicked; while the machine goes back (about 16 s today) the button spins, says Going back… and cannot be pressed again, and the row stays shown with the pointer elsewhere, nothing moved.",
+      ...rewindChat({ seconds: 9.4 }, 600_000),
+      play: rewindTo("pending"),
+    },
+    "rewind-done": {
+      note: "Play: the rewind finished; the button is a check named Back to before this turn · 9.4 s, and the row stays shown so the reader sees it went.",
+      ...rewindChat({ seconds: 9.4 }),
+      play: rewindTo("done"),
+    },
+    "rewind-failed": {
+      note: "Play: the host refused the rewind; the button turns to the failure glyph named Couldn’t go back, and a second click tries again.",
+      ...rewindChat({ nativeError: { code: "cloud.rewind_failed" } }),
+      play: rewindTo("failed"),
     },
     "edit-tooltip": {
       note: "Play: hover the later prompt's pencil; the tooltip says Edit.",

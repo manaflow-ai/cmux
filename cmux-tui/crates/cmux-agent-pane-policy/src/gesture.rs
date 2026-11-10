@@ -21,13 +21,15 @@ pub fn needs_gesture(object: &Map<String, Value>, is_deny: impl Fn(&str, &str) -
     match rule {
         GestureRule::Always => true,
         GestureRule::WhenTrusting => {
-            !text("level").is_some_and(|l| contains(&p.non_trusting_levels, l))
+            params.contains_key("peer")
+                || !text("level").is_some_and(|l| contains(&p.non_trusting_levels, l))
         }
         GestureRule::WhenOptionAllows => match (text("permissionId"), text("optionId")) {
             (Some(permission), Some(option)) => !is_deny(permission, option),
             _ => true,
         },
         GestureRule::WhenDecisionAllows => text("decision") != Some("deny"),
+        GestureRule::WhenPrompting => params.contains_key("prompt"),
     }
 }
 

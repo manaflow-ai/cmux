@@ -1,6 +1,9 @@
 // A finished turn's started sub-sessions, one line each, kept in sight once the turn's work folds
 // (taskLines.ts): the task's harness mark, its title (what it is about, not its short name), its
-// state, and a chevron after them; the whole line opens the task's chat, where its report is. As
+// state, and a chevron after them; its title is a link chip that opens the task's chat, where its
+// report is, and only the chip lights under the pointer, never the whole line (Leo, 2026-11-05:
+// "subagents need to have their clickable bit be highlighted instead of the whole line click sending
+// me to the subagent righ split"). As
 // ChatGPT keeps "✓ Review October engineering work ›" under its fold (Leo, 2026-11-02: "see this
 // is the kinda scenario we wanna be able to display super nicely"). A task still working draws no
 // spinner (design/chat-transcript.md, "Grouped steps": no tool-call row draws one): its harness mark
@@ -16,6 +19,7 @@ import { RowShimmer } from "./ShimmerText";
 import type { StartedTask } from "./taskLineKind";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import "./TaskLine.css";
+import { openSessionAttributes } from "./menuParts";
 
 /// The harness mark's size: a received message's sender logo's (IncomingMessageCard.tsx), so every
 /// agent mark in the transcript's icon column is one size.
@@ -45,7 +49,16 @@ function TaskLine({ task }: { task: StartedTask }) {
       icon={
         <AgentIdentity harness={live?.harness ?? task.harness} tone={agentTone(task.sessionId)} size={TASK_LOGO_SIZE} />
       }
-      name={title}
+      before={
+        <AgentTag
+          name={title}
+          ariaLabel={t("subagents.open", { name: title })}
+          {...(open && {
+            onClick: () => open(task.sessionId),
+            attributes: openSessionAttributes(task.sessionId),
+          })}
+        />
+      }
       after={
         working ? (
           <RowShimmer>
@@ -64,7 +77,6 @@ function TaskLine({ task }: { task: StartedTask }) {
       className={`cv-task-line${working ? " is-live" : ""}`}
       ariaLabel={title}
       attributes={{ "data-task-line": state, "data-session-id": task.sessionId }}
-      onClick={open ? () => open(task.sessionId) : undefined}
     />
   );
 }

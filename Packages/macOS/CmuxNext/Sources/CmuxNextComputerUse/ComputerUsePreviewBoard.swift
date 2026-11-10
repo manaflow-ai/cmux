@@ -16,15 +16,19 @@ public nonisolated struct ComputerUsePreviewCard: Equatable, Sendable {
     /// Where the agent clicked last in the window the frame shows: the card draws its cursor there.
     /// Running cards only.
     public var pointer: ComputerUsePreviewPointer?
+    /// The agent's cursor and the person's pointer as telepointers over the frame: metadata, never
+    /// in its pixels. Running cards only; nil when neither is known.
+    public var telepointers: ComputerUsePreviewTelepointers?
 
     public init(session: String, app: String, done: Bool, frame: String, icon: String? = nil,
-                pointer: ComputerUsePreviewPointer? = nil) {
+                pointer: ComputerUsePreviewPointer? = nil, telepointers: ComputerUsePreviewTelepointers? = nil) {
         self.session = session
         self.app = app
         self.done = done
         self.frame = frame
         self.icon = icon
         self.pointer = pointer
+        self.telepointers = telepointers
     }
 }
 
@@ -85,6 +89,10 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
         var pointer: ComputerUsePreviewPointer?
         /// The agent cursor in the streamed window (``ComputerUseLiveCapture``).
         var cursor: ComputerUseAgentCursor?
+        /// When the agent cursor last moved, showed or left.
+        var cursorAt: Date?
+        /// The person's pointer over the streamed window (``ComputerUseLiveCapture``).
+        var person: ComputerUsePreviewTelepointer?
         /// The session's newest click event, of any kind.
         var lastClick: UInt64?
         /// The person closed the card.
@@ -164,9 +172,15 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
         entries[session]?.pointer = pointer
     }
 
-    /// `session`'s agent cursor is at `cursor` in its streamed window; nil: it does not show there.
-    mutating func apply(cursor: ComputerUseAgentCursor?, session: String) {
+    /// `session`'s agent cursor is at `cursor` in its streamed window since `at`; nil: it does not show there.
+    mutating func apply(cursor: ComputerUseAgentCursor?, session: String, at: Date? = nil) {
         entries[session]?.cursor = cursor
+        entries[session]?.cursorAt = at
+    }
+
+    /// The person's pointer over `session`'s streamed window; nil: not known (no stream).
+    mutating func apply(person: ComputerUsePreviewTelepointer?, session: String) {
+        entries[session]?.person = person
     }
 
     /// `session`'s agent clicked (event `click`).
@@ -278,7 +292,18 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
             .first { !$0.isEmpty }
         let pointer = done ? nil : Self.pointer(entry)
         return ComputerUsePreviewCard(session: session.id, app: name ?? "", done: done, frame: frame.url,
-                                      icon: done ? app?.icon : nil, pointer: pointer)
+                                      icon: done ? app?.icon : nil, pointer: pointer,
+                                      telepointers: done ? nil : Self.telepointers(entry, pointer: pointer))
+    }
+
+    /// The card's telepointers: the agent's where its cursor shows (``pointer(_:)``), aged from the
+    /// live cursor's last move (a pixel click's point has no age), and the person's as read.
+    static func telepointers(_ entry: Entry, pointer: ComputerUsePreviewPointer?) -> ComputerUsePreviewTelepointers? {
+        let agent = pointer.map {
+            ComputerUsePreviewTelepointer(x: $0.x, y: $0.y, visible: true, movedAt: entry.cursor == nil ? nil : entry.cursorAt)
+        }
+        guard agent != nil || entry.person != nil else { return nil }
+        return ComputerUsePreviewTelepointers(agent: agent, person: entry.person)
     }
 
     /// The next frame to load: the newest by capture time that a card can show, so newer than the

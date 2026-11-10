@@ -215,6 +215,13 @@ pub(super) fn subscribe_command(
                 MuxEvent::CloudConversation(_) if !conversation_client => {
                     continue;
                 }
+                // The person's feed only to their own clients, as for the
+                // cloud conversations.
+                MuxEvent::FeedViewChanged { .. } | MuxEvent::FeedReportsChanged { .. }
+                    if !conversation_client =>
+                {
+                    continue;
+                }
                 MuxEvent::CloudConversation(event)
                     if !host_replica_needed(event)
                         && !super::cloud_conversations::delivers(&event_mux, client) =>
@@ -330,6 +337,11 @@ pub(super) fn subscribe_command(
                 // Apps clients already hear it on their own sink; only a page
                 // relay (whose page names it) gets it from the event stream.
                 MuxEvent::AppsChanged(_) if page_events.is_none() => continue,
+                // Other clients hear a stash change as a `stash` resource on
+                // `session.events`; only the Stashed Tabs page's relay gets it here.
+                MuxEvent::StashChanged { .. } if page_events.is_none() => continue,
+                // Only the Tasks page hears its owner's changes.
+                MuxEvent::TasksChanged(_) if page_events.is_none() => continue,
                 _ => subscribed_event_json(&event),
             };
             if incognito.hides(&event_mux, client, &event, &mut value) {
@@ -387,9 +399,15 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::SizeStateChanged { surface, runtime, state } => {
             size_state_event_json(*surface, *runtime, state, None)
         }
-        MuxEvent::TitleChanged { surface, title } => {
-            json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
-        }
+        // `text` and `activity` are what the tab shows (D2); `title` stays raw
+        // for clients from before them, which split the glyphs themselves.
+        MuxEvent::TitleChanged { surface, title, shown } => json!({
+            "event": "title-changed",
+            "surface": surface,
+            "title": title.as_ref(),
+            "text": shown.text.as_ref(),
+            "activity": shown.activity.map(crate::TitleActivity::as_str),
+        }),
         MuxEvent::AgentChanged {
             surface,
             state,
@@ -523,10 +541,23 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "browser_profile_id": change.browser_profile_id,
             "bookmarks_revision": change.bookmarks_revision,
         }),
+        MuxEvent::StashChanged { revision } => json!({
+            "event": "stash-changed",
+            "revision": revision,
+        }),
         MuxEvent::HistoryChanged { revision, kinds } => json!({
             "event": "history-changed",
             "revision": revision,
             "kinds": kinds,
+        }),
+        MuxEvent::FeedViewChanged { revision, changed } => json!({
+            "event": "feed-view-changed",
+            "revision": revision,
+            "changed": changed.as_ref(),
+        }),
+        MuxEvent::FeedReportsChanged { revision } => json!({
+            "event": "feed-reports-changed",
+            "revision": revision,
         }),
         MuxEvent::SettingsChanged(change) => json!({
             "event": "settings-changed",
@@ -594,6 +625,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             json!({"event": "pairing-resolved", "request": request})
         }
         MuxEvent::AppsChanged(payload) => payload.as_ref().clone(),
+        MuxEvent::TasksChanged(payload) => payload.as_ref().clone(),
         MuxEvent::Empty => json!({"event": "empty"}),
     }
 }

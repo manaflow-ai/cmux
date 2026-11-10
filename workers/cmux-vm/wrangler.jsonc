@@ -48,6 +48,9 @@
     "preview": {
       "name": "cmux-vm-preview",
       "workers_dev": true,
+      // The tunnel orphan sweep runs wherever the VM API runs (src/cron-plan.ts): a revoke's 200 relies on it. In
+      // preview the cron runs only that sweep.
+      "triggers": { "crons": ["*/5 * * * *"] },
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
       "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
       "vars": {
@@ -87,9 +90,42 @@
         // checks), for development and staging: Claude Code the API accepts (cmux#34020), and the busy-daemon expiry fix (cmux#33795).
         // cloud-native-5e57723: the Cloud Native image with cmux-tui 5e577237 (bake run 41701438675, smoke 28 checks), for development
         // and staging: a rebind drops the whole remote session, so a stale lifecycle fence no longer stops the session host (cmux#34128).
-        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-standard\",\"revision\":\"ci-41026036265-1\",\"displayName\":\"Cloud development\",\"snapshotId\":\"sh-0afbb63e9a6046b4a58068dfe30a5bc7\",\"services\":[\"cloud-driver\"]},{\"id\":\"cloud-native\",\"revision\":\"ci-41315172830-1\",\"displayName\":\"Cloud Native\",\"snapshotId\":\"sh-b601e8b3084a4876911688c8b464fb5e\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-dev\",\"revision\":\"ci-41613000089-1\",\"displayName\":\"Cloud Native (development)\",\"snapshotId\":\"sh-85749fec238a4dbd8d6a3216752c1625\",\"services\":[\"cloud-platform-dev\"]},{\"id\":\"cloud-native-dev-772323f\",\"revision\":\"ci-41616651292-1\",\"displayName\":\"Cloud Native (development, cmux-tui 772323f0)\",\"snapshotId\":\"sh-c0c282178a034ad582f1e3d7d739d37f\",\"services\":[\"cloud-platform-dev\"]},{\"id\":\"cloud-native-4a7a845\",\"revision\":\"ci-41632518116-1\",\"displayName\":\"Cloud Native (cmux-tui 4a7a8450)\",\"snapshotId\":\"sh-f59d8b35136f4f7fa8c9563cc79eb14f\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-af078d6\",\"revision\":\"ci-41671798764-1\",\"displayName\":\"Cloud Native (cmux-tui af078d6c, Claude Code 2.1.299)\",\"snapshotId\":\"sh-ece2345a2e8242eb8da8b26203109c79\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-5e57723\",\"revision\":\"ci-41701438675-1\",\"displayName\":\"Cloud Native (cmux-tui 5e577237)\",\"snapshotId\":\"sh-cfe10f461d074570b4ab4d781597e0a8\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]}]",
-        // The Cloud guest's coderouter.cmux.internal proxy targets this exact origin.
-        "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux-staging.vercel.app\"]",
+        // cloud-native-b1f8fc4: the Cloud Native image with cmux-tui b1f8fc4d (bake run 41857345925, smoke 31 checks), for development
+        // and staging: the receiver renews its policy before the lease ends, so the Mac link no longer drops every ~27 s (cmux#35467).
+        // cloud-native-f7b9c57: the Cloud Native image with cmux-tui f7b9c571 (bake run 41815796727, smoke 31 checks), for development
+        // and staging: a provider clock sync is no longer a resume, so the Native receiver stays up through execs (cmux#35193).
+        // cloud-native-91d3ea0: the Cloud Native image with cmux-tui 91d3ea01 (bake run 41961401076, smoke 31 checks), for development
+        // and staging: the daemon has the features the current app requires, and the receiver journals why each stream ended (cmux#35996).
+        // cloud-native-a6d444a: the Cloud Native image with cmux-tui a6d444aa (bake run 41966716765, smoke 30 checks), for development
+        // and staging: the owner's Native link carries a Cloud chat's folder copy, so a new machine no longer reads outdated (cmux#36044),
+        // and local receiver admission keeps streams up when the control plane is slow (cmux#36014).
+        // cloud-native-4171772: the Cloud Native image with cmux-tui 4171772a (bake run 42002335565, smoke 30 checks), for development
+        // and staging: the owner's link takes terminal commands, so `cmux cloud ssh` no longer meets remote_denied, and the daemon
+        // makes /home/cmux/work at start (cmux#36271).
+        // cloud-native-0cda689: the Cloud Native image with cmux-tui 0cda6896 (bake run 42034389148, smoke 31 checks), for development
+        // and staging: the Cloud receiver listens before its first policy read and waits 20 s for the hello (cmux#36176).
+        // cloud-native-cbbeec1: the Cloud Native image with cmux-tui cbbeec18 (bake run 42072549493, smoke 31 checks), for development
+        // and staging: the daemon enrolls itself with `acpmux daemon enroll` (cmux#36564) and logs its receiver policy read (cmux#36551).
+        // cloud-native-cbbeec1-rd021: the same Cloud Native image with cmux-tui cbbeec18 plus the agent desktop host cmux-rd 0.2.1
+        // (role desktop: cmux-agent-rd.socket, cmux#36416, #36615, #36748; bake run 42097744382, smoke 32 checks), for development and staging.
+        // cloud-native-8c00572: the Cloud Native image with cmux-tui 8c00572a (bake run 42120053634, smoke 29 checks): cmux-tui
+        // cbbeec18 of cloud-native-cbbeec1 plus only the relay thread panic fix (cmux#36739; hq#7086). Appended, so nothing
+        // boots it before CLOUD_VM_API_IMAGE names it.
+        // cloud-native-0e017c6-rd022: cmux-tui 0e017c60 (8c00572a of cloud-native-8c00572 plus only #36519's cmux-tui part: the host
+        // reports link-desktop-v1) and cmux-rd 0.2.2 (bake run 42135775035, smoke 34 checks, agent tools probe passed), for development and staging.
+        // cloud-native-0bf7c32-rd022: cmux-tui 0bf7c32c (feat-cmux-next with #36519 and the updater holds #36854 and #36972: a fresh machine never
+        // restarts inside a running chat) and cmux-rd 0.2.2 (bake run 42156400556, smoke 34 checks, agent tools probe passed), for development and staging.
+        // cloud-native-f1c3afd-rd022: cmux-tui f1c3afd0 (0bf7c32c of cloud-native-0bf7c32-rd022 plus #37047, agent-session-start-no-cwd-v1, and
+        // #37059, the relay only observes a turn) and cmux-rd 0.2.2 (bake run 42207671618, smoke 29 checks), for development and staging.
+        // cloud-native-bd31f93-rd022: cmux-tui bd31f93e (with the updater's connect hold, #37256 and #37280: no profile flip or restart within
+        // 5 min of a boot, bind or resume) and cmux-rd 0.2.2 (bake run 42343087798, smoke 29 checks, agent tools probe passed), for development and staging.
+        // Trimmed under Cloudflare's 5.1 kB text binding limit (MAX_BYTES in images/cmux-vm/auto-roll.ts): cloud-native-dev,
+        // -dev-772323f, -4a7a845, -af078d6, -5e57723, -f7b9c57, -b1f8fc4, -4171772 and -0cda689 left; no config or code names them,
+        // and cmux-vm checks the list only when a VM is created with that image.
+        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-standard\",\"revision\":\"ci-41026036265-1\",\"displayName\":\"Cloud development\",\"snapshotId\":\"sh-0afbb63e9a6046b4a58068dfe30a5bc7\",\"services\":[\"cloud-driver\"]},{\"id\":\"cloud-native\",\"revision\":\"ci-41315172830-1\",\"displayName\":\"Cloud Native\",\"snapshotId\":\"sh-b601e8b3084a4876911688c8b464fb5e\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-91d3ea0\",\"revision\":\"ci-41961401076-1\",\"displayName\":\"Cloud Native (cmux-tui 91d3ea01)\",\"snapshotId\":\"sh-ea70074ae3de445d83bdf6474bb5f836\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-a6d444a\",\"revision\":\"ci-41966716765-2\",\"displayName\":\"Cloud Native (cmux-tui a6d444aa)\",\"snapshotId\":\"sh-580bb95a3a874b22a472f0761983ba30\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-cbbeec1\",\"revision\":\"ci-42072549493-1\",\"displayName\":\"Cloud Native (cmux-tui cbbeec18)\",\"snapshotId\":\"sh-49e831e5fb5142199c64c1ff184a4ed7\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-cbbeec1-rd021\",\"revision\":\"ci-42097744382-1\",\"displayName\":\"Cloud Native (cmux-tui cbbeec18, cmux-rd 0.2.1 desktop)\",\"snapshotId\":\"sh-519e258e915444c0acd7141f9ddf2745\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-8c00572\",\"revision\":\"ci-42120053634-1\",\"displayName\":\"Cloud Native (cmux-tui 8c00572a)\",\"snapshotId\":\"sh-9d5702e010b04824aa9c29e794b07db9\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-0e017c6-rd022\",\"revision\":\"ci-42135775035-1\",\"displayName\":\"Cloud Native (cmux-tui 0e017c60, cmux-rd 0.2.2 desktop)\",\"snapshotId\":\"sh-d65842ff27d54ed99b3273ffb8e984e0\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-0bf7c32-rd022\",\"revision\":\"ci-42156400556-1\",\"displayName\":\"Cloud Native (cmux-tui 0bf7c32c, cmux-rd 0.2.2 desktop)\",\"snapshotId\":\"sh-cc1edf7cc003439a8e3d76ac6e3e51f2\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-f1c3afd-rd022\",\"revision\":\"ci-42207671618-1\",\"displayName\":\"Cloud Native (cmux-tui f1c3afd0, cmux-rd 0.2.2 desktop)\",\"snapshotId\":\"sh-daaf9859b42a47c7b3d6f3215050f29a\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-bd31f93-rd022\",\"revision\":\"ci-42343087798-1\",\"displayName\":\"Cloud Native (cmux-tui bd31f93e, cmux-rd 0.2.2 desktop)\",\"snapshotId\":\"sh-79cc22cf8c7f4fe1a030a882423ad1c9\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-auto-e0d9836e-42821974755-1\",\"revision\":\"ci-42821974755-1\",\"displayName\":\"Cloud Native (cmux-tui e0d9836e, image roll 42821974755.1)\",\"snapshotId\":\"sh-c127f785fa1446e487e0f855c2730163\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-auto-35d6a202-42887451593-1\",\"revision\":\"ci-42887451593-1\",\"displayName\":\"Cloud Native (cmux-tui 35d6a202, image roll 42887451593.1)\",\"snapshotId\":\"sh-b7b5c00ff97441cc858aa2ad3a4229d9\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-auto-180fbb50-42891085109-1\",\"revision\":\"ci-42891085109-1\",\"displayName\":\"Cloud Native (cmux-tui 180fbb50, image roll 42891085109.1)\",\"snapshotId\":\"sh-2ec73197d92747f583007545a87dd15c\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-auto-1cef6e2a-42894654693-1\",\"revision\":\"ci-42894654693-1\",\"displayName\":\"Cloud Native (cmux-tui 1cef6e2a, image roll 42894654693.1)\",\"snapshotId\":\"sh-a690fcf1af2c48d58de2ac705949a42c\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-auto-1ae781e8-42895546195-1\",\"revision\":\"ci-42895546195-1\",\"displayName\":\"Cloud Native (cmux-tui 1ae781e8, image roll 42895546195.1)\",\"snapshotId\":\"sh-bb44e88ff5444d13b3b0e1ddd5554d2e\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-auto-a7a376e7-42897604623-1\",\"revision\":\"ci-42897604623-1\",\"displayName\":\"Cloud Native (cmux-tui a7a376e7, image roll 42897604623.1)\",\"snapshotId\":\"sh-3b2bca84e9934fd9b31f5ec56f80cc41\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]}]",
+        // The Cloud guest's coderouter.cmux.internal proxy targets one of these exact origins: the shared coderouter, or
+        // cmux-platform-development or -staging itself for a team in inference gateway mode (cmux-platform InferenceGateway.ts).
+        "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux-staging.vercel.app\",\"https://cmux-platform-development.debussy.workers.dev\",\"https://cmux-platform-staging.debussy.workers.dev\"]",
         // Mesh experiment (cx-0op): on for internal manaflow dogfood teams only (coordinator, 2026-10-07),
         // ids checked against the staging Stack project: "cmux-agent-dev@manaflow.ai's Team" and
         // "Lawrence Chen's Team". No customer team. Production stays off.
@@ -103,7 +139,10 @@
         // Mesh ACL scopes added to those service keys (their entries are write-only secrets minted with mesh read/write
         // only): cmux-platform writes each team Cloud mesh's first ACL, devices to VMs on ssh and the daemon. Only
         // acl:read and acl:write may be granted here (src/auth/service-keys.ts).
-        "CMUX_VM_SERVICE_KEY_SCOPE_GRANTS": "{\"cloud-platform-dev\":[\"acl:read\",\"acl:write\"],\"cloud-platform-staging\":[\"acl:read\",\"acl:write\"]}"
+        "CMUX_VM_SERVICE_KEY_SCOPE_GRANTS": "{\"cloud-platform-dev\":[\"acl:read\",\"acl:write\"],\"cloud-platform-staging\":[\"acl:read\",\"acl:write\"]}",
+        // A 120 s receiving-policy lease (default 30 s): every image in VM_BOOT_IMAGES above that dev and staging boot runs a
+        // receiver that renews ahead and accepts it (cmux#35467). Production keeps 30 s until its image has that receiver.
+        "CMUX_VM_RECEIVER_POLICY_LEASE_MS": "120000"
       }
     },
     // Workers custom domain in the cmux.dev zone; attached by the first
@@ -126,19 +165,42 @@
         // production Stack project: "cmux" (austin, aziz, lawrence) and those three people's personal teams
         // (Lawrence Chen's workspace, AUSTIN, Aziz Albahar's Team). Add a team id here in a reviewed change.
         "MANAFLOW_TEAM_TENANT_IDS": "d13acd51-c77d-438a-9610-5369455e2a2f,eff137f0-2e49-409e-bd6e-6e2d46cf3f1d,8e288bf9-264c-44a3-9d85-f22cbff2a6ad,50c7631c-c546-45d8-9b98-2a5744b4cdad",
-        // JSON object of Stack team id to live VM limit; the default is 20.
-        "TENANT_VM_QUOTAS": "{}",
+        // JSON object of Stack team id to live VM limit; product tenants have no default cap, dev/test tenants 20.
+        "TENANT_VM_QUOTAS": "{\"cmux-vm-product-smoke\":2}",
         "STACK_API_URL": "https://api.stack-auth.com",
         "UPSTREAM_API_URL": "https://api.freestyle.sh",
-        // NEXT Cloud in production: the same Cloud Native image staging runs (cloud-native-5e57723, bake run 41701438675,
-        // smoke 28 checks), approved only for cmux-platform production's service key.
-        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-native-5e57723\",\"revision\":\"ci-41701438675-1\",\"displayName\":\"Cloud Native (cmux-tui 5e577237)\",\"snapshotId\":\"sh-cfe10f461d074570b4ab4d781597e0a8\",\"services\":[\"cloud-platform-production\"]}]",
-        // The production counterpart of staging's guest coderouter.cmux.internal proxy origin.
-        "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux.com\"]",
+        // NEXT Cloud in production: the same Cloud Native image staging runs (cloud-native-cbbeec1-rd021, bake run 42097744382,
+        // smoke 32 checks; cmux-tui cbbeec18 as cloud-native-cbbeec1, plus the agent desktop host cmux-rd 0.2.1, role desktop,
+        // #36416, #36615, #36748), approved for cmux-platform production's service key and for the CI product smoke
+        // (CMUX_VM_CI_TRUST), which boots exactly what the product boots (the first entry). cloud-native-cbbeec1 (bake run
+        // 42072549493, #36564) and cloud-native-0cda689 (bake run 42034389148, #36176) stay listed for rollback.
+        // cloud-native-8c00572: the Cloud Native image with cmux-tui 8c00572a (bake run 42120053634, smoke 29 checks): cmux-tui
+        // cbbeec18 of cloud-native-cbbeec1 plus only the relay thread panic fix (cmux#36739; hq#7086). Appended, so nothing
+        // boots it before CLOUD_VM_API_IMAGE names it.
+        // cloud-native-0e017c6-rd022 (bake run 42135775035, smoke 34 checks): cmux-tui 0e017c60, 8c00572a plus only #36519's cmux-tui part, so
+        // the host reports link-desktop-v1 and Open Desktop's rd viewer works; first, so the CI product smoke boots it. The others stay for rollback.
+        // cloud-native-0bf7c32-rd022 (bake run 42156400556, smoke 34 checks, agent tools probe passed): cmux-tui 0bf7c32c, feat-cmux-next with
+        // #36519 (link-desktop-v1) and the updater holds (#36854, #36972), cmux-rd 0.2.2; first, so the CI product smoke boots it. The others stay for rollback.
+        // cloud-native-f1c3afd-rd022 (bake run 42207671618, smoke 29 checks): cmux-tui f1c3afd0, 0bf7c32c plus #37047 (agent-session-start-no-cwd-v1)
+        // and #37059 (a relay socket loss or host restart no longer cancels a turn), cmux-rd 0.2.2; first, so the CI product smoke boots it. The others stay for rollback.
+        // cloud-native-bd31f93-rd022 (bake run 42343087798, smoke 29 checks, agent tools probe passed): cmux-tui bd31f93e, with the updater's
+        // connect hold (#37256, #37280), cmux-rd 0.2.2; first, so the CI product smoke boots it. The others stay for rollback.
+        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-native-auto-a7a376e7-42897604623-1\",\"revision\":\"ci-42897604623-1\",\"displayName\":\"Cloud Native (cmux-tui a7a376e7, image roll 42897604623.1)\",\"snapshotId\":\"sh-3b2bca84e9934fd9b31f5ec56f80cc41\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-auto-1ae781e8-42895546195-1\",\"revision\":\"ci-42895546195-1\",\"displayName\":\"Cloud Native (cmux-tui 1ae781e8, image roll 42895546195.1)\",\"snapshotId\":\"sh-bb44e88ff5444d13b3b0e1ddd5554d2e\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-auto-1cef6e2a-42894654693-1\",\"revision\":\"ci-42894654693-1\",\"displayName\":\"Cloud Native (cmux-tui 1cef6e2a, image roll 42894654693.1)\",\"snapshotId\":\"sh-a690fcf1af2c48d58de2ac705949a42c\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-auto-180fbb50-42891085109-1\",\"revision\":\"ci-42891085109-1\",\"displayName\":\"Cloud Native (cmux-tui 180fbb50, image roll 42891085109.1)\",\"snapshotId\":\"sh-2ec73197d92747f583007545a87dd15c\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-auto-35d6a202-42887451593-1\",\"revision\":\"ci-42887451593-1\",\"displayName\":\"Cloud Native (cmux-tui 35d6a202, image roll 42887451593.1)\",\"snapshotId\":\"sh-b7b5c00ff97441cc858aa2ad3a4229d9\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-auto-e0d9836e-42821974755-1\",\"revision\":\"ci-42821974755-1\",\"displayName\":\"Cloud Native (cmux-tui e0d9836e, image roll 42821974755.1)\",\"snapshotId\":\"sh-c127f785fa1446e487e0f855c2730163\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-bd31f93-rd022\",\"revision\":\"ci-42343087798-1\",\"displayName\":\"Cloud Native (cmux-tui bd31f93e, cmux-rd 0.2.2 desktop)\",\"snapshotId\":\"sh-79cc22cf8c7f4fe1a030a882423ad1c9\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-f1c3afd-rd022\",\"revision\":\"ci-42207671618-1\",\"displayName\":\"Cloud Native (cmux-tui f1c3afd0, cmux-rd 0.2.2 desktop)\",\"snapshotId\":\"sh-daaf9859b42a47c7b3d6f3215050f29a\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-0bf7c32-rd022\",\"revision\":\"ci-42156400556-1\",\"displayName\":\"Cloud Native (cmux-tui 0bf7c32c, cmux-rd 0.2.2 desktop)\",\"snapshotId\":\"sh-cc1edf7cc003439a8e3d76ac6e3e51f2\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-0e017c6-rd022\",\"revision\":\"ci-42135775035-1\",\"displayName\":\"Cloud Native (cmux-tui 0e017c60, cmux-rd 0.2.2 desktop)\",\"snapshotId\":\"sh-d65842ff27d54ed99b3273ffb8e984e0\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-cbbeec1-rd021\",\"revision\":\"ci-42097744382-1\",\"displayName\":\"Cloud Native (cmux-tui cbbeec18, cmux-rd 0.2.1 desktop)\",\"snapshotId\":\"sh-519e258e915444c0acd7141f9ddf2745\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-cbbeec1\",\"revision\":\"ci-42072549493-1\",\"displayName\":\"Cloud Native (cmux-tui cbbeec18)\",\"snapshotId\":\"sh-49e831e5fb5142199c64c1ff184a4ed7\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-0cda689\",\"revision\":\"ci-42034389148-1\",\"displayName\":\"Cloud Native (cmux-tui 0cda6896)\",\"snapshotId\":\"sh-bfa754a4920142cda9e36684767b77b0\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]},{\"id\":\"cloud-native-8c00572\",\"revision\":\"ci-42120053634-1\",\"displayName\":\"Cloud Native (cmux-tui 8c00572a)\",\"snapshotId\":\"sh-9d5702e010b04824aa9c29e794b07db9\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]}]",
+        // The production counterpart of staging's guest coderouter.cmux.internal proxy origin, and cmux-platform-production
+        // itself for a team in inference gateway mode (cmux-platform InferenceGateway.ts; its gateway token is that Worker's
+        // own, CLOUD_MACHINE_TOKEN_JWK). Without it, a gateway-mode team's create is refused by the network check.
+        "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux.com\",\"https://cmux-platform-production.debussy.workers.dev\"]",
         // A request made with these service keys (CMUX_VM_SERVICE_KEYS ids, never key material) is entitled for the team it
         // acts for: cmux-platform has already decided that team's plan (the company grant for @cmux.com members), so a
         // member's personal team needs no entry in MANAFLOW_TEAM_TENANT_IDS. The key's teams, scopes and labels still apply.
-        "CMUX_VM_ENTITLED_SERVICE_IDS": "cloud-platform-production",
+        // ci-product-smoke is the CI trust row below, entitled for its own team only (its row names one team).
+        "CMUX_VM_ENTITLED_SERVICE_IDS": "cloud-platform-production,ci-product-smoke",
+        // GitHub Actions jobs trusted by their OIDC token (src/auth/ci-trust.ts); no key exists to leak or rotate, and
+        // removing a row revokes it. ci-product-smoke: cmux-vm.yml's smoke-production job on feat-cmux-next in the
+        // cmux-vm-production environment. It acts only for cmux-vm-product-smoke (no Stack team, not dev/test, so its
+        // VMs take the product's never-pause idle default), only on VMs labelled cmux.ci=product-smoke, at most 2 live
+        // (and TENANT_VM_QUOTAS above), each paused after 15 minutes and deleted once stopped.
+        "CMUX_VM_CI_TRUST": "[{\"id\":\"ci-product-smoke\",\"audience\":\"https://vm.cmux.dev\",\"repository\":\"manaflow-ai/cmux\",\"environment\":\"cmux-vm-production\",\"workflowRef\":\"manaflow-ai/cmux/.github/workflows/cmux-vm.yml@refs/heads/feat-cmux-next\",\"team\":\"cmux-vm-product-smoke\",\"scopes\":[\"vm:read\",\"vm:write\",\"vm:exec\"],\"labels\":{\"cmux.ci\":\"product-smoke\"},\"maxVms\":2,\"maxUsdPerHour\":1,\"maxRunSeconds\":900}]",
         // Mesh experiment (cx-0op): on for cmux-platform production's own requests only, as staging has it for its
         // platforms: each team's Cloud mesh is made in that team's personal tenant, which no hand-kept list knows in
         // advance. No tenant is listed, so every other caller still gets 404.

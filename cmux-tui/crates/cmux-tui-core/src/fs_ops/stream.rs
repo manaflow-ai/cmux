@@ -1,7 +1,9 @@
 //! The `fs.read` and `fs.write` byte streams: one dialed link stream per
 //! transfer (the link's bulk class, transport.md 1), framed as
 //!
-//! read:  `{"id","cmd":"fs.read","path","offset"?,"stream":true}`
+//! read:  `{"id","cmd":"fs.read","path","offset"?,"no_follow"?,"stream":true}`
+//!        (`"no_follow":true` with `fs-read-nofollow-v1`: a symlink as any
+//!        component of `path` is `fs.symlink_in_path`)
 //!        -> header `{"id","ok":true,"data":{"size","length","revision"}}`
 //!        -> exactly `length` raw bytes
 //!        -> end `{"id","ok":true,"data":{"size","revision"}}`, or
@@ -15,12 +17,17 @@
 //!        With `fs-write-deflate-v1` the request may also carry
 //!        `"permissions"`, and `"encoding":"deflate"` with `"decoded_size"`:
 //!        the `size` wire bytes are raw deflate, decoded as they come, never
-//!        past `decoded_size` ([`super::encoding`]).
+//!        past `decoded_size` ([`super::encoding`]). With
+//!        `fs-write-nofollow-v1`, `"no_follow":true` refuses a symlink as any
+//!        component of `path` (`fs.symlink_in_path`).
 //!
 //! Backpressure is the socket itself: the daemon reads and writes through
 //! one 256 KiB buffer and blocks on a full window. A write stream that ends
 //! (or times out) before `size` bytes drops its [`PendingWrite`], which
-//! unlinks the temporary file: nothing appears at `path`.
+//! unlinks the temporary file: nothing appears at `path`. A write the daemon
+//! refuses after `ready` (bytes past `decoded_size`, a failed disk write) is
+//! answered at once and the stream closes without reading the rest of the
+//! `size` bytes: a client whose send then fails reads that answer.
 
 use std::io::{self, Read, Write};
 use std::os::fd::AsFd;
@@ -47,6 +54,8 @@ pub enum StreamRequest {
         id: Value,
         path: String,
         offset: u64,
+        /// `fs-read-nofollow-v1`: no symlink on the path is followed.
+        no_follow: bool,
     },
     Write {
         id: Value,
@@ -58,13 +67,14 @@ pub enum StreamRequest {
     },
 }
 
-/// The optional fields of a write stream (`fs-write-deflate-v1`); every
-/// one absent is the stream as before.
+/// The optional fields of a write stream (`fs-write-deflate-v1`,
+/// `fs-write-nofollow-v1`); every one absent is the stream as before.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WriteOptions {
     pub permissions: Option<u32>,
     pub encoding: Option<String>,
     pub decoded_size: Option<u64>,
+    pub no_follow: bool,
 }
 
 #[derive(Deserialize)]
@@ -90,6 +100,8 @@ struct Line {
     encoding: Option<String>,
     #[serde(default)]
     decoded_size: Option<u64>,
+    #[serde(default)]
+    no_follow: bool,
 }
 
 impl StreamRequest {
@@ -106,7 +118,12 @@ impl StreamRequest {
             |message: &str| Some(Err((id.clone(), FsError::ParamsInvalid(message.into()))));
         let Some(path) = line.path else { return invalid("path is required") };
         if line.cmd == "fs.read" {
-            return Some(Ok(Self::Read { id: line.id, path, offset: line.offset.unwrap_or(0) }));
+            return Some(Ok(Self::Read {
+                id: line.id,
+                path,
+                offset: line.offset.unwrap_or(0),
+                no_follow: line.no_follow,
+            }));
         }
         let Some(mode) = line.mode else { return invalid("mode is required") };
         let Some(size) = line.size else { return invalid("size is required for a write stream") };
@@ -114,6 +131,7 @@ impl StreamRequest {
             permissions: line.permissions,
             encoding: line.encoding,
             decoded_size: line.decoded_size,
+            no_follow: line.no_follow,
         };
         Some(Ok(Self::Write { id: line.id, path, mode, expected: line.expected, size, options }))
     }
@@ -163,7 +181,9 @@ pub fn serve(
         return send(writer, &answer(&id, Err(FsError::Unavailable)));
     };
     match request {
-        StreamRequest::Read { path, offset, .. } => serve_read(service, &id, &path, offset, writer),
+        StreamRequest::Read { path, offset, no_follow, .. } => {
+            serve_read(service, &id, (&path, no_follow), offset, writer)
+        }
         StreamRequest::Write { path, mode, expected, size, options, .. } => {
             serve_write(service, &id, &path, (&mode, expected, &options), size, reader, writer)
         }
@@ -173,11 +193,11 @@ pub fn serve(
 fn serve_read(
     service: &FsService,
     id: &Value,
-    path: &str,
+    (path, no_follow): (&str, bool),
     offset: u64,
     writer: &mut impl Write,
 ) -> io::Result<()> {
-    let (file, meta) = match service.open_file(path) {
+    let (file, meta) = match service.open_file_with(path, no_follow) {
         Ok(opened) => opened,
         Err(error) => return send(writer, &answer(id, Err(error))),
     };
@@ -227,7 +247,11 @@ fn serve_write(
                 Encoding::Deflate { decoded_size } => decoded_size,
             };
             let mode = WriteMode::parse(mode, expected)?;
-            let mut pending = PendingWrite::begin(service.roots(), path, mode, Some(decoded))?;
+            let mut pending = if options.no_follow {
+                PendingWrite::begin_no_follow(service.roots(), path, mode, Some(decoded))?
+            } else {
+                PendingWrite::begin(service.roots(), path, mode, Some(decoded))?
+            };
             if let Some(permissions) = options.permissions {
                 pending.set_permissions(permissions)?;
             }

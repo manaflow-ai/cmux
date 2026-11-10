@@ -57,7 +57,7 @@ public final class SignInButton: ClickableButton {
 
     /// The sizes the button draws at now.
     public var metrics: SignInButtonMetrics {
-        SignInButtonMetrics(density: density ?? DensityTokens.active, scale: Metrics.scale(1))
+        SignInButtonMetrics(density: density ?? DensityTokens.active, cornerRadius: Metrics.controlCornerRadius, scale: Metrics.scale(1))
     }
 
     /// Shows a new title in place.

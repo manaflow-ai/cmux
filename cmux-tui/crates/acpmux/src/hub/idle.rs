@@ -175,9 +175,12 @@ impl Hub {
     }
 
     /// When the first live child's idle period ends, on the hub clock.
-    fn next_idle_deadline(&self) -> Option<std::time::Duration> {
+    pub(super) fn next_idle_deadline(&self) -> Option<std::time::Duration> {
         let idle = (*self.idle_child.lock().unwrap())?;
-        self.sessions()
+        // The live sessions, unsorted: this runs on every wake of the reaper (each turn's start
+        // and end, each sign of a model), and sorting every session's record, closed ones
+        // included, to take a minimum cost O(N log N) with ~3,000 chats.
+        self.live_session_handles()
             .iter()
             .filter(|s| s.child.try_lock().map(|c| c.is_some()).unwrap_or(true))
             .map(|s| std::time::Duration::from_nanos(s.last_active.load(Ordering::Relaxed)) + idle)
@@ -194,7 +197,14 @@ impl Hub {
         let Some(idle) = *self.idle_child.lock().unwrap() else { return };
         let now = self.clock_now();
         let idle = idle.as_nanos() as u64;
-        for session in self.sessions() {
+        // The live sessions past their deadline, newest first as before: only those are sorted.
+        let due = newest_first(
+            self.live_session_handles()
+                .into_iter()
+                .filter(|s| s.last_active.load(Ordering::Relaxed).saturating_add(idle) <= now)
+                .collect(),
+        );
+        for session in due {
             if session.last_active.load(Ordering::Relaxed).saturating_add(idle) > now {
                 continue;
             }
@@ -493,23 +503,63 @@ impl Hub {
 
     /// This daemon's own sessions at work: a turn or anything one waits on, a background task
     /// running, a background process the harness started (a Claude background shell) still
-    /// running, or a background subagent or sub-session at work. A Cloud machine counts them as
-    /// open sessions in its activity report (`daemon/cloud_activity.rs`), so it is never paused
-    /// for idleness mid-turn or under a command a turn left running. Reads each chat's
-    /// background-task and process records, so call it off the async workers.
+    /// running, a background subagent or sub-session at work, or a move off this machine under
+    /// way. A Cloud machine counts them as open sessions in its activity report
+    /// (`daemon/cloud_activity.rs`), so it is never paused for idleness mid-turn, mid-move or
+    /// under a command a turn left running. Reads each chat's background-task and process
+    /// records, so call it off the async workers.
+    #[cfg(test)]
     pub(crate) fn sessions_at_work(&self) -> usize {
-        self.sessions()
-            .iter()
-            .filter(|s| {
-                self.turn_at_work(s)
-                    || s.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running()
-                        > 0
-                    || s.work_below_since.lock().map_or(true, |v| *v != 0)
-                    || self.bg_running(s)
-                    || self.any_process_running(s)
-            })
-            .count()
+        self.sessions().iter().filter(|s| self.at_work(s).is_some()).count()
     }
+
+    /// Each of this daemon's own sessions at work ([`Self::sessions_at_work`]) with what holds
+    /// it, for the Cloud activity report's phases (`daemon/cloud_activity.rs`). Reads the same
+    /// records, so call it off the async workers as well.
+    pub(crate) fn sessions_at_work_detail(&self) -> Vec<SessionAtWork> {
+        self.sessions().iter().filter_map(|s| self.at_work(s)).collect()
+    }
+
+    /// What holds `session` at work, or None when nothing does.
+    fn at_work(&self, session: &Session) -> Option<SessionAtWork> {
+        let turn = self.turn_at_work(session);
+        let subagents =
+            session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running();
+        let below = session.work_below_since.lock().map_or(true, |v| *v != 0);
+        let processes = self.running_processes(session) + self.bg_running_count(session);
+        // A move off this machine not yet committed or aborted: the chat stays frozen here until
+        // its watch settles it, so a pause now would strand it mid-move.
+        let moving = session.moving().is_some() && session.meta().moved_to.is_none();
+        if !(turn || subagents > 0 || below || processes > 0 || moving) {
+            return None;
+        }
+        Some(SessionAtWork {
+            id: session.id.clone(),
+            turn,
+            person: !session.pending_permissions().is_empty()
+                || session.asks_in_flight.load(Ordering::SeqCst) > 0,
+            processes,
+            below: subagents > 0 || below,
+            shown: self.shown(session),
+        })
+    }
+}
+
+/// One session at work and what holds it ([`Hub::sessions_at_work_detail`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SessionAtWork {
+    pub id: String,
+    /// A turn runs or waits ([`Hub::turn_at_work`]).
+    pub turn: bool,
+    /// The turn waits on the person: a permission or a question is pending.
+    pub person: bool,
+    /// Processes the agent left running outside its turn's own tool calls: the harness's
+    /// background shells and this chat's background tasks.
+    pub processes: usize,
+    /// A background subagent or sub-session is at work.
+    pub below: bool,
+    /// An attached client shows the chat.
+    pub shown: bool,
 }
 
 /// Whether a listen address (`127.0.0.1:47811`, `[::1]:0`, `localhost:8080`) is loopback only;
@@ -522,3 +572,6 @@ fn on_loopback(listen: &str) -> bool {
 #[cfg(test)]
 #[path = "idle_tests.rs"]
 mod idle_tests;
+// Compact an idle Claude chat before its prompt cache expires.
+#[path = "cache_compact.rs"]
+pub(super) mod cache_compact;

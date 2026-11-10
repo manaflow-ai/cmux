@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::full_access_bound::FullAccessEnd;
+use super::policy_mode::refusal_record;
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
@@ -8,6 +9,7 @@ use super::new_request::{claude_resume_refusal, unique_name_among};
 // `turns.rs` names it here.
 pub(super) use super::new_request::profile_takes_model_at_spawn;
 use super::resolve::{Draft, Resolved, draft_meta};
+use super::start_watch::{StartWatch, start_deadline_exceeded, start_hung};
 
 /// How often the person's agent start that is still under way says so (`person_start`).
 const START_PROGRESS: std::time::Duration = std::time::Duration::from_secs(10);
@@ -78,8 +80,9 @@ impl Hub {
             return Err(RpcError::invalid_params("fixed session ids cannot adopt another chat"));
         }
         let caller_selected_id = fixed_id.is_some();
-        // Harness discovery and launcher checks finish in the background.
-        self.wait_startup().await;
+        // Harness discovery and launcher checks finish in the background. Bounded: a startup that
+        // never ends (a wedged agent host's adoption) answers with its phase, not silence.
+        self.wait_startup_within(super::startup::NEW_SESSION_STARTUP_WAIT).await?;
         // Mutations wait for the complete index. A later durable check also refuses
         // malformed or partially written chats that the startup loader could not install.
         if caller_selected_id {
@@ -103,10 +106,13 @@ impl Hub {
             route,
             subsession,
             lineage,
+            created_by,
             disallowed_tools,
             checked_cwd,
             additional_directories,
             person,
+            wait_start,
+            require_asking,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
@@ -120,12 +126,28 @@ impl Hub {
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
         let (
-            Resolved { agent, profile, defaults, head, preset_name, folder_root, preset_digest },
+            Resolved {
+                agent,
+                profile,
+                launch_digest,
+                defaults,
+                head,
+                preset_name,
+                folder_root,
+                preset_digest,
+            },
             preset_plain,
         ) = {
             let cfg = self.config.read().await;
             let r =
                 self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?;
+            // Held to asking: checked on this profile, under this read (`require_asking.rs`).
+            if require_asking {
+                let adopting = adopt.is_some();
+                super::require_asking::holds_at_start(
+                    &cfg, &r.agent, &r.profile, policy, adopting,
+                )?;
+            }
             let plain = super::start_mode::plain_for_mode(r.preset_name.as_deref(), &cfg);
             (r, plain)
         };
@@ -230,6 +252,19 @@ impl Hub {
                 root.display()
             )));
         }
+        // A remote chain's Claude Code stubs empty package.json, lockfiles and .env* into its
+        // folder (scrub mode, `remote_sandbox.rs`): only a checkout or a scratch folder takes it
+        // (`remote_cwd.rs`). Creation only: an existing session's respawn is never re-checked, and
+        // the trigger bridge's fixed-id chats (`server/trigger_chat.rs`) keep their own folder rule.
+        super::remote_cwd::admit_new(
+            super::remote_cwd::NewSession {
+                remote,
+                trigger: fixed_id.is_some(),
+                kind: profile.kind,
+            },
+            &cwd,
+            &std::env::temp_dir(),
+        )?;
         let mut meta = draft_meta(Draft {
             id: String::new(),
             agent,
@@ -248,12 +283,18 @@ impl Hub {
         });
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
+        if !remote && adopt.is_none() {
+            let cfg = self.config.read().await;
+            meta.cmux_preset_prompt = crate::context_inventory::preset_override(&meta, &cfg);
+            meta.cmux_context = Some(crate::context_inventory::snapshot_session(&meta, &cfg));
+        }
         meta.workspace_id = workspace_id;
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
+        meta.created_by = created_by;
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
@@ -262,19 +303,16 @@ impl Hub {
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
         // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
         // for the person's next chat, which never waits behind a lane's start.
-        let pooled = match (&fixed_id, &adopt) {
-            (None, None)
-                if starter.is_none()
-                    && meta.session_env.is_empty()
-                    && route.is_none()
-                    && meta.tools.off.is_empty()
-                    && meta.additional_directories.is_empty()
-                    && checked_cwd.is_none() =>
-            {
-                self.pool_claim(&meta, &profile, &defaults.env).await
-            }
-            _ => None,
-        };
+        let claimable = fixed_id.is_none()
+            && adopt.is_none()
+            && starter.is_none()
+            && meta.session_env.is_empty()
+            && route.is_none()
+            && meta.tools.off.is_empty()
+            && meta.additional_directories.is_empty()
+            && checked_cwd.is_none();
+        let pooled =
+            if claimable { self.pool_claim(&meta, &profile, &defaults.env).await } else { None };
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
@@ -293,8 +331,9 @@ impl Hub {
             let mut sessions = self.sessions.lock().unwrap();
             // The shutdown reads the sessions after it starts: a session
             // inserted after that is never ended, so none is (shutdown.rs).
+            // Nothing is made yet: the CLI sends the create to the next daemon.
             if self.shutting_down() {
-                return Err(super::shutdown::shutting_down_error());
+                return Err(super::shutting_down_before_create());
             }
             if sessions.contains_key(&id) || self.importing.lock().unwrap().contains(&id) {
                 return Err(RpcError::invalid_params(format!(
@@ -333,6 +372,7 @@ impl Hub {
                     None => unique_name_among(&sessions, agent),
                 },
             };
+            meta.wait_start = wait_start;
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
@@ -340,11 +380,18 @@ impl Hub {
             // Read before the session is published: a stop from then on ends its first start.
             let stops = session.stops.load(Ordering::SeqCst);
             sessions.insert(id.clone(), session.clone());
+            // A purge this run fenced the id (a trigger's fixed id, recreated): the new chat's
+            // answers and spend are recorded again. Sent under the insert lock, so before any of
+            // its records.
+            self.audit.reopen(&id);
+            self.ledger.reopen(&id);
             super::admission::claim(&id);
             (session, stops)
         };
         let (session, created_stops) = session;
         self.update_live_session_index(&session);
+        // A session that came may be another row's parent: every closed row is built again.
+        self.events.changed();
         let creation_guard = CreationGuard::new(self.clone(), session.clone(), created_stops);
         if let Err(e) = self.write_meta(&session) {
             // Leave the instance registered until CreationGuard finishes its purge;
@@ -379,13 +426,14 @@ impl Hub {
             creation_guard.disarm();
             return Ok(self.begin_watch(&session, &store_family, file.clone()));
         }
-        let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
-            Ok(spawn) => {
-                let checked = checked_cwd.as_ref();
-                self.ensure_checked_child(&session, &spawn, checked, created_stops).await
-            }
-            Err(e) => Err(e),
-        };
+        let spawned =
+            match self.spawn_profile(&session, &profile, launch_digest, &defaults.env).await {
+                Ok(spawn) => {
+                    let checked = checked_cwd.as_ref();
+                    self.ensure_checked_child(&session, &spawn, checked, created_stops).await
+                }
+                Err(e) => Err(e),
+            };
         if let Err(e) = spawned {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.
@@ -478,8 +526,11 @@ impl Hub {
             Box::pin(self.hold_to_starter(&session, starter, inherits_policy, mode_eligible))
                 .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
-            let default = self.config.read().await.permission_policy;
-            self.note_unenforced_policy(&session, default);
+            let cfg = self.config.read().await;
+            // Any policy narrower than approve-all, however the chat got it, holds or the chat is
+            // not created (`policy_mode.rs` `require_enforced`).
+            super::policy_mode::require_enforced(&session.meta(), &cfg)?;
+            self.note_unenforced_policy(&session, &cfg);
             Ok(())
         })
         .await;
@@ -491,7 +542,7 @@ impl Hub {
         }
         // An agent's create warms nothing: the pool is the person's (`pool/`).
         if adopt.is_none() && starter.is_none() {
-            self.pool_note_used(&session);
+            self.pool_note_used(&session, claimable);
         }
         creation_guard.disarm();
         Ok(session)
@@ -535,32 +586,6 @@ impl Hub {
         ))
     }
 
-    /// Every model id a profile can run: declared in config, then reported
-    /// (Claude's static list for the stdio backend).
-    pub async fn catalog_ids(&self, profile: &str) -> Vec<String> {
-        let cfg = self.config.read().await;
-        let Some(p) = cfg.harnesses.get(profile) else { return vec![] };
-        let mut ids: Vec<String> = p.models.iter().map(|m| m.id().to_owned()).collect();
-        match p.kind {
-            crate::config::HarnessKind::ClaudeStdio => {
-                ids.extend(crate::claude_stdio::models().iter().map(|(id, _)| id.to_string()))
-            }
-            crate::config::HarnessKind::Acp => ids.extend(
-                self.known_models
-                    .lock()
-                    .unwrap()
-                    .get(profile)
-                    .into_iter()
-                    .flatten()
-                    .map(|(id, _)| id.clone()),
-            ),
-            crate::config::HarnessKind::Terminal => {}
-        }
-        ids.extend(super::models_view::curated_ids(&self.catalog, profile, p));
-        ids.dedup();
-        ids
-    }
-
     pub(super) fn unique_name(&self, agent: &str) -> String {
         unique_name_among(&self.sessions.lock().unwrap(), agent)
     }
@@ -580,8 +605,11 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
-        // Harness startup can itself run repository hooks and write files.
-        let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+        // Harness startup can itself run repository hooks and write files. A harness that gates
+        // every tool on the sync itself starts at the repository's head (repo_sync.rs).
+        let head_ok = super::repo_sync::gates_its_tools(profile.kind);
+        let cwd = session.meta().cwd;
+        let _repo_ready = super::repo_sync::wait_for_start(session, cwd, head_ok, || {
             session.stops.load(Ordering::SeqCst) != stops
         })
         .await?;
@@ -589,7 +617,7 @@ impl Hub {
         // the child the previous holder started. The idle pass never ends the harness meanwhile.
         self.touch(session);
         let _using = session.harness_use.read().await;
-        let _spawning = session.spawn_lock.lock().await;
+        let _spawning = self.spawn_lease(session).await;
         // Stopped since the request: it starts nothing and touches no agent. One a later request
         // started after the stop is that request's (it reopened the session).
         if session.stops.load(Ordering::SeqCst) != stops {
@@ -785,6 +813,12 @@ impl Hub {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let changed = m.spawn_argv.as_ref() != Some(&profile.argv)
                 || m.launch_digest.as_ref() != Some(&profile.launch_digest);
+            // What another launch's agent said at `initialize` (a fork's or a failover's copy)
+            // is not this one's: an `asksBeforeTools` claim must come from the agent this start
+            // runs (`policy_mode.rs` `claim_distrust`), which `initialize` records again.
+            if m.launch_digest.as_ref() != Some(&profile.launch_digest) {
+                m.agent_capabilities = None;
+            }
             m.spawn_argv = Some(profile.argv.clone());
             m.launch_digest = Some(profile.launch_digest.clone());
             changed
@@ -801,7 +835,10 @@ impl Hub {
         Self::starting(session, stops);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
-        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, off) {
+        // The name its Claude Code was started under (`--name`), before the claim is taken.
+        let pooled_name = self.pool_claimed_name(&session.id);
+        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, &session.meta(), off)
+        {
             #[cfg(debug_assertions)]
             self.take_off_seam();
             // Reopened before it is taken, so the pooled start's Ready lands on an open session.
@@ -828,6 +865,10 @@ impl Hub {
                 // start, under the same budget. Its `session/set_mode` would otherwise wait
                 // forever on a harness that stays alive but never answers, holding `spawn_lock`.
                 Ok((child, _)) => {
+                    // Taken under another name than it started with: its Claude Code takes it.
+                    if pooled_name.is_some_and(|n| n != session.meta().name) {
+                        self.rename_live_claude(session);
+                    }
                     let budget = self.config.read().await.agent_start_timeout();
                     return match tokio::time::timeout(
                         budget,
@@ -861,16 +902,33 @@ impl Hub {
             // Boxed: a cold start is a deep future, and this loop keeps it beside the retry's
             // state on the stack its caller polls it on.
             let started = Box::pin(self.cold_start(session, profile, stops, off));
-            // The person's start has no deadline (`person_start`); an agent's or a lane's has.
-            let started = if session.person.load(Ordering::SeqCst) {
-                Ok(self.person_start(session, budget, started).await)
-            } else {
-                tokio::time::timeout(budget, started).await
+            // The person's start has no deadline, one that asked to wait on its harness ends when
+            // the harness stops working (`waiting_start`); an agent's or a lane's has a deadline.
+            let waited = async {
+                if session.person.load(Ordering::SeqCst) {
+                    self.waiting_start(session, budget, started, None).await
+                } else if session.wait_start.load(Ordering::SeqCst) {
+                    self.waiting_start(session, budget, started, Some(StartWatch::default())).await
+                } else {
+                    tokio::time::timeout(budget, started).await.ok()
+                }
+            };
+            // A retry's start ends at its turn's Stop (`start_retry.rs`), however it waits (the
+            // person may have taken the chat since its first try), as any start ends at a stop
+            // of the chat: what it started is ended, and nothing runs after it.
+            let raced = tokio::select! {
+                started = waited => Some(started),
+                () = super::start_retry::stopped_during_retry(session) => None,
+            };
+            let Some(started) = raced else {
+                self.end_cold_start(session).await;
+                self.append(session, "mux", "agent_start_stopped", json!({}));
+                return Err(super::turns::stopped_before_prompt());
             };
             let failed = match started {
-                Ok(Ok(child)) => return Ok(self.keep_account_home(session, profile, child)),
-                Ok(Err(e)) => Some(e),
-                Err(_) => None,
+                Some(Ok(child)) => return Ok(self.keep_account_home(session, profile, child)),
+                Some(Err(e)) => Some(e),
+                None => None,
             };
             // What its harness was doing, read before it is ended (`cpu_class.rs`).
             let harness = Self::starting_harness(session).await;
@@ -878,15 +936,29 @@ impl Hub {
             // the start by another process: acpmux clears it at the spawn) runs once more
             // (`cpu_class.rs`, item 3). Each try has the whole budget: a caller waits up to twice
             // that (Chief's `SESSION_NEW_DEADLINE`).
-            if let Some(state) = harness.background().filter(|_| !retried) {
+            // A start that waits on its harness ends with None only when its harness did no work
+            // for `START_HUNG` (`StartWatch`): said apart from a missed deadline, so its caller
+            // does not wait on it again; Chief starts a fresh harness (`turn::is_hung_start`).
+            let hung =
+                !session.person.load(Ordering::SeqCst) && session.wait_start.load(Ordering::SeqCst);
+            // A policy refusal is no start failure: the same agent would be refused again.
+            let refused = failed.as_ref().is_some_and(|e| {
+                e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
+                    == Some("policy_unenforceable")
+            });
+            if let Some(state) = harness.background().filter(|_| !retried && !refused) {
                 self.end_cold_start(session).await;
-                let why = if failed.is_some() { "failed" } else { "missed its deadline" };
+                let why = match (&failed, hung) {
+                    (Some(_), _) => "failed",
+                    (None, true) => "did no work",
+                    (None, false) => "missed its deadline",
+                };
                 tracing::warn!(session = %session.id, "the agent start {why} at background CPU class ({state}); starting it once more");
                 self.append(
                     session,
                     "mux",
                     "agent_start_retried_at_normal",
-                    json!({"timedOut": failed.is_none(), "harness": state}),
+                    json!({"timedOut": failed.is_none() && !hung, "hung": failed.is_none() && hung, "harness": state}),
                 );
                 retried = true;
                 continue;
@@ -895,10 +967,24 @@ impl Hub {
                 Some(e) => e,
                 None => {
                     self.abandon_cold_start(session, budget).await;
-                    start_deadline_exceeded(budget, &harness)
+                    if hung {
+                        start_hung(&harness)
+                    } else {
+                        start_deadline_exceeded(budget, &harness)
+                    }
                 }
             });
         }
+    }
+
+    /// Its starting harness while the start itself is not being polled: the start may hold the
+    /// locks this reads, so a held one answers None (nothing known this tick) rather than waiting.
+    async fn harness_now(session: &Session) -> Option<crate::cpu_class::HarnessSeen> {
+        let child = session.child.try_lock().ok()?.clone();
+        let Some(child) = child else {
+            return Some(crate::cpu_class::HarnessSeen::NotStarted);
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(1), child.harness_seen()).await.ok()
     }
 
     /// Its starting harness, as a deadline error says it (`cpu_class::HarnessSeen`).
@@ -933,12 +1019,17 @@ impl Hub {
     /// (sooner when `agentStartTimeoutMs` is shorter) its log says it is still starting
     /// (`agent_start_waiting`, `waitedMs`), so the app can show that the host is busy. An agent's
     /// or a lane's start keeps `agentStartTimeoutMs` (cx-m5up).
-    async fn person_start<T>(
+    ///
+    /// A start that asked to wait on its harness (`Session::wait_start`) waits the same way under
+    /// `watch`, and answers None when its harness stopped working (`StartWatch`), which the caller
+    /// ends as a missed deadline.
+    async fn waiting_start<T>(
         &self,
         session: &Arc<Session>,
         budget: std::time::Duration,
         start: impl std::future::Future<Output = T>,
-    ) -> T {
+        mut watch: Option<StartWatch>,
+    ) -> Option<T> {
         let every = START_PROGRESS.min(budget).max(std::time::Duration::from_millis(100));
         let began = tokio::time::Instant::now();
         let mut tick = tokio::time::interval_at(began + every, every);
@@ -947,15 +1038,22 @@ impl Hub {
         let mut said = false;
         loop {
             tokio::select! {
-                done = &mut start => return done,
+                done = &mut start => return Some(done),
                 _ = tick.tick() => {
                     let waited = began.elapsed();
                     if !said && waited >= budget {
                         said = true;
                         tracing::warn!(
                             session = %session.id,
-                            "the person's agent start is past {budget:?}; it keeps waiting"
+                            "the agent start is past {budget:?}; it keeps waiting"
                         );
+                    }
+                    if let Some(watch) = &mut watch
+                        && let Some(seen) = Self::harness_now(session).await
+                        && watch.hung(&seen, waited)
+                    {
+                        tracing::warn!(session = %session.id, "the agent start's harness stopped working ({seen:?})");
+                        return None;
                     }
                     let waited_ms = u64::try_from(waited.as_millis()).unwrap_or(u64::MAX);
                     let waiting = json!({"waitedMs": waited_ms});
@@ -1059,7 +1157,12 @@ impl Hub {
                 .as_ref()
                 .and_then(|m| m.get("currentModeId"))
                 .and_then(Value::as_str)
-                .unwrap_or("default")
+                // A Web start begins in Manual until the remote guard settles it.
+                .unwrap_or(if meta.remote_origin {
+                    "default"
+                } else {
+                    crate::claude_stdio::OWN_MODE
+                })
                 .to_owned();
             // A remote chain never runs in full access (remote_sandbox.rs),
             // even when a transfer moved a full-access chat here.
@@ -1186,6 +1289,11 @@ impl Hub {
                 })
             })?
         };
+        // An agent with no host ends with this run, so no earlier run's token is its own
+        // (`caller_registry.rs`).
+        if !self.agent_hosts_enabled() {
+            self.caller_registry.forget(&session.id);
+        }
         // A direct start records the format its command was pinned to (a host's: hosts.rs).
         if let Some(format) = child.preview_format {
             self.record_preview_format(session, format);
@@ -1207,6 +1315,8 @@ impl Hub {
         }
         // A new harness runs none of the background subagents of one it replaced.
         self.end_background_subagents(session);
+        // Nor has its sandbox refused anything yet (`harness_sandbox.rs`).
+        self.harness_sandbox_recovered(session, "respawn");
         self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.
@@ -1238,6 +1348,8 @@ impl Hub {
             m.agent_capabilities = init.get("agentCapabilities").cloned();
             m.steering = steering;
         }
+        // What it says about asking before its tools, and whether acpmux believes it.
+        self.note_asks_claim(session).await;
 
         if is_claude {
             // MDM may have forced full access off since `ensure_child` checked the profile: the
@@ -1259,7 +1371,16 @@ impl Hub {
                     return Err(RpcError::internal(format!("claude did not start: {}", e.message)));
                 }
             }
-            let state = child.claude_state().await.unwrap_or_default();
+            // A hosted agent's host that did not answer (the shutdown detached it, or it ended)
+            // told nothing of its session: the start fails, never recording no id over the one
+            // it was given and handing out an agent with none ("no agent session").
+            let Some(state) = child.claude_state().await else {
+                return Err(if self.shutting_down() {
+                    super::shutdown::shutting_down_error()
+                } else {
+                    RpcError::internal("the agent host did not answer as its agent started")
+                });
+            };
             let (sid, modes, opts) = (state.session_id, state.modes, state.config_options);
             {
                 let mut m = session.meta.lock().unwrap();
@@ -1303,8 +1424,13 @@ impl Hub {
             )
             .await?;
             // A profile that pins its mode in argv (`--permission-mode`, a skip flag) started in it.
-            self.hold_policy_mode(session, &child, super::start_mode::profile_sets_mode(profile))
-                .await;
+            // An agent that cannot keep the chat's policy is stopped and the start fails.
+            let pinned = super::start_mode::profile_sets_mode(profile);
+            if let Err(e) = self.hold_policy_mode(session, &child, pinned).await {
+                let record = refusal_record(&e);
+                self.stop_started_agent(session, false, "policy_refused", record).await;
+                return Err(e);
+            }
             self.set_status(session, SessionStatus::Ready);
             self.note_launch(session, &child);
             self.save_meta(session);
@@ -1330,6 +1456,10 @@ impl Hub {
                 match res {
                     Ok(v) => {
                         self.absorb_session_response(session, &v);
+                        self.health.record_acp_auth_success(
+                            &meta.harness,
+                            "ACP session/load authenticated the harness",
+                        );
                         self.append(
                             session,
                             "mux",
@@ -1373,6 +1503,10 @@ impl Hub {
                 m.set_agent_session_id(Some(sid), "non-claude");
             }
             self.absorb_session_response(session, &res);
+            self.health.record_acp_auth_success(
+                &meta.harness,
+                "ACP session/new authenticated the harness",
+            );
             if had_history {
                 session.rehydrate.store(true, Ordering::SeqCst);
                 self.append(
@@ -1498,223 +1632,6 @@ impl Hub {
         self.append(session, "mux", "config", json!({"replayed": true}));
     }
 
-    /// Remember the models an agent lists so the picker can show them for
-    /// harnesses without a live session.
-    pub(super) fn remember_models(&self, agent: &str, meta: &SessionMeta) {
-        self.remember_models_from(agent, meta.config_options.as_deref(), meta.models.as_ref());
-    }
-
-    fn remember_models_from(
-        &self,
-        agent: &str,
-        config_options: Option<&Value>,
-        models: Option<&Value>,
-    ) {
-        let mut list: Vec<(String, String)> = Vec::new();
-        if let Some(opts) = config_options.and_then(Value::as_array)
-            && let Some(o) =
-                opts.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model"))
-        {
-            list.extend(crate::model_catalog::choices(o));
-        }
-        if list.is_empty()
-            && let Some(models) =
-                models.and_then(|m| m.get("availableModels")).and_then(Value::as_array)
-        {
-            for m in models {
-                let v = m.get("modelId").and_then(Value::as_str).unwrap_or("").to_owned();
-                let n = m.get("name").and_then(Value::as_str).unwrap_or(&v).to_owned();
-                list.push((v, n));
-            }
-        }
-        if !list.is_empty() {
-            self.known_models.lock().unwrap().insert(agent.to_owned(), list);
-        }
-    }
-
-    /// Ask every ACP harness for its model list once, without creating an
-    /// acpmux session: spawn, `initialize`, `session/new`, read the models,
-    /// kill. Codex, OpenCode and Gemini only reveal models this way. Runs in
-    /// the background at daemon start so the picker is full before the first
-    /// session exists.
-    pub async fn probe_models(self: &Arc<Self>) {
-        self.probe_models_with(false, false, None).await;
-    }
-
-    /// `daemon models --refresh`: forget every reported catalog, probe every
-    /// ACP harness again, and wait for the answers (bounded).
-    pub async fn refresh_models(self: &Arc<Self>) {
-        self.known_models.lock().unwrap().clear();
-        self.probe_models_with(true, true, None).await;
-    }
-
-    /// `only`: probe these harnesses alone (`allow_probes`); None: every
-    /// harness the probe list allows.
-    pub(super) async fn probe_models_with(
-        self: &Arc<Self>,
-        force: bool,
-        wait: bool,
-        only: Option<std::collections::BTreeSet<String>>,
-    ) {
-        // A probe starts the agent: none while launches are off (cx-9ettq).
-        if crate::launch_policy::agent_launch_disabled() {
-            tracing::info!("agent launch is disabled; model probes skipped");
-            return;
-        }
-        let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
-        let agents: Vec<(String, HarnessProfile)> = {
-            let cfg = self.config.read().await;
-            let known = self.known_models.lock().unwrap();
-            cfg.harnesses
-                .iter()
-                .filter(|(n, p)| {
-                    p.kind == crate::config::HarnessKind::Acp
-                        && (force || !known.contains_key(*n))
-                        && self.probes(n)
-                        && picked(n)
-                })
-                .map(|(n, p)| (n.clone(), p.clone()))
-                .collect()
-        };
-        // Claude Code's and Codex's own lists, beside the ACP probes.
-        let live = {
-            let hub = self.clone();
-            let only = only.clone();
-            tokio::spawn(async move { hub.probe_live_models(wait, only).await })
-        };
-        let mut handles = vec![live];
-        for (name, profile) in agents {
-            let hub = self.clone();
-            handles.push(tokio::spawn(async move {
-                // Probes spawn agents: wait for the login environment.
-                hub.wait_startup().await;
-                // Resolved here, once, so neither this probe nor a later
-                // session spawn launches through npx.
-                hub.resolve_launcher(&profile.argv).await;
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(60),
-                    hub.probe_one(&name, &profile),
-                )
-                .await
-                {
-                    Ok(Ok(n)) => {
-                        tracing::info!(agent = %name, models = n, "model probe done");
-                        hub.probe_errors.lock().unwrap().remove(&name);
-                    }
-                    Ok(Err(e)) => {
-                        tracing::warn!(agent = %name, error = %e, "model probe failed");
-                        hub.probe_errors.lock().unwrap().insert(name, format!("{e:#}"));
-                    }
-                    Err(_) => {
-                        tracing::warn!(agent = %name, "model probe timed out");
-                        hub.probe_errors
-                            .lock()
-                            .unwrap()
-                            .insert(name, "the model probe timed out after 60 s".into());
-                    }
-                }
-            }));
-        }
-        if wait {
-            for h in handles {
-                let _ = h.await;
-            }
-        }
-    }
-
-    async fn probe_one(
-        self: &Arc<Self>,
-        name: &str,
-        profile: &HarnessProfile,
-    ) -> anyhow::Result<usize> {
-        // MDM's off as the probe starts: its one read, taken first (review 120). An off that holds
-        // or begins while it runs ends it once its harness reported full access, an unset after it
-        // too (reviews 71 and 73 of #23322).
-        let latch = self.off_latch();
-        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-        // What the harness reports while its session starts (`StartReports`, reviews 41 and 46 of
-        // #23322). The tap sees each line before its answer is handed back, so none sent before
-        // that answer is missed.
-        let reports =
-            Arc::new(std::sync::Mutex::new(super::full_access_bound::StartReports::default()));
-        // Notified on each report of full access: a probe ends on one under MDM's off (review 71).
-        let reported = Arc::new(tokio::sync::Notify::new());
-        let (seen, notify) = (reports.clone(), reported.clone());
-        let tap: crate::agent::Tap = Arc::new(move |dir, msg, _| {
-            if let (Direction::In, Message::Notification { method: m, params: Some(params) }) =
-                (dir, msg)
-                && m == method::SESSION_UPDATE
-            {
-                seen.lock().unwrap_or_else(|e| e.into_inner()).note(params);
-                if super::full_access_bound::StartReports::reports_full_access(params) {
-                    notify.notify_one();
-                }
-            }
-            true
-        });
-        // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
-        let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
-            .await
-            .unwrap_or_else(|_| std::env::temp_dir());
-        // MDM forces full access off (#23322): a profile pinning it is never started to probe,
-        // and a probe that runs when the off lands ends then (`probe_bound`).
-        let mut bound =
-            self.probe_bound(&latch, &profile.argv).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
-        let mut resolved = profile.clone();
-        resolved.argv = self.resolved_launcher_argv(resolved.argv);
-        let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
-        // Drain anything the agent sends so its writer never blocks.
-        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
-        let listed = tokio::time::timeout(std::time::Duration::from_secs(50), async {
-            child
-                .request(method::INITIALIZE, json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux", "version": env!("CARGO_PKG_VERSION")}}))
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            let res = child
-                .request(method::SESSION_NEW, json!({"cwd": cwd, "mcpServers": []}))
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            // MDM forces full access off (#23322, review 32): a session that came up in it (its
-            // mode or a config option, a profile that pins nothing included) keeps nothing. Read
-            // once it answered, so an off that landed during the handshake counts.
-            let mut view =
-                super::full_access_bound::FullAccessView::of_session_new(&profile.argv, Some(&res));
-            view.reported = reports.lock().unwrap_or_else(|e| e.into_inner()).of_answer(Some(&res));
-            if latch.off() && super::full_access_bound::runs_full_access(&view).is_some() {
-                anyhow::bail!("{name}: its session came up in full access, which MDM forces off");
-            }
-            let cfg = self.config.read().await;
-            if cfg.harnesses.get(name) == Some(profile) {
-                self.remember_models_from(
-                    name,
-                    res.get("configOptions").filter(|v| !v.is_null()),
-                    res.get("models").filter(|v| !v.is_null()),
-                );
-            }
-            Ok(self.known_models.lock().unwrap().get(name).map(|l| l.len()).unwrap_or(0))
-        });
-        let result = tokio::select! {
-            listed = listed => listed,
-            () = super::full_access_bound::full_access_forced_off(bound.as_mut()) => {
-                Ok(Err(anyhow::anyhow!("{name}: MDM forced full access off, which its profile pins")))
-            }
-            () = latch.reported_under_off(&reported, || {
-                reports.lock().unwrap_or_else(|e| e.into_inner()).of(None)
-            }) => {
-                Ok(Err(anyhow::anyhow!("{name}: its harness reported full access, which MDM forces off")))
-            }
-        };
-        child.kill().await;
-        drain.abort();
-        // The probe's session leaves no transcript behind (it listed as an empty chat).
-        let folder = cwd.clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            crate::probe_cleanup::remove_probe_transcripts(&folder)
-        })
-        .await;
-        result.map_err(|_| anyhow::anyhow!("model probe timed out"))?
-    }
-
     pub(super) fn absorb_session_response(&self, session: &Session, v: &Value) {
         let present = |k: &str| v.get(k).filter(|x| !x.is_null()).cloned();
         let mut writes = Vec::new();
@@ -1747,8 +1664,22 @@ impl Hub {
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // A live full-access harness may execute tools without permission RPCs.
-        // Wait before handing it a new prompt, including the already-live path.
-        let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+        // Wait before handing it a new prompt, including the already-live path; one that gates
+        // every tool on the sync itself gets its prompt at the repository's head (repo_sync.rs).
+        // A running agent is judged by what it speaks (a reload may change the profile's harness
+        // without replacing it); one started below waits again in `ensure_child`, by its profile.
+        let live = session.child.lock().await.clone();
+        let head_ok = match live {
+            Some(child) => super::repo_sync::child_gates_its_tools(&child),
+            None => {
+                let meta = session.meta();
+                let cfg = self.config.read().await;
+                super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                    .is_ok_and(|p| super::repo_sync::gates_its_tools(p.kind))
+            }
+        };
+        let cwd = session.meta().cwd;
+        let _repo_ready = super::repo_sync::wait_for_start(session, cwd, head_ok, || {
             session.stops.load(Ordering::SeqCst) != stops
         })
         .await?;
@@ -1787,7 +1718,8 @@ impl Hub {
                     .map_err(RpcError::invalid_params)?;
             (profile, cfg.defaults_for(&agent))
         };
-        let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
+        let digest = profile.launch_digest();
+        let spawn = self.spawn_profile(session, &profile, digest, &defaults.env).await?;
         self.ensure_child(session, &spawn, stops).await
     }
 }
@@ -1800,7 +1732,7 @@ tokio::task_local! {
 }
 
 /// An agent start that a stop (`acpmux session stop`) came after the request for.
-fn stopped_while_starting() -> RpcError {
+pub(super) fn stopped_while_starting() -> RpcError {
     RpcError::invalid_params("the session was stopped while its agent started")
 }
 
@@ -1808,7 +1740,7 @@ fn stopped_while_starting() -> RpcError {
 /// partial creation, corrupt metadata or a symlink. Never turn a read error into
 /// permission to overwrite a chat. Memory stores use their metadata instead.
 fn refuse_stored_fixed_id(store: &dyn crate::store::Store, id: &str) -> Result<(), RpcError> {
-    let taken = if let Some(path) = store.session_dir(id) {
+    let taken = if let Some(path) = store.session_path(id) {
         match std::fs::symlink_metadata(path) {
             Ok(_) => true,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
@@ -1828,135 +1760,8 @@ fn refuse_stored_fixed_id(store: &dyn crate::store::Store, id: &str) -> Result<(
 }
 
 #[cfg(test)]
-mod fixed_id_tests {
-    use super::*;
-
-    fn test_hub(root: Option<&std::path::Path>) -> Arc<Hub> {
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut cfg: crate::config::Config = serde_json::from_value(json!({
-            "harnesses": {"fake": {"argv": ["python3", fake]}},
-            "defaultHarness": "fake",
-        }))
-        .unwrap();
-        cfg.store.mode = if root.is_some() {
-            crate::config::StoreMode::Local
-        } else {
-            crate::config::StoreMode::Memory
-        };
-        let store =
-            crate::store::open(&cfg.store, root.unwrap_or(std::path::Path::new("/nonexistent")))
-                .unwrap();
-        Hub::new(cfg, store)
-    }
-
-    fn request() -> NewRequest {
-        NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() }
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn concurrent_fixed_id_creations_publish_exactly_one_session() {
-        let hub = test_hub(None);
-        let id = uuid::Uuid::now_v7().to_string();
-        let (a, b) = tokio::join!(
-            hub.new_session_with_id(request(), Some(id.clone())),
-            hub.new_session_with_id(request(), Some(id.clone())),
-        );
-        assert_ne!(a.is_ok(), b.is_ok(), "exactly one creation must win");
-        let winner = a.ok().or_else(|| b.ok()).unwrap();
-        assert_eq!(winner.id, id);
-        assert!(Arc::ptr_eq(&hub.resolve(&id).unwrap(), &winner));
-        assert_eq!(hub.sessions.lock().unwrap().len(), 1);
-        hub.shutdown_all().await;
-    }
-
-    #[tokio::test]
-    async fn fixed_id_refuses_persisted_chat_after_restart() {
-        let dir = cmux_unix_socket::short_test_dir("acpmux-fixed");
-        let hub = test_hub(Some(dir.path()));
-        let id = uuid::Uuid::now_v7().to_string();
-        let original = hub.new_session_with_id(request(), Some(id.clone())).await.unwrap();
-        hub.shutdown_all().await;
-        drop(hub);
-        let restarted = test_hub(Some(dir.path()));
-        let before = restarted.store.load(&id).unwrap().unwrap();
-        assert!(restarted.new_session_with_id(request(), Some(id.clone())).await.is_err());
-        let after = restarted.store.load(&id).unwrap().unwrap();
-        assert_eq!(after.created_at, before.created_at);
-        assert_eq!(after.agent_session_id, original.meta().agent_session_id);
-        restarted.shutdown_all().await;
-    }
-
-    #[tokio::test]
-    async fn fixed_id_refuses_partial_or_corrupt_durable_chat() {
-        let dir = cmux_unix_socket::short_test_dir("acpmux-fixed-corrupt");
-        let hub = test_hub(Some(dir.path()));
-        let id = uuid::Uuid::now_v7().to_string();
-        let path = hub.store.session_dir(&id).unwrap();
-        std::fs::create_dir_all(&path).unwrap();
-        assert!(hub.new_session_with_id(request(), Some(id.clone())).await.is_err());
-        std::fs::write(path.join("session.json"), "unreadable metadata").unwrap();
-        assert!(hub.new_session_with_id(request(), Some(id)).await.is_err());
-        assert_eq!(
-            std::fs::read_to_string(path.join("session.json")).unwrap(),
-            "unreadable metadata"
-        );
-        hub.shutdown_all().await;
-    }
-
-    #[tokio::test]
-    async fn fixed_id_cannot_take_an_import_reservation() {
-        let hub = test_hub(None);
-        let id = uuid::Uuid::now_v7().to_string();
-        hub.importing.lock().unwrap().insert(id.clone());
-        assert!(hub.new_session_with_id(request(), Some(id.clone())).await.is_err());
-        assert!(hub.sessions.lock().unwrap().is_empty());
-        assert!(hub.store.load(&id).unwrap().is_none());
-        hub.importing.lock().unwrap().remove(&id);
-        hub.shutdown_all().await;
-    }
-
-    #[tokio::test]
-    async fn fixed_id_cannot_adopt_a_different_chat() {
-        let hub = test_hub(None);
-        let mut req = request();
-        req.adopt = crate::adopt::AdoptRequest::from_meta(Some(&json!({
-            "adopt": {"agentSessionId": "another-chat"}
-        })))
-        .unwrap();
-        let result = hub.new_session_with_id(req, Some("fixed-chat".into())).await;
-        assert!(result.err().unwrap().message.contains("cannot adopt"));
-        assert!(hub.sessions.lock().unwrap().is_empty());
-        hub.shutdown_all().await;
-    }
-
-    #[tokio::test]
-    async fn failed_creation_cleanup_leaves_replacement_incarnation_intact() {
-        let hub = test_hub(None);
-        let id = uuid::Uuid::now_v7().to_string();
-        let original = hub.new_session_with_id(request(), Some(id.clone())).await.unwrap();
-        hub.kill(&original, false).await.unwrap();
-        let replacement = hub.make_session(original.meta());
-        hub.sessions.lock().unwrap().insert(id.clone(), replacement.clone());
-        hub.write_meta(&replacement).unwrap();
-        let before = hub.events(&id, 0, 10000).unwrap().len();
-        hub.discard_failed_creation_owned(&original, original.stops.load(Ordering::SeqCst), None)
-            .await;
-        assert!(Arc::ptr_eq(&hub.resolve(&id).unwrap(), &replacement));
-        assert!(hub.store.load(&id).unwrap().is_some());
-        assert_eq!(hub.events(&id, 0, 10000).unwrap().len(), before);
-        assert!(!replacement.purged.load(Ordering::SeqCst));
-        hub.shutdown_all().await;
-    }
-
-    #[test]
-    fn fixed_id_accepts_bare_session_ids_only() {
-        assert!(crate::adopt::is_bare_id("0192f7f4-8f53-7c10-8f1c-2f950f3e2d9a"));
-        assert!(crate::adopt::is_bare_id("codex_session_1"));
-        assert!(!crate::adopt::is_bare_id("../escape"));
-        assert!(!crate::adopt::is_bare_id(""));
-        assert!(!crate::adopt::is_bare_id(&"x".repeat(129)));
-    }
-}
+#[path = "fixed_id_tests.rs"]
+mod fixed_id_tests;
 
 #[cfg(test)]
 #[path = "stop_fence_tests.rs"]
@@ -1993,20 +1798,4 @@ impl<'a> ReplayHold<'a> {
             self.session.end_replay(self.agent.generation);
         }
     }
-}
-
-/// `agent_start`'s deadline error, with what its harness was doing (`cpu_class.rs`, item 4).
-/// Its `data.harness` carries the same fields when they were read.
-fn start_deadline_exceeded(
-    budget: std::time::Duration,
-    harness: &crate::cpu_class::HarnessSeen,
-) -> RpcError {
-    let mut e = RpcError::deadline_exceeded("agent_start", budget);
-    e.message.push_str(&harness.detail());
-    if let (crate::cpu_class::HarnessSeen::Running(state), Some(data)) =
-        (harness, e.data.as_mut().and_then(Value::as_object_mut))
-    {
-        data.insert("harness".into(), json!(state));
-    }
-    e
 }

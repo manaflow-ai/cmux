@@ -8,6 +8,19 @@
   z-index: var(--layer-sticky);
   height: 0;
 }
+/* The column's end while the minimap is on (App.tsx sets data-vscode-minimap on .acpmux-main, unless
+   Session Info pushes): the widest strip and its edges (paint.ts MINIMAP_RESERVE), or the column's own
+   inset when that is wider, so Chat Text Width's column never leaves it a narrow strip. Only in a chat
+   at least MINIMAP_MIN_PANE wide: 100% is the chat's width where the inset is used, and the clamp is
+   0px below 600px (a chat beside an artifact keeps its column, as before). The transcript's rows, the composer and the dock's bands read it;
+   model.ts transcriptColumn mirrors it. Beside the computer use preview, the wider room of the two
+   (the strip steps aside for the card: below). */
+.acpmux-main[data-vscode-minimap] {
+  --cv-inset-end: max(var(--cv-inset), clamp(0px, (100% - 599.5px) * 1000, 140px));
+}
+.acpmux-main[data-vscode-minimap][data-cu-preview] {
+  --cv-inset-end: max(var(--cv-inset), 204px);
+}
 /* Sized inline, so it contains its own layout and style (not paint: that would clip the focus ring). */
 .acpmux-chat-minimap__track {
   position: absolute;
@@ -26,22 +39,30 @@
   border-bottom-color: var(--agent-muted);
   border-style: none;
 }
-/* What is on screen: a faint band, stronger under the pointer or while dragged (VS Code's slider). */
+/* What is on screen: a band with an edge, always visible (VS Code's slider with `showSlider: always`),
+   stronger under the pointer or while dragged. */
 .acpmux-chat-minimap__view {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 30%, transparent);
   will-change: transform;
   pointer-events: none;
 }
 .acpmux-chat-minimap__track:hover .acpmux-chat-minimap__view {
-  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 26%, transparent);
 }
 .acpmux-chat-minimap__track[data-dragging] .acpmux-chat-minimap__view {
-  background: color-mix(in srgb, var(--agent-text) 24%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 34%, transparent);
+}
+/* The computer use preview card stands at the chat's top right, where the strip would lie over it: the
+   minimap steps aside while the card shows beside the column (App.tsx data-cu-preview), as it does for
+   Session Info below, and comes back when the card goes. */
+.acpmux-main[data-cu-preview] .acpmux-chat-minimap {
+  visibility: hidden;
 }
 /* Session Info floating over the chat's right side (design/session-info.md): the minimap steps
    aside while it is open, so neither lies over the other. Pushing, the chat narrows beside it and

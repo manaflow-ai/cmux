@@ -50,11 +50,13 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     // Agent work yields CPU and disk to the app (`qos.rs`): before any thread
     // starts, since on macOS this re-executes the host in place under a clamp.
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
+        crate::oom_rank::raise_agent();
         crate::qos::enter(crate::qos::Role::AgentHost);
         return crate::agent_host::host::main();
     }
     // A background task's runner (`bg_run.rs`): one task, no CLI.
     if args.first().is_some_and(|a| a == crate::bg_run::RUN_ARG) {
+        crate::oom_rank::raise_agent();
         crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
     }
@@ -91,8 +93,16 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
 /// subagent gets its own set, kept until the app-server exits), so a tokio
 /// worker per core in each one adds up: about 100 tasks a set on a 32-core
 /// machine, which filled the sessions slice's task cap on a fleet host.
-const STDIO_MCP_SERVERS: [&str; 7] =
-    ["acpmux-mcp", "subsession-mcp", "forum-mcp", "offer-mcp", "secret-mcp", "cua-mcp", "repo-mcp"];
+const STDIO_MCP_SERVERS: [&str; 8] = [
+    "acpmux-mcp",
+    "subsession-mcp",
+    "forum-mcp",
+    "offer-mcp",
+    "secret-mcp",
+    "cua-mcp",
+    "repo-mcp",
+    "hosted-mcp",
+];
 
 /// Worker threads of a stdio MCP server: it answers one client's requests
 /// on one pipe. Still a multi-thread runtime, so `block_in_place` works.
@@ -101,8 +111,11 @@ const MCP_WORKERS: usize = 2;
 /// The worker count `args` (without the program name) runs with: None is
 /// tokio's default, one per core.
 fn runtime_workers(args: &[OsString]) -> Option<usize> {
-    let command = args.iter().find(|a| *a != "--json" && *a != "--suppress-reads")?;
-    STDIO_MCP_SERVERS.iter().any(|name| command == name).then_some(MCP_WORKERS)
+    let mut words = args.iter().filter(|a| *a != "--json" && *a != "--suppress-reads");
+    let command = words.next()?;
+    // `bridge mcp` is the desktop apps' stdio server (`cli/bridge.rs`).
+    let bridge_mcp = command == "bridge" && words.next().is_some_and(|a| a == "mcp");
+    (bridge_mcp || STDIO_MCP_SERVERS.iter().any(|name| command == name)).then_some(MCP_WORKERS)
 }
 
 /// Each runtime worker's stack: the main thread's default on Linux and macOS, not tokio's 2 MiB.
@@ -195,6 +208,25 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             crate::cli::codex_auth_broker::run(home, codex).await
         }
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
+        // Before anything that reads or writes the home: this runs as root.
+        #[cfg(target_os = "linux")]
+        Some(Command::DaemonEnroll { person_key_fd }) => {
+            let status = crate::daemon::provision::enroll_running(person_key_fd).await?;
+            if json_out {
+                crate::cli::output::print_json(&status);
+            } else {
+                println!(
+                    "enrolled: personKey {} personInstance {}",
+                    status.get("personKey").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                    status.get("personInstance").and_then(serde_json::Value::as_str).unwrap_or("")
+                );
+            }
+            Ok(())
+        }
+        #[cfg(not(target_os = "linux"))]
+        Some(Command::DaemonEnroll { .. }) => {
+            Err(anyhow::anyhow!("daemon enroll runs only on Linux"))
+        }
         None => {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
@@ -229,7 +261,14 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 )
                 .with_target(false)
                 .init();
-            crate::qos::enter(crate::qos::Role::Daemon);
+            // An acknowledged reply waits on the event journal's sync, which a utility disk tier
+            // throttles 15-30x under another app's disk work (STATUS 11554): the daemon stays at
+            // the default tier, and only its background threads yield.
+            crate::qos::enter_daemon();
+            // Agents before the daemon for the OOM killer and earlyoom (`oom_rank.rs`).
+            if let Some(p) = crate::oom_rank::protect_daemon() {
+                tracing::info!("{}", crate::oom_rank::describe(p));
+            }
             let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
@@ -263,8 +302,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             }
             // The daemon has stopped its agents and synced its store. Exit
             // now rather than wait for the runtime to drain blocking tasks
-            // (a launcher `--version` check can take 20 s).
-            std::process::exit(0)
+            // (a launcher `--version` check can take 20 s); 74 when its store
+            // asked for a restart (`daemon::EXIT_REPAIR`).
+            std::process::exit(crate::daemon::exit_status())
         }
         Some(Command::CliAgent {
             last_block,
@@ -309,6 +349,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await
         }
+        Some(Command::Race(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::race::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Task(cmd)) => {
             let json_out = cli.json;
             match crate::cli::task::run(cmd, json_out).await {
@@ -323,6 +370,20 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::WhoElse(args)) => {
+            let json_out = cli.json;
+            match crate::cli::who_else::run(args, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Ledger(args)) => {
+            let json_out = cli.json;
+            match crate::cli::ledger::run(args, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Bead(cmd)) => {
             let json_out = cli.json;
             match crate::cli::beads::run(cmd, json_out).await {
@@ -330,9 +391,27 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Bridge(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::bridge::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Forum(cmd)) => {
             let json_out = cli.json;
             match crate::cli::forum::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Desktop(cmd)) => match crate::cli::desktop::run(cmd, cli.json) {
+            Ok(()) => Ok(()),
+            Err(e) => errors::exit_with(&e, cli.json),
+        },
+        Some(Command::Watch(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::watch::run(cmd, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }
@@ -359,6 +438,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::SubsessionMcp) => crate::subsession_mcp::run().await,
         Some(Command::ForumMcp) => crate::forum_mcp::run().await,
         Some(Command::RepoMcp) => crate::cloud_repo_mcp::run().await,
+        Some(Command::HostedMcp) => crate::hosted_mcp::run().await,
         Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
@@ -415,15 +495,25 @@ mod tests {
             "secret-mcp",
             "cua-mcp",
             "repo-mcp",
+            "hosted-mcp",
         ] {
             assert_eq!(runtime_workers(&os(&[name])), Some(MCP_WORKERS), "{name}");
             assert_eq!(runtime_workers(&os(&["--json", name])), Some(MCP_WORKERS), "{name}");
         }
+        let bridge = os(&["bridge", "mcp", "--as", "codex-desktop"]);
+        assert_eq!(runtime_workers(&bridge), Some(MCP_WORKERS));
     }
 
     #[test]
     fn every_other_command_keeps_the_default_runtime() {
-        for args in [&["ls"][..], &["daemon", "run"], &["send", "forum-mcp"], &[], &["--json"]] {
+        for args in [
+            &["ls"][..],
+            &["daemon", "run"],
+            &["send", "forum-mcp"],
+            &[],
+            &["--json"],
+            &["bridge", "inbox"],
+        ] {
             assert_eq!(runtime_workers(&os(args)), None, "{args:?}");
         }
     }

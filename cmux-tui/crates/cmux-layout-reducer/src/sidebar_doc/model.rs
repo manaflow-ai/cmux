@@ -38,6 +38,20 @@ pub const ARCHIVED_BY_MEMBERS: &str = "members";
 pub const AUTO_ARCHIVE_KEY: &str = "auto_archive";
 /// The longest idle time a group's rule may name: ten years, in hours.
 pub const MAX_AUTO_ARCHIVE_HOURS: i64 = 87_600;
+/// `Item::extra` key of a group: how its members list ([`GroupSort`]):
+/// `"name"` or `"recent"`. Absent: manual, the stored order.
+pub const GROUP_SORT_KEY: &str = "sort";
+/// `Item::extra` key of a group: its own chats-per-project cap, overriding
+/// the `sidebar.chatsPerProject` setting (the group's right-click menu):
+/// `"3"`, `"5"`, `"10"` or `"all"` ([`crate::sidebar_caps::read_cap`]).
+/// Absent: the setting.
+pub const GROUP_ROW_LIMIT_KEY: &str = "row_limit";
+/// `Item::extra` key of a group: how many rows "Show N more" revealed past its
+/// cap (a count; 0 or absent: the cap). Kept with the group so the expanded
+/// state is remembered per project, like its fold (`collapsed`).
+pub const GROUP_REVEALED_KEY: &str = "revealed";
+/// The most rows a group's [`GROUP_REVEALED_KEY`] may name.
+pub const MAX_GROUP_REVEALED: i64 = 1_000_000;
 /// The one Pinned section.
 pub const PINNED_SECTION_ID: &str = "sec_pinned";
 /// The prefix of a machine section id: `sec_m_<session_id>`.
@@ -486,6 +500,30 @@ impl Item {
         AutoArchiveRule::read(self.extra.get(AUTO_ARCHIVE_KEY)?)
     }
 
+    /// How a group's members list ([`GROUP_SORT_KEY`]); manual when unset.
+    pub fn group_sort(&self) -> GroupSort {
+        self.extra
+            .get(GROUP_SORT_KEY)
+            .and_then(Value::as_str)
+            .and_then(GroupSort::read)
+            .unwrap_or_default()
+    }
+
+    /// A group's own cap ([`GROUP_ROW_LIMIT_KEY`], 0 is All); `None` when it
+    /// follows the setting.
+    pub fn group_row_limit(&self) -> Option<u32> {
+        crate::sidebar_caps::read_cap(self.extra.get(GROUP_ROW_LIMIT_KEY)?)
+    }
+
+    /// The rows "Show N more" revealed past a group's cap ([`GROUP_REVEALED_KEY`]).
+    pub fn group_revealed(&self) -> u32 {
+        self.extra
+            .get(GROUP_REVEALED_KEY)
+            .and_then(Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .unwrap_or(0)
+    }
+
     /// The label stored with the item (an old tile's workspace name), drawn
     /// while the workspace is closed.
     pub fn label(&self) -> Option<&str> {
@@ -655,6 +693,53 @@ pub struct GroupPatch {
     /// hours; null goes back to the setting's default.
     #[serde(default, skip_serializing_if = "Patch::is_keep")]
     pub auto_archive: Patch<Value>,
+    /// How the group's members list ([`GROUP_SORT_KEY`]): `"manual"`,
+    /// `"name"` or `"recent"`; `"manual"` and null clear it.
+    #[serde(default, skip_serializing_if = "Patch::is_keep")]
+    pub sort: Patch<String>,
+    /// The group's own cap ([`GROUP_ROW_LIMIT_KEY`]): `"3"`, `"5"`, `"10"`
+    /// or `"all"`; null goes back to the setting.
+    #[serde(default, skip_serializing_if = "Patch::is_keep")]
+    pub row_limit: Patch<Value>,
+    /// The rows revealed past the cap ([`GROUP_REVEALED_KEY`]); 0 and null
+    /// clear it.
+    #[serde(default, skip_serializing_if = "Patch::is_keep")]
+    pub revealed: Patch<i64>,
+}
+
+/// How a group's members list ([`GROUP_SORT_KEY`]). The stored order stays
+/// as it is; a client lists the members by the sort (the sidebar's group
+/// editor, Sort).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GroupSort {
+    /// The stored order (drag, Move to Top).
+    #[default]
+    Manual,
+    /// By title, A to Z.
+    Name,
+    /// Most recent activity first.
+    Recent,
+}
+
+impl GroupSort {
+    /// The sort a stored or sent value names; `None` for anything else.
+    pub fn read(value: &str) -> Option<GroupSort> {
+        match value {
+            "manual" => Some(GroupSort::Manual),
+            "name" => Some(GroupSort::Name),
+            "recent" => Some(GroupSort::Recent),
+            _ => None,
+        }
+    }
+
+    /// The stored value; `None` for manual (the key is removed).
+    pub fn value(self) -> Option<&'static str> {
+        match self {
+            GroupSort::Manual => None,
+            GroupSort::Name => Some("name"),
+            GroupSort::Recent => Some("recent"),
+        }
+    }
 }
 
 /// A group's auto-archive rule ([`AUTO_ARCHIVE_KEY`]).
