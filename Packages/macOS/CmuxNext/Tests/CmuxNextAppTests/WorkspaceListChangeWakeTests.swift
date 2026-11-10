@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCompat
 @testable import CmuxNextDaemon
@@ -13,13 +14,18 @@ import Testing
 /// items), never O(session)).
 ///
 /// Each test applies the daemon's own event (`workspace-added`, `workspace-closed`: what `DaemonStore.drain` applies
-/// after the key) in a whole window (`LargeSessionWindowFixture`, every observer the app starts) and counts the
-/// observation trackings the change wakes (`ObservationWakes`), by the `#fileID:#line` of each woken observer. The
-/// closed workspace is a hidden one, so the count is the list change's, not the close flow's.
+/// after the key) in a whole window of the `LargeSessionWindowFixture` session and counts the observation trackings
+/// the change wakes (`ObservationWakes`), by the `#fileID:#line` of each woken observer. The closed workspace is a
+/// hidden one, so the count is the list change's, not the close flow's.
+///
+/// The window is ``window(_:_:)``, not the fixture's: the app follows the link places after the first frame
+/// (`AppServices.startNonPaintServices`), which a window opened from the composition root alone does not start, and
+/// they hold the one observation per workspace this suite is about. The first run of this suite did not start them and
+/// counted none of them (a false red: 0 link-place wakes at 60 and at 826).
 ///
 /// Sizes: `large` (60) always, and each other size `CMUX_TEST_SESSION_SIZES` names (826 runs on a mini, never by
-/// default: `SessionFixtureSize`). Each count has a bound with no session size in it, and the counts of every size
-/// run must be equal.
+/// default: `SessionFixtureSize`). Each count has a bound with no session size in it, and no observer may wake more
+/// often at a larger size than at `large` (fewer is no fault: the shown workspace of `large` has more tabs).
 ///
 ///     CMUX_TEST_SESSION_SIZES=large,real swift test --filter WorkspaceListChangeWakeTests
 @MainActor @Suite(.serialized) struct WorkspaceListChangeWakeTests {
@@ -63,6 +69,43 @@ import Testing
                                  name: "list change", screens: [screen])
     }
 
+    /// A whole window of a session of `size`, as `LargeSessionWindowFixture.withWindow` opens it, with the link places
+    /// followed as the app follows them (`AppServices.startNonPaintServices`). `body` gets the store once every workspace
+    /// has its link-place observation: a rename of one hidden workspace must wake exactly that one.
+    private static func window<T>(_ size: SessionFixtureSize, _ body: @MainActor (DaemonStore) async throws -> T) async throws -> T {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        let store = services.machines.local.store
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+        store.apply(snapshot: Fixture.tree(size))
+        let keys = [Fixture.key(size.workspaces)] + (1..<size.workspaces).map(Fixture.key)
+        let controller = try #require(services.windows.openWindow(workspaces: keys, frame: CGRect(x: 200, y: 200, width: 1600, height: 900)))
+        defer { controller.teardown(); controller.window?.close() }
+        for _ in 0..<50 where controller.workspaceContent == nil { await Fixture.drainMain() }
+        try #require(controller.workspaceContent).contentView.layoutSubtreeIfNeeded()
+        // The wiring of `AppServices.startNonPaintServices`, alone (that function also starts the updater, SSH and the
+        // server reach). The names come from the same `shownWorkspaceName` and `SidebarBridge.tabTitle`.
+        services.attentionTabs.places.follow({ [weak services] in services?.linkPlaceWorkspaces() }, titles: .init(
+            workspace: { [weak services] in services?.shownWorkspaceName($0) ?? $0.displayName },
+            tabs: { [weak services] in services.map(SidebarBridge.tabTitle) ?? { $1.displayTitle } }))
+        defer { services.attentionTabs.places.follow({ nil }, titles: .records) }
+        let probe = try #require(store.workspaces.first { $0.key?.rawValue == Fixture.key(9) }, "fixture: no ninth workspace")
+        var followed = 0
+        for _ in 0..<50 where followed == 0 {
+            await Fixture.drainMain()
+            let wakes = ObservationWakes()
+            ObservationWakes.$current.withValue(wakes) { probe.name += " " }
+            followed = Change(wakes: wakes.bySite).wakes(of: linkPlaces)
+        }
+        try #require(followed == 1, "fixture: a rename of one workspace woke \(followed) link-place observations, not 1 (the link places are not followed)")
+        try #require(store.workspaces.count == size.workspaces, "fixture: \(store.workspaces.count) workspaces, not \(size.workspaces)")
+        return try await body(store)
+    }
+
     /// Applies `change` to `store` and returns what it woke in its own turn and what the sidebar did until the main
     /// actor was idle again.
     private static func measure(_ store: DaemonStore, _ change: @MainActor () -> Void) async -> Change {
@@ -79,7 +122,7 @@ import Testing
     /// One workspace added at the end of the list, then one hidden workspace (the fifth) closed, in a session of `size`.
     static func counts(_ size: SessionFixtureSize) async throws -> Counts {
         if let counts = measured[size] { return counts }
-        let counts = try await Fixture.withWindow(size) { store -> Counts in
+        let counts = try await window(size) { store -> Counts in
             let entity = newWorkspace()
             let added = await measure(store) {
                 _ = store.apply(.workspaceAdded(WorkspaceDelta(workspace: entity.id, index: size.workspaces, entity: entity,
@@ -125,7 +168,7 @@ import Testing
                     "one workspace \(name) in a session of \(size.workspaces) woke \(change.total) observers (bound \(wakeBound))")
         }
         let totals = changes.map { "\($0.key.rawValue) \($0.value.total)" }.sorted()
-        #expect(Set(changes.values.map(\.total)).count == 1,
+        #expect(grew(changes).isEmpty,
                 "observers one workspace \(name) wakes grow with the session: \(totals); grew: \(grew(changes))")
     }
 
@@ -143,17 +186,16 @@ import Testing
     /// workspace's at most, never one per workspace of the session.
     @Test(.timeLimit(.minutes(10)))
     func aListChangeNamesTheLinkPlacesOfNoOtherWorkspace() async throws {
-        var named: [String: Int] = [:]
+        let small = try await Self.counts(.large)
         for size in Self.sizes {
             let counts = try await Self.counts(size)
-            for (name, change) in [("added", counts.added), ("closed", counts.closed)] {
+            for (name, change, atLarge) in [("added", counts.added, small.added), ("closed", counts.closed, small.closed)] {
                 let woken = change.wakes(of: Self.linkPlaces)
-                named["\(size.rawValue) \(name)"] = woken
                 #expect(woken <= Self.linkPlaceBound,
                         "one workspace \(name) in a session of \(size.workspaces) named the link places of \(woken) workspaces again (bound \(Self.linkPlaceBound))")
+                #expect(woken <= atLarge.wakes(of: Self.linkPlaces),
+                        "one workspace \(name) names the link places of \(woken) workspaces again at \(size.rawValue), \(atLarge.wakes(of: Self.linkPlaces)) at large")
             }
         }
-        #expect(Set(named.values).count <= 1 || named.values.allSatisfy { $0 <= 1 },
-                "workspaces whose link places one list change names again grow with the session: \(named.sorted { $0.key < $1.key })")
     }
 }
