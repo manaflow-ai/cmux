@@ -436,6 +436,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     func showSelected() {
         guard !isSuspended else { return } // `resume`'s apply shows the selection then
+        // A stale strip takes its record first, as `select` does: its selection can name a tab the record dropped (a new chat's provisional tab, just replaced), and showing that hid the chat until the strip's apply a turn later (SPLIT OPEN CHAT).
+        if stripIsStale, workspace?.isApplying != true { syncStripFromStore(); services.presentation.cancel(self); if stripIsStale { return } } // this call shows it: a show that apply queued would stay in a draining scheduler; still stale: the layout removed this pane
         let key = stripModel.selectedID?.rawValue, shownBefore = currentTabKey
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
