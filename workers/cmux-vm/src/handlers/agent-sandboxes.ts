@@ -8,9 +8,10 @@ import { Clock, Effect } from "effect";
 import { MAX_LABELS, type CreateVmRequest } from "../api.ts";
 import { AgentStore } from "../db/agents.ts";
 import { estimatedUsdPerHour, sizeOfCreate } from "../domain/agents.ts";
-import type { Principal } from "../domain/principal.ts";
+import { actorRef, type Principal } from "../domain/principal.ts";
 import { badRequest, Forbidden, QuotaExceeded, unavailable } from "../errors.ts";
 import type { TenantId } from "../lib/ids.ts";
+import { TenantLimits } from "../limits/service.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import { visitOwnedVms } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamClient, type SizeRequest } from "../upstream/client.ts";
@@ -61,13 +62,18 @@ export const withRunCap = (principal: Principal, requested: CreateVmRequest): Cr
 /**
  * Whether one more VM of `size` fits the agent key's budget: fewer live VMs than
  * maxVms, and the estimated USD/h of the live ones (as the provider reports their
- * size) plus the new one at most maxUsdPerHour. Not atomic with the create: two
- * concurrent creates can both pass; the team's own VM quota still holds.
+ * size) plus the new one at most maxUsdPerHour. The live-VM count is then admitted
+ * atomically: the tenant ledger reserves one slot of the key's own kind
+ * (`agent-vm:<actor>`) under maxVms, counting the key's creates still in flight, so
+ * two concurrent creates cannot both pass at maxVms - 1. The team's VM quota is no
+ * longer the bound (a paid team has no machine count), so this reservation is.
+ * Answers the reservation id to release once the create is recorded or failed;
+ * undefined when the caller has no agent budget.
  */
 export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, size: SizeRequest | undefined) =>
   Effect.gen(function* () {
     const budget = caller.value.agent;
-    if (budget === undefined) return;
+    if (budget === undefined) return undefined;
     const upstream = yield* UpstreamClient;
     const page = yield* visitOwnedVms(caller, { limit: budget.maxVms + 1, after: null, labels: null }, (vm, owns) =>
       upstream.getVmForWrite(vm, { owns, scope }).pipe(
@@ -91,7 +97,19 @@ export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasS
         }),
       );
     }
+    const reserved = yield* (yield* TenantLimits)
+      .reserve(caller.value.tenantId, agentVmKind(caller.value), budget.maxVms, page.results.length)
+      .pipe(Effect.mapError(unavailable));
+    if (!reserved.ok) {
+      return yield* Effect.fail(
+        new QuotaExceeded({ message: `This agent key already has its limit of ${budget.maxVms} VMs; delete one first`, budget: "agent_vms" }),
+      );
+    }
+    return reserved.reservationId;
   });
+
+/** The ledger kind an agent key's live-VM budget is reserved under: one per key (or CI trust row). */
+export const agentVmKind = (principal: Principal): string => `agent-vm:${actorRef(principal.actor)}`;
 
 /** Revokes every live client session of a VM (deleting each provider identity); how many were revoked. */
 export const revokeVmClientSessions = (tenantId: TenantId, vmId: string) =>

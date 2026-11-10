@@ -1074,7 +1074,7 @@ fn steps(
             .reason
             .as_deref()
             .filter(|_| stage.is_final())
-            .and_then(|why| cap::cap_of("", why));
+            .and_then(|why| cap::cap_of("", why, None));
         if let Some(found) = capped {
             let (message, mut details) = cap::at_cap(found, &listed, |id| {
                 again_command(request, &Machine::Target(id.to_owned()))
@@ -1801,7 +1801,8 @@ fn app_failure(error: Value) -> Outcome {
 fn start_refused(error: Value, listed: &Value, request: &Request) -> Outcome {
     let code = at(&error, "code").as_str().unwrap_or_default();
     let message = at(&error, "message").as_str().unwrap_or_default();
-    match cap::cap_of(code, message) {
+    let resource = at(&error, "details").get("resource").and_then(Value::as_str);
+    match cap::cap_of(code, message, resource) {
         Some(found) if !signed_out(&error) => cap_refusal(found, listed, request, error),
         _ => app_failure(error),
     }
@@ -1828,8 +1829,10 @@ fn create_failed(request: &Request, created: &Value, row: &Value, now: &Value) -
         .and_then(Value::as_str)
         .or_else(|| at(row, "reason").as_str())
         .unwrap_or("no reason given");
+    let resource =
+        at(row, "error").get("details").and_then(|d| d.get("resource")).and_then(Value::as_str);
     let app = json!({"app": created, "creation": row});
-    match cap::cap_of(code, reason) {
+    match cap::cap_of(code, reason, resource) {
         Some(found) => cap_refusal(found, now, request, app),
         None => failed(
             "cloud.start_failed",

@@ -2095,7 +2095,7 @@
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. It includes everything in Pro and the larger Cloud VM sizes: 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB RAM / 32 vCPU on one VM. One Pro or Team VM can use up to 16 GB RAM / 8 vCPU. No paid plan caps how many VMs you keep: machines are metered beyond the included usage, and the spending cap is the stop. Free accounts do not include Cloud VMs."
+          "a": "Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. It includes everything in Pro and the larger Cloud VM sizes: 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB RAM / 32 vCPU on one VM. One Pro or Team VM can use up to 16 GB RAM / 8 vCPU. Pro, Team, and Max do not cap how many VMs you keep (Plus keeps one): machines are metered beyond the included usage, and the spending cap is the stop. Free accounts do not include Cloud VMs."
         },
         {
           "q": "What is cmux Vault?",
@@ -4544,7 +4544,7 @@
       "planMax": "Max",
       "sizesDefault": "New machines use 8 GB of memory when you do not choose a size. Run cmux vm ls --json to see the sizes that your plan allows.",
       "limitsTitle": "Plan limits",
-      "limitsDesc": "Paid plans have no cap on how many machines you have. Beyond the included usage, running machines are metered per vCPU-hour and GB-hour, and saved and paused machines per GB-month of disk. The team's spending cap is the only stop: at the cap new starts are refused, and running machines pause after a warning, with nothing lost.",
+      "limitsDesc": "Pro, Team, and Max have no cap on how many machines you have; Plus keeps one machine. Beyond the included usage, running machines are metered per vCPU-hour and GB-hour, and saved and paused machines per GB-month of disk. The team's spending cap is the only stop: at the cap new starts are refused, and running machines pause after a warning, with nothing lost.",
       "limitsFree": "Free accounts cannot create machines.",
       "limitsPaid": "Pro accounts can have any number of machines, each up to 16 GB and 8 vCPUs.",
       "limitsTeam": "Team is optional: it puts everyone on one shared bill and one spending cap. Seats do not change how many machines anyone can have.",

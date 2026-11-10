@@ -2972,7 +2972,7 @@
       "planMax": "Max",
       "sizesDefault": "Les nouvelles machines utilisent 8 GB de mémoire si vous ne choisissez pas de taille. Exécutez cmux vm ls --json pour voir les tailles autorisées par votre forfait.",
       "limitsTitle": "Limites de forfait",
-      "limitsDesc": "Les forfaits payants n’ont aucune limite au nombre de machines. Au-delà de l’utilisation incluse, les machines en cours d’exécution sont facturées par heure de vCPU et par heure de GB, et les machines enregistrées ou en pause par GB-mois de disque. Le plafond de dépenses de l’équipe est le seul arrêt : une fois atteint, les nouveaux démarrages sont refusés et les machines en cours d’exécution se mettent en pause après un avertissement, sans rien perdre.",
+      "limitsDesc": "Pro, Team et Max n’ont aucune limite au nombre de machines ; Plus conserve une machine. Au-delà de l’utilisation incluse, les machines en cours d’exécution sont facturées par heure de vCPU et par heure de GB, et les machines enregistrées ou en pause par GB-mois de disque. Le plafond de dépenses de l’équipe est le seul arrêt : une fois atteint, les nouveaux démarrages sont refusés et les machines en cours d’exécution se mettent en pause après un avertissement, sans rien perdre.",
       "limitsFree": "Les comptes gratuits ne peuvent pas créer de machines.",
       "limitsPaid": "Les comptes Pro peuvent avoir un nombre quelconque de machines, chacune jusqu’à 16 GB et 8 vCPU.",
       "limitsTeam": "Team est facultatif : il regroupe tout le monde sur une seule facture partagée et un seul plafond de dépenses. Les sièges ne changent pas le nombre de machines que chacun peut avoir.",

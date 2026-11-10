@@ -2970,7 +2970,7 @@
       "planMax": "Max",
       "sizesDefault": "Le nuove macchine usano 8 GB di memoria se non scegli una dimensione. Esegui cmux vm ls --json per vedere le dimensioni consentite dal tuo piano.",
       "limitsTitle": "Limiti del piano",
-      "limitsDesc": "I piani a pagamento non hanno limiti al numero di macchine. Oltre l’utilizzo incluso, le macchine in esecuzione sono misurate per ora di vCPU e per ora di GB, e le macchine salvate e in pausa per GB-mese di disco. Il limite di spesa del team è l’unico stop: al raggiungimento i nuovi avvii vengono rifiutati e le macchine in esecuzione vanno in pausa dopo un avviso, senza perdere nulla.",
+      "limitsDesc": "Pro, Team e Max non hanno limiti al numero di macchine; Plus mantiene una macchina. Oltre l’utilizzo incluso, le macchine in esecuzione sono misurate per ora di vCPU e per ora di GB, e le macchine salvate e in pausa per GB-mese di disco. Il limite di spesa del team è l’unico stop: al raggiungimento i nuovi avvii vengono rifiutati e le macchine in esecuzione vanno in pausa dopo un avviso, senza perdere nulla.",
       "limitsFree": "Gli account gratuiti non possono creare macchine.",
       "limitsPaid": "Gli account Pro possono avere un numero qualsiasi di macchine, ciascuna fino a 16 GB e 8 vCPU.",
       "limitsTeam": "Team è facoltativo: riunisce tutti in un’unica fattura condivisa e un unico limite di spesa. Le postazioni non cambiano quante macchine può avere ciascuno.",

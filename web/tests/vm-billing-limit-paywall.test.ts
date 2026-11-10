@@ -236,7 +236,7 @@ describe("active-limit response as the paywall moment", () => {
     });
     const payload = await body(response);
     expect(payload.message).toBe(
-      "This plan allows 2 Cloud VMs in total, including paused machines. " +
+      "This team keeps too many Cloud VMs at once (a safety limit, not your plan), including paused machines. " +
         "Counted now: solar-olive-bee, happy-tan-warbler (provisioning). Paused machines count toward the limit.",
     );
     expect((payload.details as Record<string, unknown>).activeMachines).toEqual([

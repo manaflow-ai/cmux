@@ -1806,27 +1806,62 @@ fn a_start_the_spending_cap_refuses_says_so_and_names_only_running_machines() {
 #[test]
 fn only_a_cap_refusal_reads_as_a_cap() {
     use super::cap::{Cap, cap_of};
-    assert_eq!(cap_of("cmux.cloud.quota_exceeded", "x"), Some(Cap::Running));
-    assert_eq!(cap_of("cloud.quota.exceeded", "x"), Some(Cap::Running));
-    assert_eq!(cap_of("", "this plan allows 5 active machines"), Some(Cap::Running));
+    assert_eq!(cap_of("cmux.cloud.quota_exceeded", "x", None), Some(Cap::Running));
+    assert_eq!(cap_of("cloud.quota.exceeded", "x", None), Some(Cap::Running));
+    assert_eq!(cap_of("", "this plan allows 5 active machines", None), Some(Cap::Running));
     assert_eq!(
         cap_of(
             "cloud.provider.unavailable",
-            "VM API: this team has its limit of 20 machines (paused ones count); delete one to make another"
+            "VM API: this team has its limit of 20 machines (paused ones count); delete one to make another",
+            None
         ),
         Some(Cap::Held)
     );
     assert_eq!(
         cap_of(
             "cloud.quota.exceeded",
-            "this plan allows 200 machines in all, paused ones included; delete one first"
+            "this plan allows 200 machines in all, paused ones included; delete one first",
+            None
         ),
         Some(Cap::Held)
     );
-    assert_eq!(cap_of("cloud.spend_cap.reached", "x"), Some(Cap::Spend));
-    assert_eq!(cap_of("cmux.cloud.spend_cap_reached", "x"), Some(Cap::Spend));
-    assert_eq!(cap_of("cloud.provider.unavailable", "VM API: HTTP 429"), None);
-    assert_eq!(cap_of("app.unreachable", "no app"), None);
+    assert_eq!(cap_of("cloud.spend_cap.reached", "x", None), Some(Cap::Spend));
+    assert_eq!(cap_of("cmux.cloud.spend_cap_reached", "x", None), Some(Cap::Spend));
+    assert_eq!(cap_of("cloud.provider.unavailable", "VM API: HTTP 429", None), None);
+    assert_eq!(cap_of("app.unreachable", "no app", None), None);
+    // cmux-platform's `details.resource` decides over its words.
+    assert_eq!(cap_of("cloud.quota.exceeded", "any words", Some("machines")), Some(Cap::Held));
+    assert_eq!(cap_of("cloud.quota.exceeded", "any words", Some("active")), Some(Cap::Running));
+    assert_eq!(
+        cap_of("cloud.quota.exceeded", "this plan keeps 200 saved snapshots", Some("saved")),
+        None
+    );
+    assert_eq!(
+        cap_of(
+            "cloud.quota.exceeded",
+            "a team keeps at most 50 environments",
+            Some("environments")
+        ),
+        None
+    );
+    assert_eq!(cap_of("cloud.spend_cap.reached", "x", Some("active")), Some(Cap::Spend));
+    // The app's string-only failure and a stage's reason carry cmux-platform's words, not its code.
+    assert_eq!(
+        cap_of(
+            "unavailable",
+            "could not create machine \"w\": this team has reached its spending cap; an admin can raise it",
+            None
+        ),
+        Some(Cap::Spend)
+    );
+    assert_eq!(
+        cap_of(
+            "",
+            "this team has spent 40.00 USD of its 40.00 USD spending cap; an admin can raise it",
+            None
+        ),
+        Some(Cap::Spend)
+    );
 }
 
 #[test]

@@ -2970,7 +2970,7 @@
       "planMax": "Max",
       "sizesDefault": "Nove mašine koriste 8 GB memorije kada ne izaberete veličinu. Pokrenite cmux vm ls --json da vidite veličine koje vaš plan dozvoljava.",
       "limitsTitle": "Ograničenja plana",
-      "limitsDesc": "Plaćeni planovi nemaju ograničenje broja mašina. Nakon uključene potrošnje, pokrenute mašine se naplaćuju po vCPU-satu i GB-satu, a sačuvane i pauzirane mašine po GB-mjesecu diska. Limit potrošnje tima je jedina granica: kad se dostigne, novi startovi se odbijaju, a pokrenute mašine se pauziraju nakon upozorenja, bez gubitka podataka.",
+      "limitsDesc": "Pro, Team i Max nemaju ograničenje broja mašina; Plus zadržava jednu mašinu. Nakon uključene potrošnje, pokrenute mašine se naplaćuju po vCPU-satu i GB-satu, a sačuvane i pauzirane mašine po GB-mjesecu diska. Limit potrošnje tima je jedina granica: kad se dostigne, novi startovi se odbijaju, a pokrenute mašine se pauziraju nakon upozorenja, bez gubitka podataka.",
       "limitsFree": "Besplatni računi ne mogu kreirati mašine.",
       "limitsPaid": "Pro računi mogu imati bilo koji broj mašina, svaka do 16 GB i 8 vCPU-a.",
       "limitsTeam": "Team je opcionalan: svi dobijaju jedan zajednički račun i jedan limit potrošnje. Broj mjesta ne mijenja koliko mašina bilo ko može imati.",

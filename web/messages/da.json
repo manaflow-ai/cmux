@@ -2967,7 +2967,7 @@
       "planMax": "Max",
       "sizesDefault": "Nye maskiner bruger 8 GB hukommelse, når du ikke vælger en størrelse. Kør cmux vm ls --json for at se de størrelser, dit abonnement tillader.",
       "limitsTitle": "Abonnementsgrænser",
-      "limitsDesc": "Betalte abonnementer har ingen grænse for, hvor mange maskiner du har. Ud over det inkluderede forbrug afregnes kørende maskiner pr. vCPU-time og GB-time, og gemte maskiner og maskiner på pause pr. GB-måned disk. Teamets forbrugsgrænse er det eneste stop: når grænsen nås, afvises nye starter, og kørende maskiner sættes på pause efter en advarsel, uden at noget går tabt.",
+      "limitsDesc": "Pro, Team og Max har ingen grænse for, hvor mange maskiner du har; Plus har én maskine. Ud over det inkluderede forbrug afregnes kørende maskiner pr. vCPU-time og GB-time, og gemte maskiner og maskiner på pause pr. GB-måned disk. Teamets forbrugsgrænse er det eneste stop: når grænsen nås, afvises nye starter, og kørende maskiner sættes på pause efter en advarsel, uden at noget går tabt.",
       "limitsFree": "Gratis konti kan ikke oprette maskiner.",
       "limitsPaid": "Pro-konti kan have et vilkårligt antal maskiner, hver med op til 16 GB og 8 vCPU'er.",
       "limitsTeam": "Team er valgfrit: det samler alle på én fælles regning og én forbrugsgrænse. Pladser ændrer ikke, hvor mange maskiner den enkelte kan have.",

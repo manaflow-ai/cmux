@@ -2968,7 +2968,7 @@
       "planMax": "Max",
       "sizesDefault": "Boyut seçmediğinizde yeni makineler 8 GB bellek kullanır. Planınızın izin verdiği boyutları görmek için cmux vm ls --json komutunu çalıştırın.",
       "limitsTitle": "Plan sınırları",
-      "limitsDesc": "Ücretli planlarda sahip olabileceğiniz makine sayısına sınır yoktur. Dahil kullanımın ötesinde çalışan makineler vCPU-saat ve GB-saat başına, kaydedilen ve duraklatılan makineler ise diskin GB-ayı başına ölçülür. Tek durdurma noktası ekibin harcama sınırıdır: sınıra ulaşıldığında yeni başlatmalar reddedilir ve çalışan makineler bir uyarının ardından duraklatılır, hiçbir şey kaybolmaz.",
+      "limitsDesc": "Pro, Team ve Max planlarında sahip olabileceğiniz makine sayısına sınır yoktur; Plus bir makine tutar. Dahil kullanımın ötesinde çalışan makineler vCPU-saat ve GB-saat başına, kaydedilen ve duraklatılan makineler ise diskin GB-ayı başına ölçülür. Tek durdurma noktası ekibin harcama sınırıdır: sınıra ulaşıldığında yeni başlatmalar reddedilir ve çalışan makineler bir uyarının ardından duraklatılır, hiçbir şey kaybolmaz.",
       "limitsFree": "Ücretsiz hesaplar makine oluşturamaz.",
       "limitsPaid": "Pro hesaplarında istenen sayıda makine olabilir, her biri en fazla 16 GB ve 8 vCPU.",
       "limitsTeam": "Team isteğe bağlıdır: herkesi tek bir ortak faturada ve tek bir harcama sınırında toplar. Koltuklar, kimsenin sahip olabileceği makine sayısını değiştirmez.",

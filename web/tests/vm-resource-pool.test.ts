@@ -251,10 +251,9 @@ describe("Cloud VM resource pool", () => {
     expect(small.kind).toBe("create");
   }));
 
-  dbTest("resuming a paused VM needs room in the pool", () => withTeam(async team => {
+  dbTest("resuming a paused VM is not refused by a plan pool: paid compute is metered", () => withTeam(async team => {
     await seedVm(team, { status: "running", vcpus: 16, memoryMb: 32 * GB });
     const large = await seedVm(team, { status: "paused", vcpus: 8, memoryMb: 16 * GB });
-    const small = await seedVm(team, { status: "paused", vcpus: 4, memoryMb: 8 * GB });
     let resumes = 0;
     const provider = {
       getStatus: () => Effect.succeed("paused"),
@@ -263,30 +262,17 @@ describe("Cloud VM resource pool", () => {
         return { provider: "freestyle", providerVmId, image: "snapshot-test", status: "running", createdAt: Date.now() };
       }),
     } as unknown as VmProviderGatewayShape;
-    const resume = (providerVmId: string) => runWorkflow(resumeVm({
-      userId: team, billingTeamId: team, teamIds: [team], providerVmId,
-      maxActiveVms: 5, callerPlanId: "pro",
+    const resumed = await runWorkflow(resumeVm({
+      userId: team, billingTeamId: team, teamIds: [team], providerVmId: large,
+      maxActiveVms: maxActiveVmsForPlan("pro", {}), callerPlanId: "pro",
     }), provider);
-    const blocked = await resume(large);
-    expect(blocked._tag).toBe("Left");
-    if (blocked._tag === "Left") {
-      expect(blocked.left).toMatchObject({
-        _tag: "VmResourcePoolExceededError",
-        phase: "resume",
-        resource: "memoryMb",
-        used: { vcpus: 16, memoryMb: 32 * GB },
-        requested: { vcpus: 8, memoryMb: 16 * GB },
-      });
-    }
-    expect(resumes).toBe(0);
-    const resumed = await resume(small);
+    // The old 20 vCPU / 40 GB Pro pool would have refused this one (24 vCPUs, 48 GB together).
     expect(resumed._tag).toBe("Right");
     expect(resumes).toBe(1);
   }));
 
-  dbTest("growing a VM's memory or vCPUs needs room in the pool", () => withTeam(async team => {
-    // Keep every fixture within the current Pro per-machine ceiling while
-    // filling the shared pool around the target VM.
+  dbTest("growing a VM's memory or vCPUs is not refused by a plan pool", () => withTeam(async team => {
+    // Two 8 vCPU / 16 GB machines beside the target filled the old Pro pool.
     await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB });
     await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB });
     const target = await seedVm(team, { status: "running", vcpus: 4, memoryMb: 8 * GB });
@@ -304,26 +290,14 @@ describe("Cloud VM resource pool", () => {
     } as unknown as VmProviderGatewayShape;
     const resize = (request: { cpu?: number; memoryMb?: number }) => runWorkflow(resizeVm({
       userId: team, billingTeamId: team, billingPlanId: "pro", teamIds: [team],
-      providerVmId: target, maxActiveVms: 5, ...request,
+      providerVmId: target, maxActiveVms: maxActiveVmsForPlan("pro", {}), ...request,
     }), provider);
 
-    const tooMuchMemory = await resize({ memoryMb: 16 * GB });
-    expect(tooMuchMemory._tag).toBe("Left");
-    if (tooMuchMemory._tag === "Left") {
-      expect(tooMuchMemory.left).toMatchObject({
-        _tag: "VmResourcePoolExceededError",
-        phase: "resize",
-        resource: "memoryMb",
-        used: { vcpus: 16, memoryMb: 32 * GB },
-        requested: { vcpus: 4, memoryMb: 16 * GB },
-      });
-    }
-    const tooManyVcpus = await resize({ cpu: 8 });
-    expect(tooManyVcpus._tag).toBe("Left");
-    if (tooManyVcpus._tag === "Left") {
-      expect(tooManyVcpus.left).toMatchObject({ _tag: "VmResourcePoolExceededError", resource: "vcpus" });
-    }
-    expect(resizes).toBe(0);
+    const grown = await resize({ memoryMb: 16 * GB });
+    if (grown._tag === "Left") expect(grown.left).not.toMatchObject({ _tag: "VmResourcePoolExceededError" });
+    const moreVcpus = await resize({ cpu: 8 });
+    if (moreVcpus._tag === "Left") expect(moreVcpus.left).not.toMatchObject({ _tag: "VmResourcePoolExceededError" });
+    expect(resizes).toBeGreaterThan(0);
   }));
 
   dbTest("a disk-and-compute resize gives the compute claim back when the disk claim fails", () => withTeam(async team => {

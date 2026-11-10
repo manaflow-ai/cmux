@@ -172,6 +172,16 @@ describe("an agent's sandboxes", () => {
     await created(agent.key);
   });
 
+  it("admits concurrent creates at the live-VM budget atomically, one slot each", async () => {
+    // The team's own VM count no longer bounds an agent key (a paid team has no machine count), so its budget does.
+    const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write"]);
+    const agent = await issue(issuer, { maxVms: 2 });
+    await created(agent.key);
+    const racing = await Promise.all([createVm(agent.key), createVm(agent.key), createVm(agent.key)]);
+    expect(racing.map((response) => response.status).sort()).toEqual([201, 429, 429]);
+    for (const response of racing) if (response.status === 429) expect(await response.json()).toMatchObject({ budget: "agent_vms" });
+  });
+
   it("stops at the $/h budget, counting the requested size", async () => {
     const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write"]);
     // The default 4 vCPU / 8 GiB VM is estimated at 0.26 USD/h.

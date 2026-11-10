@@ -2967,7 +2967,7 @@
       "planMax": "Max",
       "sizesDefault": "Nye maskiner bruker 8 GB minne når du ikke velger en størrelse. Kjør cmux vm ls --json for å se hvilke størrelser abonnementet ditt tillater.",
       "limitsTitle": "Abonnementsgrenser",
-      "limitsDesc": "Betalte abonnementer har ingen grense for hvor mange maskiner du har. Utover den inkluderte bruken måles kjørende maskiner per vCPU-time og GB-time, og lagrede maskiner og maskiner på pause per GB-måned disk. Teamets forbruksgrense er det eneste stoppet: når grensen nås, avvises nye starter, og kjørende maskiner settes på pause etter en advarsel, uten at noe går tapt.",
+      "limitsDesc": "Pro, Team og Max har ingen grense for hvor mange maskiner du har; Plus har én maskin. Utover den inkluderte bruken måles kjørende maskiner per vCPU-time og GB-time, og lagrede maskiner og maskiner på pause per GB-måned disk. Teamets forbruksgrense er det eneste stoppet: når grensen nås, avvises nye starter, og kjørende maskiner settes på pause etter en advarsel, uten at noe går tapt.",
       "limitsFree": "Gratiskontoer kan ikke opprette maskiner.",
       "limitsPaid": "Pro-kontoer kan ha et hvilket som helst antall maskiner, hver med opptil 16 GB og 8 vCPU-er.",
       "limitsTeam": "Team er valgfritt: det samler alle på én felles regning og én forbruksgrense. Plasser endrer ikke hvor mange maskiner noen kan ha.",

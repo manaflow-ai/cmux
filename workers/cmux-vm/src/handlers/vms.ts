@@ -380,24 +380,28 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
             if (existing !== null) return existing;
             if (key === null) return yield* Effect.fail(unavailable());
             // A fresh allocation by an agent key must fit its live-VM and $/h budget; a resumed one already counted.
+            // The budget's slot is held until the create is recorded or failed, so concurrent creates count it.
+            let agentSlot: string | undefined;
             if (resumeSlot(key, prior) === undefined) {
               yield* reclaimGoneCiVms(caller, scope);
-              yield* agentBudgetAllows(caller, scope, payload.resources);
+              agentSlot = yield* agentBudgetAllows(caller, scope, payload.resources);
             }
             const attempt = { key, prior };
-            if (payload.snapshotId === undefined) {
-              return yield* withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope, ...(network === undefined ? {} : { network }), ...(image === undefined ? {} : { image }) }, attempt), resumeSlot(key, prior));
-            }
-            return yield* name(payload.snapshotId, (snapshot) =>
-              Effect.gen(function* () {
-                const owns = yield* tenantOwnsSnapshot(caller, snapshot).pipe(Effect.mapError(unavailable));
-                if (owns === null) return yield* Effect.fail(snapshotNotFound());
-                return yield* withCreateSlot(caller, (mayCreate) =>
-                  createRecorded(caller, spec, { mayCreate, scope, source: { snapshot, owns }, ...(network === undefined ? {} : { network }) }, attempt),
-                  resumeSlot(key, prior),
-                );
-              }),
-            );
+            const create = payload.snapshotId === undefined
+              ? withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope, ...(network === undefined ? {} : { network }), ...(image === undefined ? {} : { image }) }, attempt), resumeSlot(key, prior))
+              : name(payload.snapshotId, (snapshot) =>
+                Effect.gen(function* () {
+                  const owns = yield* tenantOwnsSnapshot(caller, snapshot).pipe(Effect.mapError(unavailable));
+                  if (owns === null) return yield* Effect.fail(snapshotNotFound());
+                  return yield* withCreateSlot(caller, (mayCreate) =>
+                    createRecorded(caller, spec, { mayCreate, scope, source: { snapshot, owns }, ...(network === undefined ? {} : { network }) }, attempt),
+                    resumeSlot(key, prior),
+                  );
+                }),
+              );
+            if (agentSlot === undefined) return yield* create;
+            const slot = agentSlot;
+            return yield* create.pipe(Effect.ensuring(Effect.flatMap(TenantLimits, (limits) => limits.release(caller.value.tenantId, slot))));
           }),
         (vmId) => replayVm(caller, scope, vmId),
         clientFingerprint,

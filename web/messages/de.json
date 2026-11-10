@@ -2970,7 +2970,7 @@
       "planMax": "Max",
       "sizesDefault": "Neue Maschinen erhalten 8 GB Arbeitsspeicher, wenn du keine Größe wählst. Führe cmux vm ls --json aus, um die Größen zu sehen, die dein Plan erlaubt.",
       "limitsTitle": "Planlimits",
-      "limitsDesc": "Bezahlte Tarife haben keine Obergrenze für die Anzahl deiner Maschinen. Über die enthaltene Nutzung hinaus werden laufende Maschinen pro vCPU-Stunde und GB-Stunde abgerechnet, gespeicherte und pausierte Maschinen pro GB-Monat Festplatte. Das Ausgabenlimit des Teams ist die einzige Grenze: Beim Erreichen werden neue Starts abgelehnt, und laufende Maschinen werden nach einer Warnung pausiert, ohne dass etwas verloren geht.",
+      "limitsDesc": "Pro, Team und Max haben keine Obergrenze für die Anzahl deiner Maschinen; Plus behält eine Maschine. Über die enthaltene Nutzung hinaus werden laufende Maschinen pro vCPU-Stunde und GB-Stunde abgerechnet, gespeicherte und pausierte Maschinen pro GB-Monat Festplatte. Das Ausgabenlimit des Teams ist die einzige Grenze: Beim Erreichen werden neue Starts abgelehnt, und laufende Maschinen werden nach einer Warnung pausiert, ohne dass etwas verloren geht.",
       "limitsFree": "Kostenlose Konten können keine Maschinen erstellen.",
       "limitsPaid": "Pro-Konten können beliebig viele Maschinen haben, jede mit bis zu 16 GB und 8 vCPUs.",
       "limitsTeam": "Team ist optional: Es bündelt alle auf einer gemeinsamen Rechnung und einem Ausgabenlimit. Plätze ändern nicht, wie viele Maschinen jemand haben kann.",

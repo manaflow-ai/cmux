@@ -7,10 +7,10 @@
 //!
 //! - the team's spending cap (`cloud.spend_cap.reached`): new starts wait until the cap is raised;
 //!   running machines keep working until they pause after the 15-minute warning, nothing lost.
-//! - cmux-platform's abuse guard on machines running at once (`cloud.quota.exceeded`, resource
-//!   `active`): pausing one frees room.
-//! - the guard on machines held, paused ones too (cmux-platform's `resource` `machines`, or the VM
-//!   API's "(paused ones count)"): deleting one frees room; chatting on one resumes it.
+//! - cmux-platform's abuse guard on machines running at once (`cloud.quota.exceeded`,
+//!   `details.resource` `active`): pausing one frees room.
+//! - the guard on machines held, paused ones too (cmux-platform's `details.resource` `machines`, or
+//!   the VM API's "(paused ones count)"): deleting one frees room; chatting on one resumes it.
 //!
 //! Only the error's code and cmux-platform's own words are read, never a provider's text. The
 //! guards' numbers stay in `details.app`, never in the lead.
@@ -41,10 +41,23 @@ pub(super) enum Cap {
     Held,
 }
 
-/// The stop a refusal (an app error, or a failed machine's reason) names, if any.
-pub(super) fn cap_of(code: &str, message: &str) -> Option<Cap> {
-    if code.ends_with("spend_cap.reached") || code.ends_with("spend_cap_reached") {
+/// The stop a refusal (an app error, or a failed machine's reason) names, if any. `resource` is
+/// cmux-platform's `details.resource` when the refusal carries one: `active` and `machines` are the
+/// two machine guards, and any other (`saved` snapshots, `environments`) is not a machine stop.
+pub(super) fn cap_of(code: &str, message: &str, resource: Option<&str>) -> Option<Cap> {
+    // The app hands a failed create on as text only, and a stage's reason has no code: cmux-platform's
+    // spending-cap refusal always says "spending cap; an admin can raise it" (SpendCap.ts `capRefusal`).
+    if code.ends_with("spend_cap.reached")
+        || code.ends_with("spend_cap_reached")
+        || message.contains("spending cap; an admin can raise it")
+    {
         return Some(Cap::Spend);
+    }
+    match resource {
+        Some("active") => return Some(Cap::Running),
+        Some("machines") => return Some(Cap::Held),
+        Some(_) => return None,
+        None => {}
     }
     if message.contains("machines (paused ones count)") || message.contains("paused ones included")
     {
@@ -63,11 +76,10 @@ pub(super) fn at_cap(cap: Cap, listed: &Value, chat: impl Fn(&str) -> String) ->
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|row| {
-            !matches!(
-                at(row, "status").as_str(),
-                Some("failed" | "deleting" | "deleted" | "destroyed")
-            ) && !(cap == Cap::Spend && at(row, "status").as_str() == Some("paused"))
+        .filter(|row| match at(row, "status").as_str() {
+            Some("failed" | "deleting" | "deleted" | "destroyed") => false,
+            Some("paused") => cap != Cap::Spend,
+            _ => true,
         })
         .filter_map(|row| {
             let id = at(row, "machine_id").as_str()?;
