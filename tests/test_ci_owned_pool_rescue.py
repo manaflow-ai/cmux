@@ -7646,6 +7646,54 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                 else:
                     assert_left_at_open_head(self, api, result, number=27797)
 
+    def test_a_long_wait_on_a_busy_owned_label_places_the_run_again(self):
+        attempt3 = CMUX_NEXT_FIXTURE.replace(
+            "    name: cmux-next macOS placement\n",
+            "    name: cmux-next macOS placement\n    if: ${{ github.run_attempt == 1 || ("
+            + rescue.CMUX_NEXT_ATTEMPT_3_PLACEMENT + ") }}\n", 1)
+        self.assertNotEqual(attempt3, CMUX_NEXT_FIXTURE)
+        for attempt, workflow, wait, moved in (
+                (1, CMUX_NEXT_FIXTURE, rescue.OWNED_REPLACE_SECONDS + 60, True),
+                (1, CMUX_NEXT_FIXTURE, rescue.OWNED_REPLACE_SECONDS - 120, False),
+                # Attempt 2 (the rescue's re-run) is placed once more only where the head places the bot's attempt 3.
+                (2, attempt3, rescue.OWNED_REPLACE_SECONDS + 60, True),
+                (2, CMUX_NEXT_FIXTURE, rescue.OWNED_REPLACE_SECONDS + 60, False),
+                # Attempt 3 is the last placed attempt: bounded, nothing places it again for a busy label.
+                (3, attempt3, rescue.OWNED_REPLACE_SECONDS + 60, False)):
+            with self.subTest(attempt=attempt, placed_on_3=workflow is attempt3, wait=wait):
+                clock, api, target = self.world(self.shape(), running=11, workflow=workflow,
+                                                extra={"attempt": attempt})
+                rows = self.shape()(0)
+                rows[-1] = job("cmux-next fast tier", labels=[SIDE_STD], created=-wait)
+                api.jobs_at = api.rerun_jobs = lambda seconds, rows=rows: [dict(row) for row in rows]
+                api.attempt = attempt
+
+                def snapshot(seconds):
+                    # Busy, not dark: the label started a job 30 s before every look.
+                    return {"generated_at": stamp(seconds), rescue.LABEL_STARTED_KEY: {SIDE_STD: stamp(seconds - 30)},
+                            "pools": {SIDE_STD: {"queued": 55, "running": 11, "oldest_queued_minutes": 1267}}}
+                api.snapshot = snapshot
+                result, lines = self.run_rescue(api, clock, target)
+                if moved:
+                    self.assertIn(f"rerun-job:{self.PLACEMENT_ID}", api.calls, (result, api.calls))
+                    self.assertNotIn("rerun", api.calls)
+                    self.assertTrue(any(f"has not started it in {rescue.OWNED_REPLACE_SECONDS // 60} min" in line
+                                        for line in lines), lines)
+                else:
+                    assert_left_at_open_head(self, api, result, number=27797)
+
+    def test_long_owned_wait_is_only_for_owned_labels_on_placed_attempts(self):
+        _, _, target = self.world(self.shape())
+        old = job("cmux-next fast tier", labels=[SIDE_STD], created=-rescue.OWNED_REPLACE_SECONDS)
+        self.assertTrue(rescue.long_owned_wait(target, old, SIDE_STD, START))
+        self.assertFalse(rescue.long_owned_wait(target, old, BLACKSMITH, START), "a Blacksmith label is not owned")
+        self.assertFalse(rescue.long_owned_wait(dataclasses.replace(target, attempt=3), old, SIDE_STD, START))
+        self.assertFalse(rescue.long_owned_wait(dataclasses.replace(target, pr_number=None), old, SIDE_STD, START))
+        self.assertFalse(rescue.long_owned_wait(dataclasses.replace(target, path=rescue.CI_WORKFLOW_PATH), old,
+                                                SIDE_STD, START))
+        young = job("cmux-next fast tier", labels=[SIDE_STD], created=-(rescue.OWNED_REPLACE_SECONDS - 1))
+        self.assertFalse(rescue.long_owned_wait(target, young, SIDE_STD, START))
+
     def test_label_quiet_needs_a_snapshot_that_covers_the_wait(self):
         since = START
         snap = {"generated_at": stamp(rescue.UNSTARTED_STALL_SECONDS - 1), rescue.LABEL_STARTED_KEY: {},
@@ -7826,7 +7874,9 @@ class OpenHeadPlacementRerun(unittest.TestCase):
     def test_follow_moves_a_run_left_queued_behind_a_red_job(self):
         # assess() leaves a stuck job queued once `checks` failed on its own (a full re-run would repeat it), and
         # before this the failover was never looked at: run 40993742146 waited from 02:58Z past 08:00Z.
-        for running, moved in ((0, True), (1, False)):
+        # A label that runs a job no longer keeps it for good: once the job has waited OWNED_REPLACE_SECONDS the
+        # run is placed again (long_owned_wait()), never before.
+        for running in (0, 1):
             for refusals_only in (False, True):
                 with self.subTest(running=running, refusals_only=refusals_only):
                     clock, api, target = self.world(self.shape(), running=running,
@@ -7834,8 +7884,14 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                     with unittest.mock.patch("sys.stdout", io.StringIO()):
                         result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now,
                                                sleep=clock.sleep, log=lambda _: None, side_seconds=30)
-                    self.assertEqual(f"rerun-job:{self.PLACEMENT_ID}" in api.calls, moved, (result, api.calls))
-                    self.assertEqual("cancel" in api.calls, moved, (result, api.calls))
+                    self.assertIn(f"rerun-job:{self.PLACEMENT_ID}", api.calls, (result, api.calls))
+                    self.assertIn("cancel", api.calls, (result, api.calls))
+                    # The fast tier queued 240 s before the watch began.
+                    moved_at = api.first_cancel + 240
+                    if running:
+                        self.assertGreaterEqual(moved_at, rescue.OWNED_REPLACE_SECONDS, result)
+                    else:
+                        self.assertLess(moved_at, rescue.OWNED_REPLACE_SECONDS, result)
                     self.assertNotIn("rerun", api.calls)
                     self.assertNotIn("rerun-failed", api.calls)
 
