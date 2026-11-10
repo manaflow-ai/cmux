@@ -30,7 +30,7 @@ use somebody else's thing for that as well."
 
 | Idea | Place | Built on | Today |
 |---|---|---|---|
-| My PRs and the reviews I owe, in the order I keep them, read again when an agent changes | sidebar section | `cmux.integrations.github`, `agent_chat.changed`, `cmux.storage` | Template `my-prs` |
+| My PRs and the reviews I owe, in the order I keep them, read again when an agent changes | sidebar section | `cmux.integrations.github` (else `net:api.github.com`), `agent_chat.changed`, `cmux.storage` | Template `my-prs` |
 | PRs of this chat's branch | Session Info section | `cmux.session.info.section/1` | Sample `samples/apps/session-prs` |
 | My agent chats as threads, needs-you first | sidebar section | `agent_chat.list`, `agent_chat.changed` | Template `threads` |
 | The tabs of the workspace I am in | sidebar section | `cmux.events.on("tab.changed")` | Template `sidebar-section` |
@@ -54,7 +54,7 @@ use somebody else's thing for that as well."
 ## Gaps
 
 These are the pieces between what people asked for and what an extension can do today.
-Each is an issue; until it lands, the workaround is in the last column.
+All five are tracked in https://github.com/manaflow-ai/cmux/issues/40249; until each lands, the workaround is in the last column.
 
 | Gap | Asked for | Until then |
 |---|---|---|

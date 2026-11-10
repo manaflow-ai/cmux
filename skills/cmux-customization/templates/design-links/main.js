@@ -19,10 +19,12 @@ function kind(url) {
   return { symbol: "link", label: "Link" }
 }
 
-// Figma links read figma.com/design/<key>/<File-Name>?node-id=...: the name is the path's last part.
+// A Figma link reads figma.com/design/<key>/<File-Name>?node-id=...: the name is its third part.
+// Any other link is named by its last part that reads as words (not an id or "edit").
 function titleOf(url) {
-  const [host, ...parts] = url.replace(/^https:\/\//, "").split(/[?]/)[0].split("/").filter(Boolean)
-  const name = parts.length >= 3 ? parts[2] : parts[parts.length - 1] || host
+  const [host, ...parts] = url.replace(/^https:\/\//, "").split(/[?\x23]/)[0].split("/").filter(Boolean)
+  const wordy = parts.filter((p) => /[a-z].*[-_ ]|^[A-Za-z]+$/.test(p) && !/^(edit|view|d|document|spreadsheets|presentation)$/.test(p))
+  const name = /figma\.com$/.test(host) && parts.length >= 3 ? parts[2] : wordy[wordy.length - 1] || host
   try {
     return decodeURIComponent(name).replace(/[-_]+/g, " ").trim()
   } catch (e) {

@@ -313,7 +313,7 @@ describe("the widget templates (clock-weather, my-prs, design-links)", () => {
       ({ ok: true, body: { value: { items: p.path.includes("review-requested") ? [item(3, "Review me")] : [item(1, "First"), item(2, "Second")] } } })
     expect(host.mount("m", "renderPRs")).toBe("")
     await host.settle(10)
-    const rows = () => [...host.tree("m").nodes.values()].filter((n) => n.type === "Row").map((n) => n.props.title)
+    const rows = () => rowTitles(host)
     expect(rows()).toEqual(["First", "Second", "Review me"])
     expect([...host.subscriptions.values()].map((s) => s.stream)).toContain("agent_chat.changed")
     expect([...host.timers.values()]).toContainEqual({ ms: 60000, repeat: true })
@@ -335,6 +335,23 @@ describe("the widget templates (clock-weather, my-prs, design-links)", () => {
     await host.settle()
     expect(searches()).toBe(before)
     expect([...host.timers.values()].filter((t) => t.ms === 20000 && !t.repeat)).toHaveLength(1)
+  })
+
+  test("my-prs: with no connected account it asks for a login and reads the public API", async () => {
+    const host = new FakeHost(load("my-prs"), init)
+    host.handlers["app.storage.get"] = ok(null)
+    host.handlers["app.storage.set"] = ok()
+    host.handlers["integration.request"] = () => ({ ok: false, body: { code: "provider.unavailable", message: "no provider", retryable: false } })
+    host.handlers["net.fetch"] = (p) =>
+      ({ ok: true, body: { value: { status: 200, headers: {}, body: JSON.stringify({ items: p.url.includes("author%3Aoctocat") ? [{ id: 7, number: 7, title: "Public one", html_url: "https://github.com/o/r/pull/7", repository_url: "https://api.github.com/repos/o/r" }] : [] }) } } })
+    host.mount("m", "renderPRs")
+    await host.settle(10)
+    expect(host.calls.filter((c) => c.name === "net.fetch")).toEqual([])
+    host.dispatch("m", host.findNode("m", (n) => n.type === "TextField")!, "submit", { text: "octocat" })
+    await host.settle(10)
+    expect(rowTitles(host)).toEqual(["Public one"])
+    expect(host.calls.find((c) => c.name === "app.storage.set" && c.params.key === "login")?.params.value).toBe("octocat")
+    expect(host.findNode("m", (n) => n.type === "TextField")).toBeUndefined()
   })
 
   test("design-links: a pasted Figma link gets its file name and opens in a browser tab", async () => {
@@ -360,6 +377,20 @@ describe("the widget templates (clock-weather, my-prs, design-links)", () => {
     expect([open.params, open.options.gesture]).toEqual([{ id: "openBrowser", args: { url } }, "g9"])
   })
 })
+
+/** The titles of the Rows reachable from the root, in screen order (a reorder only moves children). */
+function rowTitles(host: FakeHost, mount = "m"): unknown[] {
+  const tree = host.tree(mount)
+  const out: unknown[] = []
+  const walk = (id: string) => {
+    const n = tree.nodes.get(id)
+    if (!n) return
+    if (n.type === "Row") out.push(n.props.title)
+    n.children.forEach(walk)
+  }
+  walk(tree.root)
+  return out
+}
 
 /** The texts of the nodes reachable from the root, in order (detached nodes left out). */
 function liveTexts(host: FakeHost): string[] {

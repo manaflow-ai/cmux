@@ -8,7 +8,7 @@ const [place, setPlace] = signal(null) // { name, latitude, longitude }
 const [weather, setWeather] = signal(null) // { temperature, code, high, low }
 const [error, setError] = signal(null)
 const [draft, setDraft] = signal("")
-let started = false
+let loaded = false
 
 // WMO weather codes, grouped the way a person reads them.
 function describe(code) {
@@ -74,11 +74,19 @@ async function choose(text) {
   }
 }
 
+// Timers belong to the view that started them and end with it, so every render starts its own;
+// the saved city is read once.
+function changeCity() {
+  setPlace(null)
+  setWeather(null)
+  cmux.storage.delete("place").catch(() => undefined)
+}
+
 function start() {
-  if (started) return
-  started = true
   cmux.timer.every(15000, () => setNow(Date.now()))
   cmux.timer.every(15 * 60_000, loadWeather)
+  if (loaded) return
+  loaded = true
   cmux.storage.get("place").then(
     (saved) => {
       if (saved && typeof saved.latitude === "number") {
@@ -109,7 +117,7 @@ function renderClock() {
     }).color(cmux.theme.text.secondary),
     () => (place() ? null : TextField(draft, { placeholder: "Your city, for the weather", onEdit: setDraft, onSubmit: choose })),
     () => (error() ? Text(error()).font("caption").color(cmux.theme.warning) : null)
-  ]).contextMenu([Button("Change city", () => setPlace(null)), Button("Refresh weather", () => loadWeather())])
+  ]).contextMenu([Button("Change city", changeCity), Button("Refresh weather", () => loadWeather())])
 }
 
 globalThis.__cmuxAppExports = { renderClock }
