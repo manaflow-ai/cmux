@@ -14,11 +14,18 @@
 //!   statements do not grow (the flat part; see [`BACKGROUND_SELECTS`]);
 //! - the index rebuild and the decoration walk do not grow.
 //!
-//! STEP 4, NOT DONE (the stored format): a workspace's stored `position` and its public `index` are
-//! dense, so a close restates each of the `m` workspaces after the closed one (its ledger row, its
-//! journal value). That part is asserted as at most `c * m`, with the `c` this test measures at 60
-//! (a close of the first workspace against a close of the last one) and prints. It is not hidden
-//! and it is not flat: a close of the first workspace of 826 still pays 825 times `c`.
+//! THE WORKSPACES AFTER THE CLOSED ONE (step 4, the stored format, is NOT done): a workspace's
+//! stored `position` and its public `index` are dense, so a close changes each of the `m`
+//! workspaces after the closed one.
+//! - DONE, the ledger rows: a close moves the `m` stored positions with a fixed number of
+//!   statements ([`POSITION_MOVE_STATEMENTS`]), asserted with a floor. Each of the `m` rows is
+//!   still written two times (2 row changes for each later workspace).
+//! - NOT DONE, the journal value and the public fold value of each later workspace: the SELECT
+//!   statements that read their decoration, for each one.
+//!
+//! The SELECTs and the rows are asserted as at most `c * m`, with the `c` this test measures at
+//! 60 (a close of the first workspace against a close of the last one) and prints. It is not
+//! hidden and it is not flat: a close of the first workspace of 826 still pays 825 times `c`.
 //!
 //! L, NOT DONE: each committed change clones every catalog terminal to publish waiting directory
 //! reports (`publish_pending_terminal_directories`). Asserted as at most one clone per live
