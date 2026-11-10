@@ -29,6 +29,12 @@ public final class HoverCardCoordinator {
     private var owners: [HoverTargetID: WeakSource] = [:]
     private let timer: DemandTimer
     var panel: HoverCardPanel?
+    /// The source `panel` last showed a card for. A card moves only within its own source (a sidebar
+    /// row to the next, a tab to the next in one strip): another source's card gets a window of its
+    /// own, so it never flies across the screen from the sidebar to a pane's tabs (user 2026-11-09).
+    private var panelSource: ObjectIdentifier?
+    /// Card windows of a source the pointer left, fading out where they are.
+    var retiring: [HoverCardPanel] = []
     /// A card its owner shows in the one card window (`presentOwned`), nil while none does.
     var owned: HoverCardOwned?
     private var activated: HoverTargetID?
@@ -378,6 +384,21 @@ public final class HoverCardCoordinator {
         pruneOwners()
     }
 
+    /// The card window for a card of `source`: the shown one when it is that source's or hidden, else a
+    /// new one, and the other source's card fades out in place (no slide between sources).
+    private func cardWindow(for source: any HoverCardSource) -> HoverCardPanel {
+        let id = ObjectIdentifier(source)
+        defer { panelSource = id }
+        if let panel, panelSource == id || !panel.isVisible { return panel }
+        if let old = panel {
+            retiring.append(old)
+            old.dismiss { [weak self] in self?.retiring.removeAll { !$0.isVisible } }
+        }
+        let fresh = HoverCardPanel()
+        panel = fresh
+        return fresh
+    }
+
     private var queue: [HoverCardEvent] = []
     private var draining = false
 
@@ -401,8 +422,7 @@ public final class HoverCardCoordinator {
                 send(.targetRemoved(target.id))
                 return
             }
-            let panel = panel ?? HoverCardPanel()
-            self.panel = panel
+            let panel = cardWindow(for: source)
             panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
                           themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
                           cornerRadius: body.cornerRadius, entrance: body.entrance, applyTheme: body.applyTheme)
@@ -549,7 +569,7 @@ public final class HoverCardCoordinator {
     /// shows what the machine says.
     public func singleCardViolations() -> [String] {
         var bad: [String] = []
-        if HoverCardPanel.liveInstances > 1 { bad.append("\(HoverCardPanel.liveInstances) hover card windows exist") }
+        if HoverCardPanel.liveInstances > 1 + retiring.count { bad.append("\(HoverCardPanel.liveInstances) hover card windows exist") }
         let showing = panel?.isShowingCard == true
         if showing, machine.shownTarget == nil, owned == nil { bad.append("a card shows while the machine has none") }
         if owned != nil, machine.shownTarget != nil { bad.append("an owner's card and \(machine.shownTarget?.id.rawValue ?? "-") share the window") }
@@ -569,6 +589,7 @@ public final class HoverCardCoordinator {
             "shown_target": machine.shownTarget?.id.rawValue ?? "-",
             "quiet": "\(machine.quiet)",
             "card_windows": "\(HoverCardPanel.liveInstances)",
+            "retiring_windows": "\(retiring.count)",
             "card_showing": "\(panel?.isShowingCard == true)",
             "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
             "anchor_frame": panel.map { NSStringFromRect($0.anchorFrame) } ?? "-",
