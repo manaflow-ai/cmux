@@ -452,6 +452,31 @@ pub(super) fn prepare_session_journal_stream(
                 false,
             ));
         }
+        // Retention deleted the records after this cursor: a replay from
+        // the first retained one would be a silent hole.
+        let pruned_through = mux.journal_pruned_through().map_err(|error| {
+            eprintln!("cmux-tui: read session journal retention floor: {error:#}");
+            ResourceError::operation_failed(
+                "session.journal.subscribe",
+                "could not read the session journal",
+                json!({}),
+            )
+        })?;
+        if sequence < pruned_through {
+            return Err(ResourceError::new(
+                "cursor.gap",
+                "journal cursor is no longer retained",
+                json!({
+                    "requested":{
+                        "generation":generation,
+                        "revision":sequence.to_string(),
+                    },
+                    "current":current_cursor,
+                    "oldest_revision":pruned_through.to_string(),
+                }),
+                true,
+            ));
+        }
         sequence
     } else if request.fields.get("start").and_then(Value::as_str) == Some("beginning") {
         0

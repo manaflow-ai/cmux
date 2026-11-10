@@ -216,8 +216,15 @@ fn archived_kinds_after(
     // The archive head is the last segment's end, so a range below it has a
     // segment; none covers nothing, as the legacy read returned.
     let Some(first) = segments.first() else { return Ok((Vec::new(), through)) };
+    // Retention deleted the segments before the first one: the read goes on
+    // from the first retained record.
     anyhow::ensure!(
-        first.1 <= i64::try_from(sequence.saturating_add(1))?,
+        first.1 <= i64::try_from(sequence.saturating_add(1))?
+            || crate::workspace_registry::output_cleanup::pruned_gap(
+                connection,
+                sequence,
+                u64::try_from(first.1)?
+            )?,
         "journal segments contain a gap before sequence {}",
         first.1
     );

@@ -3,8 +3,8 @@
 use super::*;
 
 const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
-const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
-const JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK: usize = 8;
+pub(super) const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
+pub(super) const JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK: usize = 8;
 /// Live rows a pending output cleanup may hold back from sealing: 64
 /// segments' worth.
 const OUTPUT_CLEANUP_SEAL_HOLD_RECORDS: u64 = 65_536;
@@ -295,6 +295,13 @@ impl Mux {
                 eprintln!("cmux-tui: sealed reducer record backfill deferred: {error:#}");
                 true
             });
+        // After the roster caught up: its saved cursor is one input of the
+        // floor. Before the vacuum below gives the freed pages back.
+        let retention_remains =
+            steps.time("retention", || self.retain_journal()).unwrap_or_else(|error| {
+                eprintln!("cmux-tui: journal retention deferred: {error:#}");
+                true
+            });
         let result = (|| -> anyhow::Result<TickOutcome> {
             let migration = steps.time("auto_vacuum_migration", || {
                 self.workspace_registry
@@ -405,7 +412,9 @@ impl Mux {
             self.report_internal_diagnostic(report);
         }
         match result {
-            Ok(TickOutcome::Settled) if !ledgers_remain && !backfill_remains => {
+            Ok(TickOutcome::Settled)
+                if !ledgers_remain && !backfill_remains && !retention_remains =>
+            {
                 TickOutcome::Settled
             }
             Ok(_) => TickOutcome::WorkRemains,

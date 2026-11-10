@@ -214,6 +214,7 @@ mod journal;
 mod journal_maintenance;
 mod journal_plugin_host;
 mod journal_retention;
+mod journal_segment_retention;
 mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;

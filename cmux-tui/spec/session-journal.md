@@ -713,8 +713,26 @@ maintenance pass. Existing registries keep their current SQLite auto-vacuum
 mode; sealing still reclaims active journal rows, while filesystem shrinkage
 requires the registry's existing vacuum policy.
 
-Canonical segments are retained until explicit session deletion or an explicit
-export-and-forget policy. Size pressure cannot silently delete history. Storage
+Sealed segments are retained while a reader needs them. The maintenance worker
+computes a retention floor: the end of the last sealed segment at or below the
+oldest kept checkpoint (the newest 16), the saved cursor of the agent roster
+reducer, the saved cursor of the agent history fold, every enabled hook's
+cursor and every hook delivery that is not final. A reducer state of another
+version, or one with a rebuild pending, holds the floor at zero. The newest
+segment always stays. Each tick deletes at most eight segments at or below the
+floor, one transaction per segment, together with their kept reducer records
+and the subject index, event index and ingress receipt rows of their records.
+The deleted prefix is one `journal_pruned_ranges` row from sequence 1 and the
+`meta` key `journal_retention_floor`. The floor never moves back. The rule
+depends on what readers need, never on file size, and no setting changes it.
+
+After a deletion, `start: "beginning"` replays from the first retained record.
+A subscription cursor below the floor fails with `cursor.gap` and
+`oldest_revision` set to the floor; the subscriber takes a fresh state snapshot
+and subscribes from that revision. Restore previews of every kept checkpoint,
+hook delivery and reducer restores do not read below the floor. An ingress
+retry whose receipt was deleted is appended as a new event, and a
+`causation_id` that names a deleted event is refused. Storage
 v1 does not accept secret content. Encrypted secret retention and journaled
 redaction markers are reserved for a later storage version.
 
