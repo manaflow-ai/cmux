@@ -9,8 +9,13 @@
 #[cfg(unix)]
 mod agent_browser_provider;
 mod agent_hook_install;
+#[cfg(unix)]
+mod agent_session_context;
 mod app;
+mod attention;
 mod browser_input;
+#[cfg(unix)]
+mod claude_plugin;
 #[cfg(unix)]
 mod claude_wrapper;
 mod cli;
@@ -24,6 +29,7 @@ mod config;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
+mod host_notify;
 mod keys;
 mod layout_undo;
 mod local_owner;
@@ -35,6 +41,8 @@ mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
 mod machine_runtime;
+#[cfg(unix)]
+mod own_build_helpers;
 mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]
@@ -72,6 +80,7 @@ mod remote_trust;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+mod sidebar_status;
 mod ui;
 
 #[cfg(target_os = "linux")]
@@ -581,6 +590,9 @@ struct Args {
     agent_browser_provider: bool,
     owner_host_fg: Option<cmux_tui_core::Rgb>,
     owner_host_bg: Option<cmux_tui_core::Rgb>,
+    /// `--terminal-reap-grace-seconds`: the owner ends a terminal that has had
+    /// no tab for this long. `None`: the owner reaps no terminal.
+    terminal_reap_grace: Option<std::time::Duration>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -683,6 +695,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         agent_browser_provider: false,
         owner_host_fg: None,
         owner_host_bg: None,
+        terminal_reap_grace: None,
     };
     let mut args = args.into_iter().peekable();
     while let Some(arg) = args.next() {
@@ -818,6 +831,21 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                         .into(),
                 );
                 out.remote = true;
+            }
+            "--terminal-reap-grace-seconds" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--terminal-reap-grace-seconds needs a value".to_string())?;
+                let seconds = value
+                    .parse::<u64>()
+                    .map_err(|_| "--terminal-reap-grace-seconds must be an integer".to_string())?;
+                let grace = cmux_tui_core::validate_terminal_reap_grace(
+                    std::time::Duration::from_secs(seconds),
+                )
+                .map_err(|error| error.to_string())?;
+                if out.terminal_reap_grace.replace(grace).is_some() {
+                    return Err("--terminal-reap-grace-seconds may be supplied only once".into());
+                }
             }
             "--remote-resume-lease-seconds" => {
                 let value = args
@@ -1389,6 +1417,7 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-link-socket",
     "--remote-admin-socket",
     "--remote-resume-lease-seconds",
+    "--terminal-reap-grace-seconds",
     "--relay",
     "--relay-slot",
     "--relay-ticket",
@@ -1644,6 +1673,9 @@ fn run_main() {
         }
         if let Some(wrapper_args) = codex_wrapper::invocation(&args) {
             client_log::exit(codex_wrapper::run(wrapper_args));
+        }
+        if agent_session_context::invocation(&args) {
+            client_log::exit(agent_session_context::run());
         }
     }
     // Pin the launch directory before any subsystem can move the process:
@@ -2159,31 +2191,14 @@ fn run_server(
     if args.agent_browser_provider {
         agent_browser_provider::configure_surface_options(&mut surface_options)?;
     }
-    if let Some(helper) = agent_hook_install::runtime_helper_path() {
-        surface_options
-            .extra_env
-            .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
-    }
-    // `claude` resolves to a shim that adds the session's agent hooks, even
-    // under launchers with their own settings and config directory.
+    // `claude` and `codex` resolve to shims that add the session's agent
+    // hooks (even under launchers with their own settings and config
+    // directory), and the hooks run this build's helper. Codex runs its hooks
+    // in a shared daemon that cannot see the terminal's environment, so only
+    // its shim routes them. All three are this build's own, never the copies
+    // another install on this machine wrote.
     #[cfg(unix)]
-    if let Some(path) = claude_wrapper::pane_path() {
-        surface_options.extra_env.push(("PATH".into(), path));
-    }
-    #[cfg(unix)]
-    if let Some(path) = codex_wrapper::pane_path() {
-        if !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path) {
-            surface_options.extra_env.push(("PATH".into(), path));
-        }
-        // Integrated shells keep this directory first after startup files
-        // reorder PATH: Codex runs its hooks in a shared daemon that cannot
-        // see the terminal's environment, so only the shim routes them.
-        if let Some(dir) =
-            codex_wrapper::shim_directory().and_then(|dir| dir.into_os_string().into_string().ok())
-        {
-            surface_options.extra_env.push((cmux_tui_core::AGENT_SHIMS_ENV.into(), dir));
-        }
-    }
+    own_build_helpers::configure_pane(&mut surface_options);
 
     let state_root = if args.ephemeral {
         None
@@ -2280,6 +2295,20 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
+    // The socket answers `identify` as soon as it is bound, before the
+    // reaper below starts: announce it first, so no client sees an owner
+    // started with `--terminal-reap-grace-seconds` without
+    // `terminal-reaper-active-v1`. The reaper itself starts only after the
+    // bind, once this owner holds the session.
+    if let Some(grace) = args.terminal_reap_grace {
+        match mux.set_terminal_reap_grace(grace) {
+            Ok(()) => mux.announce_terminal_reaper(),
+            Err(error) => crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: unplaced terminal reaper unavailable: {error}"
+            ),
+        }
+    }
     let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
     {
         Ok(server) => server,
@@ -2370,6 +2399,24 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    // Ends terminals that have had no tab placement for the reap grace
+    // period (`terminal-reaper-active-v1`). Only an owner started with
+    // `--terminal-reap-grace-seconds` reaps; without it a closed tab's
+    // terminal runs until `terminal close` or the end of the session.
+    let terminal_reaper = if mux.terminal_reaper_advertised() {
+        match cmux_tui_core::start_terminal_reaper(&mux) {
+            Ok(reaper) => Some(reaper),
+            Err(error) => {
+                crate::client_log::stderr_log!(
+                    "startup",
+                    "cmux-tui: unplaced terminal reaper unavailable: {error}"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
     // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
     // has elapsed with no attached view.
     let idle_terminal_reaper = match cmux_tui_core::start_idle_terminal_reaper(
@@ -2428,6 +2475,9 @@ fn run_server(
     };
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
     if let Some(reaper) = idle_terminal_reaper {
+        reaper.stop();
+    }
+    if let Some(reaper) = terminal_reaper {
         reaper.stop();
     }
     #[cfg(unix)]

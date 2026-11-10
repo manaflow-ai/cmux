@@ -2,6 +2,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import re
 import subprocess
 import tempfile
@@ -15,9 +16,12 @@ spec.loader.exec_module(gate)
 HEAD = "a" * 40
 
 
-def check(name, status="COMPLETED", conclusion="SUCCESS", started=None, completed=None):
-    return {"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion,
+def check(name, status="COMPLETED", conclusion="SUCCESS", started=None, completed=None, workflow=None):
+    item = {"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion,
             "startedAt": started, "completedAt": completed}
+    if workflow is not None:
+        item["workflowName"] = workflow
+    return item
 
 
 class Reader:
@@ -37,12 +41,13 @@ class Reader:
 
 class Clock:
     def __init__(self):
-        self.now = 0.0
+        self.now, self.slept = 0.0, []
 
     def __call__(self):
         return self.now
 
     def sleep(self, seconds):
+        self.slept.append(seconds)
         self.now += seconds
 
 
@@ -193,6 +198,37 @@ class FastGate(unittest.TestCase):
         _, _, reds = run(Reader(rollup))
         self.assertEqual(reds, ["cmux-next fast tier"])
 
+    def test_a_newer_skipped_run_does_not_hide_an_older_verdict(self):
+        """#39027 (2026-11-09): a same-tree dispatch of cmux-next.yml on the PR branch posted newer skipped check
+        runs of every other job on the head. Of one name, the newest run with a verdict counts."""
+        lint = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+        older, newer = "2026-11-09T20:10:00Z", "2026-11-09T20:37:10Z"
+        _, _, reds = run(Reader(GREEN + [check(lint, conclusion="FAILURE", started=older),
+                                         check(lint, conclusion="SKIPPED", started=newer)]))
+        self.assertEqual(reds, [lint])
+        _, seen, reds = run(Reader(GREEN + [check(lint, started=older), check(lint, conclusion="SKIPPED", started=newer)]))
+        self.assertIn(lint, seen)
+        self.assertEqual(reds, [])
+        # The fast tier the same way: an older red still counts, an older cancel still has no verdict.
+        rest = [c for c in GREEN if c["name"] != "cmux-next fast tier"]
+        _, _, reds = run(Reader(rest + [check("cmux-next fast tier", conclusion="FAILURE", started=older),
+                                        check("cmux-next fast tier", conclusion="SKIPPED", started=newer)]))
+        self.assertEqual(reds, ["cmux-next fast tier"])
+        with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+            run(Reader(rest + [check("cmux-next fast tier", conclusion="CANCELLED", started=older),
+                               check("cmux-next fast tier", conclusion="SKIPPED", started=newer)]))
+        # Only skipped runs: as before, a skipped lint check is not red (SKIPPED passes this gate).
+        _, seen, reds = run(Reader(GREEN + [check(lint, conclusion="SKIPPED", started=older),
+                                            check(lint, conclusion="SKIPPED", started=newer)]))
+        self.assertIn(lint, seen)
+        self.assertEqual(reds, [])
+        # A newer run still going replaces an older verdict: the gate waits for it.
+        _, _, reds = run(Reader(GREEN + [check(lint, conclusion="FAILURE", started=older),
+                                         check(lint, "IN_PROGRESS", "", started=newer)],
+                                GREEN + [check(lint, conclusion="FAILURE", started=older),
+                                         check(lint, started=newer)]))
+        self.assertEqual(reds, [])
+
     def test_a_webviews_change_stops_waiting_when_the_web_caller_finished_or_skipped_it(self):
         """No react-apps-check is coming once the caller job "web" finished, or react-apps-check was skipped."""
         for rollup in ([check("web")], [check("web", conclusion="SKIPPED")], [check("web / react-apps-check", conclusion="SKIPPED")]):
@@ -235,11 +271,44 @@ class FastGate(unittest.TestCase):
 
     def test_a_skipped_fast_tier_has_no_verdict(self):
         """cmux-next.yml skips the fast tier on a PR when push-head-preflight is not current
-        (a runner failure or its timeout): that is no verdict, not a pass."""
+        (a runner failure or its timeout), and then its cargo half too: that is no verdict, not a pass."""
         rollup = [c for c in GREEN if c["name"] != "cmux-next fast tier"] + [check("cmux-next fast tier", conclusion="SKIPPED")]
         with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
             run(Reader(rollup))
         self.assertEqual(run(Reader(rollup, files=("docs/README.md",)), covered=False)[2], [])
+
+    def test_a_fast_tier_skipped_by_path_routing_passes(self):
+        """PR #38743 (a cmux-tui Rust change, 2026-11-08): path routing sends no Swift work to the Mac
+        fast tier (path_route fast_tier=false), so cmux-next.yml skips it by design while its cargo half
+        runs. The cargo half has the same conditions minus the path ones, so a cargo verdict proves
+        push-head-preflight was current: the skip is the route's, not a missing verdict."""
+        base = [c for c in GREEN if c["name"] != "cmux-next fast tier"] + [check("cmux-next fast tier", conclusion="SKIPPED")]
+        waited, seen, reds = run(Reader(base + [check("cmux-next fast tier (cargo)")]))
+        self.assertNotIn("cmux-next fast tier", seen)
+        self.assertIn("cmux-next fast tier (cargo)", seen)
+        self.assertEqual(reds, [])
+        # A skipped cargo half too: push-head-preflight was not current, so neither tier has a verdict.
+        with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+            run(Reader(base + [check("cmux-next fast tier (cargo)", conclusion="SKIPPED")]))
+        # A cancelled run skips the Mac tier too: the cargo half may have passed before the cancel.
+        with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+            run(Reader(base + [check("cmux-next fast tier (cargo)"), check("cmux-next guards", conclusion="CANCELLED")]))
+        with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+            run(Reader(base + [check("cmux-next fast tier (cargo)", workflow="cmux-next"),
+                               check("cmux-next generated files", conclusion="CANCELLED", workflow="cmux-next")]))
+        # #39706 (2026-11-09): a cancelled check of another workflow is not a cancelled cmux-next run.
+        _, _, reds = run(Reader(base + [check("cmux-next fast tier (cargo)", workflow="cmux-next"),
+                                        check("publish to R2", conclusion="CANCELLED", workflow="cmux-tui artifacts")],
+                                files=("cmux-tui/AGENTS.md", "scripts/ci/cmux-tui-focused-test.sh")))
+        self.assertEqual(reds, [])
+        # Path routing did not pass: its outputs are not a route.
+        no_route = [c for c in base if c["name"] != "cmux-next path routing"]
+        with self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+            run(Reader(no_route + [check("cmux-next path routing", conclusion="FAILURE"), check("cmux-next fast tier (cargo)")]))
+        # A change to the route itself cannot excuse its own skip.
+        for path in gate.ROUTE_FILES:
+            with self.subTest(path=path), self.assertRaisesRegex(gate.Refused, "cmux-next fast tier.*no verdict"):
+                run(Reader(base + [check("cmux-next fast tier (cargo)")], files=(path,)))
 
     def test_the_callers_full_file_list_routes_web(self):
         """gh pr view --json files stops at 100 files; the helper passes its paginated list,
@@ -333,6 +402,78 @@ class FastGate(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("waited=0", printed)
         self.assertIn("waiting=cmux-next fast tier (queued)", printed)
+
+    def gh_reads(self, *answers):
+        """Each `gh` call takes the next answer (the last repeats): an exception to raise, or
+        (status, stdout, stderr). Returns the call list; the real gh_json does the reading."""
+        calls = []
+
+        def fake_run(command, **_kwargs):
+            calls.append(command)
+            answer = answers[min(len(calls), len(answers)) - 1]
+            if isinstance(answer, BaseException):
+                raise answer
+            return subprocess.CompletedProcess(command, *answer)
+        original = gate.subprocess.run
+        gate.subprocess.run = fake_run
+        self.addCleanup(setattr, gate.subprocess, "run", original)
+        return calls
+
+    GREEN_PR = (0, json.dumps({"headRefOid": HEAD, "baseRefName": "feat-cmux-next", "statusCheckRollup": GREEN,
+                               "files": [{"path": "Packages/macOS/CmuxNext/Sources/A.swift"}]}), "")
+    SLOW = subprocess.TimeoutExpired(["gh"], 60)
+
+    def test_a_read_that_times_out_once_is_retried_and_passes(self):
+        """#40271 (2026-11-10): one slow read refused the merge after 90 minutes of waiting:
+        `fast gate on 10a3f6f2: reading the pull request took over 60s`."""
+        calls = self.gh_reads(self.SLOW, self.GREEN_PR)
+        clock = Clock()
+        waited, seen, reds = gate.run("manaflow-ai/cmux", "42", HEAD, 600, 30, True, clock=clock,
+                                      sleep=clock.sleep, base="feat-cmux-next")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(waited, 30)
+        self.assertEqual(reds, [])
+        self.assertIn("cmux-next fast tier", seen)
+
+    def test_a_transient_5xx_read_is_retried_and_passes(self):
+        calls = self.gh_reads((1, "", "HTTP 502: Bad Gateway (https://api.github.com/graphql)"),
+                              (1, "", "error connecting to api.github.com: read: connection reset by peer"),
+                              self.GREEN_PR)
+        clock = Clock()
+        _, _, reds = gate.run("manaflow-ai/cmux", "42", HEAD, 600, 30, True, clock=clock, sleep=clock.sleep,
+                              base="feat-cmux-next")
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(reds, [])
+
+    def test_reads_that_time_out_until_the_budget_ends_raise_the_budget_error_with_backoff(self):
+        calls = self.gh_reads(self.SLOW)
+        clock = Clock()
+        with self.assertRaises(gate.WaitRanOut) as caught:
+            gate.run("manaflow-ai/cmux", "42", HEAD, 600, 30, True, clock=clock, sleep=clock.sleep,
+                     base="feat-cmux-next")
+        message = str(caught.exception)
+        self.assertIn("--wait budget of 600s ran out", message)
+        self.assertIn("reads timed out or failed", message)
+        self.assertIn("took over 60s", message)
+        self.assertEqual(clock.slept, [30, 60, 120, 240, 150])
+        self.assertEqual(len(calls), 6)
+        self.assertGreaterEqual(caught.exception.waited, 600)
+
+    def test_main_names_the_failing_reads_when_the_budget_ends(self):
+        self.gh_reads(self.SLOW)
+        with tempfile.TemporaryFile("w+") as out, contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            status = gate.main(["manaflow-ai/cmux", "42", HEAD, "--next-covered", "--timeout", "0"])
+        self.assertEqual(status, 1)
+        self.assertIn("reads timed out or failed", err.getvalue())
+
+    def test_a_failed_read_that_is_not_transient_refuses_at_once(self):
+        calls = self.gh_reads((1, "", "GraphQL: Could not resolve to a PullRequest with the number of 42."))
+        clock = Clock()
+        with self.assertRaisesRegex(gate.Refused, "cannot read the pull request") as caught:
+            gate.run("manaflow-ai/cmux", "42", HEAD, 600, 30, True, clock=clock, sleep=clock.sleep)
+        self.assertNotIsInstance(caught.exception, gate.WaitRanOut)
+        self.assertEqual(len(calls), 1)
 
     def test_a_rate_limited_read_refuses_at_once_with_the_reset_time(self):
         def limited(args):

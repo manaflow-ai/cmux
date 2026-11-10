@@ -9,6 +9,7 @@
 //! themselves, which is what makes the backend attachable.
 
 mod agent_hooks;
+mod agent_status;
 pub mod backoff;
 mod browser;
 mod browser_provider;
@@ -41,6 +42,7 @@ mod resource_api;
 mod resource_mutation;
 pub mod resource_name;
 mod resource_router;
+mod resource_screen;
 mod resource_selector;
 mod resource_tab;
 mod shell_integration;
@@ -49,6 +51,7 @@ mod sidebar_resource;
 pub mod sizing_policy;
 mod stream_interrupt;
 mod surface;
+mod terminal_command;
 mod terminal_metadata;
 mod workspace_registry;
 
@@ -60,10 +63,12 @@ pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 #[cfg(unix)]
 pub mod unix_process_scope;
+pub mod wait_pattern;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,
 };
+pub use agent_status::AgentStatus;
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};
@@ -85,6 +90,10 @@ pub use mux::{
     RunPlacement, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
     SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,
     WorkspacePlacement, ZoomMode, ZoomState,
+};
+pub use mux::{
+    DEFAULT_TERMINAL_REAP_GRACE, MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_terminal_reaper,
+    validate_terminal_reap_grace,
 };
 pub use mux::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};

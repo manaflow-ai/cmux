@@ -3167,6 +3167,49 @@ mod tests {
 
     use super::*;
 
+    #[cfg(unix)]
+    mod initial_route_budget;
+
+    /// Binds a stream socket at `path` that never listens, as a crashed
+    /// client leaves it. A connect to it is refused even while the returned
+    /// descriptor, or a copy that a concurrent fork inherited, is open.
+    /// (A dropped listener is not stale until every copy is closed.)
+    #[cfg(unix)]
+    fn bind_stale_client_socket(path: &Path) -> std::os::fd::OwnedFd {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use std::os::unix::ffi::OsStrExt;
+
+        // SAFETY: socket(2) has no memory arguments; a valid result is a new
+        // descriptor that the OwnedFd takes.
+        let raw = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+        assert!(raw >= 0, "socket: {}", std::io::Error::last_os_error());
+        // SAFETY: `raw` is a new descriptor that nothing else owns.
+        let socket = unsafe { OwnedFd::from_raw_fd(raw) };
+        // SAFETY: F_SETFD with an int flag on a descriptor this test owns.
+        let cloexec = unsafe { libc::fcntl(socket.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
+        assert_eq!(cloexec, 0, "fcntl: {}", std::io::Error::last_os_error());
+
+        // SAFETY: sockaddr_un is plain data; all-zero bytes are a valid value.
+        let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+        address.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX).unwrap();
+        let bytes = path.as_os_str().as_bytes();
+        assert!(bytes.len() < address.sun_path.len(), "socket path too long");
+        for (slot, byte) in address.sun_path.iter_mut().zip(bytes) {
+            *slot = libc::c_char::from_ne_bytes([*byte]);
+        }
+        let length = libc::socklen_t::try_from(size_of::<libc::sockaddr_un>()).unwrap();
+        // SAFETY: `address` is an initialized sockaddr_un of `length` bytes.
+        let bound = unsafe {
+            libc::bind(
+                socket.as_raw_fd(),
+                std::ptr::from_ref(&address).cast::<libc::sockaddr>(),
+                length,
+            )
+        };
+        assert_eq!(bound, 0, "bind {}: {}", path.display(), std::io::Error::last_os_error());
+        socket
+    }
+
     fn instrumented_test_timeout(timeout: Duration) -> Duration {
         let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
             .ok()
@@ -5703,96 +5746,6 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn initial_provider_timeout_falls_back_to_next_route() {
-        let directory = tempfile::tempdir().unwrap();
-        let daemon_auth =
-            AuthDatabase::load_or_create(directory.path().join("daemon"), "dial-timeout", true)
-                .unwrap();
-        let (daemon, _clients) = RemoteDaemon::new(daemon_auth, SessionLimits::default());
-        let unix_path = directory.path().join("daemon.sock");
-        let server = serve_unix(daemon, &unix_path, MAX_CARRIER_FRAME_BYTES).await.unwrap();
-
-        let calls = Arc::new(AtomicUsize::new(0));
-        let mut providers = cmux_remote::provider::ProviderRegistry::default();
-        providers.register(Arc::new(HangingStartupProvider { calls: calls.clone() })).unwrap();
-        providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES))).unwrap();
-        let providers = Arc::new(providers);
-        let routes = [Url::parse("hanging-startup://daemon").unwrap(), unix_test_route(&unix_path)]
-            .into_iter()
-            .map(|route| {
-                ResolvedRouteCandidate::resolve(route, BTreeMap::new(), &providers).unwrap()
-            })
-            .collect();
-        let mut options = reconnect_test_options(routes);
-        options.providers = providers;
-        options.auth = ClientAuthMode::Carrier;
-        options.reconnect.maximum_attempts = Some(1);
-        options.reconnect.attempt_timeout = instrumented_test_timeout(Duration::from_millis(20));
-        options.reconnect.full_jitter = false;
-        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-
-        let (connection, selected) = tokio::time::timeout(
-            instrumented_test_timeout(Duration::from_millis(500)),
-            connect_first_available(&options, shutdown_rx),
-        )
-        .await
-        .expect("a stalled provider monopolized initial route selection")
-        .expect("the next initial route did not connect");
-
-        assert_eq!(calls.load(Ordering::Acquire), 1);
-        assert_eq!(selected, format!("unix://{}", unix_path.display()));
-        connection.close().await.unwrap();
-        server.shutdown().await.unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn initial_link_timeout_closes_group_and_falls_back_to_next_route() {
-        let directory = tempfile::tempdir().unwrap();
-        let daemon_auth =
-            AuthDatabase::load_or_create(directory.path().join("daemon"), "link-timeout", true)
-                .unwrap();
-        let (daemon, _clients) = RemoteDaemon::new(daemon_auth, SessionLimits::default());
-        let unix_path = directory.path().join("daemon.sock");
-        let server = serve_unix(daemon, &unix_path, MAX_CARRIER_FRAME_BYTES).await.unwrap();
-
-        let close_calls = Arc::new(AtomicUsize::new(0));
-        let mut providers = cmux_remote::provider::ProviderRegistry::default();
-        providers
-            .register(Arc::new(HangingOpenProvider { close_calls: close_calls.clone() }))
-            .unwrap();
-        providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES))).unwrap();
-        let providers = Arc::new(providers);
-        let routes = [Url::parse("hanging-open://daemon").unwrap(), unix_test_route(&unix_path)]
-            .into_iter()
-            .map(|route| {
-                ResolvedRouteCandidate::resolve(route, BTreeMap::new(), &providers).unwrap()
-            })
-            .collect();
-        let mut options = reconnect_test_options(routes);
-        options.providers = providers;
-        options.auth = ClientAuthMode::Carrier;
-        options.reconnect.maximum_attempts = Some(1);
-        options.reconnect.attempt_timeout = instrumented_test_timeout(Duration::from_millis(20));
-        options.reconnect.full_jitter = false;
-        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-
-        let (connection, selected) = tokio::time::timeout(
-            instrumented_test_timeout(Duration::from_millis(500)),
-            connect_first_available(&options, shutdown_rx),
-        )
-        .await
-        .expect("a stalled physical link monopolized initial route selection")
-        .expect("the next initial route did not connect");
-
-        assert_eq!(close_calls.load(Ordering::Acquire), 1);
-        assert_eq!(selected, format!("unix://{}", unix_path.display()));
-        connection.close().await.unwrap();
-        server.shutdown().await.unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
     async fn initial_client_connection_respects_one_attempt_policy() {
         let directory = tempfile::tempdir().unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
@@ -6562,7 +6515,10 @@ mod tests {
 
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mux.sock");
-        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        let stale = bind_stale_client_socket(&path);
+        // Another thread of the test process can fork while the stale socket
+        // is open; the child keeps a copy of its descriptor until exec.
+        let _forked_copy = stale.try_clone().unwrap();
         drop(stale);
 
         let lock_path = directory.path().join("mux.sock.lock");
@@ -6599,7 +6555,10 @@ mod tests {
     async fn concurrent_stale_client_socket_takeover_has_one_owner() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mux.sock");
-        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        let stale = bind_stale_client_socket(&path);
+        // Another thread of the test process can fork while the stale socket
+        // is open; the child keeps a copy of its descriptor until exec.
+        let _forked_copy = stale.try_clone().unwrap();
         drop(stale);
 
         let start = Arc::new(tokio::sync::Barrier::new(2));

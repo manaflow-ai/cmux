@@ -3520,11 +3520,98 @@
   "next": {
     "title": "cmux NEXT NIGHTLY",
     "subtitle": "Vorschau-Builds der nächsten cmux-App",
-    "metaTitle": "cmux NEXT NIGHTLY — Vorschau-Builds",
-    "metaDescription": "Laden Sie cmux NEXT NIGHTLY herunter, eine Vorschau der nächsten cmux-App, automatisch aus dem neuesten Commit erstellt. Läuft neben cmux mit eigenen Auto-Updates.",
+    "metaTitle": "cmux NEXT — Chief und Ihre Coding-Agenten in einer Mac-App",
+    "metaDescription": "cmux NEXT ist das nächste cmux für den Mac. Sagen Sie Chief, was zu tun ist: Es startet Coding-Agenten in eigenen Workspaces und meldet sich zurück.",
     "description": "cmux NEXT NIGHTLY ist eine Vorschau der nächsten cmux-Version und wird automatisch aus dem neuesten Commit erstellt. Es wird als cmux NIGHTLY installiert (Bundle-ID com.cmuxterm.app.nightly), ersetzt daher cmux NIGHTLY und läuft neben cmux. Erfordert einen Mac mit Apple Silicon.",
     "download": "NEXT NIGHTLY für Mac herunterladen",
-    "warning": "NEXT NIGHTLY Builds können Fehler oder unfertige Funktionen enthalten. Falls Probleme auftreten, melden Sie diese auf <githubLink>GitHub</githubLink> oder in <discordLink>#nightly-bugs auf Discord</discordLink> und wechseln Sie zur stabilen Version."
+    "warning": "NEXT NIGHTLY Builds können Fehler oder unfertige Funktionen enthalten. Falls Probleme auftreten, melden Sie diese auf <githubLink>GitHub</githubLink> oder in <discordLink>#nightly-bugs auf Discord</discordLink> und wechseln Sie zur stabilen Version.",
+    "landing": {
+      "tagline": "Sagen Sie Chief, was erledigt werden soll. Es steuert die Agenten.",
+      "subtitle": "cmux NEXT ist die nächste Version von cmux: eine native Mac-App auf Basis von Ghostty. Chief, der integrierte Assistent, startet Coding-Agenten in eigenen Workspaces, behält sie im Blick und sagt Ihnen Bescheid, wenn einer Sie braucht. Neben jedem Agenten stehen ein Terminal, ein echter Browser und Diffs bereit.",
+      "requirements": "Apple Silicon · macOS 14 oder neuer · Läuft neben cmux",
+      "featuresTitle": "Funktionen",
+      "features": {
+        "chief": {
+          "title": "Chief",
+          "body": "Sagen Sie, was erledigt werden soll. Chief startet Agenten, gibt große Aufgaben an Subagenten weiter und meldet sich zurück."
+        },
+        "home": {
+          "title": "Home",
+          "body": "Eine Chatliste für Chief und jeden Agenten, mit Punkten für Ungelesenes, wenn einer Sie braucht."
+        },
+        "agents": {
+          "title": "Jeder Coding-Agent",
+          "body": "Claude Code, Codex, Gemini CLI, OpenCode, Pi und mehr, als echte Chats mit sichtbaren Änderungen und Diffs."
+        },
+        "floating": {
+          "title": "Schwebendes Chief",
+          "body": "⌘I holt Chief über den aktuellen Workspace. ⌥⇧Space ruft es aus jeder App auf."
+        },
+        "search": {
+          "title": "Alles durchsuchen",
+          "body": "⌘⇧A findet Workspaces, Tabs, Agenten-Chats, Browserverlauf und frühere Befehle."
+        },
+        "spaces": {
+          "title": "Bereiche (Spaces)",
+          "body": "Getrennte Fenstergruppen für getrennte Arbeit. Wechseln mit ⌃⌥⌘← und →."
+        },
+        "browser": {
+          "title": "Ein echter Browser",
+          "body": "Chromium in einem Tab, mit Erweiterungen, DevTools und Profilen, neben Ihren Agenten."
+        },
+        "machines": {
+          "title": "Ihre Maschinen",
+          "body": "Führen Sie Workspaces per SSH aus oder auf cmux Cloud-Maschinen, die im Leerlauf pausieren (cmux Pro)."
+        },
+        "history": {
+          "title": "Bringen Sie Ihren Verlauf mit",
+          "body": "Importieren Sie Claude Code- und Codex-Verlauf als durchsuchbare Chats und machen Sie dort weiter, wo Sie aufgehört haben."
+        },
+        "terminal": {
+          "title": "Ghostty-Terminal",
+          "body": "GPU-gerendert, und es liest Ihre Ghostty-Konfiguration."
+        },
+        "sidebar": {
+          "title": "Ihre eigene Seitenleiste",
+          "body": "Fügen Sie Seitenleisten-Bereiche als Listen oder Raster hinzu, gebaut als kleine JavaScript-Apps."
+        },
+        "phone": {
+          "title": "iPhone, in der Beta",
+          "body": "Beantworten Sie die Berechtigungsabfrage eines Agenten von Ihrem Handy aus."
+        }
+      },
+      "heroAlt": "cmux NEXT: Home mit Chief links, ein Claude Code-Agent mit seinen bearbeiteten Dateien rechts",
+      "demosTitle": "So sieht es aus",
+      "demos": {
+        "docked": {
+          "caption": "Chief neben einem Workspace angedockt.",
+          "alt": "Chief rechts neben einem Terminal-Workspace angedockt"
+        },
+        "floating": {
+          "caption": "⌘I lässt Chief über allem schweben, was Sie gerade tun.",
+          "alt": "Chief schwebt über einem Terminal-Workspace"
+        },
+        "agents": {
+          "caption": "Der Chat eines Agenten neben dem von Chief.",
+          "alt": "Ein Agenten-Gespräch neben einem Chat mit Chief"
+        },
+        "palette": {
+          "caption": "⌘⇧P führt jede Aktion per Name aus.",
+          "alt": "Die Befehlspalette über einem Gespräch"
+        },
+        "history": {
+          "caption": "Übernehmen Sie Claude Code- und Codex-Verlauf.",
+          "alt": "Der Import-Bildschirm mit Claude Code, Codex und weiteren Quellen"
+        },
+        "machines": {
+          "caption": "Wählen Sie die Maschine, auf der eine Workspace-Gruppe läuft.",
+          "alt": "Auswahl, auf welcher Maschine eine Workspace-Gruppe läuft"
+        }
+      },
+      "nightlyTitle": "Über NEXT NIGHTLY",
+      "nightlyBody": "Jede Nacht erscheint ein neuer Build aus dem neuesten Commit, und die App aktualisiert sich selbst.",
+      "iconAlt": "cmux NEXT NIGHTLY Symbol"
+    }
   },
   "languageSwitcher": {
     "label": "Sprache"

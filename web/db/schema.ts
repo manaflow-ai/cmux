@@ -2452,6 +2452,8 @@ export const stackIdentitySnapshots = pgTable(
         displayName: string | null;
         billingPlanId: string | null;
         billingSeats: number | null;
+        /** Optional: rows written before team deals existed omit it. */
+        entitlementOverride?: unknown;
       }[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),

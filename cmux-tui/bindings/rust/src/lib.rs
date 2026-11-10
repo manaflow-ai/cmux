@@ -41,6 +41,8 @@ mod presence;
 pub mod raw;
 mod raw_support;
 mod resource;
+#[cfg(all(test, unix))]
+mod test_roots;
 mod topology;
 
 // Private aliases keep the checked-in legacy generator compiling without

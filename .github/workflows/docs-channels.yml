@@ -16,8 +16,20 @@ permissions:
   contents: read
 
 jobs:
+  # A deploy of classic web/ from main ships only past the classic deploy guard (Leo's label or a teammate's PR).
+  guard:
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/classic-deploy-guard.yml
+    with:
+      role: docs
+
   nightly:
     if: github.ref == 'refs/heads/main'
+    needs: guard
     uses: ./.github/workflows/docs-deploy-reusable.yml
     with:
       channel: nightly
