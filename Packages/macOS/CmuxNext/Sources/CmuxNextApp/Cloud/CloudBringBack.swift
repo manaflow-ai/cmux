@@ -151,11 +151,15 @@ struct CloudBringBack {
         }
         let name = machine.machine.title
         guard FileManager.default.fileExists(atPath: entry.localRoot) else { throw Failure(message: CloudBringBackStrings.noFolder(entry.localRoot)) }
-        _ = try await CloudMove.connected(machine, invocation)
+        // A connect's stop names its own machine; this run's Retry (a kept pin above all) stays.
+        let connected = { [again] (session: CloudMachineSession) async throws -> CloudMachineSession in
+            do { return try await CloudMove.connected(session, invocation) } catch let failure as Failure { throw Failure(message: failure.message, retry: again) }
+        }
+        _ = try await connected(machine)
         let pending: CloudMachineSession?
         if let id = pinned {
             guard let session = services.machines.session(id) else { throw Failure(message: CloudMoveStrings.noSuchMachine(id), retry: again) }
-            pending = try await CloudMove.connected(session, invocation)
+            pending = try await connected(session)
         } else {
             pending = nil
         }
@@ -198,8 +202,12 @@ struct CloudBringBack {
             let vmKind = await CloudMove.ownerAnswer(target).vmKind
             onto = (socket, vmKind, remote)
         }
-        // From here the chat may land on the target: every stop's Retry is pinned to it (``pending`` above).
-        if let target { again = .move(machineID: target.machineID) }
+        // From here the chat may land on the target: every stop's Retry is pinned to it (``pending`` above), kept now
+        // so a quit or a crash mid-transfer leaves the pin too.
+        if let target {
+            again = .move(machineID: target.machineID)
+            services.cloud.bringBackRetries[tab.id] = again
+        }
         let moved: CloudMoveCLI.Answer
         do {
             // A running turn goes on where the chat lands, with what it wrote on the machine since the pull above
