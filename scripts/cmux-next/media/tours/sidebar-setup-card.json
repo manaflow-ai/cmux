@@ -1,0 +1,11 @@
+{
+  "title": "First-run setup: the Finish setting up card docked at the sidebar's bottom left",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Hide the Did you know card so the setup card has the slot alone", "cmux": ["settings", "set", "sidebar.cards.tips", "false"], "wait": 1, "shot": false},
+    {"title": "Start first-run setup", "rpc": {"method": "debug.setup.card", "params": {}}, "wait": 3, "shot": false},
+    {"title": "Light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 3},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 3},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false}
+  ]
+}

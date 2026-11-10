@@ -237,16 +237,14 @@ extension SetupCardEnvironment {
     /// What the setup rows read and run that only the App has: the account, the `cmux` on PATH, the history import
     /// (moved from HomeHostView+SetupCard.swift with the card).
     init(services: AppServices?) {
-        let auth = services?.cloud.auth, registry = services?.registry
-        let muxHome = services.map { HomeBrainHost.muxHome(tag: $0.environment.tag).path }
+        let auth = services?.cloud.auth, registry = services?.registry, muxHome = services.map { HomeBrainHost.muxHome(tag: $0.environment.tag).path }
         self.init(
             account: { (auth?.isSignedIn ?? false, auth?.user?.primaryEmail) },
             signInAccount: { _ = registry?.perform("palette.auth.signIn", invocation: ActionInvocation(origin: .user)) },
             cliState: { CLIInstallReport.setupRow(await CLIInstallHandlers.pathCheck(CLIPathInstaller().source)) },
             installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) },
             openAgents: { [weak services] in services?.onboarding.show(step: .agents) },
-            historySources: { guard let muxHome else { return false }
-                return MemorySource.offerTitle(await ChiefMemoryImportHandlers.detectForOffer(muxHome: muxHome)) != nil },
+            historySources: { guard let muxHome else { return false }; return MemorySource.offerTitle(await ChiefMemoryImportHandlers.detectForOffer(muxHome: muxHome)) != nil },
             importHistory: { [weak services] in services.map { TopPages.show(.page(.importHistory), services: $0) != nil } ?? false })
     }
 }

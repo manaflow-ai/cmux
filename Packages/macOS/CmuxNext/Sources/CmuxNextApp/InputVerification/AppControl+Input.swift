@@ -44,6 +44,8 @@ extension AppControl {
         service?.router.register([
             // This app's own light/dark override (never the system's).
             .mainActor("debug.appearance") { call in .value(DebugAppearance.handle(call.params)) },
+            // First-run setup's sidebar card on a profile past its first run (captures of the card).
+            .mainActor("debug.setup.card") { [weak services] _ in services?.onboarding.setup.debugShowAgain(); return .value(["shows": .bool(services?.onboarding.setup.shows == true)]) },
             // A patterned window behind one of the app's windows, for captures of its translucency.
             .async("debug.capture_backdrop") { [weak services] call in
                 let pattern = call.params["pattern"]?.stringValue.flatMap(CaptureBackdropPattern.init(name:))

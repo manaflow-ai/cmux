@@ -72,6 +72,13 @@ public final class FirstRunSetup {
         return defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
     }
 
+    /// Shows the card again on a profile past its first run: only the DEBUG control method `debug.setup.card`
+    /// calls it (captures of the card).
+    public func debugShowAgain() {
+        defaults.set("pending", forKey: Self.stateKey)
+        shows = true
+    }
+
     /// Hide, or every row done: the card leaves for good, and its chat history row with it.
     public func end() {
         guard defaults.string(forKey: Self.stateKey) != "ended" else { return }
