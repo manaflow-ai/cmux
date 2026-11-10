@@ -5776,6 +5776,62 @@ class OrphanedDispatchRerunTests(unittest.TestCase):
         lane = dict(base_tier_dispatch(), head_branch="lane/odd-27327-spaces")
         self.assertIsNone(janitor.orphan_rerun_scope(janitor.Orphan(lane, "e", "cmux-next daemon tests", NOW, 0, 1)))
 
+    @staticmethod
+    def verification_dispatch(*, request: str, sha: str = "8a1d00cb" + "0" * 32, mode: str = "focused",
+                              branch: str = "tui-feat-demux-followup-3-red", age: float = 123.5,
+                              status: str = "in_progress"):
+        run = make_run(event="workflow_dispatch", branch=branch, path=".github/workflows/cmux-tui.yml",
+                       name="cmux-tui", sha=sha, age=age, status=status)
+        run["display_title"] = f"cmux-tui {mode} {request} @ {sha}"
+        return run
+
+    def verification_entry(self, run, jobs):
+        orphan = janitor.Orphan(run, "e", "macOS lint and tests", NOW, 0, jobs[1]["id"])
+        decisions = [janitor.OrphanDecision(orphan, "cancel")]
+        entries = janitor.orphan_reruns(decisions, {run["id"]: "cancelled"}, {run["id"]: jobs}, now=NOW)
+        self.assertEqual(len(entries), 1)
+        return entries[0], dict(run, status="completed", conclusion="cancelled")
+
+    @staticmethod
+    def verification_jobs():
+        return [{"id": next(_ids), "name": "test (linux)", "status": "completed", "conclusion": "failure"},
+                {"id": next(_ids), "name": "macOS lint and tests", "status": "queued", "conclusion": None}]
+
+    def test_a_newer_verification_of_the_same_lane_and_filter_supersedes_the_re_run(self):
+        """ci-rev-1 on #40111: a cmux-tui run name ends in a request id `-<epoch>-<pid>`, so the kind must drop it,
+        or no newer dispatch ever matches and a superseded verification run is re-run beside its replacement."""
+        sha = "8a1d00cb" + "0" * 32
+        run = self.verification_dispatch(request="8a1d00cb1eae-fd14d7f91-1794271510-52646", sha=sha)
+        entry, cancelled = self.verification_entry(run, self.verification_jobs())
+        lane = {run["head_branch"]: sha}
+        same_filter = self.verification_dispatch(request="8a1d00cb1eae-fd14d7f91-1794279999-61000", sha=sha, age=20)
+        newer_commit = self.verification_dispatch(request="9b2e11dc2faf-fd14d7f91-1794280000-61001",
+                                                  sha="9b2e11dc" + "0" * 32, age=10)
+        other_filter = self.verification_dispatch(request="8a1d00cb1eae-f0badcafe-1794280001-61002", sha=sha, age=10)
+        other_mode = self.verification_dispatch(request="8a1d00cb1eae-1794280002-61003", sha=sha, mode="full", age=10)
+        for newer, action in ((same_filter, "drop"), (newer_commit, "drop"), (other_filter, "rerun"),
+                              (other_mode, "rerun")):
+            with self.subTest(newer=newer["display_title"]):
+                decisions = janitor.plan_lost_reruns([entry], {run["id"]: cancelled}, {}, now=NOW, head_runs={},
+                                                     branch_heads=lane, dispatch_runs={run["id"]: [newer]},
+                                                     dispatch_jobs={})
+                self.assertEqual([d.action for d in decisions], [action], decisions[0].note)
+
+    def test_a_verification_run_is_not_re_run_once_its_lane_moved_past_its_commit(self):
+        """The lead's rule for #40111: a red or green proof re-runs only while its lane branch is still at the
+        run's commit; a moved or deleted lane branch drops it, and an unread head keeps it for the next sweep."""
+        sha = "8a1d00cb" + "0" * 32
+        run = self.verification_dispatch(request="8a1d00cb1eae-fd14d7f91-1794271510-52646", sha=sha)
+        entry, cancelled = self.verification_entry(run, self.verification_jobs())
+        branch = run["head_branch"]
+        for heads, action in (({branch: sha}, "rerun"), ({branch: "f" * 40}, "drop"), ({branch: ""}, "drop"),
+                              ({}, "keep")):
+            with self.subTest(heads=heads):
+                decisions = janitor.plan_lost_reruns([entry], {run["id"]: cancelled}, {}, now=NOW, head_runs={},
+                                                     branch_heads=heads, dispatch_runs={run["id"]: []},
+                                                     dispatch_jobs={})
+                self.assertEqual([d.action for d in decisions], [action], decisions[0].note)
+
     def test_a_dry_run_carries_no_orphan_re_run(self):
         run, jobs, fake = self.world()
         with tempfile.TemporaryDirectory() as temp:
