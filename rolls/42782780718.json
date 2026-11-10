@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42782780718",
+  "recorded_at": "2026-11-10T08:35:33Z",
+  "reason": "cmux-tui 86006caef723 changes the image's cmux-tui (pinned 9f4d45c420d9)",
+  "dry_run": false,
+  "cmux_tui": "86006caef7237e143a8977b81cf5e2685ed61ce4",
+  "fixes": [
+    {
+      "sha": "86006caef7237e143a8977b81cf5e2685ed61ce4",
+      "mergedAt": "2026-11-10T08:11:27Z",
+      "subject": "chore(next): base autofix at e32629f08365"
+    },
+    {
+      "sha": "e32629f083654ff65a95dc92385e8ffeb5830957",
+      "mergedAt": "2026-11-10T00:07:20-08:00",
+      "subject": "Cloud start: a warm's installed login is the start's receipt; Send re-checks no login (#40184)"
+    },
+    {
+      "sha": "0acdf5011170dd7aa6fcfde71a5e2ba6fe72cbb3",
+      "mergedAt": "2026-11-10T00:06:12-08:00",
+      "subject": "Point at Element: the palette, CLI and Debug Settings use the menu row's name (#39959)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T08:35:33Z",
+    "snapshot_id": "sh-b7974994d13040b8afe79e8dd958b082",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42782780718): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "32950591fbde086a0fb2a5eba31b550b96ea414d",
+    "image": "cloud-native-auto-86006cae-42782780718-1",
+    "revision": "ci-42782780718-1",
+    "at": "2026-11-10T08:35:33Z"
+  },
+  "rolled_back": false
+}
