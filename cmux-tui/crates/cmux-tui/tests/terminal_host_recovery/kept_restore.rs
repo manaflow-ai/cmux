@@ -238,8 +238,10 @@ fn every_kept_terminal_is_alive_after_a_restore_whose_launches_failed_one_time()
 ///
 /// 12 kept agent tabs in 12 workspaces, the middle one selected, a restart
 /// with 2 slots and each launch held 1 s in its turn: the first wave has at
-/// most 2 hidden terminals, and the selected workspace's terminal is in it
-/// too (it does not wait for a turn of the hidden ones to end).
+/// most 2 hidden terminals, and the selected workspace's terminal is one of
+/// the first 3 that restart (it does not wait for a turn of the hidden ones
+/// to end; judged by the order, not by a clock, so a loaded host changes
+/// nothing).
 #[test]
 fn the_restarts_of_a_restore_take_turns_and_the_shown_workspace_goes_first() {
     const TABS: usize = 12;
@@ -307,14 +309,15 @@ fn the_restarts_of_a_restore_take_turns_and_the_shown_workspace_goes_first() {
          the respawn gate allows {SLOTS}"
     );
     // The app asks in tree order, so the slots are taken when the shown
-    // tab's request arrives: it does not wait for one of them.
+    // tab's request arrives: it does not wait for one of them, so only the
+    // hidden terminals that hold them can restart before it.
     let mut order = restarted_at.iter().collect::<Vec<_>>();
     order.sort_by_key(|(_, at)| **at);
     let place = order.iter().position(|(terminal, _)| **terminal == shown).unwrap();
     assert!(
-        first_wave.contains(&shown),
-        "the shown workspace's terminal restarted as number {} of {TABS}: it waited for a \
-         turn of a hidden terminal to end",
+        place <= SLOTS,
+        "the shown workspace's terminal restarted as number {} of {TABS}: it waited behind \
+         hidden terminals in line",
         place + 1
     );
 }

@@ -169,3 +169,83 @@ fn the_line_gets_its_turn_after_waiters_of_the_person_in_a_row() {
         thread.join().unwrap();
     }
 }
+
+/// The hard bound (a count, no clock): the turns that run at one time are
+/// never more than 2 x the slots. Waiters of the person do not wait for the
+/// turns of the line, so both kinds can run side by side: at most `slots` of
+/// each.
+///
+/// 2 slots, both held by turns of the line. 6 waiters of the person and 6
+/// tickets of the line come: exactly 2 of the person's get a turn (4 turns
+/// run), and nobody else while those 4 are held. Then every turn is given
+/// back when its holder is told to: the count never goes above 4 and all 12
+/// get their turn.
+#[test]
+fn the_turns_that_run_at_one_time_are_never_more_than_twice_the_slots() {
+    use std::sync::atomic::AtomicUsize;
+    const SLOTS: usize = 2;
+    const EACH: usize = 6;
+    let gate = Arc::new(StartupAdoptionGate::with_slots(SLOTS));
+    let running = Arc::new(AtomicUsize::new(0));
+    let most = Arc::new(AtomicUsize::new(0));
+    let held = (0..SLOTS)
+        .map(|_| gate.turn_first_if(gate.ticket(), || false, || false).expect("a free slot"))
+        .collect::<Vec<_>>();
+    running.store(SLOTS, Ordering::Release);
+    most.store(SLOTS, Ordering::Release);
+    let release = Arc::new((Mutex::new(false), Condvar::new()));
+    let (admitted, admissions) = std::sync::mpsc::channel();
+    let run = |first: bool| {
+        let (gate, ticket) = (gate.clone(), gate.ticket());
+        let (running, most) = (running.clone(), most.clone());
+        let (release, admitted) = (release.clone(), admitted.clone());
+        std::thread::spawn(move || {
+            let turn = gate.turn_first_if(ticket, || false, || first).expect("a turn");
+            // Counted after the turn began and before it ends: the count is
+            // never above the turns that run.
+            let now = running.fetch_add(1, Ordering::AcqRel) + 1;
+            most.fetch_max(now, Ordering::AcqRel);
+            admitted.send(first).unwrap();
+            let (released, changed) = &*release;
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            drop(released);
+            running.fetch_sub(1, Ordering::AcqRel);
+            drop(turn);
+        })
+    };
+    let mut threads = Vec::new();
+    for _ in 0..EACH {
+        threads.push(run(false));
+        threads.push(run(true));
+    }
+    // The line holds every slot: only waiters of the person get a turn, one
+    // per slot.
+    for _ in 0..SLOTS {
+        let first = admissions.recv_timeout(Duration::from_secs(10)).expect("no turn for a waiter");
+        assert!(first, "a ticket of the line got a turn while the line held every slot");
+    }
+    assert_eq!(running.load(Ordering::Acquire), 2 * SLOTS);
+    assert!(
+        admissions.recv_timeout(Duration::from_millis(200)).is_err(),
+        "a waiter got a turn while 2 x {SLOTS} turns ran"
+    );
+    {
+        let (released, changed) = &*release;
+        *released.lock().unwrap() = true;
+        changed.notify_all();
+    }
+    running.fetch_sub(SLOTS, Ordering::AcqRel);
+    drop(held);
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    assert_eq!(admissions.try_iter().count(), 2 * EACH - SLOTS, "a waiter got no turn");
+    assert_eq!(
+        most.load(Ordering::Acquire),
+        2 * SLOTS,
+        "more turns ran at one time than 2 x {SLOTS}, or the person's waiters waited for the line"
+    );
+}
