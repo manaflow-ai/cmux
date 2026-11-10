@@ -6,7 +6,16 @@
 // row is ROW_HEIGHT tall, and each row reads its own record from the store by id. Opening and
 // scrolling cost the same at 3 machines and at 5,000 (README.md "Perf"); a change to one machine
 // re-renders that row only.
-import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import type { Strings } from "../shared/i18n";
 import { isRunning, type BoardFilter, type BoardRow, type BoardTotals, type Owner } from "./model";
 import type { BoardStore, RowView } from "./store";
@@ -178,7 +187,9 @@ function BoardList({
   const rows: ReactNode[] = [];
   for (let index = first; index < end; index += 1) {
     const id = ids[index]!;
-    rows.push(<BoardRowView key={id} id={id} top={index * ROW_HEIGHT} store={store} strings={strings} money={money} />);
+    rows.push(
+      <BoardRowView key={id} id={id} index={index} count={ids.length} store={store} strings={strings} money={money} />,
+    );
   }
   return (
     <div ref={scroller} className="board-list" onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}>
@@ -191,34 +202,36 @@ function BoardList({
 
 const BoardRowView = memo(function BoardRowView({
   id,
-  top,
+  index,
+  count,
   store,
   strings,
   money,
 }: {
   id: string;
-  top: number;
+  index: number;
+  count: number;
   store: BoardStore;
   strings: Strings;
   money: Money;
 }) {
-  const view = useSyncExternalStore(
-    (listener) => store.subscribeRow(id, listener),
-    () => store.getRow(id),
-  );
+  const subscribe = useCallback((listener: () => void) => store.subscribeRow(id, listener), [store, id]);
+  const view = useSyncExternalStore(subscribe, () => store.getRow(id));
   if (!view) return null;
-  return <RowBody view={view} top={top} store={store} strings={strings} money={money} />;
+  return <RowBody view={view} index={index} count={count} store={store} strings={strings} money={money} />;
 });
 
 function RowBody({
   view,
-  top,
+  index,
+  count,
   store,
   strings,
   money,
 }: {
   view: RowView;
-  top: number;
+  index: number;
+  count: number;
   store: BoardStore;
   strings: Strings;
   money: Money;
@@ -226,15 +239,20 @@ function RowBody({
   const { row, stopping, refused } = view;
   const { t } = strings;
   const running = isRunning(row.state);
+  // The buttons say which machine they act on (the name is the row's first cell).
+  const nameId = `board-name-${row.id}`;
   return (
     <li
       className="board-row"
       data-state={row.state}
       data-waiting={row.waiting || undefined}
-      style={{ transform: `translateY(${top}px)` }}
+      // Only the rows in view are in the DOM: the position and count say where this one is in the whole list.
+      aria-posinset={index + 1}
+      aria-setsize={count}
+      style={{ transform: `translateY(${index * ROW_HEIGHT}px)` }}
     >
       <div className="board-cell board-machine">
-        <span className="board-name" title={row.title}>
+        <span className="board-name" id={nameId} title={row.title}>
           {row.title}
         </span>
         <span className="board-sub">
@@ -251,7 +269,11 @@ function RowBody({
           {row.waiting && <span className="board-dot attention" aria-hidden="true" />}
           {doingText(row, strings)}
         </span>
-        <span className="board-sub">{refused ?? lastText(row, strings)}</span>
+        {refused ? (
+          <output className="board-sub board-refused">{refused}</output>
+        ) : (
+          <span className="board-sub">{lastText(row, strings)}</span>
+        )}
       </div>
       <div className="board-cell board-num">
         <span title={row.costUsd === null ? t("board.cost.unknown") : undefined}>
@@ -262,13 +284,19 @@ function RowBody({
         </span>
       </div>
       <div className="board-cell board-actions">
-        <button type="button" className="board-button" onClick={() => void store.openMachine(row.id)}>
+        <button
+          type="button"
+          className="board-button"
+          aria-describedby={nameId}
+          onClick={() => void store.openMachine(row.id)}
+        >
           {t("board.open")}
         </button>
         {(running || stopping) && (
           <button
             type="button"
             className="board-button danger"
+            aria-describedby={nameId}
             disabled={stopping}
             onClick={() => void store.stopMachine(row.id)}
           >

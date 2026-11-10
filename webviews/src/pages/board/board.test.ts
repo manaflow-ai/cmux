@@ -100,6 +100,24 @@ describe("model", () => {
     expect(rows.sort(compareRows).map((row) => row.id)).toEqual(["waiting", "failed", "new", "old", "paused"]);
   });
 
+  test("a non-finite createdAt or an unknown state sorts consistently", () => {
+    const rows = joinRows({
+      machines: [
+        machine("x", { createdAt: Number.NaN }),
+        machine("y", { createdAt: Number.POSITIVE_INFINITY }),
+        machine("z", { state: "hibernating" as never, createdAt: 3 }),
+        machine("w", { createdAt: 2 }),
+      ],
+    });
+    const once = [...rows].sort(compareRows).map((row) => row.id);
+    const again = [...rows]
+      .reverse()
+      .sort(compareRows)
+      .map((row) => row.id);
+    expect(once).toEqual(again);
+    expect(once).toEqual(["w", "x", "y", "z"]);
+  });
+
   test("totals over the degenerate fixture count unknown costs instead of adding them", () => {
     const snapshot = fixtureBoard({ machines: 500, degenerate: true });
     const totals = sumTotals(snapshot);
@@ -272,5 +290,81 @@ describe("store", () => {
     const failed = manualStore(failing);
     await failed.store.start();
     expect(failed.store.getSnapshot()).toMatchObject({ unavailable: false, failure: "platform answered 503" });
+  });
+
+  test("events that arrive while the snapshot is read are applied over it, not lost with it", async () => {
+    const provider = new MockBoardProvider({ machines: 50 });
+    const { store, frame } = manualStore(provider);
+    const read = provider.call.bind(provider);
+    const first = fixtureBoard({ machines: 50 }).machines[0]!;
+    provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+      if (op === "cmux.board.snapshot") provider.push({ kind: "machine", machine: { ...first, state: "failed" } });
+      return read<R>(op, params);
+    };
+    await store.start();
+    frame();
+    const state = store.getSnapshot();
+    expect(state.loading).toBe(false);
+    expect(state.visible.length).toBe(50);
+    expect(store.getRow(first.id)!.row.state).toBe("failed");
+  });
+
+  test("a Stop answer that comes after the machine went away does not bring it back", async () => {
+    const provider = new MockBoardProvider({ snapshot: { machines: [machine("a"), machine("b")] } });
+    const { store, frame } = manualStore(provider);
+    await store.start();
+    frame();
+    provider.holdStop();
+    const done = store.stopMachine("a");
+    provider.push({ kind: "gone", id: "a" });
+    provider.finishStop();
+    await done;
+    frame();
+    expect(store.getRow("a")).toBeUndefined();
+    expect(store.getSnapshot().visible).toEqual(["b"]);
+    expect(store.getSnapshot().totals.machines).toBe(1);
+  });
+
+  test("a Stop answer older than the stream's record is not shown", async () => {
+    const provider = new MockBoardProvider({ snapshot: { machines: [machine("a")] } });
+    const { store } = manualStore(provider);
+    await store.start();
+    provider.holdStop();
+    const done = store.stopMachine("a");
+    provider.push({ kind: "machine", machine: machine("a", { state: "failed" }) });
+    provider.finishStop();
+    await done;
+    expect(store.getRow("a")).toMatchObject({ stopping: false, row: { state: "failed" } });
+  });
+
+  test("Stopping ends when the host answers, even with the machine still running and no stream", async () => {
+    const provider = new MockBoardProvider({ snapshot: { machines: [machine("a")] } });
+    provider.subscribe = async () => {
+      throw new Error("no stream");
+    };
+    const read = provider.call.bind(provider);
+    provider.call = async <R>(op: string, params: unknown): Promise<R> =>
+      op === "cmux.board.stop" ? (machine("a") as R) : read<R>(op, params);
+    const { store } = manualStore(provider);
+    await store.start();
+    await store.stopMachine("a");
+    expect(store.getRow("a")).toMatchObject({ stopping: false, row: { state: "running" } });
+  });
+
+  test("with a filter on, a cost tick neither re-sorts nor refilters; a change of filter result does", async () => {
+    const provider = new MockBoardProvider({
+      snapshot: { machines: [machine("a", { createdAt: 2 }), machine("b", { createdAt: 1 })] },
+    });
+    const { store, frame } = manualStore(provider);
+    await store.start();
+    frame();
+    store.setFilter("running");
+    const before = store.getSnapshot().visible;
+    provider.push({ kind: "machine", machine: machine("a", { createdAt: 2, cost: { totalUsd: 9 } }) });
+    frame();
+    expect(store.getSnapshot().visible).toBe(before);
+    provider.push({ kind: "machine", machine: machine("a", { createdAt: 2, state: "paused" }) });
+    frame();
+    expect(store.getSnapshot().visible).toEqual(["b"]);
   });
 });

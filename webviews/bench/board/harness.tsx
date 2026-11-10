@@ -18,6 +18,7 @@ const machineCount = (board: BoardSnapshot | undefined) => board?.machines.lengt
 const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 
 let root: Root | undefined;
+let mounted: BoardStore | undefined;
 let provider: MockBoardProvider | undefined;
 let snapshot: BoardSnapshot | undefined;
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -39,6 +40,7 @@ const harness = {
     const element = document.getElementById("root")!;
     const started = performance.now();
     const store = new BoardStore(provider!);
+    mounted = store;
     root = createRoot(element);
     flushSync(() => root!.render(<BoardPage store={store} strings={createStrings(table)} windowed={windowed} />));
     await store.start();
@@ -86,6 +88,7 @@ const harness = {
     return intervals;
   },
   unmount() {
+    mounted?.stop();
     root?.unmount();
     root = undefined;
   },

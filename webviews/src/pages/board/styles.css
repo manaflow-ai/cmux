@@ -211,6 +211,7 @@ html[data-cmux-page="board"] body {
   color: var(--page-text-3);
 }
 
+.board-refused,
 .board-owner.attention,
 .board-row[data-waiting] .board-state {
   color: var(--ds-color-attention);

@@ -156,7 +156,7 @@ export function rowOf(machine: TeamMachine, context: JoinContext): BoardRow {
     present: Array.isArray(machine.present) ? machine.present.length : 0,
     ...liveOf(machine.id, context),
     error: machine.error?.message ?? null,
-    createdAt: typeof machine.createdAt === "number" ? machine.createdAt : 0,
+    createdAt: typeof machine.createdAt === "number" && Number.isFinite(machine.createdAt) ? machine.createdAt : 0,
   };
 }
 
@@ -165,7 +165,7 @@ export function joinRows(snapshot: BoardSnapshot): BoardRow[] {
   const seen = new Set<string>();
   const rows: BoardRow[] = [];
   for (const machine of snapshot.machines ?? []) {
-    // A machine listed twice shows once (the later record wins its place).
+    // A machine listed twice shows once: the first record.
     if (!machine?.id || seen.has(machine.id)) continue;
     seen.add(machine.id);
     rows.push(rowOf(machine, context));
@@ -193,7 +193,7 @@ export function isUnowned(owner: Owner): boolean {
   return owner.kind === "none" || owner.kind === "unknown";
 }
 
-const stateRank: Record<MachineState, number> = {
+const STATE_RANK: Record<MachineState, number> = {
   failed: 1,
   running: 2,
   starting: 2,
@@ -203,6 +203,9 @@ const stateRank: Record<MachineState, number> = {
   gone: 4,
 };
 
+/** A state the page does not know (a newer platform) sorts with the paused ones. */
+const stateRank = (state: MachineState) => STATE_RANK[state] ?? 3;
+
 /**
  * The board's order: machines waiting on a person first, then failed, running, paused; inside each,
  * the newest first. Every key is one that changes rarely (a cost tick never reorders the list).
@@ -210,7 +213,7 @@ const stateRank: Record<MachineState, number> = {
 export function compareRows(a: BoardRow, b: BoardRow): number {
   return (
     Number(b.waiting) - Number(a.waiting) ||
-    stateRank[a.state] - stateRank[b.state] ||
+    stateRank(a.state) - stateRank(b.state) ||
     b.createdAt - a.createdAt ||
     (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   );
@@ -218,7 +221,7 @@ export function compareRows(a: BoardRow, b: BoardRow): number {
 
 /** Whether an order key of the row changed (only then does the list re-sort). */
 export function orderKeyChanged(a: BoardRow, b: BoardRow): boolean {
-  return a.waiting !== b.waiting || stateRank[a.state] !== stateRank[b.state] || a.createdAt !== b.createdAt;
+  return a.waiting !== b.waiting || stateRank(a.state) !== stateRank(b.state) || a.createdAt !== b.createdAt;
 }
 
 export function ownerText(owner: Owner): string {

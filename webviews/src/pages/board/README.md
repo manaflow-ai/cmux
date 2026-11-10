@@ -39,8 +39,12 @@ does. The dev loop and the gallery use the mock host (mockProvider.ts).
 - A row reads only its own record (`useSyncExternalStore` on its id). A change to one machine
   re-renders that row, not the list.
 - Changes land in the store at once and are published once per frame: 100 changes in a frame cost
-  one flush. The totals move by each change's difference. The list re-sorts only when an order key
-  changed (an agent started or stopped waiting, the machine changed state), never on a cost tick.
+  one flush. The totals move by each change's difference. The list re-sorts (O(N log N), at most
+  once a frame) only when an order key changed (an agent started or stopped waiting, the machine
+  changed state), a machine came or went, or a change moved a row in or out of the filter; never on
+  a cost tick.
+- Events that arrive while the snapshot is read are held and applied over it once it lands. A Stop
+  answer is shown only when the stream sent nothing newer for that machine meanwhile.
 - The list is windowed: every row is 52 px, only the rows in view and 8 above and below are in the
   DOM. Filter and search answer in the frame of the key press.
 - No polling and no timers.
@@ -49,19 +53,23 @@ does. The dev loop and the gallery use the mock host (mockProvider.ts).
 
 `bun bench/board/run.ts` (webviews): a production build of the page, generated boards, headless
 Chromium. "before" puts every row in the DOM (how the Cloud page lists machines); "after" is the
-shipped page. Open is mount to the first painted frame with rows (median of 3); scroll is main-thread
+shipped page. Open is mount to the first painted frame with rows (median of 5); scroll is main-thread
 work per one-screen step over 120 steps; live is 100 generated changes a second for 3 s.
 
 | machines | mode   | open ms | rows in DOM | DOM nodes | scroll task ms/step | live task ms/s | live p95 frame ms |
 | -------- | ------ | ------- | ----------- | --------- | ------------------- | -------------- | ----------------- |
-| 3        | before | 27.7    | 3           | 146       | 0.04                | 30.2           | 16.7              |
-| 3        | after  | 17.4    | 3           | 146       | 0.04                | 37.7           | 16.7              |
-| 100      | before | 31.2    | 100         | 2,147     | 0.85                | 184.7          | 16.8              |
-| 100      | after  | 17.5    | 24          | 578       | 2.95                | 57.2           | 16.7              |
-| 1,000    | before | 136.8   | 1,000       | 20,107    | 7.58                | 485.9          | 33.4              |
-| 1,000    | after  | 30.0    | 24          | 617       | 3.96                | 45.2           | 16.7              |
-| 5,000    | before | 700.7   | 5,000       | 99,963    | 18.2                | 834.9          | 183.3             |
-| 5,000    | after  | 26.0    | 24          | 617       | 3.51                | 75.9           | 16.8              |
+| 3        | before | 18.4    | 3           | 146       | 0.04                | 30.2           | 16.8              |
+| 3        | after  | 18      | 3           | 146       | 0.04                | 32.6           | 16.8              |
+| 100      | before | 30.2    | 100         | 2,147     | 0.76                | 140            | 16.8              |
+| 100      | after  | 32.7    | 24          | 578       | 2.81                | 46.7           | 16.8              |
+| 1,000    | before | 137.3   | 1,000       | 20,107    | 7.71                | 582.8          | 50                |
+| 1,000    | after  | 27.7    | 24          | 617       | 3.68                | 55.4           | 16.8              |
+| 5,000    | before | 735.5   | 5,000       | 99,963    | 20.53               | 866.9          | 216.7             |
+| 5,000    | after  | 35.7    | 24          | 617       | 3.91                | 65             | 16.8              |
+
+Stated cost: a fast scroll mounts the rows coming into view, about 3 to 4 ms of work per one-screen
+step at every size; at 100 machines that is more than with every row mounted (0.8 ms), at 5,000
+it is a fifth of it.
 
 ## Dev loop
 
