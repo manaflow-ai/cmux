@@ -32,7 +32,7 @@
 //! non-UTF-8 paths, which are counted.
 
 use cmux_process::Command;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 
@@ -221,17 +221,20 @@ pub(super) fn collect(
     };
     set.git = true;
     let top = place::Dir::open(folder)?;
-    for (path, untracked) in working_files(folder, &mut set.skipped)? {
+    // Each file is counted as git lists it: past the copy's limit the listing stops there.
+    let mut skipped = 0;
+    working_files(folder, &mut skipped, &mut |path, untracked| {
         // An untracked credential file never goes either (tracked ones were committed on purpose).
         if untracked
             && (path.rsplit('/').next().is_some_and(|name| name.starts_with(".env"))
                 || skips::credential(&path, false).is_some())
         {
             set.skipped += 1;
-            continue;
+            return Ok(());
         }
-        add_working(&mut set, &top, folder, &path)?;
-    }
+        add_working(&mut set, &top, folder, &path)
+    })?;
+    set.skipped += skipped;
     // A share of files sends no git state (`cmux link access` keeps no `.git` path), so it reads none:
     // an unreadable reflog or config never fails it.
     if rules == Rules::Share {
@@ -375,14 +378,15 @@ fn listed_files(folder: &Path, enter: &dyn Fn(&str) -> bool) -> anyhow::Result<L
     let handle = place::Dir::open(folder)?;
     // Run in the folder, git lists only what is under it, by paths from it.
     let mut refused: BTreeSet<String> = BTreeSet::new();
-    for (path, untracked) in working_files(folder, &mut set.skipped)? {
+    let mut skipped = 0;
+    working_files(folder, &mut skipped, &mut |path, untracked| {
         // A crafted index can name a file anywhere: only a plain path below
         // the folder is the folder's.
         if !below(&path)
             || untracked && path.rsplit('/').next().is_some_and(|name| name.starts_with(".env"))
         {
             set.skipped = set.skipped.saturating_add(1);
-            continue;
+            return Ok(());
         }
         // A file in a folder `enter` refuses is never looked at; the folder
         // counts once.
@@ -390,10 +394,11 @@ fn listed_files(folder: &Path, enter: &dyn Fn(&str) -> bool) -> anyhow::Result<L
             if refused.insert(dir) {
                 set.skipped = set.skipped.saturating_add(1);
             }
-            continue;
+            return Ok(());
         }
-        add_working(&mut set, &handle, folder, &path)?;
-    }
+        add_working(&mut set, &handle, folder, &path)
+    })?;
+    set.skipped = set.skipped.saturating_add(skipped);
     Ok(set)
 }
 
@@ -564,28 +569,91 @@ impl GitDirs {
     }
 }
 
-/// Tracked and untracked-not-ignored paths, each with whether it is
-/// untracked. A path that is not UTF-8 is skipped and counted.
-fn working_files(folder: &Path, skipped: &mut u64) -> anyhow::Result<Vec<(String, bool)>> {
-    let mut list = |extra: &[&str]| -> anyhow::Result<Vec<String>> {
-        let mut args = vec!["ls-files", "-z"];
-        args.extend_from_slice(extra);
-        let output = git_bytes(folder, &args)?;
-        let mut paths = Vec::new();
-        for path in output.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
-            match std::str::from_utf8(path) {
-                Ok(path) => paths.push(path.to_string()),
-                Err(_) => *skipped += 1,
+/// Calls `each(path, untracked)` for every tracked and untracked-not-ignored
+/// path, once, as `git ls-files` prints it: the listing streams, so an error
+/// from `each` (a copy's [`super::size_cap::TooLarge`] at the first file past
+/// its limit) stops git there instead of after millions of names. A path that
+/// is not UTF-8 is skipped and counted.
+pub(super) fn working_files(
+    folder: &Path,
+    skipped: &mut u64,
+    each: &mut dyn FnMut(String, bool) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    // A conflicted path is listed once a stage; it goes once.
+    let mut tracked: HashSet<String> = HashSet::new();
+    git_listing(folder, &["ls-files", "-z", "--cached"], &mut |path| {
+        let Ok(path) = String::from_utf8(path) else {
+            *skipped += 1;
+            return Ok(());
+        };
+        if !tracked.insert(path.clone()) {
+            return Ok(());
+        }
+        each(path, false)
+    })?;
+    git_listing(folder, &["ls-files", "-z", "--others", "--exclude-standard"], &mut |path| {
+        let Ok(path) = String::from_utf8(path) else {
+            *skipped += 1;
+            return Ok(());
+        };
+        if tracked.contains(&path) {
+            return Ok(());
+        }
+        each(path, true)
+    })
+}
+
+/// Runs git as [`git_bytes`] does and calls `each` with every NUL-ended name
+/// it prints, as it prints it. An error from `each` stops git (killed, then
+/// reaped) and is returned.
+fn git_listing(
+    folder: &Path,
+    args: &[&str],
+    each: &mut dyn FnMut(Vec<u8>) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    use std::io::{BufRead as _, Read as _};
+    let mut child = git_command(folder, args)
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::piped())
+        .spawn()
+        .context("cannot run git")?;
+    // git's stderr is read beside its stdout, so a full stderr pipe never blocks it.
+    let stderr = child.stderr.take().map(|mut stderr| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = stderr.read_to_end(&mut bytes);
+            bytes
+        })
+    });
+    let stdout = child.stdout.take().context("git gave no output pipe")?;
+    let mut reader = std::io::BufReader::new(stdout);
+    let mut read = || -> anyhow::Result<()> {
+        let mut name = Vec::new();
+        loop {
+            name.clear();
+            if reader.read_until(0, &mut name).context("cannot read git's output")? == 0 {
+                return Ok(());
+            }
+            if name.last() == Some(&0) {
+                name.pop();
+            }
+            if !name.is_empty() {
+                each(std::mem::take(&mut name))?;
             }
         }
-        Ok(paths)
     };
-    let mut paths: Vec<(String, bool)> =
-        list(&["--cached"])?.into_iter().map(|path| (path, false)).collect();
-    paths.extend(list(&["--others", "--exclude-standard"])?.into_iter().map(|path| (path, true)));
-    paths.sort();
-    paths.dedup_by(|later, earlier| later.0 == earlier.0);
-    Ok(paths)
+    let listed = read();
+    if listed.is_err() {
+        let _ = child.kill();
+    }
+    drop(reader);
+    let status = child.wait().context("cannot wait for git")?;
+    let stderr = stderr.and_then(|reader| reader.join().ok()).unwrap_or_default();
+    listed?;
+    if !status.success() {
+        bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&stderr).trim());
+    }
+    Ok(())
 }
 
 pub(super) fn git(folder: &Path, args: &[&str]) -> anyhow::Result<String> {
@@ -596,17 +664,22 @@ pub(super) fn git(folder: &Path, args: &[&str]) -> anyhow::Result<String> {
 /// names (an fsmonitor or a hook) and never taking a bare repository in it
 /// for its own.
 pub(super) fn git_bytes(folder: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
-    let output = Command::new("git")
-        .args(["-c", "core.fsmonitor=false", "-c", "safe.bareRepository=explicit"])
-        .args(["-c", "core.hooksPath=/dev/null", "-C"])
-        .arg(folder)
-        .args(args)
-        .output()
-        .context("cannot run git")?;
+    let output = git_command(folder, args).output().context("cannot run git")?;
     if !output.status.success() {
         bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
     }
     Ok(output.stdout)
+}
+
+/// git in `folder` with `args`, by [`git_bytes`]'s rules.
+fn git_command(folder: &Path, args: &[&str]) -> Command {
+    let mut command = Command::new("git");
+    command
+        .args(["-c", "core.fsmonitor=false", "-c", "safe.bareRepository=explicit"])
+        .args(["-c", "core.hooksPath=/dev/null", "-C"])
+        .arg(folder)
+        .args(args);
+    command
 }
 
 /// Whether `relative` (in a git folder) is a checkout's own state.
