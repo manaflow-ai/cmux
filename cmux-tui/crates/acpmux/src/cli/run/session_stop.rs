@@ -57,7 +57,7 @@ pub(super) async fn run(
                     println!("{session}: {done}");
                 }
                 rows.push(
-                    json!({"session": session, "sessionId": v["sessionId"], "purged": purge}),
+                    json!({"session": session, "sessionId": v.get("sessionId"), "purged": purge}),
                 );
             }
             Err(e) => {
@@ -65,7 +65,7 @@ pub(super) async fn run(
                 if !json_out {
                     eprintln!("{session}: {}: {}", error.code.name(), error.message);
                 }
-                rows.push(json!({"session": session, "error": error.envelope()["error"]}));
+                rows.push(json!({"session": session, "error": error.envelope().get("error")}));
                 failed.push((session.clone(), error));
             }
         }
