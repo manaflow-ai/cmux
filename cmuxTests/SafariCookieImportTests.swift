@@ -130,6 +130,39 @@ final class SafariCookieImportTests: XCTestCase {
         XCTAssertTrue(warning.contains("~/Profile/Cookies.binarycookies"), warning)
     }
 
+    /// A store past the reader's limit is reported with the reader's limit, the threshold that refused it.
+    @MainActor
+    func testStoreAboveTheReadLimitGetsAWarningNamingTheReadLimit() async throws {
+        let sourceProfile = try writeSourceProfile(records: [
+            Self.record(
+                domain: ".example.com",
+                name: "large",
+                path: "/",
+                value: String(repeating: "x", count: 256),
+                expiry: Date().addingTimeInterval(3_600),
+                flags: 0
+            ),
+        ])
+        let readLimit = 128
+        let destinationID = BrowserProfileStore.shared.builtInDefaultProfileID
+
+        let result = await BrowserDataImporter.importSafariCookies(
+            sourceProfiles: [sourceProfile],
+            destinationProfileID: destinationID,
+            domainFilters: [],
+            reader: SafariCookieStoreReader(homeDirectory: temporaryDirectory, maximumStoreBytes: readLimit),
+            parser: SafariBinaryCookiesParser(),
+            now: Date()
+        )
+
+        XCTAssertEqual(result.importedCount, 0)
+        let warning = try XCTUnwrap(result.warnings.first)
+        XCTAssertEqual(result.warnings.count, 1)
+        let formattedLimit = ByteCountFormatter.string(fromByteCount: Int64(readLimit), countStyle: .binary)
+        XCTAssertTrue(warning.contains(formattedLimit), "warning \(warning.debugDescription) should name \(formattedLimit)")
+        XCTAssertTrue(warning.contains("~/Profile/Cookies.binarycookies"), warning)
+    }
+
     // MARK: - Fixture
 
     /// Writes a one-page store into a named Safari profile under the temporary home.
