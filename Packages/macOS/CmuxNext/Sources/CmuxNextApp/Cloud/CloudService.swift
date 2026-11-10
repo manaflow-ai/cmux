@@ -224,7 +224,7 @@ final class CloudService {
         link = CloudLinkLifecycle(launcher: CloudLinkLauncher.forApp(build: build), installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
         (binary, tuiState) = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment), DaemonLauncher.appNames(build: build).stateDirectory)
-        move.cli = binary
+        (move.cli, move.stateDirectory) = (binary, tuiState)
         move.ledger = .standard
         movedChats.defaults = { [weak self] in self?.move.ledger }
         moveRetries.defaults = { [weak self] in self?.move.ledger }

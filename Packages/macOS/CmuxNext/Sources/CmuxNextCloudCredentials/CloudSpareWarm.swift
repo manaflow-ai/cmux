@@ -72,10 +72,11 @@ public extension CloudHarnessLoginDecision {
     /// the daemon's copy ends installed); then the start records ``warmReceipt`` and reads and passes no login
     /// of its own (Leo, 2026-11-10: "if they're logged in why do we need to re-check their login after the critical path").
     /// Never for a `--login` word, which decides for itself; no harness named is Claude, as the rules read it.
-    mutating func takeWarmReceipt(cli binary: URL?, machine: String, userID: String?, ask: CloudHarnessLoginAsk) async -> Bool {
-        guard ask.requested == nil, let binary, let userID else { return false }
+    /// `cli` runs on the daemon's state root (``CloudMoveCLI/stateDirectory``), where the daemon's warm keeps the receipt.
+    mutating func takeWarmReceipt(cli: CloudMoveCLI?, machine: String, userID: String?, ask: CloudHarnessLoginAsk) async -> Bool {
+        guard ask.requested == nil, let cli, let userID else { return false }
         let provider = harness.flatMap { $0.isEmpty ? nil : $0 } ?? CloudCredentialTransfer.Provider.claude.rawValue
-        guard await CloudMoveCLI(binary: binary).startChatLoginReceipt(machine: machine, account: userID, provider: provider) else { return false }
+        guard await cli.startChatLoginReceipt(machine: machine, account: userID, provider: provider) else { return false }
         outcome = Self.warmReceipt
         return true
     }

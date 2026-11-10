@@ -48,10 +48,19 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public let binary: URL
     /// How long one run may take; past it the run is killed and throws.
     public var timeout: Duration = .seconds(30 * 60)
+    /// The daemon's state root (`CMUX_TUI_STATE_DIR`; nil: cmux-tui's default): every run reads and writes the ledgers
+    /// the daemon does, so a tagged or per-build app's Send sees the daemon's warm copies and login receipts.
+    public var stateDirectory: URL?
 
-    public init(binary: URL, timeout: Duration = .seconds(30 * 60)) {
+    public init(binary: URL, timeout: Duration = .seconds(30 * 60), stateDirectory: URL? = nil) {
         self.binary = binary
         self.timeout = timeout
+        self.stateDirectory = stateDirectory
+    }
+
+    /// A run's environment: this process's, on the daemon's state root; nil (inherited) without one.
+    var environment: [String: String]? {
+        stateDirectory.map { ProcessInfo.processInfo.environment.merging(["CMUX_TUI_STATE_DIR": $0.path]) { $1 } }
     }
 
     /// The error code of an answer that isn't a JSON line (a crash, a kill).
@@ -249,7 +258,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
     private func output<Call: Encodable>(_ call: Call, stdin: Data? = nil, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> ProcessResult {
         guard let invocation = CloudMoveCore().call("cli_invocation", call, as: Invocation.self) else { throw CloudMoveCLIUnanswered() }
         let limit = invocation.timeoutSeconds.map { Duration.seconds($0) } ?? max(timeout, .seconds(invocation.minTimeoutSeconds ?? 0))
-        return try await ProcessRunner.run(executable: binary, arguments: invocation.args, environment: nil, stdin: stdin,
+        return try await ProcessRunner.run(executable: binary, arguments: invocation.args, environment: environment, stdin: stdin,
                                            timeout: limit, stderrLine: stderrLine, clock: ContinuousClock())
     }
 

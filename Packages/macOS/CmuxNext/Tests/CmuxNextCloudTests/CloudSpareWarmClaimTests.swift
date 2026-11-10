@@ -22,4 +22,15 @@ import Testing
         #expect(CloudMoveCLI.reservedMachine(["ok": true]) == nil)
         #expect(CloudMoveCLI.reservedMachine(["ok": true, "machine": ""]) == nil)
     }
+
+    /// Send's wait-copy and login-receipt reads run the CLI, while the daemon's warm writes them: a tagged build's daemon
+    /// has its own `CMUX_TUI_STATE_DIR`, so the CLI runs there too, or Send misses in-flight copies and receipts.
+    @Test func aRunReadsTheDaemonsStateRoot() {
+        let binary = URL(fileURLWithPath: "/nonexistent/cmux")
+        #expect(CloudMoveCLI(binary: binary).environment == nil)
+        let state = URL(fileURLWithPath: "/tmp/cmux-tagged-build/sessions")
+        let environment = CloudMoveCLI(binary: binary, stateDirectory: state).environment
+        #expect(environment?["CMUX_TUI_STATE_DIR"] == state.path)
+        #expect(environment?["PATH"] == ProcessInfo.processInfo.environment["PATH"])
+    }
 }
