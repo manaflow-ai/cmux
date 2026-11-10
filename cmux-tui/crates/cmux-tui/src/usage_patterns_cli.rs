@@ -46,7 +46,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 return 0;
             }
             word if verb.is_none() && matches!(word, "show" | "reset" | "on" | "off") => {
-                verb = Some(word)
+                verb = Some(word);
             }
             other => return usage_error(&format!("unknown argument {other:?}")),
         }
@@ -144,7 +144,7 @@ pub(crate) fn render(readout: &Readout, top: usize) -> String {
     for (title, family) in SECTIONS {
         section(&mut out, title, rollup, family, top);
     }
-    for (family, _) in &rollup.counts {
+    for family in rollup.counts.keys() {
         if !SECTIONS.iter().any(|(_, known)| known == family) {
             section(&mut out, family, rollup, family, top);
         }

@@ -2316,6 +2316,7 @@ version = "0.1.0"
 name = "cmux-usage-patterns"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "cmux-config",
  "cmux-tui-platform",
  "serde",

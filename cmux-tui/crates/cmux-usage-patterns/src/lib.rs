@@ -96,14 +96,16 @@ impl Rollup {
         let keys = self.counts.entry(family.to_string()).or_default();
         let key =
             if keys.contains_key(key) || keys.len() < MAX_KEYS_PER_FAMILY { key } else { OTHER };
-        *keys.entry(key.to_string()).or_default() += n;
+        bump(keys.entry(key.to_string()).or_default(), n);
         let day = utc_day(now_ms);
-        *self.days.entry(day).or_default().entry(family.to_string()).or_default() += n;
+        bump(self.days.entry(day).or_default().entry(family.to_string()).or_default(), n);
         self.trim_days();
         if self.hours.len() != 24 {
             self.hours.resize(24, 0);
         }
-        self.hours[utc_hour(now_ms)] += n;
+        if let Some(slot) = self.hours.get_mut(utc_hour(now_ms)) {
+            bump(slot, n);
+        }
     }
 
     /// Raises `name`'s peak to `value`.
@@ -134,13 +136,13 @@ impl Rollup {
                 } else {
                     OTHER
                 };
-                *mine.entry(key.to_string()).or_default() += n;
+                bump(mine.entry(key.to_string()).or_default(), *n);
             }
         }
         for (day, families) in &other.days {
             let mine = self.days.entry(day.clone()).or_default();
             for (family, n) in families {
-                *mine.entry(family.clone()).or_default() += n;
+                bump(mine.entry(family.clone()).or_default(), *n);
             }
         }
         self.trim_days();
@@ -148,7 +150,7 @@ impl Rollup {
             self.hours.resize(24, 0);
         }
         for (slot, n) in self.hours.iter_mut().zip(other.hours.iter()) {
-            *slot += n;
+            bump(slot, *n);
         }
         for (name, value) in &other.peaks {
             let slot = self.peaks.entry(name.clone()).or_default();
@@ -274,7 +276,7 @@ pub fn read() -> Readout {
 /// Deletes every writer's file in `dir` (the running recorders drop what they
 /// hold at their next flush). Returns how many files went.
 pub fn reset_dir(dir: &Path) -> std::io::Result<usize> {
-    let mut removed = 0;
+    let mut removed: usize = 0;
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
@@ -284,7 +286,7 @@ pub fn reset_dir(dir: &Path) -> std::io::Result<usize> {
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "json") {
             std::fs::remove_file(&path)?;
-            removed += 1;
+            removed = removed.saturating_add(1);
         }
     }
     Ok(removed)
@@ -537,27 +539,27 @@ pub fn flush() {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis() as u64)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
 }
 
 fn utc_hour(ms: u64) -> usize {
-    ((ms / 3_600_000) % 24) as usize
+    usize::try_from(ms.checked_div(3_600_000).unwrap_or(0).checked_rem(24).unwrap_or(0))
+        .unwrap_or(0)
 }
 
-/// `YYYY-MM-DD` of the UTC day holding `ms` (civil-from-days, H. Hinnant).
+/// Adds `n` to a counter, saturating at `u64::MAX`.
+fn bump(slot: &mut u64, n: u64) {
+    *slot = slot.saturating_add(n);
+}
+
+/// `YYYY-MM-DD` of the UTC day holding `ms`.
 pub fn utc_day(ms: u64) -> String {
-    let days = (ms / 86_400_000) as i64;
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    format!("{y:04}-{m:02}-{d:02}")
+    i64::try_from(ms)
+        .ok()
+        .and_then(chrono::DateTime::from_timestamp_millis)
+        .map_or_else(|| "1970-01-01".to_string(), |at| at.format("%Y-%m-%d").to_string())
 }
 
 #[cfg(test)]
