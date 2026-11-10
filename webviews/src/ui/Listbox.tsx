@@ -44,6 +44,10 @@ export interface ListboxProps<T> {
   /** Optional window for large editor-owned lists; indices and ids remain logical/full-list values. */
   window?: { start: number; end: number; topSpace: number; bottomSpace: number };
   onScroll?: UIEventHandler<HTMLDivElement>;
+  /** Keys of the list's own (a review queue's j/k/a/r), seen first; a key it prevents is not the list's. */
+  onKeyDown?(event: KeyboardEvent<HTMLDivElement>): void;
+  /** One Tab stop even with a controlled highlight, when no outside field holds the keyboard. */
+  focusable?: boolean;
 }
 
 const TYPEAHEAD_RESET_MS = 700;
@@ -70,6 +74,8 @@ export function Listbox<T>({
   id: listId,
   window: visibleWindow,
   onScroll,
+  onKeyDown: ownKeys,
+  focusable,
 }: ListboxProps<T>) {
   const [highlight, setHighlight] = useState(Math.max(0, initialIndex));
   const currentHighlight = activeIndex ?? highlight;
@@ -101,6 +107,8 @@ export function Listbox<T>({
   }, [activeId]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    ownKeys?.(event);
+    if (event.defaultPrevented) return;
     // Cmd, Ctrl and Option chords are the app's.
     if (event.metaKey || event.altKey || event.ctrlKey) return;
     const last = items.length - 1;
@@ -142,7 +150,7 @@ export function Listbox<T>({
       role="listbox"
       // Controlled highlights belong to a field that keeps virtual focus (for example the
       // composer editor). Keep that list out of the Tab order; the field owns keyboard focus.
-      tabIndex={activeIndex === undefined ? 0 : undefined}
+      tabIndex={(focusable ?? activeIndex === undefined) ? 0 : undefined}
       aria-label={label}
       aria-busy={ariaBusy || undefined}
       aria-activedescendant={activeId}

@@ -172,7 +172,7 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
         .guiOnly: [
-            "agentHistory.show", "music.open", "music.stop", "palette.forkAgentConversationTo",
+            "agentHistory.show", "agentReview.show", "music.open", "music.stop", "palette.forkAgentConversationTo",
             "notifications.dismissHighlight", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize", "appearance.personalize",
             "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about",

@@ -106,6 +106,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .asksOpen: "asksOpen"
         case .attentionOpen: "attentionOpen"
         case .asksAnswer: "asksAnswer"
+        case .review: "review"
         case .subagentPane: "subagentPane"
         case .subagentShown: "subagentShown"
         case .processTerminal: "processTerminal"

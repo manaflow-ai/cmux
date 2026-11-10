@@ -57,6 +57,12 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
                 keywords: ["history", "agents", "chats", "sessions", "conversations", "claude", "codex"], category: .window,
                 symbol: "text.bubble", surfaces: [.palette, .menu], mainMenu: .window
             ),
+            // Every agent's changes waiting on the person, one queue across chats and worktrees (dealbreakers X7).
+            ActionDescriptor(
+                id: "agentReview.show", title: t("action.history.showReviewQueue", "Show Review Queue"),
+                keywords: ["review", "changes", "diff", "agents", "worktrees", "accept", "queue"], category: .window,
+                symbol: "checklist", surfaces: [.palette, .menu], mainMenu: .window
+            ),
             // Cmd-Y shows history in a page (New Cloud Machine has no default shortcut).
             ActionDescriptor(
                 id: "browserShowHistory", title: t("action.history.showFromPage", "Show Browser History"),

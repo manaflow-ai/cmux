@@ -197,6 +197,8 @@
     "quick.startInBackground": "quick.startInBackground",
     "readAloud.speak": "readAloud.speak",
     "readAloud.stop": "readAloud.stop",
+    "review.accept": "review.accept",
+    "review.send": "review.send",
     "run.attach": "run.attach",
     "sandbox.run": "sandbox.run",
     "sandbox.state": "sandbox.state",

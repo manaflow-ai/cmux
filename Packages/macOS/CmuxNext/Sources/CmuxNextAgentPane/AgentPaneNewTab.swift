@@ -77,6 +77,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page is agent history (Show Agent History, `agentHistory.show`, cx-zlnl), every chat on this
     /// device with nothing to type; nil is the New Tab page.
     public var history: Bool?
+    /// true: the page is the Review queue (Show Review Queue, `agentReview.show`): every agent's changes waiting on
+    /// the person (webviews review/ReviewScreen.tsx); nil is the New Tab page.
+    public var review: Bool?
     /// true: Integrate a harness was dismissed for good (`newTab.remember` `harnessHint: "dismissed"`); nil offers it
     /// when no harness is installed.
     public var harnessHintDismissed: Bool?
@@ -133,6 +136,12 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
 }
 
 extension AgentPaneNewTab {
+    /// The strip title of a page of its own (Agent History, the Review queue); nil for the New Tab page.
+    public var ownTitle: String? {
+        if history == true { return String(localized: "tab.agentHistory", defaultValue: "History", bundle: .module) }
+        return review == true ? String(localized: "tab.agentReview", defaultValue: "Review", bundle: .module) : nil
+    }
+
     /// The newest chats a local page posted (`newTab.warm`), for the next page's ``warm``.
     @MainActor public internal(set) static var warmed: String?
     /// The largest `newTab.warm` the host keeps.
