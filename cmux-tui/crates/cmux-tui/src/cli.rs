@@ -33,6 +33,8 @@ mod apps_place;
 #[cfg(unix)]
 mod apps_run;
 #[cfg(unix)]
+mod safe_mode;
+#[cfg(unix)]
 mod attention;
 #[cfg(unix)]
 mod auth_token;
@@ -683,6 +685,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
+        .or_else(|| safe_mode::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
