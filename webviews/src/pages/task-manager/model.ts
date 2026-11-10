@@ -11,7 +11,8 @@ function compare(key: SortKey, a: TaskManagerRow, b: TaskManagerRow): number {
     case "name":
       return collator.compare(a.name, b.name);
     case "pid":
-      return a.pid - b.pid || collator.compare(a.host, b.host);
+      // Equal pids on two machines tie and keep the app's order, as the SwiftUI table's did.
+      return a.pid - b.pid;
     case "cpu":
       // No value yet sorts as zero, as the SwiftUI table did.
       return (a.cpu ?? 0) - (b.cpu ?? 0);

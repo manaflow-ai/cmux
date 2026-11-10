@@ -28,7 +28,13 @@ export function TaskManagerPage({ store, state, strings }: TaskManagerPageProps)
   const onKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
-    store.select(steppedSelection(state.rows, state.selected, event.key === "ArrowDown" ? 1 : -1));
+    const next = steppedSelection(state.rows, state.selected, event.key === "ArrowDown" ? 1 : -1);
+    store.select(next);
+    // The key held off the scroll, so bring the newly selected row into view (as the native table
+    // did); otherwise Kill Process could end a row the person cannot see. The rows are drawn in
+    // `state.rows` order, and a selection change keeps them, so the index finds its <tr>.
+    const index = state.rows.findIndex((row) => row.id === next);
+    event.currentTarget.tBodies[0]?.rows[index]?.scrollIntoView?.({ block: "nearest" });
   };
   // The row menu: a right-click's mouse-down selects its row first, so the menu is about that row.
   const menu: ContextMenuItem[] = selectedRow

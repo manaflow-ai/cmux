@@ -97,3 +97,36 @@ test("a row's mouse-down selects it; Kill Process is off for a refused row and i
   click(kill);
   expect(provider.calls.map((call) => call.op)).toEqual(["cmux.task_manager.select"]);
 });
+
+test("arrowing past the visible rows reveals each newly selected row", async () => {
+  const { manyRowsSnapshot } = await import("../src/pages/task-manager/mockProvider");
+  const { store } = await mount(manyRowsSnapshot());
+  const view = (scope.window as Window & typeof globalThis).HTMLElement.prototype;
+  const original = view.scrollIntoView;
+  const revealed: Array<{ row: string | null; options: unknown }> = [];
+  view.scrollIntoView = function (this: HTMLElement, options?: boolean | ScrollIntoViewOptions) {
+    revealed.push({ row: this.getAttribute("data-row-id"), options });
+  };
+  try {
+    const table = host.querySelector("table")!;
+    const press = (key: string) =>
+      act(
+        () =>
+          void table.dispatchEvent(
+            new (scope.window as Window & typeof globalThis).KeyboardEvent("keydown", { key, bubbles: true }),
+          ),
+      );
+    // Well past the rows a window shows: every step reveals the row it selected.
+    for (let step = 0; step < 40; step++) press("ArrowDown");
+    const rows = store.getState().rows;
+    expect(store.getState().selected).toBe(rows[39].id);
+    expect(revealed).toHaveLength(40);
+    expect(revealed.at(-1)).toEqual({ row: rows[39].id, options: { block: "nearest" } });
+    expect(revealed.map((call) => call.row)).toEqual(rows.slice(0, 40).map((row) => row.id));
+    press("ArrowUp");
+    expect(revealed.at(-1)).toEqual({ row: rows[38].id, options: { block: "nearest" } });
+    expect(host.querySelector(`.tm-row[data-row-id="${rows[38].id}"]`)?.getAttribute("aria-selected")).toBe("true");
+  } finally {
+    view.scrollIntoView = original;
+  }
+});

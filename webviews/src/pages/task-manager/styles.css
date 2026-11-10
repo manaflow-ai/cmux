@@ -16,6 +16,8 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* A row revealed by the arrow keys stops below the sticky header, not under it. */
+  scroll-padding-top: calc(var(--ds-control-row) + 1px);
 }
 
 /* Task and Process share the room; the numbers keep fixed columns. */

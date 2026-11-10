@@ -46,6 +46,16 @@ test("a sort is stable, and a row with no CPU yet sorts as zero", () => {
   expect(sortRows(mixed, { key: "cpu", ascending: true }).at(-1)?.id).toBe(rows[0].id);
 });
 
+test("equal pids on two machines tie: either direction keeps the app's order", () => {
+  const base = normalSnapshot().rows[0];
+  const rows = [
+    { ...base, id: "local:4242", host: "local", pid: 4242 },
+    { ...base, id: "a-remote:4242", host: "a-remote", pid: 4242 },
+  ];
+  expect(ids(sortRows(rows, { key: "pid", ascending: true }))).toEqual(["local:4242", "a-remote:4242"]);
+  expect(ids(sortRows(rows, { key: "pid", ascending: false }))).toEqual(["local:4242", "a-remote:4242"]);
+});
+
 test("the PID column shows a pid on this Mac and host:pid on another", () => {
   const rows = manyRowsSnapshot().rows;
   expect(pidText(rows[0])).toBe("501");
