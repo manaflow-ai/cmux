@@ -6365,7 +6365,10 @@ class FailingStepLogOnly(unittest.TestCase):
     checks job failed in "Every page's strings generate with no missing translation" (feat-cmux-next runs 42820823641
     and 42820590433), yet the excuse quoted "pinned license manifest digest changed": expected stderr of a passing
     negative-case test (test_ghostty_licenses.py's `fails("changed manifest", ...)`) in another step, which sent an
-    agent after the wrong cause."""
+    agent after the wrong cause.
+
+    The logs here are framed like a real job log: "Set up job" first, then a `##[group]Run ...` line opening each
+    step, then "Complete job" with no line of its own (step_ownership_fixtures)."""
 
     NAME = ("cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, "
             "page strings)")
@@ -6375,15 +6378,10 @@ class FailingStepLogOnly(unittest.TestCase):
               f"digest changed: {'1' * 64} != {'2' * 64}")
     COLLECT = "could not collect Ghostty licenses: pinned license manifest digest changed"
 
-    def job(self, job_id, run_id, sha):
+    def job(self, job_id, run_id, sha, steps=None):
         return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": self.NAME, "status": "completed",
-                "conclusion": "failure", "steps": [
-                    {"name": "Set up job", "status": "completed", "conclusion": "success",
-                     "started_at": "2026-11-10T12:00:00Z", "completed_at": "2026-11-10T12:00:02Z"},
-                    {"name": self.LICENSES, "status": "completed", "conclusion": "success",
-                     "started_at": "2026-11-10T12:00:10Z", "completed_at": "2026-11-10T12:00:12Z"},
-                    {"name": self.STRINGS, "status": "completed", "conclusion": "failure",
-                     "started_at": "2026-11-10T12:00:20Z", "completed_at": "2026-11-10T12:00:22Z"}]}
+                "conclusion": "failure", "steps": framed_steps(steps or [
+                    (self.LICENSES, "success", 10, 12), (self.STRINGS, "failure", 20, 22)])}
 
     def sections(self, missing, digest=True):
         """(step, second, text) lines: the license step's negative case prints the digest stderr and passes; the
@@ -6404,12 +6402,11 @@ class FailingStepLogOnly(unittest.TestCase):
 
     def raw(self, lines):
         # The job-log endpoint judge reads (GitHub.log): a timestamp per line, no step column.
-        return "\n".join(f"2026-11-10T12:00:{second:02d}.5000000Z {text}" for _, second, text in lines)
+        return framed_log(lines, self.NAME)
 
     def columns(self, lines):
         # `gh run view --log`: job and step columns before the timestamp.
-        return "\n".join(f"{self.NAME}\t{step}\t2026-11-10T12:00:{second:02d}.5000000Z {text}"
-                         for step, second, text in lines)
+        return framed_log(lines, self.NAME, columns=True)
 
     def github(self, head, base):
         github = FakeGitHub()
@@ -6451,21 +6448,12 @@ class FailingStepLogOnly(unittest.TestCase):
                 with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: settings"):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
-
     def test_a_continue_on_error_step_that_failed_still_counts(self):
         # The jobs API reads a continue-on-error step that failed as a success, and the job's rollup step fails for
         # it. Its section's own `##[error]Process completed` line keeps its errors compared: a different red there
         # is never excused by the rollup lines alone.
         check, rollup = "Main-thread concurrency", "Fail on any red check"
-
-        def job(job_id, run_id, sha):
-            found = self.job(job_id, run_id, sha)
-            found["steps"] = [
-                {"name": check, "status": "completed", "conclusion": "success",
-                 "started_at": "2026-11-10T12:00:10Z", "completed_at": "2026-11-10T12:00:12Z"},
-                {"name": rollup, "status": "completed", "conclusion": "failure",
-                 "started_at": "2026-11-10T12:00:20Z", "completed_at": "2026-11-10T12:00:22Z"}]
-            return found
+        steps = [(check, "success", 10, 12), (rollup, "failure", 20, 22)]
 
         def lines(error):
             return [(check, 10, "##[group]Run scripts/cmux-next/check-concurrency.sh"),
@@ -6481,7 +6469,7 @@ class FailingStepLogOnly(unittest.TestCase):
             with self.subTest(log=fmt.__name__):
                 github = self.github(fmt(lines("Sources/New.swift:9 blocks the main thread")),
                                      fmt(lines("Sources/Old.swift:3 blocks the main thread")))
-                github.jobs = {1: job(1, 10, HEAD), 2: job(2, 20, BASE_SHA)}
+                github.jobs = {1: self.job(1, 10, HEAD, steps), 2: self.job(2, 20, BASE_SHA, steps)}
                 with self.assertRaisesRegex(excuse.Refused, "New.swift"):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
@@ -6493,20 +6481,16 @@ class FailingStepLogOnly(unittest.TestCase):
     def test_the_code_vendored_into_base_red_watch_is_pinned(self):
         import hashlib
         import inspect
-        parts = [getattr(excuse, name).pattern for name in ("ANSI", "STAMP", "EXIT_LINE")]
+        parts = [getattr(excuse, name).pattern for name in ("ANSI", "STAMP", "STEP_START")]
         parts += [inspect.getsource(getattr(excuse, name)) for name in ("lines_of", "_stamp_time", "failed_steps_log")]
         self.assertEqual(hashlib.sha256("\0".join(parts).encode()).hexdigest(), self.VENDORED_FINGERPRINT,
                          "failed_steps_log changed: copy it to cmuxterm-hq tools/fleet-reconcilers/failed_steps_log.py "
                          "and leo-workspace tools/failed_steps_log.py, and update the fingerprint in all three")
 
-    def adjacent_job(self, job_id, run_id, sha):
+    def adjacent_steps(self):
         # The strings step starts in the second the license step ends: GitHub rounds both to 12:00:12, so a line
         # stamped 12:00:12.5 is in both steps' [started_at, completed_at + 1s) windows.
-        found = self.job(job_id, run_id, sha)
-        found["steps"][1]["completed_at"] = "2026-11-10T12:00:12Z"
-        found["steps"][2]["started_at"] = "2026-11-10T12:00:12Z"
-        found["steps"][2]["completed_at"] = "2026-11-10T12:00:14Z"
-        return found
+        return [(self.LICENSES, "success", 10, 12), (self.STRINGS, "failure", 12, 14)]
 
     def adjacent_sections(self, missing):
         """The license step passes with the digest stderr (second 11); the strings step's annotation is printed at
@@ -6526,11 +6510,12 @@ class FailingStepLogOnly(unittest.TestCase):
         # took it out of "passed" and brought back its whole log, so the excuse quoted "digest changed" again.
         missing = ["settings: 42 strings missing"]
         log = self.raw(self.adjacent_sections(missing))
-        scoped = excuse.failed_steps_log(self.adjacent_job(1, 10, HEAD), log)
+        scoped = excuse.failed_steps_log(self.job(1, 10, HEAD, self.adjacent_steps()), log)
         self.assertNotIn("digest changed", scoped)
         self.assertIn("##[error]settings: 42 strings missing", scoped)
         github = self.github(log, self.raw(self.adjacent_sections(missing)))
-        github.jobs = {1: self.adjacent_job(1, 10, HEAD), 2: self.adjacent_job(2, 20, BASE_SHA)}
+        github.jobs = {1: self.job(1, 10, HEAD, self.adjacent_steps()),
+                       2: self.job(2, 20, BASE_SHA, self.adjacent_steps())}
         text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
         self.assertIn("settings: # strings missing", text)
         self.assertNotIn("digest changed", text)
@@ -6540,15 +6525,7 @@ class FailingStepLogOnly(unittest.TestCase):
         # prints the runner's exit line in the second the rollup step starts. That line is the step's own end, so
         # the step's errors stay compared, and a different red there is never excused by the rollup lines alone.
         check, rollup = "Main-thread concurrency", "Fail on any red check"
-
-        def job(job_id, run_id, sha):
-            found = self.job(job_id, run_id, sha)
-            found["steps"] = [
-                {"name": check, "status": "completed", "conclusion": "success",
-                 "started_at": "2026-11-10T12:00:10Z", "completed_at": "2026-11-10T12:00:12Z"},
-                {"name": rollup, "status": "completed", "conclusion": "failure",
-                 "started_at": "2026-11-10T12:00:12Z", "completed_at": "2026-11-10T12:00:14Z"}]
-            return found
+        steps = [(check, "success", 10, 12), (rollup, "failure", 12, 14)]
 
         def lines(error):
             return [(check, 10, "##[group]Run scripts/cmux-next/check-concurrency.sh"),
@@ -6562,7 +6539,161 @@ class FailingStepLogOnly(unittest.TestCase):
 
         github = self.github(self.raw(lines("Sources/New.swift:9 blocks the main thread")),
                              self.raw(lines("Sources/Old.swift:3 blocks the main thread")))
-        github.jobs = {1: job(1, 10, HEAD), 2: job(2, 20, BASE_SHA)}
+        github.jobs = {1: self.job(1, 10, HEAD, steps), 2: self.job(2, 20, BASE_SHA, steps)}
+        with self.assertRaisesRegex(excuse.Refused, "New.swift"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
+# 2026-11-10, cmux#40542's Codex review and the deputy's three findings: whole-second step times cannot tell which
+# step printed a line, and step names repeat. failed_steps_log matches the log's own sections to the steps by index.
+# One fixture set, copied as is into cmuxterm-hq tools/fleet-reconcilers/test_failed_steps_log.py and leo-workspace
+# tools/test_failed_steps_log.py: (steps, lines, kept, dropped). Steps are (name, conclusion, started second,
+# completed second) between "Set up job" and "Complete job"; lines are (step, second, text). Every `kept` text must be
+# in failed_steps_log's output and no `dropped` text may be. A case with `dropped` empty is one that keeps the whole
+# log (fail closed).
+def framed_steps(steps):
+    """STEPS (name, conclusion, started second, completed second) as the jobs API's steps[], numbered, between "Set up
+    job" and "Complete job"."""
+    def at(second):
+        return f"2026-11-10T12:00:{second:02d}Z"
+    last = steps[-1][3]
+    found = [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success",
+              "started_at": at(0), "completed_at": at(2)}]
+    found += [{"number": n, "name": name, "status": "completed", "conclusion": conclusion,
+               "started_at": at(start), "completed_at": at(end)}
+              for n, (name, conclusion, start, end) in enumerate(steps, 2)]
+    found.append({"number": len(steps) + 2, "name": "Complete job", "status": "completed", "conclusion": "success",
+                  "started_at": at(last), "completed_at": at(last)})
+    return found
+
+
+def framed_log(lines, job_name="job", columns=False):
+    """LINES (step, second, text) framed by the runner's "Set up job" and "Complete job" lines; an int second is
+    printed at half past it. COLUMNS: `gh run view --log`'s job and step columns before the stamp."""
+    last = lines[-1][1] if lines else 2
+    framed = [("Set up job", 0, "Current runner version: '2.338.2'"),
+              ("Set up job", 1, f"Complete job name: {job_name}"),
+              *lines, ("Complete job", last, "Cleaning up orphan processes")]
+    out = []
+    for step, second, text in framed:
+        stamp = f"2026-11-10T12:00:{second + 0.5 if isinstance(second, int) else second:010.7f}Z {text}"
+        out.append(f"{job_name}\t{step}\t{stamp}" if columns else stamp)
+    return "\n".join(out)
+
+
+NEW_RED = "concurrency: error: Sources/New.swift:9 blocks the main thread"
+NEGATIVE_CASE = "licenses: error: pinned license manifest digest changed"
+STEP_OWNERSHIP = {
+    # A continue-on-error step (a success to the jobs API) ends at 12:00:12, and the next, passing step starts and
+    # ends in that second. Its exit line and earlier diagnostic stay (cmux#40542's Codex P1).
+    "same_second_ending": (
+        [("Concurrency", "success", 10, 12), ("Quick", "success", 12, 12), ("Rollup", "failure", 13, 14)],
+        [("Concurrency", 10, "##[group]Run scripts/check-concurrency.sh"), ("Concurrency", 11, NEW_RED),
+         ("Concurrency", 12.2, "##[error]Process completed with exit code 1."),
+         ("Quick", 12.4, "##[group]Run true"), ("Quick", 12.6, "quick: ok"),
+         ("Rollup", 13, "##[group]Run scripts/rollup.sh"), ("Rollup", 13, "##[error]red check: Concurrency"),
+         ("Rollup", 13.6, "##[error]Process completed with exit code 1.")],
+        [NEW_RED, "##[error]Process completed with exit code 1.", "##[error]red check: Concurrency"],
+        ["quick: ok"]),
+    # A continue-on-error step that starts and ends inside one second that passing steps share on both sides.
+    "short_continue_on_error": (
+        [("Build", "success", 10, 12), ("Lint", "success", 12, 12), ("Docs", "success", 12, 13),
+         ("Rollup", "failure", 14, 15)],
+        [("Build", 10, "##[group]Run make"), ("Build", 11, NEGATIVE_CASE),
+         ("Lint", 12.3, "##[group]Run scripts/lint.sh"), ("Lint", 12.4, NEW_RED),
+         ("Lint", 12.5, "##[error]Process completed with exit code 1."),
+         ("Docs", 12.7, "##[group]Run scripts/docs.sh"), ("Docs", 12.8, "docs: ok"),
+         ("Rollup", 14, "##[group]Run scripts/rollup.sh"), ("Rollup", 14, "##[error]red check: Lint")],
+        [NEW_RED, "##[error]Process completed with exit code 1.", "##[error]red check: Lint"],
+        [NEGATIVE_CASE, "docs: ok"]),
+    # The failing step's exit line at 12:00:12.999 (the step completes at :13) is in the second the passing step
+    # ended in; it never brings that step's log back (leo-workspace#4164's Codex F1).
+    "exit_line_across_the_boundary": (
+        [("Licenses", "success", 10, 12), ("Strings", "failure", 12, 13)],
+        [("Licenses", 10, "##[group]Run python3 test_licenses.py"), ("Licenses", 11, NEGATIVE_CASE),
+         ("Strings", 12.1, "##[group]Run node gen-strings.mjs"), ("Strings", 12.5, "settings: 42 strings missing"),
+         ("Strings", 12.999, "##[error]Process completed with exit code 1.")],
+        ["settings: 42 strings missing", "##[error]Process completed with exit code 1."],
+        [NEGATIVE_CASE]),
+    # Two steps named alike: the passing `Check` stays dropped when the failing `Check` fails (hq#8904's Codex F2).
+    "duplicate_names": (
+        [("Check", "success", 10, 11), ("Check", "failure", 20, 21)],
+        [("Check", 10, "##[group]Run scripts/check.sh --negative"), ("Check", 10.6, NEGATIVE_CASE),
+         ("Check", 20, "##[group]Run scripts/check.sh"), ("Check", 20.6, NEW_RED),
+         ("Check", 21, "##[error]Process completed with exit code 1.")],
+        [NEW_RED, "##[error]Process completed with exit code 1."],
+        [NEGATIVE_CASE]),
+    # A composite action prints a `Run` line per inner step: the sections no longer count one per step, so nothing
+    # can be placed and the whole log is kept.
+    "composite_action_keeps_the_whole_log": (
+        [("Licenses", "success", 10, 12), ("Strings", "failure", 20, 22)],
+        [("Licenses", 10, "##[group]Run ./.github/actions/licenses"), ("Licenses", 10.2, "##[group]Run python3 a.py"),
+         ("Licenses", 11, NEGATIVE_CASE),
+         ("Strings", 20, "##[group]Run node gen-strings.mjs"), ("Strings", 21, "settings: 42 strings missing"),
+         ("Strings", 21, "##[error]Process completed with exit code 1.")],
+        [NEGATIVE_CASE, "settings: 42 strings missing"],
+        []),
+    # A passing step prints a line that reads like a step's start, and the next step printed none: the count still
+    # matches, but the lines after it are outside the times of the step they would be given to. Keep everything.
+    "a_section_outside_its_steps_times_keeps_the_whole_log": (
+        [("Licenses", "success", 10, 12), ("Strings", "failure", 20, 22)],
+        [("Licenses", 10, "##[group]Run python3 test_licenses.py"), ("Licenses", 10.5, "##[group]Run fixture"),
+         ("Licenses", 11, NEGATIVE_CASE),
+         ("Strings", 21, "settings: 42 strings missing"),
+         ("Strings", 21, "##[error]Process completed with exit code 1.")],
+        [NEGATIVE_CASE, "settings: 42 strings missing"],
+        []),
+}
+
+
+class StepOwnership(unittest.TestCase):
+    """failed_steps_log places each line by the log's step order, never by a step's name or its whole-second times
+    (STEP_OWNERSHIP). Detector for cmuxterm-hq docs/handbook/red-quoted-from-a-passing-step.md."""
+
+    def check(self, case):
+        steps, lines, kept, dropped = STEP_OWNERSHIP[case]
+        for columns in (False, True):
+            with self.subTest(columns=columns):
+                out = excuse.failed_steps_log({"steps": framed_steps(steps)}, framed_log(lines, columns=columns))
+                for text in kept:
+                    self.assertIn(text, out)
+                for text in dropped:
+                    self.assertNotIn(text, out)
+
+    def test_same_second_ending(self):
+        self.check("same_second_ending")
+
+    def test_short_continue_on_error(self):
+        self.check("short_continue_on_error")
+
+    def test_exit_line_across_the_boundary(self):
+        self.check("exit_line_across_the_boundary")
+
+    def test_duplicate_names(self):
+        self.check("duplicate_names")
+
+    def test_composite_action_keeps_the_whole_log(self):
+        self.check("composite_action_keeps_the_whole_log")
+
+    def test_a_section_outside_its_steps_times_keeps_the_whole_log(self):
+        self.check("a_section_outside_its_steps_times_keeps_the_whole_log")
+
+    def test_every_case_has_its_test(self):
+        self.assertEqual({name[5:] for name in dir(self) if name.startswith("test_")} & STEP_OWNERSHIP.keys(),
+                         STEP_OWNERSHIP.keys())
+
+    def test_codex_repro_a_new_failure_in_a_continue_on_error_step_is_never_excused_by_the_rollup_lines(self):
+        # cmux#40542's Codex P1: the continue-on-error step ends at 12:00:12 and a passing step starts and ends in
+        # that second. The head fails in Sources/New.swift, the base in Sources/Old.swift; only their identical
+        # rollup lines must never excuse the head.
+        steps, lines, _, _ = STEP_OWNERSHIP["same_second_ending"]
+        github = FakeGitHub()
+        name = "cmux-next static checks"
+        github.jobs = {job_id: {"id": job_id, "run_id": run_id, "head_sha": sha, "name": name,
+                                "status": "completed", "conclusion": "failure", "steps": framed_steps(steps)}
+                       for job_id, run_id, sha in ((1, 10, HEAD), (2, 20, BASE_SHA))}
+        old = [(step, at, text.replace("New.swift:9", "Old.swift:3")) for step, at, text in lines]
+        github.logs = {1: framed_log(lines, name), 2: framed_log(old, name)}
         with self.assertRaisesRegex(excuse.Refused, "New.swift"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
