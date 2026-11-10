@@ -638,8 +638,9 @@ impl Hub {
 
 impl Hub {
     /// [`Self::events_page`]'s newest `limit` records of `kinds` with `after < seq < before`, read
-    /// from the log's copies of them (`Store::scan_kinds`), which hold them oldest first: the
-    /// newest are kept as the scan passes, then bounded by bytes from the newest down.
+    /// from the log's copies of them (`Store::scan_kinds`), which hold them oldest first. The scan
+    /// keeps only what can still be on the page: the newest `limit`, and of those no more than
+    /// `max_bytes` from the newest down, as the read back from the end bounds it.
     #[allow(clippy::too_many_arguments)]
     fn newest_of_copies(
         &self,
@@ -651,37 +652,32 @@ impl Hub {
         kinds: &[&str],
         session: Option<&Session>,
     ) -> Result<EventPage> {
-        let mut newest = std::collections::VecDeque::with_capacity(limit.min(1024));
-        let mut older = false;
-        self.store.scan_kinds(id, kinds, &mut |rec| {
+        let bounded = max_bytes.is_some();
+        let mut newest = std::collections::VecDeque::new();
+        let (mut bytes, mut has_more) = (0usize, false);
+        self.store.scan_kinds(id, kinds, &mut |mut rec| {
             if rec.seq >= before {
                 return false;
             }
-            if rec.seq > after {
-                if newest.len() == limit {
-                    newest.pop_front();
-                    older = true;
-                }
-                newest.push_back(rec);
+            if rec.seq <= after {
+                return true;
+            }
+            self.display_logged(session, &mut rec);
+            let (rec, rec_bytes) = fit(rec, bounded);
+            newest.push_back((rec, rec_bytes));
+            bytes += rec_bytes;
+            // The oldest held goes once it is past the count, or past the size with a newer
+            // record held: a page holds at least one record.
+            while newest.len() > limit
+                || (newest.len() > 1 && max_bytes.is_some_and(|max| bytes > max))
+            {
+                let Some((_, gone)) = newest.pop_front() else { break };
+                bytes -= gone;
+                has_more = true;
             }
             true
         })?;
-        let bounded = max_bytes.is_some();
-        let mut page = EventPage { events: Vec::with_capacity(newest.len()), has_more: older };
-        let mut bytes = 0usize;
-        while let Some(mut rec) = newest.pop_back() {
-            self.display_logged(session, &mut rec);
-            let (rec, rec_bytes) = fit(rec, bounded);
-            // Full by size once it holds a record, as the read back from the end is.
-            if !page.events.is_empty() && max_bytes.is_some_and(|max| bytes + rec_bytes > max) {
-                page.has_more = true;
-                break;
-            }
-            bytes += rec_bytes;
-            page.events.push(rec);
-        }
-        page.events.reverse();
-        Ok(page)
+        Ok(EventPage { events: newest.into_iter().map(|(rec, _)| rec).collect(), has_more })
     }
 }
 
