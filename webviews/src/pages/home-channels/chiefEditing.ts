@@ -43,10 +43,15 @@ export interface ChiefEditorService {
   undo(chief: HomeChief, toRev?: number): Promise<HomeChief | undefined>;
   /** The installed acpmux harnesses with their models. */
   backends(): Promise<HomeChiefBackend[]>;
+  /** Every harness id acpmux has, any source and any kind (terminal ones too): a new id goes past these. */
+  harnessIds(): Promise<string[]>;
   /** Adds a backend (the key goes to the Keychain through the host); resolves its harness id. */
   addBackend(backend: HomeChiefByoBackend): Promise<string>;
   /** A real hello turn on the harness (`doctor {id, prompt: true}`). */
   checkBackend(id: string): Promise<HomeChiefDoctor>;
+  /** Removes a backend this editor added whose check never passed (the form closed or started
+   * over). Only where the host serves it: Settings' `cmux.settings.agents.run`; Home has none. */
+  removeBackend?(id: string): Promise<void>;
 }
 
 const SELECTORS = { machine: "current", session: "current" };
@@ -139,14 +144,13 @@ function actorId(actor: unknown): string {
  * picker's rows: every chat harness acpmux lists (its default first, then by id), with its probed
  * models and each model's efforts. Terminal harnesses never run a Chief. */
 export function parseBackends(answer: unknown): HomeChiefBackend[] {
+  const { map, listed } = listedHarnesses(answer);
   const fields = (answer ?? {}) as { harnesses?: unknown; models?: unknown };
-  const listed = (fields.harnesses ?? {}) as { harnesses?: unknown; defaultHarness?: unknown };
-  const map = (listed.harnesses ?? {}) as Record<string, Record<string, unknown>>;
   const models = new Map<string, HomeChiefBackend["models"]>();
   const probed = (fields.models as { harnesses?: unknown } | undefined)?.harnesses;
   for (const entry of Array.isArray(probed) ? (probed as Record<string, unknown>[]) : []) {
     if (typeof entry.harness !== "string" || !Array.isArray(entry.models)) continue;
-    models.set(entry.harness, (entry.models as Record<string, unknown>[]).map(model));
+    models.set(entry.harness, (entry.models as unknown[]).map(model));
   }
   const ids = Object.keys(map).sort((a, b) =>
     a === listed.defaultHarness ? -1 : b === listed.defaultHarness ? 1 : a < b ? -1 : a > b ? 1 : 0,
@@ -155,7 +159,8 @@ export function parseBackends(answer: unknown): HomeChiefBackend[] {
     .filter((id) => map[id]?.kind !== "terminal")
     .map((id) => {
       const entry = map[id] ?? {};
-      const own = Array.isArray(entry.models) ? (entry.models as Record<string, unknown>[]).map(model) : [];
+      // A profile's declared models: acpmux sends each as its id (a string) or as `{id, name}`.
+      const own = Array.isArray(entry.models) ? (entry.models as unknown[]).map(model).filter((m) => m.id) : [];
       const name = typeof entry.displayName === "string" && entry.displayName ? entry.displayName : id;
       const unavailable = typeof entry.unavailable === "string" && entry.unavailable ? entry.unavailable : undefined;
       return {
@@ -167,7 +172,21 @@ export function parseBackends(answer: unknown): HomeChiefBackend[] {
     });
 }
 
-function model(raw: Record<string, unknown>): HomeChiefBackend["models"][number] {
+/** Every harness id `cmux.chief.backend.list` names, terminal ones included (`parseBackends`
+ * leaves those out of the picker, but an id they have is still taken). */
+export function parseHarnessIds(answer: unknown): string[] {
+  return Object.keys(listedHarnesses(answer).map);
+}
+
+function listedHarnesses(answer: unknown) {
+  const fields = (answer ?? {}) as { harnesses?: unknown };
+  const listed = (fields.harnesses ?? {}) as { harnesses?: unknown; defaultHarness?: unknown };
+  const map = (listed.harnesses ?? {}) as Record<string, Record<string, unknown>>;
+  return { map, listed };
+}
+
+function model(entry: unknown): HomeChiefBackend["models"][number] {
+  const raw = (typeof entry === "string" ? { id: entry } : (entry ?? {})) as Record<string, unknown>;
   const id = String(raw.id ?? raw.modelId ?? "");
   const efforts = Array.isArray(raw.efforts) ? raw.efforts.filter((e): e is string => typeof e === "string") : [];
   return { id, name: typeof raw.name === "string" && raw.name ? raw.name : id, efforts };
@@ -266,6 +285,10 @@ export class ChiefHost {
     return parseBackends(await this.host.call("cmux.chief.backend.list", {}));
   }
 
+  async harnessIds(): Promise<string[]> {
+    return parseHarnessIds(await this.host.call("cmux.chief.backend.list", {}));
+  }
+
   async addBackend(backend: HomeChiefByoBackend): Promise<string> {
     const added = await this.host.call<{ id?: unknown }>("cmux.chief.backend.add", backend);
     if (typeof added?.id !== "string" || !added.id) throw new Error("the host added no harness");
@@ -274,6 +297,11 @@ export class ChiefHost {
 
   async checkBackend(id: string): Promise<HomeChiefDoctor> {
     return parseDoctor(await this.host.call("cmux.chief.backend.doctor", { id, prompt: true }));
+  }
+
+  /** Settings' own remove (`cmux.settings.agents.run`), which the Settings page serves. */
+  async removeBackend(id: string): Promise<void> {
+    await this.host.call("cmux.settings.agents.run", { action: "remove", id });
   }
 }
 
@@ -335,11 +363,19 @@ export class HostChiefEditor implements ChiefEditorService {
     return this.host.backends();
   }
 
+  harnessIds(): Promise<string[]> {
+    return this.host.harnessIds();
+  }
+
   addBackend(backend: HomeChiefByoBackend): Promise<string> {
     return this.host.addBackend(backend);
   }
 
   checkBackend(id: string): Promise<HomeChiefDoctor> {
     return this.host.checkBackend(id);
+  }
+
+  removeBackend(id: string): Promise<void> {
+    return this.host.removeBackend(id);
   }
 }

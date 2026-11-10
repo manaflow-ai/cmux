@@ -308,8 +308,9 @@ async function waitForScreen(localSocket, terminal, pattern, timeoutMs) {
     ["--socket", localSocket, "--json", "terminal", terminal, "screen", "wait", "--pattern", pattern, "--timeout-ms", String(timeoutMs)],
     timeoutMs,
   );
+  // A timeout prints matched false and timed_out true and exits 124.
+  if (result.code === 124) throw new Error(`/${pattern}/ did not appear on the terminal within ${timeoutMs}ms`);
   if (result.code !== 0) throw new Error(`screen wait for /${pattern}/ failed (${result.code}): ${result.stderr.slice(-400)}`);
-  // A timeout is a normal result with matched false and exit status 0.
   let matched = false;
   try {
     matched = JSON.parse(result.stdout).matched === true;

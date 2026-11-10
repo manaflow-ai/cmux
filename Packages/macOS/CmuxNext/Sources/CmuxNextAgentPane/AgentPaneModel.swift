@@ -108,6 +108,17 @@ public final class AgentPaneModel {
 
     /// Whether a Cloud start may bind the pane's currently live reservation.
     func ownsCloudReservation(_ key: String) -> Bool { cloudReservationComposeKey == key }
+    /// The reserve still out, and whether a Send went without it meanwhile (``dropCloudReservation()``).
+    @ObservationIgnored private var cloudReserveOut: (key: String, dropped: Bool)?
+
+    /// A Cloud Send went without the pane's reservation while its reserve is still out (the page stopped
+    /// waiting for it, cloudComposeReservation.ts): this pane releases it as it answers, so no machine stays
+    /// reserved when the tab has closed by then.
+    func dropCloudReservation() {
+        guard let out = cloudReserveOut, !out.dropped else { return }
+        cloudReserveOut?.dropped = true
+        AgentPaneCloudReservationRequest.log.notice("cloud reserve: the Send went without it (the page stopped waiting); it is released as it answers")
+    }
     /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// Signs into the app's Cloud account for inline first-send recovery; nil when Cloud is unavailable.
@@ -704,7 +715,16 @@ public final class AgentPaneModel {
                 guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
                 cloudReservationComposeKey = composeKey
             }
+            cloudReserveOut = (composeKey, false)
             let reply = await onCloudReservation(request)
+            let dropped = cloudReserveOut?.key == composeKey && cloudReserveOut?.dropped == true
+            if cloudReserveOut?.key == composeKey { cloudReserveOut = nil }
+            if dropped, reply["ok"] as? Bool == true,
+               let late = AgentPaneCloudReservationRequest(method: "cloud.releaseReservation", params: ["composeKey": composeKey]) {
+                _ = await onCloudReservation(late)
+                if cloudReservationComposeKey == composeKey { cloudReservationComposeKey = nil }
+                return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
+            }
             if reply["ok"] as? Bool != true, cloudReservationComposeKey == composeKey { cloudReservationComposeKey = nil }
             return reply
         case .cloudEnvironment(let request):

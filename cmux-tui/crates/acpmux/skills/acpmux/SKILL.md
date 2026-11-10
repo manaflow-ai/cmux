@@ -202,11 +202,18 @@ the person's prompt. What the receiver gets depends on who you are to it:
   `SubagentStop` hook, its reports wait until no subagent of the lead runs. The
   end message of a background task it started (`bg_start`, `run_wait`) takes
   the same rule. A cmux workflow it starts (`cmux.cmux_workflow`) runs as it:
-  the workflow's commands and its script's sends name it. On a path that names
-  no subagent, a subagent passes `notify: false` and reads the task with
-  `bg_output`. The receiver reads `From another agent (LEAD's TYPE
-  subagent ID)` and ends its turn with its answer; it does not send it to the
-  lead.
+  the workflow's commands and its script's sends name it. Its work on another
+  machine (an `agent()` or `machine()` with `on: HOST`, a CI machine) still runs
+  as the lead. On a path that names no subagent, a subagent passes
+  `notify: false` and reads the task with `bg_output`. The receiver reads
+  `From another agent (LEAD's TYPE subagent ID)` and ends its turn with its
+  answer; it does not send it to the lead.
+  A subagent's send that goes to the send relay (`sendRelay`: no session here
+  or on a peer) names the subagent to the relay as a label only
+  (`ACPMUX_FROM_SUBAGENT`, `ACPMUX_FROM_LABEL`). Both are unverified claims:
+  nothing on the far side can check them yet. A Codex subagent's relayed send
+  has no label. `ACPMUX_FROM` stays the lead's name, the one reply address the
+  relay has, so the far side's answer reaches the lead, not the subagent.
   The `send` tool (`to: LEAD`) reaches the lead.
   A Codex subagent is named `LEAD's codex subagent THREAD` (its own
   `CODEX_THREAD_ID`); when acpmux does not know the lead's thread, the line
