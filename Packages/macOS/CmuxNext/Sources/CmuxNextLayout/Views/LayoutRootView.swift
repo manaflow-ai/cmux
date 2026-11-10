@@ -348,7 +348,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     public func syncWithModelForNextFrame() {
         guard isLive, driver.isAttached else { return syncWithModel() }
         let held = context.holdsPresentations
-        let shown = lastSnapshot?.activeScreen
+        let before = lastSnapshot
         context.holdsPresentations = true
         syncWithModel()
         context.holdsPresentations = held
@@ -359,7 +359,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         if waiting.count > snapped.count { driver.start() }
         // A change of screen in the held turn (a close that removes the shown screen): when no frame tick follows it,
         // what follows the panes once per placed frame hears it here (`syncBatched` leaves it to the tick under a hold).
-        if lastSnapshot?.activeScreen != shown, !driver.isRunning, !held { onFramePlaced?() }
+        if let before, lastSnapshot?.activeScreen != before.activeScreen, !driver.isRunning, !held { onFramePlaced?() }
     }
 
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
@@ -488,10 +488,13 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
                 let source: ColumnFocusSource = previous?.focused != snapshot.focused ? model.lastFocusSource : .programmatic
                 // Only a snap that stands in for Reduce Motion's spring shows the
                 // scrollbar, not one at launch or while out of the window.
+                // Only the shown screen's camera asks for frames: the one a switch hides lands its camera when it
+                // hides (`showScreen`), so a spring it had in flight does not hold the switch for a frame tick.
                 if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
                                    animated: previous != nil && !landsAtOnce && staysShown && canAnimate && context.animatesPaneLayout,
                                    reveals: !snapshot.gestureActive,
-                                   showsScrollbarOnSnap: previous != nil && !landsAtOnce && window != nil && driver.isAttached) {
+                                   showsScrollbarOnSnap: previous != nil && !landsAtOnce && window != nil && driver.isAttached),
+                   isActive {
                     needsFrames = true
                 }
             }

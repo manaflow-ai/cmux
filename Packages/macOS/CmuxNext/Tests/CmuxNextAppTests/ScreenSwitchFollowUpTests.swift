@@ -86,6 +86,7 @@ struct ScreenSwitchFollowUpTests {
         /// Resizes the window, as a person does while another screen shows.
         func resize(width: CGFloat) {
             window.setContentSize(NSSize(width: width, height: 800))
+            root.needsLayout = true
             root.layoutSubtreeIfNeeded()
         }
 
@@ -256,6 +257,9 @@ struct ScreenSwitchFollowUpTests {
         #expect(strip.scroll.value == target && strip.scroll.target == target,
                 "the screen that hid keeps its camera mid-spring (\(strip.scroll.value) -> \(strip.scroll.target), was going to \(target))")
         #expect(!strip.hasMotion)
+        // The frame tick the camera spring had asked for finds nothing to move, and the layout is at rest after it.
+        #expect(!layout.root.advanceFrame(1.0 / 120), "a frame after the switch still moves something")
+        #expect(!layout.root.isInLayoutMotion)
 
         let asked = layout.root.driver.startRequests
         layout.select("a")
