@@ -31,6 +31,9 @@ html[data-cmux-page="machines"] body {
   text-overflow: ellipsis;
 }
 .machines-header[data-first] { margin-top: 0; }
+/* The active team after "Cloud" (TeamTag.tsx): its icon and name in the header's ink, regular weight. */
+.machines-header .acpmux-team-tag { display: inline-flex; align-items: center; gap: var(--ds-space-1); margin-left: var(--ds-space-2); font-weight: 400; vertical-align: middle; }
+.machines-header .acpmux-team-tag > svg { flex: none; }
 
 .machines-row {
   display: flex;
