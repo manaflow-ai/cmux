@@ -188,28 +188,38 @@ test("the ride gives way when the mounted rows are not one run", () => {
 });
 
 // A ride that lets go hands the transcript how far each row showed below its placed top, so the
-// placement's scroll anchor does not move them by it again; one with no placement after it does not.
-test("a ride hands over its rows' shifts when it lets go, and not when it settles", () => {
+// placement of its heights does not move those rows by it again. A placement before its heights land
+// (a scroll's commit still on the old heights) neither uses nor spends it (review of #39917 at
+// 16b52a67: "offset 2090 instead of 2290"); one with no placement after it hands over nothing.
+test("a ride hands over its rows' shifts to the placement of its heights", () => {
   const rows = transcript(4);
   const [row, below, , last] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
   const placed = new Map<HTMLElement, number>(rows.map((each) => [each, 100]));
   const height = new Map(placed);
+  let drawn: object = {};
   const ride = new FoldRide({
     placed: (each) => placed.get(each),
     height: (each) => height.get(each),
+    drawn: () => drawn,
     finish: () => {},
   });
   markHeightFold(row, 10_000);
   height.set(row, 140);
   expect(ride.ride([row])).toBe(true);
+  const before = drawn;
   ride.release();
-  expect(ride.handedShift(below.dataset.rowId)).toBe(40);
-  expect(ride.handedShift(last.dataset.rowId)).toBe(40);
-  expect(ride.handedShift(row.dataset.rowId)).toBe(0);
-  ride.takeHanded();
-  expect(ride.handedShift(below.dataset.rowId)).toBe(0);
+  // A placement still on the heights the ride let go on.
+  expect(ride.handedShift(below.dataset.rowId, before)).toBe(0);
+  ride.takeHanded(before);
+  // The placement of its heights.
+  drawn = {};
+  expect(ride.handedShift(below.dataset.rowId, drawn)).toBe(40);
+  expect(ride.handedShift(last.dataset.rowId, drawn)).toBe(40);
+  expect(ride.handedShift(row.dataset.rowId, drawn)).toBe(0);
+  ride.takeHanded(drawn);
+  expect(ride.handedShift(below.dataset.rowId, {})).toBe(0);
   expect(ride.ride([row])).toBe(true);
   height.set(row, 100);
   ride.settled([row], false);
-  expect(ride.handedShift(below.dataset.rowId)).toBe(0);
+  expect(ride.handedShift(below.dataset.rowId, {})).toBe(0);
 });

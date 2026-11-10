@@ -46,6 +46,9 @@ export type FoldRideOptions = {
   height: (row: HTMLElement) => number | undefined;
   /// Places every row at its drawn height now (the transcript's one render at the fold's end).
   finish: (rows: HTMLElement[]) => void;
+  /// The transcript's drawn heights now (any value that changes when new heights are placed): a
+  /// hand-over counts only for a placement of heights newer than the ones it was handed on.
+  drawn?: () => unknown;
   /// The disclosure line the transcript holds in place while its fold plays, and the view top it is
   /// held at, if any.
   held?: () => { toggle: HTMLElement; top: number } | undefined;
@@ -59,6 +62,8 @@ export class FoldRide {
   /// The translate each row (by id) wore when the ride let go: those rows already show where the
   /// transcript's next placement puts them, which the scroll anchor must not move them by again.
   private handed: Map<string, number> | undefined;
+  /// The drawn heights the hand-over was made on (`drawn`).
+  private handedOn: unknown;
   private frame: number | undefined;
   private view: (Window & typeof globalThis) | null = null;
 
@@ -141,20 +146,25 @@ export class FoldRide {
     this.handed = undefined;
   }
 
-  /// How far below its placed top the row `id` showed when the ride let go (0 when it did not ride).
-  handedShift(id: string | undefined): number {
-    return (id !== undefined && this.handed?.get(id)) || 0;
+  /// How far below its placed top the row `id` showed when the ride let go, for a placement of the
+  /// drawn heights `drawn`: 0 when it did not ride, or when `drawn` are still the heights the ride
+  /// let go on (a placement before its heights land moves no row by its fold).
+  handedShift(id: string | undefined, drawn: unknown): number {
+    if (id === undefined || drawn === this.handedOn) return 0;
+    return this.handed?.get(id) || 0;
   }
 
-  /// Forgets what the ride handed over, once the transcript placed the rows.
-  takeHanded(): void {
-    this.handed = undefined;
+  /// Forgets what the ride handed over, once the transcript placed rows at heights newer than the
+  /// ones it was handed on (`drawn`).
+  takeHanded(drawn: unknown): void {
+    if (drawn !== this.handedOn) this.handed = undefined;
   }
 
   /// Lets every row go (no translate) and forgets the folds. Returns false, for `ride`'s callers.
   release(): false {
     if (this.moved.size) {
       this.handed = new Map();
+      this.handedOn = this.options.drawn?.();
       for (const node of this.moved) {
         const shift = parseFloat(node.style.translate.split(" ")[1] ?? "") || 0;
         if (node.dataset.rowId !== undefined && shift) this.handed.set(node.dataset.rowId, shift);
