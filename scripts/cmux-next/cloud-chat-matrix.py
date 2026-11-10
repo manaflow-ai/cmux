@@ -92,7 +92,9 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if args.app and not (args.cloud_backend and args.expected_api_origin):
         parser.error("--app needs --cloud-backend and --expected-api-origin")
-    args.parallel = max(1, min(args.parallel, 3))
+    # The Cloud backend holds a script's creates and kills for approval, at most 5 pending per
+    # install (approval-gate.ts MAX_PENDING_PER_IDENTITY): 2 cells at once leave room for their kills.
+    args.parallel = max(1, min(args.parallel, 2))
     return args
 
 
@@ -246,6 +248,8 @@ lines, size, links = [], 0, []
 for top, dirs, files in os.walk(root):
     rel_top = os.path.relpath(top, root)
     dirs[:] = sorted(d for d in dirs if not (rel_top == "." and d == ".git"))
+    if rel_top == ".":
+        files = [f for f in files if f != ".cmux-sync.json"]  # the copy's own record (skips.rs Reserved)
     for name in files + [d for d in dirs if os.path.islink(os.path.join(top, d))]:
         full = os.path.join(top, name)
         rel = os.path.normpath(os.path.join(rel_top, name))
