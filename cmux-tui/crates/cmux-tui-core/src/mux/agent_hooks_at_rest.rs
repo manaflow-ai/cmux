@@ -126,6 +126,12 @@ struct HookSlot {
 }
 
 impl HookSlot {
+    /// What a report with `key` got before: `Some(None)` for one that was
+    /// appended (the registry holds its receipt), `None` for a new key.
+    fn answered(&self, key: &str) -> Option<Option<crate::JournalAppendCommit>> {
+        self.recent.iter().find(|(recent, _)| recent == key).map(|(_, answer)| answer.clone())
+    }
+
     fn remember(&mut self, key: String, answer: Option<crate::JournalAppendCommit>) {
         if self.recent.len() >= MAX_RECENT_KEYS {
             self.recent.pop_front();
@@ -438,6 +444,16 @@ impl AgentHooksAtRest {
     pub(super) fn forget_terminal(&self, terminal: &TerminalPublicId) {
         self.terminals().remove(terminal);
         self.activity().stamps.remove(terminal);
+    }
+
+    /// What a report with `key` of `terminal` got before (`HookSlot::answered`).
+    /// The table lock is taken and released here.
+    fn recent_answer(
+        &self,
+        terminal: &TerminalPublicId,
+        key: &str,
+    ) -> Option<Option<crate::JournalAppendCommit>> {
+        self.terminals().get(terminal)?.answered(key)
     }
 
     /// Notes that the agent session `provider`/`session` of `terminal` was
@@ -787,6 +803,16 @@ impl Mux {
             return None;
         }
         let facts = HookFacts::of(ingress)?;
+        // A retry gets its first answer and has no second effect; the retry
+        // of an appended report goes to the registry, which holds its receipt.
+        // Before every other check: the registry holds no receipt of a report
+        // answered here, so as a row the retry would be a second report (a
+        // tool call that ended before a block would resume the agent, and a
+        // reader that came since would get the report as a new row).
+        let key = receipt_key(origin, idempotency_key);
+        if let Some(answer) = self.agent_hooks_at_rest.recent_answer(&facts.terminal, &key) {
+            return answer;
+        }
         let native_event =
             ingress.payload.get("native_event").and_then(Value::as_str).unwrap_or_default();
         if crate::agent_hooks::is_tool_completion(native_event)
@@ -802,13 +828,10 @@ impl Mux {
         // turn's end) waits here, so its presence change comes after this one.
         let mut terminals = self.agent_hooks_at_rest.terminals();
         let slot = terminals.get_mut(&facts.terminal)?;
-        // A retry gets its first answer and has no second effect; the retry
-        // of an appended report goes to the registry, which holds its receipt.
-        // Before the next check: the registry holds no receipt of a report
-        // answered here, so as a row the retry would be a second report.
-        let key = receipt_key(origin, idempotency_key);
-        if let Some((_, answer)) = slot.recent.iter().find(|(recent, _)| *recent == key) {
-            return answer.clone();
+        // Again under this lock: the same key can have got its answer since
+        // the read above, which did not hold it.
+        if let Some(answer) = slot.answered(&key) {
+            return answer;
         }
         // A projection of the terminal waits: this report is a row, and its
         // projection is the retry (one attempt for each report).

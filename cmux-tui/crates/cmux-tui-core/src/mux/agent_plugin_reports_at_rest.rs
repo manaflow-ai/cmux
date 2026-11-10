@@ -72,6 +72,18 @@ impl AgentPluginReportsAtRest {
     pub(super) fn forget_terminal(&self, terminal: &TerminalPublicId) {
         self.terminals().remove(terminal);
     }
+
+    /// The answer a report with `key` of `terminal` got at rest before. The
+    /// table lock is taken and released here.
+    fn recent_answer(
+        &self,
+        terminal: &TerminalPublicId,
+        key: &str,
+    ) -> Option<crate::JournalAppendCommit> {
+        let terminals = self.terminals();
+        let slot = terminals.get(terminal)?;
+        slot.recent.iter().find(|(recent, _)| recent == key).map(|(_, answer)| answer.clone())
+    }
 }
 
 /// One plugin report on its way to the journal.
@@ -116,6 +128,13 @@ impl Mux {
         idempotency_key: &str,
     ) -> Option<crate::JournalAppendCommit> {
         let terminal = plugin_report_terminal(ingress)?;
+        // A retry gets its first answer. Before the reader check: the registry
+        // holds no receipt of a report answered here, so a reader that came
+        // since would get the retry as a second row.
+        let key = format!("{origin}\n{idempotency_key}");
+        if let Some(answer) = self.agent_plugin_reports_at_rest.recent_answer(&terminal, &key) {
+            return Some(answer);
+        }
         if self.journal_reader_keeps_plugin_rows(ingress) {
             return None;
         }
@@ -123,7 +142,8 @@ impl Mux {
         // sent meanwhile waits here, then finds this one answered.
         let mut terminals = self.agent_plugin_reports_at_rest.terminals();
         let slot = terminals.get_mut(&terminal)?;
-        let key = format!("{origin}\n{idempotency_key}");
+        // Again under this lock: the same key can have got its answer since
+        // the read above, which did not hold it.
         if let Some((_, answer)) = slot.recent.iter().find(|(recent, _)| *recent == key) {
             return Some(answer.clone());
         }
