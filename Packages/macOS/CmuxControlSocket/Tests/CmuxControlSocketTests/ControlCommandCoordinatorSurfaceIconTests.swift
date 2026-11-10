@@ -34,7 +34,7 @@ struct ControlCommandCoordinatorSurfaceIconTests {
         #expect(inputs.ownerID == "agent-status")
         #expect(inputs.expectedAgentPID == 12345)
         #expect(inputs.expectedProcessStart == "generation-1")
-        #expect(inputs.ttlSeconds == 30)
+        #expect(inputs.ttlSeconds as Int? == nil)
         #expect(inputs.leaseToken == nil)
         #expect(inputs.expectedRevision == nil)
         #expect(inputs.asset == ControlSurfaceIconAsset(
@@ -42,7 +42,17 @@ struct ControlCommandCoordinatorSurfaceIconTests {
         ))
     }
 
-    @Test func renewRequiresTokenAndStillRequiresProcessIdentity() throws {
+    @Test func fullReplacementNeedsNoPreviousCredentialsOrTTL() throws {
+        var input = params()
+        input["owner_id"] = .string("restarted-producer")
+        let replacement = try ControlSurfaceIconParser().parse(input, clear: false)
+        #expect(replacement.ownerID == "restarted-producer")
+        #expect(replacement.leaseToken == nil)
+        #expect(replacement.expectedRevision == nil)
+        #expect(replacement.asset != nil)
+    }
+
+    @Test func legacyAssetFreeUpdatePreservesAllCredentials() throws {
         var input = params()
         input.removeValue(forKey: "asset")
         #expect(throws: ControlSurfaceIconParser.Invalid.self) {
@@ -116,7 +126,8 @@ struct ControlCommandCoordinatorSurfaceIconTests {
     func rejectsMalformedNumbersWithoutCoercionOrOverflow(key: String) {
         for invalid: JSONValue in [.null, .bool(true), .bool(false), .string("30"), .int(0),
                                    .int(-1), .double(1.5), .double(.infinity), .double(.nan),
-                                   .double(Double(Int.max)), .decimal("9999999999999999999999999999")] {
+                                   .double(Double(Int.max)), .decimal("9999999999999999999999999999"),
+                                   .decimal("9007199254740992.5")] {
             var input = params()
             input[key] = invalid
             #expect(throws: ControlSurfaceIconParser.Invalid.self) {
@@ -125,19 +136,54 @@ struct ControlCommandCoordinatorSurfaceIconTests {
         }
     }
 
-    @Test func acceptsTTLBoundsAndRejectsOutsideRange() throws {
-        for ttl in [5, 120] {
-            var input = params()
-            input["ttl_seconds"] = .double(Double(ttl))
-            #expect(try ControlSurfaceIconParser().parse(input, clear: false).ttlSeconds == ttl)
+    @Test(arguments: [1, 4, 5, 120, 121, 600, Int.max])
+    func acceptsEveryPositiveRepresentableTTL(ttl: Int) throws {
+        var input = params()
+        input["ttl_seconds"] = .int(Int64(ttl))
+        #expect(try ControlSurfaceIconParser().parse(input, clear: false).ttlSeconds == ttl)
+        input["ttl_seconds"] = .decimal(String(ttl))
+        #expect(try ControlSurfaceIconParser().parse(input, clear: false).ttlSeconds == ttl)
+    }
+
+    @Test(arguments: ["1", "4", "121", "600", "600.0", "6e2", String(Int.max)])
+    func acceptsTTLThroughActualJSONRequestDecoding(rawTTL: String) throws {
+        let request = try decodedRequest(rawTTL: rawTTL)
+        let expected = rawTTL == "600.0" || rawTTL == "6e2" ? 600 : Int(rawTTL)!
+        #expect(try ControlSurfaceIconParser().parse(request.params, clear: false).ttlSeconds == expected)
+    }
+
+    @Test(arguments: ["0", "-1", "true", "null", "\"600\"", "600.5",
+                      "9223372036854775808", "1e99"])
+    func rejectsInvalidTTLThroughActualJSONRequestDecoding(rawTTL: String) throws {
+        let request = try decodedRequest(rawTTL: rawTTL)
+        #expect(throws: ControlSurfaceIconParser.Invalid.self) {
+            try ControlSurfaceIconParser().parse(request.params, clear: false)
         }
-        for ttl in [4, 121, Int64.max] {
-            var input = params()
-            input["ttl_seconds"] = .int(ttl)
+    }
+
+    @Test func heartbeatAndClearPreserveOptionalTTLTransport() throws {
+        var input = params()
+        input.removeValue(forKey: "asset")
+        input["lease_token"] = .string(UUID().uuidString)
+        input["expected_revision"] = .int(7)
+        for clear in [false, true] {
+            #expect(try ControlSurfaceIconParser().parse(input, clear: clear).ttlSeconds as Int? == nil)
+            input["ttl_seconds"] = .int(600)
+            #expect(try ControlSurfaceIconParser().parse(input, clear: clear).ttlSeconds == 600)
+            input["ttl_seconds"] = .int(0)
             #expect(throws: ControlSurfaceIconParser.Invalid.self) {
-                try ControlSurfaceIconParser().parse(input, clear: false)
+                try ControlSurfaceIconParser().parse(input, clear: clear)
             }
+            input.removeValue(forKey: "ttl_seconds")
         }
+    }
+
+    private func decodedRequest(rawTTL: String) throws -> ControlRequest {
+        let data = try JSONSerialization.data(withJSONObject: params().mapValues(\.foundationObject))
+        let encoded = String(decoding: data, as: UTF8.self)
+        let line = "{\"id\":1,\"method\":\"surface.icon.set\",\"params\":"
+            + encoded.dropLast() + ",\"ttl_seconds\":" + rawTTL + "}}"
+        return try ControlRequestParser().request(fromLine: line).get()
     }
 
     @Test func rejectsMalformedLeaseTokens() {
@@ -235,7 +281,7 @@ struct ControlCommandCoordinatorSurfaceIconTests {
             #expect(worker["is_main_thread"] == .bool(false))
             #expect(worker["workspace_id"] == .string(workspaceID.uuidString))
             #expect(worker["surface_id"] == .string(surfaceID.uuidString))
-            #expect(worker["ttl_seconds"] == .int(30))
+            #expect(worker["ttl_seconds"] == .null)
         }
     }
 
