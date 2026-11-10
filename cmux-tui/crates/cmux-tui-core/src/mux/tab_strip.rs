@@ -81,7 +81,19 @@ pub(crate) struct StripEdit {
     pub(crate) result: StripResult,
 }
 
+#[cfg(test)]
+thread_local! {
+    static SESSION_STATE_CLONES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 impl Mux {
+    /// Whole-session state clones that strip commits made on this thread
+    /// (test hook).
+    #[cfg(test)]
+    pub(crate) fn strip_state_clones_for_test() -> u64 {
+        SESSION_STATE_CLONES.with(std::cell::Cell::get)
+    }
+
     /// Commit a tab strip change. Returns `mutate`'s output (`None` on a
     /// replay, which runs nothing) and the commit.
     #[track_caller]
@@ -101,6 +113,8 @@ impl Mux {
             None,
             request.expected_revision,
             |state, registry| {
+                #[cfg(test)]
+                SESSION_STATE_CLONES.with(|clones| clones.set(clones.get() + 1));
                 let mut projected = state.clone();
                 let presentation = mux.presentation_snapshot();
                 let mut edit = StripEdit {
