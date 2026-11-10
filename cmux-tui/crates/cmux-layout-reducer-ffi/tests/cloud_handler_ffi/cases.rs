@@ -46,7 +46,7 @@ fn an_argument_check_answers_its_value_or_its_refusal() {
     assert_eq!(
         ok(
             c"cloud_handler_arg",
-            json!({"check": "id", "missing": "ruleIDRequired", "args": {"path": " r1 "}})
+            json!({"check": "id", "missing": "publicationRequired", "args": {"path": " r1 "}})
         ),
         json!({"value": "r1"})
     );
@@ -110,22 +110,6 @@ fn decisions_answer_their_route() {
         ok(c"cloud_handler_creation", json!({"listed": true, "failed": true})),
         json!({"state": "failed"})
     );
-    assert_eq!(
-        ok(c"cloud_handler_attachable", json!({"connected": true, "hasAppLink": true})),
-        json!({"attachable": true})
-    );
-    assert_eq!(
-        ok(
-            c"cloud_handler_desktop",
-            json!({"defaultViewer": "rd", "allows": true, "capability": true, "title": "box"})
-        ),
-        json!({"viewer": "rd"})
-    );
-    assert_eq!(
-        ok(c"cloud_handler_confirmation", json!({"action": "cloudKillMachine"})),
-        json!({"prompt": "killMachine"})
-    );
-    assert_eq!(ok(c"cloud_handler_confirmation", json!({"action": "x"})), json!({"prompt": null}));
     assert_eq!(
         ok(
             c"cloud_handler_team",

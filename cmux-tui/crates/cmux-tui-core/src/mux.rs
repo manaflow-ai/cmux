@@ -176,7 +176,8 @@ pub(crate) use browser_tab_create::{
     effect_transaction as frontend_browser_transaction, frontend_fields as frontend_browser_fields,
 };
 pub(crate) use spawn_options::{
-    CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity,
+    AROUND_SPLIT_FIELD, CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD,
+    terminal_identity,
 };
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 pub(crate) use topology_ops::split_direction_field;
@@ -236,6 +237,7 @@ use agent_types::{
     agent_hook_notification, agent_provider_identity, legacy_hook_session_id,
     parse_projection_agent_state, published_agent_session_id,
 };
+mod divider_visibility;
 mod events;
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
@@ -360,6 +362,8 @@ pub(crate) use agent_chat_columns::{
     is_agent_chat_top, pane_is_agent_chat_top, release_agent_chat_role,
 };
 pub use column_move::{ColumnMoveDirection, ColumnMoveError};
+pub(crate) use divider_visibility::DIVIDER_HIDDEN_FIELD;
+pub use divider_visibility::{DividerVisibilityError, SPLIT_DIVIDER_VISIBILITY_CAPABILITY};
 pub use dock_columns::PINNED_COLUMN_CODE;
 pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
@@ -640,6 +644,9 @@ pub struct Mux {
     terminal_host_reconnect_completion_failures: AtomicU64,
     #[cfg(debug_assertions)]
     terminal_host_test_disconnect_after_spawn_ms: AtomicU64,
+    /// Tests: how many hosted readers' frame demultiplexers fail to start.
+    #[cfg(test)]
+    host_frames_spawn_failures: AtomicU64,
     #[cfg(test)]
     kitty_image_budget_operation: Mutex<Option<KittyImageBudgetOperationHook>>,
     cell_pixel_lifecycle: Mutex<()>,

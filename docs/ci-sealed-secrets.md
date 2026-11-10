@@ -38,3 +38,17 @@ python3 scripts/ci/sealed_secrets.py put DIR/sealed-secrets.json
 
 Rerun it to rotate the password. The capture job reads only the two secrets. It never sees the
 staging server key and never creates users.
+
+## Staging INTERNAL_TOKEN
+
+`.github/workflows/internal-token-staging.yml` runs only from `feat-cmux-next`, in `cmux-next-staging`. It mints a
+fresh `INTERNAL_TOKEN`, seals it to this repository's `cloud-vm-staging` environment as
+`PLATFORM_STAGING_INTERNAL_TOKEN` (the classic migration staging proof's bearer, cmuxterm-hq#8793), then puts it on
+`cmux-platform-staging` and, when that Worker already has one, `cmux-api-staging`. Every run is a rotation of all
+three. To run it and store the result:
+
+```sh
+gh workflow run internal-token-staging.yml -R manaflow-ai/cmux --ref feat-cmux-next
+gh run download RUN_ID -R manaflow-ai/cmux -n sealed-secrets -D "$(mktemp -d)"
+python3 scripts/ci/sealed_secrets.py put DIR/sealed-secrets.json
+```

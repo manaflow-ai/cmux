@@ -75,7 +75,7 @@ import Testing
         await until { provider.history != nil }
         #expect(provider.state["history"] == ["done": false])
         let importIt: JSONValue = ["action": ["kind": "importHistory"]]
-        let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: at) }
+        let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.homeMessages.id, userGesture: true, gestureEvent: at) }
 
         // The page did not show (a top page refused): the row stays.
         _ = try await provider.call("cmux.setup.run", params: importIt, context: click(1))
@@ -105,7 +105,7 @@ import Testing
         #expect(provider.state["cli"] == "foreign")
         await #expect(throws: PageError.self) {
             try await provider.call("cmux.setup.run", params: ["action": ["kind": "installCLI"]],
-                                    context: PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: 1))
+                                    context: PageCallContext(page: PageDescriptor.homeMessages.id, userGesture: true, gestureEvent: 1))
         }
         #expect(mac.installs == 0)
     }
@@ -141,7 +141,7 @@ import Testing
         defer { provider.stop() }
         await until { provider.cli != nil }
         let install: JSONValue = ["action": ["kind": "installCLI"]]
-        let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: at) }
+        let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.homeMessages.id, userGesture: true, gestureEvent: at) }
         _ = try await provider.call("cmux.setup.run", params: install, context: click(1))
         await until { mac.installRuns != nil }
         #expect(provider.state["cli"] == "installing")
@@ -240,7 +240,7 @@ import Testing
     }
 
     private func click(_ event: TimeInterval) -> PageCallContext {
-        PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: event)
+        PageCallContext(page: PageDescriptor.homeMessages.id, userGesture: true, gestureEvent: event)
     }
 
     /// Every card this launch shares one agents model: a card made again mid-install (another Home conversation)
@@ -252,7 +252,7 @@ import Testing
                                                openAgents: {}, historySources: { false }, importHistory: { false })
         let first = SetupCardPageProvider(setup: setup, agents: source, environment: environment)
         await until { first.agents.loaded }
-        let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: at) }
+        let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.homeMessages.id, userGesture: true, gestureEvent: at) }
         _ = try await first.call("cmux.setup.run", params: ["action": ["kind": "installAgent", "id": "claude"]], context: click(1))
         await until { source.running != nil }
         first.stop()
@@ -278,7 +278,7 @@ import Testing
             account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {}, historySources: { true }, importHistory: { false }))
         defer { provider.stop() }
         _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "declineHistory"]],
-                                    context: PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: 1))
+                                    context: PageCallContext(page: PageDescriptor.homeMessages.id, userGesture: true, gestureEvent: 1))
         #expect(setup.historyDone && defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey))
         #expect(FirstRunSetup(defaults: defaults).historyDone)
     }
@@ -324,7 +324,7 @@ import Testing
                                                historySources: { false }, importHistory: { false })
         let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: environment)
         defer { provider.stop() }
-        let press = PageCallContext(page: PageDescriptor.setupCard.id)
+        let press = PageCallContext(page: PageDescriptor.homeMessages.id)
         let signIn: JSONValue = ["action": ["kind": "signInAccount"]]
 
         await #expect(throws: PageError.self) { try await provider.call("cmux.setup.run", params: signIn, context: press) }
@@ -337,63 +337,60 @@ import Testing
         #expect(!setup.shows)
 
         // A real click still runs the row itself.
-        let click = PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: 1)
+        let click = PageCallContext(page: PageDescriptor.homeMessages.id, userGesture: true, gestureEvent: 1)
         _ = try await provider.call("cmux.setup.run", params: signIn, context: click)
         #expect(mac.signIns == 1 && mac.opened == 1)
     }
 
-    /// cmux#37736 round 9 F1: the React Messages page draws the Set Up cmux card itself (the docked Home is no longer
-    /// the native transcript that hosted it). Its route says whether the card shows, serves the card's own state,
-    /// rows and gesture rule under the page's prefix, makes the card's provider only while it shows, and Hide ends it.
-    @Test func theMessagesPageServesTheCardWhileItShows() async throws {
-        let defaults = try defaults()
-        let setup = FirstRunSetup(defaults: defaults)
+    /// Home's Messages page (``SetupCardRoute``, ported from the native HomeHostView+SetupCard.swift): while the card
+    /// shows, the page's `changed` stream carries its rows and the card's ops run; Hide sends null and drops the card.
+    @Test func theMessagesPageRouteStreamsTheCardWhileItShows() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
         let mac = PressLog()
         let route = SetupCardRoute(setup: setup, agents: { nil }, environment: SetupCardEnvironment(
-            account: { (false, nil) }, signInAccount: { mac.signIns += 1 }, cliState: { "missing" }, installCLI: { _ in },
-            openAgents: {}, screenReader: { false }, historySources: { false }, importHistory: { false }))
+            account: { (false, nil) }, signInAccount: { mac.signIns += 1 }, cliState: { "missing" }, installCLI: { _ in }, openAgents: {},
+            historySources: { false }, importHistory: { false }))
+        let events = EventLog()
         let page = PageCallContext(page: PageDescriptor.homeMessages.id)
-        let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.homeMessages.id, userGesture: true, gestureEvent: at) }
-        let op = { (name: String) in SetupCardRoute.prefix + name }
-        #expect(SetupCardRoute.prefix.hasPrefix(HomeMessagesPageRoute.prefix), "inside the Messages page's namespace")
-
-        // No first run: no card, and no provider made.
-        #expect(try await route.call(op("shows"), params: [:], context: page) == ["shows": false])
-        await #expect(throws: PageError.self) { try await route.call(op("state"), params: [:], context: page) }
-        #expect(route.provider == nil)
-
-        // A first run: the stream says so, and the card's rows come from the same provider as the native card's.
-        let events = ShowsLog()
-        let subscription = try await route.subscribe(op("shows"), filter: .null, context: page) { events.shown.append($0) }
+        let subscription = try await route.subscribe("cmux.setup.changed", filter: [:], context: page) { events.values.append($0) }
         defer { subscription.cancel() }
-        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
-        await until { events.shown.last == ["shows": true] }
-        #expect(events.shown.last == ["shows": true])
-        let state = try await route.call(op("state"), params: [:], context: page)
-        #expect(state["account"] == ["signedIn": false])
-        #expect(state["cli"] == "missing")
-        #expect(route.provider != nil)
-
-        // A row runs only on the person's own click, as on the native card.
+        #expect(route.card != nil, "made while the card shows and the page listens")
+        await until { events.values.last?["cli"] == "missing" }
+        #expect(try await route.call("cmux.setup.state", params: [:], context: page)["account"] == ["signedIn": false])
+        // A row runs only on the person's own click, as on the native card (cmux#37736 round 9 F1).
         let signIn: JSONValue = ["action": ["kind": "signInAccount"]]
-        await #expect(throws: PageError.self) { try await route.call(op("run"), params: signIn, context: page) }
-        #expect(mac.signIns == 0)
-        _ = try await route.call(op("run"), params: signIn, context: click(1))
+        await #expect(throws: PageError.self) { try await route.call("cmux.setup.run", params: signIn, context: page) }
+        _ = try await route.call("cmux.setup.run", params: signIn, context: click(3))
         #expect(mac.signIns == 1)
 
-        // Hide ends the card for good; its provider goes with it.
-        _ = try await route.call(op("hide"), params: [:], context: click(2))
-        #expect(!setup.shows)
-        await until { events.shown.last == ["shows": false] }
-        #expect(events.shown.last == ["shows": false])
-        #expect(route.provider == nil)
-        #expect(defaults.string(forKey: FirstRunSetup.stateKey) == "ended")
+        _ = try await route.call("cmux.setup.hide", params: [:], context: click(1))
+        await until { events.values.last == .null }
+        #expect(!setup.shows && route.card == nil, "Hide ends the card and its reads")
+        #expect(try await route.call("cmux.setup.state", params: [:], context: page) == .null)
+        await #expect(throws: PageError.self) { try await route.call("cmux.setup.run", params: ["action": ["kind": "signInAccount"]], context: click(2)) }
+    }
+
+    /// No card (an upgrade, or one hidden before): the page gets null, no card is made and nothing runs.
+    @Test func theMessagesPageRouteMakesNoCardWhenItIsNotShown() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        let route = SetupCardRoute(setup: setup, agents: { nil }, environment: SetupCardEnvironment(
+            account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {},
+            historySources: { false }, importHistory: { false }))
+        let events = EventLog()
+        let page = PageCallContext(page: PageDescriptor.homeMessages.id)
+        let subscription = try await route.subscribe("cmux.setup.changed", filter: [:], context: page) { events.values.append($0) }
+        defer { subscription.cancel() }
+        await until { !events.values.isEmpty }
+        #expect(events.values == [.null] && route.card == nil)
+        #expect(try await route.call("cmux.setup.state", params: [:], context: page) == .null)
+        await #expect(throws: PageError.self) { try await route.call("cmux.setup.hide", params: [:], context: click(1)) }
     }
 }
 
-/// What the Messages page's `shows` stream sent.
-@MainActor private final class ShowsLog {
-    var shown: [JSONValue] = []
+/// What a page stream delivered.
+@MainActor private final class EventLog {
+    var values: [JSONValue] = []
 }
 
 /// What the card's environment saw: VoiceOver's state, the Agents windows opened and the account sign-ins run.

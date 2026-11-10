@@ -613,9 +613,9 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     const before = await measure(page);
     await growWhileScrolledUp(page);
     const start = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
-    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
     await startFrames(page);
-    await page.locator(".acpmux-jump-latest").click();
+    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").click();
     await page.waitForFunction(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;
