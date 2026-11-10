@@ -131,6 +131,18 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    * Resolves once the commit-time drain of prompt channels (and any drain a commit during it started) ended, or
    * after `maxMs`, whichever is first: a slow target never holds the caller (the alarm retries what is left).
    */
+  protected async promptDelivered(delivered: () => boolean, maxMs = PROMPT_DRAIN_WAIT_MS): Promise<void> {
+    // One caller's own outbox item: resolves once `delivered()` holds, when no commit-time drain is left that could send
+    // it (the alarm sends what is left), or after `maxMs`. Never waits on a drain once its own item is out.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let late = false
+    const deadline = new Promise<void>((r) => (timer = setTimeout(() => ((late = true), r()), maxMs)))
+    try {
+      while (!late && !delivered() && this.wakeDrain) await Promise.race([this.wakeDrain, deadline])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
   protected async promptDrained(maxMs = PROMPT_DRAIN_WAIT_MS): Promise<void> {
     if (!this.wakeDrain) return
     let timer: ReturnType<typeof setTimeout> | undefined
