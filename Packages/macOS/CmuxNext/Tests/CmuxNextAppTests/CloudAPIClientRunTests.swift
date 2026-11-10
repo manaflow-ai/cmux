@@ -236,6 +236,41 @@ struct CloudAPIClientRunTests {
         #expect(daemon.requests.last?["refresh"] == nil, "no classic session: nothing to send, the daemon refuses")
     }
 
+    /// #39022 audit at 855beb0d (2): a classic session that could not be read sent the wait without it, the daemon found no
+    /// such Run, and its `run_not_found` dropped a live classic Run. That is `transport` now (read again), and (1) an incognito
+    /// send's creates all go with the classic session read once, as the daemon's credentials are.
+    @Test func anUnreadClassicSessionNeverDropsARunAndAnIncognitoSendKeepsOneSession() async throws {
+        struct Down: Error {}
+        let notFound = #"{"ok":false,"error":{"kind":"http","status":404,"code":"run_not_found","message":"no such Run on this Mac"}}"#
+        let lost = FakeDaemon { _, _, _ in notFound }
+        let unread = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
+                                    tokens: { throw Down() }, teamID: { nil }, session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
+        await #expect(throws: CloudAPIError.transport("cloud.runs.wait: the Cloud session could not be read")) {
+            _ = try await api(lost).drainingClassic(unread).waitRun("r-old", timeoutMs: 1_000)
+        }
+        await #expect(throws: CloudAPIError.http(status: 404, code: "run_not_found", message: "no such Run on this Mac")) {
+            _ = try await api(lost).waitRun("r-x", timeoutMs: 1_000)
+        }
+
+        let reads = Counter()
+        let rolling = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
+                                     tokens: { ("stack-access", "stack-refresh-\(reads.next())") }, teamID: { "team_now" },
+                                     session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
+        let daemon = sandbox(dropCreates: 1)
+        _ = try await api(daemon).drainingClassic(rolling).pinningTeam("team_stack")
+            .runSandbox(task: "private", timeoutMs: 60_000, idempotencyKey: "send-i", incognito: true)
+        let creates = daemon.requests.filter { $0["call"] as? String == "runs.create" }.map { $0["refresh"] as? String }
+        #expect(creates.count == 2)
+        #expect(Set(creates).count == 1 && creates.first != nil, "both creates carry one session: \(creates)")
+    }
+
+    nonisolated final class Counter: @unchecked Sendable {
+        // @unchecked: `value` is read and written only under `lock`.
+        private let lock = NSLock()
+        private var value = 0
+        func next() -> Int { lock.withLock { value += 1; return value } }
+    }
+
     @Test func everyCreateNamesTheAccountItWasSentUnderAndNoneGoesWithout() async throws {
         let daemon = sandbox(dropCreates: 1)
         _ = try await api(daemon).runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "send-4")

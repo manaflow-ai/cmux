@@ -237,7 +237,10 @@ mod calls {
             if cmux_cloud_api::classic_runs::is_incognito_create(&request.call, &request.args) {
                 // An incognito send's Run: classic Cloud runs it with no chat in the app, so its prompt
                 // and reply never show outside the incognito window (classic_runs.rs). Never the daemon's.
-                block_on(cmux_cloud_api::classic_runs::drain(request))
+                // It goes only while the app is still on the account the send was made under.
+                super::super::cloud_runs::engine(mux)
+                    .check_account(&request.args)
+                    .and_then(|_| block_on(cmux_cloud_api::classic_runs::drain(request)))
             } else if request.call.starts_with("runs.") {
                 // The daemon's own sandboxed Runs (cloud_runs.rs): whose Run it is comes from the app's
                 // signed-in account, never from this call; its credential is not used.

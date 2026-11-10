@@ -280,44 +280,23 @@ fn a_run_from_before_the_upgrade_drains_on_classic_cloud() {
 }
 
 /// #39022 review at 946e940e, F1: an incognito send's Run was a daemon Run, an ordinary Cloud chat
-/// the app opens and keeps, so its prompt and reply showed outside the incognito window. Classic
-/// Cloud runs it with no chat in the app; without the app's classic session it is refused, never
-/// started as a daemon Run.
+/// the app opens and keeps. Classic Cloud runs it with no chat in the app (cmux-tui
+/// `tests/cli/cloud_runs_app_route.rs` sends one under a signed-in app), and at 855beb0d (audit 1)
+/// only while the app is on the account it was sent in: with no app to say so, nothing is sent and
+/// no daemon Run starts.
 #[test]
-fn an_incognito_run_goes_to_classic_cloud_never_to_a_chat() {
+fn an_incognito_run_never_goes_without_the_account_check() {
     let (origin, seen) =
         fake(|_| (200, r#"{"id":"r-private","status":"queued","environment":"sandboxed"}"#.into()));
     let daemon = Daemon::start("incognito-create");
-    let create = json!({"task": "private", "agent": "codex", "timeoutMs": 30_000,
-        "idempotencyKey": "k-private", "incognito": true,
-        "expectedAccount": {"user_id": "u1", "team_id": "team_1"}});
-    let mut classic = create.clone();
-    classic["classicApi"] = json!(origin);
-    classic["classicTeam"] = json!("team_stack");
-    let created = daemon
-        .send("cloud.runs.create", params("https://owner.invalid", "owner", classic), Some("c-1"))
-        .unwrap();
-    assert_eq!(created["value"]["id"], "r-private", "{created}");
-    {
-        let seen = seen.lock().unwrap();
-        assert_eq!(seen.len(), 1);
-        assert!(seen[0].line.starts_with("POST /api/runs "), "{}", seen[0].line);
-        assert_eq!(seen[0].header("idempotency-key").as_deref(), Some("k-private"));
-        assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("secret-refresh"));
-        assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team_stack"));
-        let body: Value = serde_json::from_slice(&seen[0].body).unwrap();
-        assert_eq!(
-            body,
-            json!({"environment": "sandboxed", "task": "private", "agent": "codex",
-                "timeoutMs": 30_000})
-        );
-    }
-    // Without the app's classic session: refused, nothing sent, and no daemon Run started.
+    let args = json!({"task": "private", "agent": "codex", "timeoutMs": 30_000,
+        "idempotencyKey": "k-private", "incognito": true, "classicApi": origin,
+        "classicTeam": "team_stack", "expectedAccount": {"user_id": "u1", "team_id": "team_1"}});
     let (_, _, details) = daemon
-        .send("cloud.runs.create", params(&origin, "owner", create), Some("c-2"))
+        .send("cloud.runs.create", params("https://owner.invalid", "owner", args), Some("c-1"))
         .unwrap_err();
-    assert_eq!(details["extra"]["failure"]["code"], "run_incognito_unavailable", "{details}");
-    assert_eq!(seen.lock().unwrap().len(), 1);
+    assert_eq!(details["extra"]["failure"]["code"], "run_not_signed_in", "{details}");
+    assert!(seen.lock().unwrap().is_empty(), "nothing went to classic Cloud");
 }
 
 #[test]

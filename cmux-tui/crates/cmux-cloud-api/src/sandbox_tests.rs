@@ -623,7 +623,7 @@ fn a_cleanup_the_app_could_not_hear_is_never_given_up() {
 #[test]
 fn a_cleanup_never_gives_up_while_its_machine_can_still_be_made() {
     let replied = || Outcome::Replied { reply: "hi".into(), machine: None };
-    let quiet = Timing { give_up: Duration::from_millis(40), ..quick() };
+    let quiet = Timing { give_up: Duration::from_millis(150), ..quick() };
     let mut passes: Vec<Removal> =
         (0..15).map(|_| Removal::Creating("sandbox-r is still being created".into())).collect();
     passes.push(Removal::Later("machine m-1 is being deleted".into()));

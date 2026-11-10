@@ -274,6 +274,8 @@ public struct CloudAPIClient: Sendable {
         do { credentials = try await tokens() } catch { throw CloudAPIError.notSignedIn }
         var pinned = self
         pinned.tokens = { credentials }
+        // An incognito create goes to classic Cloud with the session read here, once, as the daemon's credentials are.
+        if incognito, let classicRuns, let classic = try? await classicRuns() { pinned.classicRuns = { classic } }
         let create = { try await pinned.createSandboxRun(task: task, agent: agent, timeoutMs: timeoutMs, idempotencyKey: key,
                                                                    incognito: incognito) }
         let createdData: Data

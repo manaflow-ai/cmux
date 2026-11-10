@@ -449,6 +449,35 @@ impl Engine {
         }
     }
 
+    /// The account a create runs under: the app's signed-in one (`steps.scope()`), and only when it
+    /// is still the one the send was made under (`expectedAccount`: `user_id`, `team_id`, which
+    /// every create names). A send whose app switched since starts nothing, and a create that
+    /// names none is refused. An incognito send's create, which classic Cloud runs
+    /// ([`crate::classic_runs`]), passes this same check first.
+    pub fn check_account(&self, args: &Map<String, Value>) -> Result<String, Failure> {
+        let Some(account) = self.steps.scope() else {
+            return Err(not_signed_in());
+        };
+        // The account the send was made under, as the app read it then (`expectedAccount`:
+        // `user_id`, `team_id`), which every create names: a send whose app switched since
+        // starts nothing, and a create that names none is refused.
+        let Some(expected) = args.get("expectedAccount").filter(|row| row.is_object()) else {
+            return Err(refused(
+                400,
+                "run_account_required",
+                "expectedAccount: the user_id and team_id the send was made under",
+            ));
+        };
+        let mut account_row = expected.clone();
+        if let Some(row) = account_row.as_object_mut() {
+            row.insert("signed_in".into(), Value::Bool(true));
+        }
+        if account_scope(&json!({ "account": account_row })).as_deref() != Some(account.as_str()) {
+            return Err(account_changed());
+        }
+        Ok(account)
+    }
+
     fn create(self: &Arc<Self>, args: &Map<String, Value>) -> Result<Value, Failure> {
         // A Run here is an ordinary Cloud chat the app opens and keeps: an incognito send's prompt
         // and reply would show outside its window. Classic Cloud runs those with no chat
@@ -487,26 +516,7 @@ impl Engine {
                 "idempotencyKey: 1 to 128 characters",
             ));
         }
-        let Some(account) = self.steps.scope() else {
-            return Err(not_signed_in());
-        };
-        // The account the send was made under, as the app read it then (`expectedAccount`:
-        // `user_id`, `team_id`), which every create names: a send whose app switched since
-        // starts nothing, and a create that names none is refused.
-        let Some(expected) = args.get("expectedAccount").filter(|row| row.is_object()) else {
-            return Err(refused(
-                400,
-                "run_account_required",
-                "expectedAccount: the user_id and team_id the send was made under",
-            ));
-        };
-        let mut account_row = expected.clone();
-        if let Some(row) = account_row.as_object_mut() {
-            row.insert("signed_in".into(), Value::Bool(true));
-        }
-        if account_scope(&json!({ "account": account_row })).as_deref() != Some(account.as_str()) {
-            return Err(account_changed());
-        }
+        let account = self.check_account(args)?;
         let scoped = format!("{account}\u{0}{key}");
         let suffix = format!("\u{0}{key}");
         let digest = hex(&Sha256::digest(

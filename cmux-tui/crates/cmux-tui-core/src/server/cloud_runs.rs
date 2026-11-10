@@ -282,7 +282,11 @@ pub(super) fn judge_everywhere(
             _ => Judgement::Kill(id),
         };
     }
-    if rows("creating").any(|row| field(row, "name").as_deref() == Some(machine_name)) {
+    // A create that failed makes nothing more: only one still on its way holds the cleanup.
+    if rows("creating").any(|row| {
+        field(row, "name").as_deref() == Some(machine_name)
+            && field(row, "status").as_deref() != Some("failed")
+    }) {
         return Judgement::Creating(format!("{machine_name} is still being created"));
     }
     Judgement::Gone
@@ -779,6 +783,11 @@ mod tests {
         let creating = json!([{ "creation_id": "c1", "name": NAME, "status": "creating" }]);
         let on_its_way = list(true, Some("u1"), None, json!([]), creating);
         assert!(matches!(judge(&on_its_way, NAME, None, U1), Judgement::Creating(_)));
+        // #39022 audit at 855beb0d (4): a failed create made nothing, and never holds the cleanup.
+        let failed =
+            json!([{ "creation_id": "c1", "name": NAME, "status": "failed", "reason": "cap" }]);
+        let failed = list(true, Some("u1"), None, json!([]), failed);
+        assert_eq!(judge(&failed, NAME, None, U1), Judgement::Gone);
     }
 
     #[test]

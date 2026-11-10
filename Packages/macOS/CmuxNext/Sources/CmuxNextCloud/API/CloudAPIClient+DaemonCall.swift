@@ -26,10 +26,18 @@ extension CloudAPIClient {
         // made (an incognito one, or one followed from before it ran Runs) drains there, with the Stack session whole (cmux-cloud-api
         // `classic_runs`); no other call carries the refresh token or the classic API. Without it the daemon refuses an incognito create.
         let classicCall = call == "runs.wait" || call == "runs.cancel" || call == "runs.create" && args["incognito"] as? Bool == true
-        if classicCall, let classicRuns, let classic = try? await classicRuns(), !classic.refresh.isEmpty {
-            request["credential"] = classic.access
-            request["refresh"] = classic.refresh
-            request["args"] = args.merging(["classicApi": classic.api.absoluteString, "classicTeam": classic.team ?? ""]) { $1 }
+        // A session that could not be read is no answer about the Run: a wait or cancel the daemon then finds no Run for is
+        // `transport` (read again), never `run_not_found`, which would drop a live classic Run (#39022 audit at 855beb0d).
+        var classicUnread = false
+        if classicCall, let classicRuns {
+            let classic = try? await classicRuns()
+            if let classic, !classic.refresh.isEmpty {
+                request["credential"] = classic.access
+                request["refresh"] = classic.refresh
+                request["args"] = args.merging(["classicApi": classic.api.absoluteString, "classicTeam": classic.team ?? ""]) { $1 }
+            } else {
+                classicUnread = true
+            }
         }
         if let team = await teamID() { request["team"] = team }
         let output: Data
@@ -40,7 +48,11 @@ extension CloudAPIClient {
             if noAnswer.dispatched { throw CloudAPIError.timedOut("cloud.\(call)") }
             throw CloudAPIError.transport("cmux is not available")
         }
-        return try Self.daemonAnswer(output, call: call, baseURL: baseURL)
+        do {
+            return try Self.daemonAnswer(output, call: call, baseURL: baseURL)
+        } catch CloudAPIError.http(status: 404, code: "run_not_found", message: _, action: _, traceId: _) where classicUnread {
+            throw CloudAPIError.transport("cloud.\(call): the Cloud session could not be read")
+        }
     }
 
     /// The child's last stdout line as the call's body, or its failure.

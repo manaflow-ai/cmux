@@ -256,3 +256,120 @@ fn with_cloud_turned_off_a_run_that_exists_is_still_waited_on_and_cancelled() {
     drop(daemon);
     let _ = fs::remove_dir_all(&base);
 }
+
+/// A stand-in classic Cloud: each request's first line, answered with one queued Run.
+fn classic_cloud() -> (String, Arc<Mutex<Vec<String>>>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let lines = Arc::new(Mutex::new(Vec::new()));
+    let sink = lines.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut first = String::new();
+            let _ = reader.read_line(&mut first);
+            let mut length = 0usize;
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).unwrap_or(0) == 0 || header.trim().is_empty() {
+                    break;
+                }
+                if let Some((name, value)) = header.split_once(':')
+                    && name.eq_ignore_ascii_case("content-length")
+                {
+                    length = value.trim().parse().unwrap_or(0);
+                }
+            }
+            let mut body = vec![0; length];
+            let _ = reader.read_exact(&mut body);
+            sink.lock().unwrap().push(first.trim().to_owned());
+            let answer = r#"{"id":"r-private","status":"queued","environment":"sandboxed"}"#;
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+                answer.len()
+            );
+        }
+    });
+    (origin, lines)
+}
+
+/// #39022 review at 855beb0d (audit 1): an incognito send's create, which classic Cloud runs, went
+/// there without the account check every daemon create makes. It goes only while the app is still
+/// on the account the send was made under; after a switch nothing is sent.
+#[test]
+fn an_incognito_run_goes_to_classic_cloud_only_under_the_account_it_was_sent_in() {
+    let base = unique_temp_dir("runs-incognito");
+    let runtime = cmux_tui_core::platform::runtime_dir_for_base(&base);
+    fs::create_dir_all(&runtime).unwrap();
+    fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
+    let state_dir = base.join("daemon");
+    fs::create_dir_all(&state_dir).unwrap();
+    let home = base.join("home");
+    fs::create_dir_all(&home).unwrap();
+    let app = PolicyOffApp::bind(base.join("app.sock"));
+    let (origin, classic) = classic_cloud();
+    let socket = runtime.join("main.sock");
+    let state = state_dir.join("state");
+    let child = Command::new(bin())
+        .args(["--headless", "--session", "main", "--socket"])
+        .arg(&socket)
+        .arg("--state")
+        .arg(&state)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", &home)
+        .env("XDG_RUNTIME_DIR", &base)
+        .env("CMUX_TUI_CONFIG", state_dir.join("config.json"))
+        .env("CMUX_SOCKET_PATH", &app.path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let daemon = HeadlessServer::adopt(child, socket.clone(), state, state_dir);
+    daemon.wait_for_socket();
+    let create = |key: &str, team: &str| {
+        let request = json!({
+            "call": "runs.create", "api": "https://cloud.invalid", "auth": "owner",
+            "credential": "stack-access", "refresh": "stack-refresh", "team": "team_1",
+            "args": {
+                "task": "private", "agent": "codex", "timeoutMs": 30_000, "idempotencyKey": key,
+                "incognito": true, "classicApi": origin, "classicTeam": "team_1",
+                "expectedAccount": {"user_id": "u1", "team_id": team},
+            },
+        });
+        cloud_api(&socket, &home, &base, &request)
+    };
+
+    let switched = create("k-switched", "team_2");
+    assert_eq!(switched["ok"], false, "{switched}");
+    assert!(switched.to_string().contains("run_account_changed"), "{switched}");
+    assert!(classic.lock().unwrap().is_empty(), "nothing sent after a switch");
+
+    // No classic session sent (not the app's): refused, never started as a daemon Run.
+    let bare = cloud_api(
+        &socket,
+        &home,
+        &base,
+        &json!({
+            "call": "runs.create", "api": "https://cloud.invalid", "auth": "owner",
+            "credential": "test-credential", "team": "team_1",
+            "args": {
+                "task": "private", "agent": "codex", "timeoutMs": 30_000, "idempotencyKey": "k-bare",
+                "incognito": true, "expectedAccount": {"user_id": "u1", "team_id": "team_1"},
+            },
+        }),
+    );
+    assert!(bare.to_string().contains("run_incognito_unavailable"), "{bare}");
+    assert!(classic.lock().unwrap().is_empty(), "nothing sent without the classic session");
+
+    let created = create("k-same", "team_1");
+    assert_eq!(created["ok"], true, "{created}\n{}", daemon.stderr_tail());
+    assert_eq!(created["body"]["id"], "r-private", "{created}");
+    let lines = classic.lock().unwrap().clone();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("POST /api/runs "), "{lines:?}");
+    drop(daemon);
+    let _ = fs::remove_dir_all(&base);
+}
