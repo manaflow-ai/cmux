@@ -176,12 +176,14 @@ struct ClosingPanes {
         ClosingPanesRules.Edges(minX: rect.minX, maxX: rect.maxX, minY: rect.minY, maxY: rect.maxY)
     }
 
-    /// The live panes' frames the rules may read (the panes they have a number for); `fixed`: the ones that do not scroll.
-    private func frameFacts(_ frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>) -> [ClosingPanesRules.FrameFact] {
+    /// The live panes' frames the rules may read (the panes they have a number for); `fixed`: the ones that do not scroll;
+    /// `landed`: each frame on its target (where a landing puts it).
+    private func frameFacts(_ frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>, landed: Bool = false) -> [ClosingPanesRules.FrameFact] {
         frames.compactMap { pane, frame in
             guard let number = paneNumbers[pane] else { return nil }
-            let moving = Self.hasTravel(frame)
-            return ClosingPanesRules.FrameFact(id: number, now: Self.edges(frame.rect), target: Self.edges(frame.targetRect), moving: moving,
+            let moving = !landed && Self.hasTravel(frame)
+            return ClosingPanesRules.FrameFact(id: number, now: Self.edges(landed ? frame.targetRect : frame.rect),
+                                               target: Self.edges(frame.targetRect), moving: moving,
                                                vx: frame.x.velocity, vy: frame.y.velocity, vw: frame.width.velocity, vh: frame.height.velocity,
                                                scrolls: !fixed.contains(pane))
         }
@@ -201,29 +203,25 @@ struct ClosingPanes {
             || abs(rest.minY - now.minY) >= leastTravel || abs(rest.maxY - now.maxY) >= leastTravel
     }
 
-    /// The land rule's question for the closing panes (`ScreenContentView.advancePaneAndDividerSprings`): with the live
-    /// frames where this frame's step put them (`frames`; not shown yet), does a closing pane still collapse, more than
-    /// `snap` from its end? Its free side follows its rider's share of the rider's travel (`ClosingPanesRules.collapse`),
-    /// so the part of a point a live pane has left when it lands is, on the closing pane, that part times the pane's size
-    /// over the rider's travel: 22 pt of a 352 pt pane on a rider with 4 pt to go. A landing then takes that ground away in
-    /// one frame. Only a side the rules move in this frame counts (one with no travel stays where it showed, and never
-    /// holds the landing), so the answer turns false as the live frames come to rest: the side's way left falls with
-    /// theirs. The rules run on a copy; the frame's own pass (`rects`) places the panes.
-    func landingLeavesGround(frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>, row: (ColumnID) -> Travel?, strip: CGFloat,
-                             restStrip: CGFloat, snap: CGFloat) -> Bool { // perf-hot: 4ms motion-frame
+    /// The land rule's question for the closing panes (`ScreenContentView.advancePaneAndDividerSprings`): would a landing
+    /// now, which puts every live frame on its target, move a side of a closing pane more than `snap`? A closing pane's
+    /// free side follows its rider's share of the rider's travel (`ClosingPanesRules.collapse`), so the part of a point a
+    /// live pane has left when it lands is, on the closing pane, that part times the pane's size over the rider's travel:
+    /// 22 pt of a 352 pt pane on a rider with 4 pt to go, ground the landing took away in one frame. The rules place the
+    /// closing panes two times on copies, from the live frames where this frame's step put them (`frames`, not shown yet)
+    /// and from the same frames on their targets, and the answer is the largest difference of a side. It falls with the
+    /// live frames' way left, so the motion lands a few frames later, never not at all: a side the frames do not move is
+    /// the same in both. The cameras are taken at rest (the strip's view shift `restStrip`, no row travel): they land on
+    /// their own springs, and a side they move does not hold the panes' landing.
+    func landingMovesAClosingPane(frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>, restStrip: CGFloat, snap: CGFloat) -> Bool { // perf-hot: 4ms motion-frame
         guard !entries.isEmpty else { return false }
-        var next = rules
-        _ = next.rects(frames: frameFacts(frames, fixed: fixed), rows: rowTravels(row), strip: strip, restStrip: restStrip)
-        typealias Side = KeyPath<ClosingPanesRules.Entry, ClosingPanesRules.Side>
-        return next.entries.contains { number, entry in
-            guard let shown = rules.entries[number] else { return false }
-            func collapses(_ side: Side, toward opposite: Side) -> Bool {
-                let free = entry[keyPath: side]
-                guard free.neighbours.isEmpty, !entry[keyPath: opposite].neighbours.isEmpty, let end = free.end else { return false }
-                return free.fixed != shown[keyPath: side].fixed && abs(end - free.fixed) > snap
-            }
-            return collapses(\.maxX, toward: \.minX) || collapses(\.minX, toward: \.maxX)
-                || collapses(\.maxY, toward: \.minY) || collapses(\.minY, toward: \.maxY)
+        var stepped = rules, landed = rules
+        let now = stepped.rects(frames: frameFacts(frames, fixed: fixed), rows: [], strip: restStrip, restStrip: restStrip)
+        let then = landed.rects(frames: frameFacts(frames, fixed: fixed, landed: true), rows: [], strip: restStrip, restStrip: restStrip)
+        // Both lists are in the rules' order (the same entries, the same order).
+        return zip(now, then).contains { a, b in
+            abs(a.1.x - b.1.x) > snap || abs(a.1.x + a.1.width - b.1.x - b.1.width) > snap
+                || abs(a.1.y - b.1.y) > snap || abs(a.1.y + a.1.height - b.1.y - b.1.height) > snap
         }
     }
 

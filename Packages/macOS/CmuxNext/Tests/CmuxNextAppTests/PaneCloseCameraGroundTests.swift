@@ -207,7 +207,7 @@ struct PaneCloseCameraGroundTests {
         // share of the rider's travel (`ClosingPanesRules.collapse`), so what a live pane has left when the motion lands
         // shows on the closing pane times its size over that travel, and a rider with under half a point to go gives it
         // no travel. The landing now waits for the closing panes' free sides as it does for the live edges, and a pane
-        // beside panes with under half a point to go goes at once (`ClosingPanes.landingLeavesGround`, `hasTravel`).
+        // beside panes with under half a point to go goes at once (`ClosingPanes.landingMovesAClosingPane`, `hasTravel`).
         if let lastGround {
             let way = grounds.suffix(8).map { String(format: "%.2f", Double($0)) }.joined(separator: ", ")
             #expect(lastGround < 1, """

@@ -44,14 +44,12 @@ extension ScreenContentView {
         if !hasMotion { releaseClosing() }
     }
 
-    /// Whether a landing in this frame would take a closing pane's ground away (``ClosingPanes/landingLeavesGround``): the
-    /// live frames are within the snap distance of rest and a closing pane still collapses, more than that distance from
-    /// its end. The strip's view shift is the one shown last (the camera steps after the panes).
-    func landingLeavesClosingGround(snap: CGFloat) -> Bool { // perf-hot: 4ms motion-frame
+    /// Whether a landing in this frame would move a side of a closing pane more than `snap`, taking its ground away at
+    /// once (``ClosingPanes/landingMovesAClosingPane(frames:fixed:restStrip:snap:)``).
+    func landingMovesAClosingPane(snap: CGFloat) -> Bool { // perf-hot: 4ms motion-frame
         guard !closingPanes.isEmpty else { return false }
         let restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
-        return closingPanes.landingLeavesGround(frames: paneFrames, fixed: geometry.fixedPanes, row: rowScrollTravel, strip: stripShift,
-                                                restStrip: restStrip, snap: snap)
+        return closingPanes.landingMovesAClosingPane(frames: paneFrames, fixed: geometry.fixedPanes, restStrip: restStrip, snap: snap)
     }
 
     /// Where `column`'s row scroll is and where it rests (nil: its rows do not scroll).
