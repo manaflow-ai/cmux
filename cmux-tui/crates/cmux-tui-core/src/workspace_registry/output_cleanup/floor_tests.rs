@@ -472,6 +472,40 @@ fn a_swap_behind_a_reader_of_the_log_keeps_the_staged_work() {
     );
 }
 
+/// A cleanup that would keep most of the journal is refused, and a memo
+/// stops later starts from staging the same journal again. That memo is of
+/// a pass that left out nothing below a floor (a long-lived registry: agent
+/// and progress records, almost no output). A rebuild at a retention floor
+/// leaves the old run out, so the memo must not cover it: or the registry
+/// that needs the rebuild most never gets it.
+#[test]
+fn a_refused_cleanup_without_a_floor_does_not_stop_a_rebuild_at_a_floor() {
+    let fixture = fixture("memo", 1_100);
+    let Fixture { db_path, floor, head, .. } = &fixture;
+    let registry_id: String = read_only(db_path)
+        .query_row("SELECT value FROM meta WHERE key = 'registry_id'", [], |row| row.get(0))
+        .unwrap();
+    // What a pass at floor 0 leaves when it is refused at this head.
+    std::fs::write(
+        refused_path(db_path),
+        format!(
+            "format {}\nregistry {registry_id}\nhead {head}\na test: most records are kept\n",
+            super::stage::STAGING_FORMAT
+        ),
+    )
+    .unwrap();
+    let without_floor = stage(db_path, 0, &|| true);
+    assert!(
+        matches!(without_floor, StageOutcome::Skipped(_)),
+        "the memo no longer covers the pass it was written for: {without_floor:?}"
+    );
+    assert_eq!(
+        stage(db_path, *floor, &|| true),
+        StageOutcome::Built,
+        "the refusal of a pass without a floor stopped the rebuild at the floor"
+    );
+}
+
 /// A session for the join with retention: a sealed run of old hook records,
 /// then enough newer records and checkpoints that the retention floor
 /// passes the old run (the newest 1,024 records and the newest 16

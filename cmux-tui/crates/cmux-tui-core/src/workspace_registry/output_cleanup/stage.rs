@@ -38,7 +38,7 @@ use crate::platform;
 /// or below a retention floor (state `floor`) and stores each segment's
 /// sequence span: a build of format 4 discards it and its own build of a
 /// format 5 file never mixes with this one.
-const STAGING_FORMAT: &str = "5";
+pub(super) const STAGING_FORMAT: &str = "5";
 /// Session put records (live rows, and every record of a sealed segment
 /// that lists the kind) from which a registry without stored output still
 /// needs the cleanup: superseded puts may be most of its journal.
