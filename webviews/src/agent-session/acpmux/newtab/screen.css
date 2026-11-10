@@ -434,6 +434,12 @@
   height: var(--acpmux-chip-glyph);
   margin-inline: calc((var(--ui-ghost-icon-size) - var(--acpmux-chip-glyph)) / 2);
 }
+/* The tray strip (Debug Settings) lines the folder's first ink up on the prompt's column, not its
+   center on +'s (composer-top-strip-variants.test.ts): there the glyph keeps its slot's left edge
+   and overhangs on the label's side alone, so the label stays where it is too. */
+:root[data-top-strip="tray"] .nt-above .acpmux-location-button > .ui-ghost-icon:first-child {
+  margin-inline: 0 calc(var(--ui-ghost-icon-size) - var(--acpmux-chip-glyph));
+}
 .nt-above .acpmux-location-button > .acpmux-project-badge:first-child > svg {
   width: var(--acpmux-chip-glyph);
   height: var(--acpmux-chip-glyph);
