@@ -10,6 +10,8 @@
 /// The folder chip's words for it live here and only here, so the UX lane can restyle them in one
 /// place: `FOLDERLESS_CLOUD_LABELS` (keys in Localizable.xcstrings).
 
+import { emptyFolderLabel } from "./composerContextModel";
+
 export const FOLDERLESS_CLOUD_LABELS = {
   /// The chip's face while Cloud is picked and no folder is: a valid state, never "Choose folder".
   label: "composer.cloudNoFolder",
@@ -22,16 +24,17 @@ export const FOLDERLESS_CLOUD_LABELS = {
 /// - `newProject`: New Project is the pick;
 /// - `noProject`: No folder was picked for a chat on this Mac (its private folder);
 /// - `cloudFresh`: Cloud, no folder: the chat starts in a fresh folder on the machine;
-/// - `choose`: nothing picked yet (Choose folder, dimmed).
+/// - `choose`: nothing picked yet: No folder too, a settled choice (composerContextModel.ts
+///   emptyFolderLabel), with no Cloud detail.
 export type FolderChipState = "folder" | "newProject" | "noProject" | "cloudFresh" | "choose";
 
 /// The chip's words per state but `folder` (which shows the folder's own name).
 export const FOLDER_CHIP_LABELS = {
-  folder: "composer.chooseFolder",
+  folder: emptyFolderLabel,
   newProject: "project.new",
-  noProject: "project.noFolder",
+  noProject: emptyFolderLabel,
   cloudFresh: FOLDERLESS_CLOUD_LABELS.label,
-  choose: "composer.chooseFolder",
+  choose: emptyFolderLabel,
 } as const satisfies Record<FolderChipState, string>;
 
 export function folderChipState({

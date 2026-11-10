@@ -3,7 +3,8 @@
 //   - Cloud picked and no folder: the folder chip reads No folder, not dimmed, and says where the
 //     chat starts (a fresh folder on the machine) as its description and in the folder menu;
 //   - it never reads an empty "Choose folder" while Cloud is the pick;
-//   - This Mac with no folder keeps Choose folder; a picked folder keeps its name under Cloud;
+//   - This Mac with no folder reads No folder too, with no Cloud detail; a picked folder keeps its
+//     name under Cloud;
 //   - a started Cloud chat in the fresh folder its machine made (`~/chats/<chat>`) reads No folder,
 //     not the folder's generated name.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
@@ -119,18 +120,17 @@ test("Cloud with no folder: the chip reads No folder, a valid state with its one
   expect(label?.hasAttribute("data-dim")).toBe(false);
   expect(label?.getAttribute("aria-description")).toBe(t("composer.cloudNoFolderDetail"));
   expect(stripText()).not.toContain(t("composer.chooseFolder"));
-  // The chip keeps the width of Choose folder, its face on This Mac, so picking Cloud moves nothing
-  // after it (cloud-environment-chip-geometry.test.ts measures it in Chromium).
-  expect(label?.dataset.reserve).toBe(t("composer.chooseFolder"));
 });
 
-test("This Mac with no folder keeps Choose folder, dimmed", async () => {
+test("This Mac with no folder reads No folder too, the same width, with no Cloud detail", async () => {
   await mount(thisMac);
   const label = folderLabel();
-  expect(label?.textContent).toBe(t("composer.chooseFolder"));
+  // The same words as the Cloud face, so picking Cloud moves nothing after the chip
+  // (cloud-environment-chip-geometry.test.ts measures it in Chromium).
+  expect(label?.textContent).toBe(t("composer.cloudNoFolder"));
   expect(label?.dataset.folderState).toBe("choose");
-  expect(label?.hasAttribute("data-dim")).toBe(true);
-  expect(label?.dataset.reserve).toBe(t("composer.cloudNoFolder"));
+  expect(label?.hasAttribute("data-dim")).toBe(false);
+  expect(label?.hasAttribute("aria-description")).toBe(false);
 });
 
 test("Cloud with a folder picked keeps the folder's name: choosing a folder still works", async () => {

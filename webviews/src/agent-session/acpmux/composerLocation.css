@@ -224,22 +224,6 @@
 /* A folder's name cuts in the middle (ComposerContext.tsx splitForMiddleTruncation): the head
    takes the ellipsis, the tail always shows. */
 .acpmux-location-label[data-middle] { display: inline-flex; min-width: 0; }
-/* A chip that switches between two words with no other change (Choose folder and No folder,
-   ComposerContext.tsx folderReserveLabel) keeps the wider one's width: the other word is drawn
-   unseen in the same cell, so the chips after it never move. */
-.acpmux-location-label[data-reserve] { display: inline-grid; }
-.acpmux-location-label[data-reserve] > .acpmux-location-text,
-.acpmux-location-label[data-reserve]::after {
-  grid-area: 1 / 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.acpmux-location-label[data-reserve]::after {
-  content: attr(data-reserve);
-  visibility: hidden;
-}
 .acpmux-location-head { flex: 0 1 auto; min-width: 1ch; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 .acpmux-location-tail { flex: none; white-space: pre; }
 /* The computer chips give up their names only where the strip runs out of room: a container query
@@ -1645,8 +1629,7 @@
   border-top: .5px solid color-mix(in srgb, var(--agent-text) 14%, transparent);
   pointer-events: none;
 }
-/* An empty project chip ("Choose project") reads dimmed, as Codex's strip, until a project is picked. */
-.acpmux-location-button .acpmux-location-label[data-dim] { color: var(--agent-muted); }
+/* No folder is a settled choice, never dimmed (composerContextModel emptyFolderLabel, Leo 2026-11-09). */
 /* The cloud toggle (ChatGPT Work) is a round icon button. */
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] .acpmux-location-button {
   width: var(--ds-control-compact);
@@ -1723,6 +1706,12 @@
 .acpmux-env-row:not([data-ready]) .acpmux-env-state { color: var(--agent-muted); }
 /* A ready machine at its CPU or memory budget says so in the warning colour, as the plain menu does. */
 .acpmux-env-row .acpmux-env-state[data-warning="true"] { color: var(--acpmux-warning); }
+/* A machine list's Unavailable row (Leo, 2026-11-09: "drop retired and unreachable machines from the
+   list, or group them at the bottom"): muted like the machines it holds, its chevron turning down
+   while the group is open, as a Mac outline's disclosure does. */
+.acpmux-env-row.acpmux-env-unavailable { color: var(--agent-muted); }
+.acpmux-env-unavailable-chevron { transition: transform var(--cmux-motion-quick, 80ms) var(--cmux-ease-out); }
+.acpmux-env-unavailable[data-expanded] .acpmux-env-unavailable-chevron { transform: rotate(90deg); }
 /* A new chat's extra folders (ExtraFolderList.tsx), under the folder menu's list: a quiet heading,
    then one row per folder in the same name column as the folders above, × at the end. */
 .acpmux-extra-folders {

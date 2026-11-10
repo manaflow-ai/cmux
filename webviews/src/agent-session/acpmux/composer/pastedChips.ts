@@ -31,8 +31,8 @@ export function usePastedChips(
   setAttachments: (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => void,
   field: RefObject<MarkdownFieldHandle | null>,
   /// Attaches a file the way a pasted file is (attachmentIntake.tsx): a paste past PASTE_FILE_CHARS
-  /// goes as one. Unset, such a paste is a chip like any large one. `inText` false: the file stays in
-  /// the strip and is never placed in the text.
+  /// goes as one. Unset, such a paste is a chip like any large one. `inText` false: the chip had no node
+  /// (it is not at a caret), so the file goes at the start of the prompt (inlineAttachments.tsx `place`).
   attachFile?: (file: MadeFile, inText?: boolean) => void,
 ) {
   /// Until when a paste goes in as it is: Paste as Plain Text just ran.
@@ -88,10 +88,13 @@ export function usePastedChips(
   const keepAsFile = (id: string) => {
     const chip = attachments.current.find((held) => held.id === id);
     if (!attachFile || chip?.kind !== "pasted" || chip.text === undefined) return;
-    // A chip with no place in the text (a paste made in a code block) waits in the strip: its file
-    // waits there too. Placed at the caret, an undo would take the file out with no node of the
-    // chip's to bring it back, and the paste would be gone from the draft.
-    const inText = field.current?.inlineIds()?.includes(id) ?? true;
+    // A chip with no node in the text (a value from outside took it away) gets its node back first,
+    // at the start of the prompt where every such attachment goes, as no undo step of its own: the
+    // file then takes that node's place, and an undo brings the paste back into it. Without a node,
+    // an undo would take the file out with nothing to bring back (router review of #39955, F1).
+    const inText =
+      (field.current?.inlineIds()?.includes(id) ?? true) ||
+      (field.current?.insertInline([id], false, "restore") ?? false);
     attachments.current = attachments.current.filter((held) => held.id !== id);
     setAttachments((current) => current.filter((held) => held.id !== id));
     // The caret goes to where the chip was, so the file is placed there, wherever the caret was.
