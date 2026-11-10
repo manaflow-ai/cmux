@@ -83,8 +83,9 @@ export default function NextLandingPage() {
       <main className="w-full max-w-2xl mx-auto px-6 py-16 sm:py-24">
         <div className="flex items-center gap-4 mb-10">
           <img
-            src="/logo-next-nightly.png"
-            alt={t("landing.iconAlt")}
+            src="/next/icon-96.webp"
+            // Decorative: the heading beside it already names the app.
+            alt=""
             width={48}
             height={48}
             className="rounded-xl"
