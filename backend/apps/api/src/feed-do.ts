@@ -1,7 +1,7 @@
 import type { EventFrame, OpFrame, Principal } from "@cmux/ownership"
 import { feedKindSchemas, FeedList, type FeedItem, type PushTarget } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
-import { approvalOf, type ApprovalSource } from "./domains/feed-approvals.ts"
+import { approvalAnswerChannel, approvalOf, type ApprovalSource } from "./domains/feed-approvals.ts"
 import { listItems } from "./domains/feed-query.ts"
 import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from "./domains/feed.ts"
 import { isUserClient, prunableAt, pushEligible, RETENTION_MS } from "./domains/feed-state.ts"
@@ -49,7 +49,13 @@ export class FeedDO extends OwnerDO<FeedState> {
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
     // Every poster counts (an install, or a session by its identity); system ops do not.
     const poster = principal.kind === "system" ? undefined : (principal.install ?? principal.identity)
-    if ((frame.op !== "feed.post" && frame.op !== "feed.adopt") || poster === undefined) return super.submit(entity, principal, frame)
+    if ((frame.op !== "feed.post" && frame.op !== "feed.adopt") || poster === undefined) {
+      const res = await super.submit(entity, principal, frame)
+      // A Cloud approval's answer (or decline) answers once CloudDO has it, so the caller's same-key retry finds the
+      // approved run in flight or done (approvalAnswerChannel); bounded, the alarm sends what is left.
+      if (frame.op === "feed.answer" || frame.op === "feed.cancel") await this.promptDrained()
+      return res
+    }
     const day = Math.floor(Date.now() / 86_400_000)
     const sql = this.ctx.storage.sql
     const used = () => {
@@ -128,6 +134,11 @@ export class FeedDO extends OwnerDO<FeedState> {
       if (a?.request === request) return { team: a.team, source: a.source }
     }
     return null
+  }
+
+  /** A Cloud approval's answer goes to CloudDO at commit, not at the next alarm (feed-approvals.ts approvalAnswerChannel). */
+  protected override promptChannel(channel: string): boolean {
+    return super.promptChannel(channel) || approvalAnswerChannel(channel)
   }
 
   /** Text written without the redaction is scrubbed on bind (feed-privacy.ts). */
