@@ -706,3 +706,8 @@ lane = "linux-guard"
 path = "tests/test_ci_webviews_affected.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/webviews_affected.py's selection for the react-apps-check shards on pull requests; run python3 tests/test_ci_webviews_affected.py yourself after changing it or focused_tests.py's webviews graph (about 5 s, no build)."
+
+[[test]]
+path = "tests/test_reload_build_only_app_path_readers.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every workflow or script that reads reload.sh's App path after --build-only passes --keep-app (without it the bundle is deleted and no App path is printed); run python3 tests/test_reload_build_only_app_path_readers.py yourself after adding such a caller (under 1 s, no build)."
