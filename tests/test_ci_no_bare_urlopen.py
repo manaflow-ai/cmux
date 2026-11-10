@@ -147,10 +147,11 @@ class NoBareUrlopen(unittest.TestCase):
 
 class Server:
     """An HTTP server on 127.0.0.1 that answers each connection with ANSWER (bytes, or a callable of the
-    request), a byte every GAP seconds (0: all at once), and keeps the requests it received."""
+    request), a byte every GAP seconds (0: all at once), then holds the connection open HOLD seconds, and
+    keeps the requests it received."""
 
-    def __init__(self, answer, gap: float = 0):
-        self.answer, self.gap = answer, gap
+    def __init__(self, answer, gap: float = 0, hold: float = 0):
+        self.answer, self.gap, self.hold = answer, gap, hold
         self.requests: list[tuple[float, bytes]] = []
         self.done = threading.Event()
         self.listener = socket.socket()
@@ -180,6 +181,7 @@ class Server:
                 answer = self.answer(data) if callable(self.answer) else self.answer
                 if not self.gap:
                     conn.sendall(answer)
+                    self.done.wait(self.hold)
                     return
                 for byte in answer:
                     if self.done.wait(self.gap):
@@ -198,8 +200,8 @@ class Transport(unittest.TestCase):
     BOUND = 0.2
     OK = b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 12\r\n\r\n{"ok": true}'
 
-    def serve(self, answer, gap: float = 0) -> Server:
-        server = Server(answer, gap)
+    def serve(self, answer, gap: float = 0, hold: float = 0) -> Server:
+        server = Server(answer, gap, hold)
         self.addCleanup(server.stop)
         return server
 
@@ -245,7 +247,7 @@ class Transport(unittest.TestCase):
 
     def test_a_trickled_body_ends_at_the_deadline(self):
         slow = b"HTTP/1.1 200 OK\r\nContent-Length: 40\r\n\r\n" + b"b" * 40
-        server = self.serve(lambda _: slow[:38], 0)  # the headers at once; the body never completes
+        server = self.serve(slow[:-2], hold=2)  # the headers at once; the body's last bytes never come
         with self.assertRaises(deadline_http.RequestTimeout):
             deadline_http.request(server.url, self.BOUND)
 
