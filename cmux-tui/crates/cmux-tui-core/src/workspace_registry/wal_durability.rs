@@ -198,6 +198,11 @@ struct SyncState {
     restart_wait_longest: Duration,
     #[cfg(test)]
     restart_timeouts: u64,
+    /// Each span in which the restart rule kept the database's writer lock
+    /// from other threads (start, end), for the person measure
+    /// (`mux/tests/registry_wal_person.rs`).
+    #[cfg(test)]
+    restart_holds: Vec<(std::time::Instant, std::time::Instant)>,
     /// Checkpoints the syncer ran, and the announced commits its ended
     /// passes had looked at.
     #[cfg(test)]
@@ -426,6 +431,12 @@ impl WalDurability {
         }
     }
 
+    /// The spans in which the restart rule kept the writer lock from other threads.
+    #[cfg(test)]
+    pub(crate) fn restart_holds(&self) -> Vec<(std::time::Instant, std::time::Instant)> {
+        self.shared.state.lock().recover_poison().restart_holds.clone()
+    }
+
     /// Waits that ended at the limit before their checkpoint did.
     #[cfg(test)]
     pub(crate) fn restart_timeouts(&self) -> u64 {
@@ -533,6 +544,7 @@ fn wait_for_restart_checkpoint(
     {
         state.restart_waits += 1;
         state.restart_wait_longest = state.restart_wait_longest.max(started.elapsed());
+        state.restart_holds.push((started, std::time::Instant::now()));
         state.restart_timeouts += u64::from(!ended);
     }
 }

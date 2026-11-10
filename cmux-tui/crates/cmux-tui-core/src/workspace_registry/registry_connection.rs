@@ -261,6 +261,17 @@ impl RegistryConnection {
             .unwrap_or_default()
     }
 
+    /// The spans in which the WAL restart rule kept the connection from other threads.
+    #[cfg(test)]
+    pub(crate) fn wal_restart_holds_for_test(
+        &self,
+    ) -> Vec<(std::time::Instant, std::time::Instant)> {
+        self.durability
+            .as_ref()
+            .map(super::wal_durability::WalDurability::restart_holds)
+            .unwrap_or_default()
+    }
+
     /// Commits no flush was requested for (`WalDurability::unrequested_commits`).
     #[cfg(test)]
     pub(crate) fn unrequested_commits_for_test(&self) -> u64 {

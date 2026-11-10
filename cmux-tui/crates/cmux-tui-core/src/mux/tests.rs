@@ -44,6 +44,7 @@ mod read_paths;
 mod registry_premigrate;
 mod registry_reads;
 mod registry_start_log;
+mod registry_wal_person;
 mod registry_wal_storm;
 mod resource_effects;
 mod resource_restore;
