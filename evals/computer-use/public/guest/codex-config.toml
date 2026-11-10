@@ -1,0 +1,26 @@
+# Codex config for the benchmark guest. Both arms use this file; the arm only
+# changes which computer-use tools are on (guest/run-agent.sh).
+model_provider = "subrouter"
+model = "gpt-6.1-sol"
+model_reasoning_effort = "medium"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
+[model_providers.subrouter]
+name = "Team Subrouter"
+base_url = "http://100.89.225.106:31415/v1"
+wire_api = "responses"
+requires_openai_auth = false
+experimental_bearer_token = "subrouter"
+supports_websockets = true
+
+[model_providers.subrouter.http_headers]
+X-Subrouter-Agent = "codex"
+X-Subrouter-Client = "cu-bench-vm"
+
+[features]
+computer_use = true
+plugins = true
+
+[plugins."computer-use@openai-bundled"]
+enabled = true
