@@ -129,6 +129,7 @@ on:
       - tests/test_cmux_next_route.py
       - tests/test_cmux_next_base_tier.py
       - scripts/ci/cmux_next_base_tier.py
+      - scripts/ci/github_quota_client.py
       - .github/workflows/cmux-next-base-tier-kick.yml
       - scripts/cmux-next/swift-exports-cache.sh
       - scripts/cmux-next/swift-exports-key.py
@@ -420,6 +421,7 @@ on:
       - tests/test_cmux_next_route.py
       - tests/test_cmux_next_base_tier.py
       - scripts/ci/cmux_next_base_tier.py
+      - scripts/ci/github_quota_client.py
       - .github/workflows/cmux-next-base-tier-kick.yml
       - scripts/cmux-next/swift-exports-cache.sh
       - scripts/cmux-next/swift-exports-key.py
