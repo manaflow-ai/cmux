@@ -169,6 +169,43 @@ export const usagePriceSet = (env: Pick<Env, "ENVIRONMENT" | "BILLING_USAGE_PRIC
   return "v1"
 }
 
+/** A usage price as a live run reads it (`expand[]=data.tiers`). */
+export type CatalogPrice = { readonly id: string; readonly lookup_key: string; readonly billing_scheme?: string; readonly tiers_mode?: string | null; readonly unit_amount_decimal?: string | null; readonly tiers?: ReadonlyArray<{ readonly up_to: number | null; readonly unit_amount_decimal?: string | null }>; readonly recurring?: { readonly usage_type?: string; readonly meter?: string | null } | null }
+export type CatalogMeter = { readonly id: string; readonly event_name: string; readonly default_aggregation?: { readonly formula?: string } }
+
+/**
+ * Why the live catalog differs from the one the catalog code names (backend/scripts/stripe-usage-catalog.ts), or
+ * null (usage-billing.md section 12, item 4; #40319 F1). Live bills Leo's rules, so only the v2 set; every plan and
+ * mode has its price, metered on its mode's meter, which aggregates `last`; per team graduated (included units at 0,
+ * then 1.00 USD a unit), per seat 1.00 USD a unit. A wrong amount would charge every customer wrongly.
+ */
+export const liveCatalogMismatch = (set: UsagePriceSet, prices: ReadonlyArray<CatalogPrice>, meters: ReadonlyArray<CatalogMeter>): string | null => {
+  if (set !== "v2") return `price set ${set}, live bills v2 only`
+  const cents = (v: string | null | undefined) => (v == null ? NaN : Number(v))
+  for (const mode of INCLUDED_MODES) {
+    const meter = meters.filter((m) => m.event_name === usageMeterEvent(mode))
+    if (meter.length !== 1) return `${meter.length} active meters for ${usageMeterEvent(mode)}`
+    if (meter[0]!.default_aggregation?.formula !== "last") return `meter ${meter[0]!.id} aggregates ${meter[0]!.default_aggregation?.formula}, not last`
+  }
+  for (const plan of USAGE_PLANS) {
+    for (const mode of usageModesOf(plan)) {
+      const lookup = usagePriceLookupKey(plan, set, mode)
+      const price = prices.filter((p) => p.lookup_key === lookup)
+      if (price.length !== 1) return `${price.length} active prices for ${lookup}`
+      const p = price[0]!
+      const meter = meters.find((m) => m.event_name === usageMeterEvent(mode))!
+      if (p.recurring?.usage_type !== "metered" || p.recurring.meter !== meter.id) return `${lookup} is not metered on ${meter.id}`
+      const tiers = p.tiers ?? []
+      const amounts =
+        mode === "per_seat"
+          ? p.billing_scheme === "per_unit" && cents(p.unit_amount_decimal) === 100
+          : p.billing_scheme === "tiered" && p.tiers_mode === "graduated" && tiers.length === 2 && tiers[0]!.up_to === usageIncludedUsd(plan, set) && cents(tiers[0]!.unit_amount_decimal) === 0 && tiers[1]!.up_to === null && cents(tiers[1]!.unit_amount_decimal) === 100
+      if (!amounts) return `${lookup} amounts differ from the catalog`
+    }
+  }
+  return null
+}
+
 export const syncUsage = async (env: Env, only?: { readonly subscription?: string; readonly dryRun?: boolean }, liveEnabled: boolean = USAGE_LIVE_ENABLED): Promise<SyncReport> => {
   const mode = stripeKeyMode(env.STRIPE_USAGE_KEY)
   const dry = only?.dryRun === true
@@ -190,14 +227,25 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
   /** The usage price in force per plan and mode (`<plan>:<mode>`). */
   const priceOf = new Map<string, string>()
   const usagePrices = new Set<string>()
+  const read: CatalogPrice[] = []
   // At most 10 lookup keys per request (Stripe).
   for (let i = 0; i < asked.length; i += 10) {
-    const priceList = await stripeFetch(key, "GET", `/v1/prices?active=true&limit=20&${asked.slice(i, i + 10).map((k) => `lookup_keys[]=${encodeURIComponent(k)}`).join("&")}`)
-    for (const p of priceList.data as Array<{ id: string; lookup_key: string; livemode?: unknown }>) {
+    const priceList = await stripeFetch(key, "GET", `/v1/prices?active=true&limit=20&${live ? "expand[]=data.tiers&" : ""}${asked.slice(i, i + 10).map((k) => `lookup_keys[]=${encodeURIComponent(k)}`).join("&")}`)
+    for (const p of priceList.data as Array<CatalogPrice & { livemode?: unknown }>) {
       if (!askedSet.has(p.lookup_key)) continue
       if (wrongMode(p)) return { ...report, refused: "livemode_mismatch" }
+      read.push(p)
       usagePrices.add(p.id)
       for (const plan of USAGE_PLANS) for (const m of usageModesOf(plan)) if (p.lookup_key === usagePriceLookupKey(plan, set, m)) priceOf.set(`${plan}:${m}`, p.id)
+    }
+  }
+  if (live) {
+    const meterList = (await stripeFetch(key, "GET", "/v1/billing/meters?status=active&limit=100")).data as Array<CatalogMeter & { livemode?: unknown }>
+    if (meterList.some(wrongMode)) return { ...report, refused: "livemode_mismatch" }
+    const mismatch = liveCatalogMismatch(set, read, meterList)
+    if (mismatch) {
+      console.error(JSON.stringify({ msg: "billing.usage_sync.refused", mode, refused: "catalog_mismatch", mismatch }))
+      return { ...report, refused: "catalog_mismatch" }
     }
   }
   const isUsageItem = (i: StripeItem) => usagePrices.has(i.price.id) || idOf(i.price.product) === USAGE_PRODUCT_ID
@@ -213,7 +261,13 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
   const cmux = listed.subs.filter(isCmux)
   // One usage subscription per customer: meter events are per customer, so two would bill one total twice (review P2).
   // One subscription's run counts its customer's other subscriptions too (review P2, the invoice-created path).
-  const counted = only?.subscription && cmux[0] ? (await Promise.all([...ACTIVE].map(async (status) => (await stripeFetch(key, "GET", `/v1/subscriptions?customer=${encodeURIComponent(idOf(cmux[0]!.customer))}&status=${status}&limit=100`)).data as StripeSubscription[]))).flat().filter(isCmux) : cmux
+  const customerSubs = only?.subscription && cmux[0] ? (await Promise.all([...ACTIVE].map(async (status) => (await stripeFetch(key, "GET", `/v1/subscriptions?customer=${encodeURIComponent(idOf(cmux[0]!.customer))}&status=${status}&limit=100`)).data as StripeSubscription[]))).flat() : null
+  // The customer's other subscriptions are read objects too (#40319 F2): checked before any write.
+  if (customerSubs?.some(wrongMode)) {
+    console.error(JSON.stringify({ msg: "billing.usage_sync.refused", mode, refused: "livemode_mismatch" }))
+    return { ...report, refused: "livemode_mismatch" }
+  }
+  const counted = customerSubs ? customerSubs.filter(isCmux) : cmux
   const perCustomer = new Map<string, number>()
   for (const sub of counted) perCustomer.set(idOf(sub.customer), (perCustomer.get(idOf(sub.customer)) ?? 0) + 1)
 
