@@ -233,6 +233,7 @@ try {
       ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
       : { channel: "chrome" }),
     headless: true,
+    args: process.env.BENCH_JS_FLAGS ? [`--js-flags=${process.env.BENCH_JS_FLAGS}`] : [],
   });
   releases.push(["browser", () => browser.close()]);
 
@@ -671,6 +672,7 @@ try {
       }
       if (probe && snapshots.length === 3) probe.diff(snapshots[0]!, snapshots[2]!, FIXTURE, snapshots[1]);
       console.log(`growth: ${warm} warm switches (the wire log turned over), then ${CHURN} sampled`);
+      console.log(`SAMPLES ${samples.map((sample) => Math.round(sample.heapKb)).join(" ")}`);
       const growth = growthPerOp(samples);
       console.log(
         `growth over ${CHURN} switches: heap ${growth.heapKbPerOp} KB, ${growth.nodesPerOp} DOM nodes, ` +
