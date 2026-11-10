@@ -990,6 +990,115 @@ mod tests {
         assert_reads(dir.path(), &["/bin/bash", "-lc", "agent acp"], &[]);
     }
 
+    /// A folder outside the chat folder with the agent CLIs `codex` and `opencode` (empty scripts
+    /// that are programs), so a launch names a real file of each.
+    fn agent_bin() -> tempfile::TempDir {
+        use std::os::unix::fs::PermissionsExt as _;
+        let bin = tempfile::tempdir().unwrap();
+        for name in ["codex", "opencode"] {
+            let program = bin.path().join(name);
+            std::fs::write(&program, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        bin
+    }
+
+    /// An interpreter that is not on the program allowlist runs a folder file: a versioned name
+    /// (`perl5.34`, `tclsh8.5`, `node22`, `ruby3.3`, as stock macOS and version managers name
+    /// them) or one acpmux has no form for (`osascript`, `swift`, `java`, `expect`)
+    /// (w5l-delta-rev, item 1).
+    #[test]
+    fn an_interpreter_off_the_list_reads_the_folder() {
+        let dir = review_folder();
+        for file in
+            ["agent.pl", "agent.tcl", "agent.scpt", "agent.swift", "Agent.java", "agent.exp"]
+        {
+            std::fs::write(dir.path().join(file), "").unwrap();
+        }
+        std::fs::write(dir.path().join("agent.rb"), "").unwrap();
+        for argv in [
+            &["/usr/bin/perl5.34", "agent.pl"][..],
+            &["tclsh8.5", "agent.tcl"],
+            &["osascript", "agent.scpt"],
+            &["swift", "agent.swift"],
+            &["java", "Agent.java"],
+            &["expect", "agent.exp"],
+            &["node22", "agent"],
+            &["ruby3.3", "agent.rb"],
+        ] {
+            assert_reads(dir.path(), argv, &[]);
+        }
+    }
+
+    /// A program name in another case is that program on a volume that ignores case (APFS by
+    /// default): `PYTHON3 -m agent` is a module run, `NODE agent` runs `agent.js` (item 2).
+    #[test]
+    fn a_program_name_in_another_case_is_that_program() {
+        let dir = review_folder();
+        assert_reads(dir.path(), &["PYTHON3", "-m", "agent"], &[]);
+        assert_reads(dir.path(), &["NODE", "agent"], &[]);
+    }
+
+    /// An interpreter or a folder file inside a composite word is seen: a `KEY=VALUE` option
+    /// value (`-c mcp_servers.x.command=node`), a quoted value, inline JSON (`--mcp-config`) and a
+    /// command string (`--hook "node hook.js"`), so a folder MCP server or hook does not run at
+    /// launch (item 3). A plain subcommand or model value of an agent CLI is no program.
+    #[test]
+    fn a_runner_inside_a_composite_word_reads_the_folder() {
+        let dir = review_folder();
+        for file in ["srv.js", "hook.js"] {
+            std::fs::write(dir.path().join(file), "").unwrap();
+        }
+        let bin = agent_bin();
+        let codex = bin.path().join("codex").to_string_lossy().into_owned();
+        let opencode = bin.path().join("opencode").to_string_lossy().into_owned();
+        let mcp = r#"{"mcpServers":{"s":{"command":"node","args":["./srv.js"]}}}"#;
+        for argv in [
+            &[codex.as_str(), "-c", "mcp_servers.x.command=node"][..],
+            &[codex.as_str(), "-c", r#"mcp_servers.x.args=["srv.js"]"#],
+            &[codex.as_str(), r#"-cmcp_servers.x.command="python3""#],
+            &[opencode.as_str(), "--mcp-config", mcp],
+            &[opencode.as_str(), "--hook", "node hook.js"],
+        ] {
+            assert_reads(dir.path(), argv, &[]);
+        }
+        for argv in [
+            &[opencode.as_str(), "acp"][..],
+            &[codex.as_str(), "-c", r#"model="gpt-5""#],
+            &[codex.as_str(), "--model", "zai/glm-5"],
+        ] {
+            assert_eq!(judge(&launch(argv, &[]), dir.path(), &system_path()), None, "{argv:?}");
+        }
+    }
+
+    /// An env name that is not on the env allowlist may load code from the folder: Ruby's and
+    /// Perl's options, Bash's startup file, Python's home and user base, the dynamic loader's
+    /// preload, zsh's config folder (item 4). A reviewed name keeps the claim with any value.
+    #[test]
+    fn an_env_name_off_the_list_reads_the_folder() {
+        let dir = review_folder();
+        for folder in ["venv", "u", "conf"] {
+            std::fs::create_dir_all(dir.path().join(folder)).unwrap();
+        }
+        for file in ["rc.sh", "hook.dylib"] {
+            std::fs::write(dir.path().join(file), "").unwrap();
+        }
+        let script = ["python3", "/opt/agent.py"];
+        for env in [
+            ("RUBYOPT", "-I. -ragent"),
+            ("PERL5OPT", "-I. -Magent"),
+            ("BASH_ENV", "rc.sh"),
+            ("PYTHONHOME", "venv"),
+            ("PYTHONUSERBASE", "u"),
+            ("DYLD_INSERT_LIBRARIES", "hook.dylib"),
+            ("ZDOTDIR", "conf"),
+        ] {
+            assert_reads(dir.path(), &script, &[env]);
+        }
+        let reviewed = [("LANG", "C.UTF-8"), ("OPENAI_BASE_URL", "https://example.com/v1")];
+        assert_eq!(judge(&launch(&script, &reviewed), dir.path(), &system_path()), None);
+    }
+
     /// `PYTHONSAFEPATH` exists only from Python 3.11: a Python whose version acpmux cannot tell
     /// (`python3`, which a folder's `.python-version` may choose) gets no credit for it (lead).
     #[test]
