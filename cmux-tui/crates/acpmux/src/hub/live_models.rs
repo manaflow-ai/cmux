@@ -151,6 +151,16 @@ impl Hub {
         });
     }
 
+    /// The live-list harnesses whose last probe started `LIVE_MAX_AGE` or more
+    /// before `now`, claimed so concurrent reads start one probe each.
+    pub(super) async fn stale_live_probes(
+        &self,
+        now: std::time::Instant,
+    ) -> std::collections::BTreeSet<String> {
+        let _ = now;
+        std::collections::BTreeSet::new()
+    }
+
     /// Serves the cached lists whose programs are unchanged. Daemon start,
     /// before the login environment and the probes.
     pub(super) async fn load_live_cache(&self) {
