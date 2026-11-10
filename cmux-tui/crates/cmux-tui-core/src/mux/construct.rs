@@ -321,6 +321,8 @@ impl Mux {
                     .unwrap_or(0),
             ),
             #[cfg(test)]
+            host_frames_spawn_failures: AtomicU64::new(0),
+            #[cfg(test)]
             kitty_image_budget_operation: Mutex::new(None),
             cell_pixel_lifecycle: Mutex::new(()),
             next_cell_pixel_generation: AtomicU64::new(1),
@@ -456,6 +458,8 @@ impl Mux {
             prelaunched_terminals: Mutex::new(HashMap::new()),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
+            #[cfg(unix)]
+            shell_runs: crate::shell_runs::ShellRuns::default(),
             history: crate::history_ops::HistoryHost::default(),
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::new(lane_on),

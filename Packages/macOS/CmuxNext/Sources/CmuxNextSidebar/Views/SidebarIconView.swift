@@ -85,7 +85,8 @@ final class SidebarIconView: NSView {
             imageView.isHidden = true
         case let .symbol(name, tint)?:
             let config = SidebarStyle.glyphConfig
-            imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+            // A workspace's icon is data (the user's pick, synced or imported): only a public symbol, else the terminal.
+            imageView.image = NSImage.systemSymbol(name, fallback: nil)?.withSymbolConfiguration(config)
                 ?? NSImage.icon(.terminal, size: SidebarStyle.kindGlyphSize)
             inkKey = "symbol|\(name)|\(pointSize)"
             imageView.isHidden = false

@@ -43,6 +43,7 @@ mod browser_profile_ops;
 mod browser_site_engines;
 pub mod diagnostics;
 mod event_bus;
+pub mod feed_client;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
@@ -97,6 +98,8 @@ mod serial_lanes;
 mod session_shutdown;
 mod shell_history;
 mod shell_integration;
+#[cfg(unix)]
+mod shell_runs;
 pub mod startup_timings;
 use cmux_tui_util::short_id;
 mod sidebar_resource;
@@ -215,6 +218,7 @@ pub use surface::{
     TerminalPointerSnapshot,
 };
 pub use surface::{apply_terminal_color_overrides, default_child_term};
+pub use terminal_title::{TabTitle, TitleActivity};
 pub use workspace_registry::{
     Actor, EndedTerminalState, FrontendProjection, JournalAppendCommit, JournalAuthority,
     JournalCheckpoint, JournalClass, JournalContentRef, JournalEventSchema,
@@ -230,6 +234,9 @@ pub use workspace_registry::{
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};
 pub use ghostty_vt::{CursorShape, Rgb};
+pub use workspace_registry::premigrate::{
+    PremigrateControl, PremigrateOutcome, RosterPremigration, premigrate_registry,
+};
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;

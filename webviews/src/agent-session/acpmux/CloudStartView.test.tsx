@@ -182,6 +182,8 @@ test("a plan refusal offers Upgrade, Run on This Mac and Not Now; other failures
   expect(html).toContain('data-role="default">Upgrade</button>');
   expect(html).toContain(">Run on This Mac</button>");
   expect(html).toContain(">Not Now</button>");
+  // A refusal by policy keeps the checklist shut, so its actions stay in view in a short pane.
+  expect(html).toContain('aria-expanded="false"');
   const generic = renderToStaticMarkup(
     <CloudStartView
       start={{ ...refusal, code: "cloud_start_failed" }}
@@ -191,6 +193,49 @@ test("a plan refusal offers Upgrade, Run on This Mac and Not Now; other failures
   );
   expect(generic).not.toContain(">Upgrade</button>");
   expect(generic).not.toContain(">Run on This Mac</button>");
+});
+
+test("a plan refusal in a team says so, names the team and switches to the person's own; no Retry, no wait", async () => {
+  const refusal: CloudStartProgress = {
+    ...start,
+    state: "failed",
+    code: "cloud_plan_required",
+    message: "Cloud machines need a Pro plan.",
+    retryable: true,
+    planTeam: { team: "cmux", switchTo: { id: "team_0123456789abcdef0123", name: "Personal" } },
+  };
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={refusal}
+      onSwitchTeam={() => undefined}
+      onUpgrade={() => undefined}
+      onRetry={() => undefined}
+    />,
+  );
+  expect(html).toContain("This team has no Cloud plan");
+  expect(html).toContain("cmux is the team selected in the team menu.");
+  expect(html).toContain('data-role="default" data-action="switch-team">Switch to Personal</button>');
+  expect(html).toContain('data-action="see-plans">See plans</button>');
+  expect(html).not.toContain("acpmux-cloud-start__retry");
+  expect(html).not.toContain("acpmux-cloud-start__card");
+  expect(html).not.toContain("Cloud machines need a Pro plan.");
+  // With no own team known, See plans leads.
+  const plans = renderToStaticMarkup(
+    <CloudStartView
+      start={{ ...refusal, planTeam: { team: "cmux" } }}
+      onSwitchTeam={() => undefined}
+      onUpgrade={() => undefined}
+    />,
+  );
+  expect(plans).not.toContain("switch-team");
+  expect(plans).toContain('data-role="default" data-action="see-plans"');
+  // The click hands the team to the pane, which switches and sends again.
+  const host = installDom();
+  const picked: string[] = [];
+  root = createRoot(host);
+  await act(async () => root?.render(<CloudStartView start={refusal} onSwitchTeam={(team) => picked.push(team.id)} />));
+  (host.querySelector('[data-action="switch-team"]') as HTMLButtonElement).click();
+  expect(picked).toEqual(["team_0123456789abcdef0123"]);
 });
 
 test("the startup checklist skips clone without a repository and explains a missing script", () => {

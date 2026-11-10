@@ -49,7 +49,7 @@ pub static ACTIONS: &[Action] = &[
         description: Some("Forks the machine (--target machine:<id>) into a new machine. Answers at once with no id; the new machine shows in `cmux cloud list-machines` when the fork is done."),
         keywords: &["vm", "clone"],
         category: "cloud",
-        symbol: "arrow.triangle.branch",
+        symbol: "arrow.branch",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 203).folder("connection")], ..SurfacePlan::DEFAULT },
         requires: &["cloudWorkspace"],
         targets: &["machine"],
@@ -190,6 +190,21 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 1)], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "cloud bring-back",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "cloudMoveToMachine",
+        group: GROUP,
+        title: t("ActionCatalog", "action.cloudMoveToMachine", "Move to Another Machine"),
+        description: Some("Moves a chat that a move from this Mac put on a Cloud machine to another Cloud machine (--machine machine:<id>, else a connected one, else any, else a new one): pulls its folder to this Mac, copies it to that machine, moves the chat there with the old machine's last changes, opens it there and closes the old machine's tab. Only a person runs it: an agent's run (MCP, or the CLI from an agent's chat) is refused."),
+        keywords: &["vm", "cloud", "move", "machine", "other", "another", "remote", "chat", "agent", "sync"],
+        category: "cloud",
+        symbol: "arrow.left.arrow.right",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 2)], ..SurfacePlan::DEFAULT },
+        arguments: &[args::MACHINE.optional()],
+        targets: &["tab"],
+        cli_name: "cloud move-to-machine",
         ..Action::DEFAULT
     },
     Action {

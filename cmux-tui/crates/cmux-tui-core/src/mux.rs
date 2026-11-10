@@ -640,6 +640,9 @@ pub struct Mux {
     terminal_host_reconnect_completion_failures: AtomicU64,
     #[cfg(debug_assertions)]
     terminal_host_test_disconnect_after_spawn_ms: AtomicU64,
+    /// Tests: how many hosted readers' frame demultiplexers fail to start.
+    #[cfg(test)]
+    host_frames_spawn_failures: AtomicU64,
     #[cfg(test)]
     kitty_image_budget_operation: Mutex<Option<KittyImageBudgetOperationHook>>,
     cell_pixel_lifecycle: Mutex<()>,
@@ -864,6 +867,9 @@ pub struct Mux {
     prelaunched_terminals: Mutex<HashMap<String, terminal_work::PrelaunchedTerminal>>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
+    /// Shell mode's commands on this machine (`shell-runs-v1`, `server/shell_wire.rs`).
+    #[cfg(unix)]
+    pub(crate) shell_runs: crate::shell_runs::ShellRuns,
     /// The history module's session state: journal folds and revision.
     pub(crate) history: crate::history_ops::HistoryHost,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,

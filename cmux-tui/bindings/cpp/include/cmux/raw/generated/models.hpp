@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "33411ed45c930dea0ca028b6db8e5d621ec07122b5a27ea06083372650d53a2c";
+inline constexpr std::string_view kProtocolIrSha256 = "2697fdd69ee3825038321fc2b66b80bfa9968de02f9bd0adcb86043c30dd8d14";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -560,6 +560,9 @@ struct SetTerminalTailPinRequest;
 struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
 struct SetWorkspaceMetadataRequest;
+struct ShellReadRequest;
+struct ShellRunRequest;
+struct ShellStopRequest;
 struct ShutdownDaemonRequest;
 struct SidebarPluginRequest;
 struct SnapshotRequestRequest;
@@ -639,6 +642,8 @@ struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
 struct EmptyEvent;
+struct FeedReportsChangedEvent;
+struct FeedViewChangedEvent;
 struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
@@ -2944,6 +2949,17 @@ struct FeedLocalReadRequest {
     friend bool operator==(const FeedLocalReadRequest&, const FeedLocalReadRequest&) = default;
 };
 
+struct FeedReportsChangedEvent {
+    std::uint64_t revision{};
+    friend bool operator==(const FeedReportsChangedEvent&, const FeedReportsChangedEvent&) = default;
+};
+
+struct FeedViewChangedEvent {
+    std::vector<std::string> changed{};
+    std::uint64_t revision{};
+    friend bool operator==(const FeedViewChangedEvent&, const FeedViewChangedEvent&) = default;
+};
+
 enum class PaneDirection {
     left,
     right,
@@ -3747,6 +3763,8 @@ struct Tab {
     Field<std::string> terminal_incarnation{};
     Field<std::string> terminal_resource_id{};
     std::string title{};
+    Field<std::string> title_activity{};
+    std::optional<std::string> title_text{};
     friend bool operator==(const Tab&, const Tab&) = default;
 };
 
@@ -5545,6 +5563,26 @@ struct SettingsChangedEvent {
     friend bool operator==(const SettingsChangedEvent&, const SettingsChangedEvent&) = default;
 };
 
+struct ShellReadRequest {
+    std::optional<std::uint64_t> after{};
+    std::string run{};
+    Field<std::uint64_t> wait_ms{};
+    friend bool operator==(const ShellReadRequest&, const ShellReadRequest&) = default;
+};
+
+struct ShellRunRequest {
+    std::string command{};
+    Field<std::string> cwd{};
+    Field<std::string> run{};
+    Field<std::string> scope{};
+    friend bool operator==(const ShellRunRequest&, const ShellRunRequest&) = default;
+};
+
+struct ShellStopRequest {
+    std::string run{};
+    friend bool operator==(const ShellStopRequest&, const ShellStopRequest&) = default;
+};
+
 struct ShutdownDaemonRequest {
     std::optional<bool> end_terminals{};
     std::optional<bool> force{};
@@ -6049,7 +6087,9 @@ struct TerminalResumeCommandResult {
 };
 
 struct TitleChangedEvent {
+    Field<std::string> activity{};
     Id surface{};
+    std::optional<std::string> text{};
     std::optional<std::string> title{};
     friend bool operator==(const TitleChangedEvent&, const TitleChangedEvent&) = default;
 };
@@ -9663,6 +9703,24 @@ struct Codec<SetWorkspaceMetadataRequest> {
 };
 
 template <>
+struct Codec<ShellReadRequest> {
+    static Result<Json> encode(const ShellReadRequest& value);
+    static Result<ShellReadRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ShellRunRequest> {
+    static Result<Json> encode(const ShellRunRequest& value);
+    static Result<ShellRunRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ShellStopRequest> {
+    static Result<Json> encode(const ShellStopRequest& value);
+    static Result<ShellStopRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<ShutdownDaemonRequest> {
     static Result<Json> encode(const ShutdownDaemonRequest& value);
     static Result<ShutdownDaemonRequest> decode(const Json& value);
@@ -10134,6 +10192,18 @@ template <>
 struct Codec<EmptyEvent> {
     static Result<Json> encode(const EmptyEvent& value);
     static Result<EmptyEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedReportsChangedEvent> {
+    static Result<Json> encode(const FeedReportsChangedEvent& value);
+    static Result<FeedReportsChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedViewChangedEvent> {
+    static Result<Json> encode(const FeedViewChangedEvent& value);
+    static Result<FeedViewChangedEvent> decode(const Json& value);
 };
 
 template <>
