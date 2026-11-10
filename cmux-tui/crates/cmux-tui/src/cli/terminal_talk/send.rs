@@ -262,10 +262,11 @@ pub(in crate::cli) fn snapshot<B: Daemon + ?Sized>(
 /// caller's terminal (`CMUX_TUI_TERMINAL_ID`), refused outside one; a full
 /// `term_` id, or a `tab_` id that a terminal of the snapshot shows in, is
 /// taken as it is. Any other word goes
-/// to the daemon's one selector resolver (W5-P, [`daemon_select`]), as
-/// `terminal WORD show` sends it: a terminal title, an agent or other tab
-/// name, a unique id prefix of at least 4 hex digits, a bare or host id, or
-/// `focused`, with the daemon's error for a word it refuses.
+/// to the daemon's one selector resolver (W5-P, [`daemon_select`]) with no
+/// parents: a terminal title, an agent or other tab name (with the session
+/// rules, never first in the place the person focuses), a unique id prefix
+/// of at least 4 hex digits, a bare or host id, or `focused`, with the
+/// daemon's error for a word it refuses.
 pub(in crate::cli) fn find_terminal<'a, B: Daemon + ?Sized>(
     backend: &B,
     session: Option<&str>,

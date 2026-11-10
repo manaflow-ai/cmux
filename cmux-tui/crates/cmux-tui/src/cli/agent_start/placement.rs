@@ -255,10 +255,11 @@ fn not_found(selector: &str, message: String) -> Failure {
 /// (else the focused one), `caller` the caller's and `focused` the one the
 /// person looks at (the daemon has no caller); a full pane id of the
 /// snapshot is taken as it is. Any other word goes to the daemon's one
-/// selector resolver (W5-P, [`daemon_select`]), as `pane WORD show` sends
-/// it: a pane name, an agent or other tab name (its pane), a unique id
-/// prefix of at least 4 hex digits or a bare id, with the daemon's error for
-/// a word it refuses.
+/// selector resolver (W5-P, [`daemon_select`]) with no parents: a pane name
+/// or an agent or other tab name (its pane), with the session rules and
+/// never first in the place the person focuses, a unique id prefix of at
+/// least 4 hex digits or a bare id, with the daemon's error for a word it
+/// refuses.
 pub(in crate::cli) fn target_pane<D: Daemon + ?Sized>(
     daemon: &D,
     snapshot: &Value,

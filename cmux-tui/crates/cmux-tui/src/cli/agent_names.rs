@@ -23,7 +23,9 @@
 //! it (`terminal … send`, `terminal … wait --until ready`, `agent start
 //! --pane`, `agent resume` and `terminal … resume`, also from the MCP
 //! server's terminal tools) ask the same resolver with [`daemon_select`]:
-//! no client keeps a copy of the rules.
+//! no client keeps a copy of the rules. They ask with no parents, so a name
+//! takes the session rules only and the place the person focuses never
+//! breaks a tie.
 
 use std::collections::HashMap;
 
@@ -361,9 +363,13 @@ fn daemon_resolves(global: &super::GlobalArgs, target: &Target) -> Result<Option
 }
 
 /// The id of the object that the daemon's one selector resolver (W5-P)
-/// selects with `word` in `scope`, asked as `<scope>.get` (what `<scope>
-/// WORD show` sends) through `daemon` for `session`. A word the daemon
-/// refuses fails with the daemon's own error: `selector.not_found`,
+/// selects with `word` in `scope`, asked as `<scope>.get` through `daemon`
+/// for `session` with no parents (`focused` alone takes the daemon's
+/// `current` ones): a name then takes the session rules only
+/// (a title, then a live tab, then an exited one; two at one step are
+/// `selector.ambiguous`), never first the place the person focuses, which
+/// is what the daemon's `current` parents are. A word the daemon refuses
+/// fails with the daemon's own error: `selector.not_found`,
 /// `selector.ambiguous` with the candidates, or `validation.invalid` with
 /// the id hint (an id prefix needs at least 4 hex digits).
 pub(in crate::cli) fn daemon_select<D: super::terminal_talk::send::Daemon + ?Sized>(
@@ -376,9 +382,9 @@ pub(in crate::cli) fn daemon_select<D: super::terminal_talk::send::Daemon + ?Siz
     let mut params = serde_json::Map::new();
     params.insert("machine".into(), Value::String("current".into()));
     params.insert("session".into(), Value::String("current".into()));
-    // The CLI's shape: `current` parents above a word that is not an id, so
-    // a name is looked up in the current place first, then the session.
-    if !matches!(Selector::parse(word), Ok(Selector::Id(_))) {
+    // `focused` (the daemon's `current`) is the object the person looks at,
+    // so it alone takes `current` parents; a name or an id takes none.
+    if word == "focused" || matches!(Selector::parse(word), Ok(Selector::Current)) {
         let parents: &[&str] = match scope {
             Scope::Pane => &["workspace", "screen"],
             Scope::Tab => &["workspace", "screen", "pane"],

@@ -289,7 +289,11 @@ fn resolve_path(
     machine: &MachinePublicId,
     session: &SessionPublicId,
 ) -> Result<ResolvedResourceSlots, ResourceError> {
-    validate_contiguous_name_current_chains(selectors, target)?;
+    // A name with no parents takes the session rules only (name_scope.rs).
+    let placeless = name_scope::placeless(selectors, target);
+    if !placeless {
+        validate_contiguous_name_current_chains(selectors, target)?;
+    }
 
     let mut supplied_workspace = None;
     let mut supplied_screen = None;
@@ -325,10 +329,12 @@ fn resolve_path(
     if let Some(raw) = selectors.pane.as_deref() {
         let pane = match resolve_pane(state, raw, supplied_screen) {
             Err(error)
-                if error.code == "selector.not_found"
-                    && name_scope::implicit_parents(selectors, 4) =>
+                if placeless
+                    || (error.code == "selector.not_found"
+                        && name_scope::implicit_parents(selectors, 4)) =>
             {
-                let pane = name_scope::pane(state, raw)?.ok_or(error)?;
+                let pane = name_scope::pane(state, raw)?
+                    .ok_or_else(|| name_scope::unfound(placeless, error, "pane", raw))?;
                 (supplied_screen, supplied_workspace) = rescope_pane(Some(pane));
                 pane
             }
@@ -339,11 +345,12 @@ fn resolve_path(
     if let Some(raw) = selectors.tab.as_deref() {
         let tab = match resolve_tab(state, raw, supplied_pane) {
             Err(error)
-                if error.code == "selector.not_found"
-                    && name_scope::implicit_parents(selectors, 5) =>
+                if placeless
+                    || (error.code == "selector.not_found"
+                        && name_scope::implicit_parents(selectors, 5)) =>
             {
                 let tab = name_scope::tab(state, raw, supplied_screen, supplied_workspace)?
-                    .ok_or(error)?;
+                    .ok_or_else(|| name_scope::unfound(placeless, error, "tab", raw))?;
                 supplied_pane = state.resource_indexes.tab_pane.get(&tab).copied();
                 (supplied_screen, supplied_workspace) = rescope_pane(supplied_pane);
                 tab
@@ -367,10 +374,12 @@ fn resolve_path(
                 supplied_workspace,
             ) {
                 Err(error)
-                    if error.code == "selector.not_found"
-                        && name_scope::implicit_parents(selectors, 6) =>
+                    if placeless
+                        || (error.code == "selector.not_found"
+                            && name_scope::implicit_parents(selectors, 6)) =>
                 {
-                    let tab = name_scope::terminal(state, raw)?.ok_or(error)?;
+                    let tab = name_scope::terminal(state, raw)?
+                        .ok_or_else(|| name_scope::unfound(placeless, error, "terminal", raw))?;
                     supplied_tab = Some(tab);
                     supplied_pane = state.resource_indexes.tab_pane.get(&tab).copied();
                     (supplied_screen, supplied_workspace) = rescope_pane(supplied_pane);

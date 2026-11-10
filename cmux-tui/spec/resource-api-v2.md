@@ -554,7 +554,13 @@ Session-resource requests always carry `machine` and `session` routing
 selectors. Structural selectors after the session are flat fields named
 `workspace`, `screen`, `pane`, and `tab`. An opaque nested target ID may omit
 those ancestors. A `current` or name target requires the complete contiguous
-structural chain through its parent, supplied by CLI or SDK context.
+structural chain through its parent, supplied by CLI or SDK context. One
+exception: a pane, tab or terminal name with no structural selector at all
+selects with the session rules only (a pane name, a terminal title, then a
+tab name in the whole session, a tab whose terminal runs before one whose
+terminal exited; two at one step return `selector.ambiguous`). It never
+looks first in the place the person focuses, which is what `current`
+parents are.
 
 An opaque terminal ID resolves without a structural ancestor even when the
 terminal has no tabs. Supplying a tab disambiguates one view for view
