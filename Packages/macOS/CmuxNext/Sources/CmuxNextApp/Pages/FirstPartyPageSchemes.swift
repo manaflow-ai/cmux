@@ -69,6 +69,7 @@ enum FirstPartyPageSchemes {
         .debugSettings,
         .diff,
         .editor,
+        .feed,
         .files,
         .github,
         .groupEditor,
