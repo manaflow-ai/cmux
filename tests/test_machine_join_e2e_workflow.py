@@ -84,7 +84,7 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_stack_secrets_reach_one_step_through_env(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 2)
-        self.assertEqual(workflow_jobs.secret_names(text), {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"})
+        self.assertEqual(workflow_jobs.secret_names(load()), {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"})
         for name, job in load()["jobs"].items():
             outside_steps = {k: v for k, v in job.items() if k != "steps"} if name == "e2e" else job
             self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)

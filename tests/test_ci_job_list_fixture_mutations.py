@@ -16,6 +16,11 @@ The pre-fix reader:
 - environments: the literal `environment:` (or its `name:`); a matrix value or an expression counts as no release
   environment.
 
+One list's fix changed no reader: signing_runner.SIGNING_JOBS' cap classification (tests/test_ci_signing_owned_mac.py)
+reads the owned pick with the same dotted() and NEEDS_OUTPUT it had before; what was missing was the classification
+itself. Its pre-fix is that guard switched off (PRE_FIX_GUARDS: owned_pick_reads finds nothing), and its fixture must
+go red with it, so the fixture is shown to need the guard.
+
 The 15 fixtures: 11 from the nightly, signing and routing groups (tests/test_nightly_trusted_routing.py,
 tests/test_nightly_sign_runner.py, tests/test_seed_derived_data.py, tests/test_ci_signing_owned_mac.py,
 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py's GATED_SECRET_JOBS,
@@ -135,6 +140,10 @@ class KeychainListFixtures(unittest.TestCase):
 
 
 HERE = __name__
+# Fixtures whose fix added a guard rather than changed a reader: the guard as it was before (absent), per list.
+PRE_FIX_GUARDS = {
+    "SIGNING_JOBS (signing_runner)": (("test_ci_signing_owned_mac", "owned_pick_reads", lambda jobs, runs_on: []),),
+}
 # (list, module, class, the fixture that must name an unlisted job, its listed-and-green twin or None). Where a list
 # has a dot-form fixture too (test_a_new_job_with_the_trait_and_no_entry_is_named), the one here is its bracket,
 # case or index twin: the dot form is caught by both readers, so it cannot tell them apart.
@@ -200,7 +209,9 @@ class PreFixMutation(unittest.TestCase):
     def test_each_fixture_is_red_with_the_pre_fix_reader(self) -> None:
         for label, module, cls, red, _ in FIXTURES:
             with self.subTest(list=label, fixture=red):
-                with PreFixReader.patched():
+                with PreFixReader.patched() as stack:
+                    for owner, name, old in PRE_FIX_GUARDS.get(label, ()):
+                        stack.enter_context(mock.patch.object(importlib.import_module(owner), name, old))
                     found = outcome(run_fixture(module, cls, red))
                 print(f"pre-fix reader: {label}: {red}: {found}", file=sys.stderr)
                 self.assertTrue(found.startswith("red"), f"{label}: {red} stays green with the pre-fix reader")

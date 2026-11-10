@@ -11,6 +11,7 @@ local cache-restore and cache-save actions choose the store.
 from __future__ import annotations
 
 import sys
+import json
 import os
 import subprocess
 from pathlib import Path
