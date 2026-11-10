@@ -29,7 +29,10 @@ extension SidebarListViewComponents {
             target = fold.group.map(SidebarContextTarget.group) ?? .section(fold.section)
         case let .item(item)?:
             target = .layoutItem(LayoutItemID(item))
-        case .block?, .status?, .listHeader?:
+        case let .needsYou(.row(id))?:
+            // A mirrored row's menu is its workspace's, as on its own row below.
+            return SidebarRowMenu(list: self).menu(for: id)
+        case .block?, .status?, .listHeader?, .needsYou?:
             target = .background
         case nil:
             target = .background

@@ -93,7 +93,15 @@ extension SidebarListViewComponents {
             // Keyboard focus moves to the clicked disclosure (no ring), so a ring left on another one cannot take
             // the next Space or Return; the release toggles it.
             SidebarGroupKeys(list: self).focusFold(row.key, ring: false)
-        case .section, .emptySection, .emptyGroup, .folder, .block, .status, .listHeader:
+        case let .needsYou(.row(id)):
+            // A Needs you row opens its chat on the press, as its own row does; a control-click is its menu. The list
+            // does not scroll to the row it mirrors: the person is looking at this one (it stays where it is below).
+            guard !model.isPlaceholder(id), !flags.contains(.control), event.clickCount == 1 else { break }
+            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
+            model.click(id)
+            revealedActive = selectionRevealKey
+            if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
+        case .section, .emptySection, .emptyGroup, .folder, .block, .status, .listHeader, .needsYou:
             break
         }
         self.press = press
@@ -166,9 +174,12 @@ extension SidebarListViewComponents {
             model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
         case let .status(section):
             model.toggleStatusSection(section)
-        case .doneFold, .showMore:
+        case .doneFold, .showMore, .needsYou(.header), .needsYou(.more):
             _ = SidebarFoldAction(list: self).toggle(press.key)
             return
+        case .needsYou(.row):
+            // The press opened it.
+            return syncRowStates()
         case let .emptyGroup(group):
             // The group's empty row makes a workspace in it, as the header's + does; the new row lays the list out.
             onGroupEditorItem?(group, "workspaceGroup.newWorkspace")

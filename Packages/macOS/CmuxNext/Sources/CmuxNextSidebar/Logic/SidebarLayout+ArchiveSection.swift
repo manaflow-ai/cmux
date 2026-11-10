@@ -96,13 +96,14 @@ nonisolated extension SidebarLayout {
         var inner = o
         (inner.archiveSection, inner.foldsArchived, inner.foldsDone, inner.rowLimit) = (false, false, false, 0)
         (inner.gap, inner.chatHistory, inner.blockHeights, inner.collapsedDocSections) = (nil, nil, [:], [])
+        inner.needsYou = nil // the section heads the whole list, never the opened Archive
         // The opened Archive lists its rows whole: Recents would fold archived groups past five behind a Show more it skips.
         if inner.grouping.by == .recents { inner.grouping.by = .none }
         let nested = make(sections: split.archived, metrics: base, options: inner)
         let dy = y - m.topPadding
         for var row in nested.rows {
             switch row.key {
-            case .section, .emptySection, .block, .folder, .status, .listHeader, .doneFold, .showMore: continue
+            case .section, .emptySection, .block, .folder, .status, .listHeader, .doneFold, .showMore, .needsYou: continue
             default:
                 row.y += dy
                 rows.append(row)

@@ -17,6 +17,7 @@ import Foundation
 /// - `band_updates`: top/footer band content recomputes.
 /// - `main_ns`: main-thread time spent in the measured paths, nanoseconds.
 /// - `order_builds`: `SidebarModel.workspaceOrder` builds (one per structural change at most, never per query).
+/// - `needs_you_builds`: the Needs you section's rows found again (`SidebarModel.needsYouRows`): as `order_builds`.
 /// - `mirror_ns`: main-thread time in `SidebarMirror` calls (request encode, the Rust call, reading the reply), nanoseconds.
 /// - `row_invalidations`: listed rows whose observed content changed (`SidebarRowFeed`): one change in one workspace
 ///   marks that workspace's row only, never every row (TYPING UNDER LOAD F6).
@@ -46,6 +47,8 @@ nonisolated enum SidebarPerfCounters {
         case mainNanoseconds = "main_ns"
         case mirrorNanoseconds = "mirror_ns"
         case orderBuilds = "order_builds"
+        /// The Needs you section's rows found again (`SidebarModel.needsYouRows`): one per structural change at most.
+        case needsYouBuilds = "needs_you_builds"
         case rowInvalidations = "row_invalidations"
         case rowMaps = "row_maps"
         case rowViewsMade = "row_views_made"

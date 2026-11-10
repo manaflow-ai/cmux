@@ -2,7 +2,8 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// The "Done (N)", "Archived (N)" and "Show N more" rows at the end of a list (`SidebarLayout+DoneFold`): a chevron and the count in
+/// The "Done (N)", "Archived (N)" and "Show N more" rows at the end of a list (`SidebarLayout+DoneFold`), and the Needs you
+/// section's "N more" (`SidebarLayout+NeedsYouSection`): a chevron and the count in
 /// the folder header's quiet style. A click opens or folds the rows it holds; it is no drop target and has no menu of
 /// its own (its list's menu shows).
 final class SidebarDoneFoldRowView: SidebarRowView {
@@ -29,6 +30,9 @@ final class SidebarDoneFoldRowView: SidebarRowView {
         switch row.key {
         case .showMore:
             name.setString(row.isCollapsed ? Strings.showMore(row.childCount) : Strings.showLess)
+        case .needsYou(.more):
+            // The Needs you section's last row (`SidebarLayout+NeedsYouSection`): "3 more", then "Show less".
+            name.setString(row.isCollapsed ? Strings.needsYouMore(row.childCount) : Strings.showLess)
         case let .doneFold(fold) where fold.kind == .archive:
             name.setString(Strings.archiveSection(row.childCount))
         case let .doneFold(fold) where fold.kind == .archived:

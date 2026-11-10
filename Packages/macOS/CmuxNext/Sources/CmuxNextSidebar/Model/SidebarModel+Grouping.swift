@@ -44,6 +44,11 @@ extension SidebarModel {
             // Projects past the first five fold behind Show more: needing you keeps a row out of it, as the row limit does.
             if (old.agentChip == .needsYou) != (new.agentChip == .needsYou) { return true }
         }
+        // Needs you lists a row by its state, and Float to Top moves it within its project (Leo 2026-11-10): a row turning
+        // yellow or blue, or no longer, changes the rows drawn; with Include Working a row starting or stopping work does.
+        if projectCaps.needsYouSection || projectCaps.floats, Self.needsYouState(old, projectCaps) != Self.needsYouState(new, projectCaps) {
+            return true
+        }
         return Self.movesRows(from: old, to: new, groupsByFolder: groupsByFolder)
     }
 }

@@ -492,6 +492,12 @@ extension SidebarListViewComponents {
             // A group drawn as its one row draws its header's keyboard focus ring (`SidebarGroupKeys`).
             view.isKeyboardFocused = showsFocusRing && row.standsForGroup && row.group == focusedGroup
             view.standingGroup = row.standsForGroup ? row.group.map(standingGroupAccess) : nil
+        case let (.needsYou(.row(id)), view as WorkspaceRowView):
+            // A Needs you row draws its workspace's row as it is below; its fill and drop target stay on that row.
+            guard let ws = workspaces[id] else { return }
+            view.configure(ws, row: row, badgeStyle: model.rowBadgeStyle)
+        case let (.needsYou(.header), view as NeedsYouHeaderRowView):
+            view.configure(row)
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
             view.configure(item, favicon: item.iconAddress.flatMap { model.itemFavicon?($0) }, row: row)
@@ -536,7 +542,8 @@ extension SidebarListViewComponents {
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)
         case let (.listHeader(header), view as ListHeaderRowView): view.configure(header, count: row.childCount)
-        case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView):
+        case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView),
+             (.needsYou(.more), let view as SidebarDoneFoldRowView):
             view.isKeyboardFocused = showsFocusRing && focusedFold == row.key
             view.configure(row)
         default:

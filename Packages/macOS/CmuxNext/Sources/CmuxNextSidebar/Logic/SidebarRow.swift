@@ -27,6 +27,9 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case showMore(SidebarDoneFoldID)
     /// Projects and Recents' "Projects" or "Recents" header (`SidebarLayout+Recents`).
     case listHeader(SidebarListHeader)
+    /// A row of the Needs you section at the top (`SidebarLayout+NeedsYouSection`): its own keys, so a row it mirrors
+    /// keeps its `.workspace` key, its view and its selection in place below.
+    case needsYou(SidebarNeedsYouRowKey)
 }
 
 /// One laid-out row in document (flipped) coordinates.
