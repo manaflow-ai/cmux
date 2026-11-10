@@ -32,6 +32,7 @@ import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
+import { customizeMessage } from "./customizeCommand";
 import { useNewTabCommand, type NewTabCommandActions } from "./newtab/useNewTabCommand";
 import {
   TAB_KINDS,
@@ -479,7 +480,9 @@ export function NewTabPage({
     const row = rows[selected];
     if (row) return activate(row);
     if (kind === "browser" && !query.trim()) return;
-    make(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
+    // `/customize …` goes as the ask it stands for (customizeCommand.ts).
+    const asked = kind === "agent" ? (customizeMessage(query.trim()) ?? query.trim()) : query.trim();
+    make(kind, asked, kind === "browser" ? undefined : projectCwd);
   };
   const keyDown = (event: KeyboardEvent) => {
     if (composing.current || event.isComposing || event.keyCode === 229) return;

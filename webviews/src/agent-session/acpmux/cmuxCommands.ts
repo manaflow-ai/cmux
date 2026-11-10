@@ -21,7 +21,8 @@ export type CmuxCommand = SlashCommand & {
     | "status"
     | "cd"
     | "resume"
-    | "login";
+    | "login"
+    | "customize";
   descriptionKey?: SlashCommand["descriptionKey"];
 };
 
@@ -145,6 +146,16 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     descriptionKey: "composer.slashLogin",
     source: "cmux",
     action: "login",
+  },
+  // Customize cmux by asking (customizeCommand.ts): the chat's agent changes the real settings,
+  // themes and views while the person watches, then they apply, refine or discard.
+  {
+    name: "customize",
+    description: "",
+    descriptionKey: "composer.slashCustomize",
+    hint: "<what you want>",
+    source: "cmux",
+    action: "customize",
   },
 ];
 
@@ -313,6 +324,9 @@ export function cmuxCommandRefusal(
     case "resume":
     case "login":
       return undefined;
+    case "customize":
+      // The agent edits this machine's cmux: a chat on a Cloud machine would change that machine's.
+      return state.inCloud ? "composer.cmuxUnavailable" : undefined;
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
     case "cd":
