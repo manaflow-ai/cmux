@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42779917769",
+  "recorded_at": "2026-11-10T08:15:44Z",
+  "reason": "cmux-tui 2b8515b7dca8 changes the image's cmux-tui (pinned 27ea9f2103a6)",
+  "dry_run": false,
+  "cmux_tui": "2b8515b7dca8e0eaa6d1577246b1920d038c1163",
+  "fixes": [
+    {
+      "sha": "2b8515b7dca8e0eaa6d1577246b1920d038c1163",
+      "mergedAt": "2026-11-09T23:49:55-08:00",
+      "subject": "Cloud: Move to Another Machine moves a chat from one Cloud machine to another (#40090)"
+    },
+    {
+      "sha": "b7d534e7f6fd6dd8694ba7bc50dd6b3a9e7db571",
+      "mergedAt": "2026-11-09T23:41:49-08:00",
+      "subject": "cmux NEXT Home: the Messages view is the React home-messages page (#37736)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-10T08:15:44Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
