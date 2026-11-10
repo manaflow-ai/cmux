@@ -15,15 +15,7 @@ function Reply({ text }: { text: string }) {
   return <p style={{ margin: 0, color: "var(--agent-text)", lineHeight: "20px" }}>{text}</p>;
 }
 
-function SinceViews({
-  view,
-  recap = true,
-  jump = false,
-}: {
-  view: SinceViewPick;
-  recap?: boolean;
-  jump?: boolean;
-}) {
+function SinceViews({ view, recap = true, jump = false }: { view: SinceViewPick; recap?: boolean; jump?: boolean }) {
   return (
     <div className="acpmux-shell" style={{ position: "relative", padding: 16, display: "grid", gap: 16 }}>
       {jump && (

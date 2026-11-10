@@ -9412,7 +9412,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // "New since you looked" hidden from its right-click (conversation/sinceView.ts) comes back here,
   // in every chat, as the composer's hidden controls come back from its button row.
   const showSince: Exclude<ChatMenuItem, "separator">[] = sinceRowHidden
-    ? [{ key: "showSince", label: t("chatMenu.showSince"), icon: "unread.dot", onSelect: () => setSinceView("expanded") }]
+    ? [
+        {
+          key: "showSince",
+          label: t("chatMenu.showSince"),
+          icon: "unread.dot",
+          onSelect: () => setSinceView("expanded"),
+        },
+      ]
     : [];
   // The session's own avatar (its cards and sender chip draw it): Set Chat Avatar… draws it, and the
   // menu offers Remove Chat Avatar with one.
@@ -10716,7 +10723,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                       : undefined
                                                                   }
                                                                   sinceKey={childRows ? undefined : sinceKey}
-                                                                  sinceTurns={childRows ? undefined : snapshot.sinceTurns}
+                                                                  sinceTurns={
+                                                                    childRows ? undefined : snapshot.sinceTurns
+                                                                  }
                                                                   onJumpToSince={jumpToSince}
                                                                   coldOpen={
                                                                     !childRows && opened.cold ? opened.open : undefined
