@@ -1535,6 +1535,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_delivery_concurrency.py
 
+      - name: Validate a kept nightly clone's sparse mode never hides files from the next job
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_kept_clone_sparse.py
+
       - name: Validate an older nightly-next build yields its sign slot and the newest never does
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_sign_yield.py
