@@ -6,7 +6,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { ComposerPickers } from "./ComposerPickers";
 import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
 import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
-import { rememberFullAccess } from "./startMode";
+import { rememberFullAccess, rememberStartMode } from "./startMode";
 
 /// The chat's accounts: its CLI login alone, as Leo's chat had (the Account row names it).
 const galleryAccounts: ChatAccounts = {
@@ -22,6 +22,9 @@ type Props = {
   accounts?: boolean;
   managed?: boolean;
   unlisted?: boolean;
+  /// A new chat before its first send, whose acpmux on this Mac answers `start` for its start mode;
+  /// `cloud`: Cloud is picked as where it runs, so its first send starts it on a Cloud machine.
+  newChat?: { start: { modeId: string; name: string }; cloud?: boolean };
 };
 
 const directAccounts: ChatAccounts = {
@@ -193,7 +196,51 @@ const codexSnapshot: AcpmuxSnapshot = {
   },
 };
 
-function GalleryComposerPickers({ claude, accounts, managed, unlisted }: Props) {
+function GalleryComposerPickers(props: Props) {
+  return props.newChat ? <GalleryNewChatPickers {...props.newChat} /> : <GalleryStartedPickers {...props} />;
+}
+
+const NEW_CHAT_FOLDER = "/Users/gallery/cloud-proof";
+
+/// A new chat's rail before its first send: the access chip names the mode this Mac's acpmux would
+/// start it in, or, with Cloud picked, no mode (the Cloud machine decides it; cloud-ergo-start-chat).
+function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) {
+  const [answered, setAnswered] = useState(false);
+  useEffect(() => {
+    rememberStartMode("claude-sr2", NEW_CHAT_FOLDER, start);
+    setAnswered(true);
+  }, [start]);
+  const snapshot: AcpmuxSnapshot = {
+    ...claudeSnapshot,
+    origin: "local",
+    summary: { sessionId: "", harness: "claude-sr2", turnCount: 0, cwd: NEW_CHAT_FOLDER },
+    ...(cloud ? { startsOnCloud: true as const } : {}),
+  };
+  return (
+    <ChatAccountsContext.Provider value={galleryAccounts}>
+      <div className="acpmux-composer-gallery-shell">
+        <div className="acpmux-composer-gallery-copy">
+          <strong>{cloud ? "New chat, Cloud picked" : "New chat on this Mac"}</strong>
+          <span>
+            {cloud ? "The Cloud machine decides the start mode." : "acpmux on this Mac names the start mode."}
+          </span>
+        </div>
+        {answered && (
+          <ComposerPickers
+            snapshot={snapshot}
+            harnessesListed
+            onModel={() => undefined}
+            onMode={() => undefined}
+            onEffort={() => undefined}
+            showPlan
+          />
+        )}
+      </div>
+    </ChatAccountsContext.Provider>
+  );
+}
+
+function GalleryStartedPickers({ claude, accounts, managed, unlisted }: Props) {
   // As an acpmux answer would set it; cleared again when the variant goes.
   useEffect(() => {
     rememberFullAccess(managed ? "managed" : undefined);
@@ -494,6 +541,22 @@ export default componentEntry<Props>({
     ]),
   variants: {
     closed: { props: {} },
+    "new-chat-here": {
+      note: "A new chat on this Mac: the access chip names the mode this Mac's acpmux starts it in, Bypass permissions.",
+      props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" } } },
+    },
+    "new-chat-cloud": {
+      note: "The same new chat with Cloud picked: the Cloud machine starts it in an asking mode, so the chip promises no Bypass permissions and names no mode until the chat reports one.",
+      props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" }, cloud: true } },
+    },
+    "new-chat-here-manual": {
+      note: "A new chat on this Mac whose acpmux starts chats asking (agents.defaultPermissionMode ask): the chip names Manual.",
+      props: { newChat: { start: { modeId: "default", name: "Manual" } } },
+    },
+    "new-chat-cloud-manual": {
+      note: "Cloud picked with that setting: still no mode named, the Cloud machine decides.",
+      props: { newChat: { start: { modeId: "default", name: "Manual" }, cloud: true } },
+    },
     "pill-rail": {
       note: "The 400 px Codex rail keeps model, effort and access quiet; its reported collaboration mode has no footer control.",
       props: {},

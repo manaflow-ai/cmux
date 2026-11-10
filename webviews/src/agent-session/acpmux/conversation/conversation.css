@@ -1437,17 +1437,40 @@
 /* The edge with more table past it fades out (sideways.ts marks it): the right edge, and the left
    once scrolled (user 2026-11-07: "markdown missing fade now"). A mask, so the fade takes the
    bubble's or the transcript's own background in light and dark; eased stops, so it never bands. */
-.cv-table-wrap {
-  --cv-table-fade-left: 0px;
-  --cv-table-fade-right: 0px;
-}
 .cv-table-wrap[data-more-left] {
   --cv-table-fade-left: var(--cv-table-fade, 24px);
 }
 .cv-table-wrap[data-more-right] {
   --cv-table-fade-right: var(--cv-table-fade, 24px);
 }
-.cv-table-wrap:is([data-more-left], [data-more-right]) {
+/* The fades come and go, never in one frame (user 2026-11-08: "this table thing needs better
+   animation on appear/disappear"): each width is a registered length, so it transitions, on the
+   pane's arrive token with its ease-out. The mask stays on while the table is wider than its box
+   (`data-cmux-sideways`, sideways.ts), so a fade going out runs to 0 instead of being cut.
+   Reduce Motion and motion off (a 0 token) show and hide them at once. */
+@property --cv-table-fade-left {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --cv-table-fade-right {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-table-wrap {
+    transition:
+      --cv-table-fade-left calc(var(--agent-motion-in, 120ms) * 4 / 3) var(--agent-ease-out, ease-out),
+      --cv-table-fade-right calc(var(--agent-motion-in, 120ms) * 4 / 3) var(--agent-ease-out, ease-out);
+  }
+  /* A row that streams into a table already in the reply fades in where it lands (opacity only,
+     so nothing below moves more than the row's own height). */
+  .cv-table-block.cv-enter tbody tr {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+.cv-table-wrap[data-cmux-sideways] {
   --cv-table-mask: linear-gradient(
     to right,
     rgb(0 0 0 / 0) 0,
@@ -5444,7 +5467,7 @@ a.cv-sha:focus-visible {
   font: inherit;
   font-size: calc(var(--cv-font-size) * 12 / 14);
 }
-.cv-turn-signin__input:focus {
+.cv-turn-signin__input:focus-visible {
   outline: none;
   border-color: color-mix(in srgb, var(--agent-accent) 55%, var(--agent-border));
 }
@@ -5567,8 +5590,13 @@ a.cv-sha:focus-visible {
   /* A sent picture or video appears in its slot, at its size, with the prompt: it only fades, on the
      same clock, never rising or flying from the composer (Leo 2026-11-08, ask-104c134b68: "some
      sort of, like, fly-in animation ... I feel like that's kind of weird"). One whose bytes come
-     later still fades in where it is, and so does one in a new chat's first prompt. */
+     later still fades in where it is, and so does one in a new chat's first prompt. Only the row
+     being sent takes the send's clock; a picture drawn again in an older prompt fades on the
+     ordinary one. */
   .cv-user .cv-enter {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+  .acpmux-user.acpmux-row--message-enter .cv-user .cv-enter {
     animation: cv-enter-fade var(--agent-motion-send-fade, var(--agent-motion-send, 180ms)) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
       both;
   }
@@ -5589,6 +5617,16 @@ a.cv-sha:focus-visible {
   }
   [data-send-entrance="slide"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
     animation-name: cv-send-slide;
+  }
+  /* Sent from the latest row, the composer's prompt moves into this row as its entrance
+     (conversation/sendMorph.ts; Leo 2026-11-08, ask-157340f908: "the transformation applies
+     whatever's in your composer into your depicted message"): the row draws whole when it lands,
+     with no fade or opening of its own after it. */
+  .acpmux-user.acpmux-row--message-enter[data-send-morphed] .acpmux-row__message-presentation,
+  .acpmux-user.acpmux-row--message-enter[data-send-morphed] .cv-user__bubble,
+  .acpmux-user.acpmux-row--message-enter[data-send-morphed] .cv-user__bubble > *,
+  .acpmux-user.acpmux-row--message-enter[data-send-morphed] .cv-user .cv-enter {
+    animation: none;
   }
   [data-send-entrance="fade"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble,
   :is([data-send-entrance="grow"], [data-send-entrance="slide"], [data-send-entrance="fade"])
@@ -6306,6 +6344,26 @@ a.cv-sha:focus-visible {
    through the composer's tinted card or the gutters around it. The scrollbar is not: a second
    layer keeps the scroller's right edge, where rows never reach (they sit --cv-inset in), so its
    track runs to the pane's bottom corner (Leo 2026-10-19). */
+/* Each edge deepens as the view leaves that end of the chat (VirtualTranscript sets the reach, 0 to 1,
+   threadMinimap/model.ts transcriptFadeReach): no fade at the very top or bottom, a full one a few
+   lines from it, like rows rolling over a wheel (Leo, 2026-11-07: "if you scroll to the very top,
+   there should be no fade. But then as you scroll down, like gradually, there's more and more of a
+   fade"). The reach and the mask that reads it do not inherit, so a scroll's new reach restyles the
+   scroller and none of its rows. */
+@property --acpmux-fade-top-reach {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+@property --acpmux-fade-bottom-reach {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+@property --acpmux-view-mask {
+  syntax: "*";
+  inherits: false;
+}
 .acpmux-scroll[data-fade-top] {
   --acpmux-fade-top: 18px;
 }
@@ -6344,8 +6402,8 @@ a.cv-sha:focus-visible {
   --acpmux-view-mask: linear-gradient(
     to bottom,
     transparent var(--acpmux-view-top, 0px),
-    #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px)),
-    #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
+    #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach)),
+    #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px) * var(--acpmux-fade-bottom-reach)),
     transparent var(--acpmux-view-foot)
   );
   -webkit-mask-image:
@@ -7293,6 +7351,20 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
 }
 .cv-repo-recovery button:hover { background: color-mix(in srgb, var(--agent-text) 15%, transparent); }
+/* The wait's ETA, beside its reason: tabular so the countdown does not jiggle. */
+.cv-repo-recovery__eta { font-variant-numeric: tabular-nums; }
+/* The verified end of a recovery ("GitHub connected · owner/repo attached"): a small chip in the
+   success ink with its check, which closes the request the card opened. */
+.cv-repo-recovery__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border-radius: var(--ds-radius-md);
+  padding: 0 var(--ds-space-2);
+  line-height: 1.6;
+  color: var(--agent-status-success);
+  background: color-mix(in srgb, var(--agent-status-success) 12%, transparent);
+}
 /* Stacked (messageLineLook.ts): the received line holds the sender alone, so its name may take the
    line's width instead of sharing it with the first line, which is under it. */
 .cv-received > .cv-disclosure__line:not(:has(.cv-received__preview)) > .cv-received__sender {
@@ -7363,24 +7435,6 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   background: var(--agent-accent);
   align-self: center;
 }
-/* The agent's reply to that result, under the opened call's output (ReactionReply). */
-.cv-reaction-reply {
-  margin: 4px 0 6px;
-  padding-left: var(--cv-tool-text-inset);
-  color: var(--cv-text-dim);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-/* Under a finished subagent's line (SubagentDoneLine.tsx) the reply is the line's own continuation
-   on the stack's grid: no margin of its own (the row's frame gives the run gap after it), the notes'
-   20px lines at the rows' text column, so model.ts `reactionReplyHeight` is its drawn height and the
-   next row keeps the one row pitch (design/chat-transcript.md "One-line row pitch"). cmux#33283 gave
-   it a 4px and 6px margin the estimate never counted. */
-.cv-tools > .cv-reaction-reply {
-  margin: 0;
-  line-height: 20px;
-}
-
 /* A failed call draws no failure mark (Lucas, 2026-11-06): no "Failed" / "Exit 1" word, no
    "(N failed)" count, no cause line and no tint. The words stay for screen readers (Find already
    skips them), and an opened Shell block still says the exit code. */

@@ -79,7 +79,9 @@ jobs:
   signin:
     if: github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey != ''
     # Holds the stack pair: an ephemeral Blacksmith Linux runner, never an owned pool (cloud-newlink-e2e.yml).
-    environment: cmux-next-vm-image-dev
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     steps:
@@ -130,7 +132,9 @@ jobs:
     # The environment machine-join-e2e.yml and machine-vault-e2e.yml use: limited to feat-cmux-next
     # by GitHub's branch policy. The job holds the stack pair, so an ephemeral Blacksmith macOS VM
     # from the declared pool, never a variable that could name a persistent Mac.
-    environment: cmux-next-cloud-journey
+    environment:
+      name: cmux-next-cloud-journey
+      deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     env:
@@ -178,6 +182,19 @@ jobs:
         with:
           bun-version: "1.4.4"
 
+      # Before the acpmux build: its libghostty-vt (ghostty-vt-sys) runs `zig build`
+      # in ghostty-next. As nightly.yml's "Install compilation dependencies": the
+      # classic ghostty Zig (CMUX_ZIG, PATH) and ghostty-next's own as CMUX_VT_ZIG.
+      # After the build, run 42730570609 stopped at "failed to run 'zig build' ...
+      # No such file or directory".
+      - name: Install build prerequisites
+        if: inputs.build != 'published'
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
+          GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+
       # As in reload-build.yml: without these, reload.sh waits for a cmux-tui
       # artifacts run of the exact tree, which stopped run 41806140144. The
       # app bundle starts the in-tree acpmux, and the client comes from the
@@ -188,6 +205,10 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/install-rust-ci.sh
+          # ghostty-vt-sys reads ZIG first (as refresh-build-in-tree-acpmux.sh does).
+          if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then
+            export ZIG="$CMUX_VT_ZIG"
+          fi
           acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
@@ -226,13 +247,6 @@ jobs:
               raise SystemExit("published cmux-tui client has the wrong Ghostty identity")
           PYVERIFY
           echo "CMUX_TUI_CLIENT_LOCAL=$client" >> "$GITHUB_ENV"
-
-      - name: Install build prerequisites
-        if: inputs.build != 'published'
-        run: |
-          set -euo pipefail
-          ./scripts/install-zig-ci.sh
-          ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
       - name: Materialize staging and production agent profiles
         env:

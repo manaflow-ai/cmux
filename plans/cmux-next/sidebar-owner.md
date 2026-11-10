@@ -1,5 +1,35 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: the Update Ready card's Automatic Updates control is body-size text with a switch to match. Leo,
+  verbatim: "at least let's just make the automatic updates thing, like, bigger ... Why is the font so small in
+  general, you know?" `SidebarUpdateToggle` drew a caption (10.5/11 pt) beside a switch an icon less a step tall; the
+  default `sidebar.updateCard.automaticSize` (Regular) sets the label in `Typography.body` and the switch at
+  `Metrics.smallIconSize`, and the card's height follows. Compact (before) and Large stay in Debug Settings.
+  Regression: `UpdateReadyCardStyleTests.automaticUpdatesLabelIsBodySizeAndItsSwitchGrowsWithIt`.
+- 2026-11-09: Next and Previous Sidebar Item from a selected row step from where it draws. Leo (2026-11-07): "when I
+  command 1 2 3 4 5 6 7, right, when I do that around an area that has a group at the, like, immediate top or bottom,
+  it messes things up." #39747's review follow-ups: a selected row of an opened "Done (N)" fold stepped from the
+  fold's end, a folded row's place skipped link rows, and a selected archived row jumped to the list's ends. Places
+  now come from the list laid out with its folds, row limit and Archive section off (the order rows draw in when
+  selected); a row that layout does not draw either falls back to its model-order place. Numbers do not change.
+  Regression: `SidebarStepThroughGroupsTests`.
+
+- 2026-11-07: Cmd-1…9 count the rows the sidebar draws. Leo: "when I command 1 2 3 4 5 6 7, right, when I do that
+  around an area that has a group at the, like, immediate top or bottom, it messes things up. It messes things up a
+  ton." `itemOrder` laid rows out without the Done fold and the row limit, so a member folded into "Done (N)" (or
+  behind "Show N more") was a number stop: digits after it landed one row early and selecting it unfolded and refolded
+  rows. The order now starts from the list's own `rowOptions()` (opened folds live on the model), and a selected
+  folded member steps from where it draws. A reveal no longer takes a collapsed group above the selection as its
+  header, nor scrolls to the end past collapsed groups below; a known workspace listed again (a collapsed group's
+  member) animates into its gap instead of the new-row snap. Regression: `SidebarStepThroughGroupsTests`,
+  `ShortcutHintSidebarSlotsTests`, `SidebarRevealSelectionTests`.
+- 2026-11-09: a row patch with the list attached copies no node list. Leo, verbatim: "never ... acceptable ...
+  linear time growth degradation". `patchRowsNow` cached the model's section and group again on each patch, so the
+  list's cache shared the model's storage and the model's next in-place write copied the section's whole node list.
+  The list now writes the patched row into its own cached section and group in place (`SidebarSection.setRow`).
+  Regression: `SidebarListPatchCopyTests` (a real `SidebarListView` attached, elements copied per patch).
+  dcb21bf3e42 (review F1 of #39638: write into the cached section only when the same node sits at that place) has no
+  visual change; it reached the branch without its `Sidebar-Look:` trailer.
 - 2026-11-09: a multi-selection drags as one stack of its rows, as a browser's vertical tabs do. Leo,
   verbatim (2026-11-08, ask-2ba1bed2e4, screen recordings of ours beside a browser's): "ours vs edge's group moving i
   think we need to make ours more like edge and chrome". The card carried only the pressed row and a count badge
@@ -769,8 +799,9 @@ trailing cluster, left of the badge column, with `sidebar.presenceDots` off: a c
 agent's presence color with the drive's glyph (`display` or `globe`) and the agent's short name
 (`Claude 2`). The glyph breathes on agent work's `MotionLoop.breath`; Reduce Motion shows it still and
 fades nothing in. It never gives way to the hover controls (it sits left of them, as the usage warning
-does). A click opens Go to (the agent's tab, `.selectTab`) and Stop (`.stopAgentDrive`: its Computer Use
-session, or its chat's turn; a terminal agent's browser use has no Stop). Debug Settings
+does). A click opens Go to (the agent's tab, Show Tab `tab.focus`) and Stop (Stop Computer Use `computerUseStop` on
+its terminals, or Stop Agent Turn `agentPane.stopTurn` on its chat; a terminal agent's browser use has no Stop),
+each row a registered action (`SidebarDriveMenuItems`). Debug Settings
 `sidebar.driveIndicator` switches to the glyph alone, a solid badge, or the old dot. The tab chip and pane
 tag lead with the same glyph. Quieter presence (editing, reading) stays behind `sidebar.presenceDots`.
 Tests: `AgentDriveIndicatorTests`. Coordinated with a590 (sidebar owner) by note; a590 was not running.
@@ -1829,6 +1860,15 @@ An empty group now keeps only its header at rest. The header's existing + appear
   CmuxNextAgentLanes); a question, several prompts or another machine's chat keeps the old row. Tests:
   `SidebarApprovalAnswerTests`.
 
+## The sidebar says when this Mac's sessions are restoring (2026-11-08, #39186)
+
+- Leo 2026-11-08 (softened): "me trying to click into any other chat in the sidebar doesn't work"; a 30-minute
+  restore after an app restart said only that the background service isn't connected.
+- While `server ensure` reports restore progress, the sidebar's notice card shows "Restoring sessions… 4m 12s"
+  (`SidebarNoticeCard.restoring`): the update status's look (text at the card's padding, the bar's sweep), no
+  leading spinner, no button and no x. The App shows it until the sessions connect. No row, group or rail changes.
+  Tests: `DaemonRestoreProgressTests`.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
@@ -1861,3 +1901,14 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   side inset in from the top and the bottom (updateSurfaces.css), so the text has the same room on all four sides.
   Regression: updated-card-even-insets (browser lane). Sidebar-Look: Lawrence 2026-11-07 11:28pm, "feels like too
   much padding on top".
+- 2026-11-09 (lane tab-group-vibrant-glass, for a590): `GroupGlassPaint` and `SidebarGroupGlass` move unchanged
+  from CmuxNextSidebar to CmuxNextDesign (`GroupGlass/`), so the tab strip's group chips, the saved groups bar and
+  the vertical tab list's group headers draw the same glass with a rim (`GroupChipGlass`) and follow
+  `sidebar.groupGlass` and `sidebar.groupHeader.background`. Ask: "Restyle tab group colors as vibrant glass with
+  rim". Sidebar-Look: no visual change (the headers' paint is the same code; `GroupGlassPaint` only gains an optional
+  ground, nil being the sidebar's background).
+- 2026-11-09 (a1027, for a590): the Updated card's changes popover gets four Debug looks beside the shipped
+  `sections` (Debug Settings `sidebar.updatedCard.notesLook`, `UpdatedNotesLook`, theme slot `updated-notes-look`):
+  `digest` (one line per area, opens in place), `chips` (area filter chips), `headline` (top three at full size, then
+  See all changes) and `ledger` (one line per change, area label once). `sections` stays the default until Lawrence
+  picks. Tests: updated-notes-looks. Sidebar-Look: Lawrence 2026-11-09, "make and show me more versions of this ui".

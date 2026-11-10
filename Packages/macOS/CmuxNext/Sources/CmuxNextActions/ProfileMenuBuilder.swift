@@ -66,7 +66,7 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         defer { Self.keepOneTextColumn(menu) }
         let auth: ActionID = who == nil ? "palette.auth.signIn" : "palette.auth.signOut"
         if let item = registry.makeMenuItem(for: auth) {
-            item.image = registry.descriptor(for: auth).flatMap { ActionRegistry.menuIcon($0.symbol) }
+            item.image = registry.descriptor(for: auth).flatMap { registry.rowIcon($0.symbol) }
             menu.addItem(.separator())
             menu.addItem(item)
         }

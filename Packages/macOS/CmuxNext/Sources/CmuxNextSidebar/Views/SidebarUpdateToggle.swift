@@ -60,8 +60,22 @@ final class SidebarUpdateToggle: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    static var font: NSFont { Typography.caption }
-    static var boxSize: CGFloat { Metrics.smallIconSize - Metrics.space1 }
+    /// The size Debug Settings picks (`sidebar.updateCard.automaticSize`): Regular by default.
+    static var size: SidebarUpdateToggleSize { SidebarTunables.updateCardAutomaticSize.value }
+    static var font: NSFont {
+        switch size {
+        case .compact: Typography.caption
+        case .regular: Typography.body
+        case .large: Typography.bodyEmphasized
+        }
+    }
+    static var boxSize: CGFloat {
+        switch size {
+        case .compact: Metrics.smallIconSize - Metrics.space1
+        case .regular: Metrics.smallIconSize
+        case .large: Metrics.smallIconSize + Metrics.space1
+        }
+    }
     /// The switch's track: as tall as the checkbox's box, a little under twice as wide.
     static var switchSize: CGSize { CGSize(width: ceil(boxSize * 1.75), height: boxSize) }
     static var height: CGFloat { max(boxSize, ceil(font.boundingRectForFont.height)) }

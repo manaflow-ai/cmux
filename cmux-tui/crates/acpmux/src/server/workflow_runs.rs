@@ -89,6 +89,11 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
             })?;
             hub.resolve(session_id)?
         };
+        // The Claude Code subagent whose MCP call starts it, by the call's tool use id
+        // (`subagent_call.rs`): only on the chat's own proven call, as a label within it.
+        let subagent = (conn.caller() == Some(session.id.as_str()))
+            .then(|| crate::subagent_call::of_call(&crate::config::home(), &session.id, params))
+            .flatten();
         let run = hub
             .workflow_start(
                 &session,
@@ -96,6 +101,7 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
                 text("source")?.to_owned(),
                 params.get("args").cloned().unwrap_or_else(|| json!([])),
                 local_principal,
+                subagent,
             )
             .await
             .map_err(internal)?;

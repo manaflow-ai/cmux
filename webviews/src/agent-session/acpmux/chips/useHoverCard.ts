@@ -4,6 +4,7 @@
 // it (LinkHoverCard.tsx): reply links, pull request chips and the pull request bars.
 import { useCallback, useEffect, useRef, useState, type FocusEvent, type PointerEvent } from "react";
 import { HOVER_INTENT, HoverBridge, type Point } from "../../../ui/hoverIntent";
+import { focusRingShown } from "../../../ui/focusModality";
 
 export type HoverCard = ReturnType<typeof useHoverCard>;
 
@@ -151,7 +152,7 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
         // Keyboard focus keeps the card. A pointer pick in Open in puts focus back on its trigger
         // with no ring (Menu's focusAfterClose); that alone doesn't pin the card once the pointer
         // has left it.
-        if (!(event.target as Element).matches(":focus-visible") && !event.currentTarget.matches(":hover")) return;
+        if (!focusRingShown(event.target as Element) && !event.currentTarget.matches(":hover")) return;
         watch();
         refresh();
         bridge.current?.enter("card", rect(cardElement()), undefined, true);

@@ -7,6 +7,7 @@ import type { Play } from "../../../gallery/play";
 import type { ChatMenuItem } from "./chatHeaderToolsModel";
 import type { HeaderControls, NewKind } from "./headerTrio";
 import { PanelToggle } from "./PanelToggle";
+import { FORK_ICON } from "../icons/forkIcon";
 
 type Props = {
   onTerminal: (mode: "toggle" | "open") => void;
@@ -26,7 +27,7 @@ const menu = (): ChatMenuItem[] => [
   { key: "pin", label: "Pin", icon: "action.pin", shortcutAction: "palette.toggleTabPin", onSelect: noop },
   "separator",
   { key: "sideChat", label: "New side chat", icon: "agent.chat.new", onSelect: noop },
-  { key: "fork", label: "Fork", icon: "agent.fork", onSelect: noop },
+  { key: "fork", label: "Fork", icon: FORK_ICON, onSelect: noop },
   "separator",
   { key: "share", label: "Share", icon: "app.open.external", onSelect: noop },
   { key: "copy", label: "Copy", icon: "action.copy", onSelect: noop },

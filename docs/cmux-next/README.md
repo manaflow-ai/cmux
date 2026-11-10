@@ -101,8 +101,15 @@ move only the tab. Classic agent chats resume by session id.
 
 ## Hot reload for the web UI
 
-Every cmux build picks up web UI edits from your own checkout live, with no build or relaunch:
+Every cmux build picks up web UI edits from your own checkout live, with no build or relaunch
+(cmux Live, once called Live Web Reload; its switch is Settings > General > cmux Live):
 `cmux live start` in a checkout, or Cmd-Shift-P > **Edit cmux Live…** (also at the end of Settings >
 General). `cmux live stop` goes back. A NIGHTLY can also follow each merge's
 web UI (Settings > Updates > Web UI Updates > Every Merge). Details and troubleshooting are in
 [hot-reload.md](hot-reload.md).
+
+## Why the app never waits on its main thread
+
+cmux NEXT borrows Chrome's threading model: the main thread handles input and paints, and disk,
+network, processes and long work run on named lanes that reply back to it. Debug and Nightly builds
+record any blocking call that slips onto the main thread. Why and how: [main-thread.md](main-thread.md).

@@ -373,6 +373,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         paintAsk = nil
         blankIsDocument = pendingURL.map { !PageBackground.isRealPage($0) } ?? false
         isCreationPending = false
+        // The page the person waits for: the next spare is made once it arrived (`CEFArrivingPages`).
+        if navigates, host.visibleTab === self, !isAgentDriven { runtime.arriving.began(id) }
         CEFAgentURLGuard.applyShimGuard(self)
         if let url = loadAfterAttach {
             loadAfterAttach = nil
@@ -434,6 +436,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func documentArrived() {
         guard !hasDocument else { return }
         hasDocument = true
+        runtime.arriving.ended(id)
         host.lifecycleTrace.record(id, "ready-for-keys")
         onReadyForKeys?()
     }
@@ -455,6 +458,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// the daemon and reopens at relaunch.
     func browserDidClose(closesTab: Bool = true) {
         browserID = nil
+        runtime.arriving.ended(id)
         paintAsk?.cancel()
         paintAsk = nil
         agentRelay.browserEnded()
@@ -696,6 +700,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        runtime.arriving.ended(id)
         agentRelay.resumeWaiters(false)
         agentFiles.withdraw()
         titleTimer.cancel()
