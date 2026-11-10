@@ -19,7 +19,8 @@ public App Store Connect API with the release environment's key:
 
 Every step reads first and changes only what is missing, so a second run
 changes nothing. What the API cannot do (App Groups, the APNs key, the App
-Store Connect record itself) is in cmux-next-ios/verify/app-store-release.md.
+Store Connect record itself, the key's own role) stays a person's job in the
+Developer portal or App Store Connect.
 
 Credentials: ASC_KEY_ID, ASC_ISSUER_ID and ASC_PRIVATE_KEY_PATH (or ASC_API_KEY_ID,
 ASC_API_ISSUER_ID and ASC_API_KEY_PATH). The token is minted with `openssl`
