@@ -361,6 +361,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     release(px) {
       if (frame !== undefined || recheck !== undefined) return false;
       x -= px;
+      // The `chunk` arm's curve goes on from what is left, not from what was handed over.
+      chunk = { from: x, at: 0, duration: CHUNK_S };
       if (Math.abs(x) < REST_PX) stop();
       else draw();
       return true;

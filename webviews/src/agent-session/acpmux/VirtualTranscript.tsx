@@ -4476,12 +4476,17 @@ function TranscriptView({
       // An offset the scroller cannot take (a thread drawn above its layout at the very end) stays
       // drawn, as before; it goes home when the view is followed again.
       if (top < 0 || top > node.scrollHeight - node.clientHeight) return;
+      // The physical offset moves by the whole pixels, so the origin under it (a fraction an anchor
+      // write left) stays as it is and the browser rounds nothing.
+      const physical = node.scrollTop;
       const was = layoutScrollTop(node);
-      writeAnchorScrollTop(node, top);
+      node.scrollTop = physical - held;
+      retainScrollOrigin(node, top);
       // A write the scroller did not take (a scroll of its own still easing in), or a chase that is
       // not held after all, keeps the chase drawn where it is and the offset where it was.
       if (Math.abs(layoutScrollTop(node) - top) > 1 || !chase.release(held)) {
-        writeAnchorScrollTop(node, was);
+        node.scrollTop = physical;
+        retainScrollOrigin(node, was);
         return;
       }
       scrolledTo.current = { top: node.scrollTop, atLatest: false };
