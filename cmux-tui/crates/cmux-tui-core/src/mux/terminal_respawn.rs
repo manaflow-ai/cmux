@@ -259,6 +259,18 @@ pub(super) enum RespawnDecision {
     Exhausted(TerminalPublicId),
 }
 
+/// What is left for a respawn worker when its try ends, to do with its turn
+/// in the respawn gate given back.
+#[cfg(any(unix, windows))]
+enum AfterTurn {
+    Nothing,
+    /// The terminal runs: type this on its new prompt. The wait for that
+    /// prompt must hold no turn.
+    Prefill(Arc<Surface>, prefill::Prefill),
+    /// The launch failed: start this next try (`retry.rs`).
+    Again(Box<RespawnPlan>),
+}
+
 /// One respawn, decided by [`Mux::plan_terminal_respawn_locked`].
 #[cfg(any(unix, windows))]
 pub(super) struct RespawnPlan {
@@ -389,18 +401,24 @@ impl Mux {
                 None => None,
             };
             let delay = plan.delay.max(mux.terminal_respawns.delay.unwrap_or_default());
-            let again = if mux.wait_respawn_backoff(delay) {
+            let after = if mux.wait_respawn_backoff(delay) {
                 mux.run_terminal_respawn(plan)
             } else {
                 mux.abandon_terminal_respawn(&plan.terminal_id);
-                None
+                AfterTurn::Nothing
             };
-            // The next try of a failed launch starts with this try's turn and
-            // Kitty expectation given back: it takes its own.
+            // The turn and the Kitty expectation are given back here, before
+            // what is left. The wait for the new shell's prompt (up to 10 s,
+            // `prefill.rs`) held the turn: the terminals of a restored
+            // session came back a few at a time, each wave a prompt wait
+            // after the one before. The next try of a failed launch takes
+            // its own turn and expectation.
             drop(turn);
             drop(kitty_expectation);
-            if let Some(again) = again {
-                Self::spawn_respawn_worker(Arc::clone(&mux), again);
+            match after {
+                AfterTurn::Nothing => {}
+                AfterTurn::Prefill(surface, prefill) => prefill.type_on_prompt(&surface),
+                AfterTurn::Again(again) => Self::spawn_respawn_worker(Arc::clone(&mux), *again),
             }
         });
         if let Err(error) = spawned {
@@ -543,13 +561,14 @@ impl Mux {
         })))
     }
 
-    /// The respawn worker: respawn, then pre-fill. A refused respawn shows
-    /// the terminal ended. A failed launch is tried again by the rule of
-    /// `retry.rs` (the tab stays restarting meanwhile); when that rule gives
-    /// no further try, the tab shows the terminal ended, with the cause.
-    /// Returns the plan of the next try, for the caller to start.
+    /// One respawn try, inside the worker's turn in the respawn gate. A
+    /// refused respawn shows the terminal ended. A failed launch is tried
+    /// again by the rule of `retry.rs` (the tab stays restarting meanwhile);
+    /// when that rule gives no further try, the tab shows the terminal ended,
+    /// with the cause. Returns what is left for the worker once its turn is
+    /// given back: the pre-fill of the new prompt, or the next try.
     #[cfg(any(unix, windows))]
-    fn run_terminal_respawn(self: &Arc<Self>, plan: RespawnPlan) -> Option<RespawnPlan> {
+    fn run_terminal_respawn(self: &Arc<Self>, plan: RespawnPlan) -> AfterTurn {
         let terminal_id = plan.terminal_id.clone();
         let public_id = plan.public_id.clone();
         let (old_incarnation, cause) = (plan.old_incarnation.clone(), plan.cause.clone());
@@ -586,15 +605,12 @@ impl Mux {
                         prefilled,
                     );
                 }
-                if let Some(prefill) = prefill {
-                    prefill.type_on_prompt(&surface);
-                }
-                None
+                prefill.map_or(AfterTurn::Nothing, |prefill| AfterTurn::Prefill(surface, prefill))
             }
             Ok(None) => {
                 self.record_terminal_end(&terminal_id);
                 self.emit(MuxEvent::TreeChanged);
-                None
+                AfterTurn::Nothing
             }
             Err(error) => {
                 eprintln!("cmux-tui: terminal {terminal_id} was not respawned: {error:#}");
@@ -632,12 +648,12 @@ impl Mux {
                         again.delay,
                         again.failed_launches + 1
                     );
-                    return Some(again);
+                    return AfterTurn::Again(Box::new(again));
                 }
                 clear_mark();
                 self.record_terminal_end(&terminal_id);
                 self.emit(MuxEvent::TreeChanged);
-                None
+                AfterTurn::Nothing
             }
         }
     }
