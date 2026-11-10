@@ -416,6 +416,31 @@
   --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
   --acpmux-text-drop: calc(var(--text-content) / 14);
   --acpmux-composer-inset: var(--nt-composer-inset);
+  --acpmux-chip-glyph: 16px;
+  --acpmux-chip-chevron: 12px;
+}
+/* The folder and computer chips over the box draw what the permission and model chips under it do
+   (composerLocation.css, the chip tokens): the label in the control style, a 16 px glyph and a 12 px
+   chevron. The ghost button keeps its 14 px slots, so the glyph overhangs its slot by a pixel a side
+   and the chevron centers in its own: no chip moves, and the folder stays on the + and shield's
+   column (newtab-icon-column.test.ts). test/newtab-chip-scale.test.ts measures it. */
+.nt-above .acpmux-composer-context .acpmux-location-label {
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+.nt-above .acpmux-location-button > .ui-ghost-icon:first-child {
+  width: var(--acpmux-chip-glyph);
+  height: var(--acpmux-chip-glyph);
+  margin-inline: calc((var(--ui-ghost-icon-size) - var(--acpmux-chip-glyph)) / 2);
+}
+.nt-above .acpmux-location-button > .acpmux-project-badge:first-child > svg {
+  width: var(--acpmux-chip-glyph);
+  height: var(--acpmux-chip-glyph);
+}
+.nt-above .acpmux-location-button > .ui-ghost-icon:last-child:not(:first-child) > svg {
+  width: var(--acpmux-chip-chevron);
+  height: var(--acpmux-chip-chevron);
 }
 /* The suggestions' popover frosts what is under it (the Chats header and cards read through its lower
    half at the plain popup tint, as the pills did through the + menu, Leo 2026-10-31: "they show
