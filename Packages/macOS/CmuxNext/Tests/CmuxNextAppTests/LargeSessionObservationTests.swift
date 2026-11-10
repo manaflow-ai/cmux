@@ -232,6 +232,68 @@ struct LargeSessionObservationTests {
         await LargeSessionFixture.until { !found.names.isEmpty }
         #expect(found.names == ["home workspace"], "the home wait did not hear workspace 7 indexed again under its id")
     }
+
+    /// O9, the session transfer wait (`SessionTransferService.hasConversationTab`): it waits for the chat tab of ONE
+    /// workspace, so a tab that comes in any other workspace must not wake it (the walk it replaced read only its own
+    /// workspace's tabs). The probe lists one new terminal in each workspace in turn, the way the app does (a snapshot
+    /// apply, which moves the session's tab list). The wait still hears its own workspace: first the workspace comes
+    /// under the key with a terminal only (no match), then its chat tab comes (match).
+    @Test(.timeLimit(.minutes(2)))
+    func o9TransferWaitIsNotWokenByATabOfAnotherWorkspace() async throws {
+        let fixture = LargeSessionFixture()
+        let store = fixture.store
+        let found = WaitHits()
+        let wait = Task {
+            for await listed in ObservationStream({ store.listsConversationTab(inWorkspace: "o9-key") }) where listed {
+                found.names.insert("transfer chat tab")
+                return
+            }
+        }
+        defer { wait.cancel() }
+        await LargeSessionFixture.drainMain()
+        #expect(found.names.isEmpty, "fixture: the transfer wait matched before its workspace came")
+
+        // The probe: workspace 1, then 2, ... gets one more terminal; each snapshot lists the tabs opened so far.
+        var tree = LargeSessionFixture.tree()
+        var listings: [DaemonTree] = []
+        for workspace in 1...LargeSessionFixture.workspaces {
+            let opened = TabSnapshot(surface: SurfaceID(rawValue: 20_000 + UInt64(workspace)),
+                                     tabResourceID: ResourceID(rawValue: "tab_\(workspace)_opened"), kind: .pty,
+                                     title: "opened \(workspace)", cwd: "/tmp/large/\(workspace)")
+            tree.workspaces[workspace - 1].screens[0].panes[0].tabs.append(opened)
+            listings.append(tree)
+        }
+        let snapshots = listings
+        let changes = snapshots.enumerated().map { offset, snapshot -> (workspace: Int, change: @MainActor () -> Void) in
+            (offset + 1, { store.apply(snapshot: snapshot) })
+        }
+        let woken = await LargeSessionFixture.workspacesWaking("CmuxNextAppTests/LargeSessionObservationTests", changes: changes)
+        let tabsListed = LargeSessionFixture.workspaces * (LargeSessionFixture.tabsPerWorkspace + 1)
+        try #require(fixture.tabs().count == tabsListed, "fixture: the snapshots did not list the opened tabs")
+        let wide = woken.values.filter { $0.workspaces.count > 1 }.map { "\($0.site) woken from \($0.workspaces.count) workspaces" }
+        #expect(wide.isEmpty, "the transfer wait was woken by tabs of other workspaces: \(wide)")
+
+        // Its workspace comes under the key with a terminal only: the wait stays open.
+        let shell = TabSnapshot(surface: SurfaceID(rawValue: 9_998), tabResourceID: ResourceID(rawValue: "tab_o9_shell"), kind: .pty,
+                                title: "o9 shell", cwd: "/tmp/large/o9")
+        let pane = PaneSnapshot(id: PaneID(rawValue: 9_001), resourceID: ResourceID(rawValue: "pane_o9"), tabs: [shell])
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 9_001), layout: .leaf(pane.id), panes: [pane])
+        tree.workspaces.append(WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 9_001), key: WorkspaceKey(rawValue: "o9-key"),
+                                                 resourceID: ResourceID(rawValue: "ws_o9"), name: "o9", screens: [screen]))
+        store.apply(snapshot: tree)
+        await LargeSessionFixture.drainMain()
+        try #require(store.workspace(key: WorkspaceKey(rawValue: "o9-key")) != nil, "fixture: the snapshot did not list the workspace under its key")
+        #expect(found.names.isEmpty, "the transfer wait matched a workspace that has no chat tab")
+
+        // Its chat tab comes: the wait ends.
+        var chat = TabSnapshot(surface: SurfaceID(rawValue: 9_999), tabResourceID: ResourceID(rawValue: "tab_o9"), kind: .conversation,
+                               title: "o9", browserRenderer: "frontend")
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: LargeSessionFixture.host, session: "s-o9", harness: nil))
+        tree.workspaces[tree.workspaces.count - 1].screens[0].panes[0].tabs.append(chat)
+        store.apply(snapshot: tree)
+        await LargeSessionFixture.until { !found.names.isEmpty }
+        #expect(found.names == ["transfer chat tab"], "the transfer wait did not hear the chat tab come in its own workspace")
+    }
 }
 
 /// The waits of ``LargeSessionObservationTests/o9WaitsReadTheOneIDTheyWaitFor()`` that matched.
