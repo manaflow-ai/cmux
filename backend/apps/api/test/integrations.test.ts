@@ -5,6 +5,9 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { aadFor, open, seal } from "../src/integrations/crypto.ts"
 import { github, installationToken, linear, slack, type Http } from "../src/integrations/providers.ts"
+import { GITHUB_CONFIGURE_URL } from "../src/integrations/github-connect.ts"
+import { CONNECT_RETURN_TO } from "@cmux/protocol"
+import { CONFIGURE_URL_PATTERN, RETURN_TO_PATTERN } from "../../dashboard/src/lib/integration-callback.ts"
 
 const testEnv = env as unknown as Record<string, any>
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -458,6 +461,11 @@ describe("connections end to end (workerd)", () => {
     // Connect never asks GitHub about a repository (no answer can tell whether a private one exists), and owner lookups use the App's key.
     expect(fake.calls.some((c) => c.url.startsWith("https://api.github.com/repos/"))).toBe(false)
     expect(fake.calls.filter((c) => /\/(orgs|users)\/[^/]+\/installation$/.test(c.url)).every((c) => /^Bearer ey/.test(c.auth ?? ""))).toBe(true)
+  })
+
+  it("the dashboard callback checks the same return and configure grammars as the API", () => {
+    expect(RETURN_TO_PATTERN.source).toBe(CONNECT_RETURN_TO.source)
+    expect(CONFIGURE_URL_PATTERN.source).toBe(GITHUB_CONFIGURE_URL.source)
   })
 
   it("GitHub Connect refuses a return link that is not a cmux chat link, and repo on another provider", async () => {
