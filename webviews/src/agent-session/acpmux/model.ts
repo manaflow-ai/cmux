@@ -45,6 +45,7 @@ import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
 import type { InboxNotice } from "./conversation/inboxNotice";
 import { MEMORY_OFFER, memoryCardState, type MemoryOffer } from "./conversation/memoryInbox";
+import { SKILL_OFFER, type SkillOffer } from "./conversation/skillOffer";
 import { PRESET_APPROVAL, type PresetApproval } from "./conversation/presetApproval";
 import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
@@ -483,6 +484,8 @@ export type AcpmuxRow = {
   planBuild?: PlanBuild;
   /// A memory inbox row's offer (conversation/memoryInbox.ts): facts for the instructions file.
   memory?: MemoryOffer;
+  /// A skill offer row's draft (conversation/skillOffer.ts): a repeated task to save as a skill.
+  skill?: SkillOffer;
   /// A no-prompt preset's approval card (conversation/presetApproval.ts): the preset an agent of
   /// this chat tried to start a chat on another machine from, and the person's answer.
   presetApproval?: PresetApproval;
@@ -2378,6 +2381,25 @@ function fallbackRowHeight(
         (card.pending + (card.heading ? 1 : 0)) * 24 +
         (card.pending > 1 ? 32 : 0) +
         (card.error ? 22 : 0),
+    );
+  }
+  // A skill offer (conversation/SkillOfferCard.tsx), drawn compact: the question, the name and its
+  // description (20px lines, English lengths), the 20px Show steps line and the 32px foot, in its
+  // 16px padding, 1px edges, 4px gaps and 8px of row margins; an error adds its line. Settled, its
+  // one 24px note.
+  if (row.kind === SKILL_OFFER && row.skill) {
+    if (row.skill.outcome) return finish(8 + 24);
+    const perLine = Math.max(24, Math.floor(width / 8) - 6);
+    return finish(
+      8 +
+        2 +
+        16 +
+        20 * 2 +
+        Math.max(1, Math.ceil(row.skill.description.length / perLine)) * 20 +
+        20 +
+        32 +
+        4 * 4 +
+        (row.skill.error ? 24 : 0),
     );
   }
   // A preset approval card (conversation/PresetApprovalCard.tsx): open, its 8px padding around the

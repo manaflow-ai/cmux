@@ -2,6 +2,7 @@ import { type QueueEdit } from "../model";
 import type { IncomingMessage } from "../conversation/incomingMessage";
 import { markSentNow } from "../conversation/pendingSteerModel";
 import { callNative } from "../callNative";
+import type { SkillDraft } from "../conversation/skillOffer";
 
 /// Resumes the chat's paused messages with another agent (conversation/AgentPairNote.tsx).
 export const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { peer });
@@ -23,6 +24,12 @@ export const dismissRecap = (rowId: string, key: string) =>
 /// (`_acpmux/memory_resolve`, direct.ts resolveMemory); the row settles from its answer.
 export const resolveMemory = (offerId: string, accept: string[], dismiss: string[]) =>
   void window.cmuxAcpmuxActions?.["chat.memory.resolve"]?.({ offerId, accept, dismiss });
+
+/// Save or Not now on a skill offer: the daemon writes the skill or remembers the decline
+/// (`_acpmux/skill_resolve`, direct.ts resolveSkill); the row settles from its answer. Save sends the
+/// draft as drawn or as edited.
+export const resolveSkill = (offerId: string, action: "save" | "dismiss", draft?: SkillDraft) =>
+  void window.cmuxAcpmuxActions?.["chat.skill.resolve"]?.({ offerId, action, ...draft });
 
 /// Approve or Not now on a no-prompt preset's card: acpmux records the person's answer
 /// (`_acpmux/presets`, direct.ts answerPresetApproval); the row closes from its answer.

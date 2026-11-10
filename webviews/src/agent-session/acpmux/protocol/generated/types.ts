@@ -2021,6 +2021,16 @@ export interface SideParams {
   sessionId?: unknown;
 }
 
+export interface SkillResolveParams {
+  _meta?: RequestMeta;
+  action?: unknown;
+  body?: unknown;
+  description?: unknown;
+  name?: unknown;
+  offerId?: unknown;
+  sessionId?: unknown;
+}
+
 export interface StartModeParams {
   _meta?: RequestMeta;
   cwd?: unknown;

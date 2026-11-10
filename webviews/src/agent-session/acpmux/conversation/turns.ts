@@ -76,6 +76,7 @@ import { currentLanguage, translatorFor } from "../i18n";
 import { writeCall } from "./writeLabelModel";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { MEMORY_OFFER } from "./memoryInbox";
+import { SKILL_OFFER } from "./skillOffer";
 import { PRESET_APPROVAL } from "./presetApproval";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -1887,6 +1888,8 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === SINCE_DIVIDER ||
   // A memory offer waits for the person's Accept or Dismiss (MemoryOfferCard.tsx).
   row.kind === MEMORY_OFFER ||
+  // So does a skill offer, for Save, Edit or Not now (SkillOfferCard.tsx).
+  row.kind === SKILL_OFFER ||
   // A preset approval waits for the person's Approve or Not now (PresetApprovalCard.tsx).
   row.kind === PRESET_APPROVAL ||
   // A policy the harness cannot keep: the agent runs without the asks the person chose.

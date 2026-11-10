@@ -37,6 +37,8 @@ import { FailoverRow } from "./FailoverRow";
 import { ReadOnlyRecapRow, ReadOnlySinceRow, RecapRow, SinceRow } from "./RecapRow";
 import { MemoryOfferRow } from "./MemoryOfferRow";
 import { MEMORY_OFFER } from "../conversation/memoryInbox";
+import { ReadOnlySkillOfferRow, SkillOfferRow } from "./SkillOfferRow";
+import { SKILL_OFFER } from "../conversation/skillOffer";
 import { PresetApprovalRow } from "./PresetApprovalRow";
 import { PRESET_APPROVAL } from "../conversation/presetApproval";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
@@ -91,6 +93,7 @@ export const defaultRegistry: NativeRegistry = {
   recap: RecapRow,
   [SINCE_DIVIDER]: SinceRow,
   [MEMORY_OFFER]: MemoryOfferRow,
+  [SKILL_OFFER]: SkillOfferRow,
   [PRESET_APPROVAL]: PresetApprovalRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
@@ -132,6 +135,8 @@ export const readOnlyRegistry: NativeRegistry = {
   [SINCE_DIVIDER]: ReadOnlySinceRow,
   // An offer to write the owner's instructions file is the owner's own.
   [MEMORY_OFFER]: NoRow,
+  // A guest sees the owner's skill offer as drawn, with no Save, Edit or Not now.
+  [SKILL_OFFER]: ReadOnlySkillOfferRow,
   // So is approving one of the owner's presets.
   [PRESET_APPROVAL]: NoRow,
   sessionOffer: NoRow,

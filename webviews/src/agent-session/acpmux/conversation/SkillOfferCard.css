@@ -1,0 +1,228 @@
+/* The skill offer card (SkillOfferCard.tsx): the memory card's quiet hairline box (the next-step
+   card's question tokens), holding the question, the drafted skill's name in mono and when to use it,
+   its SKILL.md body behind a disclosure, and Not now, Edit and Save in a foot. Save is the one filled
+   button; nothing else carries an accent. Small-radius rects, never pills. Once settled the box fades
+   its frame and folds to one muted line. Every fold is a grid row from 0fr to 1fr, so what is below
+   moves with it; reduced motion (or the motion gate) settles it in one frame. */
+.cv-skill {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  margin: var(--ds-space-1, 4px) 0;
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
+  border-radius: 8px;
+  background: var(--acpmux-question-bg);
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+  line-height: var(--text-body--line-height);
+  transition:
+    border-color var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    background-color var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+}
+.cv-skill[data-settled="true"] {
+  border-color: transparent;
+  background: transparent;
+}
+.cv-skill__fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+.cv-skill__fold[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.cv-skill__clip {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+:root[data-cmux-motion="reduced"] .cv-skill,
+:root[data-cmux-motion="reduced"] .cv-skill__fold {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-skill,
+  .cv-skill__fold {
+    transition: none;
+  }
+}
+.cv-skill__body > .cv-skill__clip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1, 4px);
+  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
+}
+.cv-skill__question {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.cv-skill__draft {
+  min-width: 0;
+  border-radius: 4px;
+  outline: none;
+}
+.cv-skill__draft:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--agent-text) 45%, transparent);
+}
+.cv-skill__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+}
+.cv-skill__name {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-skill__tag {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+.cv-skill__description {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.cv-skill__disclose {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-muted);
+  font-family: var(--cv-font);
+  font-size: var(--text-caption);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: default;
+}
+.cv-skill__disclose:hover {
+  color: var(--agent-text);
+}
+.cv-skill__disclose:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: 1px;
+}
+.cv-skill__source {
+  box-sizing: border-box;
+  max-height: 240px;
+  margin: 0;
+  padding: var(--ds-space-2, 8px);
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--acpmux-question-hover);
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.cv-skill__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2, 8px);
+}
+.cv-skill__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1, 4px);
+  min-width: 0;
+}
+.cv-skill__label {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+.cv-skill__input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 24px;
+  padding: var(--ds-space-1, 4px) var(--ds-space-2, 8px);
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
+  border-radius: 4px;
+  background: var(--acpmux-base);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  outline: none;
+}
+.cv-skill__input.is-mono {
+  font-family: var(--cv-mono);
+}
+.cv-skill__input:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--agent-text) 45%, transparent);
+}
+.cv-skill__input[aria-invalid="true"] {
+  border-color: var(--agent-status-error, var(--acpmux-del));
+}
+.cv-skill__textarea {
+  resize: vertical;
+}
+.cv-skill__hint {
+  color: var(--agent-status-error, var(--acpmux-del));
+  font-size: var(--text-caption);
+}
+.cv-skill__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ds-space-1, 4px);
+  padding-top: var(--ds-space-1, 4px);
+}
+.cv-skill__button {
+  min-height: 24px;
+  padding: 0 var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: 4px;
+  background: var(--acpmux-question-hover);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-caption);
+  cursor: default;
+}
+.cv-skill__button:hover:not(:disabled) {
+  background: var(--acpmux-question-highlight);
+}
+.cv-skill__button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: 1px;
+}
+.cv-skill__button.is-save {
+  background: var(--agent-text);
+  color: var(--acpmux-base);
+}
+.cv-skill__button.is-save:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.cv-skill__button:disabled {
+  opacity: 0.6;
+}
+.cv-skill__error {
+  display: block;
+  color: var(--agent-status-error, var(--acpmux-del));
+  font-size: var(--text-detail);
+  overflow-wrap: anywhere;
+}
+.cv-skill__note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ds-space-2, 8px);
+  margin: 0;
+  padding: var(--ds-space-1, 4px) 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.cv-skill__path {
+  min-width: 0;
+  font-family: var(--cv-mono);
+  font-size: var(--text-caption);
+  overflow-wrap: anywhere;
+}
