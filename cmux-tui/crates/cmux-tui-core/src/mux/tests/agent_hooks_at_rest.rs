@@ -461,3 +461,84 @@ fn agents_at_rest_a_journal_hook_for_the_kind_keeps_every_row() {
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A row whose producer gave up (the writer was slow) can still commit. The
+/// daemon then does not know what the journal holds of the terminal's agent
+/// session, so the next report is appended: after a late `agent.session.ended`
+/// the history fold opens the session again only from a row.
+#[test]
+fn agents_at_rest_a_report_after_a_row_with_an_unknown_result_is_appended() {
+    let (mux, agent, root) = one_agent("unknown");
+    let tool_rows = |mux: &Arc<Mux>| {
+        let head = mux.session_journal_head().unwrap();
+        send(mux, &agent, "PreToolUse", json!({ "tool_name": "Read" }));
+        kinds_after(mux, head).get("agent.state.changed").copied().unwrap_or(0)
+    };
+    assert_eq!(tool_rows(&mux), 0, "setup: an equal report writes nothing");
+
+    // The session's end is admitted by the writer and held there: its
+    // producer gets an error, then the row commits.
+    let (entered, entered_receiver) = std::sync::mpsc::sync_channel(1);
+    let (release, release_receiver) = std::sync::mpsc::sync_channel(1);
+    mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
+    let ended = crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        "SessionEnd",
+        Some(agent.terminal.as_str()),
+        json!({ "session_id": agent.session, "cwd": CWD }),
+    )
+    .unwrap();
+    assert_eq!(ended.kind, "agent.session.ended");
+    let producer_mux = mux.clone();
+    let producer = std::thread::spawn(move || {
+        producer_mux.append_journal_ingress(&ended, "test", "unknown-result-1")
+    });
+    entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+    let error = producer.join().unwrap().expect_err("the producer gives up on a held commit");
+    let before_release = mux.session_journal_head().unwrap();
+    release.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while kinds_after(&mux, before_release).get("agent.session.ended").is_none() {
+        assert!(Instant::now() < deadline, "the held row did not commit after {error:#}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    assert_eq!(
+        tool_rows(&mux),
+        1,
+        "the report after a row with an unknown result ({error:#}) must be appended"
+    );
+    assert_eq!(tool_rows(&mux), 0, "the equal report after it writes nothing again");
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A hook can arrive after its terminal closed (a session end from a shell
+/// that exits). It must leave nothing in the per-terminal table: nothing
+/// would ever remove it.
+#[test]
+fn agents_at_rest_a_report_for_a_closed_terminal_keeps_no_table_entry() {
+    let (mux, agent, root) = one_agent("closed");
+    assert_eq!(mux.agent_hook_slots_for_test(), 1, "setup: the open terminal has its entry");
+    mux.remove_terminal_catalog_for_test(&agent.terminal).expect("the terminal was in the catalog");
+    mux.purge_terminal_side_tables(&agent.terminal);
+    assert_eq!(mux.agent_hook_slots_for_test(), 0, "the close removes the entry");
+    for (event, key) in [("PreToolUse", "closed-1"), ("SessionEnd", "closed-2")] {
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(agent.terminal.as_str()),
+            json!({ "session_id": agent.session, "cwd": CWD, "tool_name": "Read" }),
+        )
+        .unwrap();
+        // The answer for a closed terminal is not this test's subject.
+        let _ = mux.append_journal_ingress(&ingress, "test", key);
+    }
+    assert_eq!(
+        mux.agent_hook_slots_for_test(),
+        0,
+        "a report for a closed terminal left an entry in the table"
+    );
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -172,6 +172,12 @@ impl AgentHooksAtRest {
         self.terminals().remove(terminal);
     }
 
+    /// Terminals with a table entry.
+    #[cfg(test)]
+    fn slots(&self) -> usize {
+        self.terminals().len()
+    }
+
     /// The installed journal hooks are about to change. Hold the guard
     /// through the change: a hook report that comes meanwhile waits, then
     /// reads the new hooks, so a hook installed now misses no row.
@@ -209,6 +215,11 @@ fn kind_filter_matches_at_rest_kind(kinds: &[String]) -> bool {
 }
 
 impl Mux {
+    #[cfg(test)]
+    pub(crate) fn agent_hook_slots_for_test(&self) -> usize {
+        self.agent_hooks_at_rest.slots()
+    }
+
     /// The answer to a hook report that changes no durable state, with its
     /// live effects applied; `None` when the report must be appended (module
     /// doc). In memory: no registry lock, no journal row, no commit.
