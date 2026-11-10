@@ -12,7 +12,7 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudCapabilityRelayTests {
-    static let token = "cc1.eyJ2IjoxfQ.c2lnbmF0dXJl"
+    nonisolated static let token = "cc1.eyJ2IjoxfQ.c2lnbmF0dXJl"
 
     /// The API Worker: answers the mint route with a capability for `team_a` (or `mintStatus`), every op with
     /// an empty answer, and records each request's path, bearer and capability header.
@@ -46,10 +46,30 @@ struct CloudCapabilityRelayTests {
         func switchTeam() { lock.withLock { current = "install-b" } }
     }
 
-    static func teamOf(_ token: String) -> String? { token == "install-a" ? "team_a" : token == "install-b" ? "team_b" : nil }
+    nonisolated static func teamOf(_ token: String) -> String? { token == "install-a" ? "team_a" : token == "install-b" ? "team_b" : nil }
 
-    static func holder(_ worker: Worker, _ install: Install) -> CloudCapabilityHolder {
-        CloudCapabilityHolder(transport: worker, headers: ["x-cmux-client-version": "test"], token: { install.token }, teamOf: teamOf)
+    /// The seam's own rules, so these cases do not wait for the pinned app FFI to carry Rust's
+    /// (cmux-cloud-start-core `capability` has their cases): hold a 200's token, send it to its own team,
+    /// mint when none is held for the team.
+    nonisolated static let plainRules = CloudCapabilityHolder.Rules(
+        mint: { status, body, team, now in
+            struct Answer: Decodable { struct Value: Decodable { var capability: String; var team: String }; var value: Value }
+            guard status == 200, let answer = try? JSONDecoder().decode(Answer.self, from: body), answer.value.team == team else { return nil }
+            return .init(token: answer.value.capability, team: team, expiresAt: now + 300_000, refreshAt: now + 240_000)
+        },
+        plan: { state, _ in
+            guard let team = state.team else { return .init(send: nil, fetch: false, wakeIn: nil) }
+            let held = state.held.flatMap { $0.team == team ? $0 : nil }
+            return .init(send: held?.token, fetch: held == nil && state.failedTeam != team, wakeIn: nil)
+        })
+
+    /// Rust's rules answer through the pinned app FFI (false until the FFI with `cloud_capability_*` is pinned).
+    nonisolated static var rustRulesPinned: Bool {
+        CloudCapabilityHolder.Rules.rust.plan(.init(held: nil, team: "team_a", now: 0), .intent) != nil
+    }
+
+    static func holder(_ worker: Worker, _ install: Install, rules: CloudCapabilityHolder.Rules = plainRules) -> CloudCapabilityHolder {
+        CloudCapabilityHolder(transport: worker, headers: ["x-cmux-client-version": "test"], token: { install.token }, teamOf: teamOf, rules: rules)
     }
 
     /// The relay with the post ``CloudCredentialRelay/live`` builds, serving the start path's ops.
@@ -113,6 +133,19 @@ struct CloudCapabilityRelayTests {
         await capability.intent()
         #expect(await capability.holds == false)
         try await Self.send("cloud.machine.create", key: "k-1", relay: Self.relay(worker, install, capability))
+        #expect(await worker.ops.last?.capability == nil)
+    }
+
+    /// The same flow on Rust's rules, through the app FFI.
+    @Test(.enabled(if: rustRulesPinned)) func rustsRulesSendTheMintedCapabilityOnACreate() async throws {
+        let worker = Worker(), install = Install()
+        let capability = Self.holder(worker, install, rules: .rust)
+        await capability.intent()
+        #expect(await capability.holds)
+        try await Self.send("cloud.machine.create", key: "k-1", relay: Self.relay(worker, install, capability))
+        #expect(await worker.ops.last?.capability == Self.token)
+        install.switchTeam()
+        try await Self.send("cloud.machine.create", key: "k-2", relay: Self.relay(worker, install, capability))
         #expect(await worker.ops.last?.capability == nil)
     }
 

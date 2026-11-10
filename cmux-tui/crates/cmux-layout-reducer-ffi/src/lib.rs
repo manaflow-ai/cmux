@@ -284,6 +284,38 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&serde_json::json!({ "refusal": refusal }))
                     .map_err(|_| ERR_INVALID)?
             }
+            // The signed Cloud capability (cmux-cloud-start-core `capability`): a mint's answer
+            // as the app holds it (`{held}`, null for none), and what a call sends and whether
+            // to mint now (`Plan`).
+            b"cloud_capability_mint" => {
+                use cmux_cloud_start_core::capability;
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    status: u16,
+                    body: serde_json::Value,
+                    team: String,
+                    now: i64,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let held = capability::read_mint(
+                    request.status,
+                    &request.body,
+                    &request.team,
+                    request.now,
+                );
+                serde_json::to_vec(&serde_json::json!({ "held": held })).map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_capability_plan" => {
+                use cmux_cloud_start_core::capability;
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    state: capability::State,
+                    reason: capability::Reason,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&capability::plan(&request.state, request.reason))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"cloud_ask_answer" => {
                 use cmux_cloud_start_core::ask;
                 #[derive(serde::Deserialize)]

@@ -1,4 +1,5 @@
 public import CmuxInstallAuthCore
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 import os
@@ -33,20 +34,45 @@ public actor MacInstallIdentity {
     /// (``unbind()``): a late sign-in callback registers nothing.
     private var signingOut = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.install")
+    /// The signed Cloud capability minted with this install's tokens (cmux-platform#1126), in memory only: minted at
+    /// each ``signedIn(stackUser:session:)`` (sign-in and every team switch) and on Cloud intent, cleared when the
+    /// session ends, and sent by the credential relay on every op it posts.
+    public nonisolated let capability: CloudCapabilityHolder
 
     public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?) {
         self.store = store
         self.transport = transport
         self.deviceName = deviceName
         self.clientVersion = clientVersion
+        let source = WeakIdentity()
+        capability = CloudCapabilityHolder(transport: transport, headers: InstallAuthClient.headers(clientVersion: clientVersion),
+                                           token: {
+                                               guard let identity = source.identity else { throw Failure.signedOut }
+                                               return try await identity.installToken()
+                                           })
+        source.identity = self
+    }
+
+    /// The identity the capability mints with, held weakly (the identity owns the capability).
+    private final class WeakIdentity: Sendable {
+        private let state = Mutex<Weak>(Weak())
+        private struct Weak { weak var value: MacInstallIdentity? }
+        var identity: MacInstallIdentity? {
+            get { state.withLock { $0.value } }
+            set { state.withLock { $0.value = newValue } }
+        }
     }
 
     /// The user signed in: binds them and registers (or reuses) the install
     /// at once by minting one token, so a later relay call does not wait.
+    /// Then the signed Cloud capability for the token's team, beside the first list (not awaited).
     public func signedIn(stackUser: String, session: @escaping InstallAuthClient.SessionToken) async throws {
         guard !signingOut else { throw Failure.signedOut }
         if user != stackUser || client == nil { bind(stackUser: stackUser, session: session) }
         _ = try await installToken()
+        let capability = capability
+        // task-owner: none; one mint at most, ended by its transport's timeout; unbind() and signOut() clear its answer.
+        Task { await capability.intent() }
     }
 
     /// The headers every install-token request carries (the client
@@ -118,6 +144,7 @@ public actor MacInstallIdentity {
 
     /// Stops the bound client: no record write, no token from a mint in flight.
     private func drop() async {
+        await capability.clear()
         generation &+= 1
         let dropped = client
         client = nil
