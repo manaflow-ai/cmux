@@ -2176,6 +2176,7 @@ dependencies = [
  "ghostty-vt",
  "jsonschema",
  "libc",
+ "memchr",
  "notify",
  "parking_lot",
  "proptest",
