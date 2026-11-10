@@ -125,10 +125,12 @@ where
 /// Whether `host` resolves within two seconds (`agent-auth.sh` treats curl's exit 6 as unreachable).
 pub async fn host_resolves(host: String) -> bool {
     let target = if host.contains(':') { host } else { format!("{host}:443") };
-    matches!(
-        tokio::time::timeout(std::time::Duration::from_secs(2), tokio::net::lookup_host(target)).await,
-        Ok(Ok(mut addrs)) if addrs.next().is_some()
-    )
+    let lookup =
+        tokio::time::timeout(std::time::Duration::from_secs(2), tokio::net::lookup_host(target));
+    match lookup.await {
+        Ok(Ok(mut addrs)) => addrs.next().is_some(),
+        _ => false,
+    }
 }
 
 /// Own mode for one codex launch (module docs): the provider override right after the program, and
