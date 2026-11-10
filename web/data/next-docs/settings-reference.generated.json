@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 619,
+  "count": 621,
   "sections": [
     {
       "id": "general",
@@ -1251,6 +1251,22 @@
           "help": "Terminal agents reopen their session after a crash or restart.",
           "kind": "toggle",
           "default": true,
+          "group": "Agent Sessions"
+        },
+        {
+          "key": "sessions.sleepHandoff.enabled",
+          "title": "Keep Chats Running When This Mac Sleeps",
+          "help": "When this Mac goes to sleep, chats with a running turn move to the machine below and keep going there. A chat whose uncommitted changes can't all go with it stays here and says why.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Sessions"
+        },
+        {
+          "key": "sessions.sleepHandoff.machine",
+          "title": "Move Chats To",
+          "help": "The name of a machine you connected under Machines, or auto to pick one that's on and not in use.",
+          "kind": "text",
+          "default": "auto",
           "group": "Agent Sessions"
         },
         {

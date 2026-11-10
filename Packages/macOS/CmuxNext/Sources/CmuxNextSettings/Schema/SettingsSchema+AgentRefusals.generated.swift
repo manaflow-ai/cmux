@@ -127,6 +127,8 @@ extension SettingsSchema {
         "notifications.showPreviews": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly, "sessions.keepAwakeForCommands": .userOnly,
+        // Moving chats, with their uncommitted work, to another machine when this Mac sleeps is the person's call.
+        "sessions.sleepHandoff.enabled": .privacy, "sessions.sleepHandoff.machine": .privacy,
         // Whether agents start again by themselves after a restart is the person's call.
         "sessions.resumeAgents": .userOnly,
         // An agent must not let itself, or another agent, skip the person's approvals.

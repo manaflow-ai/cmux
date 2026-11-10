@@ -185637,6 +185637,530 @@
         }
       }
     },
+    "settings.sessions.sleepHandoff.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Chats Running When This Mac Sleeps"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاء الدردشات قيد التشغيل عند سكون هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavi rad razgovora kada ovaj Mac miruje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold chats kørende, når denne Mac sover"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats weiterlaufen lassen, wenn dieser Mac schläft"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener los chats en ejecución cuando este Mac está en reposo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder les discussions actives quand ce Mac est en veille"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni in esecuzione le chat quando questo Mac è in stop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacのスリープ中もチャットを実行し続ける"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តដំណើរការការជជែកនៅពេល Mac នេះដេក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac이 잠자기 상태일 때도 채팅 계속 실행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold chatter i gang når denne Macen sover"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utrzymuj działanie czatów, gdy ten Mac śpi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter chats em execução quando este Mac entrar em repouso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжать чаты, когда этот Mac спит"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้แชททำงานต่อเมื่อ Mac เครื่องนี้เข้าสู่โหมดสลีป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac Uyurken Sohbetleri Çalışır Durumda Tut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продовжувати чати, коли цей Mac спить"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ cho cuộc trò chuyện tiếp tục chạy khi Mac này ngủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 睡眠时保持聊天运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 睡眠時保持聊天執行"
+          }
+        }
+      }
+    },
+    "settings.sessions.sleepHandoff.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When this Mac goes to sleep, chats with a running turn move to the machine below and keep going there. A chat whose uncommitted changes can't all go with it stays here and says why."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما يدخل هذا الـ Mac في وضع السكون، تنتقل الدردشات التي لديها دور قيد التشغيل إلى الجهاز أدناه وتواصل العمل هناك. أما الدردشة التي لا يمكن نقل كل تغييراتها غير المحفوظة معها فتبقى هنا وتوضح السبب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada ovaj Mac pređe u stanje mirovanja, razgovori s aktivnim potezom prelaze na mašinu ispod i tamo nastavljaju. Razgovor čije necommitane promjene ne mogu sve otići s njim ostaje ovdje i kaže zašto."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når denne Mac går i dvale, flyttes chats med en kørende tur til maskinen nedenfor og fortsætter dér. En chat, hvis ikke-committede ændringer ikke alle kan følge med, bliver her og fortæller hvorfor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn dieser Mac in den Ruhezustand geht, wechseln Chats mit laufendem Durchgang auf den unten genannten Rechner und laufen dort weiter. Ein Chat, dessen nicht committete Änderungen nicht alle mitkommen können, bleibt hier und nennt den Grund."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando este Mac entra en reposo, los chats con un turno en ejecución pasan a la máquina indicada abajo y siguen allí. Un chat cuyos cambios sin confirmar no pueden ir todos con él se queda aquí e indica el motivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand ce Mac se met en veille, les discussions dont un tour est en cours passent sur la machine indiquée ci-dessous et y continuent. Une discussion dont les modifications non validées ne peuvent pas toutes la suivre reste ici et en indique la raison."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando questo Mac entra in stop, le chat con un turno in esecuzione passano alla macchina indicata sotto e continuano lì. Una chat le cui modifiche non salvate nel commit non possono seguirla tutte resta qui e ne spiega il motivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacがスリープすると、実行中のターンがあるチャットは下のマシンに移り、そこで続行されます。未コミットの変更をすべては移せないチャットはここに残り、理由が表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេល Mac នេះចូលដំណេក ការជជែកដែលមានវេនកំពុងដំណើរការនឹងផ្លាស់ទៅម៉ាស៊ីនខាងក្រោម ហើយបន្តនៅទីនោះ។ ការជជែកដែលការផ្លាស់ប្តូរមិនទាន់ commit របស់វាមិនអាចទៅជាមួយទាំងអស់បាន នឹងនៅទីនេះ ហើយប្រាប់មូលហេតុ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac이 잠자기 상태가 되면 실행 중인 턴이 있는 채팅이 아래 머신으로 이동해 그곳에서 계속됩니다. 커밋되지 않은 변경 사항을 모두 함께 옮길 수 없는 채팅은 여기에 남고 이유를 알려 줍니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når denne Macen går i dvale, flyttes chatter med en pågående tur til maskinen nedenfor og fortsetter der. En chatt der ikke alle ikke-innsjekkede endringer kan bli med, blir værende her og sier hvorfor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy ten Mac przechodzi w stan uśpienia, czaty z trwającą turą przenoszą się na maszynę podaną poniżej i działają tam dalej. Czat, którego niezatwierdzone zmiany nie mogą wszystkie z nim pójść, zostaje tutaj i podaje powód."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando este Mac entra em repouso, os chats com uma vez em execução passam para a máquina abaixo e continuam lá. Um chat cujas alterações não confirmadas não podem ir todas com ele fica aqui e diz o motivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда этот Mac переходит в режим сна, чаты с выполняющимся ходом переносятся на указанную ниже машину и продолжают работу там. Чат, все незафиксированные изменения которого нельзя перенести, остаётся здесь и сообщает причину."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อ Mac เครื่องนี้เข้าสู่โหมดสลีป แชทที่มีเทิร์นกำลังทำงานอยู่จะย้ายไปยังเครื่องด้านล่างและทำงานต่อที่นั่น แชทที่การเปลี่ยนแปลงซึ่งยังไม่ได้คอมมิตไม่สามารถไปด้วยกันได้ทั้งหมดจะอยู่ที่นี่และบอกเหตุผล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac uykuya geçtiğinde, çalışan bir turu olan sohbetler aşağıdaki makineye taşınır ve orada devam eder. Commit edilmemiş değişikliklerinin tümü birlikte gidemeyen bir sohbet burada kalır ve nedenini söyler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли цей Mac переходить у режим сну, чати з ходом, що виконується, переносяться на вказану нижче машину й продовжують роботу там. Чат, усі незафіксовані зміни якого не можна перенести, залишається тут і повідомляє причину."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi Mac này chuyển sang chế độ ngủ, các cuộc trò chuyện có lượt đang chạy sẽ chuyển sang máy bên dưới và tiếp tục ở đó. Cuộc trò chuyện có các thay đổi chưa commit không thể đi cùng hết sẽ ở lại đây và cho biết lý do."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 进入睡眠时，有正在运行的回合的聊天会移到下方的机器上并在那里继续。未提交的更改无法全部随之转移的聊天会留在此处并说明原因。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 進入睡眠時，有正在執行的回合的聊天會移到下方的機器上並在那裡繼續。未提交的變更無法全部隨之轉移的聊天會留在此處並說明原因。"
+          }
+        }
+      }
+    },
+    "settings.sessions.sleepHandoff.machine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Chats To"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل الدردشات إلى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premjesti razgovore na"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flyt chats til"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats verschieben nach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover chats a"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer les discussions vers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta le chat su"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットの移動先"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លាស់ទីការជជែកទៅ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 이동 대상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytt chatter til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przenoś czaty na"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover chats para"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переносить чаты на"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้ายแชทไปที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetlerin Taşınacağı Yer"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переносити чати на"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển cuộc trò chuyện đến"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将聊天移至"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將聊天移至"
+          }
+        }
+      }
+    },
+    "settings.sessions.sleepHandoff.machine.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The name of a machine you connected under Machines, or auto to pick one that's on and not in use."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسم جهاز قمت بتوصيله ضمن الأجهزة، أو auto لاختيار جهاز قيد التشغيل وغير مستخدم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naziv mašine koju ste povezali u odjeljku Mašine, ili auto za odabir one koja je uključena i nije u upotrebi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navnet på en maskine, du har forbundet under Maskiner, eller auto for at vælge en, der er tændt og ikke i brug."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Name eines Rechners, den du unter Rechner verbunden hast, oder auto, um einen eingeschalteten und nicht genutzten auszuwählen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El nombre de una máquina que conectaste en Máquinas, o auto para elegir una que esté encendida y no en uso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le nom d'une machine connectée dans Machines, ou auto pour en choisir une qui est allumée et inutilisée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il nome di una macchina collegata in Macchine, oppure auto per sceglierne una accesa e non in uso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「マシン」で接続したマシンの名前。電源が入っていて使用中でないマシンを自動で選ぶには auto と入力します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈ្មោះម៉ាស៊ីនដែលអ្នកបានភ្ជាប់ក្នុងម៉ាស៊ីន ឬ auto ដើម្បីជ្រើសម៉ាស៊ីនដែលបើក និងមិនកំពុងប្រើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 항목에서 연결한 머신의 이름이며, 켜져 있고 사용 중이 아닌 머신을 고르려면 auto를 입력하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navnet på en maskin du har koblet til under Maskiner, eller auto for å velge en som er på og ikke i bruk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nazwa maszyny połączonej w sekcji Maszyny lub auto, aby wybrać włączoną i nieużywaną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O nome de uma máquina que você conectou em Máquinas, ou auto para escolher uma que esteja ligada e não esteja em uso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Имя машины, подключённой в разделе «Машины», или auto, чтобы выбрать включённую и свободную."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชื่อเครื่องที่คุณเชื่อมต่อไว้ในเครื่อง หรือ auto เพื่อเลือกเครื่องที่เปิดอยู่และไม่ได้ใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makineler bölümünde bağladığınız bir makinenin adı veya açık ve kullanılmayan birini seçmek için auto."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назва машини, підключеної в розділі «Машини», або auto, щоб вибрати ввімкнену й вільну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tên của một máy bạn đã kết nối trong Máy, hoặc auto để chọn máy đang bật và không được sử dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在“机器”中连接的机器的名称，或输入 auto 以选择已开机且未被使用的机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在「機器」中連接的機器的名稱，或輸入 auto 以選擇已開機且未被使用的機器。"
+          }
+        }
+      }
+    },
     "settings.sessions.promptSuggestions": {
       "extractionState": "manual",
       "localizations": {

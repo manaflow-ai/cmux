@@ -120,6 +120,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session sleep-handoff",
+        &[
+            (
+                "Say which running chats would move when this Mac sleeps",
+                "acpmux session sleep-handoff --dry-run",
+            ),
+            ("Move them now, as the app does on sleep", "acpmux session sleep-handoff"),
+        ],
+    ),
+    (
         "session move",
         &[
             (

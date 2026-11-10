@@ -8,6 +8,12 @@ extension SessionSettings {
     /// `sessions.keepAwakeForCommands`: On: a terminal command on this Mac that has run a minute and printed in the last ten minutes also keeps the Mac awake, under the same Off, While Plugged In or Always choice as sessions.keepAwake (KeepAwakeService; the rule is Rust keep_awake_plan). Off by default: Leo has not said whether it should be on.
     public nonisolated static let keepAwakeForCommandsPath = ["sessions", "keepAwakeForCommands"]
     public nonisolated static let keepAwakeForCommandsDefault = false
+    /// `sessions.sleepHandoff.enabled`: On: when this Mac is about to sleep, the app asks acpmux (_acpmux/sleep_handoff) to move each chat whose turn is running to sessions.sleepHandoff.machine with acpmux session move --interrupt --carry-changes, then continue the turn there (cmux-tui/crates/acpmux/src/cli/run/sleep_handoff.rs). A chat whose uncommitted work the move cannot carry whole stays and says why. Off by default: it moves work to another machine.
+    public nonisolated static let sleepHandoffEnabledPath = ["sessions", "sleepHandoff", "enabled"]
+    public nonisolated static let sleepHandoffEnabledDefault = false
+    /// `sessions.sleepHandoff.machine`: The acpmux peer chats move to on sleep (session move --host): a machine name from Machines, or auto for the move's own placement (never a machine a person works at).
+    public nonisolated static let sleepHandoffMachinePath = ["sessions", "sleepHandoff", "machine"]
+    public nonisolated static let sleepHandoffMachineDefault = "auto"
     /// `sessions.resumeAgents`: On: a terminal brought back after a crash or restart runs its agent's resume (claude --resume <id>, codex resume <id>) at the new shell's empty prompt. Off, or a settings file that does not parse: nothing runs, and the restored line shows the command. The daemon reads it at each respawn (cmux-tui-util user_settings::resume_agents). Commands other than agents never run again.
     public nonisolated static let resumeAgentsPath = ["sessions", "resumeAgents"]
     public nonisolated static let resumeAgentsDefault = true
@@ -69,6 +75,26 @@ nonisolated enum SessionSettingsSchema {
                 kind: .toggle,
                 default: .bool(SessionSettings.keepAwakeForCommandsDefault),
                 keywords: ["sleep", "awake", "keep awake", "stay awake", "prevent sleep", "no sleep", "caffeinate", "terminal", "command", "build"]
+            ),
+            SettingDescriptor(
+                SessionSettings.sleepHandoffEnabledPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.sleepHandoff.enabled", "Keep Chats Running When This Mac Sleeps"),
+                help: SettingsText.keyed("settings.sessions.sleepHandoff.enabled.help", "When this Mac goes to sleep, chats with a running turn move to the machine below and keep going there. A chat whose uncommitted changes can't all go with it stays here and says why."),
+                kind: .toggle,
+                default: .bool(SessionSettings.sleepHandoffEnabledDefault),
+                keywords: ["sleep", "lid", "close lid", "laptop", "handoff", "move", "teleport", "cloud", "keep running", "machine"]
+            ),
+            SettingDescriptor(
+                SessionSettings.sleepHandoffMachinePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.sleepHandoff.machine", "Move Chats To"),
+                help: SettingsText.keyed("settings.sessions.sleepHandoff.machine.help", "The name of a machine you connected under Machines, or auto to pick one that's on and not in use."),
+                kind: .text,
+                default: .string(SessionSettings.sleepHandoffMachineDefault),
+                keywords: ["sleep", "lid", "handoff", "machine", "cloud", "target"]
             ),
             SettingDescriptor(
                 SessionSettings.resumeAgentsPath,

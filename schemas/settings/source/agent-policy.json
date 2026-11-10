@@ -1376,6 +1376,14 @@
       ]
     },
     {
+      "agent": "privacy",
+      "why": "Moving chats, with their uncommitted work, to another machine when this Mac sleeps is the person's call.",
+      "keys": [
+        "sessions.sleepHandoff.enabled",
+        "sessions.sleepHandoff.machine"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "Whether agents start again by themselves after a restart is the person's call.",
       "keys": [
