@@ -14,7 +14,7 @@ extension TabStripModel {
         // whose question shows, is still selected after it); a pick the press may not close closes nothing.
         let surviving = ordered.filter { !closing($0.id) }
         let shown = Set(visibleOrderedTabs.map(\.id)).intersection(surviving.map(\.id))
-        guard let pick = FocusAfterClose.tab(selected: id, old: ordered.map(\.id), surviving: surviving.map(\.id), shown: shown),
+        guard let pick = successor(of: id, old: ordered.map(\.id), surviving: surviving.map(\.id), shown: shown),
               let tab = surviving.first(where: { $0.id == pick }), tab.isClosable, !skipped(pick) else { return nil }
         return pick
     }
