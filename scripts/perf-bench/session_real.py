@@ -716,15 +716,24 @@ def is_shell(command):
     return name == "login" or (name in SHELLS and all(word.startswith("-") for word in words[1:]))
 
 
-def below(pid, rows):
-    """The pids in `rows` ({pid: (ppid, start, command)}) that have `pid` as an ancestor."""
-    found, grew = set(), True
-    while grew:
-        grew = False
-        for other, (parent, _, _) in rows.items():
-            if other not in found and (parent == pid or parent in found):
+def children_of(rows):
+    """{pid: [the pids whose parent it is]} of `rows` ({pid: (ppid, start, command)})."""
+    children = {}
+    for other, (parent, _, _) in rows.items():
+        children.setdefault(parent, []).append(other)
+    return children
+
+
+def below(pid, rows, children=None):
+    """The pids in `rows` ({pid: (ppid, start, command)}) that have `pid` as an ancestor (`children`: `children_of(rows)`,
+    when the caller asks for many)."""
+    children = children_of(rows) if children is None else children
+    found, todo = set(), [pid]
+    while todo:
+        for other in children.get(todo.pop(), ()):
+            if other not in found and other != pid:
                 found.add(other)
-                grew = True
+                todo.append(other)
     return found
 
 
@@ -741,13 +750,17 @@ def agent_terminal_states(conn, tabs, rows=None, now=None):
     process table. A state is ("program", pid): the bench agent program with this terminal's name runs;
     ("resumed", {pid: start}): the real CLI that the product's resume started for this terminal's bench session runs,
     with the processes below it; ("shell", seconds): only shells, the newest one started `seconds` ago (None: not
-    known); ("other", command): another program runs, it is not this tool's; ("none", None): the daemon has no
-    terminal for the tab (a dead tab). A reply that is not OK stops the command (exit 1)."""
+    known); ("other", text): another program runs or what runs is not known, it is not this tool's; ("none", None):
+    the daemon has no terminal for the tab (a dead tab). Only the terminal's own process (`pid`) and the processes
+    below it in the process table count: a listed PID that is not there (a PID that another process took between the
+    daemon's reply and the table) makes the terminal "other", so it gets no start line and no signal in this read.
+    A reply that is not OK stops the command (exit 1)."""
     reply = conn.call("terminal-resources", surfaces=[tab["surface"] for _, tab in tabs])
     if not reply.get("ok"):
         raise SystemExit(f"session_real: the daemon did not answer terminal-resources: {reply.get('error')!r}; "
                          "the agent programs cannot be counted")
     rows = process_rows() if rows is None else rows
+    children = children_of(rows)
     by_surface = {terminal.get("surface"): terminal for terminal in (reply.get("data") or {}).get("terminals") or []}
     states = {}
     for number, tab in tabs:
@@ -755,8 +768,18 @@ def agent_terminal_states(conn, tabs, rows=None, now=None):
         if terminal is None:
             states[name] = ("none", None)
             continue
-        pids = [pid for pid in [terminal.get("pid")] + [process.get("pid") for process in terminal.get("processes") or []]
-                if pid in rows]
+        root = terminal.get("pid")
+        if root not in rows:
+            states[name] = ("other", "the daemon names no live process for this terminal: what runs in it is not known")
+            continue
+        tree = {root} | below(root, rows, children)
+        listed = [pid for pid in dict.fromkeys([root] + [process.get("pid") for process in terminal.get("processes") or []])
+                  if pid in rows]
+        pids = [pid for pid in listed if pid in tree]
+        if len(pids) < len(listed):
+            outside = next(pid for pid in listed if pid not in tree)
+            states[name] = ("other", f"pid {outside} of the daemon's list is not below this terminal's process: {rows[outside][2][:90]}")
+            continue
         ages = [started_seconds_ago(rows[pid][1], time.time() if now is None else now) for pid in pids]
         state = ("shell", min(ages) if ages and None not in ages else None)
         for pid in pids:
@@ -768,7 +791,7 @@ def agent_terminal_states(conn, tabs, rows=None, now=None):
             resumed = RESUMED_CLI.search(command)
             if resumed and resumed.group(1) == name:
                 # The CLI and what it started, in this terminal only: each pid with its start time.
-                mine = {pid} | (below(pid, rows) & set(pids))
+                mine = {pid} | (below(pid, rows, children) & set(pids))
                 state = ("resumed", {one: rows[one][1] for one in sorted(mine)})
             elif state[0] == "shell" and not is_shell(command):
                 state = ("other", command[:120])
@@ -806,40 +829,59 @@ def end_resumed(resumed, sig=signal.SIGTERM, rows=None, kill=None):
 
 
 RETYPE_SECONDS = 8   # a start line that did not start the program (typed at the moment the product typed its own) is typed again
-# The product types its resume command into a new shell at the shell's first prompt, at most 10 s after the shell's
-# start (terminal_respawn/prefill.rs PROMPT_WAIT; measured 5 to 10 s at load 12 to 27). A shell younger than this gets
-# no start line yet, so the line does not go into a CLI that starts in that moment. (If it still does: that CLI is
-# ended in the next round, with the line.)
-SHELL_SETTLE_SECONDS = 20
+# The product types its resume command into a new shell at the shell's prompt: it waits for the prompt for at most 10 s
+# and then for a quiet prompt for at most 10 s more (terminal_respawn/prefill.rs, PROMPT_WAIT two times: 20 s at the
+# worst; measured 5 to 10 s at load 12 to 27). A shell younger than that, plus 5 s for the shim to start the CLI and
+# for the 1 s steps of the process table's start times, gets no start line yet, so the line does not go into a CLI
+# that starts in that moment. (If one still starts later: nothing more is typed into it and the next round ends it.)
+SHELL_SETTLE_SECONDS = 25
 KILL_SECONDS = 5     # a resumed CLI that does not end on SIGTERM gets SIGKILL after this
 OTHER_SECONDS = 10   # another program for this long is not a start-up step (the product's shim, the wrapper): it stays
 
 
-def start_agents(tabs, states_now, send, restart, end, state_of, settle, force=False, clock=time.time, sleep=time.sleep):
+def start_agents(tabs, states_now, send, restart, end, state_of, settle, clock=time.time, sleep=time.sleep):
     """Brings each agent terminal to the bench agent program, in rounds, until all run it or `settle` seconds passed.
-    `states_now()` gives {name: (kind, detail)} (`agent_terminal_states`). Per terminal and round:
-    - "program": the bench program runs: nothing (with `force`, the start line one time);
+    `states_now()` gives {name: (kind, detail)} (`agent_terminal_states`). Each round reads the states one time and
+    sends its start lines FIRST, with nothing between the read and the lines (no process table, no signal, no
+    restart), so a line goes only into what the read saw as a shell. Then, per terminal:
+    - "program": the bench program runs: nothing, never a line;
     - "resumed": the real CLI that the product's "Resume Agents After Restart" started: `end(pids, SIGTERM)` one time,
-      SIGKILL after KILL_SECONDS; nothing is typed into it, the start line is typed when only the shell is left;
-    - "none": the daemon has no terminal (a dead tab): `restart(tab)` one time; the next rounds see its new shell;
+      SIGKILL after KILL_SECONDS; nothing is typed into it, the start line is typed when a later read sees only the shell;
+    - "none": the daemon has no terminal (a dead tab): `restart(tab)` one time; a later read sees its new shell;
     - "shell": `send(number, tab, state)` when its newest shell is SHELL_SETTLE_SECONDS old (the product's own
       resume command comes before that); again after RETYPE_SECONDS when the program did not start;
-    - "other": another program: never typed into, never signalled; after OTHER_SECONDS it is not waited for;
+    - "other": another program, or not known: never typed into, never signalled; after OTHER_SECONDS it is not waited for;
     - "unknown" (a daemon without `terminal-resources`): `restart` for a dead tab, the start line one time, as the
       tool did before.
-    Returns the counts and the last states."""
+    Returns the counts, the last states, `not_typed` (no line went in) and `held_back` (of those: the shell was too
+    young when the time ended)."""
     names = {f"real-{number:04d}": (rank, number, tab) for rank, (number, tab) in enumerate(tabs)}
     result = {"started": 0, "restarted_shells": 0, "already_running": 0, "restart_failed": [], "ended_resumed": {},
               "resumed_killed": [], "rounds": 0}
-    typed, restarted, ended, failed, other_since, first = {}, set(), {}, set(), {}, True
+    typed, restarted, ended, failed, other_since, young, first = {}, set(), {}, set(), {}, set(), True
     deadline = clock() + settle
     while True:
         states = states_now()
         result["rounds"] += 1
-        pending = 0
-        for name, (rank, number, tab) in names.items():
+        late, young = clock() >= deadline, set()
+        for name, (rank, number, tab) in names.items():   # 1. the start lines, right after the read
             kind, detail = states.get(name, ("none", None))
-            if kind == "program" and not (force and first):
+            if name in failed or kind not in ("shell", "unknown"):
+                continue
+            if kind == "shell" and detail is not None and detail < SHELL_SETTLE_SECONDS:
+                young.add(name)
+                continue
+            if late or (kind == "unknown" and (name in typed or (tab.get("dead") and name not in restarted))):
+                continue
+            if name in typed and clock() - typed[name] < RETYPE_SECONDS:
+                continue
+            if send(number, tab, state_of(rank)):
+                result["started"] += 0 if name in typed else 1
+                typed[name] = clock()
+        pending = 0
+        for name, (rank, number, tab) in names.items():   # 2. the signals and the restarts; the next read sees their result
+            kind, detail = states.get(name, ("none", None))
+            if kind == "program":
                 result["already_running"] += 1 if first else 0
                 continue
             if name in failed or (kind == "unknown" and name in typed):
@@ -849,7 +891,7 @@ def start_agents(tabs, states_now, send, restart, end, state_of, settle, force=F
                 continue
             other_since.pop(name, None)
             pending += 1
-            if clock() >= deadline:
+            if late:
                 continue
             if kind == "resumed":
                 if name not in ended:
@@ -859,24 +901,14 @@ def start_agents(tabs, states_now, send, restart, end, state_of, settle, force=F
                 elif clock() - ended[name] >= KILL_SECONDS and name not in result["resumed_killed"]:
                     end(detail, signal.SIGKILL)
                     result["resumed_killed"].append(name)
-                continue
-            if (kind == "none" or (kind == "unknown" and tab.get("dead"))) and name not in restarted:
+            elif (kind == "none" or (kind == "unknown" and tab.get("dead"))) and name not in restarted:
                 error = restart(tab)
                 if error:
                     result["restart_failed"].append({"terminal": name, "error": error})
                     failed.add(name)
-                    continue
-                restarted.add(name)
-                result["restarted_shells"] += 1
-                if kind == "none":
-                    continue  # the next round reads what the new terminal runs; the product may type its resume first
-            if name in typed and clock() - typed[name] < RETYPE_SECONDS:
-                continue
-            if kind == "shell" and detail is not None and detail < SHELL_SETTLE_SECONDS and name not in typed:
-                continue
-            if send(number, tab, state_of(rank)):
-                result["started"] += 0 if name in typed else 1
-                typed[name] = clock()
+                else:
+                    restarted.add(name)
+                    result["restarted_shells"] += 1
         first = False
         if not pending or clock() >= deadline:
             break
@@ -884,6 +916,7 @@ def start_agents(tabs, states_now, send, restart, end, state_of, settle, force=F
     result["states"] = states
     result["not_typed"] = sorted(name for name, state in states.items()
                                  if state[0] in ("shell", "none", "unknown") and name not in typed and name not in failed)
+    result["held_back"] = sorted(name for name in result["not_typed"] if name in young)
     return result
 
 
@@ -947,11 +980,21 @@ def agents(args):
         print(f"restart-tab {tab['surface']}: {reply.get('error')!r}", flush=True)
         return str(reply.get("error"))[:200]
 
-    did = start_agents(tabs, states_now, send, restart, end_resumed, lambda rank: agent_state(rank, args), args.settle, args.force)
+    table = {"at": 0.0, "rows": {}}
+
+    def end(resumed, sig):
+        # One process table for the signals of a round (it had one `ps` per terminal: 157 in a row at 826). A PID
+        # gets the signal only when this table still has it with the start time that the state read saw.
+        if time.time() - table["at"] > 1:
+            table.update(rows=process_rows(), at=time.time())
+        return end_resumed(resumed, sig, table["rows"])
+
+    did = start_agents(tabs, states_now, send, restart, end, lambda rank: agent_state(rank, args), args.settle)
     states = did.pop("states")
-    restart_failed, not_typed = did["restart_failed"], did.pop("not_typed")
+    restart_failed, not_typed, held_back = did["restart_failed"], did.pop("not_typed"), did.pop("held_back")
     expected = len(tabs) - len(not_typed) - len(restart_failed) - sum(1 for state in states.values() if state[0] in ("other", "resumed"))
     settle_agents(conn, expected, args.settle)
+    states = states_now()  # what runs now, after the wait for the reports: the count below is never an older read
     deadline = time.time() + min(args.settle, 15)
     while sum(1 for state in states.values() if state[0] == "program") < expected and time.time() < deadline:
         time.sleep(0.5)  # a shell takes a moment to `exec` the program
@@ -962,7 +1005,7 @@ def agents(args):
     after = counts(conn)
     print("SESSION-REAL-AGENTS " + json.dumps({
         "started": did["started"], "restarted_shells": did["restarted_shells"], "already_running": did["already_running"],
-        "not_started": len(not_typed), "restart_failed": len(restart_failed), "agent_terminals": len(tabs),
+        "not_started": len(not_typed), "held_back_young_shell": len(held_back), "restart_failed": len(restart_failed), "agent_terminals": len(tabs),
         "agent_programs_running": programs,
         "agent_programs_scope": "the agent terminals of this daemon (its terminal-resources)" if exact else
                                 "a lower bound, not judged: programs whose CMUX_TUI_SOCKET is this daemon's (the daemon has no terminal-resources)",
@@ -970,10 +1013,11 @@ def agents(args):
         "resumed_cli_left": len(resumed_left), "other_programs": len(other), "rounds": did["rounds"],
         "after": after}), flush=True)
     end_with("agents", agents_faults(len(tabs), programs if exact else None, after.get("agents"), len(not_typed), restart_failed,
-                                     other, resumed_left))
+                                     other, resumed_left, len(held_back), args.settle))
 
 
-def agents_faults(agent_terminals, programs, listed, not_started, restart_failed, other=None, resumed_left=()):
+def agents_faults(agent_terminals, programs, listed, not_started, restart_failed, other=None, resumed_left=(), held_back=0,
+                  settle=None):
     """Why the `agents` result is not the session asked for (empty: it is)."""
     faults = []
     if other:
@@ -985,8 +1029,12 @@ def agents_faults(agent_terminals, programs, listed, not_started, restart_failed
                       f"(`claude --resume session-real-<name>`): first {resumed_left[0]}")
     if restart_failed:
         faults.append(f"restart-tab failed for {len(restart_failed)} agent terminals: first {json.dumps(restart_failed[0])}")
-    if not_started:
-        faults.append(f"{not_started} agent terminals took no input")
+    if held_back:
+        faults.append(f"{held_back} agent terminals got no start line: their shell was younger than {SHELL_SETTLE_SECONDS} s when "
+                      f"--settle {settle:g} ended (the product types its resume command into a new shell in that time); "
+                      "give a longer --settle")
+    if not_started - held_back > 0:
+        faults.append(f"{not_started - held_back} agent terminals took no input")
     if programs is not None and programs != agent_terminals:  # None: the daemon cannot say (no terminal-resources)
         faults.append(f"{programs} agent programs run in this daemon's terminals, the session has {agent_terminals} agent terminals")
     if listed is None or listed < agent_terminals:
@@ -2204,7 +2252,8 @@ def main():
     p = sub.add_parser("agents")
     target(p)
     size(p)
-    p.add_argument("--force", action="store_true", help="send the start line also to a terminal the daemon lists an agent for")
+    p.add_argument("--force", action="store_true", help="no effect now (kept for old callers): a terminal gets the start line when no agent program runs in it, "
+                        "read from the processes; a running agent program never gets a line")
     p.set_defaults(run=agents)
 
     p = sub.add_parser("clients")

@@ -384,9 +384,11 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
   1273 wakeups/s in `measure`, group `daemon_other`). The launch pays for those starts, as his does. `agents` then makes
   the session the bench one: it ends each such CLI by its exact PIDs (the daemon's `terminal-resources` of that terminal,
   the same start time, the session id that this tool gave that terminal; SIGTERM, SIGKILL after 5 s), types nothing into
-  it, and types the start line when only the shell is left and that shell is 20 s old (the product types its resume
-  command into a new shell in its first 10 s). It never types into and never signals another program: such a
-  terminal is a fault (exit 3) with the program's command line. Its line says `resumed_cli_ended`, `resumed_cli_left`,
+  it, and types the start line when only the shell is left and that shell is 25 s old (the product types its resume
+  command into a new shell in its first 20 s at the worst). Each round reads what runs and sends its lines at once
+  after the read, before any signal. It never types into and never signals another program, a running bench program,
+  or a terminal whose processes it cannot read: such a terminal is a fault (exit 3) with the reason. With a `--settle`
+  below about 30 s a tab that `agents` had to start again gets no line in time: that is a fault that says so. Its line says `resumed_cli_ended`, `resumed_cli_left`,
   `other_programs` and `agent_programs_running`; exit 0 = one bench program in each agent terminal and no resumed CLI.
   Run `agents` after EVERY restore and before `measure`, `map` or your own driver; a row made before it has the real CLIs.
 - `measure` counts the app, the daemon, their descendants, the bundle's processes, the daemon's
