@@ -27,6 +27,8 @@ enum class PermissionPromptRoute {
   kHost,
   // Refused at once: cmux shows nothing of this kind.
   kDeny,
+  // Ended at once with no answer: the permission stays `default`, nothing is stored for the site.
+  kEndUnanswered,
 };
 
 // The route of a request for `requested` (a set of cef_permission_request_types_t bits).
