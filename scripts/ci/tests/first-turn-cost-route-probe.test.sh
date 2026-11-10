@@ -66,7 +66,8 @@ python3 -I - "$work/run/0001.req.json" <<'PY'
 import json, sys
 head = {"method": "POST", "path": "/v1/messages",
         "headers": {"anthropic-version": "2023-06-01", "User-Agent": "claude-cli/2.1.300 (external, cli)"}}
-body = {"model": "claude-x", "messages": [{"role": "user", "content": "hi"}]}
+body = {"model": "claude-x", "tools": [{"name": "mcp__cmux__workspace_list", "input_schema": {"type": "object"}}],
+        "messages": [{"role": "user", "content": "hi"}]}
 open(sys.argv[1], "wb").write(json.dumps(head).encode() + b"\n" + json.dumps(body).encode())
 PY
 status=0
