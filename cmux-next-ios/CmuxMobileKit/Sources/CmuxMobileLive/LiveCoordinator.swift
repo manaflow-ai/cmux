@@ -112,7 +112,12 @@ public final class LiveCoordinator {
     /// "Reconnecting", not "Can't reach" (the link keeps retrying).
     @ObservationIgnored var connectedMacIDs: Set<String> = []
     /// The acpmux session (and Mac) each cached chat store was built for (nil: unbound).
-    @ObservationIgnored var sourcedSessions: [String: (tabID: String, macID: String, session: String?)] = [:]
+    /// `provisional`: built before the Mac's tree listed the tab (a relaunch, a link still
+    /// coming up), from the session the phone kept, or loading; rebuilt once the tree comes,
+    /// whatever it says.
+    @ObservationIgnored var sourcedSessions: [String: (tabID: String, macID: String, session: String?, provisional: Bool)] = [:]
+    /// Where agent chats keep their newest records on this phone (each Mac's acpmux sources use it).
+    @ObservationIgnored public var transcriptCache: AgentTranscriptCache? = .standard
     /// The account was deleted: sign-out keeps nothing of it.
     @ObservationIgnored public internal(set) var accountDeleted = false
     /// Signed out: nothing more is saved for the account.
@@ -237,14 +242,31 @@ public final class LiveCoordinator {
             // whose link is closed opens it, and is rebuilt once its tree lists the tab.
             let owner = self.session(tabID: summary.id, macID: summary.macID.isEmpty ? nil : summary.macID)
             if !summary.macID.isEmpty, owner?.link.target == nil { self.touch(summary.macID) }
+            var scoped = summary
+            scoped.accountID = self.userID
+            let key = AgentSessionDirectory.key(id: summary.id, macID: summary.macID)
+            // The Mac's tree has not come yet (a relaunch, the link still opening): the tab is not
+            // known to be unbound. Its kept session opens at once (and catches up when the link
+            // comes); with none kept, the chat loads instead of saying it hasn't started.
+            if let owner, owner.tree == nil {
+                let keptKey = AgentTranscriptCache.key(accountID: scoped.accountID, macID: summary.macID, tabID: summary.id)
+                if let keptKey, let kept = self.transcriptCache?.cached(keptKey) {
+                    self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: kept.sessionID, provisional: true)
+                    return owner.acpmux.source(sessionID: kept.sessionID, summary: scoped)
+                }
+                self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: nil, provisional: true)
+                return PendingAgentSource(summary: scoped, cache: self.transcriptCache, keptKey: keptKey) { [weak self, weak owner] in
+                    // Its kept records are in memory now: the chat opens on its session's source.
+                    guard self?.sourcedSessions[key]?.provisional == true, let owner, owner.tree == nil else { return }
+                    self?.sourcedSessions[key] = nil
+                    AgentSessionDirectory.shared.invalidate(id: summary.id, macID: summary.macID)
+                }
+            }
             let session = owner?.tree?.agentTabs[summary.id]?.session
-            self.sourcedSessions[AgentSessionDirectory.key(id: summary.id, macID: summary.macID)] =
-                (tabID: summary.id, macID: summary.macID, session: session)
+            self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: session, provisional: false)
             guard let owner, let session else {
                 return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name)
             }
-            var scoped = summary
-            scoped.accountID = self.userID
             return owner.acpmux.source(sessionID: session, summary: scoped)
         }
         restoreSnapshot()
@@ -672,6 +694,7 @@ public final class LiveCoordinator {
         if isBackgrounded { controller.send(.background) }
         let session = MacSession(macID: mac.id, name: mac.name, link: controller, deviceID: identity.link,
                                  deviceName: deviceName, feedStore: feedStore)
+        session.acpmux.transcriptCache = transcriptCache
         wire(session)
         sessions[mac.id] = session
         return session
@@ -935,6 +958,53 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(.resume) }
     }
 
+}
+
+/// An agent tab whose Mac has not sent its tree yet (a relaunch, the link still opening), so
+/// whether it has a session is not known: the chat loads (``AgentSessionSource/loadsHistory``)
+/// instead of showing the new-chat screen or saying the agent hasn't started. When the phone
+/// kept the chat's records on disk, `onKept` runs once they are read (the coordinator then opens
+/// the chat on that session's source, which shows them); the Mac's tree rebuilds it either way.
+@MainActor
+final class PendingAgentSource: AgentSessionSource {
+    let summary: AgentSessionSummary
+    private let cache: AgentTranscriptCache?
+    private let keptKey: String?
+    private var onKept: (@MainActor () -> Void)?
+    private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
+
+    init(summary: AgentSessionSummary, cache: AgentTranscriptCache?, keptKey: String?, onKept: @escaping @MainActor () -> Void) {
+        self.summary = summary
+        self.cache = cache
+        self.keptKey = keptKey
+        self.onKept = onKept
+        guard let cache, let keptKey else { return }
+        Task { [weak self] in
+            guard await cache.load(keptKey) != nil, let self, let onKept = self.onKept else { return }
+            self.onKept = nil
+            onKept()
+        }
+    }
+
+    var loadsHistory: Bool { true }
+
+    func events() -> AsyncStream<AgentSessionEvent> {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream()
+        continuations.append(continuation)
+        return stream
+    }
+
+    /// Nothing to send to yet: the draft comes back with why.
+    func send(_ intent: AgentClientIntent) {
+        let reason = "Connecting to \(summary.macName)… Send again once the chat loads."
+        let event: AgentSessionEvent
+        if case .prompt(let text, let attachments, _, let promptID, _) = intent {
+            event = .promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason)
+        } else {
+            event = .clientError(reason)
+        }
+        for continuation in continuations { continuation.yield(event) }
+    }
 }
 
 /// An agent tab with no acpmux session yet: a new chat on the Mac that has
