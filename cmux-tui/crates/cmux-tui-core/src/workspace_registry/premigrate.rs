@@ -442,14 +442,25 @@ fn print_progress(cursor: u64, head: u64) {
     eprintln!("cmux-tui: premigrate: agent roster folded through {cursor} of {head}");
 }
 
-/// At the end of the owner's open, under its session locks: takes a
-/// premigrated roster into the registry when the registry's own snapshot is
-/// of another reducer version, or marked stale (a migrated roster a start
-/// served, not yet rebuilt): the side snapshot is a fold from the first
-/// record, so it is the rebuild, and adopting it clears the mark. All or nothing: the side file must name this
-/// registry, the current version, a cursor within the live journal and a
-/// snapshot that restores; any other side file is removed. A failed write
-/// keeps the file for the next start.
+/// At the end of the owner's open, under its session locks. A side file
+/// that names this registry, the current reducer version, a cursor within the
+/// live journal and a snapshot that restores is used one of two ways; any
+/// other side file is removed.
+///
+/// - Complete: its cursor is at or past the registry's own saved cursor. It
+///   replaces the saved roster and clears the stale mark (it is a fold from
+///   the first record, so it is the rebuild), and the start folds only the
+///   tail after it, as after any save.
+/// - Partial (a premigration cut short by its time limit, a stop or a read
+///   failure): the registry is left as it is, so the start serves exactly
+///   what it would without a premigration (the migrated saved roster, marked
+///   stale), and the file stays as the seed of the background rebuild
+///   ([`rebuild_seed`]), which folds only the journal after it. Served in
+///   place of the saved roster, a partial fold would show an old prefix of
+///   the history until the start's replay caught up.
+///
+/// A registry whose roster is current and not marked stale has no use for
+/// the file, and it is removed. A failed write keeps it for the next start.
 pub(crate) fn adopt(registry: &WorkspaceRegistry) {
     let Some(db_path) = registry.database_path.as_deref() else { return };
     let side_file = roster_side_file(db_path);
@@ -465,13 +476,68 @@ pub(crate) fn adopt(registry: &WorkspaceRegistry) {
         let _ = fs::remove_file(&side_file);
         return;
     }
-    let side = match SideSnapshot::read(&side_file) {
+    let Some((side, head)) = usable_side_snapshot(registry, &side_file) else { return };
+    let saved_cursor = stored.map_or(0, |(_, cursor, _)| cursor);
+    if side.cursor < saved_cursor {
+        eprintln!(
+            "cmux-tui: premigrated agent roster at cursor {} is behind the saved roster's {}; \
+             it seeds the background rebuild",
+            side.cursor, saved_cursor
+        );
+        return;
+    }
+    match registry.finish_journal_reducer_rebuild(
+        AGENT_ROSTER_REDUCER_ID,
+        AGENT_ROSTER_REDUCER_VERSION,
+        side.cursor,
+        &side.snapshot,
+    ) {
+        Ok(()) => {
+            eprintln!(
+                "cmux-tui: adopted premigrated agent roster at cursor {} of head {head}",
+                side.cursor
+            );
+            let _ = fs::remove_file(&side_file);
+        }
+        Err(error) => {
+            eprintln!("cmux-tui: adopting the premigrated agent roster failed: {error:#}");
+        }
+    }
+}
+
+/// Where the background rebuild of a stale roster starts: a premigrated
+/// roster folded from the first record through its cursor, so the rebuild
+/// folds only the journal after it. `None` (the rebuild folds from the first
+/// record) without a usable side file; an unusable one is removed.
+pub(crate) fn rebuild_seed(registry: &WorkspaceRegistry) -> Option<(AgentRoster, u64)> {
+    let side_file = roster_side_file(registry.database_path.as_deref()?);
+    if !side_file.exists() {
+        return None;
+    }
+    let (side, head) = usable_side_snapshot(registry, &side_file)?;
+    let roster = AgentRoster::restore(&side.snapshot)?;
+    eprintln!(
+        "cmux-tui: the agent roster rebuild resumes from the premigrated roster at cursor {} of \
+         head {head}",
+        side.cursor
+    );
+    Some((roster, side.cursor))
+}
+
+/// The side snapshot at `side_file` and the journal head, when the snapshot
+/// names this registry, the current reducer version, a cursor within the
+/// live journal and restores; otherwise the file is removed.
+fn usable_side_snapshot(
+    registry: &WorkspaceRegistry,
+    side_file: &Path,
+) -> Option<(SideSnapshot, u64)> {
+    let side = match SideSnapshot::read(side_file) {
         Ok(Some(side)) => side,
-        Ok(None) => return,
+        Ok(None) => return None,
         Err(error) => {
             eprintln!("cmux-tui: premigrated agent roster dropped: {error:#}");
-            let _ = fs::remove_file(&side_file);
-            return;
+            let _ = fs::remove_file(side_file);
+            return None;
         }
     };
     let head = registry.session_journal_head();
@@ -486,27 +552,13 @@ pub(crate) fn adopt(registry: &WorkspaceRegistry) {
     } else {
         None
     };
-    if let Some(refusal) = refusal {
-        eprintln!("cmux-tui: premigrated agent roster dropped: {refusal}");
-        let _ = fs::remove_file(&side_file);
-        return;
-    }
-    match registry.finish_journal_reducer_rebuild(
-        AGENT_ROSTER_REDUCER_ID,
-        AGENT_ROSTER_REDUCER_VERSION,
-        side.cursor,
-        &side.snapshot,
-    ) {
-        Ok(()) => {
-            eprintln!(
-                "cmux-tui: adopted premigrated agent roster at cursor {} of head {}",
-                side.cursor,
-                head.unwrap_or(side.cursor)
-            );
-            let _ = fs::remove_file(&side_file);
-        }
-        Err(error) => {
-            eprintln!("cmux-tui: adopting the premigrated agent roster failed: {error:#}");
+    match (refusal, head) {
+        (None, Ok(head)) => Some((side, head)),
+        (refusal, _) => {
+            let refusal = refusal.unwrap_or_else(|| "the journal head is unreadable".to_owned());
+            eprintln!("cmux-tui: premigrated agent roster dropped: {refusal}");
+            let _ = fs::remove_file(side_file);
+            None
         }
     }
 }

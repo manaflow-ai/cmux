@@ -297,9 +297,10 @@ fn side_file_text_for_test() -> String {
     serde_json::json!({"format": 1, "reducer_id": AGENT_ROSTER_REDUCER_ID}).to_string()
 }
 
-/// A partial premigration, adopted at open, and the start's bounded fold
-/// with its background replay of the tail end with the same roster as a
-/// cold fold of the whole journal.
+/// A partial premigration (adopted at open when it is past the saved roster's
+/// cursor, else a seed for the rebuild), the start's bounded fold and its
+/// background replay and rebuild end with the same roster as a cold fold of
+/// the whole journal.
 #[test]
 fn a_partial_premigration_and_the_background_replay_converge_on_a_cold_fold() {
     use crate::mux::agent_roster_restore::STARTUP_BUDGET_FOR_TEST;
@@ -309,7 +310,6 @@ fn a_partial_premigration_and_the_background_replay_converge_on_a_cold_fold() {
     STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(Some(Duration::ZERO)));
     let reopened = open_persistent_test_mux(store.session, &store.root);
     STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(None));
-    assert!(!roster_side_file(&store.db_path).exists(), "the open adopted the side file");
     for _ in 0..100 {
         if !reopened.agent_roster_replaying() {
             break;
@@ -317,6 +317,11 @@ fn a_partial_premigration_and_the_background_replay_converge_on_a_cold_fold() {
         assert!(reopened.settle_agent_roster_for_test());
     }
     assert!(!reopened.agent_roster_replaying(), "the background replay did not finish");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while reopened.agent_roster_rebuilding() {
+        assert!(std::time::Instant::now() < deadline, "the rebuild did not end");
+        std::thread::sleep(Duration::from_millis(10));
+    }
     // The reopened owner also folds what it journals itself after the
     // start's head, so compare each agent's state, as a view reads them.
     let roster = settled(&reopened).agent_roster.lock().unwrap().roster.snapshot();
@@ -324,6 +329,76 @@ fn a_partial_premigration_and_the_background_replay_converge_on_a_cold_fold() {
     assert_eq!(agent_states(&store.cold).len(), 4, "{}", store.cold);
     reopened.shutdown();
     drop(reopened);
+}
+
+/// A premigration cut short (here at about 30% of the journal) is not served:
+/// the start serves what it would without one, the old build's roster
+/// migrated (the full current roster, at the saved cursor), marked stale, with
+/// no replay that would refuse `expect_agent` sends. The partial fold only
+/// seeds the background rebuild, which folds from its cursor, not from the
+/// first record, and ends with the cold fold's roster, the mark cleared.
+#[test]
+fn a_partial_premigration_seeds_the_rebuild_and_the_start_serves_the_saved_roster() {
+    use crate::mux::agent_roster_fold::rebuild_faults;
+    let store = stale_roster_store("premigrate-partial-seed");
+    // The old build's own roster, saved through the head, as a running owner
+    // keeps it: an older reducer version, so the start migrates it.
+    let saved = serde_json::json!({
+        "version": AGENT_ROSTER_REDUCER_VERSION - 1,
+        "cursor": store.head.to_string(),
+        "snapshot": store.cold.to_string(),
+    });
+    write_meta(&store.db_path, &[(roster_key().as_str(), Some(saved.to_string()))]);
+    // Resumed one page at a time until it covers about 30% of the journal.
+    let mut partial = premigrate(&store, &PremigrateControl::new(None, NEVER).pages(1, Some(1)));
+    while partial.cursor * 10 < store.head * 3 {
+        partial = premigrate(&store, &PremigrateControl::new(None, NEVER).pages(1, Some(1)));
+    }
+    assert!(!partial.complete && partial.cursor < store.head, "{partial:?}");
+
+    rebuild_faults::hold(store.session, true);
+    let mux = open_persistent_test_mux(store.session, &store.root);
+    assert!(roster_side_file(&store.db_path).exists(), "a partial side file is not adopted");
+    assert!(mux.agent_roster_rebuilding());
+    assert_eq!(
+        mux.agent_roster_rebuild_cursor_for_test(),
+        Some(partial.cursor),
+        "the rebuild starts at the premigrated cursor, not the first record"
+    );
+    assert!(!mux.agent_roster_replaying(), "no replay holds back expect_agent sends");
+    let served = settled(&mux).agent_roster.lock().unwrap().roster.snapshot();
+    assert_eq!(agent_states(&served), agent_states(&store.cold), "the full current roster");
+    {
+        let registry = mux.workspace_registry.lock().unwrap();
+        assert!(
+            registry.journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID).unwrap().is_some(),
+            "the roster stays marked stale until the rebuild ends"
+        );
+    }
+
+    rebuild_faults::hold(store.session, false);
+    mux.continue_agent_roster_rebuild_later();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while mux.agent_roster_rebuilding() {
+        assert!(std::time::Instant::now() < deadline, "the rebuild did not end");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!mux.agent_roster_replaying());
+    let rebuilt = settled(&mux).agent_roster.lock().unwrap().roster.snapshot();
+    assert_eq!(agent_states(&rebuilt), agent_states(&store.cold));
+    assert_eq!(agent_states(&store.cold).len(), 4, "{}", store.cold);
+    {
+        let registry = mux.workspace_registry.lock().unwrap();
+        assert_eq!(
+            registry.journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID).unwrap(),
+            None
+        );
+    }
+    mux.shutdown();
+    drop(mux);
+    // The next open finds the roster current and drops the used side file.
+    drop(WorkspaceRegistry::open(&store.root, store.session).unwrap());
+    assert!(!roster_side_file(&store.db_path).exists());
 }
 
 fn agent_states(snapshot: &Value) -> std::collections::BTreeMap<String, Value> {
