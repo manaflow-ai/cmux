@@ -31,6 +31,12 @@ describe("platformRead", () => {
     expect(garbled).toMatchObject({ ok: false, status: 502, code: "owner.unreachable", retryable: true })
     const malformed = await platformRead(fake(() => Response.json({ op: "x" })).fetcher, ORIGIN, "Bearer t", "cloud.vm.self.get", {})
     expect(malformed).toMatchObject({ ok: false, code: "owner.unreachable", retryable: true })
+    for (const primitive of [true, 42, "oops", null, [1]]) {
+      const r = await platformRead(fake(() => Response.json(primitive)).fetcher, ORIGIN, "Bearer t", "cloud.vm.self.get", {})
+      expect(r, JSON.stringify(primitive)).toMatchObject({ ok: false, code: "owner.unreachable", retryable: true })
+    }
+    const primitiveRefusal = await platformRead(fake(() => Response.json("nope", { status: 403 })).fetcher, ORIGIN, "Bearer t", "cloud.vm.self.get", {})
+    expect(primitiveRefusal).toMatchObject({ ok: false, status: 403, code: "platform.refused", retryable: false })
   })
 
   it("answers a retryable outage, never a TypeError, when unbound or unreachable", async () => {

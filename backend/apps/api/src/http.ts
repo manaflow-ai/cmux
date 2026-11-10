@@ -40,6 +40,7 @@ import { linkVerifiedAddress } from "./home-requests.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
 import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
+import { platformCloud } from "./platform-cloud.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
 import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
 import { listUserTeams, personalPrincipal, principalForOwner, selectTeam, TEAM_HEADER } from "./team-select.ts"
@@ -91,6 +92,11 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
       return { stub: env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(p.team!)), entity: p.team!, stream: `usage:${p.team}` }
     case "cloud:TeamVmDO":
       return { stub: env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(p.team!)), entity: p.team!, stream: `team_vm:${p.team}` }
+    // Only integration.approval.get reaches CloudDO here: a Cloud approval's catalog owner is ConnectionDO, so the
+    // forwarder keeps it local, and approvalRoute picks the team's CloudDO that posted it. Every cloud.* op answers
+    // cloudNotHere before any route.
+    case "cloud:CloudDO":
+      return { stub: platformCloud(env.CLOUD_DO, p.team!) as unknown as OwnerStub, entity: p.team!, stream: `cloud:${p.team}` }
     case "cloud:ConnectionDO":
       return { stub: env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)), entity: p.team!, stream: `connections:${p.team}` }
     default:

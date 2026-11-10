@@ -28,7 +28,9 @@ export const platformRead = async (
   } catch (e) {
     return outage(`the platform could not be reached: ${String(e).slice(0, 200)}`)
   }
-  const body = (await response.json().catch(() => null)) as Record<string, unknown> | null
+  const parsed: unknown = await response.json().catch(() => null)
+  // Only an object is an answer; null, a number, a string or an array is a malformed one.
+  const body = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null
   if (response.ok) {
     if (body === null || !("value" in body) || typeof body.revision !== "string") return outage("the platform's read answer was malformed")
     return { ok: true, value: body.value, revision: body.revision }
