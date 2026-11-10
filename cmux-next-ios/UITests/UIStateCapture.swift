@@ -64,7 +64,7 @@ class UIStateCaptureCase: XCTestCase {
                 // Scene-level settle: demo drivers pace themselves with no signal to wait on.
                 _ = app.wait(for: .runningForeground, timeout: 20)
                 Self.pause(scene.settle)
-                pickTeamIfAsked(app)
+                if scene.signedIn { pickTeamIfAsked(app) }
                 if !scene.frames.isEmpty {
                     let launched = Date()
                     let miss = scene.reach(app)
@@ -115,8 +115,17 @@ class UIStateCaptureCase: XCTestCase {
     @MainActor
     static func tap(_ element: XCUIElement, _ what: String, timeout: Double = 15) -> String? {
         guard element.waitForExistence(timeout: timeout) else { return "no \(what)" }
-        if element.isHittable { element.tap() } else { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+        guard onScreen(element) else { return "\(what) is not on screen" }
+        // A coordinate tap never throws on an element that is not hittable (off screen, under a bar).
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         return nil
+    }
+
+    /// An element with a finite, non-empty frame (a coordinate on any other raises).
+    @MainActor
+    static func onScreen(_ element: XCUIElement) -> Bool {
+        let f = element.frame
+        return f.origin.x.isFinite && f.origin.y.isFinite && f.width.isFinite && f.height.isFinite && !f.isEmpty
     }
 
     @MainActor
@@ -161,21 +170,26 @@ class UIStateCaptureCase: XCTestCase {
     @MainActor
     static func swipeLeft(_ element: XCUIElement, _ what: String) -> String? {
         guard element.waitForExistence(timeout: 15) else { return "no \(what)" }
-        element.swipeLeft()
+        guard onScreen(element) else { return "\(what) is not on screen" }
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: element.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)))
         return nil
     }
 
     @MainActor
     static func swipeRight(_ element: XCUIElement, _ what: String) -> String? {
         guard element.waitForExistence(timeout: 15) else { return "no \(what)" }
-        element.swipeRight()
+        guard onScreen(element) else { return "\(what) is not on screen" }
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: element.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
         return nil
     }
 
     @MainActor
     static func longPress(_ element: XCUIElement, _ what: String) -> String? {
         guard element.waitForExistence(timeout: 15) else { return "no \(what)" }
-        element.press(forDuration: 1.0)
+        guard onScreen(element) else { return "\(what) is not on screen" }
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.0)
         return nil
     }
 

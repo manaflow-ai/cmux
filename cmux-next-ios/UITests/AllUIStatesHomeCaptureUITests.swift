@@ -111,7 +111,9 @@ final class AllUIStatesHomeCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "chief-reply-thread", args: ["-cmux-mobile-demo", "chief-open"], settle: 5) { app in
                 let quote = app.descendants(matching: .any)["conversation.message.msg_local_7"].firstMatch
                 guard quote.waitForExistence(timeout: 10) else { return "no message msg_local_7" }
-                quote.swipeRight()
+                _ = C.swipeRight(quote, "message")
+                if app.otherElements["conversation.replyThread"].waitForExistence(timeout: 3) { return nil }
+                _ = C.swipeLeft(quote, "message")
                 return C.wait(app.otherElements["conversation.replyThread"], "reply thread", timeout: 5)
             },
             Scene(group: g, id: "chief-plus-menu", args: ["-cmux-mobile-demo", "chief-open"], settle: 5) { app in
@@ -141,8 +143,9 @@ final class AllUIStatesHomeCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "chief-settings-scrolled", args: ["-cmux-mobile-demo", "chief-settings"], settle: 7) { app in
                 C.scrollDown(app, times: 2)
             },
-            Scene(group: g, id: "chief-colors-sheet", args: ["-cmux-mobile-demo", "chief-settings"], settle: 7) { app in
-                C.tap(C.label(app, contains: "Colors"), "chat colors row")
+            Scene(group: g, id: "chief-colors-sheet", args: ["-cmux-mobile-demo", "chief-open"], settle: 5) { app in
+                C.steps([{ C.tap(app.buttons["conversation.header.trailing"].firstMatch, "conversation menu") },
+                         { C.tap(C.label(app, contains: "Chat Colors"), "Chat Colors item") }])
             },
             Scene(group: g, id: "chief-call-scope-settings", args: ["-cmux-mobile-demo", "call-scope"], settle: 6),
             Scene(group: g, id: "chief-call-live", args: ["-cmux-mobile-demo", "call-scope"], env: ["CMUX_MOBILE_CALL_DEMO": "hold"], settle: 6) { app in

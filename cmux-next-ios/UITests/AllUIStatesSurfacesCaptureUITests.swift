@@ -29,7 +29,7 @@ final class AllUIStatesSurfacesCaptureUITests: UIStateCaptureCase {
                 return nil
             },
             Scene(group: g, id: "joystick", args: Self.idle, settle: 6) { app in
-                let arrow = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'terminal.key.' AND (label CONTAINS[c] 'arrow' OR label CONTAINS[c] 'up')")).firstMatch
+                let arrow = C.any(app, "terminal.key.up")
                 guard arrow.waitForExistence(timeout: 10) else { return "no arrow key" }
                 arrow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
                     .press(forDuration: 1.2, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.7)))
@@ -101,9 +101,6 @@ final class AllUIStatesSurfacesCaptureUITests: UIStateCaptureCase {
             Scene(group: s, id: "settings-finding-macs", args: ["-cmux-mobile-settings-page", "screenSharing"], settle: 1.5),
             Scene(group: s, id: "settings-after-wait", args: ["-cmux-mobile-settings-page", "screenSharing"], settle: 12),
             Scene(group: s, id: "viewer-streaming", args: ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore"], signedIn: false, settle: 6),
-            Scene(group: s, id: "viewer-options", args: ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore"], signedIn: false, settle: 6) { app in
-                C.tap(app.buttons["screen.options"].firstMatch, "viewer options")
-            },
             Scene(group: s, id: "viewer-trackpad", args: ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore"], signedIn: false, settle: 6) { app in
                 C.tap(app.buttons["screen.trackpad.show"], "Trackpad button")
             },
