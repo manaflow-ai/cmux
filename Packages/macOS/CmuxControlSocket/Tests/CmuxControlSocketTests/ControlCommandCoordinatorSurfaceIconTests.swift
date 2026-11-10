@@ -73,6 +73,8 @@ struct ControlCommandCoordinatorSurfaceIconTests {
 
     @Test func clearAcceptsExplicitTargetAndOwnerWithoutProcessOrAsset() throws {
         var input = params()
+        input["lease_token"] = .string(UUID().uuidString)
+        input["expected_revision"] = .int(1)
         for key in ["asset", "expected_agent_pid", "expected_process_start"] { input.removeValue(forKey: key) }
         let clear = try ControlSurfaceIconParser().parse(input, clear: true)
         #expect(clear.operation == .clear)
@@ -82,6 +84,20 @@ struct ControlCommandCoordinatorSurfaceIconTests {
         input["asset"] = asset()
         #expect(throws: ControlSurfaceIconParser.Invalid.self) {
             try ControlSurfaceIconParser().parse(input, clear: true)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func rejectsIncompleteConditionalCredentialsBeforeDispatch(clear: Bool) {
+        for fields in [[], ["lease_token"], ["expected_revision"]] as [[String]] {
+            if !clear && fields.isEmpty { continue }
+            var input = params()
+            if clear { input.removeValue(forKey: "asset") }
+            if fields.contains("lease_token") { input["lease_token"] = .string(UUID().uuidString) }
+            if fields.contains("expected_revision") { input["expected_revision"] = .int(1) }
+            #expect(throws: ControlSurfaceIconParser.Invalid.self) {
+                try ControlSurfaceIconParser().parse(input, clear: clear)
+            }
         }
     }
 
@@ -262,7 +278,11 @@ struct ControlCommandCoordinatorSurfaceIconTests {
         let input = params()
         for clear in [false, true] {
             var requestParams = input
-            if clear { requestParams.removeValue(forKey: "asset") }
+            if clear {
+                requestParams.removeValue(forKey: "asset")
+                requestParams["lease_token"] = .string(UUID().uuidString)
+                requestParams["expected_revision"] = .int(1)
+            }
             let request = ControlRequest(
                 id: .int(1), method: clear ? "surface.icon.clear" : "surface.icon.set", params: requestParams
             )

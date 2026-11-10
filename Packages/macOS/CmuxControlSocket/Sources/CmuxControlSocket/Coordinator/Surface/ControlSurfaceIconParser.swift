@@ -18,6 +18,13 @@ struct ControlSurfaceIconParser {
         let revision = try params["expected_revision"].map {
             try integer($0, name: "expected_revision", range: 1...Int.max)
         }
+        // Reject incomplete conditional credentials before process inspection or SVG rendering.
+        guard (token == nil) == (revision == nil) else {
+            throw invalid("lease_token and expected_revision must be supplied together")
+        }
+        if clear, token == nil {
+            throw invalid("clear requires lease_token and expected_revision")
+        }
         let pid = try params["expected_agent_pid"].map {
             try integer($0, name: "expected_agent_pid", range: 1...Int.max)
         }
