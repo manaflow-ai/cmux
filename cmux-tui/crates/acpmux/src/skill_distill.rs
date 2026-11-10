@@ -293,7 +293,7 @@ fn credential_word(word: &str) -> bool {
 /// word right after a [`CREDENTIAL_FLAGS`] flag that takes `name:pass` (`-u`, `--user`) or any
 /// value (`--password`).
 fn credential_words(text: &str) -> impl Iterator<Item = usize> + '_ {
-    let words: Vec<&str> = text.split(' ').collect();
+    let words: Vec<&str> = text.split_whitespace().collect();
     (0..words.len()).filter(move |&i| {
         let word = words.get(i).copied().unwrap_or("");
         let after = i.checked_sub(1).and_then(|p| words.get(p)).copied().unwrap_or("");
@@ -305,10 +305,10 @@ fn credential_words(text: &str) -> impl Iterator<Item = usize> + '_ {
     })
 }
 
-/// `text` with every credential ([`credential_words`]) cut out.
+/// `text` with every credential ([`credential_words`]) cut out, its words joined by one space.
 fn redact(text: &str) -> String {
     let cut: HashSet<usize> = credential_words(text).collect();
-    text.split(' ')
+    text.split_whitespace()
         .enumerate()
         .map(|(i, w)| if cut.contains(&i) { "…" } else { w })
         .collect::<Vec<_>>()
@@ -867,7 +867,8 @@ pub fn observe(session: &str, update: &Value) {
 /// `session`'s turn as a shape, and a clean slate for the next turn.
 pub fn take(session: &str) -> Shape {
     let turn = TURNS.lock().unwrap_or_else(|e| e.into_inner()).remove(session).unwrap_or_default();
-    let prompt = turn.prompt.unwrap_or_default();
+    // Credentials are cut before anything is taken from the prompt: its words name a pattern.
+    let prompt = redact(&turn.prompt.unwrap_or_default());
     Shape {
         session: session.to_owned(),
         intent: intent(&prompt),

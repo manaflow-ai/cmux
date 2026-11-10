@@ -170,6 +170,9 @@ fn keys_in_prompts_and_drafts_are_cut_out() {
     assert!(secretish("curl --user=demo:TEST_ONLY https://example.invalid"));
     assert!(secretish("git clone https://demo:TEST_ONLY@example.invalid/r.git"));
     assert!(secretish("mysql --password hunter2 db"));
+    assert!(secretish("curl -u  demo:TEST_ONLY https://example.invalid"));
+    assert!(secretish("curl -u\tdemo:TEST_ONLY https://example.invalid"));
+    assert!(!redact("curl --user \t demo:TEST_ONLY x").contains("TEST_ONLY"));
     // Not credentials: an ssh remote, a flag without a pair, a plain URL.
     assert!(!secretish("git push git@github.com:org/repo.git main"));
     assert!(!secretish("git add -u"));
@@ -203,6 +206,14 @@ fn a_linked_skills_folder_takes_the_skill() {
     std::os::unix::fs::symlink(dir.path().join("dotfiles"), dir.path().join("skills")).unwrap();
     write_skill(&dir.path().join("skills"), "linked", "Use it.", "## Steps\n\n1. x\n").unwrap();
     assert!(dir.path().join("dotfiles/linked/SKILL.md").is_file());
+}
+
+#[test]
+fn a_prompts_credentials_never_name_a_pattern() {
+    note_prompt("cred", "deploy --password swordfish to staging");
+    let shape = take("cred");
+    assert!(!shape.prompt.contains("swordfish"), "{shape:?}");
+    assert!(!shape.intent.iter().any(|w| w.contains("swordfish")), "{shape:?}");
 }
 
 #[test]
