@@ -1702,6 +1702,28 @@ def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
 # _superseded_cancels, router-review F1 at 241b0da0).
 SUPERSEDABLE = ("cancelled", "stale")
 GREEN = ("success", "skipped", "neutral")
+
+
+# A skipped check run is no verdict (cmux#39863 at 5bba0857, 2026-11-10): a hand dispatch of cmux-next.yml on the pull
+# request's branch (run 42735041008) posted a newer skipped 'cmux-next fast tier' over the pull request run's
+# cancelled one, as every job a dispatch does not run does (#39027 too). As merge_fast_gate.latest ranks it, a skip
+# never supersedes a red, and of a name's check runs on a head the newest one that is not a skip decides; a name with
+# only skips keeps its skip.
+def is_skip(check: dict) -> bool:
+    """Whether CHECK (a check run or an Actions job) completed as skipped: no verdict of its own."""
+    return check.get("status") == "completed" and check.get("conclusion") == "skipped"
+
+
+def verdict_checks(repo: str, sha: str, github, seen: dict) -> dict:
+    """latest_checks with a skip ranked below any verdict: for a name whose newest check run is a skip, the newest
+    linked check run of that name that is not a skip (linked_checks), when there is one."""
+    latest = latest_checks(repo, sha, github)
+    for name, check in latest.items():
+        if is_skip(check):
+            verdicts = [found for _, _, found in linked_checks(repo, sha, name, github, seen) if not is_skip(found)]
+            if verdicts:
+                latest[name] = verdicts[0]
+    return latest
 ACTIONS_JOB_URL = r"https://github\.com/{repo}/actions/runs/(\d+)/job/(\d+)"
 
 
@@ -1749,11 +1771,14 @@ def run_workflow(repo: str, run: int, github, seen: dict):
 
 def superseding_check(repo: str, sha: str, job: dict, github, seen: dict) -> dict | None:
     """The newest check run of JOB's name on SHA in a newer run of JOB's workflow, when it has completed with a
-    verdict; None when there is none, it is still running, it was cancelled too, or a workflow cannot be read."""
+    verdict; None when there is none, it is still running, it was cancelled too, or a workflow cannot be read. A skip
+    is passed over (is_skip): the newest newer run that is not a skip decides."""
     mine = None
     for job_id, run, check in linked_checks(repo, sha, job.get("name", ""), github, seen):
         if job_id <= job["id"] or run == job["run_id"]:
             continue  # older, or a later attempt of the same run (last_real_jobs reads those)
+        if is_skip(check):
+            continue  # no verdict (is_skip): an older run of the name may still decide
         mine = run_workflow(repo, job["run_id"], github, seen) if mine is None else mine
         if mine is None or run_workflow(repo, run, github, seen) != mine:
             continue
@@ -1832,7 +1857,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
         for rollup in run_rollups:
             validate_run_rollup(rollup["name"], children, repo)
     if checks:
-        latest = latest_checks(repo, sha, github)
+        latest = verdict_checks(repo, sha, github, seen)
         aggregate_jobs = []
         aggregate_runs = []
         for name in checks:
