@@ -9,6 +9,15 @@
 //! on its next line, request or reply. Automation's connections (CLI, MCP, agents writing to terminals they do not
 //! view, read-only viewers) keep the default QoS, so they never compete with the person's input. Off macOS this sets
 //! nothing.
+//!
+//! The connection of the person's app (hello role main, proved, not bound to an agent:
+//! `origin_gate::person_app_connection`) is on the lane from its hello on, before any key: each request on it is an
+//! action the person waits for. A terminal create it asks for runs on the shared `mux-terminal-work` pool at
+//! user-initiated ([`PersonWork`]).
+//!
+//! These classes have an effect only because the process has an application task role
+//! (`cmux_tui_platform::task_role`, taken in `owner_start::prepare`). Without a role the kernel holds every thread
+//! at the default priority (31), and the lane above ran at 31 until the role was added.
 
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,8 +43,14 @@ impl InputLane {
         raise_this_thread();
     }
 
-    /// Whether the connection is marked as carrying the person's keys (test hook).
-    #[cfg(test)]
+    /// The connection is the person's app (`origin_gate::person_app_connection`): each request on it is an action
+    /// the person waits for (a split, a new tab, a close, a focus), so its threads run on the same lane as a key,
+    /// from the hello on. The calling thread (the reader, which ran the hello) raises itself now.
+    pub(super) fn mark_person_app(&self) {
+        self.mark_person_input();
+    }
+
+    /// Whether the connection is marked as carrying the person's keys or actions.
     pub(super) fn carries_person_input(&self) -> bool {
         self.carries_person_input.load(Ordering::Acquire)
     }
@@ -66,6 +81,66 @@ pub(crate) fn raise_this_thread() {
         if rc != 0 {
             eprintln!("cmux: could not raise the input thread's QoS ({rc})");
         }
+    }
+}
+
+/// The calling thread at user-initiated QoS until dropped, then back at the class it had: a job the person waits for
+/// on a thread other requests share (a terminal create on the `mux-terminal-work` pool). Chromium runs such work at
+/// `ThreadType::kDefault`, which is user-initiated on macOS (`base/threading/platform_thread_apple.mm`). A thread
+/// that runs at user-initiated or higher already (a create that ran inline on the connection's dispatcher) keeps
+/// its class. Off macOS this sets nothing.
+pub(super) struct PersonWork {
+    #[cfg(target_os = "macos")]
+    restore: Option<libc::qos_class_t>,
+}
+
+impl PersonWork {
+    pub(super) fn enter() -> Self {
+        #[cfg(target_os = "macos")]
+        {
+            let mut current = libc::qos_class_t::QOS_CLASS_UNSPECIFIED;
+            let mut relative = 0;
+            // SAFETY: valid out pointers for the calling thread's own QoS.
+            unsafe {
+                libc::pthread_get_qos_class_np(libc::pthread_self(), &mut current, &mut relative);
+            }
+            if current as u32 >= libc::qos_class_t::QOS_CLASS_USER_INITIATED as u32 {
+                return Self { restore: None };
+            }
+            set_this_thread(libc::qos_class_t::QOS_CLASS_USER_INITIATED);
+            // An unspecified class cannot be set again; default is what such a thread runs at.
+            let restore = match current {
+                libc::qos_class_t::QOS_CLASS_UNSPECIFIED => libc::qos_class_t::QOS_CLASS_DEFAULT,
+                class => class,
+            };
+            Self { restore: Some(restore) }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Self {}
+        }
+    }
+}
+
+impl Drop for PersonWork {
+    fn drop(&mut self) {
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(class) = self.restore.take() {
+                set_this_thread(class);
+            }
+        }
+    }
+}
+
+/// `pthread_set_qos_class_self_np(class, 0)` for the calling thread, reported when the kernel refuses it.
+#[cfg(target_os = "macos")]
+fn set_this_thread(class: libc::qos_class_t) {
+    let wanted = class as u32;
+    // SAFETY: sets the calling thread's own QoS; no pointer is passed.
+    let rc = unsafe { libc::pthread_set_qos_class_self_np(class, 0) };
+    if rc != 0 {
+        eprintln!("cmux: could not set the thread's QoS to {wanted:#x} ({rc})");
     }
 }
 

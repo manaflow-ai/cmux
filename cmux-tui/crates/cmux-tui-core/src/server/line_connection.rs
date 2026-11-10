@@ -129,7 +129,14 @@ pub(super) fn serve_line_connection(
                     }
                 };
                 match hello.observe(&mux, client, &line, peer) {
-                    Some(reply) => writer.send_control(&reply).is_ok(),
+                    Some(reply) => {
+                        // The hello proved the person's app: from here on this thread, the dispatcher and the
+                        // writer of the connection run at user-interactive QoS (input_qos.rs).
+                        if origin_gate::person_app_connection(&mux, client) {
+                            writer.input_lane.mark_person_app();
+                        }
+                        writer.send_control(&reply).is_ok()
+                    }
                     None => handle_connection_frame(
                         &mux,
                         client,

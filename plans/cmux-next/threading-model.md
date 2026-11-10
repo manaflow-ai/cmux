@@ -128,7 +128,8 @@ blocking call inside a Task) follows PL-blocking's BLOCKING_* list.
 Daemon: the `mux-conn`, `mux-control-dispatch` and `mux-line-out` threads of a connection that carries the person's
 keys (`send` / `send-key` of a client that can type into the terminal: attached, not only through read-only views) raise
 themselves to user-interactive (server/input_qos.rs, STATUS 6593). Every other request thread (CLI, MCP, agents, read-only
-viewers) stays at the default, as does every other cmux-tui thread. The journal writer stays at the default QoS while
+viewers) stays at the default, as does every other cmux-tui thread ("QoS and the task role" below has the list and
+the task role that these classes need). The journal writer stays at the default QoS while
 request paths wait on its durable commit (PL-daemon is removing that wait; then writer = utility; the person's input
 threads stay user-interactive and automation's request threads stay at the default, never above the person's).
 
@@ -136,6 +137,47 @@ Blocking rule for the two "donating waits" above (lead decision 2026-10-24): a s
 section on the main thread is allowed (a contended wait over 2 ms is recorded), but a `dispatch_sync` from the
 main thread (`blockingSync`) is still reported: the QoS override bounds the inversion, yet the main thread
 still waits for everything queued before it on that queue.
+
+## QoS and the task role (OVERSUBSCRIBED, 2026-11-10)
+
+A QoS class has an effect only in a process with a task role. The app starts the daemon and the daemon starts each
+terminal host, so the two had no role (`TASK_UNSPECIFIED`), and XNU held every thread of them at the legacy ceiling
+(`task_policy.c`): user-interactive, user-initiated and default all ran at scheduler priority 31. The holds on the fleet
+minis showed it (app main thread 46 or 47; every daemon and host thread 31, the input lane too). Each of the two now
+takes `TASK_DEFAULT_APPLICATION` for itself, before it starts a thread (`cmux_tui_platform::task_role`, called first in
+`owner_start::prepare` and in `enter_terminal_host_process`). With that role: user-interactive 46, user-initiated 37,
+default 31, utility 20. A role is not given to a child: a shell, a hook helper (`cmux-tui-hook`), a CLI one-shot and
+an agent wrapper have none, and must not take one.
+
+| Process | Thread | QoS |
+|---|---|---|
+| App | main; `cmux-tui reader`; terminal output lane | user-interactive (the system and the table above) |
+| Daemon | `mux-conn`, `mux-control-dispatch`, `mux-line-out` of the person's app connection (hello role main, proved, no agent: `origin_gate::person_app_connection`), from the hello on; of any connection after it carried a person's key | user-interactive |
+| Daemon | `term-input-port` after it took a person's key | user-interactive |
+| Daemon | `mux-terminal-work` while it runs a create of the person's app connection (`input_qos::PersonWork`, class put back after the job) | user-initiated |
+| Daemon | every other thread: request threads of the CLI, MCP and agents; `surface-<id>-host` and `surface-<id>-host-frames` (host output, on the echo path); `mux-attach-out`, `mux-events-out`; `terminal-publisher`; journal writers and fanout, `mux-launch-snapshot`, `sqlite-wal-sync`, `mux-output-store-writer`, `memory-guard`, `cmux-config-watch`, `client-log`, `owner-lost-paths` | default (not set) |
+| Terminal host | every thread: `terminal-host-client-input` and the PTY write it makes, `terminal-host-pty` (PTY read), `terminal-host-client` (output to the daemon), `terminal-host-parser` and the others | default (not set) |
+
+Open items (not done, each needs its own measured change):
+
+- The echo path after the daemon's write is still at the default: `terminal-host-client-input`, `terminal-host-pty`,
+  `terminal-host-client` (terminal_host_runtime/shared/host_serve.rs, host_start.rs), and in the daemon the typed pane's
+  `surface-<id>-host` reader (surface.rs) and its `mux-attach-out` writer (server/cmd_attach.rs). The host cannot tell a
+  person's key from a script's write: the two are an `Input` frame with request id 0. To raise every host would put each
+  printing pane's reader at 46. The mark must come from the daemon (a frame flag), then the host raises its three lanes.
+- Background work is at the default, not utility: the journal writers (request paths still wait for the durable
+  commit), `mux-launch-snapshot`, `sqlite-wal-sync`, `mux-output-store-writer`. Check that no action of a person waits
+  for a thread before you lower it.
+
+Chromium: `base/process/process_mac.cc` sets the role of a child with `task_policy_set(task, TASK_CATEGORY_POLICY, ...)`
+(`Process::SetPriority`: user-blocking is `TASK_FOREGROUND_APPLICATION`, user-visible and best-effort are
+`TASK_BACKGROUND_APPLICATION`; `Process::SetCurrentTaskDefaultRole` sets the role of the process itself).
+`base/threading/platform_thread_apple.mm` maps a thread type to a class (`kDefault` is user-initiated, `kPresentation` is
+user-interactive, `kUtility` is utility, `kBackground` is background). cmux differs in two points. The browser process
+sets the role on the child's task port (a `PortProvider`); cmux has no task port of its child, so each process sets its
+own role. Chromium moves a child between the foreground and background roles as its tab shows and hides; the daemon and
+a host serve shown and hidden panes at once, so they keep one role, `TASK_DEFAULT_APPLICATION`, which gives the
+priorities above.
 
 ## Registered threads and queues
 

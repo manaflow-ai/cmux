@@ -221,6 +221,12 @@ impl ConnectionSurfaceScheduler {
         let job_mux = mux.clone();
         let job_writer = writer.clone();
         let job: Box<dyn FnOnce() + Send> = Box::new(move || {
+            // A create the person asked for: the shared pool's thread runs it at user-initiated QoS and gets its
+            // class back after the job, so a script's create that comes next runs at the default again.
+            let _person_work = job_writer
+                .input_lane
+                .carries_person_input()
+                .then(super::input_qos::PersonWork::enter);
             job_writer.input_lane.note_thread_qos("mux-terminal-work");
             crate::debug_spans::install(trace);
             crate::debug_spans::mark("job.start");

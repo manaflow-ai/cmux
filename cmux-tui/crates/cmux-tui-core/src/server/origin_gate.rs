@@ -283,6 +283,14 @@ pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
     }
 }
 
+/// Whether `client` is the connection the person acts through: the proved main connection of the app, not bound to
+/// an agent (the same facts as the door of origin `user`, `crate::apps::hosting_app_connection`). The one
+/// classification for the QoS of a person's action (`input_qos.rs`): read once, when the connection's hello ends.
+pub(super) fn person_app_connection(mux: &Mux, client: u64) -> bool {
+    let facts = app_connection(mux, client);
+    facts.verified_app && !facts.agent
+}
+
 /// The cmux app's own process on the local socket: its verified main connection (not bound to an
 /// agent), or a page relay of that same process (the audit-token peer key of a verified main
 /// connection, as `origin.confirmation.issue` pairs them). The Feed's reads carry the person's

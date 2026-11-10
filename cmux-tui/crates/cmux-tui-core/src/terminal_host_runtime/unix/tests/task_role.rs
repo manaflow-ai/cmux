@@ -6,6 +6,7 @@
 //!
 //! Each test runs the start function in a child process of the test binary and reads the role there, so the test
 //! process itself keeps its own role.
+#![cfg(target_os = "macos")]
 
 const MODE_ENV: &str = "CMUX_TUI_TEST_HOST_TASK_ROLE_CHILD";
 const CHILD_TEST: &str = "terminal_host_task_role_child_process";
@@ -48,7 +49,6 @@ fn role_of_child(mode: &str) -> i32 {
     })
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn the_terminal_host_process_takes_the_application_task_role_at_start() {
     assert_eq!(
@@ -59,7 +59,6 @@ fn the_terminal_host_process_takes_the_application_task_role_at_start() {
     );
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn a_process_the_terminal_host_starts_gets_no_task_role() {
     assert_eq!(

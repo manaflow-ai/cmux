@@ -88,3 +88,22 @@ fn a_connection_that_did_not_prove_it_is_the_app_keeps_the_default_qos() {
     drop(client);
     mux.shutdown();
 }
+
+/// The shared pool's thread gets its class back after a person's job: the next job on it (a script's create) does
+/// not run at user-initiated.
+#[test]
+fn person_work_gives_the_thread_its_class_back() {
+    std::thread::spawn(|| {
+        let before = input_qos::current_thread_qos();
+        {
+            let _work = input_qos::PersonWork::enter();
+            assert_eq!(input_qos::current_thread_qos(), INITIATED);
+        }
+        let unspecified = libc::qos_class_t::QOS_CLASS_UNSPECIFIED as u32;
+        let default = libc::qos_class_t::QOS_CLASS_DEFAULT as u32;
+        let expected = if before == unspecified { default } else { before };
+        assert_eq!(input_qos::current_thread_qos(), expected, "the thread kept the job's QoS");
+    })
+    .join()
+    .unwrap();
+}

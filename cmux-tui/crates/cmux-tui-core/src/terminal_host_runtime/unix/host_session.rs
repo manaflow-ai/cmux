@@ -74,7 +74,12 @@ fn owner_part(value: Option<&str>) -> String {
 /// inherited descriptor ([`isolate_terminal_host_process_fds`]). A host
 /// already in its own session (an adopting host's launcher still runs
 /// `setsid` itself) keeps it.
+///
+/// On macOS the host first takes the application task role (`crate::task_role`): the daemon starts it, so it has
+/// no role, and the kernel then holds every thread of it at the default priority whatever QoS the thread asks for.
+/// The shell and every other process the host starts get no role from it.
 pub fn enter_terminal_host_process() -> anyhow::Result<()> {
+    crate::task_role::take_application();
     // Under a test, name the test process (a host a test ran its daemon in
     // its own process for is that test's child, cx-leo45).
     // SAFETY: the host is still single-threaded (see below).

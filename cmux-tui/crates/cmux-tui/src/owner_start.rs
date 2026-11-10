@@ -16,7 +16,12 @@ mod owner_panic;
 /// and sends the ones not sent yet to Sentry (`crash_forward`), and watches
 /// its own memory (`memory_guard`), and fetches the signed invite-wave flags
 /// and the daily update answer (`background_checks`).
+///
+/// On macOS the owner first takes the application task role: the app starts it, so it has no role, and the kernel
+/// then holds every thread of it at the default priority whatever QoS the thread asks for
+/// (`cmux_tui_platform::task_role`).
 pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
+    cmux_tui_core::task_role::take_application();
     if args.headless {
         owner_panic::install(&args.session);
         // Earlier panics and memory alerts not sent yet (tester rollout #7),
@@ -45,5 +50,5 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests;

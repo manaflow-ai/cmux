@@ -19,7 +19,6 @@ fn terminal_owner_task_role_child_process() {
     println!("{MARK}{}", cmux_tui_core::task_role::current().unwrap_or(-1));
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn the_terminal_owner_takes_the_application_task_role_at_start() {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
