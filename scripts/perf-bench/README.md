@@ -286,3 +286,12 @@ python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
 - An agent is not a model session: `session_real_agent.zsh` draws like an agent TUI and reports
   through the hook helper (`$CMUX_TUI_HOOK claude <event>`), so the daemon lists 170 agents.
 - `build` starts 200 shells in a minute: on a bench host run it only inside your own GUI hold.
+- The daemon serves 64 connections. A start of 170 agents (510 hook calls) fills them for about
+  2.5 s; in that time a new connection gets one `server.busy` line. The script's own connections
+  try again for 20 s; a bench driver of your own must do the same.
+- `map` gives, per action (20 runs): `commit_ms` (the action's start to its committed frame, from
+  `debug.action_budget`), the longest frame and the main-thread gap, and the longest stall the
+  watchdog recorded with its frames. `--sample-rows <row>` runs a row beside a `sample` of the app:
+  those times are then not for a table. For the same map at another size, give `build` and `agents`
+  the same counts in proportion, for example 60 workspaces:
+  `--workspaces 60 --terminals 58 --agents 12 --tabs 116 --panes 62 --browser-tabs 37`.

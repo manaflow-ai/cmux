@@ -812,6 +812,16 @@ class AppDriver:
             "late_frames": sum(1 for i in intervals if frames.get("refresh_ms") and i > frames["refresh_ms"] * 1.5),
             "main_max_gap_ms": hangs.get("max_gap_ms"), "main_stalls": hangs.get("count"),
         }
+        # The watchdog samples the main thread in a stall (over its threshold, 50 ms): keep the longest one's
+        # frames and the scheduled tasks that ran past their budget, so the row names its own cause.
+        stalls = [r for r in hangs.get("records") or [] if isinstance(r, dict)]
+        if stalls:
+            worst = max(stalls, key=lambda r: r.get("duration_ms") or 0)
+            row["stall"] = {"ms": worst.get("duration_ms"), "frames": (worst.get("frames") or [])[:24],
+                            **{k: v for k, v in worst.items() if k not in ("frames", "frame_details", "duration_ms", "start_uptime_ns", "sequence")}}
+        if hangs.get("over_budget"):
+            row["over_budget"] = [{k: v for k, v in r.items() if k not in ("frames", "frame_details")}
+                                  for r in hangs["over_budget"][-4:] if isinstance(r, dict)]
         if reply_ms > 1000 or (row["main_max_gap_ms"] or 0) > 1000 or row["error"]:
             self.unusable.append({"action": action, **{k: row[k] for k in ("reply_ms", "main_max_gap_ms", "error")}})
         return row
@@ -824,6 +834,10 @@ def summarize(name, rows, note=""):
     out["late_frames_total"] = sum(r.get("late_frames") or 0 for r in rows)
     out["refresh_ms"] = next((r.get("refresh_ms") for r in rows if r.get("refresh_ms")), None)
     out["first_error"] = next((r.get("error") for r in rows if r.get("error")), None)
+    out["main_stalls_total"] = sum(r.get("main_stalls") or 0 for r in rows)
+    stalls = [r["stall"] for r in rows if r.get("stall")]
+    if stalls:
+        out["longest_stall"] = max(stalls, key=lambda s: s.get("ms") or 0)
     print("SESSION-REAL-ROW " + json.dumps(out), flush=True)
     return out
 
@@ -836,6 +850,8 @@ def map_rows(args):
     app = AppDriver(app_socket, daemon_socket)
     runs, rows, raw = args.runs, [], {}
     wanted = set(args.rows.split(",")) if args.rows else None
+    sampled = set(args.sample_rows.split(",")) if args.sample_rows else set()
+    stem = (args.out or args.sample or "/tmp/session-real-map").removesuffix(".json")
     deadline = time.time() + args.budget_seconds
 
     def row(name, note, make):
@@ -843,12 +859,26 @@ def map_rows(args):
             if time.time() > deadline:
                 print(f"SESSION-REAL-ROW-SKIPPED {name}: the time budget of this run ended", flush=True)
             return
+        sampler = None
+        if name in sampled:
+            # A `sample` of the app beside this row says what its main thread does; it also slows the row,
+            # so a sampled row's times are not for a table.
+            path = f"{stem}.{name}.sample.txt"
+            sampler = subprocess.Popen(["sample", str(app.pid), str(args.sample_seconds), "-file", path],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            note += f" (SAMPLED for {args.sample_seconds} s: {path})"
         try:
             raw[name] = make()
         except (RuntimeError, OSError, ValueError, KeyError) as error:
             print(f"SESSION-REAL-ROW-FAILED {name}: {type(error).__name__}: {error}", flush=True)
             app.unusable.append({"action": name, "error": str(error)})
             return
+        finally:
+            if sampler:
+                try:
+                    sampler.wait(timeout=args.sample_seconds + 30)
+                except subprocess.TimeoutExpired:
+                    sampler.kill()  # the PID this script started
         rows.append(summarize(name, raw[name], note))
 
     ids = app.workspace_ids()
@@ -1280,6 +1310,9 @@ def main():
     p.add_argument("--rows", help="comma list: workspace_switch_warm,tab_switch,new_tab,split,workspace_close,workspace_switch_cold")
     p.add_argument("--budget-seconds", type=float, default=420, help="no new row starts after this (a GUI hold is short)")
     p.add_argument("--sample", help="write a `sample` of the app here when an action took over 1 s or failed")
+    p.add_argument("--sample-rows", help="comma list of rows to run beside a `sample` of the app (<out>.<row>.sample.txt); "
+                   "their times are then not for a table")
+    p.add_argument("--sample-seconds", type=int, default=10)
     p.add_argument("--out")
     p.set_defaults(run=map_rows)
 
