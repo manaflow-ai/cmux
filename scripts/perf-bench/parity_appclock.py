@@ -234,7 +234,15 @@ class Cmux:
         if not windows:
             raise NotRun("cmux: debug.layers lists no window")
         self.window = windows[0]
-        self.pages = [c for c in self.window.get("child_windows", []) if c.get("visible") and c.get("role") == "content"]
+        # A page that is not shown stays a "visible" child window parked far off screen (-100000, -100000): only a
+        # page whose frame is inside the window's frame is a page the person sees.
+        x0, y0, w, h = self.window.get("frame") or (0, 0, 0, 0)
+
+        def shown(c):
+            f = c.get("frame") or (0, 0, 0, 0)
+            return f[0] < x0 + w and f[0] + f[2] > x0 and f[1] < y0 + h and f[1] + f[3] > y0
+        self.pages = [c for c in self.window.get("child_windows", [])
+                      if c.get("visible") and c.get("role") == "content" and shown(c)]
         return self.window
 
     def page_box(self):
