@@ -869,6 +869,71 @@ fn an_owner_refuses_to_start_beside_a_backup_it_cannot_put_back() {
     owner.stop();
 }
 
+/// A swap that an owner got through a full start on is confirmed: the
+/// backup it kept is older than the session. When the registry is later
+/// quarantined (unreadable), the backup goes to the same recovery directory.
+/// Left in place, the start after the quarantine took the missing registry
+/// for an interrupted swap and served the backup: the session from before
+/// the swap, with everything done since silently undone.
+#[test]
+fn a_quarantined_registry_never_brings_back_the_backup_of_a_confirmed_swap() {
+    let dir = state_dir("quarantine");
+    let session = "oc-quarantine";
+    let prepared = prepare(&dir.0, session);
+    stage(&dir.0, session, "stage").stop();
+    let owner = Owner::start(&dir.0, session, "swap", &[]);
+    owner.wait_for_log("output cleanup: swapped the registry");
+    owner.cli(&["workspace", "create", "--empty", "--name", "after-swap"]);
+    owner.stop();
+    let registry = &prepared.registry;
+    let previous = sidecar(registry, ".pre-output-cleanup");
+    assert!(previous.is_file(), "the backup stays until the next start");
+
+    // The registry is damaged before that next start.
+    let _ = fs::remove_file(sidecar(registry, "-wal"));
+    let _ = fs::remove_file(sidecar(registry, "-shm"));
+    fs::write(registry, vec![0x5a_u8; 8192]).unwrap();
+    let socket = dir.0.join("mux.sock");
+    let _ = fs::remove_file(&socket);
+    let mut child = command(&dir.0)
+        .args(["--headless", "--session", session, "--socket"])
+        .arg(&socket)
+        .env("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", NEVER)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let Some(status) = child.wait_timeout(Duration::from_secs(60)).unwrap() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!("the owner served a registry it cannot read");
+    };
+    let mut stderr = String::new();
+    std::io::Read::read_to_string(&mut child.stderr.take().unwrap(), &mut stderr).unwrap();
+    assert!(!status.success(), "the owner must refuse: {stderr}");
+    assert!(stderr.contains("registry-recovery"), "{stderr}");
+
+    let owner = Owner::start(&dir.0, session, "after-quarantine", &[]);
+    let log = owner.log_text();
+    let served = workspaces(&owner);
+    owner.stop();
+    assert!(
+        !log.contains("restored the registry after an interrupted swap"),
+        "the backup of a confirmed swap was served: {log}"
+    );
+    assert!(
+        served.iter().all(|(_, name)| name != "before-output" && name != "last"),
+        "the session from before the swap came back: {served:?}"
+    );
+    assert!(!previous.exists(), "the backup left the registry's place");
+    let kept_backup = fs::read_dir(registry.parent().unwrap().join("registry-recovery"))
+        .unwrap()
+        .map(|batch| batch.unwrap().path())
+        .any(|batch| batch.join(previous.file_name().unwrap()).is_file());
+    assert!(kept_backup, "the backup is kept beside the quarantined registry");
+}
+
 #[test]
 fn a_restore_preview_reads_across_a_pruned_tail() {
     let dir = state_dir("tail");
