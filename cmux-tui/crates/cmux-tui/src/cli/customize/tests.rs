@@ -95,6 +95,8 @@ struct FakeAgent<'a> {
     edits: RefCell<Vec<(&'static str, &'static str)>>,
     calls: RefCell<Vec<Vec<String>>>,
     fail_send: bool,
+    /// The code a failing `chat send` prints.
+    send_code: &'static str,
 }
 
 impl Chat for FakeAgent<'_> {
@@ -104,7 +106,10 @@ impl Chat for FakeAgent<'_> {
             return Ok(ChatResult {
                 ok: false,
                 stdout: String::new(),
-                stderr: "no such chat".into(),
+                stderr: format!(
+                    "{{\"ok\":false,\"error\":{{\"code\":\"{}\",\"message\":\"no\",\"details\":{{}}}}}}\n",
+                    self.send_code
+                ),
             });
         }
         if let Some((file, text)) = self.edits.borrow_mut().pop() {
@@ -134,6 +139,7 @@ fn an_ask_previews_through_a_chat_and_the_next_ask_refines_in_it() {
         ]),
         calls: RefCell::new(Vec::new()),
         fail_send: false,
+        send_code: "",
     };
     let wait = AskOptions { wait: true, ..AskOptions::default() };
     let request = Request::Ask { wish: "make the sidebar compact".into(), options: wait.clone() };
@@ -152,8 +158,16 @@ fn an_ask_previews_through_a_chat_and_the_next_ask_refines_in_it() {
     {
         let calls = agent.calls.borrow();
         assert_eq!(
-            calls[0][..5],
-            words(&["--json", "chat", "--name", "Customize: make the sidebar compact", "--wait"])[..]
+            calls[0][..7],
+            words(&[
+                "--json",
+                "chat",
+                "--name",
+                "Customize: make the sidebar compact",
+                "--on",
+                "here",
+                "--wait"
+            ])[..]
         );
         let brief = calls[0].last().unwrap();
         assert!(brief.starts_with("Customize this cmux for the person."), "{brief}");
@@ -164,7 +178,11 @@ fn an_ask_previews_through_a_chat_and_the_next_ask_refines_in_it() {
     let request = Request::Ask { wish: "and a night theme".into(), options: wait };
     let answer = execute(&customize, request, "cli", 3_000, &agent).ok().unwrap();
     assert!(answer.human(4_000).contains("refining the preview: and a night theme"));
-    assert_eq!(agent.calls.borrow()[1][..4], words(&["--json", "chat", "send", "sess-1"])[..]);
+    // Here, whatever `CMUX_ON` or the saved default say: the brief is this machine's files.
+    assert_eq!(
+        agent.calls.borrow()[1][..6],
+        words(&["--json", "chat", "send", "sess-1", "--on", "here"])[..]
+    );
 
     // Apply labels the generation with everything that was asked.
     let Answer::Applied(applied) =
@@ -187,6 +205,7 @@ fn an_ask_whose_chat_is_gone_starts_a_new_one_and_a_chat_that_fails_keeps_the_dr
         edits: RefCell::new(Vec::new()),
         calls: RefCell::new(Vec::new()),
         fail_send: true,
+        send_code: "selector.not_found",
     };
     let request = Request::Ask { wish: "second wish".into(), options: AskOptions::default() };
     execute(&customize, request, "cli", 2, &agent).ok().unwrap();
@@ -209,6 +228,39 @@ fn an_ask_whose_chat_is_gone_starts_a_new_one_and_a_chat_that_fails_keeps_the_dr
     assert_eq!(failure.code, "customize.chat_failed");
     assert!(failure.message.contains("the draft is open"));
     assert_eq!(customize.status().unwrap().draft.unwrap().asks.len(), 3);
+}
+
+#[test]
+fn a_refinement_that_was_delivered_is_never_sent_to_a_second_chat() {
+    let dir = tempfile::tempdir().unwrap();
+    let customize = Customize::open(Roots::under(dir.path()));
+    customize.begin("first", "cli", 1).unwrap();
+    customize.set_session("sess-1").unwrap();
+    for (code, ours, exit, delivered) in [
+        ("chat.wait_timeout", "customize.chat_unfinished", 3, true),
+        ("chat.turn_failed", "customize.chat_failed", 1, false),
+        ("session.busy", "customize.chat_failed", 1, false),
+    ] {
+        let agent = FakeAgent {
+            root: dir.path(),
+            edits: RefCell::new(Vec::new()),
+            calls: RefCell::new(Vec::new()),
+            fail_send: true,
+            send_code: code,
+        };
+        let options = AskOptions { wait: true, ..AskOptions::default() };
+        let request = Request::Ask { wish: "smaller text".into(), options };
+        let failure = execute(&customize, request, "cli", 2, &agent).err().unwrap();
+        assert_eq!((failure.code.as_str(), failure.exit), (ours, exit), "{code}");
+        assert_eq!(failure.details["session_id"], "sess-1");
+        assert_eq!(failure.details["delivered"], delivered, "{code}");
+        assert!(failure.message.contains("it was not sent again"), "{}", failure.message);
+        let calls = agent.calls.borrow();
+        assert_eq!(calls.len(), 1, "{code}: one chat got the ask, {calls:?}");
+        assert_eq!(calls[0][2], "send");
+        // The draft still names the chat that has the ask.
+        assert_eq!(customize.status().unwrap().draft.unwrap().session.as_deref(), Some("sess-1"));
+    }
 }
 
 #[test]

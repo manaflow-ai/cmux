@@ -75,7 +75,8 @@ pub fn problems(files: &BTreeMap<String, Vec<u8>>) -> Vec<Problem> {
         }
         match Part::of(path) {
             Part::Settings => settings(path, text, &mut found),
-            Part::Keybindings | Part::Themes | Part::Automations => {
+            Part::Keybindings => keybindings(path, text, &mut found),
+            Part::Themes | Part::Automations => {
                 json_object(path, text, &mut found);
             }
             Part::Views => view(path, text, files, &mut found),
@@ -112,14 +113,47 @@ fn settings(path: &str, text: &str, found: &mut Vec<Problem>) {
     }
 }
 
-/// Parses JSON with comments; pushes the parse error with its position.
+/// The shortcuts file by its own reader (`cmux_config::keybindings`): a
+/// JSONC array of bindings, and an empty or comment-only file is fine. Only
+/// a file that reader cannot load at all stops an apply; one bad entry is
+/// skipped by the app and shown on its Settings row, as before.
+fn keybindings(path: &str, text: &str, found: &mut Vec<Problem>) {
+    let unreadable = cmux_config::keybindings::parse(text)
+        .diagnostics
+        .into_iter()
+        .find(|entry| entry.problem == cmux_config::keybindings::Problem::UnreadableFile);
+    let Some(unreadable) = unreadable else { return };
+    // The parse error with its line when the text is not JSON at all.
+    match json_value(path, text, found) {
+        Some(value) if value.is_array() => {
+            found.push(Problem::at(path, Some(1), None, unreadable.message));
+        }
+        Some(_) => found.push(Problem::at(
+            path,
+            Some(1),
+            None,
+            "must be a JSON array of bindings, like [{ \"key\": \"cmd+k\", \"command\": \"...\" }]",
+        )),
+        None => {}
+    }
+}
+
+/// Parses a JSON object with comments; pushes what is wrong with its position.
 fn json_object(path: &str, text: &str, found: &mut Vec<Problem>) -> Option<Value> {
-    match jsonc::parse(text) {
-        Ok(value) if value.is_object() => Some(value),
-        Ok(_) => {
+    match json_value(path, text, found) {
+        Some(value) if value.is_object() => Some(value),
+        Some(_) => {
             found.push(Problem::at(path, Some(1), None, "must be a JSON object"));
             None
         }
+        None => None,
+    }
+}
+
+/// Parses JSON with comments; pushes the parse error with its position.
+fn json_value(path: &str, text: &str, found: &mut Vec<Problem>) -> Option<Value> {
+    match jsonc::parse(text) {
+        Ok(value) => Some(value),
         Err(error) => {
             let (line, column, message) = match &error {
                 jsonc::JsoncError::Malformed { offset } => {
@@ -242,6 +276,22 @@ mod tests {
         let lines = check("themes/night.json", "{\n  \"name\": \"night\",\n  \"look\": }\n}\n");
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].starts_with("themes/night.json:3:"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_shortcuts_file_is_an_array_and_only_an_unreadable_one_is_a_problem() {
+        let valid = "// mine\n[\n  { \"key\": \"cmd+k\", \"command\": \"palette.open\" },\n]\n";
+        assert_eq!(check("keybindings.json", valid), Vec::<String>::new());
+        assert_eq!(check("keybindings.json", ""), Vec::<String>::new());
+        assert_eq!(check("keybindings.json", "// nothing yet\n"), Vec::<String>::new());
+        // One entry the app skips does not stop an apply of something else.
+        assert_eq!(check("keybindings.json", "[ { \"key\": \"cmd+k\" } ]"), Vec::<String>::new());
+        let object = check("keybindings.json", "{ \"cmd+k\": \"palette.open\" }");
+        assert_eq!(object.len(), 1, "{object:?}");
+        assert!(object[0].contains("must be a JSON array of bindings"), "{object:?}");
+        let broken = check("keybindings.json", "[\n  { \"key\": }\n]\n");
+        assert_eq!(broken.len(), 1, "{broken:?}");
+        assert!(broken[0].starts_with("keybindings.json:2:"), "{broken:?}");
     }
 
     #[test]

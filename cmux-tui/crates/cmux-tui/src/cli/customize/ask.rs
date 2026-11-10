@@ -54,10 +54,16 @@ impl Chat for NoChat {
     }
 }
 
+/// Where the chat runs: this machine, whatever `CMUX_ON` or the saved
+/// `chat.on` say. The brief names this machine's files, so an agent on a
+/// Cloud VM would edit a setup nobody is looking at.
+const HERE: [&str; 2] = ["--on", "here"];
+
 /// `cmux chat` words for a first ask.
 pub(super) fn new_chat_words(wish: &str, brief: &str, options: &AskOptions) -> Vec<String> {
     let mut words =
         vec!["--json".to_owned(), "chat".to_owned(), "--name".to_owned(), chat_name(wish)];
+    words.extend(HERE.map(str::to_owned));
     for (flag, value) in [("--harness", &options.harness), ("--model", &options.model)] {
         if let Some(value) = value {
             words.extend([flag.to_owned(), value.clone()]);
@@ -72,6 +78,7 @@ pub(super) fn new_chat_words(wish: &str, brief: &str, options: &AskOptions) -> V
 pub(super) fn send_words(session: &str, brief: &str, options: &AskOptions) -> Vec<String> {
     let mut words =
         vec!["--json".to_owned(), "chat".to_owned(), "send".to_owned(), session.to_owned()];
+    words.extend(HERE.map(str::to_owned));
     wait_words(&mut words, options);
     // The brief starts with a word, never a dash, so it is the TEXT.
     words.push(brief.to_owned());
@@ -131,22 +138,41 @@ pub(super) fn ask(
     let session = begun.draft.session.clone().filter(|_| !options.new_chat);
     let mut result = None;
     if let Some(session) = &session {
-        // The draft's chat may be gone (closed, another machine): then a
-        // new chat takes the ask, with the same brief.
-        result = chat.run(&send_words(session, &brief, options)).ok().filter(|result| result.ok);
+        let sent = chat.run(&send_words(session, &brief, options)).map_err(chat_failed)?;
+        // Only a chat that is gone (closed, another machine) hands the ask
+        // to a new one: `chat send` looks the session up before it sends
+        // anything, so nothing was delivered. Any other failure may have
+        // come after delivery (a turn that ran out of `--timeout`, a failed
+        // turn), and a second chat would do the same edits twice.
+        if sent.ok || code(&sent).as_deref() != Some(GONE) {
+            result = Some((sent, Some(session.clone())));
+        }
     }
-    let result = match result {
+    let (result, sent_to) = match result {
         Some(result) => result,
-        None => chat.run(&new_chat_words(wish, &brief, options)).map_err(chat_failed)?,
+        None => (chat.run(&new_chat_words(wish, &brief, options)).map_err(chat_failed)?, None),
     };
     let answer = last_json(&result.stdout);
     if !result.ok {
-        let said = last_json(&result.stderr)
+        let error = last_json(&result.stderr);
+        let said = error
             .as_ref()
             .and_then(|error| find(error, "message"))
             .map(str::to_owned)
             .unwrap_or_else(|| result.stderr.trim().to_owned());
-        return Err(chat_failed(said));
+        // The chat that has the ask: the one sent to, or the new one a
+        // timed-out wait names.
+        let has_it = sent_to.or_else(|| {
+            error.as_ref().and_then(|error| find(error, "session_id")).map(str::to_owned)
+        });
+        let timed_out = code(&result).as_deref() == Some(TIMED_OUT);
+        return Err(match has_it {
+            Some(session) => {
+                customize.set_session(&session)?;
+                delivered(&session, &said, timed_out)
+            }
+            None => chat_failed(said),
+        });
     }
     let session = answer
         .as_ref()
@@ -167,6 +193,34 @@ pub(super) fn ask(
         begun,
         status: customize.status()?,
     })
+}
+
+/// `cmux chat send`'s code for a session no chat has.
+const GONE: &str = "selector.not_found";
+/// `cmux chat --wait`'s code for a turn that outlived `--timeout`.
+const TIMED_OUT: &str = "chat.wait_timeout";
+
+/// The error code a failed `cmux chat` printed.
+fn code(result: &ChatResult) -> Option<String> {
+    last_json(&result.stderr).as_ref().and_then(|error| find(error, "code")).map(str::to_owned)
+}
+
+/// Chat `session` was sent the ask and did not see it through. It is not
+/// sent again: the agent may be working on it, or may have made part of it.
+fn delivered(session: &str, why: &str, timed_out: bool) -> Failure {
+    let (code, exit, what) = if timed_out {
+        ("customize.chat_unfinished", 3, "has the ask, and the agent is still working on it")
+    } else {
+        ("customize.chat_failed", 1, "was sent the ask and did not finish it")
+    };
+    Failure {
+        code: code.to_owned(),
+        message: format!(
+            "chat {session} {what}: {why}\nit was not sent again. `cmux chat wait {session}` waits for the turn, `cmux customize` shows what changed so far, and `cmux customize --new 'WISH'` asks in a fresh chat"
+        ),
+        details: serde_json::json!({ "session_id": session, "delivered": timed_out }),
+        exit,
+    }
 }
 
 /// The draft stays open when the chat does not start: any agent can take it

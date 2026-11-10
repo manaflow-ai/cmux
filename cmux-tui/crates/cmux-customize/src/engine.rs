@@ -6,8 +6,8 @@ use std::io;
 use crate::store::{Ask, Draft, Generation, Index, Kind, Store};
 use crate::tree::{self, Part, Scan, Tree};
 use crate::{
-    Applied, Begun, Change, ChangeKind, DraftInfo, Error, FileDiff, History, Restored, Roots,
-    Status, diff, validate,
+    Applied, Begun, Change, ChangeKind, DraftInfo, Error, FileDiff, History, Reader, Restored,
+    Roots, Status, diff, redact, validate,
 };
 
 /// One customization (one person's cmux on one machine).
@@ -71,8 +71,9 @@ impl Customize {
         })
     }
 
-    /// The text of what the draft changed.
-    pub fn diff(&self) -> Result<Vec<FileDiff>, Error> {
+    /// The text of what the draft changed, with credentials hidden for
+    /// `reader` (`redact`).
+    pub fn diff(&self, reader: Reader) -> Result<Vec<FileDiff>, Error> {
         let index = self.store.index()?;
         let base = self.current_tree(&index)?;
         let live = tree::scan(&self.roots)?.tree;
@@ -83,13 +84,14 @@ impl Customize {
                 None => Vec::new(),
             };
             let new = tree::read(&self.roots, &change.path)?.unwrap_or_default();
-            diffs.push(file_diff(change.path, change.kind, &old, &new));
+            diffs.push(file_diff(change.path, change.kind, &old, &new, reader));
         }
         Ok(diffs)
     }
 
-    /// What generation `n` changed from the one before it.
-    pub fn generation_diff(&self, n: u32) -> Result<Vec<FileDiff>, Error> {
+    /// What generation `n` changed from the one before it, with credentials
+    /// hidden for `reader`: generation 1 is the whole settings file.
+    pub fn generation_diff(&self, n: u32, reader: Reader) -> Result<Vec<FileDiff>, Error> {
         let index = self.store.index()?;
         let generation = index.get(n).ok_or(Error::NoSuchGeneration(n))?;
         let new_tree = self.store.tree(n)?;
@@ -108,6 +110,7 @@ impl Customize {
                 change.kind,
                 &read(&old_tree)?,
                 &read(&new_tree)?,
+                reader,
             ));
         }
         Ok(diffs)
@@ -336,7 +339,14 @@ impl Customize {
         // Every object the restore needs is read and checked before one live
         // file changes: a damaged store refuses whole.
         let mut wanted = BTreeMap::new();
-        let live = tree::scan(&self.roots)?.tree;
+        let Scan { tree: live, skipped, .. } = tree::scan(&self.roots)?;
+        // A live file the scan left out (it grew past the size limit) has no
+        // copy anywhere: writing the older one over it would lose it for good.
+        let in_the_way: Vec<_> =
+            skipped.into_iter().filter(|file| target_tree.contains_key(&file.path)).collect();
+        if !in_the_way.is_empty() {
+            return Err(Error::Untracked(in_the_way));
+        }
         for (path, entry) in &target_tree {
             if live.get(path).map(|entry| &entry.sha) != Some(&entry.sha) {
                 wanted.insert(path.clone(), (self.store.object(&entry.sha)?, entry.exec));
@@ -426,9 +436,15 @@ fn first_change_after(asked_ms: u64, changes: &[Change], scan: &Scan) -> Option<
         .map(|modified| modified - asked_ms)
 }
 
-fn file_diff(path: String, kind: ChangeKind, old: &[u8], new: &[u8]) -> FileDiff {
-    let diff = match (std::str::from_utf8(old), std::str::from_utf8(new)) {
-        (Ok(old), Ok(new)) => diff::unified(old, new),
+fn file_diff(path: String, kind: ChangeKind, old: &[u8], new: &[u8], reader: Reader) -> FileDiff {
+    // Redacted before the diff, so no line of it can carry a credential.
+    let shown = |bytes: &[u8]| {
+        std::str::from_utf8(bytes).ok().map(|text| {
+            if path == tree::SETTINGS { redact::settings(text, reader) } else { redact::text(text) }
+        })
+    };
+    let diff = match (shown(old), shown(new)) {
+        (Some(old), Some(new)) => diff::unified(&old, &new),
         _ => None,
     };
     FileDiff { path, kind, diff }

@@ -158,6 +158,21 @@ pub fn locate(roots: &Roots, path: &str) -> Option<PathBuf> {
     }
 }
 
+/// Whether the scan would read `path`: a path a part owns that is no dot
+/// file, editor backup or `node_modules` entry, and for a theme a `.json`.
+/// Only such a path may be written by a profile, because only such a path is
+/// in the generation a discard puts back.
+pub fn tracked(roots: &Roots, path: &str) -> bool {
+    locate(roots, path).is_some()
+        && !path.split('/').any(hidden_name)
+        && (!path.starts_with("themes/") || path.ends_with(".json"))
+}
+
+/// A name the scan steps over.
+fn hidden_name(name: &str) -> bool {
+    name.starts_with('.') || name.ends_with('~') || name == "node_modules"
+}
+
 /// Reads the live tree. A missing file or folder is simply absent.
 pub fn scan(roots: &Roots) -> io::Result<Scan> {
     let mut scan = Scan::default();
@@ -329,7 +344,7 @@ fn add_dir(
     let mut count = 0usize;
     while let Some((logical_dir, folder)) = pending.pop() {
         for name in sorted_names(&folder)? {
-            if name.starts_with('.') || name.ends_with('~') || name == "node_modules" {
+            if hidden_name(&name) {
                 continue;
             }
             let path = folder.join(&name);

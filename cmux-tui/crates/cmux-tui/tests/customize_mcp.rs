@@ -75,7 +75,11 @@ fn customize_mcp_and_cli_share_one_draft_and_one_history() {
     let dir = PathBuf::from(format!("/tmp/cmux-cz-{}-{stamp}", std::process::id()));
     std::fs::create_dir_all(dir.join("rt")).unwrap();
     std::fs::create_dir_all(dir.join("themes")).unwrap();
-    std::fs::write(dir.join("cmux-next.json"), r#"{"mcp": {"enabled": true}}"#).unwrap();
+    std::fs::write(
+        dir.join("cmux-next.json"),
+        "{\n  \"mcp\": {\"enabled\": true},\n  \"browser\": {\"newTabPage\": \"https://alice:fixture-secret-937@example.com\"},\n  \"updates\": {\"channel\": \"nightly\"}\n}\n",
+    )
+    .unwrap();
     let theme = dir.join("themes/night.json");
 
     let mut child = cmux(&dir)
@@ -136,6 +140,21 @@ fn customize_mcp_and_cli_share_one_draft_and_one_history() {
     let applied: Value = serde_json::from_slice(&applied.stdout).unwrap();
     assert_eq!(applied["generation"]["n"], 2, "{applied}");
     assert_eq!(applied["generation"]["label"], "a night theme", "{applied}");
+
+    // The first generation is the whole setup. The agent reads it as the
+    // settings tools would show it: no credential, and no setting that only
+    // the person may read. The person's own terminal masks the credential too.
+    let first = server.ok("customize_show", json!({"generation": 1}));
+    let shown = first.to_string();
+    assert_eq!(first["files"][0]["path"], "settings.json", "{first}");
+    assert!(
+        shown.contains("[redacted]@example.com") || shown.contains("\\\"[redacted]\\\""),
+        "{shown}"
+    );
+    assert!(!shown.contains("fixture-secret-937") && !shown.contains("nightly"), "{shown}");
+    let mine = cmux(&dir).args(["customize", "show", "1"]).output().unwrap();
+    let mine = String::from_utf8_lossy(&mine.stdout).into_owned();
+    assert!(mine.contains("nightly") && !mine.contains("fixture-secret-937"), "{mine}");
 
     // The person edits by hand; the agent is told so before it writes again.
     std::fs::write(&theme, "{ \"name\": \"midnight\" }\n").unwrap();

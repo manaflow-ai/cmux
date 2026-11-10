@@ -296,6 +296,9 @@ export function cmuxCommandRefusal(
     inCloud?: boolean;
     /// This pane can open New Cloud Chat for a started chat's `--on cloud` (not Quick Chat).
     cloudStart?: boolean;
+    /// No chat has started and Cloud or Sandboxed is picked for it: there is no chat to read a
+    /// host from yet, and the one this prompt starts will not run on this machine's own files.
+    startsElsewhere?: boolean;
   },
 ): StringKey | undefined {
   const placed = PLACED_ACTIONS.has(command.action) ? commandPlace(typedArgs) : undefined;
@@ -325,8 +328,9 @@ export function cmuxCommandRefusal(
     case "login":
       return undefined;
     case "customize":
-      // The agent edits this machine's cmux: a chat on a Cloud machine would change that machine's.
-      return state.inCloud ? "composer.cmuxUnavailable" : undefined;
+      // The agent edits this machine's cmux: a chat on a Cloud machine would change that machine's,
+      // and so would the chat a New Tab with Cloud or Sandboxed picked is about to start.
+      return state.inCloud || state.startsElsewhere ? "composer.cmuxUnavailable" : undefined;
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
     case "cd":

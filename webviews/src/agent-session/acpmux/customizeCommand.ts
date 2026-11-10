@@ -71,3 +71,18 @@ export function customizeMessage(text: string): string | undefined {
   const match = /^\/customize(?:\s+([\s\S]*))?$/i.exec(text.trim());
   return match ? customizePrompt(match[1] ?? "") : undefined;
 }
+
+/// Whether the chat a prompt is about to start runs somewhere other than this machine's own
+/// files: Cloud or Sandboxed picked for a chat with no turn yet, another machine, or a saved
+/// environment that is not a place on this one. A started chat answers by its own host instead.
+/// `/customize` is refused there: its agent would change that machine's cmux, or a sandbox's copy.
+export function newChatRunsElsewhere(pick: {
+  started?: boolean;
+  mode?: "persistent" | "sandboxed" | "cloud" | undefined;
+  machine?: boolean;
+  environmentKind?: string | undefined;
+}): boolean {
+  if (pick.started) return false;
+  if (pick.mode === "cloud" || pick.mode === "sandboxed") return true;
+  return Boolean(pick.machine) || (pick.environmentKind !== undefined && pick.environmentKind !== "local");
+}

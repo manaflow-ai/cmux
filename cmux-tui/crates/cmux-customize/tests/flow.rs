@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use cmux_customize::{ChangeKind, Customize, Error, Kind, Part, Roots, brief};
+use cmux_customize::{ChangeKind, Customize, Error, Kind, Part, Reader, Roots, brief};
 
 struct Home {
     dir: tempfile::TempDir,
@@ -69,7 +69,7 @@ fn a_person_alone_edits_applies_and_rolls_back_and_forward() {
     let status = customize.status().unwrap();
     assert_eq!(paths(&status.changes), [("settings.json", ChangeKind::Modified, true)]);
     assert_eq!(status.changes[0].part, Part::Settings);
-    let diff = customize.diff().unwrap();
+    let diff = customize.diff(Reader::Person).unwrap();
     assert!(
         diff[0].diff.as_deref().unwrap().contains("-  \"appearance\": { \"density\": \"cozy\" }")
     );
@@ -357,10 +357,158 @@ fn a_hostile_or_broken_profile_writes_nothing() {
     assert_eq!(home.read("cmux-next.json").unwrap(), COZY);
     assert_eq!(customize.generations().unwrap().generations.len(), 0);
     assert!(!home.config("themes").exists() && !home.config("customize").exists());
+}
 
+const SECRET_SETTINGS: &str = "{\n  \"browser\": { \"newTabPage\": \"https://alice:credential@example.com\" },\n  \"appearance\": { \"density\": \"compact\" },\n  \"updates\": { \"channel\": \"nightly\" }\n}\n";
+
+fn diff_text(diffs: &[cmux_customize::FileDiff]) -> String {
+    diffs.iter().filter_map(|file| file.diff.clone()).collect::<Vec<_>>().join("\n")
+}
+
+/// F1: the first generation's diff is the whole settings file, and a live
+/// diff is whatever was just saved. Neither shows a credential to anyone,
+/// and an agent does not read a setting the settings tools keep from it.
+#[test]
+fn no_diff_shows_a_credential_at_any_generation_or_live() {
+    let home = Home::new();
+    home.write("cmux-next.json", SECRET_SETTINGS);
+    let customize = home.customize();
+    customize.ensure_baseline(1).unwrap();
+    for reader in [Reader::Agent, Reader::Person] {
+        let first = diff_text(&customize.generation_diff(1, reader).unwrap());
+        assert!(!first.contains("credential"), "{reader:?}: {first}");
+        assert!(first.contains("+  \"browser\": { \"newTabPage\": \"[redacted]\" },"), "{first}");
+        assert!(first.contains("\"density\": \"compact\""), "{first}");
+        assert_eq!(first.contains("nightly"), reader == Reader::Person, "{reader:?}: {first}");
+    }
+
+    let token = format!("ghp_{}", "a1B2".repeat(9));
+    home.write(
+        "cmux-next.json",
+        &SECRET_SETTINGS.replace("alice:credential", "bob:hunter2").replace("compact", "cozy"),
+    );
+    home.write("themes/night.json", "{ \"name\": \"night\", \"apiKey\": \"k-937\" }\n");
+    home.write("customize/main.js", &format!("const gh = '{token}';\nlet a = 1;\n"));
+    for reader in [Reader::Agent, Reader::Person] {
+        let live = diff_text(&customize.diff(reader).unwrap());
+        for secret in ["credential", "hunter2", "k-937", token.as_str()] {
+            assert!(!live.contains(secret), "{reader:?} reads {secret}: {live}");
+        }
+        assert!(live.contains("+  \"appearance\": { \"density\": \"cozy\" },"), "{live}");
+        assert!(live.contains("+let a = 1;"), "{live}");
+    }
+    // The files themselves are as they were saved: only the reading is masked.
+    assert!(home.read("cmux-next.json").unwrap().contains("bob:hunter2"));
+}
+
+/// F2: a profile is for sharing, so a credential stays on this machine and
+/// the answer names what stayed.
+#[test]
+fn a_saved_profile_leaves_credentials_out_and_says_which() {
+    let home = Home::new();
+    home.write("cmux-next.json", SECRET_SETTINGS);
+    home.write("themes/night.json", "{ \"name\": \"night\" }\n");
     home.write("themes/leaky.json", "{ \"name\": \"ghp_abcdefghijklmnopqrstuvwxyz0123456789\" }\n");
-    assert!(matches!(customize.save_profile("leaky", "", 2), Err(Error::Profile(_))));
-    assert!(!home.config("profiles/leaky.json").exists());
+    home.write("themes/keyed.json", "{\n  \"name\": \"keyed\",\n  \"token\": \"t-937\"\n}\n");
+    let saved = home.customize().save_profile("mine", "", 2).unwrap();
+    let text = fs::read_to_string(&saved.path).unwrap();
+    for secret in ["credential", "alice", "ghp_", "t-937", "nightly"] {
+        assert!(!text.contains(secret), "the profile carries {secret}: {text}");
+    }
+    assert_eq!(
+        (saved.settings, saved.files.as_slice()),
+        (1, ["themes/night.json".to_owned()].as_slice())
+    );
+    let said = saved.left_out.join("\n");
+    assert!(
+        said.contains("the setting browser.newTabPage: its value carries a credential"),
+        "{said}"
+    );
+    assert!(
+        said.contains("themes/leaky.json: line 1 looks like a secret (a GitHub token)"),
+        "{said}"
+    );
+    assert!(said.contains("themes/keyed.json: line 3 looks like a secret"), "{said}");
+    assert!(said.contains("1 setting that only you can change"), "{said}");
+    assert!(!said.contains("credential@") && !said.contains("t-937"), "{said}");
+}
+
+/// F3: a profile writes only where a generation can hold what was there.
+#[test]
+fn a_profile_cannot_write_a_file_the_history_does_not_keep() {
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    home.write("customize/.env", "MINE=1\n");
+    let customize = home.customize();
+    for path in
+        ["customize/.env", "customize/.git/config", "themes/.hidden.json", "customize/a/.b/c.js"]
+    {
+        let profile = serde_json::from_str::<cmux_customize::profile::Profile>(&format!(
+            "{{\"cmuxProfile\":1,\"name\":\"x\",\"settings\":{{}},\"files\":{{\"{path}\":\"THEIRS=1\\n\"}}}}"
+        ))
+        .unwrap();
+        let result = customize.preview_profile(&profile, "cli", 1);
+        assert!(matches!(result, Err(Error::Profile(_))), "{path}: {result:?}");
+    }
+    assert_eq!(home.read("customize/.env").unwrap(), "MINE=1\n");
+    assert_eq!(customize.generations().unwrap().generations.len(), 0);
+}
+
+/// F4: a file that grew past what a generation holds is not in any
+/// snapshot, so discard and rollback refuse to write over it.
+#[test]
+fn a_file_too_large_to_snapshot_is_never_overwritten() {
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    home.write("customize/data.js", "let small = 1;\n");
+    let customize = home.customize();
+    customize.ensure_baseline(1).unwrap();
+    home.write("themes/night.json", "{ \"name\": \"night\" }\n");
+    customize.apply(Some("night"), "cli", 2).unwrap();
+
+    let big = "x".repeat(2 * 1024 * 1024 + 1);
+    home.write("customize/data.js", &big);
+    home.write("cmux-next.json", COMPACT);
+    for result in [customize.discard("cli", 3), customize.rollback(Some(1), "cli", 4)] {
+        match result {
+            Err(Error::Untracked(files)) => {
+                assert_eq!(files.len(), 1);
+                assert_eq!(files[0].path, "customize/data.js");
+            }
+            other => panic!("the large file was written over: {other:?}"),
+        }
+    }
+    // Nothing moved: the large file, the unapplied edit, and the history.
+    assert_eq!(home.read("customize/data.js").unwrap().len(), big.len());
+    assert_eq!(home.read("cmux-next.json").unwrap(), COMPACT);
+    assert_eq!(customize.generations().unwrap().generations.len(), 2);
+    let error = Error::Untracked(vec![]).code();
+    assert_eq!(error, "customize.untracked");
+
+    // Small again, both work.
+    home.write("customize/data.js", "let small = 2;\n");
+    customize.rollback(Some(1), "cli", 5).unwrap();
+    assert_eq!(home.read("customize/data.js").unwrap(), "let small = 1;\n");
+    assert_eq!(home.read("themes/night.json"), None);
+}
+
+/// F5: the shortcuts file is an array, and a person who has one can apply.
+#[test]
+fn a_setup_with_a_shortcuts_file_applies() {
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    home.write(
+        "keybindings.json",
+        "// mine\n[\n  { \"key\": \"cmd+k\", \"command\": \"palette.open\" },\n]\n",
+    );
+    let customize = home.customize();
+    customize.ensure_baseline(1).unwrap();
+    home.write("cmux-next.json", COMPACT);
+    let status = customize.status().unwrap();
+    assert_eq!(status.problems, Vec::new(), "{:?}", status.problems);
+    assert_eq!(customize.apply(None, "cli", 2).unwrap().generation.n, 2);
+    home.write("keybindings.json", "{ \"cmd+k\": \"palette.open\" }\n");
+    assert!(matches!(customize.apply(None, "cli", 3), Err(Error::Invalid(_))));
 }
 
 /// What the verbs cost as a setup grows: printed (run with `--nocapture`),

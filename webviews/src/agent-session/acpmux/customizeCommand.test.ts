@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { customizeMessage, customizePrompt, customizeVerb, shellWord } from "./customizeCommand";
+import { customizeMessage, customizePrompt, customizeVerb, shellWord, newChatRunsElsewhere } from "./customizeCommand";
 
 describe("/customize", () => {
   test("a wish asks the agent to follow the brief, quoted as one shell word", () => {
@@ -36,6 +36,21 @@ describe("/customize", () => {
     // After `save NAME` the rest is a note, as in the CLI, and is one quoted word.
     expect(customizeVerb("save space in the sidebar; $(rm)")).toBe("cmux customize save space 'in the sidebar; $(rm)'");
     expect(shellWord('a `b` $(c) "d"')).toBe("'a `b` $(c) \"d\"'");
+  });
+
+  test("a chat that has not started says where it will run by what is picked", () => {
+    expect(newChatRunsElsewhere({})).toBe(false);
+    expect(newChatRunsElsewhere({ mode: "persistent", environmentKind: "local" })).toBe(false);
+    for (const pick of [
+      { mode: "cloud" as const },
+      { mode: "sandboxed" as const },
+      { machine: true },
+      { environmentKind: "ssh" },
+      { environmentKind: "cloud" },
+    ])
+      expect(newChatRunsElsewhere(pick)).toBe(true);
+    // A started chat answers by its own host (`inCloud`), whatever the picker last showed.
+    expect(newChatRunsElsewhere({ started: true, mode: "cloud" })).toBe(false);
   });
 
   test("only a whole /customize message is taken", () => {

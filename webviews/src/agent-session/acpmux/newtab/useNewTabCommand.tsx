@@ -12,6 +12,9 @@ import { withoutInlineTokens, type ComposerAttachment } from "../attachments";
 export type NewTabCommandActions = {
   importError?: string | undefined;
   importSandboxed?: boolean;
+  /// The chat this page starts runs somewhere other than this machine (customizeCommand.ts
+  /// `startsElsewhere`): read when a command is typed, since the picks change under the page.
+  startsElsewhere?(): boolean;
   onCmuxCommand?(command: CmuxCommand, args?: string): CmuxCommandResult;
   onImportFile?(file: File): void | Promise<void>;
 };
@@ -72,6 +75,10 @@ export function useNewTabCommand(
         importInput.current?.click();
         clear();
       }
+      return true;
+    }
+    if (command.command.action === "customize" && actions.startsElsewhere?.()) {
+      refuse(t("composer.cmuxUnavailable"));
       return true;
     }
     if (!actions.onCmuxCommand && harnessTakesToo(command.command)) return false;

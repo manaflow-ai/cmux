@@ -17,6 +17,7 @@ use cmux_config::{Schema, jsonc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::redact::{self, find_secret};
 use crate::tree::{self, Part, SETTINGS};
 use crate::{Begun, Customize, Error, validate};
 
@@ -105,14 +106,30 @@ impl Customize {
                     let text = String::from_utf8_lossy(bytes);
                     let file = jsonc::parse(&text).unwrap_or(Value::Null);
                     let mut private = 0;
+                    let mut credentials = Vec::new();
                     for row in &Schema::embedded().rows {
+                        let url = matches!(row.kind, cmux_config::schema::Kind::Url);
                         match cmux_config::value::value_at(&file, &row.path) {
+                            // A setting an agent may set can still hold a
+                            // credential (a page URL with a password in it).
+                            Some(value)
+                                if row.agent_settable
+                                    && (redact::sensitive_value(value, url)
+                                        || find_secret(&value.to_string()).is_some()) =>
+                            {
+                                credentials.push(row.key.clone());
+                            }
                             Some(value) if row.agent_settable => {
                                 profile.settings.insert(row.key.clone(), value.clone());
                             }
                             Some(_) => private += 1,
                             None => {}
                         }
+                    }
+                    for key in credentials {
+                        left_out.push(format!(
+                            "the setting {key}: its value carries a credential (a user, password or token)"
+                        ));
                     }
                     if private > 0 {
                         left_out.push(format!(
@@ -123,9 +140,16 @@ impl Customize {
                 }
                 Part::Automations => {}
                 _ => match std::str::from_utf8(bytes) {
-                    Ok(text) => {
-                        profile.files.insert(path.clone(), text.to_owned());
-                    }
+                    // A profile is for sharing: a file with a credential
+                    // in it stays here, and the answer says which line.
+                    Ok(text) => match find_secret(text) {
+                        Some((line, what)) => left_out.push(format!(
+                            "{path}: line {line} looks like a secret ({what}); take it out of the file to share it"
+                        )),
+                        None => {
+                            profile.files.insert(path.clone(), text.to_owned());
+                        }
+                    },
                     Err(_) => left_out.push(format!("{path} (not text)")),
                 },
             }
@@ -138,22 +162,10 @@ impl Customize {
             ));
         }
         for (path, text) in &profile.files {
-            if let Some((line, what)) = find_secret(text) {
-                return Err(Error::Profile(format!(
-                    "{path}:{line}: looks like a secret ({what}); a profile is for sharing, so take it out of the file first"
-                )));
-            }
             if home.as_ref().is_some_and(|home| text.contains(home.as_str())) {
                 left_out.push(format!(
                     "note: {path} names your home folder, which another machine does not have"
                 ));
-            }
-        }
-        for (key, value) in &profile.settings {
-            if let Some((_, what)) = find_secret(&value.to_string()) {
-                return Err(Error::Profile(format!(
-                    "the setting {key} looks like a secret ({what}); take it out before saving a profile"
-                )));
             }
         }
         let path = self.roots().profiles_dir().join(format!("{name}.json"));
@@ -240,7 +252,10 @@ impl Customize {
         }
         let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         for (path, text) in &profile.files {
-            let owned = tree::locate(self.roots(), path).is_some()
+            // Only a path the scan reads: anything else (a dot file like
+            // `customize/.env`) would be overwritten with no generation
+            // holding what was there.
+            let owned = tree::tracked(self.roots(), path)
                 && !matches!(Part::of(path), Part::Settings | Part::Automations);
             if !owned {
                 return Err(Error::Profile(format!("{path}: a profile may not write there")));
@@ -307,59 +322,9 @@ fn read_profile(path: &std::path::Path) -> Result<Profile, Error> {
     })
 }
 
-/// A token by its well-known prefix, or a private key block. Line is
-/// 1-based. Deliberately narrow: a false alarm here blocks a save.
-fn find_secret(text: &str) -> Option<(u32, &'static str)> {
-    const PREFIXES: &[(&str, usize, &str)] = &[
-        ("sk-", 24, "an API key"),
-        ("ghp_", 30, "a GitHub token"),
-        ("gho_", 30, "a GitHub token"),
-        ("ghs_", 30, "a GitHub token"),
-        ("github_pat_", 30, "a GitHub token"),
-        ("xoxb-", 20, "a chat token"),
-        ("xoxp-", 20, "a chat token"),
-        ("AKIA", 16, "a cloud access key"),
-    ];
-    for (index, line) in text.lines().enumerate() {
-        let number = index as u32 + 1;
-        if line.contains("-----BEGIN ") && line.contains("PRIVATE KEY") {
-            return Some((number, "a private key"));
-        }
-        for (prefix, least, what) in PREFIXES {
-            for (start, _) in line.match_indices(prefix) {
-                let before = line.get(..start).unwrap_or_default();
-                let after = line.get(start + prefix.len()..).unwrap_or_default();
-                let boundary =
-                    before.chars().next_back().is_none_or(|c| !c.is_ascii_alphanumeric());
-                let run = after
-                    .bytes()
-                    .take_while(|byte| {
-                        byte.is_ascii_alphanumeric() || *byte == b'_' || *byte == b'-'
-                    })
-                    .count();
-                if boundary && run >= *least {
-                    return Some((number, what));
-                }
-            }
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_token_is_found_by_its_prefix_and_ordinary_text_is_not() {
-        assert_eq!(
-            find_secret("a\nkey = \"ghp_abcdefghijklmnopqrstuvwxyz0123456789\"\n"),
-            Some((2, "a GitHub token"))
-        );
-        assert_eq!(find_secret("-----BEGIN OPENSSH PRIVATE KEY-----"), Some((1, "a private key")));
-        assert_eq!(find_secret("task-sk-ip and risk-free and AKIA"), None);
-        assert_eq!(find_secret("color: #abcdef; /* sk-short */"), None);
-    }
 
     #[test]
     fn a_profile_name_is_a_plain_file_name() {

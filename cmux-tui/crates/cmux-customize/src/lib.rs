@@ -22,6 +22,7 @@ mod diff;
 mod engine;
 mod paths;
 pub mod profile;
+pub mod redact;
 mod store;
 mod tree;
 mod validate;
@@ -31,6 +32,7 @@ use serde::Serialize;
 pub use brief::brief;
 pub use engine::Customize;
 pub use paths::{Roots, STATE_OVERRIDE};
+pub use redact::Reader;
 pub use store::{Ask, Draft, Generation, Kind};
 pub use tree::{Part, Skipped};
 pub use validate::Problem;
@@ -169,6 +171,9 @@ pub enum Error {
     /// There is no earlier generation.
     NothingEarlier,
     Profile(String),
+    /// Live files cmux does not track (too large, too many) stand where a
+    /// restore would write; nothing was changed.
+    Untracked(Vec<Skipped>),
 }
 
 impl Error {
@@ -181,6 +186,7 @@ impl Error {
             Error::NoSuchGeneration(_) => "customize.no_such_generation",
             Error::NothingEarlier => "customize.nothing_earlier",
             Error::Profile(_) => "customize.profile",
+            Error::Untracked(_) => "customize.untracked",
         }
     }
 }
@@ -206,6 +212,17 @@ impl std::fmt::Display for Error {
             }
             Error::NothingEarlier => f.write_str("there is no earlier generation to roll back to"),
             Error::Profile(why) => f.write_str(why),
+            Error::Untracked(files) => {
+                write!(
+                    f,
+                    "nothing was changed: putting that setup back would overwrite {} cmux keeps no copy of, so it could not be brought back. Move or shrink it first:",
+                    count(files.len(), "file")
+                )?;
+                for file in files {
+                    write!(f, "\n  {} ({})", file.path, file.reason)?;
+                }
+                Ok(())
+            }
         }
     }
 }

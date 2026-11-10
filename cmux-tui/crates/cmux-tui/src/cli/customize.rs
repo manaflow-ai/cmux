@@ -235,10 +235,18 @@ impl From<Error> for Failure {
     fn from(error: Error) -> Failure {
         let details = match &error {
             Error::Invalid(problems) => json!({ "problems": problems }),
+            Error::Untracked(skipped) => json!({ "skipped": skipped }),
             _ => json!({}),
         };
         Failure { code: error.code().to_owned(), message: error.to_string(), details, exit: 1 }
     }
+}
+
+/// Who reads a diff. An agent over MCP sees what the settings tools show it
+/// (no credential, no setting only the person may read); a person at the
+/// terminal sees their own settings, credentials still masked.
+fn reader(origin: &str) -> cmux_customize::Reader {
+    if origin == "mcp" { cmux_customize::Reader::Agent } else { cmux_customize::Reader::Person }
 }
 
 pub(super) fn now_ms() -> u64 {
@@ -340,8 +348,8 @@ pub(super) fn execute(
             customize.end_turn()?;
             Answer::Status(customize.status()?)
         }
-        Request::Diff => Answer::Diff(customize.diff()?),
-        Request::Show { n } => Answer::Show(n, customize.generation_diff(n)?),
+        Request::Diff => Answer::Diff(customize.diff(reader(origin))?),
+        Request::Show { n } => Answer::Show(n, customize.generation_diff(n, reader(origin))?),
         Request::Brief { wish } => {
             let begun = customize.begin(&wish, origin, now_ms)?;
             let status = customize.status()?;
