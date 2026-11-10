@@ -52,7 +52,12 @@ export function folderOutline(card: Box, tab: { a: number; b: number; top: numbe
   }
   p.push(`A ${rt} ${rt} 0 0 1 ${a + rt} ${t}`, `L ${b - rt} ${t}`, `A ${rt} ${rt} 0 0 1 ${b} ${t + rt}`);
   p.push(f > 0 ? `L ${b} ${T - f} A ${f} ${f} 0 0 0 ${b + f} ${T}` : `L ${b} ${T}`);
-  p.push(`L ${x1 - R} ${T}`, `A ${R} ${R} 0 0 1 ${x1} ${T + R}`, `L ${x1} ${B - R}`, `A ${R} ${R} 0 0 1 ${x1 - R} ${B}`);
+  p.push(
+    `L ${x1 - R} ${T}`,
+    `A ${R} ${R} 0 0 1 ${x1} ${T + R}`,
+    `L ${x1} ${B - R}`,
+    `A ${R} ${R} 0 0 1 ${x1 - R} ${B}`,
+  );
   p.push(`L ${x0 + R} ${B}`, `A ${R} ${R} 0 0 1 ${x0} ${B - R}`, "Z");
   return p.join(" ");
 }
@@ -73,20 +78,28 @@ export function FolderTabs({ shape, fillet, radius, join, selected }: FolderTabs
   const outline = joined ? folderOutline(card, tab, radius, shape === "goo" ? fillet : 0) : cardOutline(card);
   const shade = `M 0 0 H ${W} V ${H} H 0 Z ${outline}`;
   return (
-    <div className="folder-tabs" data-shape={shape} data-join={join}>
+    <div className="folder-tabs" data-shape={shape} data-join={join} style={{ width: W, height: H }}>
       <svg className="folder-tabs-layers" viewBox={`0 0 ${W} ${H}`} width={W} height={H} aria-hidden="true">
         <path className="folder-tabs-chrome" d={shade} fillRule="evenodd" />
         <path className="folder-tabs-content" d={outline} />
         {join === "hairline" ? <path className="folder-tabs-edge" d={outline} /> : null}
         {joined ? null : (
-          <rect className="folder-tabs-pill" x={a} y={TAB_TOP} width={TAB_W} height={stripBottom - TAB_TOP - 6} rx={radius} />
+          <rect
+            className="folder-tabs-pill"
+            x={a}
+            y={TAB_TOP}
+            width={TAB_W}
+            height={stripBottom - TAB_TOP - 6}
+            rx={radius}
+          />
         )}
       </svg>
-      <ol className="folder-tabs-strip" style={{ left: card.x0, top: TAB_TOP }}>
+      <ol className="folder-tabs-strip" role="tablist" style={{ left: card.x0, top: TAB_TOP }}>
         {TABS.map((title, index) => (
           <li
             key={title}
             className="folder-tabs-tab"
+            role="tab"
             aria-selected={index === selected}
             style={{ left: index * (TAB_W + TAB_GAP), width: TAB_W, height: stripBottom - TAB_TOP - (joined ? 0 : 6) }}
           >
@@ -102,7 +115,10 @@ export function FolderTabs({ shape, fillet, radius, join, selected }: FolderTabs
         <li className="folder-tabs-row">api-server</li>
         <li className="folder-tabs-row">docs</li>
       </ul>
-      <div className="folder-tabs-body" style={{ left: card.x0 + 20, top: stripBottom + 22, width: card.x1 - card.x0 - 40 }}>
+      <div
+        className="folder-tabs-body"
+        style={{ left: card.x0 + 20, top: stripBottom + 22, width: card.x1 - card.x0 - 40 }}
+      >
         <p>The selected tab is the content it opens: one shape, one surface.</p>
         <i />
         <i className="short" />
