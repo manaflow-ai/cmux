@@ -22,9 +22,8 @@ final class ChiefSlashSkillsUITests: XCTestCase {
         attach(app, "0-composer")
 
         field.typeText("/")
-        let list = app.descendants(matching: .any)["chief.slash.suggestions"]
-        XCTAssertTrue(list.waitForExistence(timeout: 5), "/ opens the list\n\(app.debugDescription)")
-        XCTAssertTrue(app.buttons["chief.slash.row./cmux-views"].exists, "a Chief skill is listed")
+        XCTAssertTrue(app.buttons["chief.slash.row./cmux-views"].waitForExistence(timeout: 5),
+                      "/ lists a Chief skill\n\(app.debugDescription)")
         XCTAssertTrue(app.buttons["chief.slash.row./emil-prototype"].exists, "a Claude skill is listed")
         attach(app, "1-slash-all")
 

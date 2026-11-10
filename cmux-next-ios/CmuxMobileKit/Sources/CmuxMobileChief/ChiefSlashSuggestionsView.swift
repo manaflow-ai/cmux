@@ -1,4 +1,5 @@
 #if os(iOS)
+import Observation
 import UIKit
 
 /// The composer's `/` list (``ChiefSlashMenu``): a card above the message
@@ -30,6 +31,9 @@ final class ChiefSlashSuggestionsView: UIView {
         layer.shadowOpacity = 0.12
         layer.shadowRadius = 12
         layer.shadowOffset = CGSize(width: 0, height: 4)
+        // The card is a container: XCUI and VoiceOver find it and its rows.
+        isAccessibilityElement = false
+        shouldGroupAccessibilityChildren = true
         scroll.layer.cornerRadius = 16
         scroll.layer.cornerCurve = .continuous
         scroll.alwaysBounceVertical = false
@@ -203,6 +207,8 @@ extension ChiefConversationContainer {
             slashSuggestions.isHidden = true
             return
         }
+        // A fresh `/` (the card was closed) may ask the Mac again; typing more never does.
+        let fresh = slashSuggestions.isHidden
         let list = session.slashSkillList
         let skills: [ChiefSlashSkill]
         let status: String?
@@ -212,14 +218,19 @@ extension ChiefConversationContainer {
             slashSuggestions.isHidden = true
             return
         case .loading:
-            session.loadSlashSkillsIfNeeded()
+            if fresh { session.loadSlashSkillsIfNeeded() }
             skills = []
             loading = true
             status = String(localized: "mobile.chief.slash.loading", defaultValue: "Loading skills…", bundle: .module)
         case .failed:
-            session.loadSlashSkillsIfNeeded()
+            if fresh { session.loadSlashSkillsIfNeeded() }
             skills = []
-            status = String(localized: "mobile.chief.slash.failed", defaultValue: "Couldn't load skills from your Mac", bundle: .module)
+            if session.slashSkillsLoading {
+                loading = true
+                status = String(localized: "mobile.chief.slash.loading", defaultValue: "Loading skills…", bundle: .module)
+            } else {
+                status = String(localized: "mobile.chief.slash.failed", defaultValue: "Couldn't load skills from your Mac", bundle: .module)
+            }
         case let .loaded(all):
             skills = menu.matches(all)
             if skills.isEmpty, all.isEmpty {
@@ -236,9 +247,15 @@ extension ChiefConversationContainer {
         let frame = field.convert(field.bounds, to: view)
         let width = max(200, view.bounds.width - 16)
         let height = slashSuggestions.preferredHeight
-        // Above the field, under the header: the card takes the room between them.
+        // Above the field, under the header: the card takes the room between them, and hides
+        // when not even one row fits there (it never covers the field).
         let top = max(view.safeAreaInsets.top + 8, frame.minY - 12 - height)
-        slashSuggestions.frame = CGRect(x: 8, y: top, width: width, height: max(Self.minSlashHeight, frame.minY - 12 - top))
+        let room = frame.minY - 12 - top
+        guard room >= Self.minSlashHeight else {
+            slashSuggestions.isHidden = true
+            return
+        }
+        slashSuggestions.frame = CGRect(x: 8, y: top, width: width, height: room)
         view.bringSubviewToFront(slashSuggestions)
         slashSuggestions.isHidden = false
     }
