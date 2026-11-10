@@ -93,6 +93,15 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     (scope == "completion").then(|| script(rest, global.output))
 }
 
+/// `app::failure`'s error, here because `app` is unix-only and completion is not.
+fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
+    super::wire::print_local_error(
+        &serde_json::json!({ "code": code, "message": message, "details": {}, "retryable": false }),
+        output,
+        exit_code,
+    )
+}
+
 fn script(rest: &[String], output: OutputMode) -> i32 {
     let words: Vec<&str> =
         rest.iter().map(String::as_str).filter(|word| *word != "--json").collect();
@@ -108,13 +117,13 @@ fn script(rest: &[String], output: OutputMode) -> i32 {
         [] => {
             let message =
                 "cmux: completion needs a shell: zsh, bash or fish; run `cmux completion --help`";
-            return super::app::failure("usage.invalid", message, output, 2);
+            return failure("usage.invalid", message, output, 2);
         }
         [other, ..] => {
             let message = format!(
                 "cmux: completion takes zsh, bash or fish, not {other:?}; run `cmux completion --help`"
             );
-            return super::app::failure("usage.invalid", &message, output, 2);
+            return failure("usage.invalid", &message, output, 2);
         }
     };
     print!("{text}");
