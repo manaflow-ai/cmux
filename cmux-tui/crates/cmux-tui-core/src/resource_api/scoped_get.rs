@@ -90,8 +90,9 @@ fn holding(
 ) -> Result<Value, ResourceError> {
     match scoped {
         Ok(scoped)
-            if scoped[collection]
-                .as_array()
+            if scoped
+                .get(collection)
+                .and_then(Value::as_array)
                 .is_some_and(|rows| rows.iter().any(|row| row["id"] == id)) =>
         {
             Ok(scoped)
