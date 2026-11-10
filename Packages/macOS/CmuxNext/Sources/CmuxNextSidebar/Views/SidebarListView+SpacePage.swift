@@ -82,6 +82,9 @@ struct SidebarSpacePages {
     var entering: ProfileKey?
     /// Rows of the page taken for `entering` whose content changed while the space was hidden: patched after the apply.
     var changedRows: [SidebarWorkspace] = []
+    /// The metrics of the full layout the list shows (`SidebarListView.spliceBase`), read when it was made: the list's
+    /// own `metrics` are the tokens of now, which a density or a font change in the turn of a switch already moved.
+    var shownMetrics: SidebarLayoutMetrics?
 
     /// Keeps `page` (nil: nothing to keep) for `space`, and drops the pages of spaces the model no longer has.
     mutating func keep(_ page: SidebarSpacePage?, for space: ProfileKey, live: Set<ProfileKey>) {
@@ -114,10 +117,12 @@ extension SidebarListViewComponents {
     }
 
     /// The space the list shows as a page: only a full layout of the model (`spliceBase`) at rest, with no change
-    /// held and no drag, so the layout is the one a reload would make of the caches' sections.
+    /// held and no drag, so the layout is the one a reload would make of the caches' sections. Each change of the
+    /// layout in place writes the caches too: a row patch its row (`patchRowsNow`), a fold its section (`foldGroup`).
     private func spacePage() -> SidebarSpacePage? {
-        guard let base = spliceBase, !holdsModelChange, drag == nil, settling == nil, landing == nil, external == nil,
-              rowHold.isEmpty, leaving.isEmpty, !displayed.rows.isEmpty, appliedSections.count == sections.count else { return nil }
+        guard let base = spliceBase, let metrics = spacePages.shownMetrics, !holdsModelChange, drag == nil, settling == nil,
+              landing == nil, external == nil, rowHold.isEmpty, leaving.isEmpty, !displayed.rows.isEmpty,
+              appliedSections.count == sections.count else { return nil }
         var ordered: [SidebarSection] = []
         ordered.reserveCapacity(appliedSections.count)
         for section in appliedSections {
@@ -131,8 +136,9 @@ extension SidebarListViewComponents {
     /// The kept layout of the space this reload shows, with the options it is the full layout of, when the model's
     /// rows are the page's: the page's row caches become the list's and no row is laid out. Rows whose content
     /// changed while the space was hidden keep their places and are patched after the apply (`showSpace`). Nil, with
-    /// the caches as they were, for any other change (a row added, removed or moved, a fold, a filter, other options
-    /// or metrics, a content change that moves rows) and for any doubt: the reload then lays the space out in full.
+    /// the caches as they were, for any other change (a row added, removed or moved, a group folded or opened while
+    /// the space was hidden, a filter, other options or metrics, a content change that moves rows) and for any
+    /// doubt: the reload then lays the space out in full.
     func takeSpacePage() -> (layout: SidebarLayout, options: SidebarLayoutOptions)? {
         guard let space = spacePages.entering, let page = spacePages.take(space) else { return nil }
         guard drag == nil, settling == nil, landing == nil, external == nil, rowHold.isEmpty, leaving.isEmpty,
