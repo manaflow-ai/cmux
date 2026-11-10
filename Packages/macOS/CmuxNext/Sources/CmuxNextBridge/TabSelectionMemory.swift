@@ -87,8 +87,10 @@ public final class TabSelectionMemory {
     public func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = [],
                         replaced: [StripTabID: StripTabID] = [:], closing: () -> Set<String> = { [] }) -> String? {
         closeRule.adopt(replaced)
-        // After the pick: a tab the pane no longer lists (closed, or moved away) leaves the rule's state.
-        defer { lastOrder[pane] = tabs; closeRule.settle(pane, lists: tabs) }
+        // Before the pick: a tab whose pending close was committed since the last call leaves the rule's state.
+        if !closeRule.isEmpty { closeRule.settle(pane, lists: tabs, before: lastOrder[pane] ?? [], closing: closing) }
+        // After the pick: a tab the pane no longer lists (closed, or moved away) leaves it; one a pending close hides stays.
+        defer { lastOrder[pane] = tabs; closeRule.settle(pane, lists: tabs, closing: closing) }
         guard !tabs.isEmpty else {
             set(nil, in: pane)
             return nil
@@ -97,7 +99,7 @@ public final class TabSelectionMemory {
             if tabs.contains(current) { return current }
             if let old = lastOrder[pane], old.contains(current) {
                 let pick = closeRule.successor(of: current, old: old, tabs: tabs, hidden: hidden) ?? tabs[0]
-                set(pick, in: pane)
+                closeRule.closeSelects { set(pick, in: pane) } // the close's own move: the rule does not hear of it
                 return pick
             }
         }
