@@ -52,10 +52,10 @@ public final class HomeChiefHomes {
         registry.bindEffect(Self.startQueuedAgent, effect: { [weak self] invocation in
             let text = invocation["conversation"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
             let conversation = text.isEmpty ? nil : ConversationID(text)
-            if let found = self?.startingChief(of: conversation) {
-                let (transcript, control) = (found.transcript, found.control)
-                let agent = invocation["agent"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
-                guard !agent.isEmpty, transcript.isQueued(agent) else { return .refused(HomeChiefHomesStrings.notQueued) }
+            let queued = invocation["agent"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
+            // A native transcript that has this agent queued starts it; anything else goes to the page's Chief.
+            if let found = self?.startingChief(of: conversation), !queued.isEmpty, found.transcript.isQueued(queued) {
+                let (transcript, control, agent) = (found.transcript, found.control, queued)
                 // action-wait-allow: the Chief's own process starts the agent (chief.stop {start}); its session shows only once that process made it
                 return .waiting(.externalProcess) {
                     guard let control else {
@@ -67,7 +67,8 @@ public final class HomeChiefHomes {
                 }
             }
             guard let control = self?.chief?(conversation) else {
-                return .refused(HomeChiefHomesStrings.noChiefHome)
+                // A native Chief Home shows, but not this agent in its queue.
+                return .refused(self?.startingChief(of: conversation) != nil ? HomeChiefHomesStrings.notQueued : HomeChiefHomesStrings.noChiefHome)
             }
             let agent = invocation["agent"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
             guard !agent.isEmpty else { return .refused(HomeChiefHomesStrings.notQueued) }

@@ -308,7 +308,7 @@ final class AppControl {
         service.router.register([
             .async("debug.home.drive") { [weak services] call in
                 guard let services else { return .null }
-                return await DebugHome.drive(call.params, services: services)
+                return await DebugHomeNativeFixture.drive(call.params, services: services)
             },
             .mainActor("debug.window_record") { [weak services] call in
                 guard let services else { return .value(.null) }

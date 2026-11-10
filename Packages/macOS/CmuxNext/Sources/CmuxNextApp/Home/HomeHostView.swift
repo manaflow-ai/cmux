@@ -298,7 +298,9 @@ final class HomeHostView: PaneMotionFollowingView {
                       summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
                 let glances = HomeAgentGlances(services: services)
                 let agents = glances.current
-                return (agents, glances.starters(agents: agents, badges: SidebarSessionTree.shared.pullRequests))
+                let facts = glances.starters(agents: agents, badges: SidebarSessionTree.shared.pullRequests)
+                return (agents, HomeStarterContext(workspaces: facts["workspaces"] ?? [], working: facts["working"] ?? [],
+                                                   failures: facts["failures"] ?? [], pullRequests: facts["pullRequests"] ?? []))
             }) {
                 guard let state else { continue }
                 self?.transcript.setFirstRunAgents(state.0)

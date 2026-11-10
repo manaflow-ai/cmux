@@ -64,12 +64,17 @@ enum HomeChiefActions {
         frontChief().flatMap { $0.control.isHosted ? nil : $0 }
     }
 
-    /// The front window's Chief Home: its native transcript first (``HomeHostView``), else its Messages page's.
+    /// The front window's Chief Home: a native transcript (``HomeHostView``) that holds the keyboard, else the
+    /// Messages page's (``frontHome()``, the one with the keyboard first), else any native one shown.
     private static func frontChief() -> Front? {
-        if let root = HomeChiefSettingsPopover.frontToggleTarget?.contentView, let native = firstNativeChief(in: root) {
-            return .native(native)
+        let window = HomeChiefSettingsPopover.frontToggleTarget
+        var responder = window?.firstResponder as? NSView
+        while let view = responder {
+            if let home = view as? HomeHostView, home.showsChiefOnScreen { return .native(home) }
+            responder = view.superview
         }
-        return frontHome().map(Front.page)
+        if let page = frontHome() { return .page(page) }
+        return window?.contentView.flatMap(firstNativeChief(in:)).map(Front.native)
     }
 
     private static func firstNativeChief(in view: NSView) -> HomeHostView? {

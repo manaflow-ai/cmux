@@ -55,6 +55,7 @@ overlay
 passwords
 server-cards
 settings
+setup-card
 stash
 stats
 task-manager

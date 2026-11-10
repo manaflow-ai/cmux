@@ -65,14 +65,13 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab. A Home that is the
     /// Messages page (a Home tab, the docked or classic Home) drives its own list and transcript.
     static func drive(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
-        if params["action"]?.stringValue == "legacy_pins" { return DebugHome.legacyPins(params, services: services) }
         if params["action"]?.stringValue == "permalink" { return permalink(params, services: services) }
         // `window`: the Home view shown in that window (default: the active window's).
         let id = params["window"]?.stringValue, window = id.flatMap { services.windows.controller(for: $0)?.window }
         if let id, window == nil { return .object(["error": .string("no window \(id)")]) }
         guard params["tab"] == nil, params["action"]?.stringValue != "list",
               let view = HomeNativeTranscriptView.shown(in: window ?? services.windows.active?.window) else {
-            return await DebugHome.messagesDebug(DebugHome.messagesPage(services, tab: params["tab"]?.stringValue))?.drive(params) ?? ["error": "no Home conversation is shown"]
+            return await DebugHome.drive(params, services: services)
         }
         let ok: Bool
         // The mock Home fixture showing `view` (nil for a real conversation): the fixture actions' one lookup.
