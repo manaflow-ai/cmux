@@ -223,12 +223,12 @@ def test_a_host_with_no_matching_test_passes_and_reports_its_count() -> None:
     two = "tui::a: test\\ntui::b: test\\n"
     code, calls, outputs = _run_cargo_test_step("linux", two, "")
     assert code == 0 and "selected_linux=2" in outputs.splitlines(), (code, outputs)
-    assert "test --workspace --locked some_filter\n" in calls, calls
+    assert "test --workspace --locked --no-fail-fast some_filter\n" in calls, calls
     code, _, outputs = _run_cargo_test_step("macos", two, "tui::b: test\\n")
     assert code == 0 and "selected_macos=1" in outputs.splitlines(), (code, outputs)
     code, calls, outputs = _run_cargo_test_step("macos", "", "")
     assert code == 0 and "selected_macos=0" in outputs.splitlines(), (code, outputs)
-    assert "test --workspace --locked some_filter\n" not in calls, calls
+    assert "test --workspace --locked --no-fail-fast some_filter\n" not in calls, calls
     # A filter that matches only ignored tests still fails on its host.
     code, _, _ = _run_cargo_test_step("linux", "tui::a: test\\n", "tui::a: test\\n")
     assert code == 1
