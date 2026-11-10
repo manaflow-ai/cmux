@@ -36,7 +36,8 @@ export const INCLUDED_MODES: ReadonlyArray<IncludedMode> = ["per_team", "per_sea
  * `e2e`: small amounts so that an end-to-end run can cross the included amount with a little real
  * usage (Team 0.5 per seat; a graduated price needs a whole-dollar tier, so the e2e Team plan has the
  * per-seat price only); the sync uses it only on the development Worker with BILLING_USAGE_PRICE_SET=e2e
- * (billing-usage-sync.ts usagePriceSet).
+ * (billing-usage-sync.ts usagePriceSet). It bills by v2's rules (billsLikeV2: the model overage markup, machine
+ * time in the pool, the default cap and the model-call cap), so a test-mode run proves what v2 ships.
  */
 export const USAGE_PRICE_SETS = { v1: { go: 5, pro: 20, max: 100, team: 20 }, v2: { go: 5, pro: 20, max: 100, team: 25 }, e2e: { go: 1, pro: 1, max: 1, team: 0.5 } } as const satisfies Record<string, Readonly<Record<UsagePlan, number>>>
 export type UsagePriceSet = keyof typeof USAGE_PRICE_SETS
@@ -49,8 +50,13 @@ export const usageModesOf = (plan: UsagePlan): ReadonlyArray<IncludedMode> => (U
 export const defaultTeamMode = (set: UsagePriceSet): IncludedMode => (set === "v2" ? "per_seat" : "per_team")
 /** A plan's included mode when the operator set none: the set's Team default for Team, per team for every other plan (or none). */
 export const defaultIncludedMode = (plan: UsagePlan | null, set: UsagePriceSet): IncludedMode => (plan && USAGE_TEAM_MODE_PLANS.has(plan) ? defaultTeamMode(set) : "per_team")
-/** Whether the set's included amount pools Cloud machine time with model spend (Leo 2026-11-09: v2 only). */
-export const poolsMachineTime = (set: UsagePriceSet): boolean => set === "v2"
+/**
+ * The sets billed by v2's rules (Leo 2026-11-09: model overage at list + 10%, machine time pooled, the spending cap):
+ * v2 itself and e2e, its test-mode twin at small amounts. v1 keeps pass-through.
+ */
+export const billsLikeV2 = (set: UsagePriceSet): boolean => set === "v2" || set === "e2e"
+/** Whether the set's included amount pools Cloud machine time with model spend (Leo 2026-11-09: v2's rules). */
+export const poolsMachineTime = (set: UsagePriceSet): boolean => billsLikeV2(set)
 export const USAGE_INCLUDED_USD: Readonly<Record<UsagePlan, number>> = USAGE_PRICE_SETS.v1
 export const usageIncludedUsd = (plan: UsagePlan, set: UsagePriceSet = "v1") => USAGE_PRICE_SETS[set][plan]
 export const usageMeterEvent = (mode: IncludedMode) => (mode === "per_seat" ? USAGE_METER_EVENT_ABOVE : USAGE_METER_EVENT)
@@ -65,11 +71,11 @@ export const usageMeterValueMicros = (mode: IncludedMode, levelMicros: number, i
   mode === "per_seat" ? Math.max(0, levelMicros - Math.round(includedUsd * 1_000_000) * Math.max(1, Math.floor(seats))) : levelMicros
 /**
  * The multiplier on model overage (Leo 2026-11-09, plans/team-plan/margins.md "Decided": "Model overage at the
- * provider's list price plus 10%" -> "sure"): 1.10 under price set v2, 1.0 (pass-through) under v1 (production)
- * and e2e (its end-to-end check compares the meter summary with the level at cost). Included usage stays at cost
- * and machine time stays at list in every set.
+ * provider's list price plus 10%" -> "sure"): 1.10 under v2's rules (v2 and e2e), 1.0 (pass-through) under v1. The
+ * model cost is the provider's reported cost, else the catalog card price (inference/route.ts): the list price.
+ * Included usage stays at cost and machine time stays at list in every set.
  */
-export const overageModelMarkup = (set: UsagePriceSet): number => (set === "v2" ? 1.1 : 1)
+export const overageModelMarkup = (set: UsagePriceSet): number => (billsLikeV2(set) ? 1.1 : 1)
 /** The pricing a set's usage prices name (Stripe metadata price_version, the levels read): pass-through, or the model overage markup in percent. */
 export const usagePriceVersion = (set: UsagePriceSet): string => (overageModelMarkup(set) === 1 ? `ai-passthrough-${set}` : `ai-overage-models${Math.round(overageModelMarkup(set) * 100)}-${set}`)
 /** The version a pinned markup (basis points) names: the price set whose markup it is (v2's `ai-overage-models110-v2`), else the percent alone. */
@@ -77,13 +83,30 @@ export const markupPriceVersion = (markupBp: number): string => {
   const set = (Object.keys(USAGE_PRICE_SETS) as UsagePriceSet[]).find((s) => Math.round(overageModelMarkup(s) * 10_000) === markupBp && overageModelMarkup(s) !== 1)
   return set ? usagePriceVersion(set) : `ai-overage-models${Math.round(markupBp / 100)}`
 }
-/** The team spending cap an admin did not set (margins.md section 4): this many times the pool, v2 Team (per seat) only; null elsewhere. */
-export const defaultTeamCapPools = (set: UsagePriceSet): number | null => (set === "v2" ? 2 : null)
+/**
+ * The spending cap an admin did not set (margins.md section 4): this many times the pool, under v2 only; null elsewhere.
+ * Every billed account gets it, a personal one (per team) as well as a Team (per seat): paid plans have no machine-count
+ * cap (Leo 2026-11-10, "you can have arbitrarily many VMs and we just build based off of that"), so the spending cap
+ * is the stop, and a new account starts with one.
+ */
+export const defaultTeamCapPools = (set: UsagePriceSet): number | null => (billsLikeV2(set) ? 2 : null)
+/**
+ * The raise lock: until the account's first paid renewal invoice (usage-billing-store.ts hasPaidInvoice), an admin's
+ * cap counts up to this many times the pool and no further (team-cap.ts teamCapState). An account that has paid one
+ * renewal raises its cap freely. TEAM_CAP_UNPAID_MAX_POOLS (env), an integer from defaultTeamCapPools (2) to 1000;
+ * anything else is the default.
+ */
+export const DEFAULT_TEAM_CAP_UNPAID_MAX_POOLS = 4
+export const MAX_TEAM_CAP_UNPAID_MAX_POOLS = 1000
+export const teamCapUnpaidMaxPools = (raw: string | undefined): number => {
+  const n = raw !== undefined && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN
+  return Number.isSafeInteger(n) && n >= 2 && n <= MAX_TEAM_CAP_UNPAID_MAX_POOLS ? n : DEFAULT_TEAM_CAP_UNPAID_MAX_POOLS
+}
 /**
  * Whether the model router refuses at the team spending cap (UsageMeterDO.teamCap, billed prices over the billing
- * period) besides the hard cap (A18, summarize): v2 only, so production's v1 keeps today's check until Leo's go.
+ * period) besides the hard cap (A18, summarize): v2's rules only, so production's v1 keeps today's check until the go.
  */
-export const teamCapApplies = (set: UsagePriceSet): boolean => set === "v2"
+export const teamCapApplies = (set: UsagePriceSet): boolean => billsLikeV2(set)
 /** The team cap state turns `near` at this percent of the cap (margins.md section 4: admins get a notice at 80%). */
 export const TEAM_CAP_NEAR_PERCENT = 80
 

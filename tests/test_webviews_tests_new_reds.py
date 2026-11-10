@@ -32,6 +32,7 @@ COMPARE = ROOT / "scripts/ci/guards_new_reds.py"
 SHARDS = ROOT / "scripts/ci/webviews_test_shards.py"
 HISTORY = ROOT / "scripts/ci/webviews_test_history.py"
 REDS = ROOT / "scripts/ci/test_reds.py"
+PIN = ROOT / "scripts/ci/pin-browser-test-font.sh"
 WORKFLOW = ROOT / ".github/workflows/ci-web.yml"
 
 FAKE_BUN = """#!/usr/bin/env bash
@@ -514,7 +515,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("id: head", count)
         self.assertIn("webviews_test_results.py --failed-files", count)
         self.assertIn("reds=unknown", count)
-        gate = "if: ${{ steps.head.outputs.reds != '0' }}"
+        gate = "if: ${{ steps.head.outputs.reds != '0'"
         for step in ("Setup Bun", "Use the base's bun", "Cache Bun package cache", "Cache Playwright browsers",
                      "Setup Node", "Install webview dependencies", "Build base web bundles",
                      "Install headless engines"):
@@ -522,6 +523,8 @@ class Workflow(unittest.TestCase):
                 body = base[base.index(f"      - name: {step}\n"):]
                 body = body[: body.index("\n      - name:", 10)]
                 self.assertIn(gate, body)
+        # The install, the build and the browsers also wait on reds the base's push history cannot answer
+        # (tests/test_webviews_test_history.py, Known).
         compare = base[base.index("      - name: Run base reds and compare\n"):]
         compare = compare[: compare.index("\n      - name:", 10)]
         self.assertNotIn("steps.head.outputs.reds", compare)
@@ -564,6 +567,7 @@ class Workflow(unittest.TestCase):
             git("checkout", "-qb", "change")
             (repo / "webviews/src").mkdir()
             (repo / "webviews/src/other.ts").write_text("export {}\n")
+            shutil.copy(PIN, repo / "scripts/ci" / PIN.name)  # the head has the font pin, the merge parent not
             git("add", "-A")
             git("commit", "-qm", "the change: touches nothing the red file reads")
             git("checkout", "-q", "base")
@@ -600,6 +604,15 @@ class Workflow(unittest.TestCase):
             done = replay("Use the merge parent as the base")
             out = done.stdout + done.stderr
             self.assertEqual(done.returncode, 0, out)
+            # #40115 review: a merge parent from before the font pin has no script; the base's engines run the
+            # head's copy, kept outside the checkout.
+            self.assertFalse((repo / "scripts/ci" / PIN.name).exists())
+            self.assertEqual((runner_temp / PIN.name).read_bytes(), PIN.read_bytes())
+            text = WORKFLOW.read_text(encoding="utf-8")
+            base = text[text.index("  react-apps-base-check:"):text.index("  runners:")]
+            install = base[base.index("      - name: Install headless engines\n"):]
+            install = install[: install.index("\n      - name:", 10)]
+            self.assertIn('&& "$RUNNER_TEMP/pin-browser-test-font.sh"', install)
             self.assertIn(f"::warning title=Webview test red on the base too::{red} > received preview opens", out)
             self.assertNotIn("red on this change::", out)
             # The old pinned base passes the file, so a replay there charges the red to the change.
@@ -630,7 +643,9 @@ class Workflow(unittest.TestCase):
         git("commit", "-qm", "base: the file passes")
         git("checkout", "-qb", "change")
         (repo / "webviews" / red).write_text(body(["mounts the gallery frame"] if change_breaks_it else []) + "// changed\n")
-        git("commit", "-qam", "the change")
+        shutil.copy(PIN, repo / "scripts/ci" / PIN.name)
+        git("add", "-A")
+        git("commit", "-qm", "the change")
         git("checkout", "-q", "base")
         (repo / "webviews/other.txt").write_text("base moved\n")
         git("add", "-A")

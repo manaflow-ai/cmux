@@ -14,6 +14,10 @@ pub enum Refusal {
     CloudDisabled,
     #[serde(rename = "not_signed_in")]
     NotSignedIn,
+    /// The send asked for a team (the plan card's Switch to <team>) that is not active yet: the app's
+    /// switch only queued it behind another one still saving.
+    #[serde(rename = "cloud_team_switching")]
+    TeamSwitching,
 }
 
 /// Cloud off by policy, or not signed in; nothing else refuses (not behind Labs, Leo, 2026-10-30:
@@ -26,6 +30,12 @@ pub fn refusal(cloud_disabled: bool, signed_in: bool) -> Option<Refusal> {
     } else {
         Some(Refusal::NotSignedIn)
     }
+}
+
+/// A send that asked for `requested` starts only once it is the `active` team, never in the team
+/// before it (a switch the app queued behind another one returns before it is made).
+pub fn team_refusal(requested: Option<&str>, active: Option<&str>) -> Option<Refusal> {
+    requested.filter(|team| active != Some(*team)).map(|_| Refusal::TeamSwitching)
 }
 
 /// The account a send began in as cmux-tui keeps its sends: its user and team, `/`-joined, an

@@ -6,6 +6,7 @@ import type { MarkdownFieldHandle } from "../MarkdownField";
 import type { MadeFile } from "./attachmentIntakeModel";
 import { isLargePaste, PASTE_FILE_CHARS, PASTED_TEXT_NAME, pastedTextAttachment, pastedTextFile } from "../pastedText";
 import { remember } from "./pasteMarks";
+import { isHugePrompt } from "../conversation/promptCollapse";
 
 /// How long after Paste as Plain Text starts its paste still counts as that one: the menu's goes
 /// through the host (`pane.edit`), which runs the web view's own paste. The prompt field keeps its
@@ -34,6 +35,11 @@ export function usePastedChips(
   /// goes as one. Unset, such a paste is a chip like any large one. `inText` false: the chip had no node
   /// (it is not at a caret), so the file goes at the start of the prompt (inlineAttachments.tsx `place`).
   attachFile?: (file: MadeFile, inText?: boolean) => void,
+  /// While this says so (a chat's Cloud start, whose host carries the started chat's text, not its
+  /// chips) a large paste stays text up to HUGE_PROMPT_CHARS, and a longer one is refused (`refuse`
+  /// says why) instead of becoming a chip or a file.
+  keepsText?: () => boolean,
+  refuse?: () => void,
 ) {
   /// Until when a paste goes in as it is: Paste as Plain Text just ran.
   const plainUntil = useRef(0);
@@ -115,6 +121,14 @@ export function usePastedChips(
     /// text should reveal it instead of duplicating the paste", "if you paste that and then paste
     /// again, then you don't have to click it. It just does it.").
     take(text: string): boolean {
+      if (keepsText?.()) {
+        if (!isHugePrompt(text)) {
+          pastes.current = remember(pastes.current, text);
+          return false;
+        }
+        refuse?.();
+        return true;
+      }
       // Past what a prompt carries it is a file, Paste as Plain Text or not.
       if (attachFile && text.length > PASTE_FILE_CHARS) {
         // Its tile shows now; its bytes are made a slice per task after (copying 100 MB of text in

@@ -365,6 +365,8 @@ public final class SidebarContainerView: NSView {
     override public func layout() {
         super.layout()
         layoutFloatShadow()
+        // Every frame of the width slide moves the panel: its titlebar row keeps clear of the band's edge.
+        sidebarView.keepTitlebarControlsClearOfBand(originInWindow: panelOriginInWindow)
         guard isWidthAnimating else {
             refreshHover()
             return
