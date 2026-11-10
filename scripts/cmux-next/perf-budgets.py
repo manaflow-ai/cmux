@@ -17,6 +17,13 @@ bench launches and quits the app itself), and maps their reports to budget rows 
   agent-engine-bench.py          ACP chat composer: keydown to next frame (the page's typingStats)
   bench_idle.py                  idle CPU of the app with terminals open
 
+  Tabs and terminals as they grow (Leo 2026-11-10: "opening up a lot of terminals isn't super fast? opening/closing
+  tabs was p important to lawrence ... we defo need to encode and warn sometimes if those get slow"); each row's cost
+  must stay what it is with one tab or workspace:
+  tab_scale       tab-switch-matrix.py   terminal tab switch with 2 and 30 tabs in the pane (10 is tab_switch's)
+  tab_close       burst-bench.py         20 Cmd-W at 40 ms on terminal tabs and on chat tabs: key to the next commit
+  surfaces_scale  instant-new-surfaces   Cmd-T and Ctrl-` with 10 and 30 workspaces open (one is new_surfaces')
+
   A bench that fails to run (older build without its debug method, no display) leaves its rows "n/a"; the
   suite goes on, but the gate reports an incomplete result when an expected row is absent. Output: --json
   (rows, raw report paths, host), a Markdown table in the log.
@@ -41,6 +48,8 @@ BASELINE_DIR = os.path.join(HERE, "perf-budgets-baseline")
 REGRESSION = 0.10
 
 BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", "acp", "idle", "anim"]
+# Not in the default run: the tabs-and-terminals-at-scale groups the perf cron's `tabs` part names with --only.
+SCALE_BENCHES = ["tab_scale", "tab_close", "surfaces_scale"]
 PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
 
 
@@ -194,6 +203,24 @@ def rows_new_surfaces(rep):
         phase, _, cmd = key.partition("/")
         if cmd in names:
             out[f"{names[cmd]}.{phase}.key_to_visible"] = (s.get("visible_p50"), s.get("visible_p95"))
+    return out
+
+
+def rows_surfaces_scale(rep):
+    """new_surfaces rows at each grown workspace count only (`idle@10ws` -> cmd_t.idle_10ws.key_to_visible): the
+    count without a suffix is new_surfaces' own row, and `@` is the perf cron's host separator."""
+    return {name.replace("@", "_"): v for name, v in rows_new_surfaces(rep).items() if "@" in name}
+
+
+def rows_tab_close(rep):
+    """burst-bench.py's light phase: N Cmd-W on N tabs of one kind, each closing press's input to the next commit.
+    A row the bench marked invalid (its burst never ran, the stream lost records) is not measured."""
+    out = {}
+    for row in ((rep or {}).get("phases") or {}).get("light") or []:
+        scenario = str(row.get("scenario") or "")
+        if not scenario.startswith("cmdw-") or row.get("invalid"):
+            continue
+        out[f"tab_close.{scenario[len('cmdw-'):]}.burst.input_to_commit"] = p50_p95(row.get("input_to_next_commit_ms"))
     return out
 
 
@@ -444,6 +471,15 @@ def main():
         "tab_switch": ([py, S("tab-switch-matrix.py"), *common, "--kinds", "terminal,chromium", "--counts", "10",
                         "--switches", "30", "--out", o("tab_switch"), "--json", o("tab_switch.json")],
                        "tab_switch.json", rows_tab_switch),
+        "tab_scale": ([py, S("tab-switch-matrix.py"), *common, "--kinds", "terminal", "--counts", "2,30",
+                       "--switches", "30", "--out", o("tab_scale"), "--json", o("tab_scale.json")],
+                      "tab_scale.json", rows_tab_switch),
+        "tab_close": ([py, S("burst-bench.py"), "--app", opts.app, "--no-stress", "--scenarios", "cmdw-terminal,cmdw-chat",
+                       "--presses", "20", "--out", o("tab_close")], os.path.join("tab_close", "report.json"), rows_tab_close),
+        "surfaces_scale": ([py, S("instant-new-surfaces-bench.py"), *common, "--commands", "new_tab,new_terminal",
+                            "--phases", "idle", "--arms", "warm", "--workspaces", "10,30", "--runs", "10",
+                            "--out", o("surfaces_scale"), "--json", o("surfaces_scale.json")],
+                           "surfaces_scale.json", rows_surfaces_scale),
         "palette": ([py, S("palette-open-stages.py"), *common, "--rounds", str(opts.palette_rounds), "--no-gate",
                      "--out", o("palette"), "--json", o("palette.json")], "palette.json", rows_palette),
         "sidebar": ([py, S("sidebar-stress-bench.py"), *common, "--sizes", str(opts.sidebar_size), "--stop",
