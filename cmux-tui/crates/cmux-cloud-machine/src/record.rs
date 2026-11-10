@@ -626,6 +626,13 @@ pub fn from_next(value: &Value) -> Option<Machine> {
         json::whole(policy.get("idle_seconds")?.as_f64()? / 60.0)
     });
     machine.idle_pause = fields.get("idlePause").and_then(IdlePauseDiagnostics::read);
+    // The contract's `size` (`cpu`, `memory_mb`, `disk_mb`); a field of another type drops itself.
+    machine.size = fields.get("size").and_then(Value::as_object).map(|size| Size {
+        name: None,
+        cpu: size.get("cpu").and_then(int),
+        memory_mb: size.get("memory_mb").and_then(int),
+        storage_mb: size.get("disk_mb").and_then(int),
+    });
     // Why cmux paused the machine by itself: `idle` and the cost backstop `no_report` are both its
     // own idle pause, which an attach resumes; a VM stopped from inside (`provider_stopped`,
     // `provider_paused`) and a person's pause (null) carry no reason the app shows.

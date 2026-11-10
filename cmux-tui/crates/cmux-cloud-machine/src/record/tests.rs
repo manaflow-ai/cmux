@@ -244,6 +244,9 @@ fn the_record_carries_idle_pause_diagnostics() {
         json!({"id": "vm-next-policy", "status": "running", "idle_policy": {"idle_seconds": 1800}}),
     );
     assert_eq!(policy.idle_pause_minutes, Some(30));
+    let off =
+        next(json!({"id": "vm-next-off", "status": "running", "idle_policy": {"idle_seconds": 0}}));
+    assert_eq!(off.idle_pause_minutes, Some(0));
     // A malformed decision drops only the decision; a malformed object drops the diagnostics.
     let partial = classic(
         r#"{"id":"vm","idlePause":{"minutes":5,"privateAddressKnown":false,"lastDecision":{"at":"x"}}}"#,
@@ -477,4 +480,18 @@ fn a_record_in_the_swift_shape_round_trips() {
         assert!(written.get(key).is_some_and(|value| !value.is_null()), "{key} was not written");
     }
     assert_eq!(serde_json::from_value::<Machine>(written).unwrap(), machine);
+}
+
+/// The contract's `size` reaches the record (`cmux vm redo` makes a VM of the same size from it).
+#[test]
+fn a_next_record_keeps_its_size() {
+    let sized = next(json!({"id": "vm-next-size", "status": "running",
+                            "size": {"cpu": 12, "memory_mb": 24576, "disk_mb": 65536}}));
+    assert_eq!(
+        sized.size,
+        Some(Size { name: None, cpu: Some(12), memory_mb: Some(24576), storage_mb: Some(65536) })
+    );
+    let partial = next(json!({"id": "vm-next-size", "status": "running", "size": {"cpu": "two"}}));
+    assert_eq!(partial.size, Some(Size::default()));
+    assert_eq!(next(json!({"id": "vm-next", "status": "running"})).size, None);
 }
