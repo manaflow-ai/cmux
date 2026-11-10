@@ -436,23 +436,74 @@ SHELL_SEPARATORS = {";", "&&", "||", "|", "&", ";;", "|&"}
 
 def shell_tokens(text: str) -> list[str]:
     """One shell line's words, as a shell splits them: any run of spaces or tabs, quotes removed, `;`, `&&`, `|` apart,
-    a `#` comment to the end of the line. A word holding a command substitution (`"$(timeout 3 curl ...)"`, which
-    shlex reads as one quoted word) is lexed again inside, so its curl is a command too."""
+    a `#` comment to the end of the line. Command substitutions are taken out first (split_substitutions)."""
     try:
         lex = shlex.shlex(text, posix=True, punctuation_chars=";&|")
         lex.whitespace_split = True
-        words = list(lex)
+        return list(lex)
     except ValueError:  # an unbalanced quote (a `"$(` that the next line closes): words without quotes still serve
-        return shell_tokens(re.sub(r"""["'`]|\$\(|\)""", lambda m: " ; " if m.group() != '"' and m.group() != "'" else " ",
-                                   text))
-    out = []
-    for word in words:
-        out.append(word)
-        inner = word.find("$(")
-        if inner >= 0:
-            body = word[inner + 2:]
-            out += [";", *shell_tokens(body[:body.rfind(")")] if ")" in body else body), ";"]
-    return out
+        return shell_tokens(re.sub(r"""["']""", " ", text))
+
+
+SUBSTITUTION = "__substitution__"
+
+
+def split_substitutions(text: str) -> tuple[str, list[str]]:
+    """The line with each outermost command substitution (`$(...)`, a backquoted command) replaced by one plain word,
+    and the commands they hold. A substitution is its own command: its curl keeps its own arguments, and the command
+    around it keeps its words (`curl -H "$(printf x)" --retry 3` is one curl with --retry; Codex on #40717). One that
+    the line does not close runs to the end of the line."""
+    outer, bodies, i, quote = [], [], 0, ""
+    while i < len(text):
+        c = text[i]
+        if quote == "'":
+            quote = "" if c == "'" else quote
+        elif c == "\\" and i + 1 < len(text):
+            outer.append(text[i:i + 2])
+            i += 2
+            continue
+        elif c == "'" and not quote:
+            quote = "'"
+        elif c == '"':
+            quote = "" if quote == '"' else '"'
+        elif text.startswith("$(", i) and not text.startswith("$((", i) or c == "`":
+            end = matching_close(text, i)
+            bodies.append(text[i + (1 if c == "`" else 2):end])
+            outer.append(SUBSTITUTION)
+            i = end + 1
+            continue
+        outer.append(c)
+        i += 1
+    return "".join(outer), bodies
+
+
+def matching_close(text: str, start: int) -> int:
+    """Where the substitution opening at `start` ends (its `)` or closing backquote), or the end of the line."""
+    if text[start] == "`":
+        close = text.find("`", start + 1)
+        return close if close >= 0 else len(text)
+    depth, i, quote = 1, start + 2, ""
+    while i < len(text):
+        c = text[i]
+        if quote == "'":
+            quote = "" if c == "'" else quote
+        elif c == "\\":
+            i += 1
+        elif text.startswith("$(", i) and not text.startswith("$((", i):  # a nested one: its own quoting
+            i = matching_close(text, i) + 1
+            continue
+        elif c == '"':
+            quote = "" if quote else '"'
+        elif c == "'" and not quote:
+            quote = "'"
+        elif c == "(" and not quote:
+            depth += 1
+        elif c == ")" and not quote:
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return len(text)
 
 
 def logical_lines(text: str) -> list[tuple[int, str]]:
@@ -473,8 +524,13 @@ def curl_calls(text: str) -> list[tuple[int, list[str], list[str]]]:
     """(line, the words before curl in its command, curl's own arguments) for each curl the shell text runs."""
     calls = []
     for line, logical in logical_lines(text):
+        commands, pending = [], [logical]
+        while pending:  # the line, then each substitution in it, nested ones included
+            outer, bodies = split_substitutions(pending.pop())
+            commands.append(outer)
+            pending += bodies
         command: list[str] = []
-        for word in [*shell_tokens(logical), ";"]:
+        for word in [w for outer in commands for w in [*shell_tokens(outer), ";"]]:
             if word not in SHELL_SEPARATORS:
                 command.append(word)
                 continue
@@ -540,8 +596,10 @@ def outer_bound(prefix: list[str]) -> int | None:
 
 
 def call_retries(args: list[str]) -> bool:
-    """Whether a curl retries: any --retry but a literal 0 (a variable count may be anything)."""
-    return any(value != "0" for value in curl_options(args).get("--retry", []))
+    """Whether a curl retries: its last --retry (the one curl uses) is anything but a literal 0 (a variable count may
+    be anything)."""
+    counts = curl_options(args).get("--retry", [])
+    return bool(counts) and counts[-1] != "0"
 
 
 def call_bound(prefix: list[str], args: list[str]) -> int | None:
@@ -645,6 +703,24 @@ class UnboundedRetryDetector(unittest.TestCase):
                 ('timeout -k 5 110 curl --retry 3 "$u"\n', False),
                 ('timeout "$left" curl --retry 3 --max-time 5 "$u"\n', True),
                 ('echo start; curl --retry 3 "$u" && echo done\n', True),  # one command among others
+                # Command substitutions are commands of their own (Codex on #40717): neither the curl in one nor the
+                # curl around one loses its arguments, at any depth, in $(...) or backquotes.
+                ('code=$(curl --retry 3 --max-time 5 "$u")\n', True),
+                ('code=$(timeout 30 curl --retry 3 "$u")\n', False),
+                ('code=$(curl --retry 3 --max-time 5 --retry-max-time 60 "$u")\n', False),
+                ('x=$(echo $(curl --retry 3 "$u"))\n', True),
+                ('x="$(echo "$(curl --retry 3 "$u")")"\n', True),
+                ('x=`curl --retry 3 "$u"`\n', True),
+                ('curl -H "$(printf x)" --retry 3 "$u"\n', True),
+                ("curl -H \"$(printf '%s' \"$(date)\")\" --retry 3 \"$u\"\n", True),
+                ('curl -H "$(printf x)" --retry 3 --max-time 5 --retry-max-time 60 "$u"\n', False),
+                ('curl -H `printf x` --retry 3 "$u"\n', True),
+                ('curl -H "$(printf ")")" --retry 3 "$u"\n', True),  # a quoted paren inside closes nothing
+                ('echo $((1 + 2)); curl --retry 3 "$u"\n', True),  # arithmetic is no substitution
+                # curl uses the last --retry.
+                ('curl --retry 5 --retry 0 "$u"\n', False),
+                ('curl --retry 5 --retry=0 "$u"\n', False),
+                ('curl --retry 0 --retry 5 "$u"\n', True),
             ):
                 with self.subTest(text=text):
                     path.write_text(text)
@@ -652,6 +728,22 @@ class UnboundedRetryDetector(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("curl") and shutil.which("timeout") and shutil.which("perl"), "curl, timeout or perl missing")
+class SubstitutionsAreCommands(unittest.TestCase):
+    """Each curl keeps exactly its own arguments, whether it sits in a substitution or holds one (Codex on #40717)."""
+
+    def test_each_curl_keeps_its_own_arguments(self):
+        for text, args in (
+            ('code=$(curl --retry 3 --max-time 5 "$u")', ["--retry", "3", "--max-time", "5", "$u"]),
+            ('x="$(echo "$(curl --retry 3 "$u")")"', ["--retry", "3", "$u"]),
+            ('x=`curl --retry 3 "$u"`', ["--retry", "3", "$u"]),
+            ('curl -H "$(printf x)" --retry 3 "$u"', ["-H", SUBSTITUTION, "--retry", "3", "$u"]),
+            ('curl -H "$(printf ")")" --retry 3 "$u"', ["-H", SUBSTITUTION, "--retry", "3", "$u"]),
+            ("curl -H \"$(printf '%s' \"$(date)\")\" --retry 3 \"$u\"", ["-H", SUBSTITUTION, "--retry", "3", "$u"]),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual([found for _, _, found in curl_calls(text)], [args])
+
+
 class RetryAfterBound(unittest.TestCase):
     """The detector's rule, checked against real curl and a local service that answers 503 with Retry-After: a retry
     count and delay bound nothing, while --retry-max-time with --max-time, `timeout N` and perl's alarm each hold."""
