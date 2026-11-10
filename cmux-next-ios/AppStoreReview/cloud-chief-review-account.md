@@ -58,7 +58,7 @@ never here.
 3. **Grant credits.** Grant the account's personal team prepaid credits through the operator
    credits route on `cloud-api.cmux.dev`, with the billing operator key:
    - action `grant`, and `stack_user` set to the account's sign-in user id;
-   - a small amount (20 USD covers a review), a unique `key`, your `actor`;
+   - a small amount that covers a few days of review turns, a unique `key`, your `actor`;
    - a `reason` such as "app review account".
    The answer names the personal team id (`team_...`).
 4. **Add the team to the owner list.** Add that `team_...` id to the production API Worker secret
