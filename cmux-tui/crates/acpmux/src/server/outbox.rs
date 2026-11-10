@@ -568,6 +568,11 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             }
             return;
         }
+        // Armed before the attempt: `notify_waiters` wakes only waits that exist, so a peer
+        // ready while the attempt runs or its failure is saved still ends the retry wait.
+        let ready = hub.outbox.peer_ready.notified();
+        tokio::pin!(ready);
+        ready.as_mut().enable();
         let attempt = delivery.attempts + 1;
         hub.outbox.update(id, |d| {
             if !d.settled() {
@@ -684,7 +689,6 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // intent older than a day after a restart does not spend its retries at once.
                 let sleep =
                     tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
-                let ready = hub.outbox.peer_ready.notified();
                 if delivery.projection_only() {
                     sleep.await;
                 } else {
