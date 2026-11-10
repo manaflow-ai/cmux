@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import python_floor  # noqa: F401  first: one clear line under a python3 older than 3.11
 import tomllib
 import urllib.error
 import urllib.request
