@@ -2,23 +2,24 @@
 // a toolbar cmux never shows, so a request it would ask about waits until it
 // times out. The kinds the host asks about in its prompt bar
 // (kHostPermissions) go to the host as PERMISSION_PROMPT, answered with
-// cmux_shim_permission_continue; every other kind keeps Chromium's default.
+// cmux_shim_permission_continue; a notification request is refused at once; every
+// other kind keeps Chromium's default (permission_prompt_policy.h).
 // Chromium persists Accept and Deny in its own content settings.
 
 #include <map>
 
 #include "cmux_page_path.h"
 #include "include/cef_permission_handler.h"
+#include "permission_prompt_policy.h"
 #include "shim_internal.h"
 
 namespace cmux_shim {
 
 namespace {
 
-// Location only. A notification request stays with Chromium, whose bubble cmux never shows:
-// it stays unanswered, so the permission stays `default` and no web notification is shown
-// (CEFSwitches keeps the page's Notification and PushManager interfaces, as Chrome has them).
-constexpr uint32_t kHostPermissions = CEF_PERMISSION_TYPE_GEOLOCATION;
+// permission_prompt_policy.h names CEF's bits without CEF's headers.
+static_assert(kPermissionGeolocation == CEF_PERMISSION_TYPE_GEOLOCATION, "geolocation bit");
+static_assert(kPermissionNotifications == CEF_PERMISSION_TYPE_NOTIFICATIONS, "notifications bit");
 
 // Waiting prompts by token (prompt id + 1), UI thread. Never destroyed at
 // exit (its callbacks would outlive CefShutdown); ForgetPermissionPrompts
@@ -42,10 +43,17 @@ class Handler : public CefPermissionHandler {
       callback->Continue(CEF_PERMISSION_RESULT_ACCEPT);
       return true;
     }
-    // A request that groups a host kind with another stays with Chromium.
-    if (!browser || requested_permissions == 0 || (requested_permissions & ~kHostPermissions) != 0) {
-      return false;
+    switch (RoutePermissionPrompt(requested_permissions)) {
+      case PermissionPromptRoute::kChromium:
+        return false;
+      case PermissionPromptRoute::kDeny:
+        // DENY, not DISMISS or IGNORE: it ends the page's request now with a definite answer.
+        callback->Continue(CEF_PERMISSION_RESULT_DENY);
+        return true;
+      case PermissionPromptRoute::kHost:
+        break;
     }
+    if (!browser) return false;
     const int token = TokenOf(prompt_id);
     prompts()[token] = callback;
     Emit(CMUX_SHIM_PERMISSION_PROMPT, browser->GetIdentifier(), token, requested_permissions, 0,

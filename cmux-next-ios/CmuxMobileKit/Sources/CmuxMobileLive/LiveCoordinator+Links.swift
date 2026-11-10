@@ -897,6 +897,10 @@ extension LiveCoordinator {
         case .macOffline:
             store.handleMacData(.offline, macID: macID)
             store.macConnection[macID] = nil
+        case .signedOut:
+            // The list on screen stays (last-known data); nothing reconnects.
+            store.handleMacData(.failed("Signed out"), macID: macID)
+            store.macConnection[macID] = .failed("Signed out")
         case .connecting:
             if store.macData[macID]?.source == .live { store.handleMacData(.disconnected(at: Date()), macID: macID) }
             store.handleMacData(.connecting, macID: macID)
@@ -986,6 +990,8 @@ extension LiveCoordinator {
             banner = nil
         case .macOffline:
             banner = .macOffline(name, identity: session.macID)
+        case .signedOut:
+            banner = .signedOut
         case .connected:
             if everConnected, banner != nil, banner != .connected {
                 banner = .connected

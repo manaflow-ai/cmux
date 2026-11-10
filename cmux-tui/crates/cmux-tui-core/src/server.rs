@@ -3145,6 +3145,10 @@ mod creation_burst_tests;
 mod run_public_ids_tests;
 
 #[cfg(test)]
+#[path = "server/open_persistent_bench_tests.rs"]
+mod open_persistent_bench_tests;
+
+#[cfg(test)]
 mod tests;
 
 mod cloud_api;
