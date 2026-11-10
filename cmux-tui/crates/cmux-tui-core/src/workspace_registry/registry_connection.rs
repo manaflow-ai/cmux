@@ -257,9 +257,7 @@ impl RegistryConnection {
 
     /// The spans in which the WAL restart rule kept the connection from other threads.
     #[cfg(test)]
-    pub(crate) fn wal_restart_holds_for_test(
-        &self,
-    ) -> Vec<(std::time::Instant, std::time::Instant)> {
+    pub(crate) fn wal_restart_holds_for_test(&self) -> Vec<(Instant, Instant)> {
         self.durability
             .as_ref()
             .map(super::wal_durability::WalDurability::restart_holds)

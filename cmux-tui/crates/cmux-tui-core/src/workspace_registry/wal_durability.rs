@@ -465,12 +465,12 @@ impl WalDurability {
     /// last flush request (or 10 s passed).
     #[cfg(test)]
     pub(crate) fn checkpoints_once_idle(&self) -> u64 {
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             let state = self.shared.state.lock().recover_poison();
             let idle =
                 state.settled >= state.requested && !state.restart_owed && !state.restart_running;
-            if idle || std::time::Instant::now() > deadline {
+            if idle || Instant::now() > deadline {
                 return state.checkpoints;
             }
             drop(state);
@@ -964,7 +964,7 @@ mod tests {
             Some(Duration::from_millis(300)),
             false,
         );
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
         assert!(started.elapsed() < Duration::from_millis(100));
         durability.wait_durable();
@@ -984,10 +984,10 @@ mod tests {
         // A reply is out: the syncer looks at the WAL and checkpoints it.
         durability.request_flush();
         // The checkpoint follows the flush on the syncer thread.
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(10);
         let db_len = loop {
             let db_len = std::fs::metadata(dir.join("r.sqlite")).unwrap().len();
-            if db_len > 4 * 1024 * 1024 || std::time::Instant::now() > deadline {
+            if db_len > 4 * 1024 * 1024 || Instant::now() > deadline {
                 break db_len;
             }
             std::thread::sleep(Duration::from_millis(20));
@@ -1030,16 +1030,25 @@ mod tests {
         let (dir, connection) = database("pinned");
         let path = dir.join("r.sqlite");
         let durability = WalDurability::attach(&connection, &path, None, false);
+        // The store's lock, given at the open as each store of the daemon
+        // gives it: the syncer runs the restart rule only with it.
+        let lock = Arc::new(Mutex::new(()));
+        durability.own_restart(Arc::downgrade(&lock));
         let wal = dir.join("r.sqlite-wal");
         let pinned = grow_a_pinned_wal(&path, &connection, &durability);
-        // Answered requests go on: the syncer checkpoints the whole WAL, and
-        // the next commit restarts it and cuts the file to the limit.
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        // Answered requests go on. The tries while the reader held its
+        // snapshot ended with no restart, so the next one comes 4 MiB of
+        // commits later: it copies the whole WAL, and the commit after it
+        // restarts the WAL and cuts the file to the limit.
+        let blob = vec![9u8; 64 * 1024];
+        let deadline = Instant::now() + Duration::from_secs(10);
         let after = loop {
-            connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
+            let held = lock.lock().recover_poison();
+            connection.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();
+            drop(held);
             durability.request_flush();
             let len = std::fs::metadata(&wal).map_or(0, |meta| meta.len());
-            if len <= WAL_SIZE_LIMIT_BYTES || std::time::Instant::now() > deadline {
+            if len <= WAL_SIZE_LIMIT_BYTES || Instant::now() > deadline {
                 break len;
             }
             std::thread::sleep(Duration::from_millis(20));
@@ -1067,9 +1076,9 @@ mod tests {
         connection.busy_timeout(Duration::from_secs(5)).unwrap();
         grow_a_pinned_wal(&path, &connection, &durability);
         let wal = dir.join("r.sqlite-wal");
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(5);
         let mut rounds = 0;
-        while std::time::Instant::now() < deadline {
+        while Instant::now() < deadline {
             durability.request_flush();
             let tx = connection.unchecked_transaction().unwrap();
             let _: i64 = tx.query_row("SELECT COUNT(*) FROM t", [], |row| row.get(0)).unwrap();

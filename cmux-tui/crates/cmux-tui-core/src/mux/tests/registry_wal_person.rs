@@ -106,7 +106,7 @@ fn person_requests_beside_a_change_storm(workspaces: usize) {
         let tab_id = tab.as_ref().unwrap().id;
         timed(3, &mut || assert!(mux.close_surface(tab_id).unwrap()));
         timed(4, &mut || {
-            assert!(mux.rename_workspace(person_workspace, format!("person {round}")))
+            assert!(mux.rename_workspace(person_workspace, format!("person {round}")));
         });
         round += 1;
         let holds = mux.registry_connection.wal_restart_holds_for_test();

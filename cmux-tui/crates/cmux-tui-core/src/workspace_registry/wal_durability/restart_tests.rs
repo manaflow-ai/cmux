@@ -144,13 +144,16 @@ fn a_wal_left_over_the_limit_is_cut_by_the_first_commits_of_the_next_open() {
     assert!(rows > 0, "the copied WAL lost its rows");
     let opened = std::fs::metadata(&next_wal).unwrap().len();
     assert_eq!(opened, left, "the next open found another WAL than the one left");
-    let _durability = WalDurability::attach(&connection, &next_path, None, false);
+    let durability = WalDurability::attach(&connection, &next_path, None, false);
+    let lock = own_lock(&durability);
     // A quiet daemon: a small commit now and then, and no flush request.
     // The deadline only ends a run in which the WAL is never cut.
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut commits = 0;
     let now = loop {
+        let held = lock.lock();
         connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
+        drop(held);
         commits += 1;
         let len = std::fs::metadata(&next_wal).map_or(0, |meta| meta.len());
         if len <= WAL_SIZE_LIMIT_BYTES || Instant::now() > deadline {
