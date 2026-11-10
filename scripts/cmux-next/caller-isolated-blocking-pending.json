@@ -1,0 +1,17 @@
+{
+  "about": "check-concurrency.sh's caller-isolated blocking rule (scripts/cmux-next/caller_isolation.py): the files that had hits when it landed, with their counts. Shrink only: a file may keep up to its count; more fail CI, fewer print a note to lower the count (drop the entry at zero). Fix: mark the async function @concurrent, or move the call into work.run(_, mayBlock:). See skills/cmux-architecture/references/main-thread-model.md.",
+  "files": {
+    "CmuxNextAgentPane/AcpmuxEnvironment+BuildHomeAdoption.swift": 1,
+    "CmuxNextAgentPane/AgentPaneFilePut.swift": 1,
+    "CmuxNextApp/SessionTransfer/SessionTransferService+Chats.swift": 1,
+    "CmuxNextChromiumRuntime/SecCodeChromiumRuntimeSignatureChecker.swift": 1,
+    "CmuxNextChromiumRuntime/TarChromiumRuntimeUnpacker.swift": 1,
+    "CmuxNextDaemon/Conversations/AttachmentTransfer.swift": 2,
+    "CmuxNextDaemon/Launch/ProcessRunner.swift": 1,
+    "CmuxNextErrorJournal/LogFileErrorSource.swift": 1,
+    "CmuxNextRemote/SSH/SSHRunner.swift": 2,
+    "CmuxNextRemoteBrowser/LocalHost/LocalRemoteBrowserHost.swift": 2,
+    "CmuxNextServerHelper/ServerHelperDeadline.swift": 1,
+    "CmuxNextVSCodeServer/VSCodeServeWebProcessLauncher.swift": 1
+  }
+}
