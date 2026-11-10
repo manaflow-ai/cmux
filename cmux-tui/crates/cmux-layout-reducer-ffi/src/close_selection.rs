@@ -98,6 +98,9 @@ pub unsafe extern "C" fn cmux_close_selection_made(
 ) {
     // SAFETY: the caller's contract.
     let Some(strip) = (unsafe { ids(strip, strip_count) }) else { return };
+    if item == NONE {
+        return;
+    }
     let kind = if kind == TASK { OpenerKind::Task } else { OpenerKind::Quick };
     // SAFETY: the caller's contract.
     unsafe {
@@ -110,6 +113,8 @@ pub unsafe extern "C" fn cmux_close_selection_made(
 /// The selection of `strip` moved from `old` (`CMUX_FOCUS_NONE`: none) to
 /// `new_item`. `gesture` nonzero: a person chose it (a click, a shortcut, the
 /// palette, the switcher); zero for a close's own selection and automation.
+/// While `cmux_close_selection_has_relations` is zero the call changes
+/// nothing and may be left out (`strip` is not read).
 ///
 /// # Safety
 ///
@@ -126,6 +131,9 @@ pub unsafe extern "C" fn cmux_close_selection_selected(
 ) {
     // SAFETY: the caller's contract.
     let Some(strip) = (unsafe { ids(strip, strip_count) }) else { return };
+    if new_item == NONE {
+        return;
+    }
     // SAFETY: the caller's contract.
     unsafe {
         with(handle, (), |openers| {
@@ -149,18 +157,39 @@ pub unsafe extern "C" fn cmux_close_selection_typed_navigation(
 ) {
     // SAFETY: the caller's contract.
     let Some(strip) = (unsafe { ids(strip, strip_count) }) else { return };
+    if tab == NONE {
+        return;
+    }
     // SAFETY: the caller's contract.
     unsafe { with(handle, (), |openers| openers.typed_navigation(&tab, strip)) }
 }
 
+/// Any other navigation committed in `tab` (a link click, a redirect): its
+/// next typed navigation is no longer a just-made tab's first.
+///
+/// # Safety
+///
+/// `handle` is null or a live handle used by one thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_close_selection_navigated(handle: *mut CloseSelection, tab: u32) {
+    if tab == NONE {
+        return;
+    }
+    // SAFETY: the caller's contract.
+    unsafe { with(handle, (), |openers| openers.navigated(&tab)) }
+}
+
 /// `item` left its strip (closed, or moved): its children take its opener.
-/// Call it after the pick for a close.
+/// Call it after the pick for a close, for every item that closes.
 ///
 /// # Safety
 ///
 /// `handle` is null or a live handle used by one thread.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_close_selection_left(handle: *mut CloseSelection, item: u32) {
+    if item == NONE {
+        return;
+    }
     // SAFETY: the caller's contract.
     unsafe { with(handle, (), |openers| openers.left(&item)) }
 }
@@ -181,6 +210,18 @@ pub unsafe extern "C" fn cmux_close_selection_forget_all(
     let Some(strip) = (unsafe { ids(strip, strip_count) }) else { return };
     // SAFETY: the caller's contract.
     unsafe { with(handle, (), |openers| openers.forget_all(strip)) }
+}
+
+/// Nonzero while the handle holds an opener relation, in any strip. While
+/// it is zero a selection change needs no call and a pick is positional.
+///
+/// # Safety
+///
+/// `handle` is null or a live handle used by one thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_close_selection_has_relations(handle: *mut CloseSelection) -> u8 {
+    // SAFETY: the caller's contract.
+    unsafe { with(handle, 0, |openers| u8::from(openers.has_relations())) }
 }
 
 /// The live opener of `item`, or `CMUX_FOCUS_NONE`.
@@ -257,8 +298,8 @@ pub unsafe extern "C" fn cmux_close_selection_tab(
 /// (order `i` holds `order_lengths[i]` ids), and `group_rows[i]` is in
 /// section or group `group_ids[i]`. Call it before
 /// `cmux_close_selection_left` for the closed workspaces. Returns the
-/// workspace, or `CMUX_FOCUS_NONE` when none is left (or an array is null or
-/// short). A null handle picks with no relations.
+/// workspace, or `CMUX_FOCUS_NONE` when none is left (or an array is null).
+/// A null handle picks with no relations.
 ///
 /// # Safety
 ///
@@ -320,8 +361,8 @@ pub unsafe extern "C" fn cmux_close_selection_workspace(
 }
 
 /// The item a background child of `opener` goes after in `order`: the last
-/// of the run of its descendants that follows it, else `opener`; a `pinned`
-/// item never ends the run.
+/// of the run of its descendants that follows it, else `opener` (also for a
+/// null handle or a null array); a `pinned` item never ends the run.
 ///
 /// # Safety
 ///

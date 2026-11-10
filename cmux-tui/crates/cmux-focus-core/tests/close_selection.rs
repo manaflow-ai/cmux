@@ -1,10 +1,8 @@
 //! The one close-selection rule (plans/cmux-next/close-focus.md, "One
-//! close-selection rule"; Lawrence 2026-11-10: "closing workspaces with cmd
-//! shift w ... focuses the wrong workspace afterwards, we need to copy how
-//! google chrome does it", "tabs also follow Chrome's rule"), as a table:
-//! each row is a strip, the person's steps, and the item selected at the
-//! end. Every row runs twice over the same `Openers` state: as the tabs of
-//! a pane and as the workspaces of a window's sidebar.
+//! close-selection rule"), as a table: each row is a strip, the person's
+//! steps, and the item selected at the end. Every row runs twice over the
+//! same `Openers` state: as the tabs of a pane and as the workspaces of a
+//! window's sidebar.
 //!
 //! The rows are the eight worked cases of the rule, then Chromium's ranks
 //! and opener lifetime (`TabStripModel::DetermineNewSelectedIndex`,
@@ -49,6 +47,8 @@ enum Step {
     ScriptedSelect(&'static str),
     /// The person types an address in a tab.
     Typed(&'static str),
+    /// Any other navigation commits in a tab (a link click, a redirect).
+    Navigated(&'static str),
     /// The item closes (any entrypoint).
     Close(&'static str),
     /// The item moves to another strip.
@@ -57,7 +57,8 @@ enum Step {
     MoveTo(&'static str, usize),
 }
 use Step::{
-    Close, LinkBehind, LinkInFront, MoveOut, MoveTo, New, Scripted, ScriptedSelect, Select, Typed,
+    Close, LinkBehind, LinkInFront, MoveOut, MoveTo, Navigated, New, Scripted, ScriptedSelect,
+    Select, Typed,
 };
 
 struct Strip {
@@ -173,6 +174,7 @@ impl Strip {
             Select(item) => self.select(item, true),
             ScriptedSelect(item) => self.select(item, false),
             Typed(item) => self.openers.typed_navigation(&item.to_owned(), &self.order),
+            Navigated(item) => self.openers.navigated(&item.to_owned()),
             Close(item) => self.remove(item),
             MoveOut(item) => {
                 // Another strip takes it; this strip's selection follows the close rule.
@@ -235,8 +237,8 @@ fn check(rows: &[Row]) {
 
 use Mode::{AfterSelected, AtEnd};
 
-/// The eight worked cases of the rule (tasks/close-selection-rule.md,
-/// copied into close-focus.md).
+/// The eight worked cases of the rule (close-focus.md, "One close-selection
+/// rule").
 #[test]
 fn the_eight_worked_cases() {
     check(&[
@@ -301,6 +303,13 @@ fn chromium_ranks() {
             AtEnd,
             "A B* C D",
             &[LinkInFront("X"), Close("X")],
+            "A B* C D",
+        ),
+        row(
+            "rank 3: a background link tab returns to its opener",
+            AtEnd,
+            "A B* C D",
+            &[LinkBehind("X"), Select("X"), Close("X")],
             "A B* C D",
         ),
         row(
@@ -387,6 +396,13 @@ fn when_openers_are_forgotten() {
             "A B C* D",
         ),
         row(
+            "a look-up at the end loses its opener after a visit: the previous item",
+            AtEnd,
+            "A B* C D",
+            &[New("N"), Select("A"), Select("N"), Close("N")],
+            "A B C D*",
+        ),
+        row(
             "a look-up loses its opener even for a visit to the opener",
             AfterSelected,
             "A B* C D",
@@ -460,6 +476,20 @@ fn typed_navigation() {
             "A B C* D",
         ),
         row(
+            "a link click in a new tab keeps its opener",
+            AfterSelected,
+            "A B* C D",
+            &[New("N"), Navigated("N"), Close("N")],
+            "A B* C D",
+        ),
+        row(
+            "after a link click a typed one is not the first: it forgets",
+            AfterSelected,
+            "A B* C D",
+            &[New("N"), Navigated("N"), Typed("N"), Close("N")],
+            "A B C* D",
+        ),
+        row(
             "one in a link tab forgets",
             AtEnd,
             "A B* C D",
@@ -503,6 +533,13 @@ fn items_that_leave() {
             "A B C D*",
         ),
         row(
+            "an opener that moved inside its strip is no opener",
+            AtEnd,
+            "A B* C D",
+            &[LinkBehind("X"), MoveTo("B", 0), Select("X"), Close("X")],
+            "B A C* D",
+        ),
+        row(
             "a moved look-up has no opener",
             AfterSelected,
             "A B* C D",
@@ -518,6 +555,78 @@ fn ids(items: &str) -> Vec<String> {
 
 fn id(item: &str) -> String {
     item.to_owned()
+}
+
+/// R2's edges: an item with no opener, and what the state then holds.
+#[test]
+fn items_with_no_opener() {
+    let strip = ids("A B N C");
+    let mut openers = Openers::new();
+    // With no relation a selection change is nothing, whatever the strip.
+    openers.selected(Some(&id("A")), &id("B"), true, &[]);
+    assert!(openers.is_empty());
+    // A person's item made in the background has none and is not "just made".
+    openers.made(&id("N"), Some(&id("B")), OpenerKind::Quick, false, &strip);
+    assert!(openers.is_empty());
+    // Made in the foreground with no selected item: none, but it is "just made".
+    openers.made(&id("N"), None, OpenerKind::Quick, true, &strip);
+    assert_eq!(openers.opener(&id("N")), None);
+    assert!(!openers.has_relations());
+    assert!(!openers.is_empty());
+    openers.left(&id("N"));
+    assert!(openers.is_empty());
+    // An item is never its own opener.
+    openers.made(&id("N"), Some(&id("N")), OpenerKind::Task, true, &strip);
+    assert!(!openers.has_relations());
+    // A relation is held from the make to the item's end.
+    openers.made(&id("N"), Some(&id("B")), OpenerKind::Task, false, &strip);
+    assert!(openers.has_relations());
+    openers.left(&id("N"));
+    assert!(!openers.has_relations());
+    assert!(openers.is_empty());
+}
+
+/// Rank 1 in full (a child after the closed tab, else the nearest before it;
+/// a child before a sibling), a batch close, and hidden tabs.
+#[test]
+fn ranks_that_the_steps_cannot_make() {
+    let none: HashMap<String, u32> = HashMap::new();
+    let pick =
+        |openers: &Openers<String>, closed: &str, old: &[String], left: &str, shown: &str| {
+            let shown: HashSet<String> = ids(shown).into_iter().collect();
+            openers.successor(Some(&id(closed)), old, &ids(left), &shown, &none)
+        };
+    let family = |old: &[String], relations: &[(&str, &str)]| {
+        let mut openers = Openers::new();
+        for (child, opener) in relations {
+            openers.made(&id(child), Some(&id(opener)), OpenerKind::Task, false, old);
+        }
+        openers
+    };
+    // X is B's child and stands before it: X, not the next tab C.
+    let old = ids("A X B C");
+    let openers = family(&old, &[("X", "B")]);
+    assert_eq!(pick(&openers, "B", &old, "A X C", "A X C"), Some(id("X")));
+    // B has a child X and a sibling S: the child, not the nearer sibling.
+    let old = ids("P B S X");
+    let openers = family(&old, &[("B", "P"), ("S", "P"), ("X", "B")]);
+    assert_eq!(pick(&openers, "B", &old, "P S X", "P S X"), Some(id("X")));
+    assert_eq!(pick(&openers, "S", &old, "P B X", "P B X"), Some(id("B")));
+    // A batch takes X and its sibling Y: their opener, not the next tab.
+    let old = ids("A B X Y C");
+    let openers = family(&old, &[("X", "B"), ("Y", "B")]);
+    assert_eq!(pick(&openers, "X", &old, "A B C", "A B C"), Some(id("B")));
+    // A batch takes X and its opener B, a child of A: the opener's opener.
+    let old = ids("A C B X D");
+    let openers = family(&old, &[("B", "A"), ("X", "B")]);
+    assert_eq!(pick(&openers, "X", &old, "A C D", "A C D"), Some(id("A")));
+    // A hidden tab (a collapsed group's) is not picked: the next shown one,
+    // and a hidden opener is passed over.
+    let old = ids("A B C D");
+    assert_eq!(pick(&Openers::new(), "B", &old, "A C D", "A D"), Some(id("D")));
+    let old = ids("A B X C");
+    let openers = family(&old, &[("X", "B")]);
+    assert_eq!(pick(&openers, "X", &old, "A B C", "A C"), Some(id("C")));
 }
 
 /// A window's workspaces: the drawn rows decide, as before, and the opener

@@ -540,7 +540,8 @@ int32_t cmux_close_focus_live_openers(const uint32_t *children, const uint32_t *
  * items. Ids are the caller's own uint32_t numbering, stable for the
  * handle's life; CMUX_FOCUS_NONE is none. A handle is used by one thread; a
  * null handle is no relation. A null array with a nonzero count changes
- * nothing (a pick: CMUX_FOCUS_NONE).
+ * nothing (a pick: CMUX_FOCUS_NONE; the slot: `opener`). An item that is
+ * CMUX_FOCUS_NONE changes nothing.
  */
 typedef struct CmuxCloseSelection CmuxCloseSelection;
 enum {
@@ -557,9 +558,13 @@ void cmux_close_selection_selected(CmuxCloseSelection *handle, uint32_t old, uin
                                    const uint32_t *strip, size_t strip_count);
 /* a typed navigation (not a link click) in `tab` */
 void cmux_close_selection_typed_navigation(CmuxCloseSelection *handle, uint32_t tab, const uint32_t *strip, size_t strip_count);
-/* `item` left its strip (closed or moved); after the pick for a close */
+/* any other navigation committed in `tab`: its next typed navigation is not a just-made tab's first */
+void cmux_close_selection_navigated(CmuxCloseSelection *handle, uint32_t tab);
+/* `item` left its strip (closed or moved); after the pick for a close, for every item that closes */
 void cmux_close_selection_left(CmuxCloseSelection *handle, uint32_t item);
 void cmux_close_selection_forget_all(CmuxCloseSelection *handle, const uint32_t *strip, size_t strip_count);
+/* nonzero while a relation is held, in any strip; while zero, cmux_close_selection_selected changes nothing */
+uint8_t cmux_close_selection_has_relations(CmuxCloseSelection *handle);
 uint32_t cmux_close_selection_opener(CmuxCloseSelection *handle, uint32_t item);
 /* the tab selected after `selected` closed: a child, a sibling, the opener, the group's neighbor, the next shown tab, else the previous */
 uint32_t cmux_close_selection_tab(CmuxCloseSelection *handle, uint32_t selected, const uint32_t *old, size_t old_count,

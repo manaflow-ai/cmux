@@ -1,8 +1,7 @@
 //! The one close-selection rule for tabs in a pane and workspaces in the
 //! sidebar: which item is selected after the selected one closed, and the
 //! opener relations that decide it (plans/cmux-next/close-focus.md, "One
-//! close-selection rule"; Lawrence 2026-11-10: "we need to copy how google
-//! chrome does it", "tabs also follow Chrome's rule").
+//! close-selection rule").
 //!
 //! A strip is one pane's tabs or one window's workspaces. [`Openers`] is the
 //! state: who opened which item (Chromium's `TabModel::opener`), with
@@ -60,7 +59,8 @@ struct Relation<T> {
 pub struct Openers<T> {
     /// Child to its opener.
     relation: HashMap<T, Relation<T>>,
-    /// A person's new items whose first typed navigation has not happened.
+    /// A person's new items that have not navigated yet (the new-tab page
+    /// with one history entry, in Chromium's terms).
     fresh: HashSet<T>,
 }
 
@@ -107,9 +107,10 @@ impl<T: Eq + Hash + Clone> Openers<T> {
     /// and the selection it causes, and automation, are not one. A `Quick`
     /// relation of `old` ends on any move. A gesture forgets every relation
     /// of the strip unless `new` and `old` have the same opener (or both
-    /// none), or one is the other's opener (`OnActiveTabChanged`).
+    /// none), or one is the other's opener (`OnActiveTabChanged`). With no
+    /// relation held the call reads nothing of `strip`.
     pub fn selected(&mut self, old: Option<&T>, new: &T, gesture: bool, strip: &[T]) {
-        if old == Some(new) {
+        if old == Some(new) || self.relation.is_empty() {
             return;
         }
         let members: HashSet<&T> = strip.iter().collect();
@@ -140,11 +141,23 @@ impl<T: Eq + Hash + Clone> Openers<T> {
         }
     }
 
+    /// Any other navigation committed in `tab` (a link click, a redirect, a
+    /// script's): the tab is no longer one the person just made, so its next
+    /// typed navigation forgets (`IsNewTabAtEndOfTabStrip` wants one history
+    /// entry). No relation changes.
+    pub fn navigated(&mut self, tab: &T) {
+        self.fresh.remove(tab);
+    }
+
     /// `item` left its strip (closed, or moved to another strip or place):
     /// the items it opened take its opener, and its own relation ends
-    /// (`FixOpeners`; R4).
+    /// (`FixOpeners`; R4). Report every item that closes: it is what ends an
+    /// item's state here.
     pub fn left(&mut self, item: &T) {
         self.fresh.remove(item);
+        if self.relation.is_empty() {
+            return;
+        }
         let parent = self.relation.remove(item).map(|relation| relation.opener);
         self.relation.retain(|child, relation| {
             if relation.opener != *item {
@@ -178,6 +191,12 @@ impl<T: Eq + Hash + Clone> Openers<T> {
     /// No relation and no just-made item is held.
     pub fn is_empty(&self) -> bool {
         self.relation.is_empty() && self.fresh.is_empty()
+    }
+
+    /// An opener relation is held, in any strip. While none is, a selection
+    /// change and a close need no call: the pick is positional.
+    pub fn has_relations(&self) -> bool {
+        !self.relation.is_empty()
     }
 
     fn opener_among(&self, item: &T, members: &HashSet<&T>) -> Option<&T> {
