@@ -218,8 +218,11 @@ export function reportHostGlass(
   /** Whether the surface is closing now; one that opens again before it went is reported again. */
   const closing = (element: Element) => {
     const ending = element.hasAttribute(HOST_GLASS_ENDING_ATTRIBUTE);
-    if (ending) leaving.add(element);
-    else if (leaving.delete(element) && live && !answered.has(element) && !timedOut.has(element)) {
+    if (ending) {
+      // Its glass is withdrawn: an earlier answer no longer says the App draws it if it opens again.
+      leaving.add(element);
+      answered.delete(element);
+    } else if (leaving.delete(element) && live && !answered.has(element) && !timedOut.has(element)) {
       // Opened again before the App answered: a deadline that passed while it closed skipped it, so
       // it gets a new one (a slow App still never leaves it on no glass).
       const timer = deadlines.get(element);

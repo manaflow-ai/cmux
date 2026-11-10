@@ -467,3 +467,20 @@ test("a surface that opens again during its fade before the App answered still f
   await pastDeadline();
   expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
 });
+
+test("a surface the App had answered for, opened again during its fade, still falls back if the App stalls", async () => {
+  const doc = page();
+  let calls = 0;
+  stop = reportHostGlass(doc, () => (++calls === 1 ? Promise.resolve() : new Promise(() => undefined)));
+  const menu = surface(doc, "menu");
+  await frames();
+  await settled();
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  menu.setAttribute("data-ending-style", "");
+  await Promise.resolve();
+  menu.removeAttribute("data-ending-style");
+  await frames();
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  await pastDeadline();
+  expect(menu.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+});
