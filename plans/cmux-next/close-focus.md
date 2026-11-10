@@ -145,7 +145,7 @@ successor), the strip's model sync to `ColumnScrollState`, and the sidebar's
 | same, `CMUX_MODELCHECK_PANES=7` | 7 panes | 341,004 states | 4,024,915 | 63 s |
 | `FocusAfterClose.pane` mostRecent | as above | 48,180 states | 810,480 | |
 | `FocusAfterClose.tab` | 5 tabs, every hidden subset, depth 5 | 10,449 close sequences | | <1 s |
-| `FocusAfterClose.workspace` | 5 workspaces, depth 5 | 600 close sequences | | <1 s |
+| `CloseSelection.workspace` with no relation held (the run was of its predecessor `FocusAfterClose.workspace`, now removed; not run again) | 5 workspaces, depth 5 | 600 close sequences | | <1 s |
 | `ListViewport` | 5 rows, 3 viewports, depth 3 | 1,025,508 states | 3,365,334 | 150 s |
 | `ColumnScrollState` (strip) | 4 columns, 3 widths, 2 viewports, depth 6 | 12,100 states | 73,766 | 5 s |
 | TLA+ strip / strip-recent / list | see formal/README.md | 23,057 / 23,229 / 93,149 distinct | | 20 s |

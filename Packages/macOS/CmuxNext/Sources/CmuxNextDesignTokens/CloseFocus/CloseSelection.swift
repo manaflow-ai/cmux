@@ -213,7 +213,8 @@ public nonisolated final class CloseSelection<ID: Hashable> {
         private var back: [UInt32: ID] = [:]
 
         init(known: [ID: UInt32], next: UInt32) {
-            (self.known, self.next) = (known, next)
+            self.known = known
+            self.next = next
         }
 
         mutating func number(_ id: ID) -> UInt32 {

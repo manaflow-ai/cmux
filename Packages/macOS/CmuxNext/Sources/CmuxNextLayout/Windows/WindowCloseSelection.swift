@@ -15,8 +15,8 @@ import CmuxNextDesign
 ///
 /// Cost: with no relation held, `shown`, `left` and `settle` are each one or two emptiness checks
 /// of a dictionary, and no call walks a window's members. With some held, `shown` and `left` ask
-/// about the workspaces of those relations only; `settle` looks each of them up in the window's
-/// rows before and after (a few workspaces at most, on a membership change, never on a switch).
+/// about the workspaces of those relations only; `settle` asks the registry for the window of each
+/// (a few workspaces at most, on a membership change, never on a switch) and reads no row list.
 public final class WindowCloseSelection {
     private let openers = CloseSelection<String>()
     /// A person's new workspaces their window does not show yet, each to that window.
@@ -72,7 +72,8 @@ public final class WindowCloseSelection {
             // quick relation of the workspace the window leaves.
             openers.selected(old: old, new: new, gesture: false, among: lists)
             openers.made(new, opener: old, kind: made.quick ? .quick : .task, foreground: made.quick, among: lists)
-            (home[new], home[old]) = (window, window)
+            home[new] = window
+            home[old] = window
             return
         }
         guard !home.isEmpty else { return }
@@ -88,22 +89,30 @@ public final class WindowCloseSelection {
         forgetWhenEmpty()
     }
 
-    /// After the selection repair of `window`, whose rows went from `previous` to `members`: a
-    /// workspace of the state that left those rows (closed), or that the window no longer lists
-    /// (moved to another window), leaves the state, and so does one whose window is gone. `owner`:
+    /// After the selection repair of `window`: a workspace of the state that no window lists any
+    /// more (its close is committed: the daemon's delta took it from the registry), or that
+    /// another window lists (moved), leaves the state, and so does one whose window is gone. A
+    /// row that only left the window's rows (hidden at the press of a close that can still be
+    /// cancelled or refused, or in another room) keeps its relation: the pick reads the
+    /// surviving rows only, and a cancelled close shows the row again with its opener. `owner`:
     /// the window that lists a workspace now. `exists`: the window is registered. `claimed`: the
     /// workspace is a create its window waits for. With nothing held, none is asked.
-    public func settle(_ window: String, previous: [String], members: [String], owner: (String) -> String?,
-                       exists: (String) -> Bool, claimed: (String) -> Bool) {
+    public func settle(_ window: String, owner: (String) -> String?, exists: (String) -> Bool, claimed: (String) -> Bool) {
         // A create the window lists and did not show in this repair is not in the foreground, and one
         // that is neither listed nor waited for failed, as did one whose window is gone: no opener.
         if !expected.isEmpty { expected = expected.filter { $0.value.window != window ? exists($0.value.window) : owner($0.key) == nil && claimed($0.key) } }
         guard !home.isEmpty else { return }
         for (workspace, at) in home {
-            let gone = at != window ? !exists(at)
-                : (owner(workspace) != window && !claimed(workspace)) || (previous.contains(workspace) && !members.contains(workspace))
+            let gone = at != window ? !exists(at) : owner(workspace) != window && !claimed(workspace)
             if gone { left(workspace) }
         }
+    }
+
+    /// Window `old` took the identity `new` (the launch window adopts the frontmost saved window):
+    /// its creates and relations follow it.
+    public func renamed(window old: String, to new: String) {
+        for (workspace, made) in expected where made.window == old { expected[workspace] = (new, made.quick) }
+        for (workspace, at) in home where at == old { home[workspace] = new }
     }
 
     /// The workspace a window shows after `shown` left it: a workspace it opened, one its opener

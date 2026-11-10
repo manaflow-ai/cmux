@@ -3,6 +3,7 @@ public import CmuxNextAgentPane
 public import CmuxNextBridge
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
+public import CmuxNextLayout
 public import CmuxNextSidebar
 import Foundation
 
@@ -71,6 +72,16 @@ public struct WorkspaceSpawn: Sendable {
             env = object.compactMapValues { $0 as? String }
         }
         opensNewTabPage = invocation.origin == .user && command == nil
+    }
+
+    /// One read of the placement `setting` for the create of `key` into `window`: tells the close-selection `rule` of
+    /// a person's own New Workspace (``quickOpener(setting:)``), before the window can show it, and returns
+    /// ``placement(setting:)``. A second read of the setting is a second walk of the sidebar's rows.
+    @MainActor
+    public func placement(setting: NewWorkspaceDefaultSlot, opening key: String, in window: String?,
+                          tells rule: WindowCloseSelection) -> (row: NewWorkspaceDefaultSlot?, rule: NewWorkspaceDefaultSlot?) {
+        if let window, let quick = quickOpener(setting: setting) { rule.expect(key, in: window, quick: quick) }
+        return placement(setting: setting)
     }
 
     /// The close-selection relation this create into a window starts (plans/cmux-next/close-focus.md, "One

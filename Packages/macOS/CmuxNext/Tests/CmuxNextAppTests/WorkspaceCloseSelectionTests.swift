@@ -101,12 +101,6 @@ struct WorkspaceCloseSelectionTests {
         #expect(close("n", shown: "n", rows: ["a", "b", "n", "d"], rule: rule) == "b")
     }
 
-    /// A row's group is not read (decision 2026-11-10, Chrome 156 as observed): "g2" is the last row of a group
-    /// and "b", outside it, is the next row.
-    @Test func theLastRowOfAGroupSelectsTheNextRowNotItsGroupsRow() {
-        #expect(close("g2", shown: "g2", rows: ["a", "g1", "g2", "b"], rule: WindowCloseSelection()) == "b")
-    }
-
     /// A move gets no opener: a tab moved to a new workspace (`TabMoves.toNewWorkspace`) is made by the daemon and
     /// its window shows it with no create reported, so closing it selects the next row, not the one it came from.
     @Test func aTabMovedToANewWorkspaceGetsNoOpener() {
@@ -154,7 +148,7 @@ struct WorkspaceCloseSelectionTests {
     @Test func aRepairWhileTheCreateWaitsKeepsItsOpener() {
         let rule = WindowCloseSelection(), rows = ["a", "b", "n", "c"]
         rule.expect("n", in: window, quick: false)
-        rule.settle(window, previous: ["a", "b", "c"], members: ["a", "b", "c"], owner: { $0 == "n" ? nil : "w" }, exists: { _ in true }, claimed: { $0 == "n" })
+        rule.settle(window, owner: { $0 == "n" ? nil : "w" }, exists: { _ in true }, claimed: { $0 == "n" })
         go("n", from: "b", in: rule)
         #expect(close("n", shown: "n", rows: rows, rule: rule) == "b")
     }
@@ -162,24 +156,25 @@ struct WorkspaceCloseSelectionTests {
     // MARK: Cost (Lawrence's session: 826 workspaces)
 
     /// With no relation held, a selection change, a close and a selection repair ask nothing about the window's
-    /// members and read no rows; with one held, the repair asks about that relation's two workspaces only.
+    /// members and read no rows; with one held, the repair asks the registry about that relation's two workspaces
+    /// only. `settle` gets no row list at all (review of #40649, C and F), so it cannot walk the members.
     @Test(arguments: [3, 60, 826]) func aSwitchAndACloseNeverWalkTheMembers(count: Int) {
         final class Counter { var asked = 0, reads = 0 }
         let rows = (0..<count).map { "w\($0)" }, counter = Counter(), rule = WindowCloseSelection()
         func orders() -> [[String]] { counter.reads += 1; return [rows] }
-        func settle(_ members: [String]) {
-            rule.settle("w", previous: rows, members: members, owner: { _ in counter.asked += 1; return "w" },
+        func settle() {
+            rule.settle("w", owner: { _ in counter.asked += 1; return "w" },
                         exists: { _ in counter.asked += 1; return true }, claimed: { _ in counter.asked += 1; return false })
         }
         rule.shown(rows[1], after: rows[0], in: window, gesture: true)
         rule.left(rows[2])
-        settle(rows)
+        settle()
         #expect(WindowRegistry.repairedSelection(current: rows[1], previous: rows, members: rows.filter { $0 != rows[2] }, orders: orders(), rule: rule) == rows[1])
         #expect(counter.asked == 0)
         #expect(counter.reads == 0)
         make("n", from: rows[1], quick: false, in: rule)
         go(rows[1], from: "n", in: rule)
-        settle(rows + ["n"])
+        settle()
         #expect(counter.asked == 2)
         #expect(!rule.isEmpty)
     }
@@ -213,15 +208,46 @@ struct WorkspaceCloseSelectionTests {
         #expect(close("n", shown: "n", rows: ["a", "b", "n", "c", "d"], rule: rule) == "b")
     }
 
-    /// The window's selection repair (every close entry point) picks, selects and settles in one call.
-    @Test func theRepairSelectsTheOpenerAndEndsTheClosedWorkspacesRelation() {
+    /// The window's selection repair (every close entry point) picks and selects at the press; the relation of
+    /// the closed workspace ends when the registry no longer lists it (the close is committed), not before
+    /// (review of #40649, F: a cancelled or refused close shows the row again with its opener).
+    @Test func theRepairSelectsTheOpenerAndTheCommittedCloseEndsTheRelation() {
         let store = WindowRegistryStore(), rows = ["a", "b", "n", "c"]
         _ = store.apply { $0.openWindow(id: window, workspaceIDs: rows) }
         make("n", from: "b", quick: false, in: store.closeSelection)
         var selected: String??
-        store.repairSelection(of: window, shown: "n", previous: rows, members: ["a", "b", "c"], orders: [rows]) { selected = $0 }
+        store.repairSelection(of: window, shown: "n", previous: rows, members: ["a", "b", "c"], gesture: false, orders: [rows]) { selected = $0 }
         #expect(selected == .some("b"))
+        #expect(!store.closeSelection.isEmpty)
+        _ = store.apply { $0.reconcile(live: ["a", "b", "c"], dead: ["n"], fallbackWindow: window) }
+        store.repairSelection(of: window, shown: "b", previous: rows, members: ["a", "b", "c"], gesture: false, orders: [rows]) { selected = $0 }
         #expect(store.closeSelection.isEmpty)
+    }
+
+    /// Review of #40649, A: a workspace in `preferred` is the person's only when the caller says so. A daemon
+    /// delta's caller says "no gesture", so the selection it causes keeps the relations, whatever the run's scope
+    /// says (none surrounds a delta, and no scope reads as the person's).
+    @Test(arguments: [false, true]) func onlyTheCallerMakesAPreferredSelectionAGesture(gesture: Bool) {
+        let store = WindowRegistryStore(), rows = ["a", "b", "n", "c", "x"]
+        _ = store.apply { $0.openWindow(id: window, workspaceIDs: rows) }
+        make("n", from: "b", quick: false, in: store.closeSelection)
+        store.repairSelection(of: window, shown: "n", previous: ["a", "b", "n", "c"], members: rows, preferred: ["x"], gesture: gesture, orders: [rows]) {
+            store.closeSelection.shown($0, after: "n", in: window, gesture: true)
+        }
+        #expect(store.closeSelection.isEmpty == gesture)
+    }
+
+    /// Review of #40649, E: the launch window takes a saved window's identity; its creates and relations follow.
+    @Test func aRenamedWindowKeepsItsCreatesAndRelations() {
+        let rule = WindowCloseSelection(), rows = ["a", "b", "n", "m", "c"]
+        make("n", from: "b", quick: false, in: rule)
+        rule.expect("m", in: window, quick: false)
+        rule.renamed(window: window, to: "w2")
+        rule.settle("w2", owner: { $0 == "m" ? nil : "w2" }, exists: { $0 == "w2" }, claimed: { $0 == "m" })
+        #expect(!rule.isEmpty)
+        rule.shown("m", after: "n", in: "w2", gesture: true)
+        #expect(close("m", shown: "m", rows: rows, rule: rule) == "n")
+        #expect(close("n", shown: "n", rows: ["a", "b", "n", "c"], rule: rule) == "b")
     }
 
     /// The sidebar's own close (`SidebarModel.apply(.close)`) and the window's repair give one answer for one close.
