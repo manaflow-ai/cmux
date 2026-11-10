@@ -561,6 +561,12 @@ impl Mux {
                 return Err(validation_error);
             }
         };
+        // A hook that changes no durable state is answered from memory: no
+        // journal row, no registry commit (`agent_hooks_at_rest.rs`).
+        if let Some(commit) = self.answer_agent_hook_at_rest(ingress) {
+            return Ok(commit);
+        }
+        let _in_flight = self.agent_hook_in_flight(ingress);
         let commit = if self.journal_ingress.enabled() {
             self.journal_ingress.send_producer(
                 ingress.clone(),
@@ -582,6 +588,7 @@ impl Mux {
         };
         if !commit.replayed && ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
             self.activity.note_agent_action();
+            self.note_agent_hook_stored(ingress, &commit);
         }
         self.finish_journal_ingress(ingress, origin, idempotency_key, commit)
     }

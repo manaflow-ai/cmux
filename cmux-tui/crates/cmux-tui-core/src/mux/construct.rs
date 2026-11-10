@@ -347,6 +347,7 @@ impl Mux {
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             agent_hook_projection: Mutex::new(()),
+            agent_hooks_at_rest: Default::default(),
             agent_presence: Mutex::new(HashMap::new()),
             agent_hook_children: Mutex::new(HashMap::new()),
             agent_prompts: Mutex::new(agent_prompts::AgentTexts::with_sessions(

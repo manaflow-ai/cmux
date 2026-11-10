@@ -267,3 +267,117 @@ fn agents_at_rest_control_a_turn_still_appends_its_rows() {
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+fn one_agent(name: &str) -> (Arc<Mux>, Agent, std::path::PathBuf) {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-agents-at-rest-{name}-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux("agents-at-rest", &root);
+    mux.stop_journal_maintenance();
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap().key;
+    let raw = "00000000000040008000000000000a01";
+    let surface = mux
+        .seed_running_terminal_for_test(raw, "10000000000040008000000000000a01", &workspace)
+        .unwrap();
+    let terminal =
+        mux.workspace_registry.lock().unwrap().terminal_resource_id(raw).unwrap().unwrap();
+    let agent = Agent { terminal, surface, session: "session-one".into() };
+    send(&mux, &agent, "SessionStart", json!({}));
+    send(&mux, &agent, "UserPromptSubmit", json!({ "prompt": "go on" }));
+    (mux, agent, root)
+}
+
+/// A completed tool call resumes a blocked agent: that is a durable change,
+/// so its row is appended and the roster moves.
+#[test]
+fn agents_at_rest_a_tool_call_that_resumes_a_blocked_agent_appends_its_row() {
+    let (mux, agent, root) = one_agent("resume");
+    send(&mux, &agent, "PermissionRequest", json!({ "tool_name": "Bash" }));
+    assert_eq!(
+        settled(&mux).agent_roster_state_now_for_test(agent.terminal.as_str()).as_deref(),
+        Some("blocked")
+    );
+    let before = written(&mux);
+    let answer = send(&mux, &agent, "PostToolUse", json!({ "tool_name": "Bash" }));
+    assert!(!answer.replayed, "the resume is a new row");
+    let rows = kinds_after(&mux, before.journal_head);
+    assert_eq!(rows.get("agent.state.changed"), Some(&1), "{rows:?}");
+    assert_eq!(
+        settled(&mux).agent_roster_state_now_for_test(agent.terminal.as_str()).as_deref(),
+        Some("working")
+    );
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// What the history list keeps of a session (its directory, its session id)
+/// still reaches the journal: the first report with a new value is a row,
+/// the next equal one is not.
+#[test]
+fn agents_at_rest_a_new_directory_or_session_appends_one_row() {
+    let (mux, mut agent, root) = one_agent("facts");
+    let tool = || json!({ "tool_name": "Read", "tool_input": { "file_path": "/a.rs" } });
+    let rows_of = |mux: &Arc<Mux>, agent: &Agent, native: Value| {
+        let before = written(mux);
+        send(mux, agent, "PreToolUse", native);
+        written(mux).journal_head - before.journal_head
+    };
+    assert_eq!(rows_of(&mux, &agent, tool()), 0, "an equal report");
+    let mut moved = tool();
+    moved["cwd"] = json!("/work/other");
+    // `send` sets the directory; send this one by hand.
+    let moved_rows = {
+        let before = written(&mux);
+        moved["session_id"] = json!(agent.session);
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "PreToolUse",
+            Some(agent.terminal.as_str()),
+            moved.clone(),
+        )
+        .unwrap();
+        for key in ["moved-1", "moved-2"] {
+            mux.append_journal_ingress(&ingress, "test", key).unwrap();
+        }
+        written(&mux).journal_head - before.journal_head
+    };
+    assert_eq!(moved_rows, 1, "a new directory is one row; the equal report after it is none");
+    agent.session = "session-two".into();
+    assert_eq!(rows_of(&mux, &agent, tool()), 1, "a new agent session is a row");
+    assert_eq!(rows_of(&mux, &agent, tool()), 0, "the equal report after it is none");
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A start folds the journal into the roster. The reports that got no row
+/// changed nothing in it, so a fold of the journal alone gives the roster
+/// the running daemon holds.
+#[test]
+fn agents_at_rest_a_fold_of_the_journal_gives_the_live_roster() {
+    let (mux, agent, root) = one_agent("fold");
+    for report in 0..6 {
+        let event = if report % 2 == 0 { "PreToolUse" } else { "PostToolUse" };
+        send(&mux, &agent, event, json!({ "tool_name": "Read" }));
+    }
+    send(&mux, &agent, "PermissionRequest", json!({ "tool_name": "Bash" }));
+    send(&mux, &agent, "PostToolUse", json!({ "tool_name": "Bash" }));
+    send(&mux, &agent, "Notification", json!({ "message": "still at work" }));
+    let live = settled(&mux).agent_roster.lock().unwrap().roster.entries.clone();
+    assert_eq!(
+        live.get(agent.terminal.as_str()).map(|entry| entry.state.as_str()),
+        Some("working")
+    );
+
+    let mut folded = crate::journal_reducers::AgentRoster::default();
+    let mut sequence = 0;
+    loop {
+        let page = mux.session_journal_after(sequence, 500).unwrap();
+        let Some(last) = page.records.last() else { break };
+        sequence = last.sequence;
+        for record in &page.records {
+            folded.apply(&crate::journal_reducers::RosterEvent::from_record(record));
+        }
+    }
+    assert_eq!(folded.entries, live, "the journal alone folds to the live roster");
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
