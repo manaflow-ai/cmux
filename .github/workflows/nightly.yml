@@ -4796,7 +4796,11 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .publish-tooling
-          sparse-checkout: scripts
+          # tests/ui-structure: the Chief thread gate's spec, checker and accessibility dumper.
+          sparse-checkout: |
+            scripts
+            tests/ui-structure
+          sparse-checkout-cone-mode: false
 
       # The static DMG verifier runs the license check, which reads
       # ghostty-next/build.zig.zon.
@@ -4840,6 +4844,16 @@ jobs:
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'
         timeout-minutes: 12
         run: bash .publish-tooling/scripts/ci/nightly-steps/launch-smoke-gate.sh "final-dmg/${CHANNEL_DMG_PREFIX}-arm64.dmg"
+
+      # Leo, 2026-11-10, on a nightly whose Chief panel was an avatar column beside grey cards: "Where's
+      # the spec for that? Where's the iMessage". The same app, launched again from a fresh home: Chief and
+      # Home opened, their accessibility tree checked against tests/ui-structure/chief-thread.json
+      # (scripts/ci/nightly-steps/chief-thread-gate.sh). A broken thread fails this job, so publish-nightly
+      # publishes none of this build; cannot-run never holds it.
+      - name: Chief thread structure
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'
+        timeout-minutes: 5
+        run: bash .publish-tooling/scripts/ci/nightly-steps/chief-thread-gate.sh "final-dmg/${CHANNEL_DMG_PREFIX}-arm64.dmg"
 
       - name: Bundle size budget
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'

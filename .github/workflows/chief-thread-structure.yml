@@ -10,12 +10,19 @@ name: chief thread structure
 #                    its regression, the native transcript's gallery variants pass.
 #   native  (macOS)  the native transcript (MessagesLab) rendered at each gallery width, read through
 #                    its accessibility tree, checked; the snapshots and stills are the run's artifact.
+#   app     (macOS)  the real app: the newest Nightly feed build launched from a fresh home, Chief and
+#                    Home opened, the accessibility tree checked (scripts/ci/chief_thread_smoke.py, the
+#                    same check nightly.yml runs on its candidate before publishing). Only when the
+#                    check's own tooling changes: it tests the feed's build, not this pull request's.
 on:
   pull_request:
     branches: [feat-cmux-next]
     paths:
       - "tests/ui-structure/**"
       - ".github/workflows/chief-thread-structure.yml"
+      - "scripts/ci/chief_thread_smoke.py"
+      - "scripts/ci/nightly-steps/chief-thread-gate.sh"
+      - "scripts/ci/fresh_home_launch_smoke.py"
       # The transcript and the shared pieces it draws with.
       - "Packages/Shared/CmuxMessagesLab/**"
       - "Packages/Shared/CmuxHomeCore/**"
@@ -79,3 +86,38 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  app:
+    name: chief thread structure (app, newest Nightly)
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: macos-26
+    timeout-minutes: 15
+    # It checks the feed's build, which this pull request did not make: its verdict is evidence here
+    # (the job summary), the nightly's own step is the gate.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci
+            tests/ui-structure
+          sparse-checkout-cone-mode: false
+      - name: Download the newest Nightly build
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -A "cmux-chief-thread-structure/1" -H "Cache-Control: no-cache" \
+            -o "$RUNNER_TEMP/feed.xml" "https://files-next.cmux.com/nightly-next/appcast-arm64.xml?run=$GITHUB_RUN_ID"
+          url="$(python3 -I -c 'import re,sys; print(re.search(r"url=\"(https://files-next\.cmux\.com/[^\"]+\.dmg)\"", open(sys.argv[1]).read()).group(1))' "$RUNNER_TEMP/feed.xml")"
+          echo "build: $url" | tee -a "$GITHUB_STEP_SUMMARY"
+          curl -fsSL --retry 3 -A "cmux-chief-thread-structure/1" -o "$RUNNER_TEMP/nightly.dmg" "$url"
+      - name: The Chief thread's structure on the app
+        timeout-minutes: 6
+        run: bash scripts/ci/nightly-steps/chief-thread-gate.sh "$RUNNER_TEMP/nightly.dmg"
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chief-thread-app
+          path: ${{ runner.temp }}/chief-thread
+          if-no-files-found: ignore
+          retention-days: 14

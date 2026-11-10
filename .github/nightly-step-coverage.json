@@ -237,6 +237,7 @@
         "Download final DMG (parallel ranges)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts", "note": "tests/test_fetch_run_artifact.py runs the ranged fetch against a fake artifact service and blob host"},
         "Verify final DMG artifact": {"nightly_only": "statically verifies the notarized stapled final DMG and records its exact digest without launching app code"},
         "Launch smoke from a fresh home": {"nightly_only": "launches the final notarized DMG from a fresh home in the console session; only a release run has one (gate tested by tests/test_nightly_next_launch_smoke.py)"},
+        "Chief thread structure": {"pr": "chief-thread-structure.yml:app:The Chief thread's structure on the app", "note": "the same gate script (scripts/ci/nightly-steps/chief-thread-gate.sh) on the newest Nightly feed build"},
         "Bundle size budget": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
       "republish-nightly-next": {
         "Fetch the source run's verified build": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next pending notarization continuation", "note": "tests/test_nightly_next_recovery.py runs scripts/ci/republish-verified-nightly.py's source, artifact and tested-digest checks on fixtures"}},
