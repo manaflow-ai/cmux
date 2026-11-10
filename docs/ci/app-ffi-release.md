@@ -14,6 +14,31 @@ branch, not with the last FFI tag: runs 37551889292 and 38682698310 had the
 last tag's workflow tree, minted contents:write only and got HTTP 403. Only the
 release create uses that token.
 
+## The pin, after a publish
+
+The run's `repin` job first pins its release straight on `feat-cmux-next`
+(`scripts/cmux-next/pin-app-ffi-on-base.sh`), the way the base autofix pins
+GhosttyKit: one bot commit that changes only the pin, pushed with the base
+autofix's App token (`manaflow-cmux-pr-autofix`, the bypass actor of the
+branch's required check). It does so only when:
+
+- the tip's FFI sources (`check-app-ffi-pin.sh --list-inputs`) are the
+  release's, compared by content, so unrelated commits on top don't matter;
+- the tip's C headers keep every declaration of the current pin's
+  (`scripts/cmux-next/app_ffi_additive.py`), so Swift that built against the
+  old pin still builds;
+- `check-app-ffi-pin.sh --verify-release` passes on the pinned tree.
+
+Otherwise it falls back to the `app-ffi-repin` pull request, which the app
+compile proves before it lands. A tip whose FFI sources moved past the release
+is left to the newer push's own run. Dry run until `CMUX_NEXT_BASE_AUTOFIX` is
+`1`, like the base autofix.
+
+Before this, every pin went through the pull request, whose CI took over an
+hour; an FFI change landing in that hour made the pin stale before it could
+land, and base stayed red on "Check the app FFI pin" (cmux#39863 re-pinned
+three times on 2026-11-10 and never landed).
+
 FFI tags `cmux-app-ffi-*` are protected by two repository rulesets:
 
 - 24624526 "cmux-app-ffi tags: admin create only" (creation; admins and the

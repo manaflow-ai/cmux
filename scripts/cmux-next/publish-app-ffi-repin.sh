@@ -32,6 +32,29 @@ read -r pin_sha CHECKSUM <<<"$picked"
 [[ "$pin_sha" =~ ^[0-9a-f]{40}$ && "$CHECKSUM" =~ ^[0-9a-f]{64}$ ]] \
   || { echo "::error::no published app FFI release to pin (picked: $picked)" >&2; exit 1; }
 TAG="cmux-app-ffi-$pin_sha"
+
+# First the pin straight on feat-cmux-next, the way the base autofix pins
+# GhosttyKit (scripts/cmux-next/pin-app-ffi-on-base.sh): when the tip has this
+# release's FFI sources and its C headers only add to the current pin's, the
+# pin lands minutes after the release. Through the pull request below it waited
+# for over an hour of CI, and an FFI change landing in that hour made it stale
+# before it could land (#39863 re-pinned three times on 2026-11-10 and never
+# landed, and base stayed red on "Check the app FFI pin"). Newer sources,
+# changed headers, no BASE_TOKEN, a dry run (BASE_PIN_ENABLED is not true) or
+# any failure there fall through to the pull request, as before.
+start="$(git rev-parse HEAD)"
+: > "$RUNNER_TEMP/pin-base.out"
+base_result=""
+if base_out="$(TOKEN="${BASE_TOKEN:-}" ENABLED="$([[ "${BASE_PIN_ENABLED:-}" == true && -n "${BASE_TOKEN:-}" ]] && echo true)" \
+    GITHUB_OUTPUT="$RUNNER_TEMP/pin-base.out" bash scripts/cmux-next/pin-app-ffi-on-base.sh "$pin_sha" "$CHECKSUM" 2>&1)"; then
+  base_result="$(sed -n 's/^result=//p' "$RUNNER_TEMP/pin-base.out" | tail -n 1)"
+fi
+echo "$base_out"
+git checkout --quiet --force "$start"
+case "$base_result" in
+  pinned|already) echo "feat-cmux-next pins $TAG ($base_result); no re-pin pull request"; exit 0 ;;
+esac
+echo "app FFI pin on feat-cmux-next: ${base_result:-failed}; the re-pin pull request carries it"
 scripts/cmux-next/repin-app-ffi.sh "$pin_sha" "$CHECKSUM"
 if git diff --quiet -- "$manifest"; then
   echo "feat-cmux-next already pins $TAG, the newest published release"
