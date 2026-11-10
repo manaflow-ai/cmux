@@ -120,6 +120,8 @@ mod vm;
 #[cfg(unix)]
 mod vm_ready;
 #[cfg(unix)]
+mod vm_redo;
+#[cfg(unix)]
 mod vm_short;
 mod vm_words;
 #[cfg(unix)]
@@ -663,6 +665,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     // `vm pause dev`: the short Cloud VM verbs, through the app when it is here.
     #[cfg(unix)]
     if let Some(code) = vm_short::run_if_requested(args) {
+        return code;
+    }
+    // `vm redo NAME --confirm`: the same VM again, fresh, through the app (vm_redo.rs).
+    #[cfg(unix)]
+    if let Some(code) = vm_redo::run_if_requested(args) {
         return code;
     }
     // `device revoke|rotate|doctor|vault` and `device SELECTOR show` are `machine …` (`machine`
