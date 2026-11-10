@@ -355,6 +355,28 @@ export function cloudStartKeys(
   };
 }
 
+/// The team a Cloud send switches to (the plan card's Switch to <team>). It stays with the start it
+/// began, so the card's Retry of that start names the team too and reaches the same start key (its
+/// machine and copy); it goes once that start ends in a chat (or on this Mac), or the person leaves
+/// Cloud or the chat (`reset`).
+export function cloudStartTeam() {
+  let team: string | undefined;
+  return {
+    pick(id: string) {
+      team = id;
+    },
+    forSend(): string | undefined {
+      return team;
+    },
+    ended(answer: CloudStartAnswer) {
+      if (answer.ok || cloudRunsHere(answer)) team = undefined;
+    },
+    reset() {
+      team = undefined;
+    },
+  };
+}
+
 /// A failure the card already says in the host's words (with Retry when another try can help, or the
 /// sign-in's own reason), so the page says nothing more.
 export function cloudStartSaid(answer: CloudStartAnswer): boolean {

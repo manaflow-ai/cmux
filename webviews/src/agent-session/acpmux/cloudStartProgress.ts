@@ -444,6 +444,7 @@ export function cloudRefusalText(code: string, hostWords?: string): string {
   if (code === "cloud_folder_home") return translate("cloudStartup.folderHome");
   if (code === "cloud_folder_secret")
     return translate("cloudStartup.folderSecret", { folder: line(hostWords, 120) ?? "~" });
+  if (code === "cloud_team_switching") return translate("cloudStart.planTeam.switching");
   if (code.startsWith("transport.")) return errorMessage({ code });
   // The attachment refusal's words are the host's own sentence; the others carry only their code.
   if (code === "cloud_attachments")
@@ -462,4 +463,5 @@ const REFUSED_HERE = new Set([
   "cloud_folder_missing",
   "cloud_folder_home",
   "cloud_folder_secret",
+  "cloud_team_switching",
 ]);

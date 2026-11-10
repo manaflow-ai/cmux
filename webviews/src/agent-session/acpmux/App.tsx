@@ -501,6 +501,7 @@ import {
   cloudFolderGrants,
   cloudStartFolder,
   cloudStartSaid,
+  cloudStartTeam,
   makeCloudSignInRetry,
   resumeSignedIn,
   grantedCloudStart,
@@ -4521,7 +4522,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const dismissCloudFailure = () => setCloudStart(undefined);
   /// The plan card's Switch to <team>: the next Cloud send carries the team, and the host switches to it
   /// (the team picker's switch) before it starts, under the same click.
-  const cloudSwitchTeam = useRef<string | undefined>(undefined);
+  const [cloudSwitchTeam] = useState(() => cloudStartTeam());
   const sendToCloud = (
     text: string,
     attachments: ComposerAttachment[],
@@ -4535,8 +4536,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
     const environment = cloudEnvironment.forSend(start.environment);
     const reservationKey = cloudReservation.handoff(environment);
-    const team = cloudSwitchTeam.current;
-    cloudSwitchTeam.current = undefined;
+    const team = cloudSwitchTeam.forSend();
     const request: CloudStart = {
       task: text,
       attachments,
@@ -4617,6 +4617,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     );
     void started.then((answer) => {
       cloudStartKeys.ended(request, answer);
+      cloudSwitchTeam.ended(answer);
       cloudStartPending.current = false;
       if (signingIn) cloudSignInPending.current = false;
       setCloudStartsEnded((count) => count + 1);
@@ -4664,7 +4665,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sandboxWake.current = undefined;
     runModePicked.current = false;
     cloudReservation.reset();
-    cloudSwitchTeam.current = undefined;
+    cloudSwitchTeam.reset();
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
     cancelCloudSignIn();
     cloudSignInRetry.reset();
@@ -4683,7 +4684,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (sandbox.mode !== "cloud") {
       cloudReservation.abandon();
-      cloudSwitchTeam.current = undefined;
+      cloudSwitchTeam.reset();
       cancelCloudSignIn();
       cloudSignInRetry.reset();
       setCloudStart((current) => (current?.state === "failed" ? undefined : current));
@@ -5798,7 +5799,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const switchTeamAndRetry = (team: { id: string }) => {
     // The next Cloud send takes it (a send the composer holds for its files goes a moment later);
     // leaving Cloud or this chat drops it.
-    cloudSwitchTeam.current = team.id;
+    cloudSwitchTeam.pick(team.id);
     retryCloudStart();
   };
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).

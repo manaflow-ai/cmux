@@ -43,6 +43,8 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
     card: {
       note: "The failed startup card stays above the same words and buttons: the checklist adds a failed machine row that explains nothing more.",
       props: { start: { ...refused, step: "machine" }, ...actions, planTeamLook: "card" },
+      // The failed checklist opens on its own: the stage leaves room for it, the team line and the buttons.
+      height: 560,
     },
     banner: {
       note: "The title and the buttons on one line, the team under them: tight, but the buttons wrap under the title at narrow widths.",
@@ -54,6 +56,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
     },
     "long-names": {
       note: "Long team names wrap inside their buttons' row without pushing the title.",
+      height: 320,
       props: {
         start: {
           ...refused,

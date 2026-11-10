@@ -44,15 +44,15 @@ struct CloudStartChat {
         }
     }
 
-    /// The page's reply: success with the machine's name, or a refusal in the person's words, which the card says
-    /// (no toast), with Retry when another try can help (the same key reuses a machine made or a folder copied).
+    /// The page's reply: the machine's name, or a refusal the card says (no toast), with Retry when another try can help.
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
     func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
         if let refusal = Self.refusal(services) {
             return AgentPaneReply.failure(code: refusal, message: CloudStrings.startRefusal(refusal))
         }
         do {
-            if let team = start.team { try await services.cloud.auth.activeTeam.select(team) } // the plan card's Switch to <team>
+            if let team = start.team { try await services.cloud.auth.activeTeam.select(team) } // the plan card's Switch to <team>, then only in it:
+            if let refused = CloudStartCore().refusal(cloudDisabled: false, signedIn: true, requestedTeam: start.team, activeTeam: services.cloud.auth.teamID) { return AgentPaneReply.failure(code: refused, message: refused, details: nil, retryable: true, origin: "native") }
             let account = services.cloud.account
             let origin = Origin(tab: tab, chat: start.cwd ?? tab.cwd, workspace: services.workspaceID(ofTab: tab.id), account: account) { [services] in
                 // This Mac's tab, which never started a chat: the chat is the machine's now.
