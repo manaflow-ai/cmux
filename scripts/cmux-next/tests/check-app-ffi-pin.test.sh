@@ -428,6 +428,106 @@ refuse_manifest cmux-tui/crates/cmux-remote-browser/Cargo.toml "$(printf 'lib.pa
   "a library root outside src/lib.rs, as a dotted key"
 git -C "$repo" reset -q --hard "$before_build"
 
+# Review round 3 of #40095 (ffi-pin-rev-3): forms a fine scan of Rust and TOML missed. The rule now is fail-closed
+# (lead decision, 2026-11-10): an FFI crate is an input as a whole directory except tests/, benches/ and examples/,
+# plus every file outside it that one of its sources names; a test-only file only through a short reviewed list. Each
+# form below hides a change from the old scan, and each must now count as an input (stale) or refuse.
+not_current() { # not_current WHY [PYTHON_SHIM]: the check fails (stale or refused); then drop the last commit
+  if out="$(cd "$repo" && PATH="${2:-$PATH}" bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+    fail "$1 kept the pin current: $out"
+  fi
+  git -C "$repo" reset -q --hard HEAD~1
+}
+crate cmux-hole
+printf 'cmux-hole = { path = "../cmux-hole" }\n' >> "$repo/cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.toml"
+mkdir -p "$repo/cmux-tui/shared"
+for f in x.rs d.txt e.txt j.txt k.txt l.txt; do echo "$f" > "$repo/cmux-tui/shared/$f"; done
+git -C "$repo" add -A
+git -C "$repo" commit -qm "a crate for the hole fixtures"
+before_holes="$(git -C "$repo" rev-parse HEAD)"
+hole="$repo/cmux-tui/crates/cmux-hole"
+pin_head() { # pin_head MESSAGE [PYTHON_SHIM]: pin the current HEAD; exit 0 when the check then passes (not refused)
+  local head
+  head="$(git -C "$repo" rev-parse HEAD)"
+  perl -pi -e "s/cmux-app-ffi-[0-9a-f]{40}/cmux-app-ffi-$head/" "$repo/Packages/macOS/CmuxNext/Package.swift"
+  git -C "$repo" commit -qam "$1"
+  (cd "$repo" && PATH="${2:-$PATH}" bash scripts/cmux-next/check-app-ffi-pin.sh >/dev/null 2>&1)
+}
+hole_case() { # hole_case WHY CHANGED SETUP...: run SETUP (eval) and pin it; a refusal passes, else a change to CHANGED
+  # must leave the pin not current
+  local why="$1" changed="$2"; shift 2
+  eval "$*"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "hole: $why"
+  if pin_head "hole: pin $why"; then
+    echo "changed" >> "$repo/$changed"
+    git -C "$repo" add -A
+    git -C "$repo" commit -qm "hole: change for $why"
+    not_current "$why"
+  fi
+  git -C "$repo" reset -q --hard "$before_holes"
+}
+# F: a module the build script declares beside it (the crate root, not build.rs or build-support/).
+hole_case "a build script module at the crate root" cmux-tui/crates/cmux-hole/helper.rs \
+  'printf "mod helper;\nfn main() {}\n" > "$hole/build.rs"; echo "pub fn h() {}" > "$hole/helper.rs"'
+# G2: a C file a build script compiles with the cc crate.
+hole_case "a C file the build script compiles" cmux-tui/crates/cmux-hole/csrc/f.c \
+  'printf "fn main() { cc::Build::new().file(\"csrc/f.c\").compile(\"f\"); }\n" > "$hole/build.rs"; mkdir -p "$hole/csrc"; echo "int f;" > "$hole/csrc/f.c"'
+# C: a #[path] inside cfg_attr.
+hole_case "a cfg_attr path module outside the crate" cmux-tui/shared/x.rs \
+  'printf "#[cfg_attr(all(), path = \"../../../shared/x.rs\")] mod x;\n" >> "$hole/src/lib.rs"'
+# D: include_str through a use alias.
+hole_case "an include_str alias" cmux-tui/shared/d.txt \
+  'printf "use core::include_str as load;\npub const D: &str = load!(\"../../../shared/d.txt\");\n" >> "$hole/src/lib.rs"'
+# E: a space before the bang.
+hole_case "include_str with a space before the bang" cmux-tui/shared/e.txt \
+  'printf "pub const E: &str = include_str !(\"../../../shared/e.txt\");\n" >> "$hole/src/lib.rs"'
+# J: a file declared #[cfg(test)] and also include!d from the library.
+hole_case "a test module the library also include!s" cmux-tui/shared/j.txt \
+  'printf "#[cfg(test)]\nmod shared;\ninclude!(\"shared.rs\");\n" >> "$hole/src/lib.rs"; printf "pub const J: &str = include_str!(\"../../../shared/j.txt\");\n" > "$hole/src/shared.rs"'
+# K: a string that holds "//" at the start of a line.
+hole_case "an include after a string holding a comment marker" cmux-tui/shared/k.txt \
+  'printf "pub const K0: &str = \"\n// \"; pub const K: &str = include_str!(\"../../../shared/k.txt\");\n" >> "$hole/src/lib.rs"'
+# L: a cfg(test) item on the line above a library module.
+hole_case "a library module under a cfg(test) item" cmux-tui/shared/l.txt \
+  'printf "#[cfg(test)] fn helper() {}\nmod a;\n" >> "$hole/src/lib.rs"; printf "pub const L: &str = include_str!(\"../../../shared/l.txt\");\n" > "$hole/src/a.rs"'
+# A, B: a path dependency with a quoted key, or an escaped path.
+for dep in '{ "path" = "../cmux-sneak" }' '{ path = "../cmux-sneak" }'; do
+  hole_case "the path dependency $dep" cmux-tui/crates/cmux-sneak/src/lib.rs \
+    "crate cmux-sneak; printf '%s\n' 'cmux-sneak = $dep' >> \"\$hole/Cargo.toml\""
+done
+# I: package.workspace names another workspace manifest.
+hole_case "package.workspace" alt/Cargo.toml \
+  'mkdir -p "$repo/alt"; printf "[workspace]\n[workspace.package]\nedition = \"2021\"\n" > "$repo/alt/Cargo.toml"; python3 - "$hole/Cargo.toml" <<'"'"'EOF'"'"'
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+p.write_text(p.read_text().replace("[package]\n", "[package]\nworkspace = \"../../../alt\"\n", 1))
+EOF'
+# H: an inherited path entry spelled { "workspace" = true }, on a python3 without tomllib (a macOS runner's 3.9).
+shim="$tmp/no-tomllib"
+mkdir -p "$shim"
+real_python="$(command -v python3)"
+cat > "$shim/python3" <<EOF
+#!/bin/bash
+# python3 -I SCRIPT ARGS..., with tomllib missing.
+[[ "\$1" == -I ]] && shift
+exec "$real_python" -I -c 'import runpy, sys; sys.modules["tomllib"] = None; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")' "\$@"
+EOF
+chmod +x "$shim/python3"
+crate cmux-hidden
+printf 'cmux-hidden = { path = "crates/cmux-hidden" }\n' >> "$ws"
+printf 'cmux-hidden = { "workspace" = true }\n' >> "$hole/Cargo.toml"
+git -C "$repo" add -A
+git -C "$repo" commit -qm "hole: a quoted workspace key"
+if pin_head "hole: pin the quoted workspace key" "$shim:$PATH"; then
+  echo "// changed" >> "$repo/cmux-tui/crates/cmux-hidden/src/lib.rs"
+  git -C "$repo" commit -qam "hole: change cmux-hidden"
+  not_current "an inherited path entry with a quoted workspace key, without tomllib" "$shim:$PATH"
+fi
+git -C "$repo" reset -q --hard "$before_holes"
+git -C "$repo" reset -q --hard "$before_build"
+
 # --verify-release reads the release-assets API's answer with python3 -c from
 # the repository root. A json.py there does not change that verdict. curl is a
 # fake: the release download fails, so the API is asked, and it names a release
