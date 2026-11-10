@@ -940,6 +940,10 @@ def lines_of(log: str) -> list[str]:
     return found
 
 
+# The runner's own last line of a step whose command failed.
+EXIT_LINE = re.compile(r"^##\[error\]Process completed with exit code \d+\.?$")
+
+
 def _stamp_time(value) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
@@ -961,10 +965,17 @@ def failed_steps_log(job: dict, log: str) -> str:
     any line that cannot be placed in one is kept. `gh run view --log` names each line's step in a column. The job-log
     endpoint (GitHub.log) has only timestamps: a line is a step's when its stamp is in that step's [started_at,
     completed_at + 1s) window (the metadata rounds to seconds), and it is dropped only when every window it is in is
-    a passing step's. With a step that has no timestamps the whole log is read, as before."""
+    a passing step's. With a step that has no timestamps the whole log is read, as before.
+
+    Those windows overlap when a step ends in the second the next one starts. A line in such a second belongs to the
+    failing steps among its windows only, and never takes a step out of "passed" (cmux#40497's Codex P2: the
+    failing step's annotation there brought back the passing license step's whole log). The one exception is the
+    runner's own `##[error]Process completed with exit code N.`: it is the last line of the step that failed, so when
+    exactly one of its windows ends in its second, it is that step's end (a continue-on-error step that failed stays
+    compared)."""
     metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
-    lines = log.splitlines()
-    live = [text.startswith("##[error]") for text in lines_of(log)]
+    lines, texts = log.splitlines(), lines_of(log)
+    live = [text.startswith("##[error]") for text in texts]
     columns = [line.split("\t", 2) for line in lines]
     if any(len(parts) == 3 and STAMP.match(parts[2].lstrip("\ufeff")) for parts in columns):
         owners = [{parts[1]} if len(parts) == 3 else set() for parts in columns]
@@ -974,13 +985,28 @@ def failed_steps_log(job: dict, log: str) -> str:
             start, end = _stamp_time(step.get("started_at")), _stamp_time(step.get("completed_at"))
             if start is None or end is None or end < start:
                 return log
-            windows.append((step.get("name"), start, end + timedelta(seconds=1)))
-        owners, at = [], None
+            windows.append((step.get("name"), start, end))
+        owners, times, at = [], [], None
         for line in lines:
             stamp = STAMP.match(line.lstrip("\ufeff"))
             # A line with no stamp of its own continues the line before it.
             at = _stamp_time(stamp.group()) if stamp else at
-            owners.append({name for name, start, end in windows if at is not None and start <= at < end})
+            times.append(at)
+            owners.append({name for name, start, end in windows
+                           if at is not None and start <= at < end + timedelta(seconds=1)})
+        passed = {step.get("name") for step in metadata if step.get("conclusion") == "success"}
+        # A line one window holds is that step's: an `##[error]` there takes the step out of "passed".
+        passed -= {name for names, error in zip(owners, live) if error and len(names) == 1 for name in names}
+        for n, names in enumerate(owners):
+            if len(names) > 1 and EXIT_LINE.match(texts[n]):
+                ending = {name for name, start, end in windows
+                          if name in names and end <= times[n] < end + timedelta(seconds=1)}
+                if len(ending) == 1:
+                    passed -= ending
+                    owners[n] = ending
+        # Any other line of a shared second is the failing steps' among its windows, when there are any.
+        owners = [names - passed or names if len(names) > 1 else names for names in owners]
+        return "\n".join(line for line, names in zip(lines, owners) if not names or not names <= passed)
     passed = {step.get("name") for step in metadata if step.get("conclusion") == "success"}
     passed -= {name for names, error in zip(owners, live) if error for name in names}
     return "\n".join(line for line, names in zip(lines, owners) if not names or not names <= passed)
