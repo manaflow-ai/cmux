@@ -10,7 +10,7 @@ extension AppServices {
     /// made or closed name every workspace of the session again (WORKSPACE LIST 800).
     // perf-hot: O(changed) workspace-list-change (one workspace's shown name: it reads no workspace list)
     func shownWorkspaceName(_ workspace: WorkspaceModel) -> String {
-        let window = windows.registry.owner(ofWorkspace: workspace.id).flatMap(windows.controller(for:)) ?? windows.active
+        let window = windows.registry.value.owner(of: workspace.id).flatMap(windows.controller(for:)) ?? windows.active
         let selection = window?.state.selection
         let name = WorkspaceAutoNameWiring(services: self, workspace: workspace).reader.titlebarName(workspace) { selection?.selection(in: $0.id) }
         guard let daemon = machines.daemon(holding: workspace), MachineID(daemon.machineID).isLocalChief else { return name }
