@@ -90,7 +90,7 @@ if (!Number.isInteger(TURNS) || TURNS < 8 || ONLY.some((name) => !["long", "reco
 /// at 5,000 rows as at 50, within run-to-run noise).
 const GROWTH_FACTOR = 1.5;
 /// Records a frame takes outside a burst: a daemon's catch-up arrives about this fast.
-const BATCH = 25;
+const BATCH = Number(process.env.BATCH ?? 25);
 /// The budgets, one rule each (header).
 const BUDGET = {
   cls: 0.01,
@@ -144,7 +144,8 @@ const changed = (p: Play) =>
 function instrument(start: number) {
   const w = window as unknown as {
     __replayAt?: (at: number) => void;
-    __shifts: { at: number; value: number; input: boolean; sources: string[] }[];
+    __shifts: { at: number; value: number; input: boolean; sources: string[]; rects?: string[]; ctx?: string; frames?: string }[];
+    __recv?: { at: number; kind: string }[];
     __long: { at: number; ms: number }[];
   };
   if (w.__replayAt) return;
@@ -165,6 +166,22 @@ function instrument(start: number) {
   };
   w.__shifts = [];
   w.__long = [];
+  w.__recv = [];
+  const RealWS = window.WebSocket;
+  class TapWS extends RealWS {
+    constructor(...args: ConstructorParameters<typeof WebSocket>) {
+      super(...args);
+      this.addEventListener("message", (event) => {
+        const text = String((event as MessageEvent).data);
+        const m = /"kind":"([a-z_]+)"/.exec(text.slice(0, 400));
+        const meth = /"method":"([^"]+)"/.exec(text.slice(0, 200));
+        w.__recv!.push({ at: performance.now(), kind: `${meth?.[1] ?? "reply"}:${m?.[1] ?? ""}` });
+        if (w.__recv!.length > 60) w.__recv!.splice(0, 20);
+      });
+    }
+  }
+  (window as unknown as { WebSocket: typeof WebSocket }).WebSocket = TapWS as unknown as typeof WebSocket;
+  const rect = (r?: DOMRectReadOnly) => (r ? `${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)}` : "-");
   const describe = (node: Node | null | undefined) => {
     if (!(node instanceof Element)) return node ? node.nodeName.toLowerCase() : "?";
     const row = node.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
@@ -177,14 +194,21 @@ function instrument(start: number) {
         startTime: number;
         value: number;
         hadRecentInput: boolean;
-        sources?: { node?: Node | null }[];
-      }[])
+        sources?: { node?: Node | null; previousRect?: DOMRectReadOnly; currentRect?: DOMRectReadOnly }[];
+      }[]) {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+        const live = document.querySelector<HTMLElement>('[data-row-id="thinking-live"]');
+        const recent = (w.__recv ?? []).filter((r) => r.at <= entry.startTime + 1 && r.at > entry.startTime - 120);
         w.__shifts.push({
           at: entry.startTime,
           value: entry.value,
           input: entry.hadRecentInput,
           sources: (entry.sources ?? []).map((source) => describe(source.node)),
+          rects: (entry.sources ?? []).map((source) => `${describe(source.node)} ${rect(source.previousRect)} -> ${rect(source.currentRect)}`),
+          frames: JSON.stringify(((w as unknown as { __fr?: unknown[] }).__fr ?? []).slice(-6)),
+          ctx: `scroll ${scroller?.scrollTop}/${scroller?.scrollHeight}/${scroller?.clientHeight} live "${live?.textContent?.slice(0, 80)}" cls="${live?.className}" h=${live?.getBoundingClientRect().height} prev=${live?.previousElementSibling?.getAttribute("data-row-id")}:${live?.previousElementSibling?.className} | recv ${recent.map((r) => `${Math.round(entry.startTime - r.at)}ms ${r.kind}`).join(", ")}`,
         });
+      }
     }).observe({ type: "layout-shift", buffered: true });
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) w.__long.push({ at: entry.startTime, ms: entry.duration });
@@ -270,12 +294,19 @@ async function heapMb(cdp: CDPSession): Promise<number> {
 }
 
 type Ctx = { browser: Browser; url: (log: ReplayLog) => string };
-type Shift = { at: number; value: number; input: boolean; sources: string[] };
+type Shift = { at: number; value: number; input: boolean; sources: string[]; rects?: string[]; ctx?: string; frames?: string };
 
 async function openPage(ctx: Ctx, log: ReplayLog, served: number, status: string, start: number) {
   play = { log, served, status };
   const page = await ctx.browser.newPage({ viewport: { width: 900, height: 700 } });
   await page.addInitScript(instrument, start);
+  if (process.env.FOLLOW_ARM)
+    await page.addInitScript((arm) => {
+      try {
+        localStorage.setItem("cmux.experiments", JSON.stringify({ "follow-motion": arm }));
+      } catch {}
+    }, process.env.FOLLOW_ARM);
+  if (process.env.REDUCED) await page.emulateMedia({ reducedMotion: "reduce" });
   await installPaintedFrames(page);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Performance.enable");
@@ -409,6 +440,33 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
     if (!play!.socket) throw new Error(`${log.name}: the pane never attached`);
     await rest(page);
     const heapBefore = await heapMb(cdp);
+    if (process.env.SHIFT_LOG)
+      await page.evaluate(() => {
+        const w = window as unknown as { __fr: unknown[] };
+        w.__fr = [];
+        window.cmuxAfterPaint(() => {
+          const sc = document.querySelector<HTMLElement>(".acpmux-scroll");
+          const th = sc?.querySelector<HTMLElement>(".acpmux-thread");
+          const live = sc?.querySelector<HTMLElement>('[data-row-id="thinking-live"]');
+          const view = sc?.getBoundingClientRect();
+          const prev = live?.previousElementSibling as HTMLElement | null | undefined;
+          w.__fr.push({
+            t: Math.round(performance.now()),
+            st: sc?.scrollTop,
+            sh: sc?.scrollHeight,
+            th: th ? `${getComputedStyle(th).translate}|${th.style.height}` : "-",
+            lt: live?.offsetTop,
+            ly: live && view ? Math.round(live.getBoundingClientRect().y - view.y) : null,
+            lh: live?.offsetHeight,
+            lop: live ? getComputedStyle(live).opacity : null,
+            lvis: live ? getComputedStyle(live.querySelector(".cv-worked") ?? live).visibility : null,
+            lanim: live ? live.getAnimations().map((a) => `${(a as CSSAnimation).animationName ?? "waapi"}:${a.playState}`).join(",") : null,
+            prev: prev ? `${prev.dataset.rowId}@${prev.offsetTop}+${prev.offsetHeight}` : null,
+            rows: sc?.querySelectorAll("[data-row-id]").length,
+          });
+          if (w.__fr.length > 12) w.__fr.splice(0, 4);
+        });
+      });
     const since = await page.evaluate(() => performance.now());
     const bursts: BurstResult[] = [];
     const inBurst = new Map<number, (typeof log.bursts)[number]>();
@@ -472,6 +530,16 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
       const w = window as unknown as { __shifts: Shift[]; __long: { at: number; ms: number }[] };
       return { shifts: w.__shifts.filter((shift) => !shift.input && shift.at >= since), long: w.__long };
     }, since);
+    if (process.env.SHIFT_LOG) {
+      const file = path.join(process.env.SHIFT_LOG, `shifts-${log.name.replace(/[^a-z0-9]+/gi, "_")}.txt`);
+      fs.mkdirSync(process.env.SHIFT_LOG, { recursive: true });
+      fs.writeFileSync(
+        file,
+        shifts
+          .map((s) => `${Math.round(s.at)} ${s.value.toFixed(4)}\n  ${(s.rects ?? []).join("\n  ")}\n  ${s.ctx}\n  FRAMES ${s.frames}`)
+          .join("\n"),
+      );
+    }
     const burstLong = long.filter((task) => burstWindows.some(([from, to]) => task.at >= from && task.at <= to));
     return {
       log: log.name,
