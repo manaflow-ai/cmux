@@ -40,7 +40,7 @@ fileprivate final class SidebarListingFlips {
 /// cancel call; without this every inputs change left one registration per
 /// unchanged row behind.
 ///
-/// A row the pass names no longer (its space is not the one the window shows, its group folded) is parked while
+/// A row the pass names no longer (its space is not the one the window shows) is parked while
 /// ``keeps`` says its workspace may list here again: it stays mapped and observed, a change it hears only marks it
 /// for its next map, and the pass that names it again gets it as it is, at no cost. A space switch then maps the
 /// rows that changed while their space was hidden, not every row of the space on every switch (200 maps, each
@@ -308,7 +308,8 @@ public final class SidebarRowFeed {
         var parkedNow = false
         for (id, entry) in entries where entry.pass != pass {
             entries[id] = nil
-            guard keeps(id) else {
+            // A row mapped with the inputs this pass replaced is not kept: no later pass would map it again.
+            guard !inputsChanged, keeps(id) else {
                 disarm(entry)
                 continue
             }

@@ -62,8 +62,8 @@ final class SidebarBridge {
     init(services: AppServices, state: WindowState) {
         self.services = services
         self.state = state
-        let frames = FrameBatcher(owner: "SidebarRows"), window = state.id
-        rowFeed = SidebarRowFeed(schedule: { frames.scheduleFrame($0) }, keeps: { [weak services] in services?.windows.registry.value.owner(of: $0.rawValue) == window })
+        let frames = FrameBatcher(owner: "SidebarRows") // `state.id` is read on each call: the launch window adopts a saved id
+        rowFeed = SidebarRowFeed(schedule: { frames.scheduleFrame($0) }, keeps: { [weak services, weak state] id in state.map { services?.windows.registry.value.owner(of: id.rawValue) == $0.id } ?? false })
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Link rows draw the favicon at their item's icon address, from this app's favicons.
