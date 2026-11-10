@@ -2614,13 +2614,8 @@ fn a_drill_send_past_its_deadline_runs_nothing() {
         ..GlobalArgs::default()
     };
     let past = Instant::now() - Duration::from_millis(1);
-    let send = fault::prompt_send(
-        &global,
-        &asked,
-        "count".into(),
-        ("vm-1".into(), "sess-1".into()),
-        past,
-    );
+    let send =
+        fault::prompt_send(&global, &asked, "count".into(), ("vm-1".into(), "sess-1".into()), past);
     assert_eq!(send(), Err("--timeout ran out before the prompt was sent".to_owned()));
 }
 
