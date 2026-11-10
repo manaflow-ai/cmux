@@ -305,6 +305,14 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         }
     }
 
+    /// The stage takes the keys back (a pane focus move out of the Chief): floating in its own window, the Chief
+    /// gives them up and the cmux window `window` takes them, so the Chief's window hides as on a click outside.
+    public func yieldKeys(to window: NSWindow) {
+        guard inLauncher, let launcher else { return }
+        if hasKeys { launcher.makeFirstResponder(nil) }
+        if launcher.isKeyWindow { WindowActivation.show(window, .raise) }
+    }
+
     /// Places the panel for `panel` in its superview's `bounds` (y up) and returns the stage's area (y down): all
     /// of it under a floating panel, the rest beside a docked one, `gap` apart. A press in progress keeps the
     /// panel where the hand has it.

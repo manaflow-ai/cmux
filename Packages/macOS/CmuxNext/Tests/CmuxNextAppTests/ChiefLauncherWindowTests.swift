@@ -33,6 +33,7 @@ struct ChiefLauncherWindowTests {
 
     final class Keeper: NSView {
         override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
         private(set) var presses = 0
         override func mouseDown(with event: NSEvent) { presses += 1 }
     }

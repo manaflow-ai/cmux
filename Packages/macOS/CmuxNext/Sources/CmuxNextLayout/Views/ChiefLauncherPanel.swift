@@ -85,6 +85,9 @@ public final class ChiefLauncherPanel: NSPanel, NSWindowDelegate {
     /// Orders the window out (the owner hid the Chief); no ``onDismiss``.
     public func dismiss() {
         drag = nil
+        guard isVisible else { return }
+        dismissing = true // ordering out gives up the keys: not a click outside
+        defer { dismissing = false }
         orderOut(nil)
     }
 

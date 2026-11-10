@@ -327,7 +327,7 @@ extension WindowController {
         guard let pane = nearest ?? focused else { return }
         content.layoutModel.focus(pane.layoutPaneID, notify: false, source: .keyMove(byPerson: true))
         content.focus.send(.focusPane(pane.layoutPaneID.rawValue, source: .intent))
-        if let target = pane.currentContent?.focusTarget, window.firstResponder !== target { window.makeFirstResponder(target) }
+        chiefPanelView?.yieldKeys(to: window); if let target = pane.currentContent?.focusTarget, window.firstResponder !== target { window.makeFirstResponder(target) }
     }
 
     /// The view of Home's Chief tab: the Home page in its pinned chat dock (its live view), else a conversation tab.

@@ -35,75 +35,53 @@ struct ChiefPanelStyleWindowTests {
         return (f, view, chief)
     }
 
-    static func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow) -> NSEvent {
-        NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                           windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-    }
-
-    /// Presses the panel's grip and drags it by `delta` (window points, y up), as a hand does.
+    /// Presses the panel's grip and drags it by `delta` (screen points, y up), as a hand does: floating, the Chief
+    /// is a window of its own (``ChiefLauncherPanel``), and the window moves.
     static func drag(_ view: ChiefPanelView, by delta: CGVector, in f: Fixture) throws {
-        let window = try #require(f.controller.window)
-        let grip = view.convert(NSPoint(x: view.gripRect.midX, y: view.gripRect.midY), to: nil)
-        #expect(TitlebarDragPolicy.decide(at: grip, in: window) == .staysPut, "a press on the grip moves the whole window")
-        try #require(TitlebarDragPolicy.decide(at: grip, in: window) == .staysPut)
-        let down = mouse(.leftMouseDown, at: grip, in: window)
-        // A first click into a window that is not key (another window or app in front) must still drag.
-        let frameView = try #require(window.contentView?.superview)
-        let gripView = try #require(frameView.hitTest(frameView.convert(grip, from: nil)))
-        #expect(gripView.acceptsFirstMouse(for: down), "a first click on the grip only makes the window key")
-        window.sendEvent(down)
-        for step in 1...4 {
-            let t = CGFloat(step) / 4
-            window.sendEvent(mouse(.leftMouseDragged, at: NSPoint(x: grip.x + delta.dx * t, y: grip.y + delta.dy * t), in: window))
-        }
-        window.sendEvent(mouse(.leftMouseUp, at: NSPoint(x: grip.x + delta.dx, y: grip.y + delta.dy), in: window))
+        try ChiefLauncherWindowTests.drag(at: NSPoint(x: view.gripRect.midX, y: view.gripRect.midY), in: view, by: delta)
         f.frame()
     }
 
-    /// Every style drags by its grip from where it rests, lands where it was let go, and comes back there after a
-    /// hide and a reopen. The first drag starts at the default place (the panel's bar lies in the titlebar row).
+    /// Every style drags by its grip, lands where it was let go (past the cmux window's edge too: it is a window of
+    /// its own), and comes back there after a hide and a reopen.
     @Test(arguments: ChiefPanelStyle.allCases)
     func everyStyleDragsAndRemembersWhereItWasLeft(_ style: ChiefPanelStyle) async throws {
         let (f, view, _) = try await Self.openPanel(style)
         defer { f.close() }
-        let start = view.frame
-        let savedBefore = f.state.chiefPanel.floatingFrame
+        let launcher = try #require(view.launcher)
+        try #require(view.window === launcher, "\(style): the floating Chief is not in its own window")
+        let start = launcher.frame
         try Self.drag(view, by: CGVector(dx: -420, dy: -20), in: f)
-        #expect(abs(view.frame.minX - (start.minX - 420)) <= 1 && abs(view.frame.minY - (start.minY - 20)) <= 1,
-                "\(style): the panel did not follow the hand: \(start) -> \(view.frame)")
-        #expect(f.state.chiefPanel.floatingFrame != savedBefore, "\(style): the new place was not kept")
-        let left = view.frame
+        #expect(abs(launcher.frame.minX - (start.minX - 420)) <= 1 && abs(launcher.frame.minY - (start.minY - 20)) <= 1,
+                "\(style): the window did not follow the hand: \(start) -> \(launcher.frame)")
+        let screen = try #require(launcher.screen)
+        #expect(launcher.frames.frame(onDisplay: FloatingChatFrames.display(screen)) == launcher.frame, "\(style): the new place was not kept")
+        let left = launcher.frame
 
         f.controller.hideChiefPanel()
         f.frame()
+        #expect(!launcher.isVisible)
         #expect(f.controller.toggleChiefPanel())
-        f.controller.focusStagePane(toward: nil) // the keys go back to the stage: a collapsing style rests again
         f.frame()
-        #expect(view.frame == left, "\(style): the panel did not come back where it was left: \(left) -> \(view.frame)")
+        #expect(launcher.frame == left, "\(style): the window did not come back where it was left: \(left) -> \(launcher.frame)")
 
-        // A second drag from the new place, toward the window's far corner: it stays inside the window.
-        try Self.drag(view, by: CGVector(dx: 900, dy: 900), in: f)
-        let host = try #require(view.superview).bounds
-        #expect(host.contains(view.frame), "\(style): the panel left the window: \(view.frame) in \(host)")
-        #expect(view.frame.minX > left.minX, "\(style): the second drag did not move it")
+        try Self.drag(view, by: CGVector(dx: 900, dy: 40), in: f)
+        #expect(abs(launcher.frame.minX - (left.minX + 900)) <= 1, "\(style): the second drag did not move it its whole way: \(launcher.frame)")
     }
 
-    /// The compose bar, the pill and the bubble rest small while the keys are elsewhere and grow into the whole chat
-    /// once the Chief has them; the others show the whole chat.
+    /// In its own window every style shows the whole chat, with or without the keys: the window shows only while in
+    /// use (a click outside hides it), so no style rests small there.
     @Test(arguments: ChiefPanelStyle.allCases)
-    func theCollapsingStylesGrowIntoTheChatWithTheKeys(_ style: ChiefPanelStyle) async throws {
+    func everyStyleShowsTheWholeChatInItsWindow(_ style: ChiefPanelStyle) async throws {
         let (f, view, _) = try await Self.openPanel(style)
         defer { f.close() }
-        let collapses = [ChiefPanelStyle.composeBar, .pill, .bubble, .seeThroughBar].contains(style)
-        let resting = view.frame
-        #expect((resting.height < 100) == collapses, "\(style): resting height \(resting.height)")
+        let launcher = try #require(view.launcher)
+        #expect(view.frame == launcher.contentView?.bounds, "\(style): the Chief does not fill its window: \(view.frame)")
+        #expect(view.frame.height > 300, "\(style): without the keys: \(view.frame)")
         f.controller.frameFocusChiefPanel()
         f.frame()
         #expect(f.controller.frameChiefPanelHasKeys)
-        #expect(view.frame.height > 300, "\(style): with the keys the Chief did not grow into the chat: \(view.frame)")
-        f.controller.focusStagePane(toward: nil)
-        f.frame()
-        #expect(view.frame == resting, "\(style): without the keys it did not rest again: \(view.frame)")
+        #expect(view.frame == launcher.contentView?.bounds, "\(style): with the keys: \(view.frame)")
     }
 
     /// The see-through styles (user 2026-11-07, "iMessage style: very transparent and minimal"): no panel glass behind
@@ -125,27 +103,18 @@ struct ChiefPanelStyleWindowTests {
         if let plate { #expect(plate.minY >= view.bounds.height - 80 && plate.width >= view.bounds.width - 2, "\(style): plate \(plate)") }
     }
 
-    /// Both message-bar styles rest as a bar along the bottom of their place (the see-through one rested as a 44 pt
-    /// square with the message box cut off in the first capture); the pill and the bubble rest small at the right.
-    @Test(arguments: [ChiefPanelStyle.composeBar, .seeThroughBar])
-    func theMessageBarStylesRestAsAFullBar(_ style: ChiefPanelStyle) async throws {
-        let (f, view, _) = try await Self.openPanel(style)
-        defer { f.close() }
-        #expect(view.frame.width >= 200 && view.frame.height <= 60, "\(style) rests as \(view.frame)")
-    }
-
-    /// A floating panel is a card inside the window, so its corners are concentric with the window's, like the main
-    /// pane's: the window's radius less the gutter (10 pt in a 16 pt window across 6 pt). A resting bar is no rounder (the pill and the bubble rest round).
+    /// Floating, the Chief is a window of its own, so it has a window's corners; docked, it is square at its edge.
     @Test(arguments: ChiefPanelStyle.allCases)
-    func theFloatingPanelIsConcentricWithTheWindow(_ style: ChiefPanelStyle) async throws {
+    func theFloatingChiefHasAWindowsCorners(_ style: ChiefPanelStyle) async throws {
         let (f, view, _) = try await Self.openPanel(style)
         defer { f.close() }
-        let card = Metrics.windowConcentricCornerRadius(windowCornerRadius: Metrics.standardWindowCornerRadius,
-                                                        edgeInset: max(Metrics.mainPaneGutter, PaneTabRowRim.height), setting: nil)
-        if style != .pill && style != .bubble { #expect(view.shapeCornerRadius <= card, "\(style) rests with radius \(view.shapeCornerRadius), the card's is \(card)") }
+        #expect(view.shapeCornerRadius == Metrics.standardWindowCornerRadius, "\(style) floats with radius \(view.shapeCornerRadius)")
         f.controller.frameFocusChiefPanel()
         f.frame()
-        #expect(view.shapeCornerRadius == card, "\(style) floats with radius \(view.shapeCornerRadius), not the window's concentric \(card)")
+        #expect(view.shapeCornerRadius == Metrics.standardWindowCornerRadius, "\(style) with the keys: radius \(view.shapeCornerRadius)")
+        f.controller.dockChiefPanel(at: .left)
+        f.frame()
+        #expect(view.shapeCornerRadius == 0, "\(style) docked with radius \(view.shapeCornerRadius)")
     }
 
     /// The chat itself leaves its background clear in the see-through styles (the Home chat paints its theme's
