@@ -42,6 +42,7 @@ mod matrix;
 mod new_terminal_folder_delta;
 mod notifications;
 mod pane_close;
+mod project_observe_at_rest;
 mod read_paths;
 mod registry_premigrate;
 mod registry_reads;
