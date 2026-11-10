@@ -362,7 +362,8 @@ echo "$4=/built/$2" >> "$GITHUB_OUTPUT"
                         names.index("Capture before and after interactions"))
         share = self.steps["Share a built app with later tours"]
         self.assertIn("steps.build_head.outputs.artifact", share["with"]["name"])
-        self.assertIn("!cancelled()", share["if"])
+        # always(): a pull request tour cancelled mid head build still shares its packed base.
+        self.assertTrue(share["if"].startswith("${{ always() &&"), share["if"])
         self.assertTrue(self.steps["Reuse the base app another tour built"].get("continue-on-error"))
         self.assertEqual(self.job["permissions"].get("actions"), "read")
 

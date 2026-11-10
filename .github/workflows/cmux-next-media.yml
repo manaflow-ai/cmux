@@ -581,8 +581,10 @@ jobs:
       # a nightly tour's head (the build steps pack at most one). Uploaded as
       # soon as the head is built: nightly tips come about every 16 min and a
       # tour takes about 37, so the next tip's tour has usually started by now.
+      # always(): a pull request tour cancelled by a newer push while its head
+      # builds still shares the base it already packed.
       - name: Share a built app with later tours
-        if: ${{ !cancelled() && (steps.build_head.outputs.artifact != '' || steps.build_base.outputs.artifact != '') }}
+        if: ${{ always() && (steps.build_head.outputs.artifact != '' || steps.build_base.outputs.artifact != '') }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
