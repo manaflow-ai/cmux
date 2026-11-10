@@ -8,7 +8,8 @@
 // Cost (extensibility-DESIGN.md R1): nothing mounts while the page is hidden or no widget is placed.
 // The listing reads the daemon's catalog only; an app's VM starts at its widget's first mount, and every
 // mount ends when the page hides (visibilitychange), closes (pagehide) or unmounts, which also stops the
-// app's timers (they belong to the mount). A widget that fails or draws past the interface's limits
+// app's timers (they belong to the mount). A hide keeps the listing and its change watch, so showing the
+// page again mounts from it and reads nothing (plans/cmux-next/shared-projections.md). A widget that fails or draws past the interface's limits
 // (`nodes`, `maxNodes`) shows its name and why in its cell; the page around it is untouched.
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import {
@@ -70,7 +71,7 @@ const NO_WIDGETS: NewTabExtensionWidgets = {
 
 function subscribeVisible(notify: () => void): () => void {
   if (typeof document === "undefined") return () => undefined;
-  // ui-allow: the page's visibility decides whether app widgets are mounted at all.
+  // ui-allow: the page's visibility decides whether app widgets are mounted at all; it reads no data.
   document.addEventListener("visibilitychange", notify);
   return () => document.removeEventListener("visibilitychange", notify);
 }
@@ -103,7 +104,7 @@ export function useNewTabExtensionWidgets(injected?: PageClient | null): NewTabE
     owner?.getView ?? EMPTY_VIEW_READ,
   );
   useEffect(() => {
-    if (!owner || !visible) return;
+    if (!owner) return;
     owner.start();
     const stop = () => owner.stop();
     // Native pane retirement can discard the document without unmounting React first.
@@ -112,10 +113,11 @@ export function useNewTabExtensionWidgets(injected?: PageClient | null): NewTabE
       globalThis.removeEventListener?.("pagehide", stop);
       owner.stop();
     };
-  }, [owner, visible]);
+  }, [owner]);
+  useEffect(() => owner?.setHidden(!visible), [owner, visible]);
   return useMemo(
     () =>
-      owner && visible
+      owner
         ? {
             available: view.panels,
             layout: view.layout,
@@ -124,7 +126,7 @@ export function useNewTabExtensionWidgets(injected?: PageClient | null): NewTabE
             setLayout: (layout: readonly string[]) => owner.setLayout(layout),
           }
         : NO_WIDGETS,
-    [owner, visible, view],
+    [owner, view],
   );
 }
 const NOOP_SUBSCRIBE = () => () => undefined;

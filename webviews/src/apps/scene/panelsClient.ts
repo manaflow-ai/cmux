@@ -130,6 +130,8 @@ export class AppPanelsClient {
   private readonly listeners = new Set<() => void>();
   private readonly entries = new Map<ReturnType<typeof panelId>, Entry>();
   private active = false;
+  /** The page is hidden (`setHidden`): nothing mounts, the listing and its watch stay. */
+  private hidden = false;
   private lifetime = 0;
   private listing = 0;
   private edits = 0;
@@ -173,6 +175,16 @@ export class AppPanelsClient {
       })
       .catch(() => undefined);
     void this.refresh();
+  }
+
+  /** The page hid or showed again (New Tab). Hidden, every mount ends, so each app's VM and timers
+   * stop (extensibility-DESIGN.md R1), but the listing and its `panels.changed` watch stay. Showing
+   * the page again mounts the placed widgets from that listing, which the watch kept current, and
+   * reads nothing: a switch away and back makes no list read (plans/cmux-next/shared-projections.md). */
+  setHidden(hidden: boolean): void {
+    if (this.hidden === hidden) return;
+    this.hidden = hidden;
+    if (this.active) this.reconcile(false);
   }
 
   stop(): void {
@@ -257,7 +269,7 @@ export class AppPanelsClient {
     const panels = this.listed;
     const layout = this.layout;
     const mounts = this.options.mounts;
-    const shown = mounts ? panels.filter((panel) => mounts(panel, layout)) : panels;
+    const shown = this.hidden ? [] : mounts ? panels.filter((panel) => mounts(panel, layout)) : panels;
     const wanted = new Set(shown.map(panelId));
     for (const [id, entry] of this.entries) {
       if (wanted.has(id)) continue;

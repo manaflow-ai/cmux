@@ -76,6 +76,9 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/pageKey.ts", "focus"): "marks the page key or not for the caret; reads no data",
     (f"{ACPMUX}/flickerLog.ts", "visibilitychange"): "the flicker log records the page's visibility "
     "as a diagnostic event and resets or re-arms its own frame watch; reads no data",
+    (f"{ACPMUX}/newtab/ExtensionWidgets.tsx", "visibilitychange"): "ends the New Tab app widgets' "
+    "mounts while the page hides (their VMs and timers, extensibility-DESIGN.md R1) and mounts them "
+    "again on show from the listing its push watch keeps (AppPanelsClient.setHidden); reads no data",
     (f"{ACPMUX}/Composer.tsx", "visibilitychange"): "flushes a new chat's waiting unsent draft to the host "
     "when the page hides (unsentDraftThrottle.ts); a write, reads no data",
     (f"{ACPMUX}/MarkdownField.tsx", "focus"): "puts back the prompt's selection, which WebKit moves "
