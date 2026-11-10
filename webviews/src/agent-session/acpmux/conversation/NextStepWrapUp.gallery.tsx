@@ -20,6 +20,22 @@ const RECAP =
 const CHOICES = { recap: RECAP, ask: "Should I open a PR for this?", actions: ["Yes, open PR", "Not now"] };
 const YES_NO = { recap: RECAP, ask: "Should I also fix the same shift on the cart page?" };
 const ALONE = { recap: RECAP };
+const TRY = {
+  recap: RECAP,
+  try: { label: "Open try-agent-work build", url: "http://127.0.0.1:17320/try-agent-work" },
+  verify: [
+    "Finish a task in a workspace: its sidebar row shows ▶ Try.",
+    "Click Try: the build opens in a browser tab of that workspace.",
+    "Tick each step here as you check it.",
+  ],
+  report: "/Users/me/work/try-agent-work/report.html",
+};
+const TRY_COMMAND = {
+  recap: RECAP,
+  try: { label: "Run the demo", command: "make demo" },
+  verify: ["The demo prints 14 passing tests."],
+};
+const TRY_ASK = { ...TRY, ask: "Should I open a PR for this?", actions: ["Yes, open PR", "Not now"] };
 
 function WrapUpInPane({ look, input, reply }: Props) {
   const ask = wrapUpAsk({
@@ -43,6 +59,8 @@ function WrapUpInPane({ look, input, reply }: Props) {
         answer={reply === undefined ? undefined : chosenAnswer(ask, reply)}
         onAnswer={() => Promise.resolve()}
         registerKey={() => () => undefined}
+        onTry={() => undefined}
+        onReport={() => undefined}
       />
     </div>
   );
@@ -58,7 +76,7 @@ export default componentEntry({
   title: "Agent pane: the agent's wrap-up box at the end of a turn",
   area: "Agent pane",
   pane: true,
-  height: 320,
+  height: 420,
   widths: { narrow: 420, normal: 640, wide: 820 },
   anchors: [{ selector: ".acpmux-next-step" }],
   covers: ["agent-session/acpmux/conversation/NextStepCard.tsx#NextStepCard"],
@@ -69,6 +87,9 @@ export default componentEntry({
     "box-yes-no": variant("box", YES_NO, undefined, "Shipped: a question with no answers gets Yes and Not now."),
     "box-recap-only": variant("box", ALONE, undefined, "Shipped: nothing to decide, the recap alone."),
     "box-answered": variant("box", CHOICES, "Yes, open PR", "Shipped: answered, the recap stays above the answer."),
+    "box-try": variant("box", TRY, undefined, "A finished task: the recap, Try and Report, the target, the Verify steps."),
+    "box-try-command": variant("box", TRY_COMMAND, undefined, "A finished task whose Try runs a command in a new terminal."),
+    "box-try-ask": variant("box", TRY_ASK, undefined, "Try with a decision: the Try above the question."),
     "divider-choices": variant("divider", CHOICES, undefined, "Alternative: a hairline between recap and question."),
     "divider-recap-only": variant("divider", ALONE, undefined, "Alternative: recap alone."),
     "split-choices": variant("split", CHOICES, undefined, "Alternative: the recap as prose, the box only asks."),
