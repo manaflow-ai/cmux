@@ -296,14 +296,16 @@ impl Hub {
                     return Some(id);
                 }
             }
-            if !registered.is_empty() {
-                listed.push(crate::codex_desktop::DESKTOP_ORIGINATOR.to_owned());
-            }
             if codex.is_empty() {
                 return None;
             }
             let thread = crate::codex_desktop::sender_thread(&ancestry)?;
             let (id, _) = codex.iter().find(|(_, sid)| *sid == thread)?;
+            // A registered Codex desktop thread binds whatever the setting lists; any other
+            // only when the setting lists its originator.
+            if registered.contains(id) {
+                listed.push(crate::codex_desktop::DESKTOP_ORIGINATOR.to_owned());
+            }
             crate::codex_desktop::find(&homes.codex, &thread, &listed).map(|_| id.clone())
         })
         .await

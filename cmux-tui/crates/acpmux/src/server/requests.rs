@@ -2620,9 +2620,19 @@ async fn dispatch_request_with_identity(
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
                 .unwrap_or_default();
+            // Only `acpmux register` marks a chat registered (`hub/register.rs`): the mark lets
+            // prompts into the app with the bridge setting off, so no client sets it.
+            let set = params.get("set").and_then(Value::as_object);
+            if set.is_some_and(|m| m.contains_key(crate::hub::register::REGISTERED_TAG)) {
+                return Err(RpcError::invalid_params(format!(
+                    "{} is set only by `acpmux register`",
+                    crate::hub::register::REGISTERED_TAG
+                ))
+                .with_data(json!({"reason": "tag.reserved"})));
+            }
             hub.set_tags_answered(
                 &s,
-                params.get("set").and_then(Value::as_object),
+                set,
                 &remove,
                 params.get("ttlSeconds").and_then(Value::as_u64),
             )?;

@@ -211,6 +211,7 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         blocks: &[Value],
+        client: &str,
         opts: &mut PromptOptions,
     ) -> Option<Result<Value, RpcError>> {
         let watching = session.meta().watching?;
@@ -271,9 +272,12 @@ impl Hub {
         .ok()
         .flatten();
         let Some(target) = target else {
-            // A registered name keeps its address while its app is closed: the send waits in the
-            // outbox and is tried again, instead of failing as a read-only chat's would.
-            return registered.then(|| Err(not_running(&session.meta().name)));
+            // A registered name keeps its address while its app is closed: a send the outbox
+            // carries (here, or a peer's forwarded) waits and is tried again, instead of failing
+            // as a read-only chat's would. A person's own prompt still gets the read-only
+            // refusal, with Take Over.
+            return (registered && retried_client(client))
+                .then(|| Err(not_running(&session.meta().name)));
         };
         let Some(text) = text_of(blocks) else {
             return Some(Err(RpcError::invalid_params(
@@ -284,7 +288,11 @@ impl Hub {
         let uuid = uuid::Uuid::now_v7().to_string();
         // The chat shows the prompt as sent (`delivered`); the app also reads how to answer.
         let harness = sender_harness(opts);
-        let wire = with_reply_hint(&text, reply_name(opts).as_deref(), harness.as_deref());
+        let unverified =
+            opts.provenance.as_ref().and_then(|p| p.get("kind")).and_then(Value::as_str)
+                == Some("unverified");
+        let wire =
+            with_reply_hint(&text, reply_name(opts).as_deref(), harness.as_deref(), unverified);
         // The gate every prompt passes again at dispatch (`web_control.rs` `check_dispatch`): the
         // chat's mode, policy, device authorization or folder trust may have changed since the
         // request's own check, and a refused prompt never reaches the app.
@@ -339,13 +347,24 @@ impl Hub {
 /// cannot reach an `acpmux:` address, and its `acpmux send` from the app's shell is bound to this
 /// chat (`desktop_bridge.rs`), so the answer lands in the sender's inbox under the chat's name.
 /// The person's prompt goes as typed.
-fn with_reply_hint(text: &str, agent: Option<&str>, harness: Option<&str>) -> String {
+/// A sender acpmux could not bind (`unverified`) reads as the program it claims to be, as on the
+/// ACP path (`prompt_attribution::unverified_line`).
+fn with_reply_hint(
+    text: &str,
+    agent: Option<&str>,
+    harness: Option<&str>,
+    unverified: bool,
+) -> String {
     match agent.map(str::trim).filter(|a| !a.is_empty()) {
         Some(agent) => {
             let quoted = agent.replace('\'', "'\\''");
             let provenance = harness.map(|h| json!({crate::prompt_provenance::FROM_HARNESS: h}));
             let who = super::prompt_attribution::with_harness(agent, provenance.as_ref());
-            let line = super::prompt_attribution::agent_line(&who);
+            let line = if unverified {
+                super::prompt_attribution::unverified_line(Some(&who))
+            } else {
+                super::prompt_attribution::agent_line(&who)
+            };
             format!(
                 "{line}\n{text}\n\n[Answer {agent} with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
             )
@@ -377,6 +396,12 @@ fn reply_name(opts: &PromptOptions) -> Option<String> {
         .filter(|n| !n.trim().is_empty())
         .map(str::to_owned)
         .or_else(|| opts.agent.clone())
+}
+
+/// A client whose refused prompt is tried again: this daemon's outbox, or a peer daemon
+/// forwarding its outbox's send (`hub/prompt_line.rs` names the same prefixes).
+fn retried_client(client: &str) -> bool {
+    ["acpmux-outbox#", "acpmux-peer#"].iter().any(|p| client.starts_with(p))
 }
 
 /// A registered chat's app is not running it now: tried again (`server/outbox.rs` `next`).

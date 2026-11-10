@@ -22,15 +22,56 @@
 use super::{Hub, Session};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 /// The tag a registered chat carries.
 pub const REGISTERED_TAG: &str = "bridge.registered";
 
-/// Whether `session` is a chat its own session registered.
+/// The chats `acpmux register` registered, kept by the daemon alone (`bridge-registered.json` in
+/// its home, owner-only): the tag shows it, but a client can set tags (`_acpmux/tag`), so the tag
+/// alone never makes a chat deliverable. Read once, at the first use.
+static REGISTERED: std::sync::LazyLock<std::sync::Mutex<Option<HashSet<String>>>> =
+    std::sync::LazyLock::new(Default::default);
+
+fn registered_file() -> PathBuf {
+    crate::config::home().join("bridge-registered.json")
+}
+
+fn with_registered<T>(f: impl FnOnce(&mut HashSet<String>) -> T) -> T {
+    let mut kept = REGISTERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let set = kept.get_or_insert_with(|| {
+        std::fs::read(registered_file())
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+            .map(|ids| ids.into_iter().collect())
+            .unwrap_or_default()
+    });
+    f(set)
+}
+
+/// Keeps chat `id` registered, across a daemon restart.
+fn mark_registered(id: &str) -> anyhow::Result<()> {
+    let ids = with_registered(|set| {
+        set.insert(id.to_owned());
+        let mut ids: Vec<&String> = set.iter().collect();
+        ids.sort();
+        serde_json::to_vec(&ids)
+    })?;
+    crate::agent_tools::write_private(&registered_file(), &ids)
+}
+
+/// Marks chat `id` registered for this process only (tests, which must not write the home).
+#[cfg(test)]
+pub(super) fn mark_registered_for_test(id: &str) {
+    with_registered(|set| set.insert(id.to_owned()));
+}
+
+/// Whether `session` is a chat its own session registered: the daemon's record, and its tag.
 pub(super) fn is_registered(session: &Session) -> bool {
     session.meta().tags.get(REGISTERED_TAG).is_some_and(|t| t.value == "true")
+        && with_registered(|set| set.contains(&session.id))
 }
 
 /// What `acpmux register` sends (`_acpmux/register`).
@@ -75,6 +116,15 @@ pub(super) fn nearest_claude(
     })
 }
 
+/// `ancestry` (the caller first) up to, not including, this daemon's own pid.
+fn below_daemon(mut ancestry: Vec<u32>) -> Vec<u32> {
+    let me = std::process::id();
+    if let Some(at) = ancestry.iter().position(|p| *p == me) {
+        ancestry.truncate(at);
+    }
+    ancestry
+}
+
 impl Hub {
     /// Registers the conversation the process `peer_pid` runs in under `req.name`.
     pub async fn register_caller(
@@ -85,7 +135,9 @@ impl Hub {
         let homes = self.harness_homes();
         let socket = req.socket.clone();
         let found = tokio::task::spawn_blocking(move || {
-            let ancestry = crate::sender_harness::ancestors(peer_pid);
+            // Only the caller's own processes: never past this daemon, which a desktop shell may
+            // have started.
+            let ancestry = below_daemon(crate::sender_harness::ancestors(peer_pid));
             let live = crate::claude_peers::live(&homes.claude);
             if let Some(peer) = nearest_claude(&ancestry, &live, socket.as_deref()) {
                 return Some(Found::Claude(peer));
@@ -153,6 +205,12 @@ impl Hub {
                     })?
             }
         };
+        if session.meta().name != name {
+            return Err(RpcError::invalid_params(format!(
+                "session name {name:?} was taken meanwhile: pick another, or run it again"
+            ))
+            .with_data(json!({"reason": "register.name_taken"})));
+        }
         // A session acpmux runs itself is reached over ACP: the name is all it needs.
         let watched = session.meta().watching.is_some();
         let mut token_kept = false;
@@ -161,6 +219,8 @@ impl Hub {
             if let Some(map) = tags.as_object_mut() {
                 map.insert(REGISTERED_TAG.to_owned(), json!("true"));
             }
+            mark_registered(&session.id)
+                .map_err(|e| RpcError::internal(format!("could not keep the registration: {e}")))?;
             self.set_tags(&session, tags.as_object(), &[], None);
             let home = crate::config::home();
             match (&found, req.token, req.socket) {
@@ -230,6 +290,20 @@ mod tests {
         assert_eq!(nearest_claude(&ancestry, &live, Some(other)), None);
         // Not under any listed session: nothing.
         assert_eq!(nearest_claude(&[50, 45, 1], &live, None), None);
+    }
+
+    #[test]
+    fn the_walk_stops_below_this_daemon() {
+        let me = std::process::id();
+        assert_eq!(below_daemon(vec![50, 45, me, 42, 1]), vec![50, 45]);
+        assert_eq!(below_daemon(vec![50, 42, 1]), vec![50, 42, 1]);
+    }
+
+    #[test]
+    fn a_tag_alone_never_registers_a_chat() {
+        assert!(!with_registered(|set| set.contains("never-registered-chat")));
+        mark_registered_for_test("chat-registered-in-test");
+        assert!(with_registered(|set| set.contains("chat-registered-in-test")));
     }
 
     #[test]

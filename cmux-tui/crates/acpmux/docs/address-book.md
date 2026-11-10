@@ -15,7 +15,9 @@ should offer it for codex too! ..." (and for the other harnesses people use).
   desktop thread. The daemon finds the session from the kernel's process tree of the caller, the
   nearest Claude Code process whose inbox is the caller's `CLAUDE_CODE_MESSAGING_SOCKET`, or the
   Codex desktop thread whose Codex started it. It never takes a session the caller names. A name
-  another session has is refused (`register.name_taken`).
+  another session has is refused (`register.name_taken`). The daemon alone records which chats
+  are registered (`~/.acpmux/bridge-registered.json`); the `bridge.registered` tag shows it, and
+  no client may set that tag (`tag.reserved`).
 - Claude Code's own names (`ListAgents`) are auto titles, not identities. Register makes the
   acpmux name the identity; the title can stay as it is.
 
@@ -67,8 +69,9 @@ for injecting into the inbox, the shape of its documented stream-json input. A p
 
 How it degrades:
 
-- The session is closed or restarted: the send is refused as `bridge.not_running` (retryable),
-  so the outbox keeps it and tries again for a day; `--status` shows it queued. A restarted
+- The session is closed or restarted: a send the outbox carries is refused as
+  `bridge.not_running` (retryable), so the outbox keeps it and tries again for a day; `--status`
+  shows it queued. A person's own prompt in the chat gets the read-only refusal with Take Over. A restarted
   session has a new token, so it registers again (a `SessionStart` hook running `acpmux register
   NAME` does that by itself).
 - The inbox is a symlink, or the connection fails: nothing is written, the outbox tries again.

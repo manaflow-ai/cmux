@@ -239,8 +239,20 @@ async fn a_registered_chat_whose_app_is_not_running_waits_instead_of_failing() {
         });
     }
     let blocks = vec![json!({"type": "text", "text": "hi"})];
+    // The tag alone (any client may set tags) registers nothing.
     let err = hub
-        .prompt_with(&session, blocks, "test", false, PromptOptions::default())
+        .prompt_with(&session, blocks.clone(), "acpmux-outbox#0", false, PromptOptions::default())
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("watch.read_only"), "tag only: {}", err.message);
+    crate::hub::register::mark_registered_for_test(&session.id);
+    let err = hub
+        .prompt_with(&session, blocks.clone(), "test", false, PromptOptions::default())
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("watch.read_only"), "a person's prompt: {}", err.message);
+    let err = hub
+        .prompt_with(&session, blocks, "acpmux-outbox#1", false, PromptOptions::default())
         .await
         .unwrap_err();
     assert!(err.message.contains("bridge.not_running"), "{}", err.message);
@@ -290,19 +302,21 @@ async fn a_watched_chat_the_bridge_did_not_list_is_still_read_only() {
 
 #[test]
 fn an_agents_message_tells_the_app_how_to_answer_and_the_persons_goes_as_typed() {
-    assert_eq!(with_reply_hint("hi", None, None), "hi");
-    assert_eq!(with_reply_hint("hi", Some("  "), None), "hi");
-    let hinted = with_reply_hint("hi", Some("cosmic-gray/claude-sr2-coord"), None);
+    assert_eq!(with_reply_hint("hi", None, None, false), "hi");
+    assert_eq!(with_reply_hint("hi", Some("  "), None, false), "hi");
+    let hinted = with_reply_hint("hi", Some("cosmic-gray/claude-sr2-coord"), None, false);
     assert!(
         hinted.starts_with(
             "From another agent (cosmic-gray/claude-sr2-coord), not the person:\nhi\n\n"
         ),
         "{hinted}"
     );
-    let named = with_reply_hint("hi", Some("desktop-zoe"), Some("claude"));
+    let named = with_reply_hint("hi", Some("desktop-zoe"), Some("claude"), false);
     assert!(named.starts_with("From another agent (desktop-zoe, claude), not the person:\nhi"));
+    let claimed = with_reply_hint("hi", Some("bot"), None, true);
+    assert!(claimed.starts_with("From a program that calls itself bot, not the person:\nhi"));
     assert!(hinted.contains("`acpmux send 'cosmic-gray/claude-sr2-coord' '<your reply>'`"));
-    let quoted = with_reply_hint("hi", Some("it's"), None);
+    let quoted = with_reply_hint("hi", Some("it's"), None, false);
     assert!(quoted.contains(r"`acpmux send 'it'\''s' "), "{quoted}");
 }
 
