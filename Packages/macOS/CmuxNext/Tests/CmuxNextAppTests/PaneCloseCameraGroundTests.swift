@@ -107,7 +107,7 @@ struct PaneCloseCameraGroundTests {
         defer { rig.close() }
         let screen = try rig.screen
         try #require(screen.scroll.value > 100, "SETUP: the camera does not show the fourth column (offset \(screen.scroll.value))")
-        try Self.check(rig, closing: ["p4", "p3"], every: every, vertical: false) {
+        try Self.check(rig, closing: ["p4", "p3"], every: every, vertical: false, landsWithin: 24) {
             try #require(screen.hasMotion, "SETUP: the close does not move the strip")
         }
     }
@@ -140,7 +140,10 @@ struct PaneCloseCameraGroundTests {
 
     /// Closes `panes`, each `every` frames after the one before, and checks each frame along the line through the window's
     /// middle (`vertical`: top to bottom, else left to right). `moving`: the SETUP checks after the first close's turn.
-    static func check(_ rig: Rig, closing panes: [PaneID], every: Int = 6, vertical: Bool, moving: () throws -> Void) throws {
+    /// `landsWithin`: the most frames from the last close to the landing (the landing waits for the closing panes' free
+    /// sides, and must not wait longer than a close takes: 24 frames are 200 ms at 120 Hz).
+    static func check(_ rig: Rig, closing panes: [PaneID], every: Int = 6, vertical: Bool, landsWithin: Int? = nil,
+                      moving: () throws -> Void) throws {
         let screen = try rig.screen
         let bounds = screen.convert(screen.bounds, to: nil)
         func span(_ rect: CGRect) -> (CGFloat, CGFloat) { vertical ? (rect.minY, rect.maxY) : (rect.minX, rect.maxX) }
@@ -166,8 +169,9 @@ struct PaneCloseCameraGroundTests {
         var grounds: [CGFloat] = []
         /// What the last frame with a closing ground showed, for the failure text: the strip camera and each shown host.
         var lastGroundFrame = ""
-        var frames = 0
+        var frames = 0, lastClose = 0
         for (index, pane) in panes.enumerated() {
+            lastClose = frames
             _ = try #require(rig.model.showPaneClose(pane), "\(pane) did not close")
             rig.root.syncWithModel()
             rig.root.layoutSubtreeIfNeeded()
@@ -210,6 +214,9 @@ struct PaneCloseCameraGroundTests {
             the closing panes' last frame shows \(lastGround) pt of their ground: the landing takes it away \
             (\(lastGroundFrame); the ground of the last frames, in points: \(way))
             """)
+        }
+        if let landsWithin {
+            #expect(frames - lastClose <= landsWithin, "the motion landed \(frames - lastClose) frames after the last close (at most \(landsWithin))")
         }
         #expect(closing.allSatisfy { $0.superview == nil }, "a closed host is left in the tree after the landing")
     }
