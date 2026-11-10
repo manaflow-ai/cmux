@@ -589,8 +589,13 @@ to that key's `scopes` in `CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM`.
   `{id: "snap_...", upstream_snapshot_id, state, tenant_id, classic_vm_id,
   migration_id, created_by, created_at}`, where `state` is `created` (this request took
   the snapshot) or `ready` (an earlier import answered). The row is labelled
-  `classic.vm_id` and `classic.migration_id`, plus `classic.import_key` (a digest,
-  never the key) when a key was sent. The same tenant, classic VM and migration always
+  `classic.vm_id`, `classic.migration_id` and the import marker
+  `classic.imported_by=service:<id>`, plus `classic.import_key/<digest>=1` for each
+  Idempotency-Key bound to it (a digest, never the key; replaying an import under a
+  new key binds that key too). Labels under `classic.` are reserved: VM create and
+  fork and snapshot create refuse them with 400, and the service key parser refuses
+  a key configured with one, so only this route writes them. List and rollback
+  require both the migration label and the marker. The same tenant, classic VM and migration always
   answer the first import and never snapshot again. A per-tenant lock makes a concurrent
   request 409 ("retry shortly"). The provider snapshot is named after a digest of the
   import, so a retry after a lost reply adopts the first send's snapshot. An
