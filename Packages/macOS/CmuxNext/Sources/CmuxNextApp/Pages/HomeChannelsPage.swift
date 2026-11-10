@@ -75,7 +75,7 @@ extension PageFactory {
         let actions = PageGestureActionProvider(page: .homeMessages, wrapping: AppPageNativeProvider(services: services, page: .homeMessages))
         let extra = [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route), PageRoute(prefix: PageNativeOp.actionRun, provider: actions)]
             + HomeMessagesHostProvider.prefixes.map { PageRoute(prefix: $0, provider: host) }
-            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun),
+            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun), PageRoute(prefix: HomeMessagesWidgets.prefix, provider: HomeMessagesWidgets(host: services.sidebarCustomization.chatWidgets, personOnlyMessage: RefusalStrings.personOnlyFromPage)),
                PageRoute(prefix: HomeComposerFiles.prefix, provider: host.composerFiles)]
             + HomeMessagesListFeed.prefixes.map { PageRoute(prefix: $0, provider: host.list) }
         let single = conversation.flatMap { $0.rawValue.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }.map { "#/conversation/\($0)" }

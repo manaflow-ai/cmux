@@ -37,6 +37,7 @@ import {
   type HomeParticipant,
   type HomeLinkPreviewPart,
   type HomeLocation,
+  type HomeWidgetPart,
   type HomePart,
   type HomeQuestion,
   type HomeQuestionItem,
@@ -168,9 +169,29 @@ function part(raw: Json): HomePart {
       if (typeof raw.label === "string" && raw.label) place.label = raw.label;
       return place;
     }
+    case "widget":
+      return widgetPart(raw);
     default:
       return { type: "other", text: String(raw.type ?? "") };
   }
+}
+
+/** A stored `widget` part (Swift `HomeWireMapping` "widget"): without an app or a fallback it reads
+ * as its fallback, else its link, as text. */
+export function widgetPart(raw: Json): HomePart {
+  const fallback = typeof raw.fallback === "string" ? raw.fallback : "";
+  const url = typeof raw.url === "string" && raw.url ? raw.url : undefined;
+  if (typeof raw.app !== "string" || !raw.app || !fallback) return { type: "other", text: fallback || url || "" };
+  const props = raw.props && typeof raw.props === "object" && !Array.isArray(raw.props) ? (raw.props as Json) : {};
+  const widget: HomeWidgetPart = {
+    type: "widget",
+    app: raw.app,
+    widget: typeof raw.widget === "string" && raw.widget ? raw.widget : "cmux.chat.widget/1",
+    props,
+    fallback,
+  };
+  if (url) widget.url = url;
+  return widget;
 }
 
 const HARNESSES = new Set(["claude", "codex", "acp", "chief"]);
