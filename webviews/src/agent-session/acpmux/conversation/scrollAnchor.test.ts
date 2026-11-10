@@ -125,6 +125,32 @@ test("rows a fold ride already showed lower move the offset by no more than is l
     });
   expect(grown).toBeGreaterThan(0);
   expect(next(grown)).toBe(top);
-  expect(next(grown - 5)).toBe(top + 5);
+  // Still shown 5px short of the growth, the view's top is in the growing row as shown: it holds.
+  expect(next(grown - 5)).toBe(top);
   expect(next(0)).toBe(top + grown);
+});
+
+// A fold opened 100 -> 300 with the rows under it shown 200px lower by a ride; the reader scrolled
+// 120px, into its open body, and the fold lands at 320. The row at the view's top is the folding row
+// as the rows show, not the next row as the old layout put it: the offset stays (review of #39917 at
+// 3b304dcc: "offset 140 instead of 120"). A close is the mirror image.
+test("the anchor is the row a fold ride shows at the view's top", () => {
+  const ids = [{ id: "fold" }, { id: "next" }, { id: "after" }];
+  const layout = (heights: number[]) => {
+    const tops = heights.map((_, at) => heights.slice(0, at).reduce((sum, each) => sum + each, 0));
+    return { tops, heights, totalHeight: heights.reduce((sum, each) => sum + each, 0) };
+  };
+  const anchor = (old: number[], next: number[], shown: number, top: number) =>
+    preserveScrollAnchorTop({
+      oldLayout: layout(old),
+      newLayout: layout(next),
+      oldRows: ids,
+      newRows: ids,
+      liveTop: top,
+      anchorTop: top,
+      shown: (index) => (index >= 1 ? shown : 0),
+    });
+  expect(anchor([100, 100, 100], [320, 100, 100], 200, 120)).toBe(120);
+  // A close 300 -> 120 shown 160px higher, the reader 150px down: in view is the next row, 10px in.
+  expect(anchor([300, 100, 100], [120, 100, 100], -160, 150)).toBe(130);
 });

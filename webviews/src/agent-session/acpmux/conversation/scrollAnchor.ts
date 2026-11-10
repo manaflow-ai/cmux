@@ -82,9 +82,17 @@ export function preserveScrollAnchorTop({
   /// foldRide.ts): the placement moves it that much less.
   shown?: (oldIndex: number) => number;
 }): number | undefined {
-  const first = firstVisible(oldLayout, liveTop);
   const oldGeometry = geometryOf(oldLayout);
   const newGeometry = geometryOf(newLayout);
+  let first = firstVisible(oldLayout, liveTop);
+  if (shown) {
+    // Rows a fold ride moved show away from their old tops: the row at the view's top is the one
+    // shown there, which may be the one above (an open) or below (a close) the old layout's.
+    const shownTop = (at: number) => oldGeometry.topAt(at) + shown(at);
+    for (let step = 0; step < 32 && first > 0 && shownTop(first) > liveTop; step += 1) first -= 1;
+    for (let step = 0; step < 32 && first + 1 < oldGeometry.count && shownTop(first + 1) <= liveTop; step += 1)
+      first += 1;
+  }
   // A row's own resize must not move its top edge. The first visible row is
   // therefore the anchor; rows below it are irrelevant to this correction. A simple prepend or
   // stream resolves in constant time. Build an id index only after that fast path misses, which
