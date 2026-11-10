@@ -298,6 +298,45 @@ def scan_text(text):
     return out
 
 
+def context_kinds(text, line_end):
+    """What a key's name or a refresh token's field opening a line names when its value is on a later line (JSON
+    and YAML put it there freely): matches that start before `line_end` in `text`, the line and what follows it.
+    Each value is recorded for redaction."""
+    seen = set()
+    for m in REFRESH.finditer(text):
+        if m.start() < line_end and not PUBLIC_VALUE.search(m.group(0)):
+            found(m.group(1))
+            seen.add("an OAuth refresh token")
+    for m in ASSIGN.finditer(text):
+        if m.start() < line_end and m.group(1) in KEY_NAMES and literal_secret(m.group(2)):
+            found(m.group(2))
+            seen.add(m.group(1))
+    return seen
+
+
+# A login file's own fields: every string under one of these names is recorded for redaction, whatever its shape,
+# so a path that spells one (a folder named after the token) cannot carry it out.
+LOGIN_FIELD = re.compile(r"token|key|secret|password|credential", re.I)
+
+
+def login_values(path):
+    """Records the secret fields of a JSON login file for redaction. Never reports them."""
+    try:
+        with open(path, "rb") as f:
+            data = json.loads(f.read(1 << 20))
+    except (OSError, ValueError):
+        return
+    stack = [(None, data)]
+    while stack:
+        name, value = stack.pop()
+        if isinstance(value, dict):
+            stack.extend(value.items())
+        elif isinstance(value, list):
+            stack.extend((name, v) for v in value)
+        elif isinstance(value, str) and name and LOGIN_FIELD.search(name):
+            found(value)
+
+
 def read(path, limit=1 << 20):
     with open(path, "rb") as f:
         return f.read(limit)
@@ -342,7 +381,17 @@ def scan_file(path):
                 line += whole.count(b"\n", seen_to, start)
                 seen_to = last = start
                 end = whole.find(b"\n", hit.start())
-                out.extend((line, what) for _, what in scan_text(whole[start:len(whole) if end < 0 else end].decode("utf-8", "replace")))
+                end = len(whole) if end < 0 else end
+                seen = {what for _, what in scan_text(whole[start:end].decode("utf-8", "replace"))}
+                # A value on a later line: the stretch after the hit, read ahead past this chunk's end if need be
+                # (what is read ahead is kept for the next chunk).
+                if chunk and hit.end() + HIT_SPAN > len(block):
+                    more = f.read(HIT_SPAN)
+                    block += more
+                    rest += more
+                after = block[start:hit.end() + HIT_SPAN].decode("utf-8", "replace")
+                seen |= context_kinds(after, len(whole[start:end].decode("utf-8", "replace")))
+                out.extend((line, what) for what in sorted(seen))
             line += whole.count(b"\n", seen_to)
             if not chunk:
                 return out
@@ -446,6 +495,7 @@ def scan_files(root, deadline, report):
                     # A login file is one by the name it is reached under (a link named .codex/auth.json counts).
                     for suffix, what in LOGIN_FILES.items():
                         if walked.endswith("/" + suffix) and st.st_size > 0:
+                            login_values(path)
                             report["findings"].append({"place": "file", "where": walked, "what": what})
                     # Named and classed by where it is once symbolic links are resolved; each such name once.
                     where = shown(real_root, os.path.realpath(path))

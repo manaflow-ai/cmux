@@ -1174,6 +1174,38 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("a value on the line after its name is found, and a login file's token never leaves in its path", () => {
+    const SPLIT = "opaqueSplit9Hq4Lx7Vn2Kw5Tz";
+    const SPLIT_KEY = "opaqueSplitKey3Mv8Rq6Pn";
+    const LOGIN = "opaqueLogin4Zr7Kq2Xw9Np";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "home/cmux/token.json": `{\n  "refresh_token":\n    "${SPLIT}"\n}\n`,
+      "home/cmux/conf.json": `{"OPENAI_API_KEY":\n "${SPLIT_KEY}"}\n`,
+      // The name ends the probe's first 4 MiB read and its value starts the next.
+      "home/cmux/big.json": `${"a".repeat((4 << 20) - '{"refresh_token":\n'.length - 1)}\n{"refresh_token":\n"${SPLIT}"}\n`,
+      // Its token on the next line, and a folder named after it; and a login file whose token has no shape at all.
+      [`home/cmux/${SPLIT}/.codex/auth.json`]: `{"tokens": {"refresh_token":\n "${SPLIT}"}}\n`,
+      [`home/cmux/${LOGIN}/.claude/.credentials.json`]: JSON.stringify({ claudeAiOauth: { accessToken: LOGIN } }),
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [SPLIT, SPLIT_KEY, LOGIN]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.where}: ${f.what}`).sort()).toEqual([
+        "/home/cmux/[a secret]/.claude/.credentials.json: a Claude login file",
+        "/home/cmux/[a secret]/.codex/auth.json: a Codex login file",
+        "/home/cmux/[a secret]/.codex/auth.json:1: an OAuth refresh token",
+        "/home/cmux/big.json:2: an OAuth refresh token",
+        "/home/cmux/conf.json:1: OPENAI_API_KEY",
+        "/home/cmux/token.json:2: an OAuth refresh token",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("a key glued into a file's name never leaves in the answer", () => {
     const root = plant({
       "proc/5/comm": "bash\n",
