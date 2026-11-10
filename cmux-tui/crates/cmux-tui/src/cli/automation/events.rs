@@ -147,15 +147,18 @@ const SESSION_NAME_FIELDS: [&str; 3] = ["session", "name", "session_name"];
 /// carries the id, not the `auto-...` name, so the id is looked up.
 const SESSION_ID_FIELDS: [&str; 2] = ["agent_session", "session_id"];
 
+/// Names an acpmux session id, when one is known.
+type SessionLookup = Box<dyn FnMut(&str) -> Option<String>>;
+
 /// Which sessions are automation runs' own (`auto-<id>-<run>`), each id
 /// looked up once.
 struct OwnSessions {
-    lookup: Box<dyn FnMut(&str) -> Option<String>>,
+    lookup: SessionLookup,
     known: HashMap<String, bool>,
 }
 
 impl OwnSessions {
-    fn new(lookup: Box<dyn FnMut(&str) -> Option<String>>) -> OwnSessions {
+    fn new(lookup: SessionLookup) -> OwnSessions {
         OwnSessions { lookup, known: HashMap::new() }
     }
 
