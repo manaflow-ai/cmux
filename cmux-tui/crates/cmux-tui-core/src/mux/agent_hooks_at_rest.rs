@@ -96,6 +96,9 @@ struct HookSlot {
     /// runs the terminal's retry first and is answered from memory only when
     /// the retry left nothing.
     projection_pending: bool,
+    /// How many times a projection of this terminal was noted as waiting. A
+    /// retry clears the flag only when none was noted since it read this.
+    projection_pending_notes: u64,
     /// The latest reports by origin and idempotency key, with the answer of
     /// each one that got no row (`None`: the report was appended, and the
     /// registry holds its receipt).
@@ -396,6 +399,7 @@ impl Mux {
         };
         if let Some(slot) = self.agent_hooks_at_rest.terminals().get_mut(&terminal) {
             slot.projection_pending = true;
+            slot.projection_pending_notes += 1;
         }
     }
 
@@ -407,9 +411,26 @@ impl Mux {
             .is_some_and(|slot| slot.projection_pending)
     }
 
-    /// A retry found no hook projection of `terminal` left.
-    pub(super) fn note_no_agent_hook_projection_pending(&self, terminal: &TerminalPublicId) {
-        if let Some(slot) = self.agent_hooks_at_rest.terminals().get_mut(terminal) {
+    /// How many times a projection of `terminal` was noted as waiting. A
+    /// retry reads it before it reads the retry table.
+    pub(super) fn agent_hook_projection_pending_notes(&self, terminal: &TerminalPublicId) -> u64 {
+        self.agent_hooks_at_rest
+            .terminals()
+            .get(terminal)
+            .map_or(0, |slot| slot.projection_pending_notes)
+    }
+
+    /// A retry found no hook projection of `terminal` left in the table it
+    /// read after `notes`. A projection noted since then (a row of another
+    /// thread that failed after that read) keeps the flag.
+    pub(super) fn note_no_agent_hook_projection_pending(
+        &self,
+        terminal: &TerminalPublicId,
+        notes: u64,
+    ) {
+        if let Some(slot) = self.agent_hooks_at_rest.terminals().get_mut(terminal)
+            && slot.projection_pending_notes == notes
+        {
             slot.projection_pending = false;
         }
     }
