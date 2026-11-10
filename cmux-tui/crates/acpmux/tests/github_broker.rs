@@ -218,6 +218,26 @@ async fn the_mac_runs_an_added_machines_action_with_its_own_gh_and_no_other_peer
     assert_eq!(v["error"]["data"]["reason"], "github.denied", "{v}");
 }
 
+/// A clone (`github_clone.rs`): the Mac checks it as any action and, with no cmux sign-in lent,
+/// lends no credential (never its keyring login); a peer it does not lend to is refused, and a
+/// DIR that leaves the chat's folder is refused on the Mac too.
+#[tokio::test]
+async fn the_mac_checks_a_clone_and_never_lends_its_keyring_login_for_it() {
+    fake_gh();
+    let a = hub();
+    let mut app = C::new(&a, None).await;
+    let clone = json!({"sessionId": "s-1", "action": "clone", "repo": "o/r", "dir": "r2"});
+    let v = mac_answers(&mut app, "cloner", Some(true), clone.clone()).await;
+    assert_eq!(v["result"]["action"], "clone", "{v}");
+    assert!(v["result"].get("cloneToken").is_none(), "no login lent: {v}");
+    assert!(!v.to_string().contains("token-seen"), "{v}");
+    let v = mac_answers(&mut app, "cloner-plain", None, clone).await;
+    assert_eq!(v["error"]["data"]["reason"], "github.denied", "{v}");
+    let escape = json!({"action": "clone", "repo": "o/r", "dir": "../x"});
+    let v = mac_answers(&mut app, "cloner-escape", Some(true), escape).await;
+    assert_eq!(v["error"]["code"], -32602, "{v}");
+}
+
 /// Review of #24797 at c43d357: what `gh` printed went back as it was, so a token it printed (a
 /// debug setting, a wrapper) reached the machine.
 #[tokio::test]
