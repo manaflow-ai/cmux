@@ -15,13 +15,13 @@ extension WindowManager {
     // MARK: Transitions
 
     /// Applies one registry transition. `select` names, per window, the
-    /// workspaces the user just moved in; the first becomes selected there. `gesture`: a person asked for that selection in this turn (never a daemon delta).
+    /// workspaces the user just moved in; the first becomes selected there. `gesture`: a person asked for that selection in this turn (never a daemon delta). `order`: the daemons' workspace order when the caller built it in this same turn (reconcile).
     @discardableResult
-    func transition(select preferred: [String: [String]] = [:], gesture: Bool = false,
+    func transition(select preferred: [String: [String]] = [:], gesture: Bool = false, order: [String]? = nil,
                     _ body: (inout WindowRegistry) -> WindowRegistry.Changes) -> WindowRegistry.Changes {
         let before = registry.value
         let previous = Dictionary(before.windows.map { ($0.id, $0.workspaceIDs) }, uniquingKeysWith: { first, _ in first })
-        let live = services.machines.daemons.flatMap { Self.orderedIDs(of: $0, machines: self.services.machines, doc: self.services.sidebarDoc) }
+        let live = order ?? services.machines.daemons.flatMap { daemon in registry.orderBuild { Self.orderedIDs(of: daemon, machines: self.services.machines, doc: self.services.sidebarDoc) } }
         let changes = registry.apply { registry in
             let changes = body(&registry)
             registry.order(like: live)
@@ -460,7 +460,7 @@ extension WindowManager {
         var cloud: [[String]] = []
         for daemon in services.machines.daemons {
             installWorkspaceListHook(on: daemon)
-            let ids = Self.orderedIDs(of: daemon, machines: services.machines, doc: services.sidebarDoc)
+            let ids = registry.orderBuild { Self.orderedIDs(of: daemon, machines: services.machines, doc: services.sidebarDoc) }
             for id in ids {
                 live.append(id)
                 seenMachine[id] = daemon.machineID
@@ -510,7 +510,7 @@ extension WindowManager {
         let dead = Set(members.filter(isDead))
         settleRestoreClosed()
         let fallback = launchWindowID ?? closedLaunchWindowID ?? UUID().uuidString.lowercased()
-        transition(select: preferred, gesture: false) { registry in // a delta: never the person's gesture, whatever run is current
+        transition(select: preferred, gesture: false, order: live) { registry in // a delta: never the person's gesture, whatever run is current
             let changes = registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
                                              fallbackWindow: fallback)
             restoreClosed.keepClosed(&registry)
