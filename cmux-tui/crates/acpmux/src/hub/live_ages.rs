@@ -14,20 +14,20 @@ pub(super) const LIVE_MAX_AGE: Duration = Duration::from_secs(15 * 60);
 
 /// The time each harness's live probe last started, by profile name.
 #[derive(Debug, Default)]
-pub(super) struct LiveAges {
+pub(crate) struct LiveAges {
     started: HashMap<String, Instant>,
 }
 
 impl LiveAges {
     /// Records that `harness`'s probe starts at `now`.
-    pub(super) fn started(&mut self, harness: &str, now: Instant) {
+    pub(crate) fn started(&mut self, harness: &str, now: Instant) {
         self.started.insert(harness.to_owned(), now);
     }
 
     /// The harnesses of `names` whose last probe started `LIVE_MAX_AGE` or
     /// more before `now`, each marked as started now so concurrent reads start
     /// one probe. A harness never probed is left to the start-up probe.
-    pub(super) fn claim_due<'a>(
+    pub(crate) fn claim_due<'a>(
         &mut self,
         names: impl IntoIterator<Item = &'a str>,
         now: Instant,
