@@ -40,6 +40,9 @@ final class WindowRecordSaver {
     /// The daemon's window records of this install (`window-records-v1`).
     private let recordMirror = WindowRecordMirror()
     private var selectedTabsCache: [String: (key: SelectedTabsKey, tabs: [String: String])] = [:]
+    /// Panes whose remembered tab a record build read on the main thread, since launch. A save reads the panes
+    /// that changed, never the session's (`SpaceSwitchRecordSaveTests`).
+    private(set) var paneReads = 0
     private var services: AppServices { manager.services }
 
     init(manager: WindowManager) {
@@ -222,6 +225,7 @@ final class WindowRecordSaver {
         var selected: [String: String] = [:]
         for id in window.workspaceIDs {
             for pane in services.workspace(id: id)?.screens.flatMap(\.panes) ?? [] {
+                paneReads += 1
                 if let tab = state.selection.selection(in: pane.id) { selected[pane.id] = tab }
             }
         }
