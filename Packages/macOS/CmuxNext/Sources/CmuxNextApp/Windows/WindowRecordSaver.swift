@@ -40,11 +40,9 @@ final class WindowRecordSaver {
     var saves = WindowRecordSaves()
     /// The daemon's window records of this install (`window-records-v1`).
     private let recordMirror = WindowRecordMirror()
-    /// The remembered tab per pane of each window, as its last record build left them (``selectedTabs(window:in:)``).
-    private var selectedTabsCache: [String: SelectedTabs] = [:]
-    /// Panes whose remembered tab a record build read on the main thread, since launch. A save reads the panes
-    /// that changed, never the session's (`SpaceSwitchRecordSaveTests`).
-    private(set) var paneReads = 0
+    private var selectedTabsCache: [String: TabSelectionRecord] = [:]
+    /// Panes whose remembered tab a record build read on the main thread (`SpaceSwitchRecordSaveTests`).
+    var paneReads: Int { selectedTabsCache.values.reduce(0) { $0 + $1.paneReads } }
     private var services: AppServices { manager.services }
 
     init(manager: WindowManager) {
@@ -217,72 +215,14 @@ final class WindowRecordSaver {
         return panes.filter { listed.contains($0.key) }
     }
 
-    /// Remembered tab per pane across the window's workspaces, kept between saves. A save applies the selections
-    /// that changed since the last one (`TabSelectionMemory.takeChanges`) and reads no pane: nothing after a
-    /// workspace or space switch, one entry after a tab switch. Every pane is read again only when the panes
-    /// themselves may differ: the window lists other workspaces, or a machine's tree gained or lost a pane or has
-    /// one in another screen (`DaemonStore.paneListRevision`). A daemon batch or snapshot that changes neither (an
-    /// agent's output, a title, a status, a tab that comes or goes, a workspace applied again) reads nothing: such
-    /// batches land between any two actions of a live session, and each one made the next save read every pane of
-    /// the window on the main thread, before the frame of the action that asked for it.
-    // perf-hot: 0.1ms workspace-switch (the save that each workspace, space and tab switch asks for: it reads no pane)
+    /// Remembered tab per pane across the window's workspaces, kept between saves (`TabSelectionRecord`): a save
+    /// after a switch reads no pane.
     private func selectedTabs(window: WindowRegistry.Window, in registry: WindowRegistry) -> [String: String] {
-        guard let memory = manager.states[window.id]?.selection else {
-            selectedTabsCache[window.id] = nil
-            return [:]
-        }
-        let paneLists = services.machines.daemons.map { PaneListStamp(store: $0.store, revision: $0.store.paneListRevision) }
-        // Taken on every path: the full read below reads the memory itself, which has these changes.
-        let changes = memory.takeChanges()
-        if var cached = selectedTabsCache[window.id], cached.memory === memory, cached.workspaces == window.workspaceIDs,
-           cached.paneLists.elementsEqual(paneLists, by: { $0.isSame(as: $1) }) {
-            guard !changes.isEmpty else { return cached.tabs }
-            for (pane, tab) in changes { cached.tabs[pane] = lists(pane, window: window, in: registry) ? tab : nil }
-            selectedTabsCache[window.id] = cached
-            return cached.tabs
-        }
-        var selected: [String: String] = [:]
-        for id in window.workspaceIDs {
-            for pane in services.workspace(id: id)?.screens.flatMap(\.panes) ?? [] {
-                paneReads += 1
-                if let tab = memory.selection(in: pane.id) { selected[pane.id] = tab }
-            }
-        }
-        selectedTabsCache[window.id] = SelectedTabs(memory: memory, workspaces: window.workspaceIDs, paneLists: paneLists, tabs: selected)
-        return selected
-    }
-
-    /// Whether a workspace `window` lists holds a pane with id `pane`, as the full read of
-    /// ``selectedTabs(window:in:)`` finds one (a pane of `services.workspace(id:)`), from the stores' indexes and the
-    /// registry's owner map: no walk of the window's panes. Its workspaces are searched only for a workspace
-    /// another window owns too (the registry names the first window that lists one).
-    private func lists(_ pane: String, window: WindowRegistry.Window, in registry: WindowRegistry) -> Bool {
-        services.machines.daemons.contains { daemon in
-            guard let model = daemon.store.pane(idOrResource: pane), model.id == pane,
-                  let workspace = daemon.store.location(of: model)?.workspace,
-                  let owner = registry.owner(of: workspace.id) else { return false }
-            return (owner == window.id || window.workspaceIDs.contains(workspace.id)) && services.workspace(id: workspace.id) === workspace
-        }
-    }
-}
-
-/// The remembered tabs of one window's panes, and what they were read from besides the selections themselves.
-private struct SelectedTabs {
-    /// The window's tab memory: a window opened again has another. Weak, so a freed one is never taken for a new one.
-    weak var memory: TabSelectionMemory?
-    var workspaces: [String]
-    var paneLists: [PaneListStamp]
-    var tabs: [String: String]
-}
-
-/// One machine's store and its pane list revision.
-private struct PaneListStamp {
-    /// Weak, so a freed store is never taken for a new one.
-    weak var store: DaemonStore?
-    var revision: UInt64
-
-    /// Whether `other` is the same live store at the same revision.
-    func isSame(as other: PaneListStamp) -> Bool {
-        store != nil && store === other.store && revision == other.revision
+        guard let memory = manager.states[window.id]?.selection else { return [:] }
+        return selectedTabsCache[window.id, default: TabSelectionRecord()].tabs(
+            of: memory, workspaces: window.workspaceIDs, stores: services.machines.daemons.map(\.store),
+            workspace: { services.workspace(id: $0) },
+            // The registry names the first window that lists a workspace: this one's list only for another's.
+            lists: { registry.owner(of: $0) == window.id || window.workspaceIDs.contains($0) })
     }
 }
