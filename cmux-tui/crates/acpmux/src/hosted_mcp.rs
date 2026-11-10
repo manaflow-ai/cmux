@@ -479,6 +479,7 @@ pub async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+// The tests fake the `cmux` CLI with a shell script.
+#[cfg(all(test, unix))]
 #[path = "hosted_mcp_tests.rs"]
 mod tests;
