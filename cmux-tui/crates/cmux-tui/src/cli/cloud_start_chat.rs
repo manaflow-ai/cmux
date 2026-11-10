@@ -75,6 +75,7 @@ const TAKES_VALUE: &[&str] = &[
     "--prompt",
     "-p",
     "--agent",
+    "--model",
     "--cwd",
     "--from-folder",
     "--login",
@@ -104,6 +105,10 @@ pub(super) struct Request {
     /// `None`: start the chat and send nothing (`ready_ms` and `follow_up.send` in the answer).
     pub prompt: Option<String>,
     pub agent: String,
+    /// `--model MODEL` (or `--agent HARNESS/MODEL`): the model the machine's agent starts on, as
+    /// `cloud start-session --model` takes it (acpmux's `session/new` model); `None` leaves the
+    /// harness's default there.
+    pub model: Option<String>,
     pub cwd: Option<String>,
     /// `--from-folder`: a folder on this Mac, canonical; the chat starts in its copy on the machine.
     pub from_folder: Option<String>,
@@ -182,6 +187,7 @@ pub(super) fn send_existing(
     let request = Request {
         prompt: Some(prompt),
         agent: String::new(),
+        model: None,
         cwd: None,
         from_folder: None,
         login: None,
@@ -313,6 +319,7 @@ pub(super) fn parse(
 ) -> Result<Parsed, UsageError> {
     let mut prompt = None;
     let mut agent = None;
+    let mut model = None;
     let mut cwd = None;
     let mut from_folder = None;
     let mut login = None;
@@ -345,6 +352,7 @@ pub(super) fn parse(
             "-h" | "--help" => return Ok(Parsed::Help),
             "--prompt" | "-p" => prompt = Some(value()?),
             "--agent" => agent = Some(value()?),
+            "--model" => model = Some(value()?),
             "--cwd" => cwd = Some(value()?),
             "--from-folder" => from_folder = Some(value()?),
             "--login" => login = Some(value()?),
@@ -381,6 +389,17 @@ pub(super) fn parse(
         return Err(UsageError::new("--prompt is empty"));
     }
     let agent = agent.unwrap_or_else(|| "claude".to_owned());
+    // `--agent claude/claude-haiku-5-5` is the claude harness on that model, as `acp ensure -m` reads it.
+    let (agent, model) = match agent.split_once('/') {
+        Some(_) if model.is_some() => {
+            return Err(UsageError::new(format!(
+                "--agent {agent:?} names a model, and so does --model: give one"
+            )));
+        }
+        Some((harness, named)) => (harness.to_owned(), Some(named.to_owned())),
+        None => (agent, model),
+    };
+    let model = model.map(|word| model_word(&word)).transpose()?;
     if agent.is_empty()
         || !agent
             .chars()
@@ -429,6 +448,7 @@ pub(super) fn parse(
     Ok(Parsed::Run(Request {
         prompt,
         agent,
+        model,
         cwd,
         from_folder,
         login,
@@ -438,6 +458,22 @@ pub(super) fn parse(
         timeout,
         make_room,
     }))
+}
+
+/// `--model`'s word, checked as the machine's daemon checks `agent-session-start`'s `model`
+/// (cmux-tui-core agent_session_start.rs): 1 to 200 bytes, not starting with `-`, no space,
+/// control character, quote, backslash, `$` or brace.
+pub(super) fn model_word(word: &str) -> Result<String, UsageError> {
+    let model = word.trim();
+    let ok = (1..=200).contains(&model.len())
+        && !model.starts_with('-')
+        && !model.chars().any(|c| c.is_whitespace() || c.is_control())
+        && !model.contains(['{', '}', '$', '"', '\\', '\'']);
+    if ok {
+        Ok(model.to_owned())
+    } else {
+        Err(UsageError::new(format!("--model {word:?}: a model id such as claude-haiku-5-5")))
+    }
 }
 
 /// One run of this binary: its exit code and what it printed.
@@ -599,6 +635,9 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     }
     if request.agent != "claude" {
         words.push(format!("--agent {}", request.agent));
+    }
+    if let Some(model) = &request.model {
+        words.push(format!("--model {}", shell_quote(model)));
     }
     if let Some(cwd) = &request.cwd {
         words.push(format!("--cwd {}", shell_quote(cwd)));
@@ -1242,6 +1281,9 @@ fn steps(
         Machine::New => {}
     }
     start.extend(["--agent".to_owned(), request.agent.clone()]);
+    if let Some(model) = &request.model {
+        start.extend(["--model".to_owned(), model.clone()]);
+    }
     if let Some(cwd) = &request.cwd {
         start.extend(["--cwd".to_owned(), cwd.clone()]);
     }
@@ -1343,6 +1385,9 @@ fn steps(
     });
     if let Some(cwd) = &request.cwd {
         answer.set("cwd", json!(cwd));
+    }
+    if let Some(model) = &request.model {
+        answer.set("model", json!(model));
     }
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
