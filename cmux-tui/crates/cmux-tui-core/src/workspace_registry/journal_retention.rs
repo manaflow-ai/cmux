@@ -16,6 +16,19 @@
 //! record again: it holds the floor at 0. The newest segment always stays,
 //! so the journal head never moves back.
 //!
+//! The readers' cursors are not the whole rule. A client can ask for a
+//! checkpoint after each record, and the newest 16 are then on the newest 16
+//! records. So a minimum window always stays, whatever the cursors say: the
+//! newest [`MIN_RETAINED_RECORDS`] records, and each segment sealed in the
+//! last [`MIN_RETAINED_AGE_MS`] (at most [`MAX_AGE_RETAINED_RECORDS`]
+//! records, so a commit storm stays bounded). An ingress receipt is deleted
+//! with its record's segment and has no time of its own: the age window is
+//! the time in which a retry with the same key is still a replay.
+//!
+//! Every term is in [`retention_limit`], behind [`journal_retention_floor`]:
+//! the maintenance worker, the cleanup worker and the swap at open read the
+//! same floor from the registry alone.
+//!
 //! What is gone is recorded as ONE pruned range `[1..=floor]`, so every
 //! reader that crosses it (`output_cleanup::pruned_gap`) reads on from the
 //! first retained record, and as `meta.journal_retention_floor`, so
@@ -29,6 +42,19 @@ use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERS
 
 /// `meta` key of the sequence retention has deleted through.
 const PRUNED_THROUGH_META_KEY: &str = "journal_retention_floor";
+
+/// The newest records that always stay: one full segment
+/// (`JOURNAL_SEGMENT_RECORD_LIMIT`).
+const MIN_RETAINED_RECORDS: u64 = 1_024;
+/// A segment sealed less than this long ago stays, with the receipts of its
+/// records: the time in which an ingress retry with the same key is a replay.
+const MIN_RETAINED_AGE_MS: u64 = 60 * 60 * 1_000;
+/// The most records the age window holds below the head (64 full segments).
+/// It bounds the tables under a commit storm, and it bounds what a wall
+/// clock that went back can hold. It also bounds the read of the window: a
+/// segment's seal time is stored after its content, so SQLite walks the
+/// content's pages to read it.
+const MAX_AGE_RETAINED_RECORDS: u64 = 65_536;
 
 /// The retention floor of the registry behind `connection`: every sealed
 /// segment that ends at or below it, and every index, receipt and kept
@@ -130,7 +156,47 @@ fn retention_limit(connection: &Connection) -> anyhow::Result<u64> {
     )? {
         limit = limit.min(event.saturating_sub(1));
     }
-    Ok(limit)
+    minimum_window_limit(connection, limit)
+}
+
+/// `limit` lowered to the minimum window (see the module doc).
+fn minimum_window_limit(connection: &Connection, limit: u64) -> anyhow::Result<u64> {
+    let head: i64 = connection.query_row(
+        "SELECT MAX(
+           COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
+           COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    let head = u64::try_from(head)?;
+    let limit = limit.min(head.saturating_sub(MIN_RETAINED_RECORDS));
+    // Below this sequence a segment's age holds nothing.
+    let age_bound = head.saturating_sub(MAX_AGE_RETAINED_RECORDS);
+    if limit <= age_bound {
+        return Ok(limit);
+    }
+    let sealed_before = super::unix_epoch_ms()?.saturating_sub(MIN_RETAINED_AGE_MS);
+    // From `limit` down to the first segment that is old enough: one row on
+    // a quiet registry, and never a row at or below `age_bound`.
+    let aged: Option<i64> = connection
+        .query_row(
+            "SELECT end_sequence FROM journal_segments
+             WHERE end_sequence <= ?1 AND end_sequence > ?2 AND sealed_at_ms <= ?3
+             ORDER BY end_sequence DESC LIMIT 1",
+            params![
+                i64::try_from(limit)?,
+                i64::try_from(age_bound)?,
+                i64::try_from(sealed_before)?
+            ],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(match aged {
+        Some(end) => u64::try_from(end)?,
+        // Every segment in the age window is young: all of them stay.
+        None => age_bound,
+    })
 }
 
 /// The saved cursor of `reducer` when its state is of `version`; 0 for no
@@ -211,3 +277,6 @@ impl WorkspaceRegistry {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+mod tests;

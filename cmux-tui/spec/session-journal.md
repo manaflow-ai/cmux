@@ -735,7 +735,11 @@ reducer, the saved cursor of the agent history fold, every enabled hook's
 cursor and every delivery of an enabled hook that is not final. Installing a
 newer version of a hook abandons the waiting deliveries of the replaced
 version: only the enabled version is dispatched. A reducer state of another
-version, or one with a rebuild pending, holds the floor at zero. The newest
+version, or one with a rebuild pending, holds the floor at zero. A minimum
+window stays whatever those cursors say: the newest 1,024 records, and each
+segment sealed in the last 60 minutes (at most 65,536 records below the head).
+An ingress receipt is deleted with its record's segment, so a retry with the
+same key is a replay for at least those 60 minutes. The newest
 segment always stays. Each tick deletes at most eight segments at or below the
 floor, one transaction per segment, together with their kept reducer records
 and the subject index, event index and ingress receipt rows of their records.

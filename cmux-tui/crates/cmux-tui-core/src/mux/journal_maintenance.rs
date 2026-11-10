@@ -266,9 +266,15 @@ impl Mux {
     }
 
     /// One maintenance tick on the caller's thread, for a test that stopped
-    /// the worker: true when the tick settled.
+    /// the worker: true when the tick settled. The tick is more than an hour
+    /// after the last one: retention keeps each segment for an hour after
+    /// its seal, and a test cannot wait for that.
     #[cfg(test)]
     pub(crate) fn run_journal_maintenance_for_test(&self) -> bool {
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .age_journal_segments_for_test();
         let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
         self.run_journal_maintenance(&mut ledgers) == TickOutcome::Settled
     }
