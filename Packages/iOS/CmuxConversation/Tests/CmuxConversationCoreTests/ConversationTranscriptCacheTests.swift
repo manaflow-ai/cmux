@@ -207,44 +207,38 @@ import Testing
         }
     }
 
-    /// Kept conversations together stay under the byte limit: after a write, the ones written
-    /// longest ago leave first, never the one just written (the user, 2026-11-09: "chats
-    /// preserved on disk up to a storage limit, latest kept"). Before, every conversation ever
-    /// opened stayed on the phone.
-    @Test func theOldestConversationsLeaveAtTheByteLimit() throws {
+    /// Chats are kept up to a storage limit, latest kept (the user, 2026-11-09): over the limit,
+    /// the conversation written longest ago loses its oldest messages first, never its newest
+    /// `limit`, and the conversations written since keep everything.
+    @Test func theOldestConversationsShrinkFirstAtTheByteLimit() async throws {
         let directory = Self.directory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let messages = (1...20).map { ConversationMessage(id: "m\($0)", seq: $0, clientMessageID: nil, senderID: "lc",
-                                                          sentAt: Date(timeIntervalSince1970: Double($0)), text: "message \($0)") }
-        func file(_ key: String) -> URL { directory.appending(path: "\(ConversationTranscriptCache.fileName(for: key)).json") }
-        func exists(_ key: String) -> Bool { FileManager.default.fileExists(atPath: file(key).path(percentEncoded: false)) }
-        func age(_ key: String, seconds: Double) throws {
-            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-seconds)],
-                                                  ofItemAtPath: file(key).path(percentEncoded: false))
+        let messages = (1...600).map { ConversationMessage(id: "m\($0)", seq: $0, clientMessageID: nil, senderID: "lc",
+                                                           sentAt: Date(timeIntervalSince1970: Double($0)),
+                                                           text: String(repeating: "message \($0) ", count: 20)) }
+        let cache = ConversationTranscriptCache(directory: directory, limit: 100, byteLimit: 600 * 1024, writeDelay: .milliseconds(0))
+        defer { cache.removeAll() }
+        cache.save("old", info: nil, meID: "me", messages: messages)
+        cache.flush()
+        cache.save("new", info: nil, meID: "me", messages: messages)
+        cache.flush()
+        let old = await cache.storedCount("old"), new = await cache.storedCount("new")
+        #expect(old < 600 && old >= 100)
+        #expect(new == 600)
+        // The newest messages of the trimmed one are the ones kept, and its range says so.
+        #expect(await cache.syncedRange("old")?.newestSeq == 600)
+        #expect(await cache.syncedRange("old")?.complete == false)
+
+        // The static file trim other caches use: the file written longest ago goes first.
+        let files = Self.directory()
+        try FileManager.default.createDirectory(at: files, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: files) }
+        for (name, age) in [("a", 1000.0), ("b", 500.0), ("c", 0.0)] {
+            let url = files.appending(path: name)
+            try Data(count: 1000).write(to: url)
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-age)], ofItemAtPath: url.path(percentEncoded: false))
         }
-        // One conversation's size on disk (every key below writes the same bytes).
-        let measuring = ConversationTranscriptCache(directory: directory, writeDelay: .milliseconds(0))
-        measuring.save("a", info: nil, meID: "me", messages: messages)
-        measuring.flush()
-        let size = try #require(try file("a").resourceValues(forKeys: [.fileSizeKey]).fileSize)
-
-        // Room for two and a half.
-        let cache = ConversationTranscriptCache(directory: directory, byteLimit: size * 5 / 2, writeDelay: .milliseconds(0))
-        try age("a", seconds: 1000)
-        cache.save("b", info: nil, meID: "me", messages: messages)
-        cache.flush()
-        #expect(exists("a") && exists("b"))
-        try age("b", seconds: 500)
-        cache.save("c", info: nil, meID: "me", messages: messages)
-        cache.flush()
-        #expect(!exists("a"))
-        #expect(exists("b") && exists("c"))
-
-        // A limit under one file: the file just written stays.
-        let tight = ConversationTranscriptCache(directory: directory, byteLimit: size / 2, writeDelay: .milliseconds(0))
-        tight.save("d", info: nil, meID: "me", messages: messages)
-        tight.flush()
-        #expect(exists("d"))
-        #expect(!exists("b") && !exists("c"))
+        ConversationTranscriptCache.trim(files, to: 2500, keeping: files.appending(path: "c"))
+        #expect(!FileManager.default.fileExists(atPath: files.appending(path: "a").path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: files.appending(path: "b").path(percentEncoded: false)))
     }
 }
