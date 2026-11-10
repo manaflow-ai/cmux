@@ -19,7 +19,10 @@
 // Animations: the swap applies at once and nothing here runs. The work is bounded by the rows
 // mounted now (the view's window), never the whole chat.
 import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
+import { bezierAt, parseBezier } from "../../../ui/cubicBezier";
+import { currentChatMetrics } from "../chatDisplay";
 import { cssTimeMs, foldMs } from "./fold";
+import { ARRIVAL_FRAME_LINES } from "./followChase";
 import { ghostOf } from "./turnFold";
 import { LIVE_THINKING } from "./turns";
 import { isLineRow, type AcpmuxRow } from "../model";
@@ -130,6 +133,30 @@ function settle(thread: HTMLElement): { ms: number; easing: string } {
   return { ms, easing };
 }
 
+/// One 120 Hz frame (ms), the frame turn-transition-jumps.test.ts reads each move in.
+const FRAME_MS = 1000 / 120;
+
+/// The fold's length for a move of `px`: the settle's (`ms`), longer only as a long move needs to keep
+/// its first frame, the settle's fastest, under ARRIVAL_FRAME_LINES of a line, as the arrival step
+/// does (followChase.ts `arrivalStepMs`). The settle runs 180 ms since #39380 ("the animations end to
+/// end need to just resolve faster"); on its curve a 69 px fold then moved 19.9 px in its first frame,
+/// past the two thirds of a line no transition's frame may move (turn-transition-jumps.test.ts
+/// `tool-group`). A fold under about 45 px keeps the settle's 180 ms. Curves that are not a
+/// cubic-bezier() keep `ms`. At most four times `ms`.
+export function turnEndFoldMs(px: number, ms: number, easing: string): number {
+  const curve = parseBezier(easing);
+  const most = ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight;
+  const move = Math.abs(px);
+  if (!curve || ms <= 0 || move <= most) return ms;
+  let length = ms;
+  while (length < 4 * ms && move * bezierAt(curve, FRAME_MS / length) > most) length += FRAME_MS;
+  return Math.round(length);
+}
+
+/// How long after its first frame a fold's clock may still grow: two 120 Hz frames, the frames in
+/// which the virtualizer mounts the rows above the swap.
+const GROW_WINDOW_MS = 2 * FRAME_MS;
+
 /// Ends `fold` at once, drawn where it lands: its animations finish and its copies go.
 export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | undefined): void {
   if (!fold) return;
@@ -175,7 +202,16 @@ export function playTurnEnd(
   scroller?: HTMLElement | null,
 ): TurnEndFold | undefined {
   if (capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
-  const { ms, easing } = settle(thread);
+  const { ms: settleMs, easing } = settle(thread);
+  // The fold's one clock: the settle, lengthened as a pass finds a longer move (turnEndFoldMs). Rows
+  // the virtualizer mounts above after the swap move the rows under them again, so the first pass's
+  // moves are not the longest (turn-transition-jumps `tool-group`: 2 px at the first pass, 77 px at
+  // the next). When the clock grows it starts again from this frame and every row restarts on it from
+  // where it was drawn at the swap, so all still move together and none goes on part way (a row 16 ms
+  // into a 77 px move would need about 800 ms to keep its next frame under the bound; from its start,
+  // about 280 ms).
+  let ms = settleMs;
+  let grew = false;
   const look = turnEndLook(thread);
   const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
   // The fold's clock starts with the first frame that paints it. A pass before that frame runs (the
@@ -215,6 +251,26 @@ export function playTurnEnd(
     const copyTops = layoutTops(copies);
     // The folded line: the first row the swap added (the turn's "Worked for"). Copies tuck under it.
     const line = tops.find((_, index) => !was.has(nodes[index]!.dataset.rowId!));
+    let longest = 0;
+    nodes.forEach((node, index) => {
+      const before = was.get(node.dataset.rowId!);
+      if (before) longest = Math.max(longest, Math.abs(before.top - tops[index]!));
+    });
+    if (look === "tuck" && line !== undefined)
+      for (const row of gone) longest = Math.max(longest, Math.abs(line - row.top));
+    const sized = turnEndFoldMs(longest, settleMs, easing);
+    // Only in the fold's first frames, while the rows have gone almost none of their way: later, a
+    // restart from the swap's places would draw them back.
+    const early = startedAt === undefined || now() - startedAt <= GROW_WINDOW_MS;
+    grew = early && sized > ms;
+    if (grew) {
+      ms = sized;
+      if (startedAt !== undefined) startedAt = now();
+      if (fold.timer !== undefined) {
+        clearTimeout(fold.timer);
+        fold.timer = setTimeout(() => settleTurnEnd(thread, fold), ms + 50);
+      }
+    }
     const restart = (
       node: HTMLElement,
       store: Map<HTMLElement, Moving>,
@@ -222,7 +278,7 @@ export function playTurnEnd(
       keyframes: () => Keyframe[][],
     ) => {
       const last = store.get(node);
-      if (last && Math.abs(last.delta - next.delta) < 0.5 && last.fades === next.fades) return;
+      if (!grew && last && Math.abs(last.delta - next.delta) < 0.5 && last.fades === next.fades) return;
       for (const animation of last?.animations ?? []) {
         animation.cancel();
         fold.animations.delete(animation);
@@ -249,7 +305,7 @@ export function playTurnEnd(
       const at = row.top - copyTops[order]!;
       const end = look === "tuck" && line !== undefined ? at + (line - row.top) : at;
       const last = copyMoves.get(copy);
-      if (last && Math.abs(last.delta - at) < 0.5) return;
+      if (!grew && last && Math.abs(last.delta - at) < 0.5) return;
       for (const animation of last?.animations ?? []) {
         animation.cancel();
         fold.animations.delete(animation);

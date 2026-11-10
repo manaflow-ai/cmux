@@ -32,20 +32,21 @@
 // followed again, `resume` plays it on. Reduce Motion, motion off or
 // no Web Animations: the rows move at once, as before. O(mounted rows) per followed pass, the view's
 // window (never the whole chat): one offsetTop each, after the pass's own layout.
+import { MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_EASE, arrivalStepMs } from "./followChase";
 import { LIVE_THINKING } from "./turns";
 
 /// How the rows under a change move. `arrive` (shipped): on the arrival step, with the follow chase on
 /// the same step. `quick`: on the entry step (120 ms, ease-out), the follow chase on its spring.
-/// `glide`: on the house settle (265 ms), the chase on its spring. `jump`: at once.
+/// `glide`: on the house settle (180 ms), the chase on its spring. `jump`: at once.
 export type TailGlideLook = "arrive" | "glide" | "quick" | "jump";
 export const TAIL_GLIDE_LOOKS: readonly TailGlideLook[] = ["arrive", "quick", "glide", "jump"];
 /// The look's attribute, on the transcript or any element over it (the gallery's variants set it).
 export const TAIL_GLIDE_LOOK_ATTR = "data-tail-glide";
 
 /// The house settle and the entry step when the page has no token (a test DOM).
-const SETTLE_FALLBACK_MS = 265; // motion-allow: the house settle's own length (schemas/motion-scale `settle`)
+const SETTLE_FALLBACK_MS = MOTION_SETTLE_MS;
 const SETTLE_FALLBACK_EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
 const QUICK_FALLBACK_MS = 180; // motion-allow: the entry step's own length (schemas/motion-scale `in`)
 const QUICK_FALLBACK_EASE = "ease-out";
