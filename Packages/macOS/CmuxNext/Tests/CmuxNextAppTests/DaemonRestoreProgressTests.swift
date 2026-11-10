@@ -5,6 +5,7 @@ import CmuxNextDaemon
 @testable import CmuxNextDaemonService
 import Observation
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -95,14 +96,17 @@ struct DaemonRestoreProgressTests {
         return Prepared(launched: Launched(services: services, root: root), launcher: launcher, environment: environment)
     }
 
-    /// The app's start (`AppDelegate.finishLaunching`): the daemon's start, then the launch window.
+    /// The app's start: the launch snapshot read on the files lane (as `main` starts it), then, as
+    /// `AppDelegate.finishLaunching`, the daemon's start with that snapshot and the launch window.
     private static func launch(waits: [UInt64] = [0, 1000, 2000], gap: String = "1", snapshot: [String] = [],
-                               startupDeadline: Duration? = nil) throws -> Launched {
+                               startupDeadline: Duration? = nil) async throws -> Launched {
         let prepared = try prepare(waits: waits, gap: gap, snapshot: snapshot, startupDeadline: startupDeadline)
         let services = prepared.launched.services
+        let names = prepared.launcher.configuration
+        let saved = try await services.work.run(.userBlocking, mayBlock: .files) { LaunchSnapshot.saved(session: names.session, stateDirectory: names.stateDirectory) }
         let prestart = DaemonPrestart(launcher: prepared.launcher, configuration: DaemonConnection.Configuration(terminalEnvironment: nil))
         services.daemon.start(launch: prepared.environment.launch, terminalEnvironment: [:], terminalEnvironmentProvider: { [:] },
-                              prestart: prestart)
+                              prestart: prestart, launchSnapshot: saved)
         services.windows.restoreWhenLoaded()
         return prepared.launched
     }
@@ -111,7 +115,8 @@ struct DaemonRestoreProgressTests {
     /// launch snapshot file and decoded its JSON there: 51 ms at the person's 826 workspaces (3.3 MB) against a few
     /// ms at 60, all before the window (aws-m4pro-7, `sample` of a Release launch). So a start that is handed no
     /// snapshot must not go to the disk for one: with a snapshot file in the state directory, the store shows
-    /// nothing until a snapshot read off the main actor is handed in.
+    /// nothing; the snapshot shows only when one read off the main actor is handed in (`launch`, as `main` does;
+    /// `theAppStaysUsableThroughAFiveMinuteRestore` expects its workspaces).
     @Test func theDaemonStartReadsNoLaunchSnapshotFileOnTheMainActor() async throws {
         let prepared = try Self.prepare(waits: [0], gap: "0", snapshot: ["alpha", "beta"])
         defer { prepared.launched.stop() }
@@ -125,7 +130,7 @@ struct DaemonRestoreProgressTests {
 
     @Test func theRestoreShowsWhileTheEnsureWaitsAndGoesWhenItAnswers() async throws {
         let started = ContinuousClock.now
-        let launched = try Self.launch()
+        let launched = try await Self.launch()
         defer { launched.stop() }
         let recovery = launched.services.daemon.recovery
         var waited: [UInt64] = []
@@ -172,7 +177,7 @@ struct DaemonRestoreProgressTests {
     /// 5 s here, shorter than the 6 s the stand-in reports for) never turns the window into a failure while progress comes; and a chat clicked during the restore is
     /// held and runs once the sessions answer.
     @Test func theAppStaysUsableThroughAFiveMinuteRestore() async throws {
-        let launched = try Self.launch(waits: stride(from: 0, through: 300_000, by: 60_000).map { UInt64($0) }, gap: "1",
+        let launched = try await Self.launch(waits: stride(from: 0, through: 300_000, by: 60_000).map { UInt64($0) }, gap: "1",
                                        snapshot: ["alpha", "beta"], startupDeadline: .seconds(5))
         defer { launched.stop() }
         let daemon = launched.services.daemon

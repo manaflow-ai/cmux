@@ -28,8 +28,9 @@ import Testing
 /// measures those.
 ///
 /// Sizes: `large` (60) always, and each other size `CMUX_TEST_SESSION_SIZES` names (826 runs on a mini, never by
-/// default: `SessionFixtureSize`). The counts of every size run must be equal: a count that grows with the session is
-/// work per hidden workspace.
+/// default: `SessionFixtureSize`). No count of a larger size may be larger than the count at `large`: a count that
+/// grows with the session is work per hidden workspace. (A count may be smaller at the larger size: at 826 the live
+/// apply woke `PaneController.swift:46` 2 times against 6 at 60, so an equality check gave a false red.)
 ///
 ///     CMUX_TEST_SESSION_SIZES=large,real swift test --filter LaunchSessionCountTests
 @MainActor @Suite(.serialized) struct LaunchSessionCountTests {
@@ -129,13 +130,13 @@ import Testing
         return counts
     }
 
-    /// `value` of each size run; the test fails when the sizes differ. `namesWakes` adds the observers that grew.
-    private static func expectFlat(_ what: String, namesWakes: Bool = false, value: (Counts) -> Int) async throws {
+    /// `value` of each size run; the test fails when a larger size has a larger value than `large`.
+    private static func expectFlat(_ what: String, value: (Counts) -> Int) async throws {
         var all: [SessionFixtureSize: Counts] = [:]
         for size in sizes { all[size] = try await counts(size) }
         let values = sizes.map { "\($0.rawValue) \(value(all[$0] ?? Counts()))" }
-        let detail = namesWakes ? "; grew: \(grew(all))" : ""
-        #expect(Set(sizes.map { value(all[$0] ?? Counts()) }).count == 1, "\(what) grows with the session: \(values)\(detail)")
+        let small = value(all[.large] ?? Counts())
+        #expect(sizes.allSatisfy { value(all[$0] ?? Counts()) <= small }, "\(what) grows with the session: \(values)")
     }
 
     /// The sites the live apply woke more often at a larger size than at `large`, largest growth first.
@@ -177,7 +178,10 @@ import Testing
     /// workspace.
     @Test(.timeLimit(.minutes(10)))
     func theFirstLiveSnapshotWakesAsManyObserversInALargerSession() async throws {
-        try await Self.expectFlat("observers the first live snapshot wakes", namesWakes: true) { $0.live.wakeTotal }
+        var all: [SessionFixtureSize: Counts] = [:]
+        for size in Self.sizes { all[size] = try await Self.counts(size) }
+        let grew = Self.grew(all)
+        #expect(grew.isEmpty, "observers the first live snapshot wakes more often in a larger session: \(grew)")
     }
 
     /// The first live snapshot maps again only the sidebar rows it changes.
