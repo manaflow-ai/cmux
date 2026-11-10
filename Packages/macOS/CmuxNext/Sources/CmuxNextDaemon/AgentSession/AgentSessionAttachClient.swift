@@ -221,9 +221,9 @@ public actor AgentSessionAttachClient {
     static func machineTimings(_ value: Any?) -> String? {
         guard let timings = value as? [String: Any] else { return nil }
         let phases = ["keyed_gate", "acpmux_connect", "checks", "session_new", "settle", "bind", "total"]
-        var parts = phases.compactMap { name in (timings[name] as? NSNumber).map { "\(name) \($0.int64Value) ms" } }
+        var parts = phases.compactMap { name in (timings.first { $0.key == name }?.value as? NSNumber).map { "\(name) \($0.int64Value) ms" } }
         guard !parts.isEmpty else { return nil }
-        if let started = timings["acpmux_started"] as? Bool { parts.append("acpmux_started \(started ? "yes" : "no")") }
+        if let started = timings.first(where: { $0.key == "acpmux_started" })?.value as? Bool { parts.append("acpmux_started \(started ? "yes" : "no")") }
         return parts.joined(separator: ", ")
     }
 
