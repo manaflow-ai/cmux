@@ -473,6 +473,10 @@ pub enum Command {
     /// The agent's Cloud repository tools (list_repos and add_repo), only on Cloud machines.
     #[command(hide = true)]
     RepoMcp,
+    /// cmux's hosted MCP server with the signed-in person's tools (GitHub connectors, their own
+    /// remote MCP servers): an MCP stdio server agent_tools.rs registers (not for people).
+    #[command(hide = true)]
+    HostedMcp,
     /// The agent's tools to message other sessions and read them (send, ls, last, info): an
     /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]

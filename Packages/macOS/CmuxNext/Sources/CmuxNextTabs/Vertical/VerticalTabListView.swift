@@ -76,6 +76,8 @@ public final class VerticalTabListView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.tabGroup)
         setAccessibilityLabel(Strings.axStrip)
+        // Group headers draw their glass opaque under Reduce Transparency, a notification rather than an observed setting.
+        ReduceTransparency.shared.register(repainting: self)
         relayout()
     }
 
@@ -117,8 +119,11 @@ public final class VerticalTabListView: NSView {
         }
         if tokenObservation == nil {
             tokenObservation = Task { [weak self] in
-                // The no-color group look is read only while drawing, so a change to it repaints here.
-                for await snapshot in ObservationStream({ (VerticalTabListMetrics.current, Typography.body.pointSize, VerticalNoColorGroupLook.tunable.value) }) {
+                // The group headers' glass settings (`GroupChipGlass`) and the no-color group look are read only
+                // while drawing, so a change to either repaints here.
+                for await snapshot in ObservationStream({
+                    (VerticalTabListMetrics.current, Typography.body.pointSize, GroupChipGlass.current, VerticalNoColorGroupLook.tunable.value)
+                }) {
                     guard let self else { return }
                     if snapshot.0 != self.metrics { self.relayout() } else { self.needsDisplay = true }
                 }

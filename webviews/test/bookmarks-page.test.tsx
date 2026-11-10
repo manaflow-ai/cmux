@@ -65,12 +65,11 @@ const table = (await import("../src/pages/bookmarks/generated/strings.json")).de
   string,
   Record<string, string>
 >;
-const { MockBookmarksProvider } = await import("../src/pages/bookmarks/mockProvider");
+const { MockBookmarksProvider, longBookmarks } = await import("../src/pages/bookmarks/mockProvider");
 const { BookmarksStore } = await import("../src/pages/bookmarks/store");
-const { BookmarkOps } = await import("../src/pages/bookmarks/types");
+const { BookmarkOps, HostOps } = await import("../src/pages/bookmarks/types");
 
-async function mount() {
-  const provider = new MockBookmarksProvider();
+async function mount(provider = new MockBookmarksProvider()) {
   const store = new BookmarksStore(provider, { newKey: () => "k" });
   const strings = createStrings(table, ["en"]);
   host = dom.window.document.getElementById("root")!;
@@ -143,4 +142,60 @@ test("the empty area offers the two adds and More adds the file steps", async ()
   expect(menuLabels()).toEqual(["Add Bookmark…", "Add Folder…"]);
   await act(async () => host.querySelector<HTMLButtonElement>(".bm-more")!.click());
   expect(menuLabels().slice(-3)).toEqual(["Import…", "Import from Browser…", "Export…"]);
+});
+
+// CMUX-303: Up and Down on a focused row moved only the selection (and the roving tabindex). DOM focus
+// stayed on the old row, which the virtual list then dropped, so focus fell to the page and the next key
+// went nowhere. Focus follows the selection in the list; from the search field it stays in the field.
+test("Up and Down on a row move focus with the selection", async () => {
+  await mount();
+  // What holds focus: the search field, a row (by its id) or something else.
+  const focused = () => {
+    const element = dom.window.document.activeElement;
+    return element === search() ? "search" : (element?.getAttribute("data-bookmark") ?? element?.tagName);
+  };
+  await key(search(), "ArrowDown");
+  expect(focused()).toBe("search");
+  const work = activeRow()!;
+  act(() => work.focus());
+  await key(work, "ArrowDown");
+  expect(activeRow()?.textContent).toContain("GitHub");
+  expect(focused()).toBe(activeRow()!.dataset.bookmark);
+  await key(activeRow()!, "ArrowUp");
+  expect(activeRow()?.textContent).toBe("Work");
+  expect(focused()).toBe(activeRow()!.dataset.bookmark);
+});
+
+// CMUX-300: icons were asked for in the page's effect, from the rows its last render drew. A scroll
+// re-renders only the virtual list, so the rows it brought in never asked for their icons.
+test("rows a scroll brings into view ask for their icons", async () => {
+  const proto = dom.window.HTMLElement.prototype;
+  const offsetHeight = Object.getOwnPropertyDescriptor(proto, "offsetHeight")!;
+  // A viewport of ten rows for the list; nothing else has a size.
+  Object.defineProperty(proto, "offsetHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains("ui-virtual") ? 280 : 0;
+    },
+  });
+  try {
+    const provider = new MockBookmarksProvider(longBookmarks(200));
+    const { store } = await mount(provider);
+    await act(async () => store.showFolder("bm_long"));
+    const asked = () =>
+      new Set(
+        provider.calls.filter((call) => call.op === HostOps.icons).flatMap((call) => call.params.ids as string[]),
+      );
+    expect(asked().has("bm_long_0")).toBe(true);
+    expect(asked().has("bm_long_100")).toBe(false);
+    const list = host.querySelector<HTMLElement>(".bm-list")!;
+    await act(async () => {
+      Object.defineProperty(list, "scrollTop", { configurable: true, writable: true, value: 100 * 28 });
+      list.dispatchEvent(new dom.window.Event("scroll"));
+    });
+    expect(host.querySelector('[data-bookmark="bm_long_100"]')).not.toBeNull();
+    expect(asked().has("bm_long_100")).toBe(true);
+  } finally {
+    Object.defineProperty(proto, "offsetHeight", offsetHeight);
+  }
 });

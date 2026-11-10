@@ -30,21 +30,21 @@ export default componentEntry<Props>({
     await import("./styles.css");
   },
   variants: {
-    groups: {
-      note: "Recommended: two toggles, Chats and Memories, in one list; each source sits one level deeper behind Sources.",
-      props: { layout: "groups" },
+    list: {
+      note: "Recommended: one row per tool in alphabetical order; its checkbox brings chats and memories, and Sources opens them apart.",
+      props: { layout: "list" },
     },
-    "groups-open": {
-      note: "The same list with both groups' Sources open: sources in alphabetical order, each path under its name.",
-      props: { layout: "groups", open: true },
+    "list-open": {
+      note: "The same list with every tool's Sources open: Chats, then Memories, each source with its path.",
+      props: { layout: "list", open: true },
     },
-    sections: {
-      note: "Each group its own card with every source always listed; more to read before the first click.",
-      props: { layout: "sections" },
+    chips: {
+      note: "A Chats and a Memories toggle on each tool's row; picking a kind needs no disclosure, but every row is busier.",
+      props: { layout: "chips" },
     },
-    tiles: {
-      note: "The two groups side by side; the summaries wrap sooner and the sources open under one tile only.",
-      props: { layout: "tiles" },
+    cards: {
+      note: "Each tool its own card with every source listed; the most to read before the first click.",
+      props: { layout: "cards" },
     },
     "nothing-detected": { props: { empty: true } },
     detecting: { props: { phase: "detecting" } },
