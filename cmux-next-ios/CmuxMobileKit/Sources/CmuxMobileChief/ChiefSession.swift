@@ -141,9 +141,10 @@ public final class ChiefSession {
 
     public init(backend: any ConversationBackend, identity: ChiefIdentity = .standard,
                 preferences: ChiefPreferences = ChiefPreferences(), outbox: ChiefOutbox? = nil,
-                transcripts: ConversationTranscriptCache? = nil,
+                transcripts: ConversationTranscriptCache? = nil, transcriptKey: String? = nil,
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.transcripts = transcripts
+        fixedTranscriptKey = transcriptKey
         self.identity = identity
         self.clock = clock
         avatar = identity.avatar
@@ -181,6 +182,7 @@ public final class ChiefSession {
     /// The kept transcript's key: the Chief the outbox writes to. DEBUG's mock Chief (no Mac,
     /// no Cloud) keeps its own, so simulator runs show the same behavior.
     private var transcriptKey: String? {
+        if let fixedTranscriptKey { return fixedTranscriptKey }
         if let outboxTarget { return outboxTarget }
         #if DEBUG
         if backend is ChiefMockBackend { return "mock" }
@@ -192,6 +194,9 @@ public final class ChiefSession {
     /// store built again after the app comes back, or on a relaunch, shows them at once.
     public static let transcripts = ConversationTranscriptCache.inApplicationSupport("cmux-mobile-chief-transcripts")
     private let transcripts: ConversationTranscriptCache?
+    /// The kept transcript's key when the session names it (a conversation of a Mac's Home list,
+    /// which is not that Mac's Chief): nil keys it by ``outboxTarget``.
+    private let fixedTranscriptKey: String?
 
     /// Sign-out: every kept Chief conversation leaves this phone, and this session's store stops
     /// showing and keeping them (a store made by sign-out's own backend swap showed them already).
