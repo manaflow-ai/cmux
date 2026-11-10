@@ -1,7 +1,6 @@
 import AppKit
-import CmuxHomeCore
-import CmuxNextHome
 @testable import CmuxNextApp
+import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextHome
