@@ -170,9 +170,10 @@ export function ComposerBox({
   );
   const ownAttachments = useRef(attachments);
   if (!attachmentsRef) ownAttachments.current = attachments;
-  /// Set while a file that stays in the strip is attached: its intake places it synchronously
-  /// (attachmentIntake.tsx), so `place` reads this in the same call.
-  const toStrip = useRef(false);
+  /// Set while a file with no caret of its own is attached (a Pasted text chip with no node, kept as
+  /// a file): its intake places it synchronously (attachmentIntake.tsx), so `place` reads this in
+  /// the same call and puts it at the start of the prompt, as every attachment goes in the text.
+  const atStart = useRef(false);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const pastedChips = usePastedChips(
     attachmentsRef ?? ownAttachments,
@@ -180,11 +181,11 @@ export function ComposerBox({
     prompt,
     onPasteFile &&
       ((file, inText = true) => {
-        toStrip.current = !inText;
+        atStart.current = !inText;
         try {
           onPasteFile(file);
         } finally {
-          toStrip.current = false;
+          atStart.current = false;
         }
       }),
   );
@@ -219,7 +220,7 @@ export function ComposerBox({
         plainPaste.current();
         prompt.current?.plainPaste();
       },
-      place: (chips, kind) => inline.place(chips, kind, toStrip.current),
+      place: (chips, kind) => inline.place(chips, kind, atStart.current),
       sent: (ids) => {
         inline.sent(ids);
         pastedChips.pastes.current = [];

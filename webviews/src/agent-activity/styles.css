@@ -75,7 +75,7 @@ nav input {
   letter-spacing: var(--text-control--letter-spacing);
 }
 
-nav input:focus {
+nav input:focus-visible {
   border-color: var(--activity-control-line);
 }
 
@@ -116,7 +116,7 @@ nav input:focus {
   font-weight: 500;
 }
 
-.segment:focus-within {
+.segment:is(:focus-visible, :has(:focus-visible)) {
   outline: 2px solid var(--activity-control-line);
   outline-offset: -1px;
 }

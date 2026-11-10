@@ -110,6 +110,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "unwrap",
     // `terminal screen wait --new`: only output printed from now on matches.
     "new",
+    // `terminal <t> close --if-unplaced`: end it only when nothing shows it.
+    "if-unplaced",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

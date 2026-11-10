@@ -17,10 +17,10 @@ type Scheme = "dark" | "light";
 type Look = "before" | "clear" | "rim" | "veil";
 /** One frame of an open or close: the App's glass under the box, and the page's part over it (its
  * content on no fill, its content on the page's own glass, or nothing). */
-type Frame = { label: string; app: boolean; page: "content" | "page-glass" | "none" };
+type Frame = { label: string; app: boolean; page: "content" | "page-glass" | "none"; opacity?: number };
 /** How a surface opens and closes: the base (content waits for the App's answer), the page's glass
  * first, or content and glass together (ships). */
-type Order = "wait" | "page-first" | "together";
+type Order = "wait" | "page-first" | "together" | "close-trailing" | "close-page-glass" | "close-instant";
 /** The surface: Session Info's panel, or the model menu with its own page veil (% of the theme
  * surface); or an open and close as frames. */
 type Props = { look: Look; scheme: Scheme; menuVeil?: number; order?: Order };
@@ -43,6 +43,26 @@ const ORDERS: Record<Order, Frame[]> = {
     { label: "Page busy (260 ms)", app: true, page: "content" },
     { label: "Answer lands", app: true, page: "content" },
     { label: "Close", app: false, page: "none" },
+  ],
+  // The close (Leo, 2026-11-09, of the This Mac/Cloud/Remote and Bypass permissions menus: "What the heck is
+  // this?"): the menu fades for 80 ms, and an empty glass box stayed where it was.
+  "close-trailing": [
+    { label: "Open", app: true, page: "content" },
+    { label: "Fade (40 ms)", app: true, page: "content", opacity: 0.5 },
+    { label: "Fade ends", app: true, page: "content", opacity: 0.05 },
+    { label: "App still busy", app: true, page: "none" },
+  ],
+  "close-page-glass": [
+    { label: "Open", app: true, page: "content" },
+    { label: "Close starts", app: false, page: "page-glass", opacity: 0.85 },
+    { label: "Fade (40 ms)", app: false, page: "page-glass", opacity: 0.5 },
+    { label: "Gone", app: false, page: "none" },
+  ],
+  "close-instant": [
+    { label: "Open", app: true, page: "content" },
+    { label: "Close", app: false, page: "none" },
+    { label: "(no fade)", app: false, page: "none" },
+    { label: "Gone", app: false, page: "none" },
   ],
 };
 const MINI = { left: 16, top: 34, width: 200, height: 240, radius: 12 };
@@ -176,6 +196,7 @@ function OpenFrames({ order, scheme }: { order: Order; scheme: Scheme }) {
                 padding: "var(--ds-space-2) 0",
                 display: "grid",
                 alignContent: "start",
+                ...(frame.opacity !== undefined ? { opacity: frame.opacity } : {}),
               }}
             >
               <Rows rows={ROWS.slice(0, 4)} />
@@ -278,6 +299,18 @@ export default componentEntry<Props>({
     "open-together": {
       note: "Ships: the content and the App's glass in the same frame, the way a native menu opens; the answer only confirms. On close both go in the same frame.",
       props: { look: "clear", scheme: "dark", order: "together" },
+    },
+    "close-trailing": {
+      note: "Before (Leo, 2026-11-09: 'What the heck is this?'): the menu's rows fade for 80 ms in the page while the App's glass, drawn in another process from the page's reports, trails them (a pick keeps the App busy as the menu closes), and the blur under the glass stays whole until the fade ends: an empty glass box where the menu was.",
+      props: { look: "clear", scheme: "dark", order: "close-trailing" },
+    },
+    "close-page-glass": {
+      note: "Ships: as the close starts, the App's glass and the blur leave in that task and the rows fade out on the page's own glass, drawn in the same layer, so glass and rows go in the same frames. The cost: the glass is the page's flatter one for the 80 ms fade.",
+      props: { look: "clear", scheme: "dark", order: "close-page-glass" },
+    },
+    "close-instant": {
+      note: "Variant: no close fade for a glass menu; rows, glass and blur go in one frame. Never an empty box, but it drops the close animation Leo asked for on 2026-10-24.",
+      props: { look: "clear", scheme: "dark", order: "close-instant" },
     },
     "open-together-light": {
       note: "Ships, light theme.",
