@@ -475,3 +475,73 @@ fn a_roster_marked_stale_is_premigrated_and_the_adoption_clears_the_mark() {
     assert_eq!(serde_json::from_str::<Value>(&snapshot).unwrap(), store.cold);
     assert!(!roster_side_file(&store.db_path).exists());
 }
+
+/// Journal retention deleted the first records of the journal, and the saved
+/// roster is then the one copy of an agent whose records were all there. A
+/// build with a newer roster reducer premigrates this registry: its fold of
+/// what is left of the journal does not have that agent, and the next open
+/// adopts the fold in place of the saved roster. The premigration must go on
+/// from the saved roster, as the background rebuild does.
+#[test]
+fn a_premigration_after_retention_keeps_an_agent_whose_records_are_deleted() {
+    const OLD_AGENT: &str = "agent-below-the-floor";
+    let session = "premigrate-retained";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-premigrate-retained-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux(session, &root);
+    let old_surface = mux.new_workspace(None, None).unwrap();
+    let old_terminal = old_surface.terminal_public_id().cloned().expect("workspace terminal");
+    append_journal_hook(&mux, &old_terminal, "SessionStart", Some(OLD_AGENT));
+    let old_agent_head = mux.session_journal_head().unwrap();
+
+    // A second agent works until retention deletes the first agent's records.
+    let live_surface = mux.new_workspace(None, None).unwrap();
+    let live_terminal = live_surface.terminal_public_id().cloned().expect("workspace terminal");
+    append_journal_hook(&mux, &live_terminal, "SessionStart", Some("agent-live"));
+    for cycle in 0..24 {
+        for _ in 0..32 {
+            append_journal_hook(&mux, &live_terminal, "UserPromptSubmit", Some("agent-live"));
+            append_journal_hook(&mux, &live_terminal, "Stop", Some("agent-live"));
+        }
+        mux.create_journal_checkpoint("client_test", &format!("retained_{cycle}_checkpoint"))
+            .unwrap();
+        mux.run_journal_maintenance_for_test();
+        mux.run_journal_maintenance_for_test();
+    }
+    let pruned_through = mux.journal_pruned_through().unwrap();
+    assert!(
+        pruned_through >= old_agent_head,
+        "setup: retention deleted through {pruned_through}, the first agent's records end at \
+         {old_agent_head}"
+    );
+    let served = settled(&mux).agent_roster.lock().unwrap().roster.snapshot();
+    assert!(served.to_string().contains(OLD_AGENT), "setup: the running daemon has the agent");
+    mux.shutdown();
+    drop(mux);
+
+    let db_path = registry_file(&root, session);
+    let store = Store { root, session, db_path, cold: served, head: 0 };
+    let (version, cursor, snapshot) = stored_roster(&store);
+    assert_eq!(version, AGENT_ROSTER_REDUCER_VERSION);
+    assert!(snapshot.contains(OLD_AGENT), "setup: the saved roster has the agent");
+    // The next build's reducer is newer than the one that saved this roster.
+    let saved = serde_json::json!({
+        "version": AGENT_ROSTER_REDUCER_VERSION - 1,
+        "cursor": cursor.to_string(),
+        "snapshot": snapshot,
+    });
+    write_meta(&store.db_path, &[(roster_key().as_str(), Some(saved.to_string()))]);
+
+    let report = premigrate(&store, &PremigrateControl::new(None, NEVER));
+    assert!(report.complete, "{report:?}");
+    assert!(
+        side_snapshot(&store).to_string().contains(OLD_AGENT),
+        "the premigrated roster lost the agent whose records retention deleted \
+         (deleted through {pruned_through})"
+    );
+    // The next open adopts the side file in place of the saved roster.
+    drop(WorkspaceRegistry::open(&store.root, store.session).unwrap());
+    let (version, _, adopted) = stored_roster(&store);
+    assert_eq!(version, AGENT_ROSTER_REDUCER_VERSION);
+    assert!(adopted.contains(OLD_AGENT), "the adopted roster lost the agent");
+}
