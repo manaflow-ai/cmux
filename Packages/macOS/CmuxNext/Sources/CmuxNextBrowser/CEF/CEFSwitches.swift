@@ -60,8 +60,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // of every page, which no desktop Chrome does, and bot checks read that as automation.
         // Akamai Bot Manager then served its challenge page again and again (godaddy.com reloaded
         // about twice per second, then "Access Denied"; Chrome with the two interfaces deleted
-        // does the same). Pages keep the interfaces and read the permission as `default`:
-        // nothing in cmux grants it (shim_permissions.mm), so no web notification is ever shown.
+        // does the same). Pages keep the interfaces and read the permission as `default`, and
+        // as `denied` once they ask (the shim refuses the request, permission_prompt_policy.h),
+        // so no web notification is ever shown.
         result.append("disable-features=SystemNotifications")
         // Chromium's periodic call-stack profiler runs in the browser process (the
         // app) and suspends its threads at 10 Hz while it collects. Its profiles go

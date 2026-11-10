@@ -61,8 +61,8 @@ extension CEFTab: BrowserHibernationSource {
 
     public var showsFormSubmission: Bool { restored.showsFormSubmission }
 
-    /// Chromium tabs show no web notifications in cmux: nothing grants the permission
-    /// (`shim_permissions.mm`) and Chromium's macOS notification bridge is off (`CEFSwitches`).
+    /// Chromium tabs show no web notifications in cmux: the shim refuses the permission
+    /// (`permission_prompt_policy.h`) and Chromium's macOS notification bridge is off (`CEFSwitches`).
     public var allowsNotifications: Bool { false }
 
     public func hibernationState() -> BrowserRestoreState? {
