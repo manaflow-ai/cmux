@@ -3768,6 +3768,69 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
             with self.assertRaisesRegex(excuse.Refused, "HTTP 530"):
                 self.judge()
 
+    @staticmethod
+    def timed_out(repo, sha):
+        """The receipts host taking the read and never answering (cmux#40722 at 0e521d59, 2026-11-10)."""
+        raise excuse.ReceiptUnreachable(f"the compile receipt of {sha[:12]}: TimeoutError: The read operation timed out")
+
+    OVERFLOW = {"context": "cmux-next/compile", "state": "success",
+                "description": "The app compiled and linked (fallback run 42900000001, recipe 2 --app --release)",
+                "target_url": f"https://github.com/{REPO}/pull/40722"}
+
+    def test_a_receipt_timeout_with_the_overflow_pass_at_the_head_is_excused(self):
+        """cmux#40722: the receipts host timed out and the overflow compile had passed at the exact head. Its poster's
+        success decides; a no-verdict post by its poster after it (compile-status re-run with the host down) does not
+        hide it."""
+        with unittest.mock.patch.object(excuse, "compile_receipt", self.timed_out):
+            for later in ([], [{"context": "cmux-next/compile", "state": "error", "description":
+                                "[no-verdict] No compile verdict: results service down (HTTP 000 for 300 s); re-run"}],
+                          [{"context": "cmux-next/compile", "state": "pending",
+                            "description": "[overflow] Results service down (HTTP 530); the overflow compile posts"}]):
+                with self.subTest(later=later):
+                    self.gh.statuses = later + [self.OVERFLOW]
+                    self.assertIn("but the cmux-next/compile status compiled", "\n".join(self.judge()))
+
+    def test_a_receipt_timeout_with_no_overflow_status_is_refused_naming_both(self):
+        with unittest.mock.patch.object(excuse, "compile_receipt", self.timed_out):
+            for statuses, newest in (([], "none posted"),
+                                     ([{"context": "cmux-next/compile", "state": "pending",
+                                        "description": "The Release compile (-Onone) of this head is running"}],
+                                      "pending: The Release compile"),
+                                     ([{**self.OVERFLOW, "creator": self.LANE}], "none posted")):
+                with self.subTest(newest=newest):
+                    self.gh.statuses = statuses
+                    with self.assertRaisesRegex(excuse.Refused, r"TimeoutError: The read operation timed out; and no "
+                                                r"cmux-next/compile success from its poster at "
+                                                + HEAD[:12] + r" \(its newest: " + re.escape(newest)):
+                        self.judge()
+
+    def test_a_real_compile_failure_after_the_pass_is_not_a_pass(self):
+        with unittest.mock.patch.object(excuse, "compile_receipt", self.timed_out):
+            self.gh.statuses = [{"context": "cmux-next/compile", "state": "failure",
+                                 "description": "The app did not compile in SwiftPM Release (-Onone); see the log"},
+                                self.OVERFLOW]
+            with self.assertRaisesRegex(excuse.Refused, "timed out.*its newest: failure: The app did not compile"):
+                self.judge()
+
+    def test_an_overflow_pass_at_another_sha_is_refused(self):
+        """Only the head's own statuses are read: a pass at another commit (the PR's older head, the base) is never
+        this head's."""
+        reads = []
+        real = self.gh.json
+
+        def json(route, *, paginate=False):
+            if "/statuses" in route:
+                reads.append(route)
+                if f"/commits/{HEAD}/" not in route:
+                    return status_answer(route, [self.OVERFLOW])
+            return real(route, paginate=paginate)
+        self.gh.json = json
+        with unittest.mock.patch.object(excuse, "compile_receipt", self.timed_out):
+            self.gh.statuses = []
+            with self.assertRaisesRegex(excuse.Refused, "timed out; and no cmux-next/compile success"):
+                self.judge()
+        self.assertTrue(reads and all(f"/commits/{HEAD}/" in route for route in reads), reads)
+
     def test_another_job_printing_the_marker_is_never_set_aside(self):
         """Only the compile jobs that can end without a verdict are set aside by a compile pass; any other
         job with the same line is compared with the base like every red."""
