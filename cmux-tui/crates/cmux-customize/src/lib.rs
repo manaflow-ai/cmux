@@ -171,8 +171,9 @@ pub enum Error {
     /// There is no earlier generation.
     NothingEarlier,
     Profile(String),
-    /// Live files cmux does not track (too large, too many) stand where a
-    /// restore would write; nothing was changed.
+    /// Files cmux keeps no copy of (too large, too many, behind a linked
+    /// folder) stand where a restore or an import would write; nothing was
+    /// changed.
     Untracked(Vec<Skipped>),
 }
 
@@ -215,7 +216,7 @@ impl std::fmt::Display for Error {
             Error::Untracked(files) => {
                 write!(
                     f,
-                    "nothing was changed: putting that setup back would overwrite {} cmux keeps no copy of, so it could not be brought back. Move or shrink it first:",
+                    "nothing was changed: this would write over {} cmux keeps no copy of, so it could not be brought back. Move or shrink it (or make a linked folder a real one) first:",
                     count(files.len(), "file")
                 )?;
                 for file in files {

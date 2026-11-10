@@ -124,8 +124,12 @@ pub fn tokens(line: &str) -> Vec<(usize, usize, &'static str)> {
 /// The first credential in a text meant for sharing: `(line, what)`, the
 /// line 1-based.
 pub fn find_secret(text: &str) -> Option<(u32, &'static str)> {
+    let mut awaited = false;
     for (index, line) in text.lines().enumerate() {
         let number = index as u32 + 1;
+        if split_value(line, &mut awaited).is_some() {
+            return Some((number, "a value named like a password or token"));
+        }
         if line.contains("-----BEGIN ") && line.contains("PRIVATE KEY") {
             return Some((number, "a private key"));
         }
@@ -196,6 +200,42 @@ fn credential_values(line: &str) -> Vec<(usize, usize)> {
     found
 }
 
+/// A credential's member name and its value need not share a line: a
+/// formatter may put `"apiKey":` on one and the string on the next. `awaited`
+/// carries "the last thing read was a credential's name and its colon" from
+/// line to line; the answer is the byte range of the string that then
+/// arrives, inside its quotes. Blank and comment lines keep waiting.
+fn split_value(line: &str, awaited: &mut bool) -> Option<(usize, usize)> {
+    let trimmed = line.trim();
+    let mut found = None;
+    if *awaited && !trimmed.is_empty() && !trimmed.starts_with("//") {
+        *awaited = false;
+        if trimmed.starts_with('"') {
+            let start = line.len() - line.trim_start().len() + 1;
+            let mut escaped = false;
+            for (at, c) in line.get(start..).unwrap_or_default().char_indices() {
+                match c {
+                    _ if escaped => escaped = false,
+                    '\\' => escaped = true,
+                    '"' => {
+                        found = (at > 0).then_some((start, start + at));
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    // `"name" :` at the end of this line, with nothing after the colon.
+    if let Some(before) = trimmed.strip_suffix(':').map(str::trim_end)
+        && let Some(inner) = before.strip_suffix('"')
+        && let Some(open) = inner.rfind('"')
+    {
+        *awaited = credential_key(inner.get(open + 1..).unwrap_or_default());
+    }
+    found
+}
+
 /// One line with each range replaced by the mark.
 fn mask(line: &str, mut ranges: Vec<(usize, usize)>) -> String {
     ranges.sort_unstable();
@@ -218,6 +258,7 @@ fn mask(line: &str, mut ranges: Vec<(usize, usize)>) -> String {
 pub fn text(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut in_key = false;
+    let mut awaited = false;
     for line in input.split_inclusive('\n') {
         let (body, ending) = match line.strip_suffix('\n') {
             Some(body) => (body, "\n"),
@@ -232,6 +273,7 @@ pub fn text(input: &str) -> String {
             continue;
         }
         let mut ranges = credential_values(body);
+        ranges.extend(split_value(body, &mut awaited));
         ranges.extend(userinfo(body));
         ranges.extend(tokens(body).into_iter().map(|(start, end, _)| (start, end)));
         if ranges.is_empty() {
@@ -279,6 +321,18 @@ mod tests {
         // A value that merely follows a credential-named string is not one.
         assert_eq!(text("[\"token\", \"night\"]"), "[\"token\", \"night\"]");
         assert_eq!(text("\"maxTokens\": \"12\""), "\"maxTokens\": \"12\"");
+    }
+
+    #[test]
+    fn a_credential_on_the_line_after_its_name_reads_as_the_mark() {
+        let file = "{\n  \"apiKey\":\n    // mine\n\n    \"private-value\",\n  \"name\":\n    \"mine\",\n  \"token\" :\n    [\"kept\"]\n}\n";
+        let after = text(file);
+        assert!(!after.contains("private-value"), "{after}");
+        assert!(after.contains("    \"[redacted]\",\n"), "{after}");
+        assert!(after.contains("\"mine\"") && after.contains("\"kept\""), "{after}");
+        assert_eq!(after.lines().count(), file.lines().count());
+        assert_eq!(find_secret(file), Some((5, "a value named like a password or token")));
+        assert_eq!(find_secret("{\n  \"name\":\n    \"mine\"\n}\n"), None);
     }
 
     #[test]

@@ -492,6 +492,156 @@ fn a_file_too_large_to_snapshot_is_never_overwritten() {
     assert_eq!(home.read("themes/night.json"), None);
 }
 
+fn profile_of(settings: &str, files: &str) -> cmux_customize::profile::Profile {
+    serde_json::from_str(&format!(
+        "{{\"cmuxProfile\":1,\"name\":\"x\",\"settings\":{settings},\"files\":{files}}}"
+    ))
+    .unwrap()
+}
+
+/// A profile import writes only where the draft's base generation holds
+/// what was there: never over a file too large to snapshot.
+#[test]
+fn a_profile_never_writes_over_a_file_no_generation_holds() {
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    let big = "x".repeat(2 * 1024 * 1024 + 1);
+    home.write("customize/data.js", &big);
+    let customize = home.customize();
+    let profile = profile_of(
+        "{\"appearance.density\":\"compact\"}",
+        "{\"customize/data.js\":\"let small = 1;\\n\",\"themes/night.json\":\"{}\\n\"}",
+    );
+    match customize.preview_profile(&profile, "cli", 1) {
+        Err(Error::Untracked(files)) => {
+            assert_eq!(files.len(), 1, "{files:?}");
+            assert_eq!(files[0].path, "customize/data.js");
+        }
+        other => panic!("the large file was written over: {other:?}"),
+    }
+    // Nothing at all changed: not the file, not the settings, no draft.
+    assert_eq!(home.read("customize/data.js").unwrap().len(), big.len());
+    assert_eq!(home.read("cmux-next.json").unwrap(), COZY);
+    assert_eq!(home.read("themes/night.json"), None);
+    assert!(customize.status().unwrap().draft.is_none());
+}
+
+/// A folder swapped for a link into somewhere the scan never reads (a
+/// dotfiles repo) is not written through: not by discard, rollback or a
+/// profile.
+#[cfg(unix)]
+#[test]
+fn nothing_is_written_through_a_linked_folder() {
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    home.write("customize/widgets/main.js", "let recorded = 1;\n");
+    let customize = home.customize();
+    customize.ensure_baseline(1).unwrap();
+
+    let dotfiles = home.dir.path().join("dotfiles/widgets");
+    fs::create_dir_all(&dotfiles).unwrap();
+    fs::write(dotfiles.join("main.js"), "let edited = 2;\n").unwrap();
+    fs::remove_dir_all(home.config("customize/widgets")).unwrap();
+    std::os::unix::fs::symlink(&dotfiles, home.config("customize/widgets")).unwrap();
+
+    for result in [customize.discard("cli", 2), customize.rollback(Some(1), "cli", 3)] {
+        match result {
+            Err(Error::Untracked(files)) => {
+                assert_eq!(files[0].path, "customize/widgets/main.js", "{files:?}");
+            }
+            other => panic!("the linked folder was written through: {other:?}"),
+        }
+    }
+    let profile = profile_of("{}", "{\"customize/widgets/extra.js\":\"let theirs = 3;\\n\"}");
+    let imported = customize.preview_profile(&profile, "cli", 4);
+    assert!(matches!(imported, Err(Error::Untracked(_))), "{imported:?}");
+    assert_eq!(fs::read_to_string(dotfiles.join("main.js")).unwrap(), "let edited = 2;\n");
+    assert!(!dotfiles.join("extra.js").exists());
+}
+
+/// A credential's name and value on two lines (a formatter's choice) are
+/// still one credential: masked in a diff, left out of a profile.
+#[test]
+fn a_credential_split_over_two_lines_is_still_hidden() {
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    let customize = home.customize();
+    customize.ensure_baseline(1).unwrap();
+    home.write(
+        "customize/config.json",
+        "{\n  \"apiKey\":\n    \"private-value\",\n  \"name\": \"mine\"\n}\n",
+    );
+    home.write("themes/night.json", "{ \"name\": \"night\" }\n");
+    for reader in [Reader::Agent, Reader::Person] {
+        let live = diff_text(&customize.diff(reader).unwrap());
+        assert!(!live.contains("private-value"), "{reader:?}: {live}");
+        assert!(live.contains("+    \"[redacted]\","), "{live}");
+    }
+    customize.apply(None, "cli", 2).unwrap();
+    let shown = diff_text(&customize.generation_diff(2, Reader::Agent).unwrap());
+    assert!(!shown.contains("private-value"), "{shown}");
+
+    let saved = customize.save_profile("mine", "", 3).unwrap();
+    assert!(!fs::read_to_string(&saved.path).unwrap().contains("private-value"));
+    assert_eq!(saved.files, ["themes/night.json".to_owned()]);
+    let said = saved.left_out.join("\n");
+    assert!(said.contains("customize/config.json: line 3 looks like a secret"), "{said}");
+}
+
+/// Two imports at once each keep their settings: the whole read, merge,
+/// snapshot and write of one happens before the other's.
+#[test]
+fn two_profile_imports_at_once_lose_neither() {
+    for round in 0..12 {
+        let home = Home::new();
+        home.write("cmux-next.json", "{\n  // mine\n}\n");
+        let start = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            for settings in
+                ["{\"appearance.density\":\"compact\"}", "{\"appearance.themeFile\":\"night\"}"]
+            {
+                let (home, start) = (&home, &start);
+                scope.spawn(move || {
+                    let customize = home.customize();
+                    start.wait();
+                    customize.preview_profile(&profile_of(settings, "{}"), "cli", 1).unwrap();
+                });
+            }
+        });
+        let settings = home.read("cmux-next.json").unwrap();
+        assert!(
+            settings.contains("\"compact\"") && settings.contains("\"night\""),
+            "round {round}: an import was lost: {settings}"
+        );
+        // Both are asks of one draft, over one baseline.
+        let status = home.customize().status().unwrap();
+        assert_eq!(status.draft.unwrap().asks.len(), 2);
+        assert_eq!(home.customize().generations().unwrap().generations.len(), 1);
+    }
+}
+
+/// A change of only the executable bit is a change: discard puts the mode
+/// back and leaves nothing dirty.
+#[cfg(unix)]
+#[test]
+fn discard_puts_back_an_executable_bit() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = Home::new();
+    home.write("cmux-next.json", COZY);
+    home.write("customize/run.sh", "#!/bin/sh\n");
+    let script = home.config("customize/run.sh");
+    let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o111;
+    let customize = home.customize();
+    customize.ensure_baseline(1).unwrap();
+    assert_eq!(mode(&script), 0);
+
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(customize.status().unwrap().dirty());
+    customize.discard("cli", 2).unwrap();
+    assert_eq!(mode(&script), 0, "the mode was left changed");
+    assert!(!customize.status().unwrap().dirty());
+}
+
 /// F5: the shortcuts file is an array, and a person who has one can apply.
 #[test]
 fn a_setup_with_a_shortcuts_file_applies() {
