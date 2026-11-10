@@ -6,6 +6,7 @@
 
 import { AdminTeamNotFoundError } from "./proGrants";
 import type { TeamAccess } from "../teams/access";
+import { updateTeam } from "../teams/admin";
 import { listTeamInvitations, type InvitationDependencies } from "../teams/invitations";
 import {
   changeMemberRole,
@@ -121,4 +122,17 @@ export async function removeTeamMemberAsOperator(input: {
   const stack = dependencies.stack ?? defaultTeamStackApp();
   const access = await requireOperatorTeamAccess(input.admin.id, input.teamId, stack);
   await removeMember(access, input.userId, operatorDependencies(input.admin.id, { ...dependencies, stack }));
+}
+
+/** Rename a customer team (1 to 120 characters, trimmed), as its admins can from cmux. */
+export async function renameTeamAsOperator(input: {
+  readonly teamId: string;
+  readonly displayName: string;
+  readonly admin: { readonly id: string };
+  readonly stack?: TeamStackApp;
+}): Promise<{ readonly id: string; readonly displayName: string }> {
+  const stack = input.stack ?? defaultTeamStackApp();
+  const access = await requireOperatorTeamAccess(input.admin.id, input.teamId, stack);
+  await updateTeam(access, { displayName: input.displayName });
+  return { id: access.team.id, displayName: input.displayName };
 }

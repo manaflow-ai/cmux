@@ -4,6 +4,7 @@ import {
   changeTeamMemberRoleAsOperator,
   listTeamMembersAsOperator,
   removeTeamMemberAsOperator,
+  renameTeamAsOperator,
 } from "../services/admin/teamMembers";
 import { TeamApiError } from "../services/teams/errors";
 import {
@@ -100,6 +101,15 @@ describe("operator team members", () => {
     const outsider = await rejection(removeTeamMemberAsOperator({ teamId: TEAM_ID, userId: OUTSIDER_ID, admin, dependencies }));
     expect((outsider as TeamApiError).code).toBe("member_not_found");
     const missing = await rejection(listTeamMembersAsOperator({ teamId: OTHER_TEAM_ID, admin, stack: stack.app() }));
+    expect(missing).toBeInstanceOf(AdminTeamNotFoundError);
+  });
+
+  test("renames the team", async () => {
+    const stack = standardTeam();
+    const team = await renameTeamAsOperator({ teamId: TEAM_ID, displayName: "Tecorien", admin, stack: stack.app() });
+    expect(team).toEqual({ id: TEAM_ID, displayName: "Tecorien" });
+    expect(stack.teams.get(TEAM_ID)!.displayName).toBe("Tecorien");
+    const missing = await rejection(renameTeamAsOperator({ teamId: OTHER_TEAM_ID, displayName: "X", admin, stack: stack.app() }));
     expect(missing).toBeInstanceOf(AdminTeamNotFoundError);
   });
 });
