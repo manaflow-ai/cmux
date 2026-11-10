@@ -256,6 +256,94 @@ fn a_resume_sends_only_the_live_records_after_its_cursor() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A replayed batch carries the live facts of its commit. They can be older
+/// than a live item the client has (the stream sent that item before the
+/// batch), and the live position of the cursor is after both: the resume
+/// checks each terminal a replayed batch upserts again and sends its
+/// current record when it differs.
+#[cfg(unix)]
+#[test]
+fn a_resume_checks_again_each_terminal_a_replayed_batch_upserts() {
+    let (root, mux, terminals) = session("resume-replay", 2, 2);
+    let mut clock = crate::workspace_registry::unix_epoch_ms().unwrap() + 60_000;
+    print(&terminals, &mut clock);
+    let terminal = terminal_id(&terminals[0]);
+
+    let first = open(&mux, true, 1, None);
+    let before = last_cursor(&first.drain());
+    // A durable edge: one commit, whose record has the progress of now.
+    terminals[0].report_program_status_for_test(ghostty_vt::ProgramStatusState::Working, clock);
+    terminals[0].publish_pending_state();
+    let committed = first.drain();
+    assert_eq!(committed.terminal_records(), [terminal.clone()], "the edge is one batch");
+    // Then a newer live fact.
+    print(&terminals[..1], &mut clock);
+    let live = first.drain();
+    assert_eq!(live.terminal_records(), [terminal.clone()], "one live record");
+    let held = last_cursor(&live);
+    let progress =
+        |message: &Value| message["item"]["changes"][0]["value"]["extra"]["progress"].clone();
+    let newest = progress(live.messages.last().unwrap());
+    assert_ne!(progress(committed.messages.last().unwrap()), newest);
+    first.close();
+
+    // A client that has the live fact and not the batch.
+    let mut cursor = before;
+    cursor["live"] = held["live"].clone();
+    let resumed = open(&mux, true, 2, Some(&cursor));
+    let sent = resumed.drain();
+    assert_eq!(
+        sent.terminal_records(),
+        [terminal.clone(), terminal],
+        "the replayed batch, then the terminal's current record"
+    );
+    assert_eq!(
+        progress(sent.messages.last().unwrap()),
+        newest,
+        "the client ends at the older fact"
+    );
+    assert_eq!(sent.messages.last().unwrap()["cursor"], held);
+    resumed.close();
+
+    mux.shutdown();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A live position this daemon process did not give (a daemon restart, or
+/// a text a client made) names no change here: the resume sends every
+/// terminal with a live fact, as for a cursor with no position.
+#[cfg(unix)]
+#[test]
+fn a_live_position_of_another_daemon_process_sends_every_live_record() {
+    let (root, mux, terminals) = session("resume-epoch", 3, 3);
+    let mut clock = crate::workspace_registry::unix_epoch_ms().unwrap() + 60_000;
+    print(&terminals, &mut clock);
+    let first = open(&mux, true, 1, None);
+    let held = last_cursor(&first.drain());
+    first.close();
+    let live = held["live"].as_str().expect("a live position");
+    let (_, sequence) = live.rsplit_once('.').expect("epoch.sequence");
+
+    for (number, position) in
+        [format!("0123456789abcdef.{sequence}"), "no-position".to_owned(), format!("{live}9999")]
+            .into_iter()
+            .enumerate()
+    {
+        let mut cursor = held.clone();
+        cursor["live"] = json!(position);
+        let resumed = open(&mux, true, 2 + u64::try_from(number).unwrap(), Some(&cursor));
+        assert_eq!(
+            resumed.drain().sorted_terminal_records(),
+            terminal_ids(&terminals),
+            "the position {position}"
+        );
+        resumed.close();
+    }
+
+    mux.shutdown();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// The other half of the compatibility pair: a client of a build before the
 /// live position (it does not ask) against this daemon.
 #[cfg(unix)]

@@ -1000,7 +1000,19 @@ the new revision. A terminal's live facts (`extra.progress`,
 state and kind) are not transactions: the stream sends such a change as a
 `session.delta` batch with one terminal upsert whose `previous_revision`,
 `revision` and cursor all equal the last revision the stream sent, and a
-snapshot or a later terminal upsert carries the newest live facts. While a
+snapshot or a later terminal upsert carries the newest live facts. A live
+fact moves no revision, so `generation` and `revision` do not say which live
+facts a client has. A connection that sent the capability
+`session-live-cursor-v1` in `set-client-info` or `client.metadata.update`
+gets a third cursor field, `live` (an opaque string: the daemon process and
+its live position), in the cursor of the open response, of each stream item
+and its item, of the snapshot and of a stream end. A resume from a cursor
+with `live` then sends, after the replayed batches, one such batch for each
+terminal whose live facts changed after that position, oldest change first,
+and nothing when none did. A resume from a cursor with no `live`, or with
+the `live` of another daemon process, sends one for each terminal that has a
+live fact; so does every resume of a connection that did not send the
+capability, whose cursors never have `live`. While a
 live `session.journal.subscribe` stream's kind filter can match
 `terminal.progress` or `terminal.program_status`, or an enabled journal
 hook's kinds match one of them, each such change is one transaction and one

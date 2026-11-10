@@ -41,8 +41,10 @@ const LIVE_FACT_KINDS: [&str; 2] = ["terminal.progress", "terminal.program_statu
 /// change. One entry per terminal: a new change replaces the terminal's
 /// older entry, so a stream that reads the entries after the sequence it
 /// has seen does work in proportion to the terminals that changed.
-#[derive(Default)]
 pub(super) struct TerminalLiveLog {
+    /// Names this log (this daemon process) in a stream cursor's live
+    /// position: a sequence of another process says nothing here.
+    epoch: String,
     sequence: AtomicU64,
     changes: Mutex<LiveChanges>,
     /// The live journal streams that follow the rows of live facts.
@@ -50,6 +52,20 @@ pub(super) struct TerminalLiveLog {
     /// Whether an enabled journal hook's kind filter matches the rows of
     /// live facts; `None` until read, and after a hook changed.
     journal_hook_reads_rows: Mutex<Option<bool>>,
+}
+
+impl Default for TerminalLiveLog {
+    fn default() -> Self {
+        let mut epoch = crate::workspace_registry::new_uuid_v4().replace('-', "");
+        epoch.truncate(16);
+        Self {
+            epoch,
+            sequence: AtomicU64::new(0),
+            changes: Mutex::default(),
+            journal_followers: Arc::default(),
+            journal_hook_reads_rows: Mutex::default(),
+        }
+    }
 }
 
 impl TerminalLiveLog {
@@ -118,12 +134,12 @@ impl TerminalLiveLog {
         self.sequence.load(Ordering::Acquire)
     }
 
-    fn changed_after(&self, sequence: u64) -> (u64, Vec<TerminalPublicId>) {
+    fn changed_after(&self, sequence: u64) -> (u64, Vec<(u64, TerminalPublicId)>) {
         let changes = self.changes.lock().unwrap_or_else(PoisonError::into_inner);
         let terminals = changes
             .by_sequence
             .range((std::ops::Bound::Excluded(sequence), std::ops::Bound::Unbounded))
-            .map(|(_, terminal)| terminal.clone())
+            .map(|(sequence, terminal)| (*sequence, terminal.clone()))
             .collect();
         (self.sequence.load(Ordering::Acquire), terminals)
     }
@@ -199,12 +215,32 @@ impl Mux {
     }
 
     /// The newest live sequence and the terminals whose live facts changed
-    /// after `sequence`, oldest change first.
+    /// after `sequence`, each with the sequence of its newest change, oldest
+    /// change first.
     pub(crate) fn terminal_live_changes_after(
         &self,
         sequence: u64,
-    ) -> (u64, Vec<TerminalPublicId>) {
+    ) -> (u64, Vec<(u64, TerminalPublicId)>) {
         self.terminal_live.changed_after(sequence)
+    }
+
+    /// The live position `sequence` as a stream cursor carries it
+    /// (`server/session_event_stream.rs`, `session-live-cursor-v1`): this
+    /// process's live epoch and the sequence.
+    pub(crate) fn terminal_live_position(&self, sequence: u64) -> String {
+        format!("{}.{sequence}", self.terminal_live.epoch)
+    }
+
+    /// The live sequence a client's cursor position names, when this
+    /// process gave it: its epoch is this log's and its sequence is not
+    /// ahead of the log. `None` for a position of another daemon process
+    /// (a restart) or a text this process never gave; the stream then sends
+    /// every terminal with a live change.
+    pub(crate) fn terminal_live_sequence_of(&self, position: &str) -> Option<u64> {
+        let (epoch, sequence) = position.rsplit_once('.')?;
+        let sequence = sequence.parse::<u64>().ok()?;
+        (epoch == self.terminal_live.epoch && sequence <= self.terminal_live.sequence())
+            .then_some(sequence)
     }
 
     /// Like `wait_for_journal_event_until_interrupted`, and it returns too

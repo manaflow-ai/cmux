@@ -41,9 +41,41 @@ pub(super) struct SessionEventStreamStart {
     pub(super) epoch: u64,
     /// The registry generation of this stream's cursors.
     pub(super) generation: String,
-    /// The live terminal sequence this stream has seen
-    /// (`mux/terminal_live.rs`).
+    /// The live terminal sequence this stream's client has
+    /// (`mux/terminal_live.rs`): each terminal whose live facts changed
+    /// through it was sent, or is in the snapshot.
     pub(super) live_sequence: u64,
+    /// The connection sent `session-live-cursor-v1`: each cursor says the
+    /// client's live position.
+    live_cursor: bool,
+    /// What this stream sent of its terminals; at the start, what the
+    /// replayed batches of a resume carry.
+    sent: SentTerminals,
+}
+
+/// A stream cursor: the registry `generation` and `revision` and, for a
+/// connection that sent `session-live-cursor-v1`, `live`: the live position
+/// (`Mux::terminal_live_position`) of a client that got this cursor. A
+/// live terminal fact moves no revision, so `generation` and `revision`
+/// alone do not say which live facts the client has.
+fn stream_cursor(generation: &str, revision: u64, live: Option<String>) -> Value {
+    let mut cursor = json!({"generation":generation, "revision":revision.to_string()});
+    if let (Some(live), Some(fields)) = (live, cursor.as_object_mut()) {
+        fields.insert("live".into(), Value::String(live));
+    }
+    cursor
+}
+
+impl SessionEventStreamStart {
+    /// The cursor of an item at `revision` for a client that has the live
+    /// changes through the sequence `live`.
+    fn cursor(&self, mux: &Mux, generation: &str, revision: u64, live: u64) -> Value {
+        stream_cursor(
+            generation,
+            revision,
+            self.live_cursor.then(|| mux.terminal_live_position(live)),
+        )
+    }
 }
 
 pub(super) fn prepare_session_event_stream(
@@ -57,7 +89,15 @@ pub(super) fn prepare_session_event_stream(
     let epoch = mux.resource_event_epoch();
     // Before the snapshot: a live change after it reaches this stream.
     let mut live_sequence = mux.terminal_live_sequence();
-    let snapshot = resource_session_snapshot(mux, client, &request.selectors)?;
+    let live_cursor =
+        mux.control_clients.supports_capability(client, super::SESSION_LIVE_CURSOR_CAPABILITY);
+    let position = |sequence: u64| live_cursor.then(|| mux.terminal_live_position(sequence));
+    let mut snapshot = resource_session_snapshot(mux, client, &request.selectors)?;
+    if let (Some(live), Some(cursor)) =
+        (position(live_sequence), snapshot.get_mut("cursor").and_then(Value::as_object_mut))
+    {
+        cursor.insert("live".into(), Value::String(live));
+    }
     let snapshot_cursor = snapshot.field("cursor").clone();
     let cursor_missing = || {
         ResourceError::operation_failed(
@@ -92,11 +132,22 @@ pub(super) fn prepare_session_event_stream(
                 .map_err(|_| {
                     ResourceError::validation_invalid(Some("cursor"), "cursor revision is invalid")
                 })?;
-            Ok::<_, ResourceError>((generation, revision))
+            // The live position, when the cursor has one this process gave.
+            // Without one the stream sends every terminal with a live
+            // change: a cursor of two fields does not say which the client
+            // has, and a position of another daemon process says nothing
+            // about this one's.
+            let live = cursor
+                .field("live")
+                .as_str()
+                .and_then(|text| mux.terminal_live_sequence_of(text))
+                .unwrap_or(0);
+            Ok::<_, ResourceError>((generation, revision, live))
         })
         .transpose()?;
 
     let mut initial_items = Vec::new();
+    let mut sent = SentTerminals::default();
     let last_revision;
     let opened_cursor;
     match requested_cursor {
@@ -111,12 +162,10 @@ pub(super) fn prepare_session_event_stream(
                 }),
             ));
             last_revision = snapshot_revision;
-            opened_cursor = json!({
-                "generation":snapshot_generation,
-                "revision":snapshot_revision.to_string(),
-            });
+            opened_cursor =
+                stream_cursor(&snapshot_generation, snapshot_revision, position(live_sequence));
         }
-        Some((generation, _)) if generation != snapshot_generation => {
+        Some((generation, _, _)) if generation != snapshot_generation => {
             initial_items.push((
                 snapshot_cursor.clone(),
                 json!({
@@ -127,12 +176,10 @@ pub(super) fn prepare_session_event_stream(
                 }),
             ));
             last_revision = snapshot_revision;
-            opened_cursor = json!({
-                "generation":snapshot_generation,
-                "revision":snapshot_revision.to_string(),
-            });
+            opened_cursor =
+                stream_cursor(&snapshot_generation, snapshot_revision, position(live_sequence));
         }
-        Some((generation, revision)) => match mux.resource_events_after(revision) {
+        Some((generation, revision, resumed_live)) => match mux.resource_events_after(revision) {
             Ok(page)
                 if page.batches.last().map_or(revision, |batch| batch.revision)
                     < page.head_revision =>
@@ -147,19 +194,17 @@ pub(super) fn prepare_session_event_stream(
                     }),
                 ));
                 last_revision = snapshot_revision;
-                opened_cursor = json!({
-                    "generation":snapshot_generation,
-                    "revision":snapshot_revision.to_string(),
-                });
+                opened_cursor =
+                    stream_cursor(&snapshot_generation, snapshot_revision, position(live_sequence));
             }
             Ok(page) => {
                 let mut deltas = Vec::with_capacity(page.batches.len());
+                let mut replayed = SentTerminals::default();
                 let mut failed = None;
                 for batch in page.batches {
-                    let cursor = json!({
-                        "generation":page.generation,
-                        "revision":batch.revision.to_string(),
-                    });
+                    let cursor =
+                        stream_cursor(&page.generation, batch.revision, position(resumed_live));
+                    note_committed_terminals(&batch.changes, &mut replayed, true);
                     match delta_item(mux, client, &page.generation, &cursor, batch) {
                         Ok(item) => deltas.push((cursor, item)),
                         Err(error) => {
@@ -182,21 +227,25 @@ pub(super) fn prepare_session_event_stream(
                         }),
                     ));
                     last_revision = snapshot_revision;
-                    opened_cursor = json!({
-                        "generation":snapshot_generation,
-                        "revision":snapshot_revision.to_string(),
-                    });
+                    opened_cursor = stream_cursor(
+                        &snapshot_generation,
+                        snapshot_revision,
+                        position(live_sequence),
+                    );
                 } else {
                     initial_items.extend(deltas);
-                    // No snapshot: the replayed batches carry the live
-                    // facts of their commits, so the stream sends each
-                    // terminal with a live change its current record.
-                    live_sequence = 0;
+                    // No snapshot: the stream sends the current record of
+                    // each terminal whose live facts changed after the
+                    // cursor's live position (of each terminal with a live
+                    // change, when the cursor has none). A replayed batch
+                    // carries the live facts of its commit, which can be
+                    // older than a live item the client has: the stream
+                    // checks each terminal such a batch upserts again.
+                    live_sequence = resumed_live;
+                    sent = replayed;
                     last_revision = page.head_revision;
-                    opened_cursor = json!({
-                        "generation":page.generation,
-                        "revision":page.head_revision.to_string(),
-                    });
+                    opened_cursor =
+                        stream_cursor(&page.generation, page.head_revision, position(resumed_live));
                 }
             }
             Err(error) if error.to_string().starts_with("cursor.gap:") => {
@@ -210,10 +259,8 @@ pub(super) fn prepare_session_event_stream(
                     }),
                 ));
                 last_revision = snapshot_revision;
-                opened_cursor = json!({
-                    "generation":snapshot_generation,
-                    "revision":snapshot_revision.to_string(),
-                });
+                opened_cursor =
+                    stream_cursor(&snapshot_generation, snapshot_revision, position(live_sequence));
             }
             Err(error) if error.to_string().starts_with("cursor.invalid:") => {
                 return Err(ResourceError::new(
@@ -264,6 +311,8 @@ pub(super) fn prepare_session_event_stream(
             epoch,
             generation: snapshot_generation,
             live_sequence,
+            live_cursor,
+            sent,
         },
     ))
 }
@@ -342,10 +391,21 @@ pub(super) fn run_session_event_stream(
     writer.register_interrupt(&interrupt);
     stream.outbound.register_interrupt(&interrupt);
     mux.wake_journal_waiters_on(&interrupt);
-    let mut sent = SentTerminals::default();
     'stream: loop {
         if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
             break;
+        }
+        // The terminals a committed batch gave a new value: that commit
+        // read its live facts before it committed, and a live item with
+        // newer ones can have gone out before the batch did. Before the
+        // wait: a resume has the terminals of its replayed batches here.
+        while let Some(terminal) = stream.sent.committed.pop() {
+            match send_live_terminal(mux, client, writer, &mut stream, &mut reader, &terminal, None)
+            {
+                Sent::Current => {}
+                Sent::Ended => break 'stream,
+                Sent::Closed => return,
+            }
         }
         let (epoch, live) = mux.wait_for_session_event_until_interrupted(
             stream.epoch,
@@ -354,39 +414,36 @@ pub(super) fn run_session_event_stream(
         );
         if epoch != stream.epoch {
             stream.epoch = epoch;
-            match send_committed(mux, client, writer, &mut stream, &mut reader, &mut sent) {
+            match send_committed(mux, client, writer, &mut stream, &mut reader) {
                 Sent::Current => {}
                 Sent::Ended => break 'stream,
                 Sent::Closed => return,
             }
         }
-        // Only the terminals whose live facts changed, never all terminals.
-        let terminals = if live == stream.live_sequence {
-            Vec::new()
-        } else {
-            let (live, terminals) = mux.terminal_live_changes_after(stream.live_sequence);
-            stream.live_sequence = live;
-            terminals
-        };
-        // And the terminals a committed batch gave a new value: that commit
-        // read its live facts before it committed, and a live item with
-        // newer ones can have gone out before the batch did.
-        sent.committed.extend(terminals);
-        while let Some(terminal) = sent.committed.pop() {
+        if live == stream.live_sequence {
+            continue;
+        }
+        // Only the terminals whose live facts changed, never all terminals,
+        // oldest change first: the cursor of each item says the live
+        // position of its change, so a client that leaves in the middle
+        // resumes after the last one it got.
+        let (live, terminals) = mux.terminal_live_changes_after(stream.live_sequence);
+        for (sequence, terminal) in terminals {
             match send_live_terminal(
                 mux,
                 client,
                 writer,
                 &mut stream,
                 &mut reader,
-                &mut sent,
                 &terminal,
+                Some(sequence),
             ) {
-                Sent::Current => {}
+                Sent::Current => stream.live_sequence = sequence,
                 Sent::Ended => break 'stream,
                 Sent::Closed => return,
             }
         }
+        stream.live_sequence = live;
     }
     mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
 }
@@ -442,8 +499,10 @@ fn value_hash(value: &Value) -> u64 {
 }
 
 /// Remember, for each terminal a committed batch changes, the value the
-/// client now has.
-fn note_committed_terminals(changes: &Value, sent: &mut SentTerminals) {
+/// client now has. `replayed`: the batch is one a resume replays, so each
+/// terminal it upserts is checked again (its live facts are the commit's,
+/// not the newest).
+fn note_committed_terminals(changes: &Value, sent: &mut SentTerminals, replayed: bool) {
     for change in changes.as_array().map(Vec::as_slice).unwrap_or_default() {
         if change.field("resource").as_str() != Some("terminal") {
             continue;
@@ -456,7 +515,11 @@ fn note_committed_terminals(changes: &Value, sent: &mut SentTerminals) {
             let hash = value_hash(change.field("value"));
             // A value that replaces another one this stream sent can be
             // older than a live item already sent: check it again.
-            if sent.hashes.insert(id.clone(), hash).is_some_and(|previous| previous != hash) {
+            let again = match sent.hashes.insert(id.clone(), hash) {
+                Some(previous) => previous != hash,
+                None => replayed,
+            };
+            if again {
                 sent.committed.push(id);
             }
         } else {
@@ -472,7 +535,6 @@ fn send_committed(
     writer: &MessageWriter,
     stream: &mut SessionEventStreamStart,
     reader: &mut EventReader,
-    sent: &mut SentTerminals,
 ) -> Sent {
     fn gap(stream: &SessionEventStreamStart, cursor: Option<Value>) -> Value {
         resource_stream_end(
@@ -510,12 +572,9 @@ fn send_committed(
             return Sent::Ended;
         }
         for batch in page.batches {
-            let cursor = json!({
-                "generation":page.generation,
-                "revision":batch.revision.to_string(),
-            });
+            let cursor = stream.cursor(mux, &page.generation, batch.revision, stream.live_sequence);
             let revision = batch.revision;
-            note_committed_terminals(&batch.changes, sent);
+            note_committed_terminals(&batch.changes, &mut stream.sent, false);
             let item = match delta_item(mux, client, &page.generation, &cursor, batch) {
                 Ok(item) => item,
                 Err(error) => {
@@ -563,14 +622,18 @@ fn send_committed(
 /// the client has. The live facts come from the terminal's memory now, as
 /// they do in every committed terminal upsert, so a later commit carries
 /// them too.
+///
+/// `mark`: the live sequence of the change this item is for; the item's
+/// cursor says that position. `None` for a check after a committed batch:
+/// the cursor keeps the stream's position.
 fn send_live_terminal(
     mux: &Arc<Mux>,
     client: u64,
     writer: &MessageWriter,
     stream: &mut SessionEventStreamStart,
     reader: &mut EventReader,
-    sent: &mut SentTerminals,
     terminal: &TerminalPublicId,
+    mark: Option<u64>,
 ) -> Sent {
     let value = loop {
         let read = mux.live_terminal_upsert(reader.as_ref().map(|(journal, _)| journal), terminal);
@@ -592,17 +655,22 @@ fn send_live_terminal(
             break value;
         }
         // Each pass sends at least one committed batch or ends the stream.
-        match send_committed(mux, client, writer, stream, reader, sent) {
+        match send_committed(mux, client, writer, stream, reader) {
             Sent::Current => {}
             ended => return ended,
         }
     };
     let hash = value_hash(&value);
-    if sent.hashes.insert(terminal.clone(), hash) == Some(hash) {
+    if stream.sent.hashes.insert(terminal.clone(), hash) == Some(hash) {
         return Sent::Current;
     }
+    let cursor = stream.cursor(
+        mux,
+        &stream.generation,
+        stream.last_revision,
+        mark.unwrap_or(stream.live_sequence),
+    );
     let revision = stream.last_revision.to_string();
-    let cursor = json!({"generation":stream.generation, "revision":revision});
     let item = json!({
         "kind":"delta",
         "cursor":cursor,
