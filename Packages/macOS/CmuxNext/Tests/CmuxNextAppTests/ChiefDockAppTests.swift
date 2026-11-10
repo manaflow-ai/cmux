@@ -3,8 +3,8 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDaemonService
-import CmuxNextHome
-@testable import CmuxNextLayout
+import CmuxNextLayout
+@testable import CmuxNextPages
 import Foundation
 import Testing
 
@@ -46,43 +46,19 @@ struct ChiefDockAppTests {
         }
     }
 
-    /// The real chat in the Chief's own window (user 2026-11-09): a drag on the transcript's empty space moves the
-    /// window, a drag in the message box does not (its text selects).
+    /// The real chat in the Chief's own window (user 2026-11-09): the Chief is a React page, so the page reports a
+    /// press that starts a drag (``PageTitleRowPress``); in this window one on its empty space moves the window from
+    /// anywhere on the page, and one on its content (a message's text, a picture) stays the page's.
     static func expectEmptySpaceDrags(_ window: WindowController) throws {
         let panel = try #require(window.chiefPanelView), launcher = try #require(panel.launcher)
         try #require(panel.window === launcher, "the real Chief is not in its own window")
-        let content = try #require(launcher.contentView), frameView = try #require(content.superview)
-        content.layoutSubtreeIfNeeded()
-        var empty: NSPoint?
-        let b = content.bounds
-        scan: for y in stride(from: b.maxY - 60, to: b.minY + 100, by: -8) {
-            for x in stride(from: b.minX + 20, to: b.maxX - 20, by: 8) {
-                let point = content.convert(NSPoint(x: x, y: y), to: nil)
-                guard let hit = frameView.hitTest(frameView.convert(point, from: nil)),
-                      hit.enclosing(HomeNativeTranscriptView.self) != nil,
-                      ChiefLauncherPanel.pressMovesWindow(at: point, hit: hit, in: content) else { continue }
-                empty = point
-                break scan
-            }
-        }
-        let start = try #require(empty, "no point of the real transcript moves the window")
-        let hit = try #require(frameView.hitTest(frameView.convert(start, from: nil)))
-        let origin = launcher.frame.origin
-        try ChiefLauncherWindowTests.drag(at: hit.convert(start, from: nil), in: hit, by: CGVector(dx: 40, dy: -30))
-        #expect(abs(launcher.frame.minX - (origin.x + 40)) <= 1 && abs(launcher.frame.minY - (origin.y - 30)) <= 1,
-                "a drag on the real transcript's empty space (\(type(of: hit))) did not move the window: \(launcher.frame)")
-        if let field = launcher.firstResponder as? NSTextView {
-            let moved = launcher.frame
-            try ChiefLauncherWindowTests.drag(at: NSPoint(x: field.bounds.midX, y: field.bounds.midY), in: field, by: CGVector(dx: 40, dy: 0))
-            #expect(launcher.frame == moved, "a drag in the message box moved the window")
-        }
-    }
-}
-
-private extension NSView {
-    func enclosing<T: NSView>(_ type: T.Type) -> T? {
-        var view: NSView? = self
-        while let next = view { if let found = next as? T { return found }; view = next.superview }
-        return nil
+        let chief = try #require(panel.chief)
+        let content = (chief as? InternalPageView)?.content ?? chief // the page tab's content under its bar
+        let web = try #require(PageWebView.shown(in: content), "the Chief is not a web page: \(type(of: content))")
+        let zoom = max(web.pageZoom, 0.01)
+        let middle = CGPoint(x: web.bounds.midX / zoom, y: web.bounds.height / zoom / 2)
+        #expect(web.takesTitleRowPress(.init(kind: .drag, point: middle)), "a drag on the page's empty space in its own window stays put")
+        #expect(!web.takesTitleRowPress(.init(kind: .drag, point: middle, onContent: true)), "a drag on a message's text moves the window")
+        #expect(!web.takesTitleRowPress(.init(kind: .double, point: middle)), "a double-click mid-page runs the title bar's action")
     }
 }

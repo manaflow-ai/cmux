@@ -22,10 +22,13 @@ enum PageTitleRowPress {
         enum Kind: String, Sendable { case drag, double }
         let kind: Kind
         let point: CGPoint
+        /// The press was on the page's content (text, a picture), not its empty space.
+        let onContent: Bool
 
-        init(kind: Kind, point: CGPoint) {
+        init(kind: Kind, point: CGPoint, onContent: Bool = false) {
             self.kind = kind
             self.point = point
+            self.onContent = onContent
         }
 
         init?(_ body: Any) {

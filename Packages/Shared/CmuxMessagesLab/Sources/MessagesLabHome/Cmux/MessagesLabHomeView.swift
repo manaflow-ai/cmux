@@ -81,13 +81,6 @@ public final class MessagesLabHomeView: NSView {
     }
 
     /// Stops forwarding (the conversation closed).
-    /// Whether a press at `point` (window coordinates) on `hit`, a view under this one, moves a window moved by its
-    /// background (the floating Chief's): on the transcript, only a press on its empty space between messages does;
-    /// nil for views with their own rule (the header, the message box's buttons).
-    public func pressMovesWindow(atWindowPoint point: CGPoint, hit: NSView) -> Bool? {
-        controller.pressMovesWindow(atWindowPoint: point, hit: hit)
-    }
-
     public func stop() {
         projection.stop()
         controller.wake.cancel()
