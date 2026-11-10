@@ -592,7 +592,7 @@ fn a_weaker_direct_report_during_the_replay_gets_the_replayed_plugin_row_back() 
     let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
     screen(&mux, &terminal_id, "working", crate::workspace_registry::unix_epoch_ms().unwrap());
     assert_eq!(public_agents(&mux)[0]["source"], "plugin");
-    mux.workspace_registry.lock().unwrap().delete_agent_projection_for_test(&terminal_id);
+    mux.workspace_registry.lock().unwrap().delete_agent_projection_for_test(&terminal_id).unwrap();
     mux.agent_records.lock().unwrap().remove(&terminal_id);
     direct_report_during_a_replay(&mux, surface.id, AgentSource::Socket, AgentState::Idle, || {});
     assert_eq!(
