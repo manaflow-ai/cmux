@@ -92,7 +92,11 @@ fn a_waiting_pinned_row_stays_with_the_pinned() {
 fn bad_entries_are_ignored() {
     let active = [a(4, WAITING), a(4, UNREAD), a(2, UNREAD), a(99, WAITING), a(6, 0)];
     let out = project_rows(10, &active, &caps(3));
-    assert_eq!(out.rows, vec![4, 0, 1, 2], "only the first valid ascending entry counts; 6 is quiet");
+    assert_eq!(
+        out.rows,
+        vec![4, 0, 1, 2],
+        "only the first valid ascending entry counts; 6 is quiet"
+    );
 }
 
 #[test]
@@ -126,7 +130,11 @@ fn every_member_shows_at_most_once_and_the_tail_counts_the_rest() {
                             Tail::ShowMore { hidden, .. } => hidden,
                             _ => 0,
                         };
-                        assert_eq!(out.rows.len() as u32 + hidden, count, "{c:?} {active:?} {out:?}");
+                        assert_eq!(
+                            out.rows.len() as u32 + hidden,
+                            count,
+                            "{c:?} {active:?} {out:?}"
+                        );
                     }
                 }
             }
@@ -136,14 +144,19 @@ fn every_member_shows_at_most_once_and_the_tail_counts_the_rest() {
 
 #[test]
 fn needs_you_lists_yellow_then_blue_at_most_three() {
-    let rows = [a(1, UNREAD), a(4, RUNNING), a(7, WAITING), a(9, UNREAD), a(12, WAITING), a(20, UNREAD)];
+    let rows =
+        [a(1, UNREAD), a(4, RUNNING), a(7, WAITING), a(9, UNREAD), a(12, WAITING), a(20, UNREAD)];
     let out = needs_you(&rows, false, 0);
     assert_eq!(out.rows, vec![7, 12, 1]);
     assert_eq!(out.more, 2);
     let working = needs_you(&rows, true, 10);
     assert_eq!(working.rows, vec![7, 12, 1, 9, 20, 4]);
     assert_eq!(working.more, 0);
-    assert_eq!(needs_you(&[a(3, PINNED)], false, 0), NeedsYou::default(), "pinned alone does not need you");
+    assert_eq!(
+        needs_you(&[a(3, PINNED)], false, 0),
+        NeedsYou::default(),
+        "pinned alone does not need you"
+    );
 }
 
 #[test]
@@ -165,7 +178,11 @@ fn caps_read_the_four_choices_only() {
 fn the_projection_costs_the_same_at_thirty_and_three_thousand_chats() {
     let active_at = |count: u32, n: u32| -> Vec<Active> {
         // Active rows spread over the project, the same number at every size.
-        (0..n).map(|k| a(k * (count / n.max(1)).max(1), [WAITING, UNREAD, RUNNING, PINNED][k as usize % 4])).collect()
+        (0..n)
+            .map(|k| {
+                a(k * (count / n.max(1)).max(1), [WAITING, UNREAD, RUNNING, PINNED][k as usize % 4])
+            })
+            .collect()
     };
     for (label, actives) in [("few-active", 6u32), ("god-session", 24)] {
         for revealed in [0u32, 20] {
@@ -201,9 +218,15 @@ fn the_projection_costs_the_same_at_thirty_and_three_thousand_chats() {
                 large.work,
                 small.work
             );
-            assert!(large.rows.len() <= small.rows.len() + 1 + revealed as usize, "{label}: rows grew: {small:?} {large:?}");
+            assert!(
+                large.rows.len() <= small.rows.len() + 1 + revealed as usize,
+                "{label}: rows grew: {small:?} {large:?}"
+            );
             // Wall time: the same work, so the same time; 1.2x plus 50 ns of timer noise.
-            assert!(large_ns <= small_ns * 1.2 + 50.0, "{label}: {large_ns:.0} ns at 3,000 vs {small_ns:.0} ns at 30");
+            assert!(
+                large_ns <= small_ns * 1.2 + 50.0,
+                "{label}: {large_ns:.0} ns at 3,000 vs {small_ns:.0} ns at 30"
+            );
         }
     }
     // The god session alone: 2,000 active members of 3,000 cost their own rows, never the hidden ones.
@@ -211,7 +234,10 @@ fn the_projection_costs_the_same_at_thirty_and_three_thousand_chats() {
     let out = project_rows(3_000, &god, &ProjectCaps::default());
     assert_eq!(out.rows.len(), 2_005);
     assert!(out.work <= 2_000 + 2_005 + 1, "god session work {}", out.work);
-    let rows: Vec<Active> = (0..3_000).filter(|k| k % 10 == 0).map(|k| a(k, [WAITING, UNREAD][k as usize % 2])).collect();
+    let rows: Vec<Active> = (0..3_000)
+        .filter(|k| k % 10 == 0)
+        .map(|k| a(k, [WAITING, UNREAD][k as usize % 2]))
+        .collect();
     let few: Vec<Active> = rows.iter().take(30).copied().collect();
     let started = Instant::now();
     let big = needs_you(&rows, false, 0);
@@ -231,9 +257,16 @@ fn the_projection_costs_the_same_at_thirty_and_three_thousand_chats() {
 fn caps_from_the_c_abi_never_overflow() {
     for cap in [u32::MAX, u32::MAX - 1] {
         for revealed in [0, u32::MAX] {
-            let out = project_rows(10, &[a(3, WAITING)], &ProjectCaps { cap, revealed, ..ProjectCaps::default() });
+            let out = project_rows(
+                10,
+                &[a(3, WAITING)],
+                &ProjectCaps { cap, revealed, ..ProjectCaps::default() },
+            );
             assert_eq!(out.rows.len(), 10);
-            assert_eq!(after_press(out.tail, &ProjectCaps { cap, revealed, ..ProjectCaps::default() }), 0);
+            assert_eq!(
+                after_press(out.tail, &ProjectCaps { cap, revealed, ..ProjectCaps::default() }),
+                0
+            );
         }
     }
     let out = project_rows(u32::MAX, &[], &caps(5));
@@ -253,6 +286,7 @@ fn show_more_counts_the_row_one_past_a_step() {
     // 50 quiet rows: 45 hidden; the row says 20 and a press shows 20.
     let long = project_rows(50, &[], &caps);
     assert_eq!(long.tail, Tail::ShowMore { hidden: 45, next: 20 });
-    let after = project_rows(50, &[], &ProjectCaps { revealed: after_press(long.tail, &caps), ..caps });
+    let after =
+        project_rows(50, &[], &ProjectCaps { revealed: after_press(long.tail, &caps), ..caps });
     assert_eq!(after.rows.len(), 25);
 }
