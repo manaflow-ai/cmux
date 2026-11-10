@@ -360,6 +360,19 @@ export const PAGES = {
     out: "webviews/src/pages/github/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/github/Localizable.xcstrings" }],
   },
+  // The Task Manager page (cmux-page://cmux.task-manager/): its own words next to it (the columns,
+  // the empty list, the total, moved from the SwiftUI table it replaced), and the tab title and Kill
+  // Process, which the Swift kill question says too, from CmuxNextResources' catalog.
+  "task-manager": {
+    out: "webviews/src/pages/task-manager/generated/strings.json",
+    catalogs: [
+      { file: "webviews/src/pages/task-manager/Localizable.xcstrings" },
+      {
+        file: `${sources}/CmuxNextResources/Resources/Localizable.xcstrings`,
+        keys: () => ["taskManager.title", "taskManager.kill.button"],
+      },
+    ],
+  },
   // The Tasks page (cmux-page://cmux.tasks/); its table lives next to it (the Swift pane is gone).
   tasks: {
     out: "webviews/src/pages/tasks/generated/strings.json",

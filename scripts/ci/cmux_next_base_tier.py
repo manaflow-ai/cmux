@@ -25,8 +25,17 @@ the window and the newest pending one replaces older pending ones, which never s
 dispatches. Its calls use the workflow's own cmux-bot App token, never github.token (whose REST budget
 every workflow shares; 2026-11-10 kicks crashed on HTTP 403 from it). A read GitHub refuses on that
 token's spent quota (github_quota_client.QuotaGitHub; other cmux-bot jobs share the App's budget)
-is retried after one sleep until the quota resets while that fits the job's time (API_DEADLINE_S);
-past that the kick fails with one line naming the quota and its reset, not a traceback.
+is retried after one sleep until the quota resets while that fits the job's time; past that the kick
+fails with one line naming the quota and its reset, not a traceback.
+
+The job has one deadline (JOB_TIMEOUT_S, its workflow's timeout-minutes, less MARGIN_S), taken once on
+the monotonic clock when the process starts. The quota retries, the window wait and the settle after the
+dispatch all read the time left from it, never a budget of their own: a 601 s quota wait followed by a
+full window would otherwise have dispatched at 1400 s, past the 1200 s job timeout, and been killed
+(cmuxterm-hq docs/handbook/budget-summed-from-constants.md). When the window would end too late to
+dispatch inside the deadline, the kick fails with one line and dispatches nothing: dispatching early
+would break the one-run-per-window rule, and the newest push's kick, pending behind this one, takes a
+tip that contains this push.
 
 Once the tip has a base tier run, an older base tier run none of whose Mac jobs (MAC_JOBS) has started
 and created before the newest base tier run is superseded and the kick cancels it (first attempts
@@ -51,7 +60,7 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cmux_next_tree_notify import Api  # noqa: E402
-from github_quota_client import QuotaExhausted, QuotaGitHub  # noqa: E402
+from github_quota_client import REQUEST_TIMEOUT_S, Deadline, QuotaExhausted, QuotaGitHub  # noqa: E402
 
 REPO = "manaflow-ai/cmux"
 BRANCH = "feat-cmux-next"
@@ -64,6 +73,10 @@ TIERS = ("daemon", "scheme", "generated")
 WINDOW_S = 15 * 60
 # After a dispatch: long enough that the next kick's listing shows the new run.
 SETTLE_S = 20
+# What a dispatch needs before the job's deadline: its POST, which the client ends at REQUEST_TIMEOUT_S
+# from its start (a whole-request bound, not urlopen's per-socket-wait one), and then SETTLE_S (Codex
+# review of #40520: 21 s left and a 10 s POST ended the settle 9 s late).
+DISPATCH_RESERVE_S = REQUEST_TIMEOUT_S + SETTLE_S
 # The compare API lists at most this many files; a longer diff counts as relevant.
 COMPARE_FILES_MAX = 300
 # The base tier's Mac jobs (cmux-next.yml's daemon-test, generated-files and cmux-scheme-compile names).
@@ -72,10 +85,14 @@ MAC_JOBS = ("cmux-next daemon tests", "cmux-next generated files", "cmux app sch
 # A run in one of these states has not finished.
 OPEN = ("queued", "in_progress", "waiting", "pending", "requested")
 SHA = re.compile(r"^[0-9a-f]{40}$")
-# How long after the process starts its GitHub calls may wait out a spent rate limit: the kick job has
-# timeout-minutes 20 and may first sleep up to WINDOW_S, so a wait past this would be killed anyway.
-API_DEADLINE_S = 18 * 60
-STARTED = time.time()
+# cmux-next-base-tier-kick.yml's timeout-minutes (a test reads it), and what the job's one deadline keeps
+# back from it for the runner's start, the checkout and the token mint before this process starts.
+JOB_TIMEOUT_S = 20 * 60
+MARGIN_S = 2 * 60
+# Of the time left when the window opens, what the steps after it need: the listing, the compare, the
+# dispatch, SETTLE_S and the cancels. A window that would leave less is not waited for.
+AFTER_WINDOW_S = DISPATCH_RESERVE_S + 30
+STARTED = time.monotonic()
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -171,7 +188,7 @@ def mac_job_started(api: Api, repo: str, run_id: int) -> bool:
     """Whether a Mac job of the base tier run has started. Anything unreadable counts as started."""
     try:
         listed = api.get(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
-    except RuntimeError:
+    except (RuntimeError, TimeoutError):  # TimeoutError: no full answer within the client's request bound
         return True
     for job in listed.get("jobs") or []:
         if job.get("name") not in MAC_JOBS:
@@ -220,6 +237,12 @@ def cancel_superseded(api: Api, repo: str, newest: str, log: Callable[[str], Non
         except QuotaExhausted as error:
             log(f"could not cancel base tier run {run_id} ({sha[:12]}): {error}")
             continue
+        except TimeoutError as error:
+            # No full answer within the client's request bound: GitHub may have taken the cancel, or not.
+            # Not counted as cancelled; the next kick reads the run again.
+            log(f"no answer to the cancel of base tier run {run_id} ({sha[:12]}); it may or may not be "
+                f"cancelled: {error}")
+            continue
         if status in (202, 204):
             cancelled.append(run_id)
             log(f"cancelled base tier run {run_id} ({sha[:12]}): superseded by {latest_sha[:12]}, no Mac job started")
@@ -234,7 +257,7 @@ def relevant(api: Api, repo: str, since: str, tip: str, patterns: list[str]) -> 
         return True, "no push paths read; running the base tier"
     try:
         compare = api.get(f"repos/{repo}/compare/{since}...{tip}")
-    except RuntimeError as error:
+    except (RuntimeError, TimeoutError) as error:
         return True, f"could not compare {since[:12]}...{tip[:12]} ({error}); running the base tier"
     files = [item.get("filename") or "" for item in compare.get("files") or []]
     if compare.get("status") == "behind":
@@ -257,61 +280,150 @@ def event_tip(env: dict[str, str]) -> str | None:
     return None
 
 
-def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
-         now: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep,
-         log: Callable[[str], None] = print, pushed: str | None = None) -> str | None:
-    """Dispatch the base tier at the tip when it is due; returns the sha it asked for, or None.
-    PUSHED is the push event's own sha (event_tip); the tip is read from the branch ref only without it."""
-    firsts = base_tier_runs(api, repo)
-    last_sha, last_at = max(firsts.items(), key=lambda item: item[1]) if firsts else (None, None)
-    if last_at is not None and (wait := last_at + window - now()) > 0:
-        wait = min(wait, window)
-        log(f"the last base tier run ({last_sha[:12]}) started {int(window - wait)} s ago; "
-            f"waiting {int(wait)} s for the window to open")
-        sleep(wait)
-        seen_at = last_at
-        firsts = base_tier_runs(api, repo)  # what landed while it waited (a hand dispatch)
-        last_sha, last_at = max(firsts.items(), key=lambda item: item[1])
-        # A hand dispatch may have started during our sleep. It owns a fresh
-        # window, so the older run's deadline must not buy another Mac tier.
-        # The next queued kick will handle pushes made after that dispatch.
-        # Only a run created after the one seen before the sleep counts: the
-        # local clock may be behind GitHub's created_at (skew), so comparing
-        # the run seen before the sleep against now() would skip every kick.
-        if last_at > seen_at:
-            log(f"a newer base tier run ({last_sha[:12]}) started during the wait; "
-                "leaving its full window to the next kick")
-            # It still supersedes the older runs no Mac has started; with no
-            # later push, no other kick would cancel them.
-            cancel_superseded(api, repo, last_sha, log)
-            return None
-    # A push kick takes its own event's sha as the tip instead of reading the ref (a REST call on the
-    # repository's shared token quota; 2026-11-10 kicks died on it with HTTP 403). After the wait the
-    # branch may be past PUSHED, and that stays correct: a newer push's kick is pending behind this one
-    # in the concurrency group (the newest replaces older pending ones), so it judges the newer commits
-    # with its own sha. `tip in firsts` asks whether this push already has a run; relevant() compares
-    # the last run with this push (a push already behind the last run is covered: "behind"); the
-    # dispatch takes the branch ref, so its run is titled with the tip at dispatch time, which
-    # cancel_superseded() keeps as the newest listed run, as it keeps NEWEST (PUSHED).
-    tip = pushed or (api.get(f"repos/{repo}/git/ref/heads/{BRANCH}").get("object") or {}).get("sha") or ""
+def newest(firsts: dict[str, float]) -> tuple[str | None, float | None]:
+    """The newest base tier run's sha and when it was created, or (None, None)."""
+    return max(firsts.items(), key=lambda item: item[1]) if firsts else (None, None)
+
+
+def branch_tip(api: Api, repo: str) -> str:
+    tip = (api.get(f"repos/{repo}/git/ref/heads/{BRANCH}").get("object") or {}).get("sha") or ""
     if not SHA.match(tip):
         raise RuntimeError(f"could not read the {BRANCH} tip")
-    if tip in firsts:
-        log(f"{BRANCH} {tip[:12]} already has a base tier run; nothing to dispatch")
-        cancel_superseded(api, repo, tip, log)
-        return None
-    if last_sha is not None:
-        due, why = relevant(api, repo, last_sha, tip, patterns)
-        log(why)
-        if not due:
+    return tip
+
+
+class PastDeadline(RuntimeError):
+    """The window (or the dispatch) would end past the job's deadline; one line saying so."""
+
+
+class DispatchUnknown(RuntimeError):
+    """The dispatch POST got no full answer within the client's request bound (RequestTimeout). GitHub
+    may have taken it. The kick settled and cancelled as after a 204, then raises this one line: the
+    dispatch is not reported as made."""
+
+
+def kick(api: Api, repo: str, patterns: list[str], *, window: float = WINDOW_S,
+         now: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep,
+         log: Callable[[str], None] = print, pushed: str | None = None,
+         deadline: Deadline | None = None) -> str | None:
+    """Dispatch the base tier at the tip when it is due; returns the sha it asked for, or None.
+    PUSHED is the push event's own sha (event_tip); the tip is read from the branch ref only without it.
+    NOW is the wall clock (it is compared with GitHub's created_at); DEADLINE is the job's one deadline,
+    shared with the client's quota retries. A window that ends too late for the dispatch to follow it
+    inside DEADLINE raises PastDeadline before any sleep, and nothing is dispatched. After any wait (the
+    window, or a quota wait inside a read) and before the dispatch, the run history is read again; a run
+    that started meanwhile opens a fresh window, which this kick waits out (deadline permitting) unless
+    that run already covers the push. Nothing is ever dispatched inside a base tier run's window."""
+    firsts = base_tier_runs(api, repo)
+    last_sha, last_at = newest(firsts)
+
+    def covered() -> bool:
+        """Whether the newest base tier run already covers this push; when it does, the runs it supersedes
+        are cancelled. Asked before every PastDeadline, so a kick with nothing left to dispatch never ends
+        red on the deadline: a run covering the push may first show in any read, the first one too, whose
+        own quota wait it started during (Codex review of #40471)."""
+        tip = pushed or branch_tip(api, repo)
+        if tip not in firsts and (last_sha is None or relevant(api, repo, last_sha, tip, patterns)[0]):
+            return False
+        keep = tip if tip in firsts else last_sha
+        log(f"the base tier run at {keep[:12]} covers {tip[:12]}; nothing to dispatch")
+        cancel_superseded(api, repo, keep, log)
+        return True
+
+    waited_out = None  # the run whose window this kick has already slept out
+    newer = False  # whether LAST is a run that started while this kick waited
+    while True:
+        decided = False
+        if newer:
+            # A base tier run started during a wait (the window's, or a quota wait inside any read; Codex
+            # review of #40369: a manual run 300 s into a 601 s quota wait got a second dispatch only
+            # 301 s after it). It owns a fresh window, and this kick never dispatches inside it. When it
+            # already covers this push there is nothing left to do; the older runs no Mac has started are
+            # still superseded, and with no later push no other kick would cancel them.
+            log(f"a newer base tier run ({last_sha[:12]}) started during the wait")
+            tip = pushed or branch_tip(api, repo)
+            if tip in firsts or not relevant(api, repo, last_sha, tip, patterns)[0]:
+                log(f"it covers {tip[:12]}; leaving its full window to the next kick")
+                cancel_superseded(api, repo, last_sha, log)
+                return None
+            newer = False
+        # Only a run created after the one already waited out counts again: the local clock may be behind
+        # GitHub's created_at (skew), so re-reading the same run's window after the wait would skip every kick.
+        if last_at is not None and last_at != waited_out and (wait := last_at + window - now()) > 0:
+            wait = min(wait, window)
+            if deadline is not None and wait + AFTER_WINDOW_S > (left := deadline.left()):
+                if covered():
+                    return None
+                raise PastDeadline(f"the window opens in {int(wait)} s but this job has {max(0, int(left))} s left "
+                                   f"before its deadline (it needs {AFTER_WINDOW_S} s after the window); "
+                                   f"not dispatching; the next push's kick dispatches at a tip that contains "
+                                   f"{(pushed or 'this push')[:12]}")
+            log(f"the last base tier run ({last_sha[:12]}) started {int(window - wait)} s ago; "
+                f"waiting {int(wait)} s for the window to open")
+            sleep(wait)
+            waited_out = last_at
+        else:
+            # A push kick takes its own event's sha as the tip instead of reading the ref (a REST call on
+            # the repository's shared token quota; 2026-11-10 kicks died on it with HTTP 403). After the
+            # wait the branch may be past PUSHED, and that stays correct: a newer push's kick is pending
+            # behind this one in the concurrency group (the newest replaces older pending ones), so it
+            # judges the newer commits with its own sha. `tip in firsts` asks whether this push already
+            # has a run; relevant() compares the last run with this push (a push already behind the last
+            # run is covered: "behind"); the dispatch takes the branch ref, so its run is titled with the
+            # tip at dispatch time, which cancel_superseded() keeps as the newest listed run, as it keeps
+            # NEWEST (PUSHED).
+            tip = pushed or branch_tip(api, repo)
+            if tip in firsts:
+                log(f"{BRANCH} {tip[:12]} already has a base tier run; nothing to dispatch")
+                cancel_superseded(api, repo, tip, log)
+                return None
+            if last_sha is not None:
+                due, why = relevant(api, repo, last_sha, tip, patterns)
+                log(why)
+                if not due:
+                    return None
+            decided = True
+        # After a wait, and before every dispatch, the history is read again: the reads above may each have
+        # waited out a spent quota, and a run may have started meanwhile. The listing's GET returns after
+        # any quota wait of its own, so what it shows is current.
+        seen_at = last_at
+        firsts = base_tier_runs(api, repo)
+        last_sha, last_at = newest(firsts)
+        if last_at is not None and (seen_at is None or last_at > seen_at):
+            newer = True
+            continue
+        if decided:
+            break
+    # The settle is reserved before the dispatch, never skipped after it (Codex review of #40471): a
+    # dispatch with no settle frees the kick's concurrency slot before GitHub lists the new run, and the
+    # next kick, seconds later, finds no run at the tip and dispatches the same Mac work again.
+    if deadline is not None and deadline.left() < DISPATCH_RESERVE_S:
+        if covered():
             return None
-    status = api.post(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches",
-                      {"ref": f"refs/heads/{BRANCH}", "inputs": {"base_tier": "true"}})
-    if status != 204:
-        raise RuntimeError(f"the base tier dispatch was refused (HTTP {status})")
-    log(f"dispatched the base tier on {BRANCH} at {tip[:12]}")
+        raise PastDeadline(f"{max(0, int(deadline.left()))} s left before this job's deadline, less than the "
+                           f"{DISPATCH_RESERVE_S} s a dispatch needs (its POST, then the {SETTLE_S} s settle); "
+                           f"not dispatching {tip[:12]}; the next push's kick dispatches at a tip that contains it")
+    unknown = None
+    try:
+        status = api.post(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches",
+                          {"ref": f"refs/heads/{BRANCH}", "inputs": {"base_tier": "true"}})
+    except TimeoutError as error:
+        # The client bounds the whole POST (REQUEST_TIMEOUT_S, inside DISPATCH_RESERVE_S), but past the
+        # bound GitHub may still have taken it: the answer, not the request, may be what was lost. So it
+        # counts as dispatched, unknown: the settle and the cancels run as after a 204 (the cancels read
+        # only what GitHub lists, so they are right either way), it is never posted again (that could be
+        # the same Mac work twice; the next push's kick dispatches if it was lost), and the kick then
+        # fails with one line instead of reporting a dispatch.
+        unknown = (f"the base tier dispatch at {tip[:12]} got no answer ({error}); GitHub may or may not "
+                   f"have taken it; settled and cancelled as after one")
+    else:
+        if status != 204:
+            raise RuntimeError(f"the base tier dispatch was refused (HTTP {status})")
+        log(f"dispatched the base tier on {BRANCH} at {tip[:12]}")
     sleep(SETTLE_S)
     cancel_superseded(api, repo, tip, log)
+    if unknown:
+        raise DispatchUnknown(unknown)
     return tip
 
 
@@ -336,13 +448,20 @@ def main(argv: list[str] | None = None) -> int:
         print("error: GH_TOKEN is not set", file=sys.stderr)
         return 2
     patterns = push_paths(args.workflow_file.read_text(encoding="utf-8")) if args.workflow_file.is_file() else []
-    deadline = STARTED + float(os.environ.get("BASE_TIER_API_DEADLINE_S") or API_DEADLINE_S)
+    # The job's one deadline, from when this process started; every wait below reads what is left of it.
+    deadline = Deadline(JOB_TIMEOUT_S - MARGIN_S - (time.monotonic() - STARTED))
     try:
         kick(QuotaGitHub(token, deadline=deadline), args.repo, patterns, window=max(0.0, args.window),
-             pushed=event_tip(dict(os.environ)))
+             pushed=event_tip(dict(os.environ)), deadline=deadline)
     except QuotaExhausted as error:
         # One line, no traceback: the quota is another workflow's spend, not a bug here.
         print(f"error: the base tier kick could not reach GitHub: {error}", file=sys.stderr)
+        return 1
+    except PastDeadline as error:
+        print(f"error: the base tier kick ran out of job time: {error}", file=sys.stderr)
+        return 1
+    except DispatchUnknown as error:
+        print(f"error: {error}", file=sys.stderr)
         return 1
     return 0
 

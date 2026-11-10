@@ -37,7 +37,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 - `window`: 138
 - `workspace`: 193
-- `pane`: 134
+- `pane`: 137
 - `screen`: 65
 - `tab`: 112
 - `terminal`: 38
@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 30
 - `settings`: 154
 
-## Counts (1444 actions)
+## Counts (1447 actions)
 
-Palette 1386, CLI verbs 858, right-click 636, MCP tools 774.
+Palette 1389, CLI verbs 861, right-click 639, MCP tools 777.
 
 ## Menus
 
@@ -89,6 +89,7 @@ Palette 1386, CLI verbs 858, right-click 636, MCP tools 774.
 - **priorityRow**: sidebar.priority.markRead sidebar.priority.togglePin sidebar.priority.snooze | agentPane.archiveChat
 - **joinedMachine**: machine.joined.check machine.joined.rotate | machine.joined.revoke
 - **tabStrip**: newTab.default reopenClosedBrowserPanel bookmark.addAllTabs pane.moveToNewWorkspace | tabs.verticalTabs.toggle tabs.verticalTabs.allWorkspaces tabs.verticalTabs.collapse tabs.verticalTabs.expandOnHover | palette.openTaskManager
+- **divider**: divider.insertNew[choices] | divider.hide divider.show
 
 ## Exemptions: palette
 
