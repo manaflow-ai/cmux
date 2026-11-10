@@ -724,8 +724,11 @@ impl Mux {
     }
 
     /// The journal followers and what keeps the rows left out at rest
-    /// (`server-stats`, section `journal_followers`). Memory only: two short
-    /// locks, no registry read.
+    /// (`server-stats`, section `journal_followers`). Memory only, no
+    /// registry read. Two locks: the follower table (short), and the cached
+    /// journal hook answer, which a journal hook change holds through its
+    /// commit and the first report after a start holds through its read of
+    /// the hooks, so this call can wait behind one of them.
     pub fn journal_followers_stats(&self) -> JournalFollowersSnapshot {
         let journal_hook_keeps_rows = *self
             .agent_hooks_at_rest

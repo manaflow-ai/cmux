@@ -795,7 +795,13 @@ became ready, in which every report is a row for a follower of the last run.
 `journal_hook_keeps_rows` is true while an enabled journal hook's kind filter
 matches such a row, and `null` until the first report after the daemon
 started or the hooks changed reads them. `hook_rows_kept` and
-`report_rows_kept` give the result. The section reads memory only.
+`report_rows_kept` give the result. `report_rows_kept` is about the
+`agent.report` row of a plugin report; the plugin's own row is also kept
+while a follower is sent its kind at the report's sensitivity (`public` when
+the report names none). The section reads memory only, never the registry.
+It takes the lock of the cached journal hook answer, so it can wait while a
+journal hook change commits or while the first report after a start reads
+the hooks.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
