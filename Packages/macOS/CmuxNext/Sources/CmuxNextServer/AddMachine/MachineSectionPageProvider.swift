@@ -12,7 +12,7 @@ public extension PageDescriptor {
 
 /// Serves the Machines section page's `cmux.machines.*` ops from the machine registry, each
 /// machine's last check, the person's hub-joined machines and the section's layout tunable:
-/// - `snapshot` → `{rows, style, busy, failed, openMenu?}` (webviews/src/pages/machines/types.ts);
+/// - `snapshot` → `{rows, style, busy, failed, openMenu?, cloudTeam?}` (webviews/src/pages/machines/types.ts);
 /// - stream `changes` → the whole snapshot each time it changes, only while the section shows: a
 ///   hidden section observes nothing but whether it shows, and the newest snapshot arrives when it
 ///   shows again;
@@ -49,11 +49,16 @@ public final class MachineSectionPageProvider: PageProvider {
         var present: @MainActor (NSMenu, CGPoint) async -> Void
         /// The registry's rows of a row's menu (`row`) or a joined machine's (`joined`); nil: none.
         var menu: @MainActor (_ kind: String, _ row: MachineSectionRow) -> NSMenu?
+        /// The team the Cloud machines belong to (the active team): its name and whether it is the
+        /// person's own, named on the Cloud header; nil signed out or before membership loads.
+        var cloudTeam: @MainActor () -> (name: String, personal: Bool)?
 
         public init(rows: @escaping @MainActor () -> [MachineSectionRow], style: @escaping @MainActor () -> MachineSectionStyle,
                     joined: @escaping @MainActor () -> JoinedMachineStore?, newWorkspace: @escaping @MainActor (String) -> Bool,
                     addMachine: @escaping @MainActor () -> Bool, present: @escaping @MainActor (NSMenu, CGPoint) async -> Void,
-                    menu: @escaping @MainActor (String, MachineSectionRow) -> NSMenu?) {
+                    menu: @escaping @MainActor (String, MachineSectionRow) -> NSMenu?,
+                    cloudTeam: @escaping @MainActor () -> (name: String, personal: Bool)? = { nil }) {
+            self.cloudTeam = cloudTeam
             self.rows = rows
             self.style = style
             self.joined = joined
@@ -178,6 +183,9 @@ public final class MachineSectionPageProvider: PageProvider {
             "failed": .object((joined?.failed ?? [:]).mapValues { .string($0.rawValue) }),
         ]
         if let open = joined?.openMenu { reply["openMenu"] = .string(open) }
+        if let team = dependencies.cloudTeam() {
+            reply["cloudTeam"] = .object(["name": .string(team.name), "personal": .bool(team.personal)])
+        }
         return .object(reply)
     }
 

@@ -125,7 +125,8 @@ struct PaletteArgumentFlow {
         let pinned = Set(suggestions.pinned.map(\.value))
         let known = known.filter { !pinned.contains($0.value) }
         let options = (suggestions.pinned + known).map { suggestion in
-            PaletteTargetOption(id: suggestion.value, title: suggestion.title, symbol: descriptor.symbol,
+            PaletteTargetOption(id: suggestion.value, title: suggestion.title, subtitle: suggestion.subtitle,
+                                symbol: suggestion.symbol ?? descriptor.symbol,
                                 swatches: swatches?(suggestions.source, suggestion.value) ?? [])
         }
         var extra: [PaletteItem] = []
@@ -218,11 +219,12 @@ struct PaletteArgumentFlow {
             item.ball = PaletteGroupColor.ball(action: descriptor.id, argument: argument.name, value: option.id)
             return item
         }
-        // The value in effect (the current team or theme) reads "Current" and is the row the
-        // step opens on, as in the settings pickers.
+        // The value in effect (the current team or theme) carries the checkmark and is the row the
+        // step opens on, as in the settings pickers and the account menu (Leo, 2026-11-09, of a team
+        // list whose active row said only "Current": "what is this?").
         let current = currentValue(of: argument, collected: collected).map { "option:\($0)" }
         if let current, let index = items.firstIndex(where: { $0.id == current }) {
-            items[index].accessory = PaletteStrings.current
+            items[index].accessory = PaletteStrings.chosenMark
         }
         items.insert(contentsOf: extra, at: min(pinnedCount ?? items.count, items.count))
         var page = PalettePageSpec(

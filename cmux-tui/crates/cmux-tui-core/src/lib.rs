@@ -43,6 +43,7 @@ mod browser_profile_ops;
 mod browser_site_engines;
 pub mod diagnostics;
 mod event_bus;
+pub mod feed_client;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
@@ -217,6 +218,7 @@ pub use surface::{
     TerminalPointerSnapshot,
 };
 pub use surface::{apply_terminal_color_overrides, default_child_term};
+pub use terminal_title::{TabTitle, TitleActivity};
 pub use workspace_registry::{
     Actor, EndedTerminalState, FrontendProjection, JournalAppendCommit, JournalAuthority,
     JournalCheckpoint, JournalClass, JournalContentRef, JournalEventSchema,
