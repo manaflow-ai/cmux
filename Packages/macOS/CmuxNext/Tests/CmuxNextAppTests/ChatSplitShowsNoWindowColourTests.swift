@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextSettings
 @testable import CmuxNextTabs
 import CmuxNextTestSupport
 import Foundation
@@ -16,6 +17,12 @@ import Testing
 /// resized page's old content on the page's own ground until the new frame comes; so does a pane here: in each frame
 /// of the split, the part of the old pane its held chat does not cover shows the chat's own ground, and so does the
 /// new pane's rect.
+///
+/// The held chat has its tabs with it (`tabs.barPosition` bottom: the strip is at the chat's bottom edge, in the middle
+/// of the pane that the split still halves; vertical tabs: the list is at its leading edge). The ground is measured from
+/// where the chat is, not from the pane's edges (review of #40665): below a bottom strip the pane shows the chat's
+/// ground down to its own bottom edge, and the strip and the list show what they show at rest, never the chat's ground
+/// behind the tabs.
 ///
 /// Driven as the layout drives a spring (the rest size, the rest offset, the spring flag, then a frame per display
 /// frame), on real panes (`PaneContentView` with its strip, showing an `AgentPaneView`), and read from the pixels of
@@ -55,12 +62,15 @@ struct ChatSplitShowsNoWindowColourTests {
         return (0..<3).map { Int(data[offset + $0]) }
     }
 
-    /// One pane's content as the app builds it (its tab strip over its content area) showing a chat whose own ground
-    /// is ``chatGround``. The page has not drawn: the chat shows its ground, as a pane does until its page's frame.
-    private func chatPane(page: URL) throws -> (content: PaneContentView, chat: AgentPaneView) {
+    /// One pane's content as the app builds it (its tab strip, at `bar`, or its vertical tab list, beside its content
+    /// area) showing a chat whose own ground is ``chatGround``. The page has not drawn: the chat shows its ground, as a
+    /// pane does until its page's frame.
+    private func chatPane(page: URL, bar: TabBarPosition, vertical: PaneVerticalTabs?) throws -> (content: PaneContentView, chat: AgentPaneView) {
         let reveal = LaunchReveal()
         reveal.markAllReady()
         let content = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("chat"), title: "chat")]), reveal: reveal)
+        content.barPosition = bar
+        if let vertical { content.showStrip(hidden: false, vertical: vertical) }
         content.paneScope.setSurfaceBackgrounds(SurfaceBackgrounds(overrides: [.agentPane: SurfaceBackground(color: Self.chatGround, opacity: 1)]))
         let chat = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(page)))
         return (content, chat)
@@ -72,8 +82,12 @@ struct ChatSplitShowsNoWindowColourTests {
         ys.flatMap { y in [0.25, 0.75].map { CGPoint(x: (width * $0).rounded(), y: y.rounded()) } }
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func aSplitOfAChatPaneShowsNoWindowColourInEitherPane() throws {
+    /// Split Down on a pane that shows a chat, a frame per display frame of the spring, then the landing: each point
+    /// inside a pane that did not show what it must. A point of a pane's content area and of the part of the old pane
+    /// that its held chat does not cover must show the chat's own ground (not only "not the window colour": another
+    /// colour there is a hole too). A point of the chat's own tabs (its strip, its vertical list) must show what it
+    /// showed at rest.
+    private func holesInASplitDown(bar: TabBarPosition, vertical: PaneVerticalTabs? = nil) throws -> [String] {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appending(path: "chat-split-ground-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -92,9 +106,11 @@ struct ChatSplitShowsNoWindowColourTests {
         root.addSubview(screen)
         window.contentView = root
         window.orderFrontRegardless()
+        let ground = Self.rgb(Self.chatGround)
 
         // The pane that shows a chat, at rest in the whole screen.
-        let old = try chatPane(page: page)
+        let old = try chatPane(page: page, bar: bar, vertical: vertical)
+        defer { old.chat.close() }
         let oldHost = PaneHostView(pane: "old", content: old.content, holdsContentInMotion: { true })
         oldHost.frame = CGRect(origin: .zero, size: size)
         screen.addSubview(oldHost)
@@ -102,15 +118,31 @@ struct ChatSplitShowsNoWindowColourTests {
         old.chat.applyTheme(force: true)
         root.layoutSubtreeIfNeeded()
         try #require(old.chat.superview === old.content.contentHost && !old.chat.isHiddenOrHasHiddenAncestor, "fixture: the pane does not show its chat")
-        let header = oldHost.headerHeight
-        try #require(header < 100, "fixture: the pane's header is \(header) pt high")
+        let (header, footer) = (oldHost.headerHeight, oldHost.footerHeight)
+        try #require(header < 100 && footer < 100, "fixture: the pane's header is \(header) pt high and its footer \(footer) pt")
+        // The width its vertical tab list takes at its leading edge; 0 with a tab strip.
+        let list = old.content.contentHost.frame.minX
+        if vertical != nil {
+            try #require(list > 0 && list < 150, "fixture: the vertical tab list takes \(list) pt")
+        } else {
+            try #require(list == 0 && (bar == .top ? header > 0 && footer == 0 : header == 0 && footer > 0),
+                         "fixture: tabs at the \(bar): header \(header) pt, footer \(footer) pt, list \(list) pt")
+        }
         let atRest = try Self.pixel(of: root, at: CGPoint(x: 200, y: header + 150))
-        try #require(atRest == Self.rgb(Self.chatGround), "fixture: the chat pane at rest shows \(atRest), not its own ground \(Self.rgb(Self.chatGround))")
+        try #require(atRest == ground, "fixture: the chat pane at rest shows \(atRest), not its own ground \(ground)")
 
         // Split Down: the old pane rests in the top half, the new pane (a chat too) in the bottom half, 1 pt apart.
         let oldRest = CGRect(x: 0, y: 0, width: size.width, height: 299)
         let newRest = CGRect(x: 0, y: 300, width: size.width, height: 300)
-        let new = try chatPane(page: page)
+
+        // A point of the chat's own tabs where no tab draws, at rest, and what it shows there: its strip's row (the
+        // strip is at the chat's top or bottom edge), or its vertical list's column below the list's rows.
+        let tabsAtRest = vertical != nil ? CGPoint(x: list / 2, y: oldRest.height - 20)
+            : CGPoint(x: 600, y: bar == .top ? header / 2 : size.height - footer / 2)
+        let tabsShownAtRest = try Self.pixel(of: root, at: tabsAtRest)
+
+        let new = try chatPane(page: page, bar: bar, vertical: vertical)
+        defer { new.chat.close() }
         let newHost = PaneHostView(pane: "new", content: new.content, holdsContentInMotion: { true })
         newHost.frame = CGRect(x: 0, y: size.height, width: size.width, height: 0)
         screen.addSubview(newHost)
@@ -134,30 +166,68 @@ struct ChatSplitShowsNoWindowColourTests {
             let newFrame = CGRect(x: 0, y: divider, width: size.width, height: size.height - divider)
             PaneHeldContentLandingTests.present(oldHost, at: oldFrame, rest: oldRest)
             PaneHeldContentLandingTests.present(newHost, at: newFrame, rest: newRest)
-            // The old pane under its header: in its chat, in the middle of what the chat does not cover, at its bottom edge.
-            var ys: [CGFloat] = [header + 150, oldRest.height - 12]
+            // The old pane's chat (held at its rest height at the pane's top edge): under its header, and above its footer.
+            var ys: [CGFloat] = [header + 150, oldRest.height - footer - 12]
+            // The chat's own tabs, where the held chat has them: at its edges, not at the pane's.
+            var tabs: [CGPoint] = vertical != nil ? [tabsAtRest]
+                : [CGPoint(x: 600, y: bar == .top ? header / 2 : oldRest.height - footer / 2)]
             if oldFrame.height > oldRest.height + 8 {
                 bands += 1
+                // What the chat does not cover: in its middle, and at the pane's bottom edge.
                 ys += [(oldRest.height + oldFrame.height) / 2, oldFrame.maxY - 4]
+                if vertical != nil { tabs.append(CGPoint(x: list / 2, y: (oldRest.height + oldFrame.height) / 2)) }
             }
-            // The new pane under its header (its content rides its top edge, so its strip shows from its first frames).
-            if newFrame.height >= header + 170 { ys += [newFrame.minY + header + 150, newFrame.maxY - 8] }
+            // The new pane's chat (it rides its top edge at its rest height, so a strip on top shows from its first
+            // frames and a strip at the bottom comes into the pane at the end).
+            if newFrame.height >= header + 170 {
+                ys.append(newFrame.minY + header + 150)
+                if newFrame.height - 8 < newRest.height - footer - 4 { ys.append(newFrame.maxY - 8) }
+            }
             for point in Self.points(width: size.width, ys: ys) {
                 let shown = try Self.pixel(of: root, at: point)
-                if shown == Self.rgb(Self.window) {
-                    holes.append("divider \(Int(divider)): (\(Int(point.x)), \(Int(point.y))) in the \(point.y < divider ? "old" : "new") pane")
+                if shown != ground {
+                    holes.append("divider \(Int(divider)): (\(Int(point.x)), \(Int(point.y))) in the \(point.y < divider ? "old" : "new") pane shows \(shown), not the chat's ground")
+                }
+            }
+            for point in tabs {
+                let shown = try Self.pixel(of: root, at: point)
+                if shown != tabsShownAtRest {
+                    holes.append("divider \(Int(divider)): (\(Int(point.x)), \(Int(point.y))) in the old pane's tabs shows \(shown), not \(tabsShownAtRest) as at rest")
                 }
             }
         }
         try #require(bands >= 4, "the test no longer reaches the frames in which the old pane is taller than its held chat")
-        #expect(holes.isEmpty, "the window colour \(Self.rgb(Self.window)) showed inside a pane during the split, at \(holes.count) points: \(holes)")
 
         // The landing: both panes at rest, the content let go.
         oldHost.isOnLayoutSpring = false
         newHost.isOnLayoutSpring = false
-        for y in [header + 150, oldRest.height - 12, newRest.minY + header + 150, newRest.maxY - 8] as [CGFloat] {
+        for y in [header + 150, oldRest.height - footer - 12, newRest.minY + header + 150, newRest.maxY - footer - 8] as [CGFloat] {
             let shown = try Self.pixel(of: root, at: CGPoint(x: 200, y: y))
-            #expect(shown != Self.rgb(Self.window), "at rest after the split, (200, \(Int(y))) shows the window colour \(shown)")
+            if shown != ground { holes.append("at rest after the split: (200, \(Int(y))) shows \(shown), not the chat's ground") }
         }
+        return holes
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aSplitOfAChatPaneShowsNoWindowColourInEitherPane() throws {
+        let holes = try holesInASplitDown(bar: .top)
+        #expect(holes.isEmpty, "a split of a chat pane showed, inside a pane, something that is not the chat's ground \(Self.rgb(Self.chatGround)) (the window colour is \(Self.rgb(Self.window))), at \(holes.count) points: \(holes)")
+    }
+
+    /// `tabs.barPosition` bottom: the held chat has its strip at its own bottom edge. Below that strip the old pane
+    /// shows the chat's ground down to its bottom edge (no band of the window colour there), and the strip's row shows
+    /// what it shows at rest (not the chat's ground behind the tabs).
+    @Test(.timeLimit(.minutes(1)))
+    func aSplitOfAChatPaneWithItsTabsAtTheBottomShowsNoWindowColourInEitherPane() throws {
+        let holes = try holesInASplitDown(bar: .bottom)
+        #expect(holes.isEmpty, "with the tabs at the bottom, a split of a chat pane showed \(holes.count) wrong points (the chat's ground is \(Self.rgb(Self.chatGround)), the window colour \(Self.rgb(Self.window))): \(holes)")
+    }
+
+    /// Vertical tabs: the list is at the held chat's leading edge and is clear. It shows what it shows at rest, in the
+    /// chat's rows and below them, never the chat's ground behind it.
+    @Test(.timeLimit(.minutes(1)))
+    func aSplitOfAChatPaneWithVerticalTabsKeepsItsListClear() throws {
+        let holes = try holesInASplitDown(bar: .top, vertical: PaneVerticalTabs(collapsed: true))
+        #expect(holes.isEmpty, "with vertical tabs, a split of a chat pane showed \(holes.count) wrong points (the chat's ground is \(Self.rgb(Self.chatGround)), the window colour \(Self.rgb(Self.window))): \(holes)")
     }
 }
