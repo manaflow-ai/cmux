@@ -172,6 +172,8 @@ pub fn agent_mint(socket: std::path::PathBuf) -> Mint {
 enum Sent {
     Reply(String, String),
     Unauthorized,
+    /// A 404 to a request that named an MCP session: the upstream ended it; initialize again.
+    SessionGone,
 }
 
 pub struct Bridge {
@@ -264,6 +266,9 @@ impl Bridge {
         if status == 401 {
             return Ok((Sent::Unauthorized, None));
         }
+        if status == 404 && held.session.is_some() {
+            return Ok((Sent::SessionGone, None));
+        }
         if response.status().is_redirection() {
             return Err("GitHub's MCP server redirected; cmux does not follow it".into());
         }
@@ -319,7 +324,7 @@ impl Bridge {
         });
         let (sent, session) = self.post(key, &body, Some(&id)).await?;
         match sent {
-            Sent::Unauthorized => return Ok(false),
+            Sent::Unauthorized | Sent::SessionGone => return Ok(false),
             Sent::Reply(content_type, text) => {
                 let reply = reply_for(&content_type, &text, &id)
                     .ok_or("GitHub's MCP server sent no answer to initialize")?;
@@ -332,7 +337,7 @@ impl Bridge {
             held.session = session;
         }
         let note = json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
-        if let (Sent::Unauthorized, _) = self.post(key, &note, None).await? {
+        if let (Sent::Unauthorized | Sent::SessionGone, _) = self.post(key, &note, None).await? {
             return Ok(false);
         }
         if let Some(held) = self.held.get_mut(key) {
@@ -359,6 +364,14 @@ impl Bridge {
             }
             match self.post(&key, message, Some(&id)).await.map_err(Err)?.0 {
                 Sent::Unauthorized => continue,
+                Sent::SessionGone => {
+                    // The same token, a new session: the next pass initializes again.
+                    if let Some(held) = self.held.get_mut(&key) {
+                        held.session = None;
+                        held.ready = false;
+                    }
+                    continue;
+                }
                 Sent::Reply(content_type, text) => {
                     return reply_for(&content_type, &text, &id)
                         .ok_or_else(|| Err("GitHub's MCP server sent no answer".to_owned()));
