@@ -19,7 +19,7 @@
       "export": "renderPullRequests",
       "title": { "en": "Pull Requests" },
       "symbol": "arrow.triangle.pull",
-      "options": { "defaultRegion": "middle", "maxRows": 12 }
+      "options": { "defaultRegion": "top", "maxRows": 12 }
     }
   },
   "scopes": {

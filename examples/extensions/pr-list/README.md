@@ -63,6 +63,6 @@ Tests: `cmux-tui/crates/cmux-app-host/js/test/examples.test.ts` mounts it in the
 ## Placing the section
 
 A section starts in its `defaultRegion`; `cmux apps place 'example/pr-list#cmux.section/1' --region
-top|middle|bottom` moves it. The person drags it by its header among the sections of the top and
-bottom regions, and between those two regions. In the middle region it is not yet draggable
-around the workspace list.
+top|middle|bottom` moves it. The person drags it by its header up and down among the sections of
+the top and bottom regions, native ones included, and between those two regions; that is why this
+example starts in `top`. In the middle region (around the workspace list) a section does not drag yet.
