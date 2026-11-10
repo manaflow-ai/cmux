@@ -1,4 +1,4 @@
-public import CmuxAuthRuntime
+import CmuxAuthRuntime
 
 /// Why a deletion did not finish, as the person reads it.
 public enum AccountDeletionFailure: Equatable, Sendable {
