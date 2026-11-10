@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42899836099",
+  "recorded_at": "2026-11-10T21:12:26Z",
+  "reason": "cmux-tui 1bf420804085 changes the image's cmux-tui (pinned a7a376e766bb)",
+  "dry_run": false,
+  "cmux_tui": "1bf420804085920f6cf48071702510119d247c10",
+  "fixes": [
+    {
+      "sha": "3a4bc5ff4583ddaf0083ba29b235d6751a1a7c63",
+      "mergedAt": "2026-11-10T20:37:05Z",
+      "subject": "cmux-tui: list-workspaces builds each child list of its tree one time (3 fewer deep copies of the answer) (#40708)"
+    },
+    {
+      "sha": "8cefd82cf77ad0f76ea7931acfe5ef8e79539aa7",
+      "mergedAt": "2026-11-10T20:30:28Z",
+      "subject": "Every kept terminal starts again after a relaunch: restarts take turns and a failed launch is tried again (#40646)"
+    },
+    {
+      "sha": "c9d49942e90700c7154c89c3e4f6dbcc91e9be1b",
+      "mergedAt": "2026-11-10T20:17:14Z",
+      "subject": "chore(next): base autofix at 00d620a0a2b2"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T21:12:26Z",
+    "snapshot_id": "sh-6869110fa75e41d3afd6bc32a84f7ecc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42899836099): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ef5aaeb7d230a32f849d10b8b764c538cc8a5723",
+    "image": "cloud-native-auto-1bf42080-42899836099-1",
+    "revision": "ci-42899836099-1",
+    "at": "2026-11-10T21:12:26Z"
+  },
+  "rolled_back": false
+}
