@@ -48,3 +48,10 @@ export const storeVmPlan = (sql: SqlStorage, vmPlan: string | null, at: number) 
   ensure(sql)
   sql.exec(`INSERT INTO cloud_vm_plan (id, vm_plan, checked_at) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET vm_plan = excluded.vm_plan, checked_at = excluded.checked_at WHERE excluded.checked_at >= cloud_vm_plan.checked_at`, vmPlan, at)
 }
+
+/** TeamDO's last copy of the team's grant: the grant (null = none), or undefined when it was never read here. */
+export const storedVmPlan = (sql: SqlStorage): string | null | undefined => {
+  ensure(sql)
+  const row = sql.exec<{ vm_plan: string | null }>(`SELECT vm_plan FROM cloud_vm_plan WHERE id = 1`).toArray()[0]
+  return row ? row.vm_plan : undefined
+}

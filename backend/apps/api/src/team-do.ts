@@ -753,7 +753,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return super.promptChannel(channel) || channel.startsWith("UserDO:")
   }
 
-  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")], pace: () => this.stackPace?.() ?? stackReadPace(this.env), lowPace: () => this.stackLowPace?.() ?? stackLowReadPace(this.env) }))
+  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")], pace: () => this.stackPace?.() ?? stackReadPace(this.env), lowPace: () => this.stackLowPace?.() ?? stackLowReadPace(this.env), stackUserOf: (user) => this.personalStackUser(user) }))
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean { return can(state, this.rows, principal.user, "team.resources") }
 }

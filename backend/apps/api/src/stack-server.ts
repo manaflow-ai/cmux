@@ -34,6 +34,11 @@ export interface StackServer {
   /** A user's operator Cloud grant (client_read_only_metadata.cmuxVmPlan, as metadata text), null when absent; `gone` for USER_NOT_FOUND. Cloud machine limits only. */
   getUserVmPlan(userId: string): Promise<{ readonly vm_plan: string | null } | { readonly gone: true }>
   /**
+   * Sets a user's operator Cloud grant (client_read_only_metadata.cmuxVmPlan), keeping the record's other
+   * read-only metadata; `user_gone` for USER_NOT_FOUND. Only a deleted team's grant carry writes it (team-grant-carry.ts).
+   */
+  setUserVmPlan(userId: string, vmPlan: string): Promise<"set" | "user_gone">
+  /**
    * Every member Stack lists for the team now ("team_gone" for TEAM_NOT_FOUND), with each member's
    * team permission ids (GET /team-permissions?team_id&recursive=true, so contained permissions
    * count; cx-3bi.4). A member without an entry there is read alone (user_id) once; zero permissions is
@@ -184,6 +189,16 @@ export const stackServer = (
     getUserVmPlan: async (userId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
       return isGone(r) ? { gone: true as const } : { vm_plan: readVmPlanOverride(r.client_read_only_metadata) }
+    },
+    setUserVmPlan: async (userId, vmPlan) => {
+      const path = `/users/${encodeURIComponent(userId)}`
+      const r = await lookup<{ client_read_only_metadata?: unknown }>(path, "user", ["USER_NOT_FOUND"])
+      if (isGone(r)) return "user_gone"
+      // The service replaces the whole object, so the other keys (cmuxPlan among them) are written back as read.
+      const meta = r.client_read_only_metadata
+      const kept = meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {}
+      await call("PATCH", path, { client_read_only_metadata: { ...kept, cmuxVmPlan: vmPlan } })
+      return "set"
     },
     listTeamMembers: async (teamId) => {
       const out: Array<{ user_id: string; display_name: string | null; permissions: ReadonlyArray<string>; anonymous: boolean }> = []

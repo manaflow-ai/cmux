@@ -6,6 +6,8 @@ import { stackRole } from "./domains/team-roles.ts"
 import type { TeamState } from "./domains/team.ts"
 import { userIdFor } from "./domains/user.ts"
 import { storePlan } from "./inference/plan.ts"
+import { storeVmPlan } from "./cloud-vm-plan.ts"
+import { carryGrantOnDelete } from "./team-grant-carry.ts"
 import type { StackMember, StackServer } from "./stack-server.ts"
 
 /**
@@ -54,6 +56,8 @@ export interface StackSyncDeps {
    * no urgent flag takes a token here first, then one of `pace`. Absent: no low cap.
    */
   readonly lowPace?: () => Promise<boolean>
+  /** A member's own sign-in service user id (UserDO.stackUserOf): a deleted team's grant goes to its owner (team-grant-carry.ts). Absent: nothing is carried. */
+  readonly stackUserOf?: (user: string) => Promise<string | null>
 }
 
 const SEEN_RETENTION_MS = 30 * 24 * 60 * 60_000
@@ -270,7 +274,11 @@ export class StackTeamSync {
     if (team !== null && ev.type === "team.deleted") return schedule(deps.sql, ev, attempt, Date.now()) ? "team_delete_pending" : "team_delete_unconfirmed"
     if (team === null) {
       // Only Stack's own team.deleted, confirmed by this read, deletes the team.
-      if (ev.type === "team.deleted") return commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, deleted: true }) ?? "team_deleted"
+      if (ev.type === "team.deleted") {
+        // The team's Cloud grant moves to its owner first (ask-7b9075082b); a failed write throws, so the delete waits and retries.
+        if (deps.stackUserOf) await carryGrantOnDelete({ sql: deps.sql, state: deps.state(), rows: deps.rows(), stack, stackUserOf: deps.stackUserOf, now: Date.now() }, ev.stack_team)
+        return commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, deleted: true }) ?? "team_deleted"
+      }
       return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"
     }
     // A cmux VM personal tenant is a private Stack team behind one personal owner: never a cmux team (team-vm-api-personal.ts).
@@ -299,6 +307,8 @@ export class StackTeamSync {
     // The team's paid plan for the model router (inference/plan.ts): web billing's write to the
     // team metadata sends team.updated, so this copy follows a purchase or a lapse at once.
     storePlan(deps.sql, team.plan, readAt)
+    // The team's operator Cloud grant too: the delete event names only the team, so this copy is what a delete carries (team-grant-carry.ts).
+    if (team.vm_plan !== undefined) storeVmPlan(deps.sql, team.vm_plan, readAt)
     // Stack sends no membership event for a team's creator or a sign-up personal team: a team event mirrors Stack's member list.
     if (listed !== undefined) return this.syncMembers(deps, listed, commit) ?? "team_mirrored"
     const user = userIdFor(deps.stackProjectId, ev.stack_user!)
