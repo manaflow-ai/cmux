@@ -93,8 +93,8 @@ order. The app's
 snapshot.get windows[].workspaces lists the order each window shows. In the
 cmux app's session, list also gives each connected Cloud machine's
 workspaces after this Mac's, marked origin cloud with machine_id (the vm-…
-id cloud new-workspace answers), machine_name and target machine:<id>;
---machine <vm-…|machine:vm-…|name> lists one Cloud machine's. --top-index
+id cloud new-workspace answers), machine_name and target vm:<id>;
+--machine <vm-…|vm:vm-…|name> lists one Cloud machine's. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
 icon (one emoji, an SF Symbol name, or a stored image:sha256-<hex> or

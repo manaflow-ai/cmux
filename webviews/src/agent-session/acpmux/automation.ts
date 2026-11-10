@@ -203,8 +203,9 @@ export async function newChat(
 }
 
 /// Sends `text` through the composer's own send, as typing it and pressing Return does (sendPrompt
-/// goes to `chat.send` and so never takes a Cloud start). `{sent: false}`: the composer kept the
-/// prompt, which a Cloud start does until its chat opens on the machine (read `cloudStart`).
+/// goes to `chat.send` and so never takes a Cloud start). A Cloud start takes the prompt as a local
+/// send does (`{sent: true}`) and runs until its chat opens on the machine (read `cloudStart`);
+/// `{sent: false}`: the composer kept the prompt (refused, or a start already out).
 export async function composeSend(host: AutomationHost, text: string) {
   if (!text.trim()) return { error: "empty prompt" };
   if (!host.compose) return { error: "the page has no composer" };

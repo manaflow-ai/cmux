@@ -1,4 +1,5 @@
 import type { CloudStartAnswer } from "./cloudRun";
+import { cloudPlanTeamRefusal, type CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { sliceWhole } from "../../ui/wholeChars";
@@ -40,6 +41,9 @@ export type CloudStartProgress = {
   message?: string;
   /// A stable host refusal code, used to attach recovery to the matching failure.
   code?: string;
+  /// A plan refusal in a team (`cloud_plan_required` with the host's teams): the card says "This team
+  /// has no Cloud plan", names the team and offers the person's own (cloudPlanTeams.ts).
+  planTeam?: CloudPlanTeamRefusal;
   /// The start waits on the person's browser sign-in (`cloud.signIn`): the card says so, not "starting".
   signingIn?: true;
   /// The agent the chat starts, by name ("Claude Code"), for the opening step.
@@ -69,6 +73,10 @@ export type CloudStartProgress = {
   /// This Mac's pane refused the start before it reached Cloud (a `transport.*` code: a folder that
   /// is not the tab's own, a Send without a gesture): no step ran, so the checklist marks none failed.
   refusedHere?: boolean;
+  /// The host has said nothing about this start for CLOUD_START_STALL_MS (no push, no answer) while
+  /// nothing waits on the person: the card says so and the composer takes input again
+  /// (cloudStartLocksComposer). It holds until the start ends, so the composer is never locked again.
+  stalled?: true;
 };
 
 /// What a start asks (AgentPaneCloudAsk): its first Claude login, the one-time login copy consent, Codex's
@@ -208,6 +216,8 @@ export function cloudStartPushed(
   if (!current || current.state !== "starting" || typeof push !== "object" || push === null) return current;
   const fields = push as Record<string, unknown>;
   if (fields.key !== current.key) return current;
+  // A stalled start stays stalled until it ends: the composer it gave back is never taken away
+  // again mid-typing; the steps still move.
   const next = { ...current };
   const step = CLOUD_START_STEPS.indexOf(fields.step as CloudStartStep);
   if (step >= 0 && step >= (current.step ? CLOUD_START_STEPS.indexOf(current.step) : -1))
@@ -414,9 +424,18 @@ export function cloudStartEnded(
   // The pane's own refusal (AgentPaneCloudStart: the folder check, the gesture) is worded by its
   // code, never the host's generic "The app refused the agent connection." (cloudRefusalText).
   const refusedHere = answer.code.startsWith("transport.") || REFUSED_HERE.has(answer.code);
+  // The team's spending cap or the member's own budget refused the machine's start (cmux-platform SpendCap.ts):
+  // the host passes the backend's words, which name it; the card says it in the person's language, with
+  // Run on This Mac (CloudStartView), since another try fails the same way until an admin raises it.
+  const spend = refusedHere ? undefined : spendRefusal(answer.code, answer.message);
+  if (spend) {
+    const { signingIn: _s, ask: _a, retryable: _r, ...rest } = current;
+    return { ...rest, state: "failed", code: spend, message: translate(SPEND_WORDS[spend]) };
+  }
   const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
   // A failed start waits on no sign-in (its card offers the sign in again instead) and asks nothing more.
-  const { signingIn: _signingIn, ask: _ask, ...ended } = current;
+  const { signingIn: _signingIn, ask: _ask, planTeam: _planTeam, stalled: _stalled, ...ended } = current;
+  const planTeam = answer.code === "cloud_plan_required" ? cloudPlanTeamRefusal(answer.details) : undefined;
   return {
     ...ended,
     state: "failed",
@@ -424,6 +443,7 @@ export function cloudStartEnded(
     ...(message ? { message } : {}),
     ...(refusedHere ? { refusedHere } : {}),
     ...(answer.retryable ? { retryable: true } : {}),
+    ...(planTeam ? { planTeam } : {}),
   };
 }
 
@@ -438,11 +458,32 @@ export function cloudRefusalText(code: string, hostWords?: string): string {
   if (code === "cloud_folder_home") return translate("cloudStartup.folderHome");
   if (code === "cloud_folder_secret")
     return translate("cloudStartup.folderSecret", { folder: line(hostWords, 120) ?? "~" });
+  if (code === "cloud_team_switching") return translate("cloudStart.planTeam.switching");
   if (code.startsWith("transport.")) return errorMessage({ code });
   // The attachment refusal's words are the host's own sentence; the others carry only their code.
   if (code === "cloud_attachments")
     return line(hostWords, 240) ?? translate("composer.offloadNotRun", { action: translate("composer.cloud") });
   return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+}
+
+/// A Cloud start the team's spending cap (`cloud.spend_cap.reached`) or the member's monthly budget
+/// (`cloud.member_budget.reached`) refused, read from the host's code or the backend's words it passes on
+/// ("this team has spent … of its … spending cap; an admin can raise it").
+const SPEND_CAP =
+  /\bcloud\.spend_cap\.reached\b|\bspend_cap_reached\b|\bspent [^;]*? of its [^;]*? spending cap\b|\breached its spending cap\b/i;
+const MEMBER_BUDGET =
+  /\bcloud\.member_budget\.reached\b|\bmember_budget_reached\b|\bspent [^;]*? of your [^;]*? monthly budget\b/i;
+export type SpendRefusalCode = "cloud_spend_cap" | "cloud_member_budget";
+const SPEND_WORDS = {
+  cloud_spend_cap: "cloudStart.spendCap",
+  cloud_member_budget: "cloudStart.memberBudget",
+} as const;
+
+export function spendRefusal(code: string, message?: string): SpendRefusalCode | undefined {
+  const words = `${code} ${message ?? ""}`;
+  if (SPEND_CAP.test(words)) return "cloud_spend_cap";
+  if (MEMBER_BUDGET.test(words)) return "cloud_member_budget";
+  return undefined;
 }
 
 /// The codes the pane refuses a Cloud start with before it reaches Cloud, besides `transport.*`
@@ -456,4 +497,51 @@ const REFUSED_HERE = new Set([
   "cloud_folder_missing",
   "cloud_folder_home",
   "cloud_folder_secret",
+  "cloud_team_switching",
 ]);
+
+/// How long a start may go with no word from the host (no progress push, no answer) before the card
+/// says it stalled and the composer takes input again. Nothing on the host bounds a whole start
+/// (CloudStartChat `reply`: a Codex sign-in broker, the approvals prep and a tab open's hand-off wait
+/// have no deadline, and each CLI step may take 30 minutes), so without this a start that never
+/// answers locked the composer for good (Leo, 2026-11-09: "I can't click into the composer at all").
+/// A folder copy pushes about 4 lines a second; a new machine's boot says nothing for up to its 180 s
+/// link wait (CloudStartSession.connectWait) after its create, so this is longer than that.
+export const CLOUD_START_STALL_MS = 5 * 60_000;
+
+/// The composer takes no input while a start is out (on success the host closes this tab with only
+/// the sent prompt), unless the start stalled: then it is the person's again.
+export function cloudStartLocksComposer(start: CloudStartProgress | undefined): boolean {
+  return start?.state === "starting" && start.stalled !== true;
+}
+
+/// Start `key` had no word from the host for CLOUD_START_STALL_MS: stalled, unless it waits on the
+/// person (a question in the card, a browser sign-in), already ended, or is another start.
+export function cloudStartStalled(
+  current: CloudStartProgress | undefined,
+  key: string,
+): CloudStartProgress | undefined {
+  if (!current || current.key !== key || !cloudStartMayStall(current)) return current;
+  return { ...current, stalled: true };
+}
+
+/// Whether `start` is out with nothing waiting on the person, so silence from the host counts.
+function cloudStartMayStall(start: CloudStartProgress): boolean {
+  return start.state === "starting" && !start.stalled && !start.ask && !start.signingIn;
+}
+
+/// Arms the stall timer for `start` as it is now: `stall(key)` runs once after `ms` with no newer
+/// state (each push makes a new `start`, and the caller disarms the old timer). Returns the disarm.
+export function watchCloudStartStall(
+  start: CloudStartProgress | undefined,
+  stall: (key: string) => void,
+  ms: number = CLOUD_START_STALL_MS,
+  schedule: (run: () => void, ms: number) => () => void = (run, after) => {
+    const timer = setTimeout(run, after);
+    return () => clearTimeout(timer);
+  },
+): () => void {
+  if (!start || !cloudStartMayStall(start)) return () => undefined;
+  const key = start.key;
+  return schedule(() => stall(key), ms);
+}

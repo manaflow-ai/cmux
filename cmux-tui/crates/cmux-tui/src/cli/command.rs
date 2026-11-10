@@ -193,7 +193,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
     }
     let mut selectors = Selectors::default();
     let plan = match scope {
-        "server" => parse_server(words, &mut tokens.flags)?,
+        "server" => parse_server(words, &mut tokens.flags, surface)?,
         "machine" => machine::parse(words, &mut selectors, &mut tokens.flags, surface)?,
         "session" => parse_session(words, &mut selectors, &mut tokens.flags)?,
         "client" => parse_client(words, &mut selectors, &mut tokens.flags)?,
@@ -234,7 +234,11 @@ fn parse_space(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageEr
     }
 }
 
-fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+fn parse_server(
+    words: &[String],
+    flags: &mut Flags,
+    surface: super::Surface,
+) -> Result<CommandPlan, UsageError> {
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
@@ -256,7 +260,9 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         }
         [action] => {
             let messages = &crate::localization::catalog().local_server;
+            let scope = if surface == super::Surface::Cmux { "daemon" } else { "server" };
             return Err(UsageError::new(messages.unknown_server_action(
+                scope,
                 action,
                 super::suggestion(
                     action,
