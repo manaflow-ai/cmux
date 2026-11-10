@@ -397,12 +397,45 @@ fn explains(original: &str) -> bool {
         && !original.starts_with("Claude is not signed in here")
 }
 
+/// Whether [`explain`] would explain `original` for `session_id`'s agent: a sign-in failure of a
+/// plain Claude Code agent acpmux started. A caller asks it before work only such a failure
+/// needs (`hub/turns.rs` asks the Cloud image whether cmux's gateway serves Claude).
+pub fn would_explain(session_id: &str, original: &str) -> bool {
+    explains(original) && spawned(session_id).is_some_and(|s| s.explains)
+}
+
+/// The words that say the sign-in card also offers cmux's gateway ([`compose_cloud`] with
+/// `gateway`): the web's `offersGateway` (cloudAgentLogin.ts) reads them, so the third choice
+/// shows only when the machine's team has the gateway.
+pub const GATEWAY_OFFER: &str = "Use cmux's gateway";
+
+/// The words that say acpmux moved the chat's agent onto cmux's gateway by itself
+/// ([`gateway_fallback_text`]); its first send goes again on them (`first_send.rs`).
+pub const GATEWAY_FALLBACK: &str = "now uses cmux's gateway";
+
+/// The failure of a chat whose Claude had no credential and that acpmux moved onto cmux's gateway
+/// without asking (the gateway fallback, `agent_login::GATEWAY_FALLBACK_ENV`). `original` is
+/// Claude's own text, kept at the end.
+pub fn gateway_fallback_text(original: &str) -> String {
+    format!(
+        "Claude is not signed in here, so this chat {GATEWAY_FALLBACK} (your team's account); the message goes again there. (Claude said: {})",
+        original.trim()
+    )
+}
+
+/// Whether `error` is a failure the gateway fallback answered ([`gateway_fallback_text`]).
+pub fn is_gateway_fallback(error: &str) -> bool {
+    error.starts_with("Claude is not signed in here") && error.contains(GATEWAY_FALLBACK)
+}
+
 /// The explanation for a Claude agent's sign-in failure, or None when this
 /// session is not a Claude agent acpmux started (or the text says another
 /// thing). `original` is Claude's own text, kept at the end. `cloud`: this
 /// machine is a cmux Cloud VM (`cloud_host.rs`), signed in from the Mac: the
 /// text says only that ([`compose_cloud`]), never a terminal's sign-in.
-pub fn explain(session_id: &str, original: &str, cloud: bool) -> Option<String> {
+/// `gateway`: the Cloud image says cmux's gateway serves Claude for this machine's team, so
+/// the text names that choice too ([`GATEWAY_OFFER`]).
+pub fn explain(session_id: &str, original: &str, cloud: bool, gateway: bool) -> Option<String> {
     if !explains(original) {
         return None;
     }
@@ -411,7 +444,7 @@ pub fn explain(session_id: &str, original: &str, cloud: bool) -> Option<String> 
     let work = || {
         let agent = find(&spawned.env);
         if cloud {
-            return compose_cloud(&agent, original);
+            return compose_cloud(&agent, original, gateway);
         }
         let terminal_env = terminal_env();
         let terminal = find(&terminal_env);
@@ -448,7 +481,8 @@ fn rc_file(shell: Option<&str>) -> &'static str {
 /// models only through the Cloud service's model route (the machine's coderouter edge), which holds
 /// the sign-in on the team's or the person's behalf. So the fix is never on this machine, never a
 /// terminal or a copy from the Mac: it is the route's account or the person's model gateway.
-fn compose_cloud(agent: &Found, original: &str) -> String {
+/// `gateway`: the machine's team has cmux's gateway, so the text names that choice too.
+fn compose_cloud(agent: &Found, original: &str, gateway: bool) -> String {
     let mut out = String::from("Claude is not signed in here.");
     if agent.endpoint.is_none() {
         out.push_str(&format!(
@@ -460,6 +494,12 @@ fn compose_cloud(agent: &Found, original: &str) -> String {
             " This Cloud machine reaches Claude through the Cloud service, which has no Claude account or model gateway for you.",
         );
         out.push_str(" Set one up with `cmux inference setup`, then send the message again.");
+    }
+    if gateway {
+        // The card's way onto the team's own account (`server/agent_login.rs` `use_gateway`).
+        out.push_str(&format!(
+            " Or click {GATEWAY_OFFER}: this machine's team has an account there."
+        ));
     }
     out.push_str(&format!(" (Claude said: {})", original.trim()));
     out
@@ -571,17 +611,20 @@ mod tests {
             home: dirs::home_dir().unwrap_or_default().join(".claude"),
             ..super::Found::default()
         };
-        let text = super::compose_cloud(&none, "Not logged in · Please run /login");
+        let text = super::compose_cloud(&none, "Not logged in · Please run /login", false);
         assert!(text.starts_with("Claude is not signed in here."), "{text}");
+        // The gateway is named only where the machine's team has it.
+        assert!(!text.contains(super::GATEWAY_OFFER), "{text}");
         assert!(text.contains("has no model route (Claude home ~/.claude)"), "{text}");
         assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
         let routed = super::Found { endpoint: Some("coderouter.cmux.internal".into()), ..none };
-        let text = super::compose_cloud(&routed, "API Error: 403 No Claude upstream account");
+        let text =
+            super::compose_cloud(&routed, "API Error: 403 No Claude upstream account", false);
         assert!(text.contains("through the Cloud service"), "{text}");
         assert!(text.contains("cmux inference setup"), "{text}");
         for text in [
-            super::compose_cloud(&routed, "x"),
-            super::compose_cloud(&super::Found::default(), "x"),
+            super::compose_cloud(&routed, "x", false),
+            super::compose_cloud(&super::Found::default(), "x", false),
         ] {
             for word in [
                 "terminal",
@@ -597,6 +640,24 @@ mod tests {
             // Not explained twice.
             assert!(!super::explains(&text));
         }
+    }
+
+    /// A Cloud machine whose team cmux's gateway serves names that choice beside the sign-in,
+    /// and the gateway fallback's own failure is never explained again.
+    #[test]
+    fn a_cloud_machine_with_the_gateway_offers_it() {
+        let none = super::Found::default();
+        let text = super::compose_cloud(&none, "Not logged in · Please run /login", true);
+        assert!(text.contains("Or click Use cmux's gateway"), "{text}");
+        // No login is copied from the Mac to a Cloud machine: the text never offers that.
+        assert!(!text.contains("Set up Claude Code credentials"), "{text}");
+        assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
+        assert!(!super::explains(&text));
+        let fell_back = super::gateway_fallback_text("Not logged in · Please run /login");
+        assert!(super::is_gateway_fallback(&fell_back), "{fell_back}");
+        assert!(!super::explains(&fell_back));
+        assert!(!super::is_gateway_fallback(&text));
+        assert!(!super::is_gateway_fallback("Not logged in · Please run /login"));
     }
 
     /// Dogfood 2026-10-26: Claude Code's 401 ("Failed to authenticate") reached the person as
@@ -679,7 +740,7 @@ mod tests {
             Some((id, "route auth test")),
         )
         .unwrap();
-        let text = explain(id, "Failed to authenticate. API Error: 401", false).unwrap();
+        let text = explain(id, "Failed to authenticate. API Error: 401", false, false).unwrap();
         forget(id);
         assert!(text.contains("route"), "{text}");
         assert!(!text.contains("remove ANTHROPIC_API_KEY"), "{text}");

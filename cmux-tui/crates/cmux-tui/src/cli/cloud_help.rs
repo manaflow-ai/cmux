@@ -614,7 +614,7 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 /// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
 pub(super) const START_CHAT_USAGE: &str = "\
 usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT]
-                             [--cwd DIR | --from-folder PATH]
+                             [--cwd DIR | --from-folder PATH [--allow-large]]
                              [--environment ENV]
                              [--name VM | --target vm:VM_ID]
                              [--wait] [--timeout SECONDS] [--make-room] [--json]
@@ -639,6 +639,8 @@ older name; both run the same start.
                      the disk's root or a credential folder; not with
                      --cwd. The same command again on the same machine
                      reuses the finished copy.
+  --allow-large      Copy --from-folder even past 20 GB or 500,000 files
+                     (the files the copy sends), which are refused without it
   --name VM          Use the VM with this name, or create it
   --target vm:VM_ID  Use this VM (`cmux vm ls`)
                      Neither: create a new small machine with a new name

@@ -69,6 +69,7 @@ mod seed_pull;
 pub(super) use seed_pull::{
     SeedBase, SeedPulled, export_to, failure_code as seed_pull_failure_code, is_sha, seed_pull,
 };
+pub(crate) mod size_cap;
 pub(crate) mod skips;
 mod store;
 
@@ -87,7 +88,7 @@ use sha2::{Digest as _, Sha256};
 use local::{LocalFile, Source};
 use remote::{Remote, RemoteEntry};
 
-const USAGE: &str = "usage: cmux link sync push|pull --socket PATH [--store PLATFORM|default] LOCAL_FOLDER REMOTE_FOLDER\n       (--store: through the content-addressed store, the cmux credential on stdin)\n       cmux link sync relay --from-socket SOURCE_LINK --socket TARGET_LINK SOURCE_FOLDER TARGET_FOLDER\n       cmux link sync history|undo LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync restore LOCAL_FOLDER REMOTE_FOLDER SNAPSHOT";
+const USAGE: &str = "usage: cmux link sync push|pull --socket PATH [--store PLATFORM|default] [--allow-large] LOCAL_FOLDER REMOTE_FOLDER\n       (--store: through the content-addressed store, the cmux credential on stdin;\n        --allow-large: a push past 20 GB or 500,000 files, refused without it, for a day)\n       cmux link sync relay --from-socket SOURCE_LINK --socket TARGET_LINK SOURCE_FOLDER TARGET_FOLDER\n       cmux link sync history|undo LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync restore LOCAL_FOLDER REMOTE_FOLDER SNAPSHOT";
 
 /// What the machine holds of earlier pushes; this Mac keeps a copy
 /// ([`base`]), which is what a pull trusts.
@@ -423,6 +424,9 @@ pub(super) fn push_failure(error: &anyhow::Error) -> (String, String) {
     if let Some(too_big) = error.downcast_ref::<TooBig>() {
         return ("folder_too_big".to_string(), too_big.to_string());
     }
+    if let Some(large) = error.downcast_ref::<size_cap::TooLarge>() {
+        return (size_cap::CODE.to_string(), large.to_string());
+    }
     match remote::refusal_code(error) {
         Some("fs.no_space") => {
             ("disk_full".to_string(), "The Cloud machine's disk is full".to_string())
@@ -445,10 +449,19 @@ pub(super) fn run(args: &[String]) -> i32 {
     {
         return relay::run(rest);
     }
-    let Some((action, socket, local, remote, store)) = parse(args) else {
+    let (args, allow_large) = size_cap::take_allow_large(args);
+    let Some((action, socket, local, remote, store)) = parse(&args) else {
         eprintln!("{USAGE}");
         return 64;
     };
+    if allow_large
+        && action == Action::Push
+        && let Err(error) = size_cap::allow(&local)
+    {
+        let error = format!("{error:#}");
+        println!("{}", json!({ "ok": false, "error": error, "error_code": "sync_failed" }));
+        return 1;
+    }
     if let Some(store) = store
         && let Err(error) = store_from_stdin(&store, &mut std::io::stdin().lock())
     {
@@ -1014,7 +1027,10 @@ fn push_inner(
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
     let rules = if files_only { local::Rules::Share } else { local::Rules::Copy };
-    let mut set = local::collect(&local, rules)?;
+    // A chat's copy stops at its limits before it sends anything, unless `--allow-large` said so.
+    let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local))
+        .then(|| size_cap::Cap::of(&local));
+    let mut set = local::collect(&local, rules, cap)?;
     let before = set.files.len();
     let in_git = set.git;
     // A head link's file goes with it: the machine makes no link to nothing (`CLAUDE.md` to
@@ -1749,7 +1765,7 @@ impl std::error::Error for TooBig {}
 pub(super) fn copy_estimate(local: &Path) -> anyhow::Result<(u64, u64)> {
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
-    let set = local::collect(&local, local::Rules::Copy)?;
+    let set = local::collect(&local, local::Rules::Copy, None)?;
     let bytes = set.files.values().map(|file| size(file).unwrap_or(0)).fold(0, u64::saturating_add);
     Ok((u64::try_from(set.files.len()).unwrap_or(u64::MAX), bytes))
 }
