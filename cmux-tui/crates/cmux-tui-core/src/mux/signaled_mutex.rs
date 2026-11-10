@@ -38,7 +38,8 @@ pub(crate) fn interactive_scope() -> InteractiveScope {
 }
 
 fn in_interactive_scope() -> bool {
-    INTERACTIVE.with(|depth| depth.get() > 0)
+    // MUTANT (never merge): a person's request has no priority at the registry lock.
+    INTERACTIVE.with(|depth| depth.get() > usize::MAX - 1)
 }
 
 /// How many interactive acquisitions may go ahead of waiting plain lockers

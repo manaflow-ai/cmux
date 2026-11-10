@@ -205,11 +205,8 @@ where
     drop(sender);
 
     while submitted > 0 {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            break;
-        }
-        match receiver.recv_timeout(remaining) {
+        // MUTANT (never merge): the fanout joins each operation, with no look at the shared deadline.
+        match receiver.recv_timeout(Duration::from_secs(3600)) {
             Ok(index) => {
                 let pending =
                     std::mem::replace(&mut ordered[index], DeadlineMapResult::Unscheduled);
