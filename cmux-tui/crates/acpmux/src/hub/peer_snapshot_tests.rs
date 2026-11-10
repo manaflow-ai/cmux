@@ -2172,8 +2172,12 @@ fn a_copy_goes_back_from_where_the_peers_own_recovery_began() {
 /// The step on a later link of a delivery of an attachment prompt (its `user_message` holds a
 /// hidden context) whose turn started at once, once the restore that gave its records back to a
 /// fresh machine settled that cut turn for a resend to run whole (`turn_result` marked
-/// `rerunOnResend`), under `rules`.
-fn step_after_a_restore_settled_its_cut_turn(rules: u8) -> crate::hub::open_delivery::Step {
+/// `rerunOnResend`), under `rules`. `queued`: the prompt waited in the queue first (its `queued`
+/// record is in the proof too).
+fn step_after_a_restore_settled_its_cut_turn(
+    rules: u8,
+    queued: bool,
+) -> crate::hub::open_delivery::Step {
     use crate::hub::open_delivery as od;
     crate::hub::journal_restore::OLD_RULES.with(|r| r.set(rules));
     let outbox = crate::hub::outbox::Outbox::default();
@@ -2193,7 +2197,10 @@ fn step_after_a_restore_settled_its_cut_turn(rules: u8) -> crate::hub::open_deli
     settled["msg"]["status"] = json!("failed");
     settled["msg"]["detail"] = json!("outcome_unknown");
     settled["msg"][od::RERUN_ON_RESEND] = json!(true);
-    let records = [accepted, life("m1", 5, "turn_started", "p1"), settled];
+    let mut records = vec![accepted, life("m1", 5, "turn_started", "p1"), settled];
+    if queued {
+        records.insert(0, life("m1", 3, "queued", "p1"));
+    }
     od::take_written(&outbox, (PEER, "m1", 7), &records, (1, 1));
     let ends = HashMap::from([("m1".to_owned(), (7, 9))]);
     let step = od::step(&outbox.get("d1").unwrap(), now, (1, 2), &ends);
@@ -2209,9 +2216,31 @@ fn step_after_a_restore_settled_its_cut_turn(rules: u8) -> crate::hub::open_deli
 #[test]
 fn a_cut_attachment_turn_a_restore_settled_for_its_resend_is_delivered_again() {
     use crate::hub::open_delivery as od;
-    assert_eq!(step_after_a_restore_settled_its_cut_turn(0), od::Step::Again);
-    let old = step_after_a_restore_settled_its_cut_turn(crate::hub::journal_restore::AT_4BCE);
+    assert_eq!(step_after_a_restore_settled_its_cut_turn(0, false), od::Step::Again);
+    let old =
+        step_after_a_restore_settled_its_cut_turn(crate::hub::journal_restore::AT_4BCE, false);
     assert_eq!(old, od::Step::Check, "4bce04df took the settling as the prompt's end");
+}
+
+/// Review of #37284 at fd33a65b, F1: an attachment prompt that waited in the queue, then started
+/// and was cut when its machine went away, is delivered again once a restore settled its cut
+/// turn for a resend to run whole: its old `queued` record proves nothing, as the prompt left
+/// the queue. Under fd33a65b's rules any `queued` record proved it: the delivery went on to its
+/// check and release, and the attachment never reached the agent. A prompt still waiting in the
+/// queue is put back whole from its `queued` record, and proven by it.
+#[test]
+fn a_queued_attachment_prompt_cut_mid_turn_is_delivered_again() {
+    use crate::hub::open_delivery as od;
+    assert_eq!(step_after_a_restore_settled_its_cut_turn(0, true), od::Step::Again);
+    let old = step_after_a_restore_settled_its_cut_turn(crate::hub::journal_restore::AT_FD33, true);
+    assert_eq!(old, od::Step::Check, "fd33a65b took its old queued record as proof");
+    let none = std::collections::HashSet::new();
+    let mut accepted = life("m1", 4, "user_message", "p1");
+    accepted["msg"]["hiddenContext"] = json!(true);
+    let waiting = [life("m1", 3, "queued", "p1")];
+    assert!(od::rerunnable(&waiting, &none), "a prompt still waiting goes back whole");
+    let started = [waiting[0].clone(), accepted, life("m1", 5, "turn_started", "p1")];
+    assert!(!od::rerunnable(&started, &none), "a started attachment prompt does not");
 }
 
 /// Review of #37284 at 4bce04df, F2: a delivery sent to `peer/name` and pinned to the session

@@ -938,6 +938,29 @@ const NOTES: &[u8] = b"the notes say forty-two";
 /// never reached the fresh machine's agent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine() {
+    attachment_prompt_cut_mid_turn(false).await;
+}
+
+/// Review of #37284 at fd33a65b, F1: the same journey, but the attachment prompt first waits in
+/// the queue behind a turn that runs (its `queued` record names its file), then starts, and the
+/// machine goes mid-turn. Its old `queued` record proves nothing once it started: A delivers it
+/// again, and it runs once on the fresh machine, whole. fd33a65b took any `queued` record as
+/// proof: A checked and released the delivery, and the document never reached the agent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_queued_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine() {
+    attachment_prompt_cut_mid_turn(true).await;
+}
+
+/// Makes a FIFO at `path`: a `gate:` turn of the stand-in agent blocks until it is written.
+fn make_fifo(path: &Path) {
+    let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+}
+
+/// The attachment journey; `queued_first`: the attachment prompt waits in the queue first,
+/// behind a turn held at a gate, and starts once that turn ends.
+async fn attachment_prompt_cut_mid_turn(queued_first: bool) {
     let _one = ONE_AT_A_TIME.lock().await;
     acpmux::hub::peer_snapshot_reads_fail("b", 0);
     acpmux::hub::peer_snapshot_bound(0);
@@ -977,12 +1000,28 @@ async fn an_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine
     let snapshot = home.path().join("b-snapshot");
     copy_dir(&b_disk, &snapshot);
 
-    // The attachment prompt starts its turn at once, and a prompt waits behind it.
+    // A turn held at a gate, for the attachment prompt to wait behind (`queued_first`).
+    let gate = home.path().join("gate");
+    if queued_first {
+        make_fifo(&gate);
+        send(&mut ca, &format!("gate: {}", gate.display()), "pg").await;
+        copy_until(&mut ca, "the gated turn", |e| e.iter().any(|e| says(e, "before-gate"))).await;
+    }
+    // The attachment prompt starts its turn at once (or waits, then starts once the gate opens),
+    // and a prompt waits behind it.
     let text = format!("{HOLD}: read the notes");
     let attached = json!({"request": {"sessionId": "b/moved",
         "prompt": [{"type": "text", "text": text}, acpmux::attach::block("notes.txt", NOTES)],
         "_meta": {"acpmux": {"promptId": "p1"}}}});
     send_queued(&mut ca, attached, "p1").await;
+    if queued_first {
+        copy_until(&mut ca, "the waiting attachment prompt", |e| {
+            e.iter().any(|e| names_prompt(e, "queued", "p1"))
+        })
+        .await;
+        let open = gate.clone();
+        tokio::task::spawn_blocking(move || std::fs::write(open, b"go")).await.unwrap().unwrap();
+    }
     send(&mut ca, "second", "p2").await;
     let seen = copy_until(&mut ca, "the running attachment turn and the waiting prompt", |e| {
         e.iter().any(|e| says(e, "running"))
@@ -990,13 +1029,14 @@ async fn an_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine
             && e.iter().any(|e| names_prompt(e, "queued", "p2"))
     })
     .await;
-    // The case of the finding: its `user_message` holds a hidden context, and no `queued` record
-    // names it (so none names its file).
+    // The case of the finding: its `user_message` holds a hidden context, and a `queued` record
+    // names it only when it waited first (at 4bce04df, F1, none did; at fd33a65b, F1, one did).
     let accepted = seen.iter().find(|e| names_prompt(e, "user_message", "p1")).expect("p1's");
     assert!(accepted["msg"].get("hiddenContext").is_some(), "no hidden context: {accepted}");
-    assert!(
-        !seen.iter().any(|e| names_prompt(e, "queued", "p1")),
-        "p1 waited in the queue first: {seen:#?}"
+    assert_eq!(
+        seen.iter().any(|e| names_prompt(e, "queued", "p1")),
+        queued_first,
+        "whether p1 waited in the queue first: {seen:#?}"
     );
     relay.cut();
     b.shutdown_all().await;
@@ -1068,7 +1108,8 @@ async fn an_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine
     tokio::time::sleep(Duration::from_secs(2)).await;
     let events = journal(&b2, &id);
     assert_eq!(count(&events), (1, 1), "p1 ran again after the redelivery: {events:#?}");
-    for p in ["p0", "p2"] {
+    let ended = ["p0", "p2"].into_iter().chain(queued_first.then_some("pg"));
+    for p in ended {
         let ran = events.iter().filter(|e| names_prompt(e, "user_message", p)).count();
         assert_eq!(ran, 1, "{p} ran {ran} times: {events:#?}");
     }

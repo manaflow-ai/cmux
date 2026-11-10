@@ -894,6 +894,84 @@ async fn a_crash_between_restored_records_skips_no_record_after_a_restart() {
     assert!(queued, "the copy's queued prompt was skipped");
 }
 
+/// What the owner's retry makes of a chat whose restore's cut of the machine's recovery put the
+/// shorter journal in place and then failed (its marker's write, `compact.rs`
+/// `commit_compaction`), on a store on disk, replaying `rules`. A chat cut mid-turn whose log a
+/// restart read: its recovery ends the journal. The owner's copy ends the turn, queues a prompt
+/// and goes on past the recovery's end; the first try stops at the cut, and the owner sends what
+/// its copy holds past the `lastSeq` that try answered. That `lastSeq`, the journal's end then,
+/// and at the end whether the journal holds every seq of the copy, and the copy's queued prompt.
+async fn cut_then_failed(rules: u8) -> (u64, u64, bool, bool) {
+    let dir = std::env::temp_dir().join(format!("acpmux-cut-failed-{}", uuid::Uuid::now_v7()));
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Local;
+    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dir).unwrap());
+    hub.replay_rules(rules);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let session = hub.new_session(req).await.unwrap();
+    hub.append(&session, "mux", "turn_started", json!({"turnId": "t1", "promptId": "p1"}));
+    let cut = session.seq.load(Ordering::SeqCst);
+    *session.log_load.lock().unwrap() = false;
+    session.log_loaded.store(false, Ordering::SeqCst);
+    hub.load_session_log(&session);
+    hub.save_meta_answered(&session).unwrap();
+    let end = session.seq.load(Ordering::SeqCst);
+    assert!(end > cut + 1, "the restart's recovery wrote fewer than two records");
+    let mut copy = vec![
+        json!({"seq": cut + 1, "at": 1, "dir": "mux", "kind": "turn_result",
+               "msg": {"turnId": "t1", "promptId": "p1", "status": "ok"}}),
+        json!({"seq": cut + 2, "at": 2, "dir": "mux", "kind": "queued",
+               "msg": {"promptId": "p2", "turnId": "t2", "text": "next", "prompt": words("next")}}),
+    ];
+    copy.extend((cut + 3..=end + 2).map(|seq| chunk(seq, seq)));
+    let mut params = restore_params(&session, Value::from(copy.clone()));
+    params["afterSeq"] = json!(cut);
+    let id = session.id.clone();
+    crate::store::fail_before_marker_once(&id);
+    let first = hub.journal_restore(&params).await;
+    let data = first.expect_err("the failed cut did not stop the try").data.unwrap_or_default();
+    assert_eq!(data["reason"], "append_failed", "{data}");
+    let said = data["lastSeq"].as_u64().expect("the try answers where the journal ends");
+    let real = hub.events(&id, 0, 10_000).unwrap().last().map_or(0, |e| e.seq);
+    // The owner gives back what its copy holds past the end the try answered.
+    let past: Vec<Value> =
+        copy.iter().filter(|r| r["seq"].as_u64().is_some_and(|s| s > said)).cloned().collect();
+    let mut again = restore_params(&session, Value::from(past));
+    again["afterSeq"] = json!(said);
+    let answer = hub.journal_restore(&again).await;
+    let events = hub.events(&id, cut, 10_000).unwrap();
+    // Through the copy's end: the prompt it queued may start its turn after the restore.
+    let seqs: Vec<u64> = events.iter().map(|e| e.seq).filter(|s| *s <= end + 2).collect();
+    let whole = answer.is_ok() && seqs == (cut + 1..=end + 2).collect::<Vec<_>>();
+    let queued =
+        events.iter().any(|e| e.kind == "queued" && e.msg.get("promptId") == Some(&json!("p2")));
+    drop(hub);
+    let _ = std::fs::remove_dir_all(&dir);
+    (said, real, whole, queued)
+}
+
+/// Review of #37284 at fd33a65b, F2: a cut that put the shorter journal in place and then failed
+/// stops the try with the chat's end read back from its journal, so the owner's next try sends
+/// from there and every record of its copy goes in, the queued prompt too. Under fd33a65b's rules
+/// the try took the cut as undone and answered the recovery's old end, past the journal's: the
+/// owner sent only what was past it, and the records between (the queued prompt among them) were
+/// lost while the restore answered done.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cut_that_fails_after_it_shortened_the_journal_skips_no_record() {
+    let (said, real, whole, queued) = cut_then_failed(super::journal_restore::AT_FD33).await;
+    assert!(said > real, "fd33a65b answered the journal's own end: {said}, {real}");
+    assert!(!whole && !queued, "fd33a65b skipped nothing");
+    let (said, real, whole, queued) = cut_then_failed(0).await;
+    assert_eq!(said, real, "the try answered an end past its journal's");
+    assert!(whole, "a record of the copy is missing from the restored journal");
+    assert!(queued, "the copy's queued prompt was skipped");
+}
+
 /// A chat cut mid-turn whose log a restart reads (a fresh machine on a disk taken mid-turn), and
 /// an owner's copy that holds the rest of that turn, its end included, in `extra` more records
 /// than the recovery wrote (0: just as many; it ends at the machine's `lastSeq`). Replaying

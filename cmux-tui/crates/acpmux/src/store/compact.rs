@@ -255,6 +255,10 @@ impl LocalStore {
             }
         }
         sync_directory(&self.dir(id).join("events"))?;
+        #[cfg(test)]
+        if fails_before_marker(id) {
+            anyhow::bail!("test: the compaction's marker fails after its segments are in place");
+        }
         marker.complete = true;
         write_durably(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
         Ok(true)

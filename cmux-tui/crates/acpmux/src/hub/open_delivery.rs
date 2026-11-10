@@ -26,7 +26,7 @@
 //!   restore), another generation of the session (stale), or open past
 //!   `outbox::OPEN_ON_PEER_FOR_MS` (lapsed). Never a quiet drop.
 //! - Not proven yet, or proven only by records no machine could run it again from (a
-//!   `user_message` with an attachment's hidden context and no `queued` or `turn_started`:
+//!   `user_message` with an attachment's hidden context, waiting in no queue, started or not:
 //!   [`rerunnable`]): delivered again on every link of the peer while open, under its own prompt
 //!   id, to its pinned session and generation ([`again_request`], `server/outbox.rs`
 //!   `redeliver_open`): a machine that has it answers with its first outcome and nothing runs
@@ -198,12 +198,13 @@ pub(crate) fn restarts(records: &[Value]) -> bool {
 /// Whether a machine that holds `records` of a prompt's life, and nothing else of it but the
 /// bytes of `images` (the images the delivery can give back, by id), runs it again whole or knows
 /// how it ended. It ended; or every image its records name is among `images` (a restore writes
-/// them back, [`proof_images`]) and: its `queued` record holds its blocks (`restore_queue` puts
-/// it back, its files too: [`proof_files`]); or its `user_message` holds the rest of what the
-/// agent got (no hidden context, no inbox digest, no part kept apart but an image) and its turn
-/// started (a cut turn is continued with its text and images, `restart_resume.rs`) or not
-/// (`unstarted_prompt.rs` puts it back). A started turn's continuation never carries a hidden
-/// context (an attachment's text, never logged), so that one waits for its end. Anything less
+/// them back, [`proof_images`]) and: it waits in the queue still, and its `queued` record holds
+/// its blocks (`restore_queue` puts it back, its files too: [`proof_files`]); or its
+/// `user_message` holds the rest of what the agent got (no hidden context, no inbox digest, no
+/// part kept apart but an image) and its turn started (a cut turn is continued with its text and
+/// images, `restart_resume.rs`) or not (`unstarted_prompt.rs` puts it back). A started turn's
+/// continuation never carries a hidden context (an attachment's text, never logged), so that one
+/// waits for its end, or for the resend a restore settled it for. Anything less
 /// and a machine on another disk would run less than was sent, or nothing (review of #37284 at
 /// 07f76930, F2, and at a088585e, F2: an image prompt started at once came back without its
 /// images). Only a delivery again (`resend`), which carries the whole prompt, runs that one.
@@ -215,7 +216,20 @@ pub(crate) fn rerunnable(records: &[Value], images: &HashSet<String>) -> bool {
     if !named_images(records).iter().all(|id| images.contains(*id)) {
         return false;
     }
-    if has(&["queued"]) {
+    // A cut turn a restore settled for a resend to run whole ([`RERUN_ON_RESEND`]) is run again
+    // only by that resend, whatever records of it came before. Only a prompt still waiting in
+    // the queue (`queued`, and no record after it says its turn started) is put back whole from
+    // its `queued` record: one that started from the queue and was cut is continued with its
+    // text alone, never its attachment (review of #37284 at fd33a65b, F1). fd33a65b took any
+    // `queued` record as enough, so a queued attachment prompt cut mid-turn was released and
+    // never ran again.
+    if crate::hub::journal_restore::rules_of_fd33() {
+        if has(&["queued"]) {
+            return true;
+        }
+    } else if records.iter().any(reruns_on_resend) {
+        return false;
+    } else if still_waiting(records) {
         return true;
     }
     let mut messages = records.iter().filter(|r| kind(r) == "user_message").peekable();
@@ -233,6 +247,16 @@ pub(crate) fn rerunnable(records: &[Value], images: &HashSet<String>) -> bool {
                 && provenance != Some(crate::hub::digest::DIGEST_KIND)
                 && !apart
         })
+}
+
+/// Whether `records` of a prompt's life (in journal order) show it waiting in the queue still:
+/// a `queued` record with nothing after it that says its turn started (`user_message`,
+/// `turn_started`). Such a prompt is put back whole from its `queued` record (`restore_queue`,
+/// its files too); a started one is not (review of #37284 at fd33a65b, F1).
+fn still_waiting(records: &[Value]) -> bool {
+    let Some(last) = records.iter().rposition(|r| kind(r) == "queued") else { return false };
+    let left = ["user_message", "turn_started"];
+    !records[last + 1..].iter().any(|r| left.contains(&kind(r)))
 }
 
 /// Whether `records` of a prompt's life show how it ended. A cut turn a restore settled for a

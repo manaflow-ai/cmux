@@ -58,27 +58,29 @@ pub const MAX_RECORDS: usize = 4096;
 
 /// Tests only: the rules of an earlier head, which a review of #37284 found losing prompts or
 /// history, for the tests and the move simulation to replay (0: the rules of now). Each later
-/// head's fixes are missing from an earlier one too. 4bce04df's: the twenty-first review's F1
+/// head's fixes are missing from an earlier one too. fd33a65b's: the twenty-second review's F1
 /// and F2.
-pub(crate) const AT_4BCE: u8 = 1;
+pub(crate) const AT_FD33: u8 = 1;
+/// 4bce04df's (the twenty-first review's F1 and F2 are missing too).
+pub(crate) const AT_4BCE: u8 = 2;
 /// c4a1c13b's (the twentieth review's F1 is missing too).
-pub(crate) const AT_C4A1: u8 = 2;
+pub(crate) const AT_C4A1: u8 = 3;
 /// 8b5f3063's (the nineteenth review's F1 to F3 are missing too).
-pub(crate) const AT_8B5F: u8 = 3;
+pub(crate) const AT_8B5F: u8 = 4;
 /// 77f91e5a's (the eighteenth review's F1 is missing too).
-pub(crate) const AT_77F9: u8 = 4;
+pub(crate) const AT_77F9: u8 = 5;
 /// a088585e's (the sixteenth review's F1 to F3 are missing too).
-pub(crate) const AT_A088: u8 = 5;
+pub(crate) const AT_A088: u8 = 6;
 /// 07f76930's (the fourteenth review's F1 and F2 are missing too).
-pub(crate) const AT_07F7: u8 = 6;
+pub(crate) const AT_07F7: u8 = 7;
 /// ff3da306's (the twelfth review's F1 and F2 are missing too).
-pub(crate) const AT_FF3D: u8 = 7;
+pub(crate) const AT_FF3D: u8 = 8;
 /// c4a6f4e7's (the eleventh review's F1 to F3 are missing too).
-pub(crate) const AT_C4A6: u8 = 8;
+pub(crate) const AT_C4A6: u8 = 9;
 /// 4dcbe192's (the tenth review's F1 to F6 are missing too).
-pub(crate) const AT_4DCB: u8 = 9;
+pub(crate) const AT_4DCB: u8 = 10;
 /// 91b1343d's (the ninth review's F1 to F5 are missing too).
-pub(crate) const AT_91B: u8 = 10;
+pub(crate) const AT_91B: u8 = 11;
 
 #[cfg(test)]
 thread_local! {
@@ -113,6 +115,11 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn replay_rules(&self, rules: u8) {
         self.old_rules.store(rules, Ordering::SeqCst);
+    }
+
+    /// Whether this hub replays the rules of fd33a65b (tests only; never in a build).
+    pub(crate) fn at_fd33(&self) -> bool {
+        self.old_rules() >= AT_FD33
     }
 
     /// Whether this hub replays the rules of 4bce04df (tests only; never in a build).
@@ -172,6 +179,11 @@ fn thread_rules() -> u8 {
 /// copies' store and the restore's merge, which tests drive on their own thread.
 pub(crate) fn rules_of_91b() -> bool {
     thread_rules() >= AT_91B
+}
+
+/// Whether this thread replays the rules of fd33a65b (tests only; never in a build).
+pub(crate) fn rules_of_fd33() -> bool {
+    thread_rules() >= AT_FD33
 }
 
 /// Whether this thread replays the rules of 4bce04df (tests only; never in a build).
@@ -637,9 +649,21 @@ impl Hub {
                 }
             }
         }
+        if !done && was.is_some() && !self.at_fd33() {
+            // Where the journal ends now is read back from it, never assumed (review of #37284
+            // at fd33a65b, F2): a cut can fail after it put the shorter journal in place (the
+            // store's `commit_compaction` renames the segments, then fails writing its marker).
+            // fd33a65b took every failed cut as nothing cut and put the old end back: the next
+            // try compared only the records the journal still held, appended only those past
+            // that false end, and answered done with the records between them missing.
+            self.end_after_failed_cut(session, from);
+            let e = error
+                .unwrap_or_else(|| anyhow::anyhow!("its own recovery could not be taken back"));
+            return Err(stopped(session, &e));
+        }
         if !done {
-            // The journal still holds the recovery: its end and count are as they were. A save
-            // that does not land is safe too, as a crash before the cut is.
+            // fd33a65b's (and 8b5f3063's, which saved no lowered end): the journal was taken to
+            // hold the recovery still, its end and count as they were.
             if let Some((last_seq, event_count)) = was {
                 let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
                 (meta.last_seq, meta.event_count) = (last_seq, event_count);
@@ -656,6 +680,31 @@ impl Hub {
         // The message ids it holds may be of records gone (`recover_message_events`).
         *session.message_ids.lock().unwrap_or_else(|e| e.into_inner()) = None;
         Ok(())
+    }
+
+    /// Sets `session`'s end and count from what its journal holds past `from` after a cut that
+    /// failed or was refused, whose lowered end ([`Self::save_end_before_cut`]) is in its meta
+    /// now: the records the cut left past `from` count again, none when it cut them all (review
+    /// of #37284 at fd33a65b, F2). The try stops with that end, and the owner's next try sends
+    /// from it. A journal that does not read keeps the lowered end, never past the journal's,
+    /// and the next try counts its tail before it begins (`catch_up_locked`). The caller holds
+    /// `append_lock`.
+    fn end_after_failed_cut(&self, session: &Session, from: u64) {
+        // The message ids it holds may be of records gone (`recover_message_events`).
+        *session.message_ids.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let Ok((left, last)) = self.store.tail_after(&session.id, from) else {
+            tracing::warn!(session = %session.id, from, "a failed cut's journal does not read; its end stays lowered");
+            session.seq.store(from, Ordering::SeqCst);
+            session.caught_up.store(false, Ordering::SeqCst);
+            return;
+        };
+        tracing::info!(session = %session.id, from, last, left, "a cut that failed left the journal ending here");
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        meta.last_seq = last;
+        meta.event_count += left;
+        drop(meta);
+        session.seq.store(last, Ordering::SeqCst);
+        self.save_meta(session);
     }
 
     /// Saves `session`'s end as `from`, and its count without the records past it, before a

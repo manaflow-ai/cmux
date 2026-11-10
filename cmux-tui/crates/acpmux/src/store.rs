@@ -2278,3 +2278,26 @@ impl LocalStore {
 #[cfg(all(test, unix))]
 #[path = "store/startup_tests.rs"]
 mod startup_tests;
+
+/// Tests only: the chat whose next commit (`compact.rs` `commit_compaction`) fails once its
+/// segments are in place, before its record says it is complete, as a failed write of that
+/// record does: the log is the shorter one already, and the call fails (review of #37284 at
+/// fd33a65b, F2).
+#[cfg(test)]
+static FAIL_BEFORE_MARKER: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Tests only: arms [`FAIL_BEFORE_MARKER`] for chat `id`, once.
+#[cfg(test)]
+pub(crate) fn fail_before_marker_once(id: &str) {
+    *FAIL_BEFORE_MARKER.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_owned());
+}
+
+#[cfg(test)]
+fn fails_before_marker(id: &str) -> bool {
+    let mut armed = FAIL_BEFORE_MARKER.lock().unwrap_or_else(|e| e.into_inner());
+    let fails = armed.as_deref() == Some(id);
+    if fails {
+        *armed = None;
+    }
+    fails
+}
