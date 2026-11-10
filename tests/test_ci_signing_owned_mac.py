@@ -212,6 +212,8 @@ def dotted(value: Any) -> Any:
     """value with every literal index (['x'] or [\"x\"]) in its expressions written as .x."""
     if isinstance(value, str):
         return LITERAL_INDEX.sub(lambda m: "." + (m.group(1) or m.group(2)), value)
+    if isinstance(value, workflow_jobs.Job):
+        return workflow_jobs.Job({dotted(key): dotted(item) for key, item in value.items()}, dotted(value.inherited_env))
     if isinstance(value, dict):
         return {dotted(key): dotted(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -1262,6 +1264,31 @@ class ClassificationTests(unittest.TestCase):
                 self.assertEqual(found, ["nightly.yml bracket-fixture: holds a signing secret on a route to an owned "
                                          "Mac but is not in GLAEDA_EXCLUSIVE_JOBS (add it there and to glaeda's "
                                          "SIGNING_JOBS) or EXCLUSIVE_EXEMPT with a reason"])
+
+    @staticmethod
+    def _with_workflow_env_secret(documents: dict) -> dict:
+        """Every workflow document, plus one workflow whose top-level env reads a Sparkle key and whose one job, on
+        the trusted signer's label, names no secret itself. GitHub hands the workflow env to the job."""
+        route = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}"
+        workflow = workflow_jobs.inheriting({
+            "on": "workflow_dispatch", "env": {"KEY": "${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}"},
+            "jobs": {"sign-env-fixture": {"runs-on": route, "steps": [{"run": "sign"}]}}})
+        return {**documents, "env-fixture.yml": workflow}
+
+    def test_an_unlisted_job_inheriting_a_workflow_env_secret_is_named(self) -> None:
+        """Codex: a workflow-level `env: KEY: ${{ secrets.X }}` is inherited by every job, but the guard saw only the
+        job's own mapping. workflow_jobs gives each job its effective secrets (workflow env, job env, steps)."""
+        found, _, _ = classification_failures(self._with_workflow_env_secret(workflows()))
+        self.assertEqual(found, ["env-fixture.yml sign-env-fixture: holds a signing secret on a route to an owned Mac "
+                                 "but is not in GLAEDA_EXCLUSIVE_JOBS (add it there and to glaeda's SIGNING_JOBS) or "
+                                 "EXCLUSIVE_EXEMPT with a reason"])
+
+    def test_a_listed_job_inheriting_a_workflow_env_secret_stays_green(self) -> None:
+        from unittest import mock
+        listed = GLAEDA_EXCLUSIVE_JOBS | {("env-fixture.yml", "sign-env-fixture")}
+        with mock.patch(f"{__name__}.GLAEDA_EXCLUSIVE_JOBS", listed):
+            found, _, _ = classification_failures(self._with_workflow_env_secret(workflows()))
+        self.assertEqual(found, [])
 
     def test_an_unlisted_job_reading_the_owned_pick_and_its_secrets_by_index_is_named(self) -> None:
         """signing_runner.SIGNING_JOBS' fixture: the owned pick read by index (needs['x'].outputs['y']) is the same

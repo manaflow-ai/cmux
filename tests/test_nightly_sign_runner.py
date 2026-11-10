@@ -55,9 +55,10 @@ SECRET_ANCHORS = {"build-sign-notarize-nightly", "recover-nightly-next-notarizat
 
 
 def is_mac(job: dict) -> bool:
-    """A macOS label anywhere on the route, or an owned Xcode label (promote's route forks to Ubuntu)."""
-    runs_on = str(job.get("runs-on", ""))
-    return "macos" in runs_on or "xcode" in runs_on
+    """A macOS label anywhere on the route, or an owned Xcode label (promote's route forks to Ubuntu), in any matrix
+    cell (workflow_jobs.runs_on_cells). A runner nothing resolves (a fromJSON matrix) may be a Mac, so it counts."""
+    cells = workflow_jobs.runs_on_cells(job)
+    return cells is None or any("macos" in cell or "xcode" in cell for cell in cells)
 
 
 def signing_jobs(jobs: dict) -> dict[str, str]:
@@ -573,6 +574,31 @@ class Workflow(unittest.TestCase):
             "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-nightly-only-m4pro' }}",
             "needs": ["decide"], "steps": [{"run": "./upload.sh", "env": {"K": "${{ secrets['APPLE_API_KEY'] }}"}}]}
         self.assertEqual(unpicked_signing_mac_jobs(bracket), {"upload-bracket-fixture-nightly"})
+
+    def test_a_mac_job_whose_runner_comes_from_its_matrix_is_named(self) -> None:
+        """Codex: `runs-on: ${{ matrix.runner }}` hid a Mac job calling notarytool from the raw-string read. Each
+        matrix cell is a route; a runner nothing resolves counts as a Mac."""
+        import copy
+        for name, strategy in (
+            ("matrix-notarize-fixture-nightly", {"matrix": {"runner": ["ubuntu-24.04", "glaeda-nightly-only-m4pro-macos"]}}),
+            ("matrix-include-notarize-fixture-nightly", {"matrix": {"include": [{"runner": "macos-26"}]}}),
+            ("matrix-json-notarize-fixture-nightly", {"matrix": "${{ fromJSON(needs.decide.outputs.matrix) }}"}),
+        ):
+            with self.subTest(job=name):
+                jobs = copy.deepcopy(WORKFLOW["jobs"])
+                jobs[name] = {"runs-on": "${{ matrix.runner }}", "strategy": strategy, "needs": ["decide"],
+                              "steps": [{"run": "xcrun notarytool submit"}]}
+                self.assertEqual(unpicked_signing_mac_jobs(jobs), {name})
+
+    def test_a_named_matrix_mac_job_stays_green(self) -> None:
+        import copy
+        from unittest import mock
+        jobs = copy.deepcopy(WORKFLOW["jobs"])
+        jobs["matrix-notarize-fixture-nightly"] = {
+            "runs-on": "${{ matrix.runner }}", "strategy": {"matrix": {"runner": ["macos-26"]}}, "needs": ["decide"],
+            "steps": [{"run": "xcrun notarytool submit"}]}
+        with mock.patch.dict(SIGNING_MATERIAL_UNPICKED, {"matrix-notarize-fixture-nightly": "fixture"}):
+            self.assertEqual(unpicked_signing_mac_jobs(jobs), set())
 
     def test_a_new_signing_job_is_checked_without_being_listed(self) -> None:
         """The class #36559 hit in backend.yml: a job split out with a secret that nobody lists."""

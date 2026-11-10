@@ -105,10 +105,14 @@ def credentialed_control_jobs(doc):
     jobs end on the signer's label, test_nightly_sign_runner.py and the publish tests): derived, not kept by hand."""
     found = set()
     for name, job in workflow_jobs.jobs(doc).items():
-        runs_on = job.get('runs-on', '')
-        if not isinstance(runs_on, str) or 'ubuntu' not in runs_on or 'macos' in runs_on:
-            continue
-        if name in HOSTED_SECRET_JOBS or runs_on.rstrip().endswith(f"|| '{SIGNING_SLOT}' }}}}"):
+        # Every matrix cell's runs-on (workflow_jobs.runs_on_cells): `${{ matrix.runner }}` is the labels the
+        # matrix gives it, and a runner nothing resolves counts as a control, so control_route_failures names it.
+        cells = workflow_jobs.runs_on_cells(job)
+        if cells is not None:
+            cells = [cell for cell in cells if 'ubuntu' in cell and 'macos' not in cell]
+            if not cells or all(cell.rstrip().endswith(f"|| '{SIGNING_SLOT}' }}}}") for cell in cells):
+                continue
+        if name in HOSTED_SECRET_JOBS:
             continue
         if holds_credential(job):
             found.add(name)
@@ -1108,8 +1112,11 @@ CONTROL_SCOPES = {
 }
 
 
-def control_select(doc, job, pool='', attempt=1, owner='manaflow-ai', variable=''):
-    source = doc['jobs'][job]['runs-on'].removeprefix('${{').removesuffix('}}')
+def control_select(doc, job, pool='', attempt=1, owner='manaflow-ai', variable='', runs_on=None):
+    runs_on = doc['jobs'][job]['runs-on'] if runs_on is None else runs_on
+    if not runs_on.strip().startswith('${{'):
+        return runs_on.strip()
+    source = runs_on.strip().removeprefix('${{').removesuffix('}}')
     return evaluate(parse_expression(source), {
         'github.repository_owner': owner, 'github.repository': f'{owner}/cmux',
         'github.ref': 'refs/heads/nightly-next', 'needs.decide.outputs.track': 'nightly-next',
@@ -1121,24 +1128,27 @@ def control_route_failures(doc):
     """Each credentialed control whose route can leave the nightly-only pool, with the reason."""
     failures = {}
     for job in sorted(credentialed_control_jobs(doc) - set(CONTROL_ROUTE_EXEMPT)):
-        runs_on = doc['jobs'][job]['runs-on']
-        for needle in ('RUNNER_POOLS', 'blacksmith', 'LINUX_RUNNER'):
-            if needle in runs_on:
-                failures[job] = f'runs-on reads {needle}'
-                break
-        if job in failures:
+        cells = workflow_jobs.runs_on_cells(doc['jobs'][job])
+        if not cells:
+            failures[job] = 'runs-on has a matrix value nothing resolves' if cells is None else 'no runs-on'
             continue
-        # Every attempt takes the nightly-only pool: its minis run only nightly.yml from nightly-next or main
-        # (glaeda-nightly-only-admit), so a credentialed control never shares a mini with PR code.
-        for pool in ('', '{}', '{"linux":"blacksmith-16vcpu-ubuntu-2404"}', '{"linux":"cmux-fleet-linux-x64"}'):
-            for attempt in (1, 2, 3):
-                for variable in ('', NIGHTLY_ONLY):
-                    got = control_select(doc, job, pool, attempt, variable=variable)
-                    if got != NIGHTLY_ONLY and job not in failures:
-                        failures[job] = f'attempt {attempt} with RUNNER_POOLS={pool!r} takes {got!r}'
-        got = control_select(doc, job, 'not json', owner='someone')
-        if got != HOSTED and job not in failures:
-            failures[job] = f'a fork takes {got!r}, not {HOSTED!r}'
+        for runs_on in cells:
+            for needle in ('RUNNER_POOLS', 'blacksmith', 'LINUX_RUNNER'):
+                if needle in runs_on and job not in failures:
+                    failures[job] = f'runs-on reads {needle}'
+            if job in failures:
+                break
+            # Every attempt takes the nightly-only pool: its minis run only nightly.yml from nightly-next or main
+            # (glaeda-nightly-only-admit), so a credentialed control never shares a mini with PR code.
+            for pool in ('', '{}', '{"linux":"blacksmith-16vcpu-ubuntu-2404"}', '{"linux":"cmux-fleet-linux-x64"}'):
+                for attempt in (1, 2, 3):
+                    for variable in ('', NIGHTLY_ONLY):
+                        got = control_select(doc, job, pool, attempt, variable=variable, runs_on=runs_on)
+                        if got != NIGHTLY_ONLY and job not in failures:
+                            failures[job] = f'attempt {attempt} with RUNNER_POOLS={pool!r} takes {got!r}'
+            got = control_select(doc, job, 'not json', owner='someone', runs_on=runs_on)
+            if got != HOSTED and job not in failures:
+                failures[job] = f'a fork takes {got!r}, not {HOSTED!r}'
     return failures
 
 
@@ -1177,6 +1187,29 @@ class CredentialedControls(unittest.TestCase):
                 doc['jobs'][name] = {'runs-on': runs_on, 'steps': [{'run': 'true'}], **extra}
                 self.assertIn(name, credentialed_control_jobs(doc))
                 self.assertEqual(set(control_route_failures(doc)), {name})
+
+    def test_a_credentialed_control_whose_runner_comes_from_its_matrix_fails(self):
+        """Codex: `runs-on: ${{ matrix.runner }}` hid a Linux job with issues: write from the raw-string read. Each
+        matrix cell is a route; a matrix nothing resolves counts as a control and fails."""
+        for name, strategy in (
+            ('matrix-control-fixture-nightly', {'matrix': {'runner': ['ubuntu-24.04']}}),
+            ('matrix-include-control-fixture-nightly', {'matrix': {'include': [{'runner': 'blacksmith-4vcpu-ubuntu-2404'}]}}),
+            ('matrix-json-control-fixture-nightly', {'matrix': '${{ fromJSON(needs.decide.outputs.matrix) }}'}),
+        ):
+            with self.subTest(job=name):
+                doc = copy.deepcopy(DOC)
+                doc['jobs'][name] = {'runs-on': '${{ matrix.runner }}', 'strategy': strategy,
+                                     'permissions': {'issues': 'write'}, 'steps': [{'run': 'true'}]}
+                self.assertIn(name, credentialed_control_jobs(doc))
+                self.assertEqual(set(control_route_failures(doc)), {name})
+
+    def test_a_matrix_control_on_the_nightly_pool_stays_green(self):
+        doc = copy.deepcopy(DOC)
+        doc['jobs']['matrix-pool-control-fixture-nightly'] = {
+            'runs-on': '${{ matrix.runner }}', 'strategy': {'matrix': {'runner': [DOC['jobs']['published-in']['runs-on']]}},
+            'permissions': {'issues': 'write'}, 'steps': [{'run': 'true'}]}
+        self.assertIn('matrix-pool-control-fixture-nightly', credentialed_control_jobs(doc))
+        self.assertEqual(control_route_failures(doc), {})
 
     def test_a_new_credentialed_control_on_the_nightly_pool_stays_green(self):
         """The positive half: a bracket-secret control on published-in's route takes no failure."""

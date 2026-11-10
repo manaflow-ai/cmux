@@ -58,13 +58,40 @@ def _unique_mapping(loader: yaml.SafeLoader, node: yaml.MappingNode, deep: bool 
 _UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _unique_mapping)
 
 
+class Job(dict):
+    """A job's own mapping, as written, plus the workflow-level `env:` it inherits (`inherited_env`). GitHub hands a
+    workflow's env to every job, so a secret there is in every job's reach: secret_names() and holds_secret() read
+    it with the job's own env, steps and `with:`/`secrets:`. The mapping itself stays the job's own keys, so a guard
+    that compares or prints a job sees what the file says. copy.deepcopy keeps the inherited env."""
+
+    def __init__(self, job: Mapping[str, Any], inherited_env: Any = None) -> None:
+        super().__init__(job)
+        self.inherited_env = inherited_env or {}
+
+
+# A Job dumps as the mapping it is (yaml.safe_dump(job), as guards print or search a job).
+yaml.SafeDumper.add_representer(Job, yaml.representer.SafeRepresenter.represent_dict)
+yaml.Dumper.add_representer(Job, yaml.representer.SafeRepresenter.represent_dict)
+
+
+def inheriting(document: Mapping[str, Any]) -> dict[str, Any]:
+    """A copy of `document` whose every job is a Job inheriting the document's own `env:` (a fixture that adds a
+    workflow env or a job to a loaded workflow rebinds them this way)."""
+    out = dict(document)
+    found = out.get("jobs")
+    if isinstance(found, dict):
+        env = out.get("env") or {}
+        out["jobs"] = {name: Job(job, env) if isinstance(job, dict) else job for name, job in found.items()}
+    return out
+
+
 def document(source: str | Path) -> dict[str, Any]:
-    """The whole workflow, from a path or from its text."""
+    """The whole workflow, from a path or from its text. Each job is a Job, carrying the workflow env it inherits."""
     text = source.read_text(encoding="utf-8") if isinstance(source, Path) else source
     loaded = yaml.load(text, Loader=_UniqueKeyLoader)
     if not isinstance(loaded, dict):
         raise ValueError(f"workflow is not a mapping: {type(loaded).__name__}")
-    return loaded
+    return inheriting(loaded)
 
 
 def jobs(source: str | Path | Mapping[str, Any]) -> dict[str, dict[str, Any]]:
@@ -78,7 +105,12 @@ def jobs(source: str | Path | Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     for name, job in found.items():
         if not isinstance(job, dict):
             raise ValueError(f"job {name!r} is not a mapping")
-    return found
+    # A document loaded elsewhere (or a job a fixture added) still inherits the workflow env's secrets. Only then
+    # is a job re-wrapped, so a guard that edits a job it got back edits the document's own job otherwise.
+    env = loaded.get("env") or {}
+    if not secret_names(env):
+        return found
+    return {name: job if isinstance(job, Job) else Job(job, env) for name, job in found.items()}
 
 
 def strings(value: Any) -> Iterator[str]:
@@ -96,8 +128,11 @@ def strings(value: Any) -> Iterator[str]:
 
 def secret_names(value: Any) -> set[str]:
     """The secrets a job (or any part of one) reads, upper-cased. ALL_SECRETS stands for every
-    secret: `secrets: inherit`, `toJSON(secrets)` or an index that is not a literal."""
+    secret: `secrets: inherit`, `toJSON(secrets)` or an index that is not a literal. For a Job this is its
+    effective set: the workflow env it inherits, then its own env, steps, `with:` and `secrets:`."""
     names: set[str] = set()
+    if isinstance(value, Job) and value.inherited_env:
+        names |= secret_names(value.inherited_env)
     if isinstance(value, Mapping) and str(value.get("secrets", "")).strip().lower() == "inherit":
         names.add(ALL_SECRETS)
     for text in strings(value):
@@ -202,6 +237,72 @@ def expression_values(expression: str) -> tuple[set[str], set[str]]:
     return values, unresolved
 
 
+def _resolve(job: Mapping[str, Any], text: str) -> tuple[set[str], set[str]]:
+    """The literal values `text` (a value as written in the job) can take, matrix cells expanded and an
+    expression's literal branches read, and the parts nothing here resolves."""
+    expanded = expand_matrix(job, text.strip())
+    if expanded is None:
+        return set(), {text.strip()}
+    values: set[str] = set()
+    unresolved: set[str] = set()
+    for cell in expanded:
+        expressions = _EXPRESSION.findall(cell)
+        if not expressions:
+            values.add(cell)
+        elif len(expressions) == 1 and cell.startswith("${{") and cell.endswith("}}"):
+            found, open_terms = expression_values(expressions[0])
+            values |= found
+            unresolved |= open_terms
+        else:
+            unresolved.add(cell)
+    return values, unresolved
+
+
+def _runs_on_items(job: Mapping[str, Any]) -> list[Any]:
+    raw = job.get("runs-on")
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, Mapping):
+        labels = raw.get("labels")
+        return [*(labels if isinstance(labels, list) else [labels] if labels else []),
+                *([raw["group"]] if raw.get("group") else [])]
+    return raw if isinstance(raw, list) else [raw]
+
+
+def runs_on_cells(job: Mapping[str, Any]) -> list[str] | None:
+    """The job's runs-on as each matrix cell would write it (`${{ matrix.runner }}` replaced by every value the
+    matrix gives it; a list of labels joined by ", "), or None when a matrix value cannot be resolved (a
+    fromJSON matrix, a key the matrix lacks): a guard counts such a job as unclassified, never as off its route.
+    [] for a job with no runs-on (a reusable-workflow call)."""
+    cells: list[list[str]] = []
+    for item in _runs_on_items(job):
+        if not isinstance(item, str):
+            return None
+        expanded = expand_matrix(job, item.strip())
+        if expanded is None:
+            return None
+        cells.append(expanded)
+    if not cells:
+        return []
+    return list(dict.fromkeys(", ".join(combination) for combination in itertools.product(*cells)))
+
+
+def runs_on_values(job: Mapping[str, Any]) -> tuple[set[str], set[str]]:
+    """Every label a job's runs-on can resolve to (matrix values expanded, literal branches of an expression
+    read), and every part it could not resolve (a context such as needs.x.outputs.y or vars.X, or a matrix value
+    nothing gives). A guard counts a job with an unresolved part as unclassified, like environment_values."""
+    values: set[str] = set()
+    unresolved: set[str] = set()
+    for item in _runs_on_items(job):
+        if not isinstance(item, str):
+            unresolved.add(repr(item))
+            continue
+        found, open_terms = _resolve(job, item)
+        values |= found
+        unresolved |= open_terms
+    return values, unresolved
+
+
 def environment_values(job: Mapping[str, Any]) -> tuple[set[str], set[str]]:
     """Every environment name a job's `environment:` can resolve to (matrix values expanded,
     literal branches of an expression read), and every part it could not resolve. A guard counts
@@ -213,19 +314,4 @@ def environment_values(job: Mapping[str, Any]) -> tuple[set[str], set[str]]:
         return set(), set()
     if not isinstance(env, str):
         return set(), {repr(env)}
-    expanded = expand_matrix(job, env.strip())
-    if expanded is None:
-        return set(), {env.strip()}
-    values: set[str] = set()
-    unresolved: set[str] = set()
-    for text in expanded:
-        expressions = _EXPRESSION.findall(text)
-        if not expressions:
-            values.add(text)
-        elif len(expressions) == 1 and text.startswith("${{") and text.endswith("}}"):
-            found, open_terms = expression_values(expressions[0])
-            values |= found
-            unresolved |= open_terms
-        else:
-            unresolved.add(text)
-    return values, unresolved
+    return _resolve(job, env)

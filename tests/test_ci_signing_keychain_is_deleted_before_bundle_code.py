@@ -490,6 +490,8 @@ def bracketed(value: object) -> object:
     """value with every `secrets.NAME` written `secrets['NAME']`, the form an unlisted job can hide behind."""
     if isinstance(value, str):
         return re.sub(r"\bsecrets\.([A-Za-z_][A-Za-z0-9_]*)", r"secrets['\1']", value)
+    if isinstance(value, workflow_jobs.Job):
+        return workflow_jobs.Job({key: bracketed(item) for key, item in value.items()}, bracketed(value.inherited_env))
     if isinstance(value, dict):
         return {key: bracketed(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -565,7 +567,9 @@ def inline_step_scripts(job: dict, missing: list[str] | None = None) -> dict:
                         missing.append(script)
             step = {**step, "run": "\n".join(lines)}
         steps.append(step)
-    return {**job, "steps": steps}
+    expanded = {**job, "steps": steps}
+    # A Job keeps the workflow env it inherits (tests/workflow_jobs.py).
+    return workflow_jobs.Job(expanded, job.inherited_env) if isinstance(job, workflow_jobs.Job) else expanded
 
 
 def holds_release_material(job: dict) -> bool:

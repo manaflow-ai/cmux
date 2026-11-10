@@ -15,17 +15,20 @@ The pre-fix reader:
 - documents: yaml.safe_load, which keeps the last of two jobs with one id.
 - environments: the literal `environment:` (or its `name:`); a matrix value or an expression counts as no release
   environment.
+- runs-on: the raw string, one cell; `${{ matrix.runner }}` is not expanded.
+- a job's secrets: its own mapping only; the workflow-level `env:` it inherits is not read.
 
 One list's fix changed no reader: signing_runner.SIGNING_JOBS' cap classification (tests/test_ci_signing_owned_mac.py)
 reads the owned pick with the same dotted() and NEEDS_OUTPUT it had before; what was missing was the classification
 itself. Its pre-fix is that guard switched off (PRE_FIX_GUARDS: owned_pick_reads finds nothing), and its fixture must
 go red with it, so the fixture is shown to need the guard.
 
-The 15 fixtures: 11 from the nightly, signing and routing groups (tests/test_nightly_trusted_routing.py,
+The 18 fixtures: 11 from the nightly, signing and routing groups (tests/test_nightly_trusted_routing.py,
 tests/test_nightly_sign_runner.py, tests/test_seed_derived_data.py, tests/test_ci_signing_owned_mac.py,
 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py's GATED_SECRET_JOBS,
 tests/test_ci_fork_runner_routing.py, tests/test_publish_app_token_workflow.py) and the four keychain lists
-(KeychainListFixtures below). This branch merges the three list branches, so every module is importable here.
+(KeychainListFixtures below), and three for the readers' last gaps: a matrix runner (a Linux control with issues:
+write, a Mac job calling notarytool) and a secret in the workflow-level env. This branch merges the three list branches, so every module is importable here.
 """
 
 from __future__ import annotations
@@ -89,6 +92,15 @@ class PreFixReader:
         return found
 
     @staticmethod
+    def runs_on_cells(job: Mapping[str, Any]) -> list[str] | None:
+        raw = job.get("runs-on")
+        return [raw if isinstance(raw, str) else str(raw)] if raw else []
+
+    @staticmethod
+    def inheriting(document: Mapping[str, Any]) -> dict[str, Any]:
+        return dict(document)
+
+    @staticmethod
     def environment_values(job: Mapping[str, Any]) -> tuple[set[str], set[str]]:
         env = job.get("environment")
         if isinstance(env, Mapping):
@@ -100,7 +112,7 @@ class PreFixReader:
     @classmethod
     def patched(cls) -> ExitStack:
         stack = ExitStack()
-        for name in ("secret_names", "document", "jobs", "environment_values"):
+        for name in ("secret_names", "document", "jobs", "environment_values", "runs_on_cells", "inheriting"):
             stack.enter_context(mock.patch.object(workflow_jobs, name, getattr(cls, name)))
         return stack
 
@@ -175,6 +187,14 @@ FIXTURES = (
     ("APP_JOBS", "test_publish_app_token_workflow", "WorkflowTests",
      "test_a_new_release_app_job_must_be_classified",
      "test_a_listed_release_app_job_reading_the_key_by_bracket_stays_green"),
+    ("CREDENTIALED_CONTROL_JOBS (matrix runner)", "test_nightly_trusted_routing", "CredentialedControls",
+     "test_a_credentialed_control_whose_runner_comes_from_its_matrix_fails",
+     "test_a_matrix_control_on_the_nightly_pool_stays_green"),
+    ("SIGNING_MATERIAL_UNPICKED (matrix runner)", "test_nightly_sign_runner", "Workflow",
+     "test_a_mac_job_whose_runner_comes_from_its_matrix_is_named", "test_a_named_matrix_mac_job_stays_green"),
+    ("GLAEDA_EXCLUSIVE_JOBS (workflow env)", "test_ci_signing_owned_mac", "ClassificationTests",
+     "test_an_unlisted_job_inheriting_a_workflow_env_secret_is_named",
+     "test_a_listed_job_inheriting_a_workflow_env_secret_stays_green"),
     ("STEP_LEVEL_ONLY", HERE, "KeychainListFixtures", "test_step_level_only", None),
     ("INLINE_DEVELOPER_ID_KEYCHAINS", HERE, "KeychainListFixtures", "test_inline_developer_id_keychains", None),
     ("SCRIPT_MADE_KEYCHAINS (derived)", HERE, "KeychainListFixtures", "test_script_made_keychains", None),
@@ -197,8 +217,8 @@ def outcome(result: unittest.TestResult) -> str:
 
 
 class PreFixMutation(unittest.TestCase):
-    def test_there_are_fifteen_fixtures(self) -> None:
-        self.assertEqual(len({row[3] for row in FIXTURES}), 15)
+    def test_there_are_eighteen_fixtures(self) -> None:
+        self.assertEqual(len({row[3] for row in FIXTURES}), 18)
 
     def test_each_fixture_is_green_with_the_shared_reader(self) -> None:
         for label, module, cls, red, green in FIXTURES:
@@ -223,6 +243,13 @@ class PreFixMutation(unittest.TestCase):
         self.assertEqual(set(PreFixReader.jobs(text)), {"a", "c"})
         self.assertEqual(set(workflow_jobs.jobs(text)), {"a", "b", "c"})
         self.assertEqual(PreFixReader.environment_values({"environment": "${{ matrix.env }}"}), (set(), set()))
+        matrix = {"runs-on": "${{ matrix.runner }}", "strategy": {"matrix": {"runner": ["macos-26", "ubuntu-24.04"]}}}
+        self.assertEqual(PreFixReader.runs_on_cells(matrix), ["${{ matrix.runner }}"])
+        self.assertEqual(workflow_jobs.runs_on_cells(matrix), ["macos-26", "ubuntu-24.04"])
+        self.assertIsNone(workflow_jobs.runs_on_cells({**matrix, "strategy": {"matrix": "${{ fromJSON(x) }}"}}))
+        inherited = workflow_jobs.inheriting({"env": {"K": "${{ secrets.S }}"}, "jobs": {"a": {"steps": []}}})
+        self.assertEqual(workflow_jobs.secret_names(inherited["jobs"]["a"]), {"S"})
+        self.assertEqual(PreFixReader.secret_names(inherited["jobs"]["a"]), set())
 
 
 if __name__ == "__main__":
