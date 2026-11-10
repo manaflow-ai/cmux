@@ -201,6 +201,74 @@ struct CloudCapabilityRelayTests {
         await capability.clear()
     }
 
+    /// Due at once, so the timer refreshes as soon as it may (Rust's rules hold the real times and backoff).
+    nonisolated static let dueRules = CloudCapabilityHolder.Rules(mint: plainRules.mint, plan: { state, _ in
+        let held = state.held.flatMap { $0.team == state.team ? $0 : nil }
+        return .init(send: held?.token, fetch: state.team != nil, wakeIn: held == nil ? nil : 0)
+    })
+
+    /// An install token that fails while `failing` is set, counting each failure.
+    final class FlakyToken: @unchecked Sendable {
+        private let lock = NSLock()
+        private var failing = false, failures = 0
+        func set(failing: Bool) { lock.withLock { self.failing = failing } }
+        var failed: Int { lock.withLock { failures } }
+        func token() throws -> String {
+            try lock.withLock {
+                guard !failing else { failures += 1; throw URLError(.notConnectedToInternet) }
+                return "install-a"
+            }
+        }
+    }
+
+    /// Follow-up F1 on cmux#40172: a refresh whose install token fails once retries by itself and recovers.
+    @Test func aRefreshWhoseTokenFailsRetriesAndRecovers() async throws {
+        let worker = Worker(), flaky = FlakyToken()
+        let capability = CloudCapabilityHolder(transport: worker, headers: [:], token: { try flaky.token() },
+                                               teamOf: Self.teamOf, rules: Self.dueRules)
+        await capability.intent()
+        #expect(await worker.mints.count == 1)
+        flaky.set(failing: true)
+        let deadline = ContinuousClock.now + .seconds(10)
+        while flaky.failed == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(flaky.failed > 0, "the timer's refresh asked for a token")
+        flaky.set(failing: false)
+        try await worker.untilMints(2) // no call or intent: the timer alone
+        #expect(await capability.holds)
+        await capability.clear()
+    }
+
+    /// Follow-up F2 on cmux#40172: an intent for team B while team A's mint is in flight gets team B's capability.
+    @Test func anIntentForAnotherTeamDuringAMintGetsThatTeamsCapability() async throws {
+        actor Mints {
+            var asked: [String] = []
+            private var releaseA: CheckedContinuation<Void, Never>?
+            func mint(_ bearer: String) async -> (status: Int, body: Data) {
+                asked.append(bearer)
+                if bearer == "install-a" { await withCheckedContinuation { releaseA = $0 } }
+                let team = CloudCapabilityRelayTests.teamOf(bearer) ?? ""
+                return (200, Data(#"{"ok":true,"value":{"capability":"cc1.\#(team).sig","team":"\#(team)"}}"#.utf8))
+            }
+            func release() { releaseA?.resume(); releaseA = nil }
+        }
+        let mints = Mints(), install = Install()
+        let capability = CloudCapabilityHolder(mint: { await mints.mint($0) }, token: { install.token },
+                                               teamOf: Self.teamOf, rules: Self.plainRules)
+        let first = Task { await capability.intent() }
+        var deadline = ContinuousClock.now + .seconds(10)
+        while await mints.asked.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        install.switchTeam()
+        let second = Task { await capability.intent() }
+        deadline = ContinuousClock.now + .seconds(2)
+        while await !mints.asked.contains("install-b"), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        await mints.release() // team A's answer lands late
+        await first.value
+        await second.value
+        #expect(await mints.asked.contains("install-b"), "team B was never minted")
+        #expect(await capability.header(forBearer: "install-b") == "cc1.team_b.sig")
+        await capability.clear()
+    }
+
     @Test func signOutForgetsIt() async throws {
         let worker = Worker(), install = Install()
         let capability = Self.holder(worker, install)
