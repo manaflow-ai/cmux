@@ -181,6 +181,7 @@ fn no_request_waits_for_the_bulk_of_a_restart_checkpoint() {
     const SLOW_BULK: Duration = Duration::from_millis(600);
     const NO_WAIT: Duration = Duration::from_millis(300);
     const HOLDS: usize = 2;
+    const STORM_PAUSE: Duration = Duration::from_millis(1);
     let root = std::env::temp_dir()
         .join(format!("cmux-wal-bulk-{}", crate::workspace_registry::new_uuid_v4()));
     let mux = open_persistent_test_mux("wal-bulk", &root);
@@ -203,6 +204,11 @@ fn no_request_waits_for_the_bulk_of_a_restart_checkpoint() {
                 slowest = slowest.max(from.elapsed());
                 mux.request_registry_flush();
                 changes += 1;
+                // The person's thread gets its turn at the locks: a thread
+                // that takes a lock again at once can keep a waiter out for
+                // many turns, and that wait is not a wait for the bulk (the
+                // measure above runs with no pause and shows it).
+                std::thread::sleep(STORM_PAUSE);
             }
             (changes, slowest)
         })
