@@ -61,7 +61,7 @@ struct CloudHandoffTurnOpener {
     /// The store's answer for `session` on `machine`, or a refusal code.
     func reply(session: String, machine: String) async -> Opened {
         do {
-            return try await Self.open(session: session, machine: machine, client: ownerClient())
+            return try await Self.open(session: session, machine: machine, client: services.cloud.ownerAPI)
         } catch {
             services.cloud.logger.error("hand-off turn not opened: \(CloudStrings.errorText(error), privacy: .public)")
             return .refused(Self.storeCode(error) ?? "handoff.unavailable")
@@ -152,16 +152,5 @@ struct CloudHandoffTurnOpener {
         guard case .http(_, let code?, _, _, _) = error as? CloudAPIError,
               code.range(of: #"^[a-z_.]{1,64}$"#, options: .regularExpression) != nil else { return nil }
         return code
-    }
-
-    /// The person's own session on the backend API, as ``HandoffNotices`` reads hand-offs.
-    private func ownerClient() -> CloudOwnerAPIClient {
-        let cloud = services.cloud, auth = cloud.auth, identity = cloud.installIdentity
-        return CloudOwnerAPIClient(
-            baseURL: FeedService.apiBaseURL(auth: auth),
-            accessToken: { try await auth.tokens().access },
-            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
-            daemon: cloud.daemon
-        )
     }
 }

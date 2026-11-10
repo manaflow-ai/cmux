@@ -158,9 +158,13 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   it blocks on nothing; one re-arm per folder change; ChiefMovedMarkerAttachment)
 - Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.remote-localhost.peer-scan`, `com.cmuxterm.next.cloud-browser-proxy`,
   `com.cmuxterm.next.cloud-hub-loopback` (Open Desktop's SOCKS connections to the app's WireGuard hub),
-  `cmux.cloud.machine-io.stdin` (one Worker machine exec or file call's request into the bundled cmux's stdin,
+  `cmux.cloud.machine-io.stdin` (one sealed secret delivery's request into the bundled cmux's stdin,
   one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
   stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
+  `cmux.cloud.daemon-call` (one Cloud API call on the local daemon's socket through the SDK's C ABI, user-initiated,
+  one thread per call: the SDK's connect and call block only it, bounded by the call's own wait plus 30 s (the
+  SDK's per-request timeout); a cancel answers the caller at once and the thread ends at the daemon's answer or
+  that bound; the daemon runs 32 calls at most and refuses more as busy; CloudDaemon),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
   `cmux.daemon-bridge.stream` (one Cloud desktop session's `link dial --service desktop` bridge socket,
   user-initiated, serial: DispatchIO delivers the stream's bytes here and it blocks on nothing; the rd transport

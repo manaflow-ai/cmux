@@ -186,38 +186,50 @@ public struct CloudDaemon: Sendable {
 }
 
 /// Bytes that hold a credential: wiped when the last reference goes.
-public final class SecretBytes: @unchecked Sendable {
-    // Unchecked: written only while one owner builds it, before it is shared; read after.
-    private var bytes: [UInt8]
+public final class SecretBytes: Sendable {
+    private let bytes: Mutex<[UInt8]>
 
-    public init(_ bytes: [UInt8]) { self.bytes = bytes }
+    public init(_ bytes: [UInt8]) { self.bytes = Mutex(bytes) }
 
-    deinit { wipe() }
-
-    func withBytes<R>(_ body: (UnsafeBufferPointer<UInt8>) throws -> R) rethrows -> R {
-        try bytes.withUnsafeBufferPointer(body)
+    deinit {
+        bytes.withLock { bytes in
+            bytes.withUnsafeMutableBufferPointer { buffer in
+                guard let base = buffer.baseAddress else { return }
+                _ = memset_s(base, buffer.count, 0, buffer.count)
+            }
+        }
     }
 
-    func withMutableBytes<R>(_ body: (UnsafeMutableBufferPointer<UInt8>) throws -> R) rethrows -> R {
-        try bytes.withUnsafeMutableBufferPointer { try body($0) }
+    func withBytes<R: Sendable>(_ body: (UnsafeBufferPointer<UInt8>) -> R) -> R {
+        bytes.withLock { $0.withUnsafeBufferPointer(body) }
+    }
+
+    func withMutableBytes<R: Sendable>(_ body: (UnsafeMutableBufferPointer<UInt8>) -> R) -> R {
+        bytes.withLock { $0.withUnsafeMutableBufferPointer(body) }
     }
 
     /// The JSON text, for a test to read.
-    public var text: String { String(decoding: bytes, as: UTF8.self) }
+    public var text: String { withBytes { String(decoding: $0, as: UTF8.self) } }
 
     /// Adds `"name":"<base64 of key>"` to this JSON object in place: no `String` or `Data` copy of the key.
     func appendField(_ name: String, base64Of key: SecretBytes) {
-        guard bytes.last == UInt8(ascii: "}") else { return }
-        bytes.removeLast()
-        if bytes.count > 1 { bytes.append(UInt8(ascii: ",")) }
-        bytes.append(contentsOf: Array("\"\(name)\":\"".utf8))
-        key.withBytes { Self.base64(into: &bytes, $0) }
-        bytes.append(contentsOf: Array("\"}".utf8))
+        let encoded = key.withBytes { Self.base64($0) }
+        bytes.withLock { bytes in
+            guard bytes.last == UInt8(ascii: "}") else { return }
+            bytes.removeLast()
+            if bytes.count > 1 { bytes.append(UInt8(ascii: ",")) }
+            bytes.append(contentsOf: Array("\"\(name)\":\"".utf8))
+            encoded.withBytes { bytes.append(contentsOf: $0) }
+            bytes.append(contentsOf: Array("\"}".utf8))
+        }
     }
 
     private static let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".utf8)
 
-    private static func base64(into out: inout [UInt8], _ input: UnsafeBufferPointer<UInt8>) {
+    /// The base64 of `input`, in bytes that are wiped in turn.
+    private static func base64(_ input: UnsafeBufferPointer<UInt8>) -> SecretBytes {
+        var out: [UInt8] = []
+        out.reserveCapacity((input.count + 2) / 3 * 4)
         var index = 0
         while index < input.count {
             let a = UInt32(input[index])
@@ -230,13 +242,7 @@ public final class SecretBytes: @unchecked Sendable {
             out.append(index + 2 < input.count ? alphabet[Int(triple & 63)] : UInt8(ascii: "="))
             index += 3
         }
-    }
-
-    private func wipe() {
-        bytes.withUnsafeMutableBufferPointer { buffer in
-            guard let base = buffer.baseAddress else { return }
-            memset_s(base, buffer.count, 0, buffer.count)
-        }
+        return SecretBytes(out)
     }
 }
 
