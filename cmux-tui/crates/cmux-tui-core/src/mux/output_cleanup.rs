@@ -256,9 +256,20 @@ impl Mux {
                         // pass named during the start delay (if any).
                         worker_control.floor.load(Ordering::Acquire)
                     };
-                    let not_needed = run_output_cleanup(&db_path, floor, &worker_control, &pending);
-                    if !not_needed || worker_control.is_stopped() {
+                    let outcome = run_output_cleanup(&db_path, floor, &worker_control, &pending);
+                    if worker_control.is_stopped() {
                         return;
+                    }
+                    match outcome {
+                        CleanupOutcome::NotNeeded => {}
+                        // The one-time cleanup would keep too much of the
+                        // journal (most of it is not output): a rebuild at a
+                        // retention floor is another question, asked below.
+                        CleanupOutcome::Skipped if floor == 0 => {
+                            done = true;
+                            continue;
+                        }
+                        CleanupOutcome::Skipped | CleanupOutcome::Ended => return,
                     }
                     // A registry already marked keeps its mark: a swap's mark
                     // names the backup's registry until the backup is removed.
@@ -304,14 +315,26 @@ impl Mux {
     }
 }
 
-/// Phase A for the registry at `db_path`. True when the registry holds no
-/// stored output, so the caller records that the cleanup is done.
+/// How one pass of the worker ended.
+enum CleanupOutcome {
+    /// Nothing to clean up at this floor: at floor 0 the caller records
+    /// that the one-time cleanup is done.
+    NotNeeded,
+    /// The pass would keep too much of the journal; the registry is
+    /// unchanged and no staging file is left.
+    Skipped,
+    /// Built (and kept current until the owner stopped), stopped, refused
+    /// for free space, or failed: the worker of this start is done.
+    Ended,
+}
+
+/// Phase A for the registry at `db_path`.
 fn run_output_cleanup(
     db_path: &Path,
     floor: u64,
     control: &Arc<Control>,
     pending: &AtomicBool,
-) -> bool {
+) -> CleanupOutcome {
     let pause = env_duration("CMUX_TUI_TEST_OUTPUT_CLEANUP_SEGMENT_PAUSE_MS");
     let catch_up =
         env_duration("CMUX_TUI_TEST_OUTPUT_CLEANUP_CATCH_UP_MS").unwrap_or(CATCH_UP_INTERVAL);
@@ -332,7 +355,7 @@ fn run_output_cleanup(
     match outcome {
         Ok(StageOutcome::NotNeeded) => {
             pending.store(false, Ordering::Release);
-            return true;
+            return CleanupOutcome::NotNeeded;
         }
         Ok(StageOutcome::Built) => {}
         Ok(StageOutcome::Refused(reason)) => {
@@ -344,6 +367,7 @@ fn run_output_cleanup(
         Ok(StageOutcome::Skipped(reason)) => {
             pending.store(false, Ordering::Release);
             eprintln!("cmux-tui: output cleanup: skipped, the registry is unchanged: {reason}");
+            return CleanupOutcome::Skipped;
         }
         Ok(StageOutcome::Stopped) => {
             eprintln!("cmux-tui: output cleanup: stopped; it resumes at the next start");
@@ -355,7 +379,7 @@ fn run_output_cleanup(
             );
         }
     }
-    false
+    CleanupOutcome::Ended
 }
 
 /// Background QoS on macOS; lowest CPU and idle IO priority for this thread
