@@ -29,17 +29,20 @@ Honesty rules (the `selfcheck` command proves 2-4 on the host, with the real app
   4. A frozen window (`debug.stall`: the main thread blocked) loses its inputs: `lost`, 10 late refreshes each,
      and the report gives FAIL when the other arm answered (chrome_parity.verdict_of).
   5. An input that the capture could not see is `blind`: no sample, not `lost`, counted apart and shown in the
-     report. The recorder's stream sometimes stops right after a change: it gives no callback of any kind (not a
-     complete frame, not an idle one) until the next change, and the frame of that change never comes. Measured
-     on aws-m4pro-8 (macOS 26.7, 120 Hz): 40 of 1360 typed keys in 12 runs on 3 builds; the ones looked at were
-     on the display in their own frame in a film by another process, and the renderer drew a frame for each. So
-     an input is blind only when the stream called back after the input, not later than BLIND_START_REFRESHES
-     after it, and was then silent (CAPTURE_SILENT_MS with no callback) up to the response frame or the end of
-     the input's span. A window that shows nothing new is not blind: the stream keeps its idle callbacks then (0
-     of 1299 times with no input were blind in the same runs), so rules 3 and 4 hold; selfcheck proves both on
-     the host. A run with more than BLIND_MAX_SHARE of its inputs blind (and more than 2) is "not run". The limit of this rule: a
-     frame that the app shows with no change in it, right before the stream stops, reads the same as a blind
-     input. The `blind` count is in every result and in the report so that a rise of it is seen.
+     report's verdict and run list. The recorder's stream sometimes stops right after a change on the display:
+     it gives no callback of any kind (not a complete frame, not an idle one) until the next change, and the
+     frame of that change never comes. Measured on aws-m4pro-7 and -8 (macOS 26.7, 120 Hz): 56 of 1840 typed
+     keys in 16 runs on 3 builds; the ones looked at were on the display in their own frame in a film by another
+     process, and the renderer drew a frame for each. So an input is blind only when the stream called back
+     after the input, not later than BLIND_START_REFRESHES after it, and was then silent (longer than
+     CAPTURE_SILENT_REFRESHES with no callback) up to the response frame or the end of the input's span.
+     A window that changes nothing keeps its idle callbacks: of 60 keys sent into a blocked main thread
+     (`debug.stall`), 58 were lost and 0 blind, so rules 3 and 4 hold (selfcheck proves both on the host). A
+     silence can follow any change, also one outside the row's region (a tab title): in the same runs 165 of
+     108841 times with no input (one each 5 ms) read as blind, 0.15%, the worst run 0.56%. That is the chance
+     that a frame the app really holds is excused, and it is the limit of this rule: the last callback before a
+     silence says only "not shown yet". A run with more than BLIND_MAX_SHARE of its inputs blind (and more
+     than 2) is "not run".
 
 A bench tool: never a CI gate, job, step or perf-gate row. Python 3.9 standard library only.
 
@@ -92,12 +95,18 @@ TOP_CHROME_PT = 34      # the window's title and tab bar rows: left out of a con
 QUIET_MS = 400          # no change in the response region for this long before the first input
 SCAN_BUDGET = 200e6     # bytes of kept pixels per recording (the recorder's cap is 256 MB)
 RAN = ("app", "menu", "window")  # debug.key's `handled_by` for a chord that ran an action
-CAPTURE_SILENT_MS = 50  # no callback of any kind for this long = the stream stopped (video_judge.CAPTURE_STALL_S)
+# No callback of any kind for longer than this = the stream stopped. Off the refresh grid on purpose: the stream's
+# normal gaps are whole refreshes (up to 5 measured; a gap of 6 is 50 ms at 120 Hz, the limit of video_judge).
+CAPTURE_SILENT_REFRESHES = 6.5
 BLIND_START_REFRESHES = 4  # a silence that starts later than this after an input is not the cause of its missing frame
 BLIND_MAX_SHARE = 0.10  # more blind inputs than this share of a run: "not run" (the worst run measured had 8 of 120)
 
 
 NotRun = chrome_arm.NotRun  # one class in both arms: the GUI lock and the display pick raise it too
+
+
+class CaptureBlind(NotRun):
+    """The capture stream was silent at too many inputs of a run (honesty rule 5): the run has no number."""
 
 
 def log(message):
@@ -170,7 +179,7 @@ def read_callbacks(path):
 def capture_blind(t, stop, callbacks, refresh_ms):
     """Whether the capture could not see what the window showed for the input at `t` (honesty rule 5): the stream
     called back after `t`, not later than BLIND_START_REFRESHES after it, and then gave no callback of any kind up
-    to `stop` (the response frame's time, or the end of the input's span) for longer than CAPTURE_SILENT_MS.
+    to `stop` (the response frame's time, or the end of the input's span) for longer than CAPTURE_SILENT_REFRESHES.
     `callbacks`: sorted ns. A stream that was silent before the input already, or that never called back, is not
     blind for it: such an input stays lost."""
     limit = t + int(BLIND_START_REFRESHES * refresh_ms * 1e6)
@@ -179,7 +188,7 @@ def capture_blind(t, stop, callbacks, refresh_ms):
         return False  # no callback between the input and the start limit: the silence is not this input's
     if after < len(callbacks) and callbacks[after] < stop:
         return False  # the stream called back inside the span after the start limit: it was awake
-    return stop - callbacks[after - 1] > CAPTURE_SILENT_MS * 1e6
+    return stop - callbacks[after - 1] > CAPTURE_SILENT_REFRESHES * refresh_ms * 1e6
 
 
 def latencies(stamps, changed, horizon_ms, refresh_ms, callbacks=()):
@@ -468,8 +477,8 @@ def latency_result(cmux, hz, stamps, horizon_ms=300):
     changed, facts = cmux.stop_recording(stamps[0])
     samples, lost, missed, blind = latencies(stamps, changed, horizon_ms, 1000.0 / hz, cmux.callbacks)
     if blind > max(2, BLIND_MAX_SHARE * len(stamps)):
-        raise NotRun(f"the capture stream was silent at {blind} of {len(stamps)} inputs (no callback of any kind for "
-                     f"{CAPTURE_SILENT_MS} ms or more): the capture did not see this run")
+        raise CaptureBlind(f"the capture stream was silent at {blind} of {len(stamps)} inputs (no callback of any kind "
+                           f"for more than {CAPTURE_SILENT_REFRESHES} refreshes): the capture did not see this run")
     return {"samples": samples, "lost": lost, "missed": missed, "blind": blind, "inputs": len(stamps),
             "frames": len(changed), **facts}
 
@@ -838,7 +847,8 @@ def report(args):
              "CMUX_NEXT_TEST_WINDOW_SCREEN, Chrome's by --window-position. `refresh ms` is measured in the run: cmux = "
              "p50 of 1 s of its display link, Chrome = the grid of its presented frames. A run that is not `measured` "
              "gives the table no number. `blind` (cmux latency rows): inputs at which the capture stream went silent, "
-             "so the capture could not see the window; they are no sample and not `lost` (honesty rule 5).", "",
+             "so the capture could not see the window; they are no sample and not `lost` (honesty rule 5). A verdict "
+             "with blind inputs says so: those inputs are not measured.", "",
              "| arm | row | load | round | status | display | screen locked | refresh ms | 1-min load | n / lost / blind / inputs | reason |",
              "|---|---|---|---|---|---|---|---|---|---|---|"]
     for e in entries:
@@ -857,32 +867,51 @@ def report(args):
 
 
 def judge_check(check):
-    """Honesty rule 5 on made-up callback lists, with no app: which inputs are blind and which stay lost."""
+    """Honesty rule 5 on made-up callback lists, with no app: which inputs are blind and which stay lost. Each
+    case gives (samples, lost, blind, late refreshes); a blind input counts no late refresh, a lost one LOST_LATE."""
     ms, refresh = 1_000_000, 1000.0 / 120
     t0, t1 = 1000 * ms, 1250 * ms
-    awake = list(range(0, 2000 * ms, 16 * ms))                       # the stream calls back all the time
-    stopped = [c for c in awake if c <= t0 + 12 * ms or c >= t1 + 17 * ms]  # ...or stops 12 ms after the first input
+    start_limit = t0 + int(BLIND_START_REFRESHES * refresh * 1e6)
+    silent_ms = CAPTURE_SILENT_REFRESHES * refresh
+    awake = list(range(0, 2000 * ms, 16 * ms))  # the stream calls back all the time (992, 1008, 1024 ... ms)
     next_frame = [{"t": t1 + 17 * ms}]
 
-    def judged(stamps, changed, callbacks):
-        samples, lost, _missed, blind = latencies(stamps, changed, 300, refresh, callbacks)
-        return len(samples), lost, blind
+    def until(last_ms, again_ms=None):
+        """The stream stops `last_ms` after the first input and calls back again from `again_ms` after it."""
+        return [c for c in awake if c <= t0 + last_ms * ms or (again_ms is not None and c >= t0 + again_ms * ms)]
 
+    def judged(stamps, changed, callbacks):
+        samples, lost, missed, blind = latencies(stamps, changed, 300, refresh, callbacks)
+        return len(samples), lost, blind, missed
+
+    lost_one, on_time = cp.LOST_LATE, cp.late(17.0, refresh)  # on_time: the second input's frame, 17 ms after it
     cases = [
-        ("the stream stops after the input, no frame: blind", ([t0, t1], next_frame, stopped), (1, 0, 1)),
-        ("the stream stays awake, no frame: lost", ([t0, t1], next_frame, awake), (1, 1, 0)),
-        ("no callback list: lost", ([t0, t1], next_frame, []), (1, 1, 0)),
+        ("the stream stops after the input, no frame: blind", ([t0, t1], next_frame, until(12, 267)), (1, 0, 1, on_time)),
+        ("the stream stays awake, no frame: lost", ([t0, t1], next_frame, awake), (1, 1, 0, lost_one + on_time)),
+        ("no callback list: lost", ([t0, t1], next_frame, []), (1, 1, 0, lost_one + on_time)),
         ("a frame that ends the silence 200 ms late: blind, no sample",
-         ([t0], [{"t": t0 + 200 * ms}], [c for c in awake if c <= t0 + 12 * ms or c >= t0 + 200 * ms]), (0, 0, 1)),
-        ("the stream stops 100 ms after the input, no frame: lost",
-         ([t0], [], [c for c in awake if c <= t0 + 100 * ms]), (0, 1, 0)),
-        ("the stream was silent before the input already, no frame: lost",
-         ([t0], [], [c for c in awake if c <= t0 - 200 * ms]), (0, 1, 0)),
-        ("a late frame while the stream is awake: a sample", ([t0], [{"t": t0 + 200 * ms}], awake), (1, 0, 0)),
+         ([t0], [{"t": t0 + 200 * ms}], until(12, 200)), (0, 0, 1, 0)),
+        ("the stream stops 24 ms after the input (inside the start limit), no frame: blind",
+         ([t0], [], until(25)), (0, 0, 1, 0)),
+        ("the last callback is exactly at the start limit, no frame: blind",
+         ([t0], [], until(12) + [start_limit]), (0, 0, 1, 0)),
+        ("the stream stops 40 ms after the input (past the start limit), no frame: lost",
+         ([t0], [], until(41)), (0, 1, 0, lost_one)),
+        ("the stream stops 100 ms after the input, no frame: lost", ([t0], [], until(100)), (0, 1, 0, lost_one)),
+        ("the stream was silent before the input already, no frame: lost", ([t0], [], until(-200)), (0, 1, 0, lost_one)),
+        ("the last callback is exactly at the input, no frame: lost",
+         ([t0], [], until(-8) + [t0]), (0, 1, 0, lost_one)),
+        ("a late frame while the stream is awake: a sample",
+         ([t0], [{"t": t0 + 200 * ms}], awake), (1, 0, 0, cp.late(200.0, refresh))),
+        ("a frame after a gap of 5 refreshes (not a silence): a sample",
+         ([t0], [{"t": t0 + 50 * ms}], until(9) + [t0 + 50 * ms]), (1, 0, 0, cp.late(50.0, refresh))),
+        ("a frame after a gap just over the silence limit: blind",
+         ([t0], [{"t": t0 + int((9 + silent_ms + 1) * ms)}], until(9) + [t0 + int((9 + silent_ms + 1) * ms)]), (0, 0, 1, 0)),
     ]
     for name, given, want in cases:
         got = judged(*given)
-        check(f"rule 5 (made-up frames): {name}", got == want, f"samples, lost, blind = {got}, want {want}")
+        check(f"rule 5 (made-up frames): {name}", got == want,
+              f"samples, lost, blind, late refreshes = {got}, want {want}")
 
 
 def selfcheck(args):
@@ -911,6 +940,10 @@ def selfcheck(args):
             cmux.rpc("debug.key", {"key": "u", "modifiers": ["ctrl"]})
             try:
                 live = latency_result(cmux, hz, stamps)
+            except CaptureBlind as error:  # not rule 2: the app got frames, the stream stopped at too many keys
+                check("rule 5: the capture saw the delivered keys", False, str(error))
+                print(f"APPCLOCK-SELFCHECK FAIL {sum(checks)}/{len(checks)}", flush=True)
+                return 1
             except NotRun as error:
                 facts["no_frames"] = str(error)
                 check("rule 2: no frame from the recorder is 'not run', never a number", True, str(error))
