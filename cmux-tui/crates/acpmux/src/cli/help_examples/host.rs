@@ -365,6 +365,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine shell",
+        &[
+            ("Open a login shell on mini-3 in this terminal", "acpmux machine shell mini-3"),
+            ("Start it in a folder there", "acpmux machine shell mini-3 --cwd ~/repo"),
+        ],
+    ),
+    (
         "machine deps",
         &[
             ("Restore this project's dependencies from the cache", "acpmux machine deps warm"),
