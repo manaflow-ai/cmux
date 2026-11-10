@@ -100,6 +100,10 @@ public actor CloudCapabilityHolder {
     private var failed: (at: Int64, team: String)?
     private var lastUse: Int64?
     private var minting: Task<Void, Never>?
+    /// The team ``minting`` mints for: a mint for another team supersedes it.
+    private var mintingTeam: String?
+    /// Each mint's own number: only the current one's answer (or cancellation) is taken, never a superseded one's.
+    private var mintRequest: UInt64 = 0
     /// Wakes at the held one's refresh time (one deadline, never a poll).
     private let timer = DemandTimer(owner: "CloudCapabilityHolder.refresh")
     /// Bumped by ``clear()``: a mint in flight for the signed-out account keeps nothing.
@@ -162,6 +166,7 @@ public actor CloudCapabilityHolder {
         lastUse = nil
         minting?.cancel()
         minting = nil
+        mintingTeam = nil
         timer.cancel()
     }
 
@@ -173,18 +178,22 @@ public actor CloudCapabilityHolder {
     }
 
     private func startMint(bearer: String, team: String?) {
-        guard minting == nil, let team else { return }
-        let bound = generation
+        guard let team, minting == nil || mintingTeam != team else { return }
+        minting?.cancel() // another team's mint: its answer is dropped (minted's request check)
+        mintingTeam = team
+        mintRequest &+= 1
+        let bound = generation, request = mintRequest
         // task-owner: minting; one mint at a time, cancelled by clear(), ended by the transport's own timeout.
         minting = Task { [mint] in
             let answer = try? await mint(bearer)
-            self.minted(answer, team: team, generation: bound)
+            self.minted(answer, team: team, generation: bound, request: request)
         }
     }
 
-    private func minted(_ answer: (status: Int, body: Data)?, team: String, generation bound: UInt64) {
-        guard bound == generation else { return }
+    private func minted(_ answer: (status: Int, body: Data)?, team: String, generation bound: UInt64, request: UInt64) {
+        guard bound == generation, request == mintRequest else { return }
         minting = nil
+        mintingTeam = nil
         guard let answer, let next = rules.mint(answer.status, answer.body, team, now()) else {
             failed = (now(), team)
             schedule() // a held one's refresh retries when the backoff ends (Rust's plan), while Cloud is in use
@@ -203,7 +212,14 @@ public actor CloudCapabilityHolder {
     }
 
     private func wake(generation bound: UInt64) async {
-        guard bound == generation, let bearer = try? await token() else { return }
+        guard bound == generation else { return }
+        guard let bearer = try? await token() else {
+            // A failed token is a failed refresh: the same backoff, then the timer tries again.
+            guard bound == generation, let team = held?.team else { return }
+            failed = (now(), team)
+            schedule()
+            return
+        }
         let team = teamOf(bearer)
         guard bound == generation, ask(.timer, team: team)?.fetch == true else { return }
         startMint(bearer: bearer, team: team)

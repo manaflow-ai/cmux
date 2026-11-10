@@ -201,6 +201,128 @@ struct CloudCapabilityRelayTests {
         await capability.clear()
     }
 
+    /// Due at once, so the timer refreshes as soon as it may (Rust's rules hold the real times and backoff).
+    nonisolated static let dueRules = CloudCapabilityHolder.Rules(mint: plainRules.mint, plan: { state, _ in
+        let held = state.held.flatMap { $0.team == state.team ? $0 : nil }
+        return .init(send: held?.token, fetch: state.team != nil, wakeIn: held == nil ? nil : 0)
+    })
+
+    /// An install token that fails while `failing` is set, counting each failure.
+    final class FlakyToken: @unchecked Sendable {
+        private let lock = NSLock()
+        private var failing = false, failures = 0
+        func set(failing: Bool) { lock.withLock { self.failing = failing } }
+        var failed: Int { lock.withLock { failures } }
+        func token() throws -> String {
+            try lock.withLock {
+                guard !failing else { failures += 1; throw URLError(.notConnectedToInternet) }
+                return "install-a"
+            }
+        }
+    }
+
+    /// Follow-up F1 on cmux#40172: a refresh whose install token fails once retries by itself and recovers.
+    @Test func aRefreshWhoseTokenFailsRetriesAndRecovers() async throws {
+        let worker = Worker(), flaky = FlakyToken()
+        let capability = CloudCapabilityHolder(transport: worker, headers: [:], token: { try flaky.token() },
+                                               teamOf: Self.teamOf, rules: Self.dueRules)
+        await capability.intent()
+        #expect(await worker.mints.count == 1)
+        flaky.set(failing: true)
+        let deadline = ContinuousClock.now + .seconds(10)
+        while flaky.failed == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(flaky.failed > 0, "the timer's refresh asked for a token")
+        flaky.set(failing: false)
+        try await worker.untilMints(2) // no call or intent: the timer alone
+        #expect(await capability.holds)
+        await capability.clear()
+    }
+
+    /// Follow-up F2 on cmux#40172: an intent for team B while team A's mint is in flight gets team B's capability.
+    @Test func anIntentForAnotherTeamDuringAMintGetsThatTeamsCapability() async throws {
+        actor Mints {
+            var asked: [String] = []
+            private var releaseA: CheckedContinuation<Void, Never>?
+            func mint(_ bearer: String) async -> (status: Int, body: Data) {
+                asked.append(bearer)
+                if bearer == "install-a" { await withCheckedContinuation { releaseA = $0 } }
+                let team = CloudCapabilityRelayTests.teamOf(bearer) ?? ""
+                return (200, Data(#"{"ok":true,"value":{"capability":"cc1.\#(team).sig","team":"\#(team)"}}"#.utf8))
+            }
+            func release() { releaseA?.resume(); releaseA = nil }
+        }
+        let mints = Mints(), install = Install()
+        let capability = CloudCapabilityHolder(mint: { await mints.mint($0) }, token: { install.token },
+                                               teamOf: Self.teamOf, rules: Self.plainRules)
+        let first = Task { await capability.intent() }
+        var deadline = ContinuousClock.now + .seconds(10)
+        while await mints.asked.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        install.switchTeam()
+        let second = Task { await capability.intent() }
+        deadline = ContinuousClock.now + .seconds(2)
+        while await !mints.asked.contains("install-b"), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        await mints.release() // team A's answer lands late
+        await first.value
+        await second.value
+        #expect(await mints.asked.contains("install-b"), "team B was never minted")
+        #expect(await capability.header(forBearer: "install-b") == "cc1.team_b.sig")
+        await capability.clear()
+    }
+
+    /// Review F1 on cmux#40384: A, then B, then A again. The first A mint's late cancellation, delivered while
+    /// the second A mint runs, must not drop the second A's capability.
+    @Test func aLateCancellationOfASupersededMintKeepsTheReplacementsCapability() async throws {
+        actor Mints {
+            var asked: [String] = []
+            private var gates: [Int: CheckedContinuation<Bool, Never>] = [:]
+            func mint(_ bearer: String) async throws -> (status: Int, body: Data) {
+                let index = asked.count
+                asked.append(bearer)
+                if index < 3, await withCheckedContinuation({ gates[index] = $0 }) == false { throw CancellationError() }
+                let team = CloudCapabilityRelayTests.teamOf(bearer) ?? ""
+                return (200, Data(#"{"ok":true,"value":{"capability":"cc1.\#(team).sig","team":"\#(team)"}}"#.utf8))
+            }
+            /// Answers mint `index`: its capability, or a cancellation.
+            func answer(_ index: Int, ok: Bool) { gates.removeValue(forKey: index)?.resume(returning: ok) }
+            func until(_ count: Int) async throws {
+                let deadline = ContinuousClock.now + .seconds(10)
+                while asked.count < count || gates.count < min(count, 3) {
+                    guard ContinuousClock.now < deadline else { throw CancellationError() }
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+            }
+        }
+        final class Current: @unchecked Sendable {
+            private let lock = NSLock()
+            private var token = "install-a"
+            var value: String { lock.withLock { token } }
+            func set(_ token: String) { lock.withLock { self.token = token } }
+        }
+        let mints = Mints(), current = Current()
+        let capability = CloudCapabilityHolder(mint: { try await mints.mint($0) }, token: { current.value },
+                                               teamOf: Self.teamOf, rules: Self.plainRules)
+        let firstA = Task { await capability.intent() }
+        try await mints.until(1)
+        current.set("install-b")
+        let teamB = Task { await capability.intent() }
+        try await mints.until(2)
+        current.set("install-a")
+        let secondA = Task { await capability.intent() }
+        try await mints.until(3)
+        #expect(await mints.asked == ["install-a", "install-b", "install-a"])
+        await mints.answer(0, ok: false) // the first A's cancellation lands after the second A started
+        // firstA waits on its own mint task, so this returns only after that cancellation reached minted(), while
+        // the second A is still in flight: a team-only guard takes it and drops the second A's answer every time.
+        await firstA.value
+        await mints.answer(2, ok: true)
+        await mints.answer(1, ok: true) // B's late answer
+        await teamB.value
+        await secondA.value
+        #expect(await capability.holds, "the second A's capability was dropped")
+        #expect(await capability.header(forBearer: "install-a") == "cc1.team_a.sig")
+        await capability.clear()
+    }
+
     @Test func signOutForgetsIt() async throws {
         let worker = Worker(), install = Install()
         let capability = Self.holder(worker, install)
