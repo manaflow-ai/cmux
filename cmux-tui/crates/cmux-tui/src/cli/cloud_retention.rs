@@ -170,7 +170,7 @@ pub(super) fn answer(
     if answer["ok"] != true || output != OutputMode::Human {
         return apps_run::report(outcome, output);
     }
-    let record: &Value = &answer["data"]["machine"];
+    let record = answer.pointer("/data/machine").unwrap_or(&Value::Null);
     let name = record["name"].as_str().filter(|name| !name.is_empty());
     let id = record["id"].as_str().unwrap_or_default();
     let on = name.map_or_else(|| format!("machine:{id}"), |name| format!("{name} (machine:{id})"));

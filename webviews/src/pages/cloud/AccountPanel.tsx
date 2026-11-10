@@ -180,6 +180,7 @@ function CleanupSettings({
       <label className="cloud-check cloud-cleanup-email">
         <input
           type="checkbox"
+          aria-label={t(L.cleanupEmail)}
           checked={retention.email_heads_up}
           disabled={saving}
           onChange={(event) => void store.setEmailHeadsUp(event.target.checked)}
@@ -199,6 +200,7 @@ function CleanupSettings({
                   <span className="cloud-field-label">{t(FIELD_LABEL[field])}</span>
                   <input
                     className="cloud-input"
+                    aria-label={t(FIELD_LABEL[field])}
                     type="number"
                     min={min}
                     max={limit}
@@ -212,9 +214,9 @@ function CleanupSettings({
             })}
           </div>
           {state.retention?.forbidden && (
-            <p className="cloud-muted cloud-cleanup-admin" role="status">
+            <output className="cloud-muted cloud-cleanup-admin">
               {t(L.cleanupAdminOnly)}
-            </p>
+            </output>
           )}
           {state.retention?.error && (
             <p className="cloud-sheet-error" role="alert">

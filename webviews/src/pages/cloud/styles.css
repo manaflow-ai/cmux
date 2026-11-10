@@ -1187,3 +1187,10 @@ select {
 .cloud-cleanup-field .cloud-input {
   width: 6em;
 }
+
+/* Live status lines are <output> (inline by default); they sit on their own line like the <p> notes. */
+.cloud-cleanup-admin,
+.cloud-create-waiting {
+  display: block;
+  margin: 8px 0;
+}

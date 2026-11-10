@@ -147,11 +147,11 @@ export function CreateSheet({
         </p>
       )}
       {draft.waitingFor && (
-        <p className="cloud-muted cloud-create-waiting" role="status">
+        <output className="cloud-muted cloud-create-waiting">
           {format(t(L.capWaiting), {
             name: state.machines.find((machine) => machine.id === draft.waitingFor)?.name ?? draft.waitingFor,
           })}
-        </p>
+        </output>
       )}
       {draft.blocked === "no_snapshot_configured" && (
         <p className="cloud-sheet-error cloud-create-blocked" role="alert">

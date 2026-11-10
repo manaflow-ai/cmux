@@ -132,7 +132,7 @@ export function MachineList({
               </span>
               {notice && (
                 // The one notice before a delete, once: Keep, or Dismiss (remembered per notice).
-                <span className="cloud-machine-notice" role="status">
+                <output className="cloud-machine-notice">
                   <span className="cloud-machine-notice-text">
                     {format(t(notice.kind === "heads_up" ? L.noticeHeadsUp : L.noticeLastNote), {
                       date: formatDate(notice.delete_at, language, false),
@@ -152,7 +152,7 @@ export function MachineList({
                   >
                     {t(L.dismissError)}
                   </button>
-                </span>
+                </output>
               )}
             </span>
             {canPause(row) && (
