@@ -19,7 +19,7 @@ Rules:
                    that allows no glass.
   native-stale     a manifest entry whose file is gone or no longer builds glass.
   web-floating     a floating web surface in the agent pane's code (webviews/src/ui, webviews/src/agent-session):
-                   a JSX element whose opening tag carries both `ui-popup` and `ui-glass` (in a string or a
+                   a JSX element whose own className carries both `ui-popup` and `ui-glass` (a string, a
                    multiline cx(...)) and no `data-host-glass=` attribute of its own. In a see-through
                    Chromium pane it reads as a flat box beside the menus on the App's glass. A
                    `host-glass-allow: <reason>` comment inside that opening tag passes; so does a file in
@@ -108,6 +108,61 @@ def opening_tags(text: str):
 CONST = re.compile(r"\bconst\s+(\w+)\s*=([^;]*);", re.S)
 
 
+def class_attribute(tag: str) -> str:
+    """The value of the tag's own `className` (outside braces), or "" without one."""
+    depth = 0
+    quote = ""
+    index = 0
+    while index < len(tag):
+        char = tag[index]
+        if not quote and tag.startswith(("//", "/*"), index):
+            block = tag.startswith("/*", index)
+            end = tag.find("*/" if block else "\n", index + 2)
+            index = len(tag) if end < 0 else end + (2 if block else 0)
+            continue
+        if quote:
+            if char == "\\":
+                index += 1
+            elif char == quote:
+                quote = ""
+        elif char in "\"'`":
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+        elif depth == 0 and tag.startswith("className=", index) and tag[index - 1 : index].isspace():
+            return balanced_value(tag, index + len("className="))
+        index += 1
+    return ""
+
+
+def balanced_value(tag: str, start: int) -> str:
+    """The attribute value at `start`: a quoted string to its quote, or `{...}` to its balancing brace."""
+    opener = tag[start : start + 1]
+    if opener in ("\"", "'"):
+        end = tag.find(opener, start + 1)
+        return tag[start : (len(tag) if end < 0 else end + 1)]
+    if opener != "{":
+        return ""
+    depth = 0
+    quote = ""
+    for index in range(start, len(tag)):
+        char = tag[index]
+        if quote:
+            if char == quote and tag[index - 1] != "\\":
+                quote = ""
+        elif char in "\"'`":
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return tag[start : index + 1]
+    return tag[start:]
+
+
 def unmarked_surfaces(text: str) -> list[int]:
     """The 1-based lines of the floating glass elements with no host glass of their own and no allowance. A class
     held in a const of the same file (`const popupClassName = cx("ui-popup ui-glass ...")`) counts as the tag's when
@@ -119,11 +174,10 @@ def unmarked_surfaces(text: str) -> list[int]:
     ]
     lines = []
     for offset, tag, own, notes in opening_tags(text):
-        class_value = re.search(r"\bclassName=\{([^}]*)", tag)
-        named = class_value is not None and any(
-            re.search(r"\b" + name + r"\b", class_value.group(1)) for name in floating_names
-        )
-        floating = (POPUP.search(tag) and GLASS.search(tag)) or named
+        # The element's own className, whole: a string, or a braced expression to its balancing brace.
+        classes = class_attribute(tag)
+        named = any(re.search(r"\b" + name + r"\b", classes) for name in floating_names)
+        floating = (POPUP.search(classes) and GLASS.search(classes)) or named
         if floating and not HOST_GLASS.search(own) and "host-glass-allow:" not in notes:
             lines.append(text.count("\n", 0, offset) + 1)
     return lines
