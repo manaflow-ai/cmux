@@ -39,10 +39,11 @@ import Testing
             let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
             store.noteHandshake(identity)
             store.connectionState = .connected(identity)
-            let columns = [ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(1)), ColumnSnapshot(id: 11, width: 0.5, layout: .leaf(2))]
+            // Two terminals side by side (Cmd-D), as the person has them: a split, not a strip of columns.
+            let layout = LayoutNode.split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(1), b: .leaf(2))
             let panes = [PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "Shell")]),
                          PaneSnapshot(id: 2, tabs: [TabSnapshot(surface: 2, title: "Server")])]
-            let screen = ScreenSnapshot(id: 1, layout: .leaf(1), columns: columns, panes: panes)
+            let screen = ScreenSnapshot(id: 1, layout: layout, panes: panes)
             store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "Links", screens: [screen])]))
             let creates = Creates()
             self.creates = creates
