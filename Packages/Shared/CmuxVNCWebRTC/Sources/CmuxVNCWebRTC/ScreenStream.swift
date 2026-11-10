@@ -217,6 +217,8 @@ public struct ScreenHostMessage: Codable, Sendable {
     /// absent when it is off that display or hidden.
     public var person: Pointer?
     public var agent: Pointer?
+    /// For `paste-image`: the image the answer is about.
+    public var id: String?
 
     /// A pointer position as a fraction of the streamed display.
     public struct Pointer: Codable, Sendable, Equatable {
@@ -689,12 +691,12 @@ public final class ScreenStreamHost: @unchecked Sendable {
             return
         }
         if input.t == ScreenHostMessage.pasteImageType {
-            let outcome = Self.takeImageChunk(input, backend: session.backend, viewOnly: viewOnly) { chunk in
+            let answer = Self.takeImageChunk(input, backend: session.backend, viewOnly: viewOnly) { chunk in
                 session.lock.withLock { session.images.take(chunk) }
             }
-            guard let outcome else { return }
-            log("paste image: \(outcome.rawValue)")
-            if let data = try? JSONEncoder().encode(ScreenHostMessage(pasteImage: outcome)) {
+            guard let answer else { return }
+            log("paste image: \(answer.s ?? "-")")
+            if let data = try? JSONEncoder().encode(answer) {
                 _ = session.link.sendText(String(decoding: data, as: UTF8.self))
             }
             return
@@ -734,15 +736,15 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// are to come. A view-only session, or a backend that does not paste
     /// images, refuses every image.
     static func takeImageChunk(_ input: ScreenInput, backend: any ScreenBackend, viewOnly: Bool,
-                               take: (ScreenInput) -> ScreenImageAssembler.Step) -> ScreenHostMessage.PasteImageOutcome? {
+                               take: (ScreenInput) -> ScreenImageAssembler.Step) -> ScreenHostMessage? {
         guard !viewOnly, backend.inputCapabilities.contains(ScreenHostMessage.pasteImageCapability) else {
             // Answer once per image, not once per chunk.
-            return input.i == 0 ? .refused : nil
+            return input.i == 0 ? ScreenHostMessage(pasteImage: .refused, id: input.id) : nil
         }
         switch take(input) {
-        case .partial: return nil
-        case let .failed(outcome): return outcome
-        case let .complete(data, type): return backend.pasteImage(data, type: type) ? .pasted : .refused
+        case .partial, .ignored: return nil
+        case let .failed(outcome, id): return ScreenHostMessage(pasteImage: outcome, id: id)
+        case let .complete(data, type, id): return ScreenHostMessage(pasteImage: backend.pasteImage(data, type: type) ? .pasted : .refused, id: id)
         }
     }
 
@@ -971,8 +973,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// The host's pointer positions (``ScreenHostMessage/person``,
     /// ``ScreenHostMessage/agent``), after ``drawPointers()``; any thread.
     public var onTelepointers: (@Sendable (ScreenHostMessage) -> Void)?
-    /// The host's answer to ``pasteImage(_:type:)``; any thread.
-    public var onPasteImage: (@Sendable (ScreenHostMessage.PasteImageOutcome) -> Void)?
+    /// The host's answer to ``pasteImage(_:type:id:)`` and the image id it names; any thread.
+    public var onPasteImage: (@Sendable (ScreenHostMessage.PasteImageOutcome, String?) -> Void)?
     public var onState: (@Sendable (String?) -> Void)?
     public var onPath: (@Sendable (String) -> Void)?
     /// A STUN or TURN server gave no candidate (`icecandidateerror`), for saying why a relay path failed.
@@ -1047,7 +1049,7 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                     } else if message.t == ScreenHostMessage.telepointersType {
                         self?.onTelepointers?(message)
                     } else if let outcome = message.pasteImageOutcome {
-                        self?.onPasteImage?(outcome)
+                        self?.onPasteImage?(outcome, message.id)
                     }
                 case let .path(local, remote):
                     let relay = local == "relay" || remote == "relay"
@@ -1203,8 +1205,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// type); the Mac's answer comes in ``onPasteImage``. Runs off the
     /// caller's actor: up to 20 MB of base64 and JSON never lands on the main thread.
     @concurrent
-    public func pasteImage(_ data: Data, type: String) async -> Bool {
-        let messages = ScreenInput.pasteImage(data, type: type)
+    public func pasteImage(_ data: Data, type: String, id: String = UUID().uuidString) async -> Bool {
+        let messages = ScreenInput.pasteImage(data, type: type, id: id)
         guard !messages.isEmpty, let link = lock.withLock({ link }) else { return false }
         let encoder = JSONEncoder()
         do {

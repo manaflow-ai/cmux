@@ -388,19 +388,19 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     /// would), in order with the input around it.
     public func pasteImage(_ data: Data, type: String) -> Bool {
         guard writePasteboard(data, type) else { return false }
-        input.handle(ScreenInput(t: "chord", k: Self.vKeysym, m: [Self.commandKeysym]))
+        input.pasteShortcut()
         return true
     }
 
-    static let vKeysym: UInt32 = 0x76, commandKeysym: UInt32 = 0xFFE7
-
     /// Replaces the general pasteboard with the image: its own type, plus
-    /// TIFF for apps that read only that. False when the bytes are no image.
+    /// TIFF for a type some apps don't read (HEIC); PNG and JPEG go as they
+    /// are (a TIFF copy is the whole bitmap uncompressed, hundreds of MB for
+    /// a large screenshot). False when the bytes are no image.
     static func writeGeneralPasteboard(_ data: Data, type: String) -> Bool {
         guard let image = NSImage(data: data), image.isValid else { return false }
         let item = NSPasteboardItem()
         item.setData(data, forType: NSPasteboard.PasteboardType(type))
-        if type != NSPasteboard.PasteboardType.tiff.rawValue, let tiff = image.tiffRepresentation {
+        if !["public.png", "public.jpeg", NSPasteboard.PasteboardType.tiff.rawValue].contains(type), let tiff = image.tiffRepresentation {
             item.setData(tiff, forType: .tiff)
         }
         let board = NSPasteboard.general
@@ -505,6 +505,24 @@ final class EventInjector: @unchecked Sendable {
             break
         }
     }
+
+    /// ⌘V alone, whatever modifiers the viewer holds (a latched ⇧ or ⌥ would
+    /// make it Paste and Match Style or Move); those stay held after it.
+    func pasteShortcut() {
+        lock.withLock {
+            guard !ended else { return }
+            let held = flags
+            flags = []
+            key(Self.commandKeysym, down: true)
+            key(Self.vKeysym, down: true)
+            key(Self.vKeysym, down: false)
+            key(Self.commandKeysym, down: false)
+            flags = held
+            timing?.input()
+        }
+    }
+
+    static let vKeysym: UInt32 = 0x76, commandKeysym: UInt32 = 0xFFE7
 
     /// Lets go of every button and modifier the viewer holds (a viewer that
     /// drops mid-click or with ⌘ down leaves none stuck on the Mac); input
