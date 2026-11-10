@@ -446,4 +446,23 @@ mod attention_passthrough_tests {
             "\x1b]777;notify;a,b;bench done\x07"
         );
     }
+    /// A bare bell (`notifications.bell`) right before a tab's notification
+    /// does not use up that notification's banner.
+    #[test]
+    fn host_notify_a_bell_before_a_notification_keeps_its_banner() {
+        let mut gate = gate(DesktopNotifyMode::Auto, true, HostTerminal::Ghostty);
+        let now = Instant::now();
+        let bell = HostNotifyRequest { surface: 1, title: "Bell", body: "", desktop: false };
+        assert_eq!(text(gate.decide(&bell, away(), now)).as_deref(), Some("\x07"));
+        let soon = now + Duration::from_millis(200);
+        assert_eq!(
+            text(gate.decide(&request(1), away(), soon)).as_deref(),
+            Some("\x1b]777;notify;Claude finished;bench done\x07\x07")
+        );
+        // The banner and its bell count: another bell or banner for tab 1
+        // waits out the five seconds.
+        let later = now + Duration::from_secs(2);
+        assert_eq!(gate.decide(&bell, away(), later), None);
+        assert_eq!(gate.decide(&request(1), away(), later), None);
+    }
 }

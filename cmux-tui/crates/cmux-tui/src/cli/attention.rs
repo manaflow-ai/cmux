@@ -420,6 +420,27 @@ mod tests {
         assert_eq!(queue[3]["workspace"], "work");
     }
 
+    /// `term_d` had an error that was read, then an info notification: every
+    /// row shows the terminal's unread marker, and the newest row decides.
+    #[test]
+    fn attention_cli_uses_the_newest_notification_of_a_terminal() {
+        let mut snapshot = snapshot();
+        snapshot["notifications"] = json!([
+            {"id": "n4", "terminal_id": "term_d", "unread": true, "level": "info", "created_at_ms": "900", "title": "today"},
+            {"id": "n2", "terminal_id": "term_d", "unread": true, "level": "error", "created_at_ms": "10", "title": "yesterday"},
+            {"id": "n1", "terminal_id": "term_a", "unread": true, "level": "info", "created_at_ms": "100", "title": "bench done"},
+        ]);
+        let queue = snapshot_queue(&snapshot);
+        assert_eq!(
+            tabs(&queue),
+            vec!["tab_c", "tab_b", "tab_a", "tab_d"],
+            "tab_d is info, newest last"
+        );
+        assert_eq!(queue[3]["level"], "info");
+        assert_eq!(queue[3]["reason"], "today");
+        assert_eq!(queue[3]["since_ms"], 900);
+    }
+
     #[test]
     fn attention_cli_next_starts_at_the_top_from_a_tab_outside_the_queue_and_cycles() {
         let snapshot = snapshot();
