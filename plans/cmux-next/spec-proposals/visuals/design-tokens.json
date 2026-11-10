@@ -2132,7 +2132,7 @@
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:16 (MotionTunables.springDefaults)",
     "unit": "s",
-    "use": "Screen switch slide",
+    "use": "None since 2026-11-10: a screen switch has no animation (it drove the screen switch slide); kept for its index in the cmux-motion C ABI",
     "note": "Response 0.22 until 2026-10-20 (visible end 190 ms); 0.2 ends visibly at 173 ms, inside the standard step (Leo 2026-10-20 motion scale)."
    },
    "track": {
@@ -2322,7 +2322,7 @@
     "newWorkspace": false
    },
    "source": "ui.paneAnimations / ui.animations.newTab / ui.animations.newWorkspace (cmux.json); cmux-tui/crates/cmux-motion (AnimationSwitches, MotionKind::config_path)",
-   "use": "Per-kind switches under ui.animationSpeed, paneAnimations and newWorkspace off by default (Lawrence 2026-10-14: no big animations by default), newTab on (Lawrence 2026-10-14: keep the tab-open motion); off applies the change in one frame (no crossfade). paneAnimations: split grow-in, close, move, swap, zoom and unzoom, column reveal, screen switch, divider release. newTab: a tab growing into its slot. newWorkspace: a sidebar row opening."
+   "use": "Per-kind switches under ui.animationSpeed, paneAnimations and newWorkspace off by default (Lawrence 2026-10-14: no big animations by default), newTab on (Lawrence 2026-10-14: keep the tab-open motion); off applies the change in one frame (no crossfade). paneAnimations: split grow-in, close, move, swap, zoom and unzoom, column reveal, divider release (a screen switch never animates, Lawrence 2026-11-10). newTab: a tab growing into its slot. newWorkspace: a sidebar row opening."
   },
   "fades": {
    "hover": {

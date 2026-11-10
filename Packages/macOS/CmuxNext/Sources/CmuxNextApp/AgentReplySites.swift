@@ -28,7 +28,7 @@ struct AgentReplySites {
         for workspace in services.daemon.store.workspaces where !workspace.ephemeral {
             for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
                 guard let address = tab.url, let url = URL(string: address) else { continue }
-                tabs.append((url, tab.faviconURL.flatMap(URL.init(string:)), tab.title, tab.id))
+                tabs.append((url, tab.faviconURL.flatMap(URL.init(string:)), tab.titleText, tab.id))
             }
         }
         var out: [URL: AgentPaneReplySite] = [:]

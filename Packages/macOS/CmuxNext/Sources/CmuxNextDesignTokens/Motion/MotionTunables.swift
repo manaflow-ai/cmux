@@ -8,10 +8,15 @@ public nonisolated enum MotionTunables {
     // MARK: Springs (speed "fast")
 
     package static let springDefaults: [MotionSpring: (SpringParameters, String)] = [
+        // No spring passes its target (Lawrence 2026-11-10: no bounce in any motion;
+        // plans/cmux-next/motion-first-principles-DESIGN.md, principle 5): every damping fraction is 1,
+        // critically damped. A token that was under 1 kept its response, so its start is the same and
+        // only the pass of the target and the return are gone; its visible end is 1.18 x its response.
         // Every spring ends visibly (within 0.5% of its travel, `SpringParameters.perceivedDuration`)
         // by `MotionScale.ceiling`, 240 ms (Leo 2026-10-20: "animations all around are a bit slow";
-        // MotionScaleTests). A spring over it got a shorter response and kept its damping fraction,
-        // so its character stays. Visible ends below are simulated at 480 Hz.
+        // MotionScaleTests), but `settle`, `popover` and `pinDrag`: their responses were set for a
+        // damping under 1 and end later at 1 (MotionScaleTests names them; the response is a Motion
+        // Lab choice). Visible ends below are simulated at 480 Hz.
         // Structural (design-tokens.json motion.springs, motion.structural): critically damped by
         // default, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
         .move: (SpringParameters(response: 0.15, dampingFraction: 1), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
@@ -20,55 +25,54 @@ public nonisolated enum MotionTunables {
         // 0.24 ended visibly at 283 ms; 0.2 ends at 235 ms, under the ceiling (Leo 2026-10-20).
         .exit: (SpringParameters(response: 0.2, dampingFraction: 1), "A window closing: its fade out (a pane close takes the split spring)."),
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
-        // plans/cmux-next/split-spring-animation/DESIGN.md: slightly under-damped (0.95) for a short
-        // tail, overshoot under 0.1 pt on 700 pt. 0.28 ended visibly at 287 ms (half its travel at
-        // 73 ms); 0.23 ended at 235 ms (Leo 2026-10-20). 0.11 ends at 113 ms, 8% of its travel in the
+        // plans/cmux-next/split-spring-animation/DESIGN.md. It was 0.95 damped until 2026-11-10 (the
+        // numbers that follow were measured then). 0.28 ended visibly at 287 ms (half its travel at
+        // 73 ms); 0.23 ended at 235 ms (Leo 2026-10-20). 0.11 ended at 113 ms, 8% of its travel in the
         // first 120 Hz frame and 80% at 50 ms (Leo 2026-11-08: "our animations should be so fast";
         // the instant-splits target is a transition done in 120 ms). 0.11 still moved a pixel at 141 ms
         // on a 696 pt split (its last half point; split-scale bench 133-146 ms from the key), so 0.085:
         // last pixel by about 100 ms at 1x and 108 ms at 2x on 1000 pt, 14% in the first frame, 90% at 50 ms.
-        .split: (SpringParameters(response: 0.085, dampingFraction: 0.95), "Cmd-D and Cmd-Shift-D: the new pane growing in while its whole chain makes room, on one spring."),
+        // At damping 1 it ends visibly (within 0.5%) at 101 ms.
+        .split: (SpringParameters(response: 0.085, dampingFraction: 1), "Cmd-D and Cmd-Shift-D: the new pane growing in while its whole chain makes room, on one spring."),
         .appear: (SpringParameters(response: 0.135, dampingFraction: 1), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.11, dampingFraction: 1), "Tab close, group collapse, row removal, sidebar hide."),
-        // Ends visibly at 235 ms, between standard and the ceiling on purpose: it carries the
-        // pointer's release velocity, and reaching 180 ms would take a 0.168 response (70% stiffer),
-        // which makes a drop snap instead of land.
-        .settle: (SpringParameters(response: 0.22, dampingFraction: 0.85), "Release after a drag: tab drop, ghost landing, sidebar row drop."),
-        // 0.22 ended visibly at 190 ms; 0.2 ends at 173 ms, inside standard (Leo 2026-10-20).
-        .scroll: (SpringParameters(response: 0.2, dampingFraction: 0.9), "Tab strip reveal, strip column reveal, wheel notch, fling snap."),
-        .screen: (SpringParameters(response: 0.2, dampingFraction: 0.9), "Screen switch slide."),
-        .track: (SpringParameters(response: 0.12, dampingFraction: 0.9), "Drop-zone overlay and the drag ghost jumping between targets."),
-        .selection: (SpringParameters(response: 0.15, dampingFraction: 0.9), "Page info toggle state change. The sidebar selection does not animate."),
-        // 0.18 ended visibly at 194 ms; 0.165 ends at 177 ms, inside standard (Leo 2026-10-20).
-        .panel: (SpringParameters(response: 0.165, dampingFraction: 0.85), "Hover card slide."),
+        // It carries the pointer's release velocity, as far as the velocity cannot take the item past
+        // its place (`SpringParameters.admitted`). At damping 0.85 it ended visibly at 235 ms; at 1 it
+        // ends at 260 ms, over the ceiling (a 0.2 response would end at 236 ms: a Motion Lab choice).
+        .settle: (SpringParameters(response: 0.22, dampingFraction: 1), "Release after a drag: tab drop, ghost landing, sidebar row drop."),
+        // At damping 0.9, 0.22 ended visibly at 190 ms and 0.2 at 173 ms (Leo 2026-10-20); at 1, 0.2
+        // ends at 236 ms.
+        .scroll: (SpringParameters(response: 0.2, dampingFraction: 1), "Tab strip reveal, strip column reveal, wheel notch, fling snap."),
+        .screen: (SpringParameters(response: 0.2, dampingFraction: 1), "Screen switch slide."),
+        .track: (SpringParameters(response: 0.12, dampingFraction: 1), "Drop-zone overlay and the drag ghost jumping between targets."),
+        .selection: (SpringParameters(response: 0.15, dampingFraction: 1), "Page info toggle state change. The sidebar selection does not animate."),
+        // At damping 0.85, 0.18 ended visibly at 194 ms and 0.165 at 177 ms (Leo 2026-10-20); at 1,
+        // 0.165 ends at 195 ms.
+        .panel: (SpringParameters(response: 0.165, dampingFraction: 1), "Hover card slide."),
         // Lawrence 2026-10-20 (Home's Chief pill popover, "animation needs to be better"): the card
-        // grows out of its control on a spring with a hint of give (0.86), like an NSPopover. 0.25
-        // ended visibly at 248 ms; 0.24 ends at 238 ms, under the ceiling (Leo 2026-10-20).
-        .popover: (SpringParameters(response: 0.24, dampingFraction: 0.86), "A popup growing out of its control (Chief pill, group editors, page info, menus)."),
+        // grows out of its control on a spring. Its hint of give (0.86) is gone (no bounce,
+        // 2026-11-10). At 0.86, 0.25 ended visibly at 248 ms and 0.24 at 238 ms (Leo 2026-10-20); at
+        // 1, 0.24 ends at 284 ms, over the ceiling (a 0.2 response would end at 236 ms).
+        .popover: (SpringParameters(response: 0.24, dampingFraction: 1), "A popup growing out of its control (Chief pill, group editors, page info, menus)."),
         // Leaving: 0.16 ended visibly at 188 ms; 0.15 ends at 177 ms, inside standard and still
         // well over the 0.1 s that reads as a cut (Leo 2026-10-20).
         .popoverClose: (SpringParameters(response: 0.15, dampingFraction: 1), "A popup shrinking back toward its control as it fades: faster than its open."),
-        // MessagesLab `SidebarPinDragging.spring` (stiffness 320, damping 30: response 0.351) ended
-        // visibly at 390 ms. Its damping fraction stays, so tiles still land with the same give
-        // (about 1.6 pt overshoot on 200 pt); response 0.215 ends at 238 ms, under the ceiling
-        // (Leo 2026-10-20).
-        .pinDrag: (SpringParameters(response: 0.215, dampingFraction: 0.8385254915624211),
+        // MessagesLab `SidebarPinDragging.spring` (stiffness 320, damping 30: response 0.351, damping
+        // fraction 0.84) ended visibly at 390 ms; response 0.215 ended at 238 ms (Leo 2026-10-20). The
+        // give is gone (it passed its place by about 1.6 pt on 200 pt): at damping 1, 0.215 ends at
+        // 254 ms, over the ceiling (a 0.2 response would end at 236 ms).
+        .pinDrag: (SpringParameters(response: 0.215, dampingFraction: 1),
                    "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing."),
     ]
 
+    /// The spring of a token with no entry in `springDefaults` (every token has one today).
+    package static let fallbackSpring = SpringParameters(response: 0.2, dampingFraction: 1)
+
     package static let springs: [MotionSpring: Tunable<SpringParameters>] = Dictionary(uniqueKeysWithValues: MotionSpring.allCases.map { token in
-        let entry = springDefaults[token] ?? (SpringParameters(response: 0.2, dampingFraction: 0.9), "")
+        let entry = springDefaults[token] ?? (fallbackSpring, "")
         return (token, Tunable.spring("motion.spring.\(token.rawValue)", .springs, "\(token.rawValue) spring", help: entry.1,
                                       default: entry.0, code: "MotionTunables.springDefaults[.\(token.rawValue)]"))
     })
-
-    /// SwiftUI bounce of the structural springs (`move`, `appear`,
-    /// `disappear`) when `ui.animations.bounce` is "subtle". With "none"
-    /// (the default) they are critically damped and never pass the target.
-    public static let subtleBounce = Tunable<Double>.number(
-        "motion.spring.subtleBounce", .springs, "Subtle bounce",
-        help: "Bounce of tab, row, pane and divider springs when Animations Bounce is Subtle (0 is critically damped).",
-        default: 0.15, range: 0...0.5, step: 0.01, unit: .multiplier, code: "MotionTunables.subtleBounce")
 
     // MARK: Fades and loops
 
@@ -201,7 +205,7 @@ public nonisolated enum MotionTunables {
 
     /// Every Motion tunable, for the catalog.
     public static var all: [TunableDescriptor] {
-        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor]
+        MotionSpring.allCases.compactMap { springs[$0]?.descriptor }
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,

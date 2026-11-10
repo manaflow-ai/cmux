@@ -183,6 +183,9 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onOpenChat?(key: string): void | Promise<unknown>;
   /// Open in terminal from an All chats row's right-click menu.
   onOpenChatInTerminal?(key: string): void;
+  /// A chat card's Compress Chat or Decompress Chat: acpmux's cold archive (`_acpmux/cold_archive`) of
+  /// that session. It rejects with acpmux's refusal (a chat under way), which the page shows.
+  onColdArchive?(sessionId: string, archived: boolean): Promise<unknown>;
   onViewChat?(key: string): void;
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
@@ -1095,6 +1098,12 @@ export function NewTabScreen(props: Props) {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
     if (key) props.onOpenChatInTerminal?.(key);
   };
+  // A card's Compress Chat or Decompress Chat; acpmux's refusal stays on the page, as an open's does.
+  const coldArchiveCard = (id: string, archived: boolean) => {
+    void props.onColdArchive?.(id, archived).catch((error: unknown) => {
+      setStartError(errorMessage(error) || t("switch.unknownError"));
+    });
+  };
   const list = useRef<HTMLDivElement>(null);
   // With no room under the box for every row, the rows go past the window's edge (cx-6k6cg); the
   // field keeps the keyboard and the list its highlight.
@@ -1892,6 +1901,7 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
         {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
         {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
+        {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
         {...(props.onCloudMachinePicked ? { onCloudMachinePicked: props.onCloudMachinePicked } : {})}
@@ -2045,6 +2055,7 @@ export function NewTabScreen(props: Props) {
           variant={sections.chats}
           onOpen={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
+          {...(props.onColdArchive ? { onColdArchive: coldArchiveCard } : {})}
           onShowAll={props.onShowAll}
         />
       )}

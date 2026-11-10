@@ -54,12 +54,14 @@ function gallerySignIn(agent: LoginAgent, approve: boolean): CloudSignIn {
                 }
               : {}),
           }
-        : {
-            loginId: "gallery-login",
-            url: "https://auth.openai.com/codex/device",
-            userCode: "QRST-4821",
-            needsCode: false,
-          },
+        : agent === "cursor"
+          ? { loginId: "gallery-login", url: "https://cursor.com/loginDeepControl?challenge=gallery", needsCode: false }
+          : {
+              loginId: "gallery-login",
+              url: "https://auth.openai.com/codex/device",
+              userCode: "QRST-4821",
+              needsCode: false,
+            },
     open: () => {},
     openOnMachine: async () => true,
     finish: () => new Promise<boolean>(() => {}),
@@ -78,7 +80,11 @@ function CloudSignInStates({ agent, approve }: { agent: LoginAgent; approve: boo
         value={{
           switchModel: () => {},
           cloudSignIn: gallerySignIn(agent, approve),
-          route: { name: agent === "claude" ? "Claude Code" : "Codex", harness: agent, hostKind: "cloud" },
+          route: {
+            name: agent === "claude" ? "Claude Code" : agent === "cursor" ? "Cursor" : "Codex",
+            harness: agent,
+            hostKind: "cloud",
+          },
         }}
       >
         <TurnFooter
@@ -219,6 +225,18 @@ export default componentEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .cv-turn-error__offer-link"));
+      },
+    },
+    "cursor-sign-in": {
+      props: { signIn: "cursor" },
+      note: "A Cloud chat whose Cursor agent is not signed in on its machine: one Sign in to Cursor button and no Use an API key (a Cursor key goes in as the Cloud secret CURSOR_API_KEY).",
+    },
+    "cursor-approve": {
+      props: { signIn: "cursor" },
+      note: "After the one Sign in to Cursor click: cursor-agent login runs on the machine, its cursor.com page is open, and the card waits for the approve with no code to type.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__text"));
       },
     },
     "codex-code": {

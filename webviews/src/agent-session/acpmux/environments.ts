@@ -18,6 +18,9 @@ export type Environment = {
   connected?: boolean;
   state?: string;
   loadWarning?: string;
+  /// When acpmux says its link left `connected` (`PeerLinkDetail.since`, ms since the epoch), while
+  /// it is not connected; absent from an older daemon.
+  downSince?: number;
 };
 
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
@@ -123,6 +126,33 @@ export function environmentReady(environment: Environment): boolean {
   if (environment.kind === "local") return true;
   if (environment.state !== undefined) return environment.state === "connected";
   return environment.connected !== false;
+}
+
+/// The link states of a machine acpmux cannot reach: dropped and dialing again, down, refused or too
+/// old. Connecting and degraded are on their way up; paused and resuming are a Cloud machine asleep.
+const UNREACHABLE_STATES: ReadonlySet<string> = new Set([
+  "reconnecting",
+  "restarting",
+  "offline",
+  "authFailed",
+  "updateRequired",
+]);
+/// How long a machine stays unreachable before its machine list moves it under Unavailable: a link
+/// that drops and comes back keeps its row in place.
+export const UNAVAILABLE_AFTER_MS = 5 * 60_000;
+
+/// Whether a machine list puts the machine under its collapsed Unavailable group (Leo, 2026-11-09,
+/// of four retired lanes listed "Reconnecting" for good: "drop retired and unreachable machines from
+/// the list, or group them at the bottom"). acpmux keeps no retired flag on a peer, so a retired
+/// machine is one acpmux can no longer reach: a peer down or dialing again for UNAVAILABLE_AFTER_MS
+/// (`downSince`; an older daemon that sends no time counts at once), or a machine only an old chat
+/// still names (acpmux no longer lists it). A machine on its way up, a Cloud machine asleep and this
+/// Mac never are.
+export function environmentUnavailable(environment: Environment, now: number): boolean {
+  if (environment.kind === "local" || environmentReady(environment)) return false;
+  if (environment.state === undefined) return environment.connected === false;
+  if (!UNREACHABLE_STATES.has(environment.state)) return false;
+  return environment.downSince === undefined || now - environment.downSince >= UNAVAILABLE_AFTER_MS;
 }
 
 /// The name the picker's This Mac row shows. The host sends this Mac's own name as

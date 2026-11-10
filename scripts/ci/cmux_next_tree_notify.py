@@ -406,7 +406,16 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         state = "ready"
         reason = f"tree {key} is published ({TREE_BASE}/{key}/completion.json)"
     listing = api.get(f"repos/{repo}/actions/artifacts?name=cmux-next-tree-wait-{key}&per_page=100")
-    artifacts = [artifact for artifact in listing.get("artifacts", []) if not artifact.get("expired")]
+    artifacts = [artifact for artifact in listing.get("artifacts", [])
+                 if isinstance(artifact, dict) and not artifact.get("expired")]
+    # A fork's marker starts and cancels nothing (from_same_repository), so it is dropped before the MAX_MARKERS
+    # cut: newer fork markers (GitHub lists the newest first) must not hide a same-repository one.
+    foreign = [artifact for artifact in artifacts if not from_same_repository(artifact)]
+    if foreign:
+        log(f"{len(foreign)} marker(s) were uploaded by a fork pull request's run or have no run "
+            f"({', '.join(str(artifact.get('id')) for artifact in foreign[:10])}"
+            f"{', ...' if len(foreign) > 10 else ''}); a fork's marker starts and cancels nothing; ignored")
+        artifacts = [artifact for artifact in artifacts if from_same_repository(artifact)]
     dispatched = 0
     # Head branches a superseded marker already swept in this notify.
     swept: set[str] = set()
@@ -442,14 +451,17 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
     # pulls/<n> read once per pull request in this notify.
     pulls: dict[str, dict] = {}
     for artifact in artifacts[:MAX_MARKERS]:
-        run_id = artifact.get("workflow_run", {}).get("id")
-        if not from_same_repository(artifact):
-            log(f"marker {artifact.get('id')} (run {run_id}) was uploaded by a fork pull request's run (or its "
-                f"run is unknown); a fork's marker starts and cancels nothing; ignored")
-            continue
+        # from_same_repository (above) kept only artifacts whose workflow_run is an object.
+        run_id = artifact["workflow_run"].get("id")
         marker = markers[id(artifact)]
         if marker is None:
             log(f"marker {artifact.get('id')} (run {run_id}) is not a valid tree marker; ignored")
+            continue
+        if marker["origin"] == "pull_request" and marker.get("head_ref") != artifact["workflow_run"].get("head_branch"):
+            # dispatch_refs reads the marker's head_ref; GitHub records the run's branch. A mismatch is a marker
+            # this run did not write for its own pull request: it starts nothing.
+            log(f"marker {artifact.get('id')} (run {run_id}) names head branch {marker.get('head_ref')!r}, but its "
+                f"run is on {artifact['workflow_run'].get('head_branch')!r}; ignored")
             continue
         pull = None
         try:

@@ -10,6 +10,8 @@ The Release compiles, the DEV landing compile and the fast tier stay on every pu
 
 from __future__ import annotations
 
+import io
+import json
 import os
 import re
 import shutil
@@ -25,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_base_tier as tier  # noqa: E402
+import github_quota_client as quota  # noqa: E402
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 KICK = ROOT / ".github/workflows/cmux-next-base-tier-kick.yml"
@@ -283,6 +286,265 @@ class Kick(unittest.TestCase):
             kick(FakeApi([(OLD, T0)], TIP, dispatch_status=403), Clock(T0 + 20 * 60))
 
 
+class PushEventTip(unittest.TestCase):
+    """2026-11-10: 14 of the last 40 kicks died on `HTTP 403` from the repository token's spent REST
+    quota (runs 42800611965 and 42800199912 on the branch ref read, six more on the run listing), so
+    those pushes never got a base tier. A push kick takes its own event's sha as the tip; it reads
+    the ref only when no push event names the branch."""
+
+    PUSH = {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/feat-cmux-next", "GITHUB_SHA": TIP}
+
+    def test_the_event_names_the_tip_only_for_a_push_to_the_branch(self):
+        self.assertEqual(tier.event_tip(self.PUSH), TIP)
+        self.assertIsNone(tier.event_tip({**self.PUSH, "GITHUB_EVENT_NAME": "workflow_dispatch"}))
+        self.assertIsNone(tier.event_tip({**self.PUSH, "GITHUB_EVENT_NAME": "schedule"}))
+        self.assertIsNone(tier.event_tip({**self.PUSH, "GITHUB_REF": "refs/heads/main"}))
+        self.assertIsNone(tier.event_tip({**self.PUSH, "GITHUB_SHA": "not-a-sha"}))
+        self.assertIsNone(tier.event_tip({}))
+
+    def test_a_push_kick_dispatches_at_its_own_sha_with_no_ref_read(self):
+        api, clock = FakeApi([(OLD, T0)], "f" * 40), Clock(T0 + 20 * 60)
+        self.assertEqual(tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep,
+                                   log=lambda _: None, pushed=TIP), TIP)
+        self.assertFalse([path for path in api.gets if "/git/ref/" in path], api.gets)
+        self.assertIn(f"repos/{REPO}/compare/{OLD}...{TIP}", api.gets)
+        self.assertEqual(len(api.dispatched), 1)
+
+    def test_a_push_that_already_has_a_base_tier_run_is_left_alone(self):
+        api, clock = FakeApi([(TIP, T0)], "f" * 40), Clock(T0 + 20 * 60)
+        self.assertIsNone(tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep,
+                                    log=lambda _: None, pushed=TIP))
+        self.assertEqual(api.dispatched, [])
+        self.assertFalse([path for path in api.gets if "/git/ref/" in path], api.gets)
+
+    def test_a_push_behind_the_last_base_tier_run_is_covered_by_it(self):
+        # An earlier kick dispatched at a branch tip newer than this push: its run covers this push.
+        api, clock = FakeApi([(MID, T0)], "f" * 40), Clock(T0 + 20 * 60)
+        original = api.get
+        api.get = lambda path: {"status": "behind", "files": []} if "/compare/" in path else original(path)
+        self.assertIsNone(tier.kick(api, REPO, ["Packages/**"], now=clock.now, sleep=clock.sleep,
+                                    log=lambda _: None, pushed=TIP))
+        self.assertEqual(api.dispatched, [])
+
+
+class CancelAfterAWait(unittest.TestCase):
+    """Review of #40369: a cancel is posted only right after a fresh read of the run's Mac jobs, never
+    after a quota wait. The real client against a fake GitHub: the job read waits out the quota and
+    reads again; a cancel refused on the quota is not retried and the kick goes on."""
+
+    NOW = T0 + 20 * 60
+
+    def client(self, responses: dict[str, list]):
+        clock = {"at": self.NOW}
+        slept, sent = [], []
+
+        def sleep(seconds):
+            slept.append(seconds)
+            clock["at"] += seconds
+
+        api = quota.QuotaGitHub("t", deadline=self.NOW + 900, now=lambda: clock["at"], sleep=sleep)
+
+        def send(method, url, body=None):
+            sent.append((method, url))
+            for key, queue in responses.items():
+                if key in url:
+                    status, payload = queue.pop(0) if len(queue) > 1 else queue[0]
+                    headers = {}
+                    if status == 403:
+                        headers = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(clock["at"] + 300))}
+                    return status, json.dumps(payload).encode(), headers
+            raise AssertionError(url)
+
+        api._send = send
+        return api, slept, sent
+
+    RUNS = {"workflow_runs": [
+        {"id": 11, "status": "queued", "display_title": f"{tier.TITLE}{OLD}", "created_at": stamp(T0)},
+        {"id": 12, "status": "queued", "display_title": f"{tier.TITLE}{TIP}", "created_at": stamp(T0 + 60)},
+    ]}
+
+    def test_a_cancel_after_a_wait_rechecks_the_job_status_first(self):
+        # The job read hits the spent quota and waits; the Mac job started during the wait, so the
+        # read after it finds it running and nothing is cancelled.
+        api, slept, sent = self.client({
+            "/runs?": [(200, self.RUNS)],
+            "/runs/11/jobs": [(403, {"message": "API rate limit exceeded"}),
+                              (200, {"jobs": [job("cmux-next daemon tests", "in_progress")]})],
+            "/cancel": [(202, {})],
+        })
+        self.assertEqual(tier.cancel_superseded(api, REPO, TIP, log=lambda _: None), [])
+        self.assertEqual(slept, [301])
+        self.assertFalse([url for _, url in sent if url.endswith("/cancel")])
+
+    def test_a_cancel_refused_on_the_quota_is_not_retried(self):
+        lines = []
+        api, slept, sent = self.client({
+            "/runs?": [(200, self.RUNS)],
+            "/runs/11/jobs": [(200, {"jobs": QUEUED_MAC})],
+            "/cancel": [(403, {"message": "API rate limit exceeded"})],
+        })
+        self.assertEqual(tier.cancel_superseded(api, REPO, TIP, log=lines.append), [])
+        self.assertEqual(slept, [])
+        self.assertEqual(len([url for _, url in sent if url.endswith("/cancel")]), 1)
+        self.assertTrue(any("could not cancel base tier run 11" in line for line in lines), lines)
+
+
+class QuotaLine(unittest.TestCase):
+    def run_main(self, error: Exception | None):
+        import contextlib
+        import io
+
+        calls = []
+
+        def fake_kick(api, repo, patterns, **kwargs):
+            calls.append((api, kwargs))
+            if error:
+                raise error
+
+        original, env = tier.kick, dict(os.environ)
+        tier.kick = fake_kick
+        os.environ.update({"GH_TOKEN": "t", **PushEventTip.PUSH})
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                code = tier.main(["kick", "--repo", REPO, "--workflow-file", "/nonexistent"])
+        finally:
+            tier.kick = original
+            os.environ.clear()
+            os.environ.update(env)
+        return code, err.getvalue(), calls
+
+    def test_a_spent_quota_fails_with_one_line_and_no_traceback(self):
+        error = tier.QuotaExhausted("GET repos/manaflow-ai/cmux/actions/workflows/cmux-next.yml/runs: HTTP 403: "
+                                    "the repository token's core REST quota (shared by every workflow) is spent; "
+                                    "it resets at 2027-01-15T08:00:00Z, past this job's budget (2027-01-15T07:20:00Z)")
+        code, err, _ = self.run_main(error)
+        self.assertEqual(code, 1)
+        self.assertEqual(len(err.splitlines()), 1, err)
+        self.assertIn("REST quota", err)
+        self.assertIn("resets at 2027-01-15T08:00:00Z", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_main_passes_the_push_sha_and_a_deadline_inside_the_job(self):
+        code, _, [(api, kwargs)] = self.run_main(None)
+        self.assertEqual(code, 0)
+        self.assertEqual(kwargs["pushed"], TIP)
+        # The job's timeout-minutes is 20; the API may wait out a spent quota for at most 18 of them.
+        self.assertLessEqual(api.deadline, tier.STARTED + 18 * 60)
+        self.assertGreater(api.deadline, tier.STARTED)
+        timeout = yaml.safe_load(KICK.read_text())["jobs"]["kick"]["timeout-minutes"]
+        self.assertLess(tier.API_DEADLINE_S, timeout * 60)
+
+
+class QuotaRetry(unittest.TestCase):
+    """Every workflow's GITHUB_TOKEN in a repository shares one REST quota (2026-11-10: the base tier
+    kick died on `HTTP 403` from it 14 times in 40 runs). With a deadline, the client waits out a
+    spent quota with one sleep when the reset fits the deadline, and otherwise raises QuotaExhausted
+    with one line naming the quota and its reset."""
+
+    NOW = 1_800_000_000.0
+
+    def client(self, responses, deadline):
+        clock = {"at": self.NOW}
+        slept: list[float] = []
+
+        def sleep(seconds):
+            slept.append(seconds)
+            clock["at"] += seconds
+
+        api = quota.QuotaGitHub("t", deadline=deadline, now=lambda: clock["at"], sleep=sleep)
+        sent = []
+
+        def send(method, url, body=None):
+            sent.append((method, url))
+            return responses.pop(0)
+
+        api._send = send
+        return api, slept, sent
+
+    def spent(self, reset_in: float):
+        return (403, b'{"message": "API rate limit exceeded for installation ID 1."}',
+                {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW + reset_in)),
+                 "x-ratelimit-resource": "core"})
+
+    def test_a_reset_within_the_budget_sleeps_once_and_succeeds(self):
+        api, slept, sent = self.client([self.spent(120), (200, b'{"ok": 1}', {})], self.NOW + 600)
+        self.assertEqual(api.get("repos/o/r/git/ref/heads/x"), {"ok": 1})
+        self.assertEqual(slept, [121])
+        self.assertEqual(len(sent), 2)
+
+    def test_a_reset_past_the_budget_raises_one_line_naming_the_quota(self):
+        api, slept, sent = self.client([self.spent(3000)], self.NOW + 600)
+        with self.assertRaises(tier.QuotaExhausted) as raised:
+            api.get("repos/o/r/actions/workflows/cmux-next.yml/runs")
+        message = str(raised.exception)
+        self.assertIsInstance(raised.exception, RuntimeError)  # callers that catch RuntimeError still do
+        self.assertEqual(len(message.splitlines()), 1)
+        self.assertIn("GET repos/o/r/actions/workflows/cmux-next.yml/runs: HTTP 403", message)
+        self.assertIn("core REST quota", message)
+        self.assertIn(f"resets at {quota.utc(self.NOW + 3000)}", message)
+        self.assertRegex(message, r"resets at \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+        self.assertEqual(slept, [])
+        self.assertEqual(len(sent), 1)
+
+    def test_a_secondary_limit_backs_off_then_gives_up_at_the_deadline(self):
+        limited = (403, b'{"message": "You have exceeded a secondary rate limit."}', {})
+        api, slept, _ = self.client([limited, limited, (200, b"{}", {})], self.NOW + 600)
+        self.assertEqual(api.get("repos/o/r/actions/runs/1"), {})
+        self.assertEqual(slept, [30, 60])
+        api, slept, _ = self.client([(429, b"", {"retry-after": "90"})], self.NOW + 60)
+        with self.assertRaisesRegex(tier.QuotaExhausted, "secondary rate limit; retry after 90 s"):
+            api.get("repos/o/r/actions/runs/1")
+        self.assertEqual(slept, [])
+
+    def test_a_write_is_never_retried_after_a_wait(self):
+        """A cancel decided on a job read must not fire minutes later, after the job may have started
+        (review of #40369: a retried cancel stopped a running Mac job after a 601 s wait). A write
+        refused on the quota raises at once, even when the reset fits the deadline."""
+        for method, call in (("POST", lambda api: api.post("repos/o/r/actions/runs/1/cancel", {})),
+                             ("DELETE", lambda api: api.delete("repos/o/r/actions/artifacts/1"))):
+            api, slept, sent = self.client([self.spent(60), (202, b"", {})], self.NOW + 600)
+            with self.assertRaises(tier.QuotaExhausted) as raised:
+                call(api)
+            self.assertIn(f"{method} repos/o/r/", str(raised.exception))
+            self.assertIn("not retried", str(raised.exception))
+            self.assertEqual(len(str(raised.exception).splitlines()), 1)
+            self.assertEqual(slept, [])
+            self.assertEqual(len(sent), 1)
+
+    def test_a_refusal_that_is_not_a_rate_limit_is_returned_as_before(self):
+        # The takeover reads `This workflow is already running` as a 403 status.
+        api, slept, _ = self.client([(403, b'{"message": "This workflow is already running"}', {})], self.NOW + 600)
+        self.assertEqual(api.post("repos/o/r/actions/runs/1/rerun", {}), 403)
+        self.assertEqual(slept, [])
+
+    def test_no_deadline_never_retries(self):
+        api, slept, _ = self.client([self.spent(60), self.spent(60)], None)
+        with self.assertRaisesRegex(RuntimeError, r"^GET repos/o/r/pulls/1: HTTP 403$"):
+            api.get("repos/o/r/pulls/1")
+        self.assertEqual(api.post("repos/o/r/actions/runs/1/cancel", {}), 403)
+        self.assertEqual(slept, [])
+
+    def test_it_reads_the_rate_limit_headers_off_the_http_error(self):
+        import email.message
+
+        headers = email.message.Message()
+        headers["X-RateLimit-Remaining"] = "0"
+        headers["X-RateLimit-Reset"] = str(int(self.NOW + 9999))
+
+        def urlopen(request, timeout):
+            raise quota.urllib.error.HTTPError(request.full_url, 403, "rate limit exceeded", headers,
+                                                io.BytesIO(b'{"message": "API rate limit exceeded"}'))
+
+        original = quota.urllib.request.urlopen
+        quota.urllib.request.urlopen = urlopen
+        try:
+            api = quota.QuotaGitHub("t", deadline=self.NOW + 60, now=lambda: self.NOW, sleep=lambda _: None)
+            with self.assertRaisesRegex(tier.QuotaExhausted, "core REST quota"):
+                api.get("repos/o/r/git/ref/heads/x")
+        finally:
+            quota.urllib.request.urlopen = original
+
 class PushPaths(unittest.TestCase):
     def test_it_reads_cmux_next_push_paths(self):
         patterns = tier.push_paths(WORKFLOW.read_text())
@@ -330,6 +592,7 @@ class RouteStep(unittest.TestCase):
             (root / "scripts/ci").mkdir(parents=True)
             shutil.copy(ROOT / "scripts/ci/cmux_next_base_tier.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/cmux_next_tree_notify.py", root / "scripts/ci/")
+            shutil.copy(ROOT / "scripts/ci/github_quota_client.py", root / "scripts/ci/")
             (root / "scripts/ci/cmux_next_route.py").write_text(
                 "import sys\nout = sys.argv[sys.argv.index('--github-output') + 1]\n"
                 "open(out, 'a').write('native=true\\nmacos=true\\nscheme=true\\ngenerated=true\\n"
@@ -416,8 +679,28 @@ class Workflows(unittest.TestCase):
         job = kick_doc["jobs"]["kick"]
         self.assertIn("CMUX_NEXT_BASE_TIER_COALESCE", job["if"])
         self.assertGreater(job["timeout-minutes"] * 60, tier.WINDOW_S + tier.SETTLE_S)
-        self.assertEqual(job["permissions"], {"actions": "write", "contents": "read"})
+        self.assertEqual(job["permissions"], {"contents": "read"})
         self.assertIn("cmux_next_base_tier.py kick", job["steps"][-1]["run"])
+
+    def test_the_kick_calls_github_with_its_own_app_token_and_no_fallback(self):
+        # github.token's REST budget is every workflow's; a kick waiting it out is a polling loop on it
+        # (tests/test_ci_no_github_token_polling.py), and 2026-11-10 kicks crashed on its HTTP 403s.
+        steps = yaml.safe_load(KICK.read_text())["jobs"]["kick"]["steps"]
+        mint = next(step for step in steps if step.get("id") == "cmux-bot-token")
+        self.assertEqual(mint["uses"], "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1")
+        self.assertEqual(mint["with"]["app-id"], "${{ vars.CMUX_BOT_APP_ID }}")
+        self.assertEqual(mint["with"]["private-key"], "${{ secrets.CMUX_BOT_APP_KEY }}")
+        # The least the kick needs: runs, jobs, dispatch and cancel (actions), the ref and compare (contents).
+        self.assertEqual({k: v for k, v in mint["with"].items() if k.startswith("permission-")},
+                         {"permission-actions": "write", "permission-contents": "read"})
+        # A failed mint fails the kick red: nothing lets it go on to a github.token fallback.
+        self.assertNotIn("continue-on-error", mint)
+        self.assertNotIn("if", mint)
+        kick_step = steps[-1]
+        self.assertLess(steps.index(mint), steps.index(kick_step))
+        self.assertEqual(kick_step["env"], {"GH_TOKEN": "${{ steps.cmux-bot-token.outputs.token }}"})
+        checkout = next(step for step in steps if "actions/checkout@" in step.get("uses", ""))
+        self.assertIn("scripts/ci/github_quota_client.py", checkout["with"]["sparse-checkout"])
 
     def test_sleeping_dispatcher_reads_the_linux_pool(self):
         # A pure Python timer/API call reads the reconciled Linux pool, never a fixed

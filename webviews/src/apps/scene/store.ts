@@ -12,6 +12,52 @@ export type SceneOp =
   | { op: "remove"; id: string }
   | { op: "root"; id: string };
 
+/** A mount's state, as the host's `AppSceneModel.Status`: loading until its first scene has a root,
+ * failed with the host's raw reason, or disconnected with the plain-words reason (the supervisor
+ * is unreachable; the mount renders again after the reconnect). */
+export type SceneStatus =
+  | { state: "loading" }
+  | { state: "ready" }
+  | { state: "failed"; reason: string }
+  | { state: "disconnected"; reason: string };
+/** What moves a status: the host's forwarded status, a scene batch applied, or a reset scene. */
+export type SceneStatusAction =
+  | { type: "status"; status: unknown; reason?: unknown }
+  | { type: "scene"; hasRoot: boolean }
+  | { type: "reset" };
+
+export const SCENE_LOADING: SceneStatus = Object.freeze({ state: "loading" });
+const SCENE_READY: SceneStatus = Object.freeze({ state: "ready" });
+
+/** The host model's transitions: a reset loads again, the first batch with a root makes a loading
+ * mount ready (a failed or disconnected one stays until the host says otherwise), and a forwarded
+ * status replaces the current one. An unknown or malformed forwarded status changes nothing. An
+ * unchanged status returns the same object, so subscribers re-render only on a real change. */
+export function sceneStatusReducer(current: SceneStatus, action: SceneStatusAction): SceneStatus {
+  switch (action.type) {
+    case "reset":
+      return current.state === "loading" ? current : SCENE_LOADING;
+    case "scene":
+      return action.hasRoot && current.state === "loading" ? SCENE_READY : current;
+    case "status": {
+      const reason = typeof action.reason === "string" ? action.reason : "";
+      switch (action.status) {
+        case "loading":
+          return current.state === "loading" ? current : SCENE_LOADING;
+        case "ready":
+          return current.state === "ready" ? current : SCENE_READY;
+        case "failed":
+        case "disconnected":
+          return current.state === action.status && current.reason === reason
+            ? current
+            : { state: action.status, reason };
+        default:
+          return current;
+      }
+    }
+  }
+}
+
 const MAX_NODES = 4096;
 const MAX_DEPTH = 64;
 type Listener = () => void;
@@ -27,6 +73,8 @@ export class SceneStore {
   private root: string | undefined;
   private readonly listeners = new Map<string, Set<Listener>>();
   private readonly rootListeners = new Set<Listener>();
+  private status: SceneStatus = SCENE_LOADING;
+  private readonly statusListeners = new Set<Listener>();
 
   getNode(id: string): SceneNode | undefined {
     return this.nodes.get(id);
@@ -48,6 +96,27 @@ export class SceneStore {
     return () => this.rootListeners.delete(listener);
   };
 
+  getStatus = (): SceneStatus => this.status;
+  subscribeStatus = (listener: Listener): (() => void) => {
+    this.statusListeners.add(listener);
+    return () => this.statusListeners.delete(listener);
+  };
+
+  /** Applies a host status event (`{status, reason?}` on the scene stream). */
+  setStatus(status: unknown, reason?: unknown): void {
+    this.reduceStatus({ type: "status", status, reason });
+  }
+
+  private reduceStatus(action: SceneStatusAction): void {
+    this.publishStatus(sceneStatusReducer(this.status, action));
+  }
+
+  private publishStatus(next: SceneStatus): void {
+    if (next === this.status) return;
+    this.status = next;
+    for (const listener of this.statusListeners) listener();
+  }
+
   apply(ops: readonly SceneOp[], reset = false): void {
     const previousRoot = this.root;
     const changed = new Set<string>();
@@ -64,6 +133,10 @@ export class SceneStore {
       for (const listener of this.listeners.get(id) ?? []) listener();
     }
     if (previousRoot !== this.root) for (const listener of this.rootListeners) listener();
+    // After the scene's own listeners, as the host model sets its status after applying the batch.
+    // A reset and its first root publish once: a failed mount whose new scene draws goes straight to ready.
+    const status = reset ? sceneStatusReducer(this.status, { type: "reset" }) : this.status;
+    this.publishStatus(sceneStatusReducer(status, { type: "scene", hasRoot: this.root !== undefined }));
   }
 
   private write(node: SceneNode, changed: Set<string>): void {

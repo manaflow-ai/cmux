@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import Foundation
+import CmuxNextFeedClient
 
 extension NotificationCenterService {
     /// Runs the agent permission feed bridge (cx-aocz) only while
@@ -9,6 +10,7 @@ extension NotificationCenterService {
     func followPermissionBridge(_ services: AppServices, principal: FeedInstallPrincipal) -> Task<Void, Never> {
         let feed = services.feed
         return Task { [weak self, weak feed] in
+            var changes: UInt64?
             for await on in ObservationStream({ [weak self] in self?.preferences.feedMirror.agentPermissionPrompts ?? false }) {
                 guard let self else { return }
                 if on, self.permissionBridge == nil, let environment = QuitAgents.environment(services) {
@@ -19,10 +21,21 @@ extension NotificationCenterService {
                         ownInstall: { await principal.ensureInstallID() },
                         presenceKeys: { try await principal.presenceKeys() })
                     self.permissionBridge = bridge
-                    feed?.onConfirmedItems = { [weak bridge] items in bridge?.itemsChanged(items) }
+                    // The owner-confirmed state of the items this launch posted, read when the feed changes them.
+                    changes = feed?.daemon.observe { [weak bridge, weak feed] change in
+                        guard let bridge, let daemon = feed?.daemon else { return }
+                        let mine = bridge.posted.keys.filter(change.touches)
+                        guard !mine.isEmpty else { return }
+                        // task-owner: one daemon read per feed change of this launch's items; it hands them to the bridge and ends.
+                        Task { [weak bridge] in
+                            guard let items = try? await daemon.items(Array(mine), confirmed: true) else { return }
+                            bridge?.itemsChanged(items)
+                        }
+                    }
                     bridge.start()
                 } else if !on, self.permissionBridge != nil {
-                    feed?.onConfirmedItems = nil
+                    if let changes { feed?.daemon.unobserve(changes) }
+                    changes = nil
                     self.permissionBridge = nil
                 }
             }

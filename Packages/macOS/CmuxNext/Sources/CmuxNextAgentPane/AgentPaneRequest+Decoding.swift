@@ -12,6 +12,13 @@ extension AgentPaneRequest {
             && id.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == "-") }
     }
 
+    /// A page's one-time hand-off token (webviews commandPlace.ts: a UUID): 16 to 64 ASCII letters,
+    /// digits and dashes, so it names a stored entry and carries nothing itself.
+    static func isHandoffToken(_ token: String) -> Bool {
+        (16...64).contains(token.count)
+            && token.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-") }
+    }
+
     private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
@@ -367,8 +374,10 @@ extension AgentPaneRequest {
                 return
             }
             self = .cloudHandoffTurn(sessionId: session)
-        case "cloud.signInCancel": self = .cloudSignInCancel
-        case "cloud.signIn": self = AgentPaneCloudStart(params: params).map(Self.cloudSignIn) ?? .unsupported(method)
+        case "cloud.signInCancel": self = .cloudSignInCancel(expired: params?["expired"] as? Bool == true)
+        case "cloud.signIn":
+            // The start's key only (`AgentPaneCloudStart`'s): the start itself goes after, as `cloud.startChat`.
+            if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)
@@ -588,10 +597,13 @@ extension AgentPaneRequest {
             // An `environment` is New Cloud Machine's only, and a Cloud environment id (`env_…`);
             // any other is refused, never dropped (which would make a machine in another one).
             let environment = params?["environment"].map { $0 as? String }
+            // A `handoff` is New Cloud Chat's only, and a token; any other is refused, never dropped.
+            let handoff = params?["handoff"].map { $0 as? String }
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
                session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true,
-               environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true {
-                self = .runAction(id, session: session ?? nil, environment: environment ?? nil)
+               environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true,
+               handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true {
+                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil)
             } else {
                 self = .unsupported(method)
             }

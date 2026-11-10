@@ -119,16 +119,28 @@ public struct SkeletonList: View {
     let rows: Int
     let leadingSquare: CGFloat?
     let delay: Duration
+    /// Says what loads ("Loading workspaces…"), above the rows and as their
+    /// spoken label; nil keeps the plain "Loading".
+    let caption: LocalizedStringKey?
     @State private var isVisible = false
 
-    public init(rows: Int = 6, leadingSquare: CGFloat? = nil, delay: Duration = CmuxMobileTheme.standard.motion.skeletonDelay) {
+    public init(rows: Int = 6, leadingSquare: CGFloat? = nil, delay: Duration = CmuxMobileTheme.standard.motion.skeletonDelay,
+                caption: LocalizedStringKey? = nil) {
         self.rows = min(rows, 6)
         self.leadingSquare = leadingSquare
         self.delay = delay
+        self.caption = caption
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let caption {
+                Text(caption)
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            }
             ForEach(0..<rows, id: \.self) { _ in
                 HStack(spacing: 12) {
                     if let leadingSquare {
@@ -160,7 +172,7 @@ public struct SkeletonList: View {
             withAnimation(theme.motion.snap.animation.unlessReduceMotion) { isVisible = true }
         }
         .accessibilityElement()
-        .accessibilityLabel(Text("Loading"))
+        .accessibilityLabel(caption.map { Text($0) } ?? Text("Loading"))
     }
 }
 

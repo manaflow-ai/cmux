@@ -35,6 +35,14 @@
 //! - `api_key {agent, key}`: Claude's `settings.json` gets `env.ANTHROPIC_API_KEY`
 //!   (other keys kept, 0600, written whole); Codex runs `codex login
 //!   --with-api-key` with the key on stdin.
+//! - Cursor (`cursor-agent login`, Leo 2026-11-10: "if somebody has a ChatGPT
+//!   subscription or a Cursor subscription"): like Codex, it prints one
+//!   `https://cursor.com/...` link (only that host, [`parse::CURSOR_HOSTS`]),
+//!   waits for the approve itself and exits 0 once its
+//!   `<XDG_CONFIG_HOME or ~/.config>/cursor/auth.json` holds the sign-in;
+//!   `NO_OPEN_BROWSER=1` keeps it from opening one. It takes no code and no
+//!   key here: a Cursor API key reaches the agent as the Cloud secret
+//!   `CURSOR_API_KEY` instead.
 //!
 //! The CLI is the one this daemon starts the agent with (the `claude` or
 //! `codex` harness profile, else `claude`/`codex` on the login PATH), with
@@ -136,6 +144,7 @@ pub mod reason {
 pub enum Agent {
     Claude,
     Codex,
+    Cursor,
 }
 
 impl Agent {
@@ -143,6 +152,7 @@ impl Agent {
         match name {
             "claude" => Some(Agent::Claude),
             "codex" => Some(Agent::Codex),
+            "cursor" => Some(Agent::Cursor),
             _ => None,
         }
     }
@@ -151,6 +161,15 @@ impl Agent {
         match self {
             Agent::Claude => "claude",
             Agent::Codex => "codex",
+            Agent::Cursor => "cursor",
+        }
+    }
+
+    /// The program on the login PATH when no harness profile names one.
+    pub fn program(self) -> &'static str {
+        match self {
+            Agent::Cursor => "cursor-agent",
+            agent => agent.name(),
         }
     }
 }
@@ -206,6 +225,12 @@ impl Cli {
                 .var("CODEX_HOME")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| self.home().join(".codex")),
+            // `cursor-agent` keeps `auth.json` here on Linux (`harness_health/agent_files.rs`).
+            Agent::Cursor => self
+                .var("XDG_CONFIG_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| self.home().join(".config"))
+                .join("cursor"),
         }
     }
 
@@ -235,16 +260,27 @@ impl Cli {
                 cmd.env(key, value);
             }
         }
+        // Cursor's store follows XDG_CONFIG_HOME: the CLI gets exactly the one store() resolved,
+        // so the sign-in it writes is the one finish reads.
+        match self.var("XDG_CONFIG_HOME") {
+            Some(value) => cmd.env("XDG_CONFIG_HOME", value),
+            None => cmd.env_remove("XDG_CONFIG_HOME"),
+        };
         for key in MODEL_PLANE_ENV {
             cmd.env_remove(key);
         }
         cmd.env_remove("DISPLAY")
             .env_remove("WAYLAND_DISPLAY")
             .env("BROWSER", "true")
+            .env("NO_OPEN_BROWSER", "1")
             .env("TERM", "dumb")
             .env("NO_COLOR", "1")
             .env("CMUX_CLAUDE_AUTH", "own")
             .env("CMUX_CODEX_AUTH", "own");
+        // A Cursor key in this daemon's environment (a Cloud secret) would outrank the sign-in.
+        for key in ["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"] {
+            cmd.env_remove(key);
+        }
         cmd.args(&self.globals).args(args).current_dir(cwd);
         cmd
     }
@@ -395,6 +431,12 @@ pub fn signed_in_at(agent: Agent, store: &Path) -> bool {
         Agent::Codex => read("auth.json").is_some_and(|v| {
             v.get("tokens").and_then(Value::as_object).is_some_and(|t| !t.is_empty())
                 || v.get("OPENAI_API_KEY").and_then(Value::as_str).is_some_and(|k| !k.is_empty())
+        }),
+        // Cursor's `auth.json`: a non-empty object with a non-empty string in it (its token
+        // fields have moved between releases, so no one name is required).
+        Agent::Cursor => read("auth.json").is_some_and(|v| {
+            v.as_object()
+                .is_some_and(|o| o.values().any(|f| f.as_str().is_some_and(|s| !s.is_empty())))
         }),
     }
 }
@@ -613,8 +655,8 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
         }
     }
     let store = cli.store(agent);
-    if agent == Agent::Codex {
-        // `codex login` needs its home to exist.
+    if agent != Agent::Claude {
+        // `codex login` needs its home to exist; Cursor's folder is made private first.
         private_dir(&store).map_err(|e| {
             LoginError::new(reason::FAILED, format!("make {}: {e}", store.display()))
         })?;
@@ -624,6 +666,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
     let args: &[&str] = match agent {
         Agent::Claude => &["auth", "login", "--claudeai"],
         Agent::Codex => &["login", "--device-auth"],
+        Agent::Cursor => &["login"],
     };
     let mut cmd = cli.command(args, &folder.0);
     if agent == Agent::Claude {
@@ -690,7 +733,7 @@ pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         }
-        Agent::Codex => None,
+        Agent::Codex | Agent::Cursor => None,
     };
     let id = uuid::Uuid::now_v7().to_string();
     let expires_at_ms = now_ms() + EXPIRY.as_millis() as u64;
@@ -774,7 +817,7 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
                 ));
             }
         },
-        Agent::Codex => None,
+        Agent::Codex | Agent::Cursor => None,
     };
     if let Some(line) = &code {
         let Ok(mut slot) = stdin.try_lock() else {
@@ -849,6 +892,9 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
                 LoginError::new(reason::FAILED, "claude did not finish signing in: start again")
             }
             (Agent::Codex, _) => LoginError::new(reason::FAILED, "codex did not finish signing in"),
+            (Agent::Cursor, _) => {
+                LoginError::new(reason::FAILED, "cursor-agent did not finish signing in")
+            }
         });
     }
     // macOS: Claude Code keeps its sign-in in the login keychain, which acpmux
@@ -876,6 +922,12 @@ pub async fn save_api_key(
         return Err(LoginError::new(reason::BAD_CODE, "that is not an API key"));
     }
     match agent {
+        // `cursor-agent` reads a key only from its environment or `--api-key`, never a file of
+        // its own: the key goes in as the Cloud secret `CURSOR_API_KEY`.
+        Agent::Cursor => Err(LoginError::new(
+            reason::UNSUPPORTED_AGENT,
+            "Cursor takes an API key as the Cloud secret CURSOR_API_KEY",
+        )),
         Agent::Claude => merge_claude_api_key(&cli.store(agent), key)
             .map_err(|e| LoginError::new(reason::FAILED, e)),
         Agent::Codex => {

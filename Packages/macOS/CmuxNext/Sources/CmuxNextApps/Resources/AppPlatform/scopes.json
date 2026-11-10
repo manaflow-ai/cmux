@@ -397,6 +397,10 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.machine.keep": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
     "cloud.machine.list": {
       "scope": "cloud:read",
       "class": "read"
@@ -442,6 +446,10 @@
       "class": "read"
     },
     "cloud.rescue.open": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.retention.set": {
       "scope": "cloud:write",
       "class": "mutation"
     },
@@ -2035,6 +2043,7 @@
     "cloud.environment.build",
     "cloud.environment.delete",
     "cloud.fs.remove",
+    "cloud.machine.archive_delete",
     "cloud.machine.create",
     "cloud.machine.delete",
     "cloud.machine.io",

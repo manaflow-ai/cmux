@@ -60,5 +60,7 @@ extension SettingsSchema {
         "tabs.newTabWidgets.quote": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
         // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
         "tabs.newTabWidgets.order": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+        // No bounce in any motion (Lawrence 2026-11-10, plans/cmux-next/motion-first-principles-DESIGN.md principle 5): the Subtle choice is gone and None is the only behaviour.
+        "ui.animations.bounce": "no animation passes its place; every spring stops exactly on it",
     ]
 }
