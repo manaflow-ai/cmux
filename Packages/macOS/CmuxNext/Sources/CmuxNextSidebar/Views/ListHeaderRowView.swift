@@ -13,11 +13,12 @@ final class ListHeaderRowView: SidebarRowView {
     }
 
     func configure(_ header: SidebarListHeader, count: Int) {
-        name.setString(switch header {
+        let title = switch header {
         case .projects: Strings.projects
         case .recents: Strings.recents
         case .workspaces: Strings.workspacesHeading
-        })
+        }
+        name.setString(title)
         name.setFont(SidebarStyle.headerFont)
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
