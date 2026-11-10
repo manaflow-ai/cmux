@@ -221,7 +221,9 @@ fn read_or_wait(global: &mut GlobalArgs, verb: &str, words: &[String]) -> i32 {
             );
             return super::wire::print_local_error(&error, global.output, 1);
         }
-        words[0] = last.session;
+        if let Some(first) = words.first_mut() {
+            *first = last.session;
+        }
     }
     let words = cloud_start_chat::lift_output_of(
         &words,
