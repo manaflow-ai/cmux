@@ -1,0 +1,2776 @@
+{
+ "id": "scroll-zsh-big",
+ "priority": "P2",
+ "title": "SCROLL zsh (big session): per-frame time and missed 120 Hz refreshes while wheel and trackpad scroll 50k lines of scrollback, and while output streams (at the bottom and scrolled back)",
+ "why": "NIGHTLY REGRESSION cmux-ad m85/m86/m87 (2026-11-10): terminal scroll A/B of nightly ffffff979a1a vs 85b099928a8a and the 5-point bisect; same journeys for GHOSTTY INTEGRATION. Fleet minis only.",
+ "source": "debug.mouse scroll (phase = trackpad) + debug.frames start/stop raw",
+ "budget_seconds": 250,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 3,
+   "title": "the fresh profile's first window"
+  },
+  {
+   "do": "grow_workspaces",
+   "count": 60,
+   "busy": 0,
+   "settle": 3,
+   "title": "big session: 60 workspaces (one terminal each), no busy output (m87: the state-size loop)"
+  },
+  {
+   "do": "base_terminal",
+   "title": "the focused terminal the journey scrolls"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "seq -f 'L%06g-${nonce}' 1 50000 | tee /tmp/scrolljr-${nonce}.txt",
+   "enter": true,
+   "mark": "fill",
+   "title": "50k lines of scrollback (and the same file for less and vim)"
+  },
+  {
+   "do": "expect",
+   "title": "the 50k lines arrived and the prompt is back",
+   "since": "fill",
+   "timeout": 90,
+   "all": [
+    {
+     "daemon_line": "L050000-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    }
+   ]
+  },
+  {
+   "do": "mouse",
+   "action": "move",
+   "title": "the pointer over the pane, once (the bursts send hover: false)"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 40,
+   "count": 10,
+   "interval": 0.02,
+   "title": "start scrolled back (not at the top)"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 7"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 8"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 9"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 10"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 11"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 12"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 13"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 13"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 13"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 13"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 13"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 14"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 14"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 14"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 14"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 14"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 15"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 15"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 15"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 15"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 15"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 16"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 16"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 16"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 16"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 16"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 17"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 17"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 17"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 17"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 17"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 18"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 18"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 18"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 18"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 18"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 19"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 19"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 19"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 19"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 19"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-wheel-big 20"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-wheel-big 20"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-wheel-big 20"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-wheel-big 20"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-wheel-big 20"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 7"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 7"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 7"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 8"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 8"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 8"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 9"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 9"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 9"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 10"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 10"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 10"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 11"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 11"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 11"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 12"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 12"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 12"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 13"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 13"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 13"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 13"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 13"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 13"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 13"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 14"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 14"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 14"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 14"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 14"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 14"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 14"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 15"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 15"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 15"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 15"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 15"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 15"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 15"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 16"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 16"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 16"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 16"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 16"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 16"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 16"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 17"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 17"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 17"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 17"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 17"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 17"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 17"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 18"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 18"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 18"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 18"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 18"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 18"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 18"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 19"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 19"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 19"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 19"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 19"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 19"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 19"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-trackpad-big 20"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-trackpad-big 20"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-trackpad-big 20"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-trackpad-big 20"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-trackpad-big 20"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-trackpad-big 20"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-trackpad-big 20"
+  },
+  {
+   "do": "key",
+   "key": "end",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "to the bottom"
+  },
+  {
+   "do": "type",
+   "text": "for i in $(seq 1 1200); do seq -f \"O%05g-${nonce}\" 1 20; sleep 0.02; done; echo STREAMDONE-${nonce}",
+   "enter": true,
+   "mark": "stream",
+   "title": "output streaming (20 lines per 20 ms, about 30 s)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1,
+   "title": "the stream runs"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-bottom-big 1"
+  },
+  {
+   "do": "wait",
+   "seconds": 2,
+   "title": "output only zsh-stream-bottom-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-bottom-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-bottom-big 2"
+  },
+  {
+   "do": "wait",
+   "seconds": 2,
+   "title": "output only zsh-stream-bottom-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-bottom-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-bottom-big 3"
+  },
+  {
+   "do": "wait",
+   "seconds": 2,
+   "title": "output only zsh-stream-bottom-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-bottom-big 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 40,
+   "count": 10,
+   "interval": 0.02,
+   "title": "scroll back while it streams"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-wheel-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-wheel-big 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-stream-scrolled-wheel-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-wheel-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-wheel-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-wheel-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-wheel-big 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-stream-scrolled-wheel-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-wheel-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-wheel-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-wheel-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-wheel-big 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-stream-scrolled-wheel-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-wheel-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-wheel-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-wheel-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-wheel-big 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-stream-scrolled-wheel-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-wheel-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-wheel-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-wheel-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-wheel-big 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-stream-scrolled-wheel-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-wheel-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-wheel-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-wheel-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-wheel-big 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-stream-scrolled-wheel-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-wheel-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-wheel-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-wheel-big 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-wheel-big 7"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-stream-scrolled-wheel-big 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-wheel-big 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-wheel-big 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-wheel-big 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-wheel-big 8"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-stream-scrolled-wheel-big 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-wheel-big 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-wheel-big 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-wheel-big 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-wheel-big 9"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-stream-scrolled-wheel-big 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-wheel-big 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-wheel-big 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-wheel-big 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-wheel-big 10"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel zsh-stream-scrolled-wheel-big 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-wheel-big 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-wheel-big 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-trackpad-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-trackpad-big 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-stream-scrolled-trackpad-big 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-stream-scrolled-trackpad-big 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-stream-scrolled-trackpad-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-trackpad-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-trackpad-big 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-trackpad-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-trackpad-big 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-stream-scrolled-trackpad-big 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-stream-scrolled-trackpad-big 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-stream-scrolled-trackpad-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-trackpad-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-trackpad-big 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-trackpad-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-trackpad-big 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-stream-scrolled-trackpad-big 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-stream-scrolled-trackpad-big 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-stream-scrolled-trackpad-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-trackpad-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-trackpad-big 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-trackpad-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-trackpad-big 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-stream-scrolled-trackpad-big 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-stream-scrolled-trackpad-big 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-stream-scrolled-trackpad-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-trackpad-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-trackpad-big 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-trackpad-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-trackpad-big 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-stream-scrolled-trackpad-big 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-stream-scrolled-trackpad-big 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-stream-scrolled-trackpad-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-trackpad-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-trackpad-big 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 zsh-stream-scrolled-trackpad-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start zsh-stream-scrolled-trackpad-big 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began zsh-stream-scrolled-trackpad-big 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed zsh-stream-scrolled-trackpad-big 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended zsh-stream-scrolled-trackpad-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL zsh-stream-scrolled-trackpad-big 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 zsh-stream-scrolled-trackpad-big 6"
+  },
+  {
+   "do": "expect",
+   "title": "the stream ended",
+   "since": "stream",
+   "timeout": 60,
+   "all": [
+    {
+     "daemon_line": "STREAMDONE-${nonce}"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "end",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "to the bottom"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 64
+   },
+   "title": "action budget"
+  },
+  {
+   "do": "type",
+   "text": "clear; echo scrolljr-${nonce}",
+   "enter": true,
+   "title": "set-up check: the app still types (its result does not decide the numbers)"
+  },
+  {
+   "do": "expect",
+   "title": "the app still types into the base terminal",
+   "timeout": 15,
+   "all": [
+    {
+     "pane_frame_text": "scrolljr-${nonce}"
+    },
+    {
+     "daemon_contains": "scrolljr-${nonce}"
+    },
+    {
+     "app_text_contains": "scrolljr-${nonce}"
+    }
+   ]
+  }
+ ]
+}

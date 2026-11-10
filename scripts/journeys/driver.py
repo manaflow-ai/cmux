@@ -859,7 +859,7 @@ class Journey:
         """`debug.mouse` over the journey's pane (its center): `action` scroll (default; `dy` > 0 moves
         toward older rows, as a wheel turned up does), click, double_click; `count` times, `interval`
         seconds apart."""
-        params = {k: self.sub(v) for k, v in step.items() if k in ("action", "dx", "dy", "phase", "modifiers", "button")}
+        params = {k: self.sub(v) for k, v in step.items() if k in ("action", "dx", "dy", "phase", "modifiers", "button", "hover")}
         params.setdefault("action", "scroll")
         params["pane"] = self.need_pane()
         # `window`: the window that shows the pane (a named window or an id); debug.mouse's default is the first window.

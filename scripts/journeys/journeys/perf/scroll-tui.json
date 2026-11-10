@@ -1,0 +1,2374 @@
+{
+ "id": "scroll-tui",
+ "priority": "P2",
+ "title": "SCROLL less and nvim/vim: per-frame time and missed 120 Hz refreshes while wheel and trackpad scroll a 50k-line file in full-screen programs",
+ "why": "NIGHTLY REGRESSION cmux-ad m85/m86/m87 (2026-11-10): terminal scroll A/B of nightly ffffff979a1a vs 85b099928a8a and the 5-point bisect; same journeys for GHOSTTY INTEGRATION. Fleet minis only.",
+ "source": "debug.mouse scroll (phase = trackpad) + debug.frames start/stop raw",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 3,
+   "title": "the fresh profile's first window"
+  },
+  {
+   "do": "base_terminal",
+   "title": "the focused terminal the journey scrolls"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "seq -f 'L%06g-${nonce}' 1 50000 | tee /tmp/scrolltui-${nonce}.txt",
+   "enter": true,
+   "mark": "fill",
+   "title": "50k lines of scrollback (and the same file for less and vim)"
+  },
+  {
+   "do": "expect",
+   "title": "the 50k lines arrived and the prompt is back",
+   "since": "fill",
+   "timeout": 90,
+   "all": [
+    {
+     "daemon_line": "L050000-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    }
+   ]
+  },
+  {
+   "do": "mouse",
+   "action": "move",
+   "title": "the pointer over the pane, once (the bursts send hover: false)"
+  },
+  {
+   "do": "type",
+   "text": "clear; less /tmp/scrolltui-${nonce}.txt",
+   "enter": true,
+   "mark": "less",
+   "title": "less on the 50k-line file"
+  },
+  {
+   "do": "expect",
+   "title": "less shows the file's first rows",
+   "since": "less",
+   "timeout": 15,
+   "all": [
+    {
+     "pane_frame_text": "L000002-${nonce}"
+    }
+   ]
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-wheel 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-wheel 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel less-wheel 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-wheel 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-wheel 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-wheel 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-wheel 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel less-wheel 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-wheel 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-wheel 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-wheel 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-wheel 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel less-wheel 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-wheel 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-wheel 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-wheel 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-wheel 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel less-wheel 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-wheel 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-wheel 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-wheel 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-wheel 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel less-wheel 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-wheel 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-wheel 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-wheel 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-wheel 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel less-wheel 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-wheel 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-wheel 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-wheel 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-wheel 7"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel less-wheel 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-wheel 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-wheel 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-wheel 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-wheel 8"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel less-wheel 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-wheel 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-wheel 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-wheel 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-wheel 9"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel less-wheel 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-wheel 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-wheel 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-wheel 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-wheel 10"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel less-wheel 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-wheel 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-wheel 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-wheel 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-wheel 11"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel less-wheel 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-wheel 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-wheel 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-wheel 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-wheel 12"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel less-wheel 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-wheel 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-wheel 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-trackpad 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-trackpad 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began less-trackpad 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed less-trackpad 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended less-trackpad 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-trackpad 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-trackpad 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-trackpad 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-trackpad 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began less-trackpad 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed less-trackpad 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended less-trackpad 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-trackpad 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-trackpad 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-trackpad 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-trackpad 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began less-trackpad 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed less-trackpad 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended less-trackpad 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-trackpad 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-trackpad 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-trackpad 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-trackpad 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began less-trackpad 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed less-trackpad 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended less-trackpad 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-trackpad 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-trackpad 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-trackpad 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-trackpad 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began less-trackpad 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed less-trackpad 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended less-trackpad 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-trackpad 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-trackpad 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-trackpad 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-trackpad 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began less-trackpad 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed less-trackpad 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended less-trackpad 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-trackpad 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-trackpad 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-trackpad 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-trackpad 7"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began less-trackpad 7"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed less-trackpad 7"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended less-trackpad 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-trackpad 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-trackpad 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-trackpad 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-trackpad 8"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began less-trackpad 8"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed less-trackpad 8"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended less-trackpad 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-trackpad 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-trackpad 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-trackpad 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-trackpad 9"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began less-trackpad 9"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed less-trackpad 9"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended less-trackpad 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-trackpad 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-trackpad 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-trackpad 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-trackpad 10"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began less-trackpad 10"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed less-trackpad 10"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended less-trackpad 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-trackpad 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-trackpad 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-trackpad 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-trackpad 11"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began less-trackpad 11"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed less-trackpad 11"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended less-trackpad 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-trackpad 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-trackpad 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 less-trackpad 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start less-trackpad 12"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began less-trackpad 12"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed less-trackpad 12"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended less-trackpad 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL less-trackpad 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 less-trackpad 12"
+  },
+  {
+   "do": "type",
+   "text": "q",
+   "enter": false,
+   "title": "quit less"
+  },
+  {
+   "do": "wait",
+   "seconds": 1,
+   "title": "less quit"
+  },
+  {
+   "do": "type",
+   "text": "clear; \"$(command -v nvim || command -v vim)\" -u NONE -R -c 'set mouse=a' /tmp/scrolltui-${nonce}.txt",
+   "enter": true,
+   "mark": "vim",
+   "title": "nvim (vim when the mini has no nvim) on the file, mouse on"
+  },
+  {
+   "do": "expect",
+   "title": "the editor shows the file's first rows",
+   "since": "vim",
+   "timeout": 15,
+   "all": [
+    {
+     "pane_frame_text": "L000002-${nonce}"
+    }
+   ]
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-wheel 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-wheel 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel vim-wheel 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-wheel 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-wheel 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-wheel 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-wheel 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel vim-wheel 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-wheel 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-wheel 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-wheel 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-wheel 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel vim-wheel 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-wheel 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-wheel 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-wheel 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-wheel 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel vim-wheel 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-wheel 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-wheel 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-wheel 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-wheel 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel vim-wheel 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-wheel 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-wheel 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-wheel 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-wheel 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel vim-wheel 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-wheel 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-wheel 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-wheel 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-wheel 7"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel vim-wheel 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-wheel 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-wheel 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-wheel 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-wheel 8"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel vim-wheel 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-wheel 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-wheel 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-wheel 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-wheel 9"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel vim-wheel 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-wheel 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-wheel 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-wheel 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-wheel 10"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel vim-wheel 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-wheel 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-wheel 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-wheel 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-wheel 11"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel vim-wheel 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-wheel 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-wheel 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-wheel 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-wheel 12"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -12,
+   "hover": false,
+   "count": 120,
+   "interval": 0.008,
+   "title": "wheel vim-wheel 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-wheel 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-wheel 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-trackpad 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-trackpad 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began vim-trackpad 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed vim-trackpad 1"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended vim-trackpad 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-trackpad 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-trackpad 1"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-trackpad 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-trackpad 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began vim-trackpad 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed vim-trackpad 2"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended vim-trackpad 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-trackpad 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-trackpad 2"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-trackpad 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-trackpad 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began vim-trackpad 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed vim-trackpad 3"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended vim-trackpad 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-trackpad 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-trackpad 3"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-trackpad 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-trackpad 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began vim-trackpad 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed vim-trackpad 4"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended vim-trackpad 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-trackpad 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-trackpad 4"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-trackpad 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-trackpad 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began vim-trackpad 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed vim-trackpad 5"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended vim-trackpad 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-trackpad 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-trackpad 5"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-trackpad 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-trackpad 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began vim-trackpad 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed vim-trackpad 6"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended vim-trackpad 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-trackpad 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-trackpad 6"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-trackpad 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-trackpad 7"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began vim-trackpad 7"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed vim-trackpad 7"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended vim-trackpad 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-trackpad 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-trackpad 7"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-trackpad 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-trackpad 8"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began vim-trackpad 8"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed vim-trackpad 8"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended vim-trackpad 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-trackpad 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-trackpad 8"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-trackpad 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-trackpad 9"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began vim-trackpad 9"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed vim-trackpad 9"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended vim-trackpad 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-trackpad 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-trackpad 9"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-trackpad 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-trackpad 10"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began vim-trackpad 10"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed vim-trackpad 10"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended vim-trackpad 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-trackpad 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-trackpad 10"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-trackpad 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-trackpad 11"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began vim-trackpad 11"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed vim-trackpad 11"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended vim-trackpad 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-trackpad 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-trackpad 11"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF0 vim-trackpad 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "start"
+   },
+   "title": "frames start vim-trackpad 12"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "began",
+   "hover": false,
+   "title": "trackpad began vim-trackpad 12"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": -6,
+   "phase": "changed",
+   "hover": false,
+   "count": 118,
+   "interval": 0.008,
+   "title": "trackpad changed vim-trackpad 12"
+  },
+  {
+   "do": "mouse",
+   "action": "scroll",
+   "dy": 0,
+   "phase": "ended",
+   "hover": false,
+   "title": "trackpad ended vim-trackpad 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.frames",
+   "params": {
+    "action": "stop",
+    "raw": true
+   },
+   "title": "SCROLL vim-trackpad 12"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.surfaces",
+   "params": {},
+   "title": "SURF1 vim-trackpad 12"
+  },
+  {
+   "do": "key",
+   "key": "escape",
+   "modifiers": [],
+   "title": "editor normal mode"
+  },
+  {
+   "do": "type",
+   "text": ":qa!",
+   "enter": true,
+   "title": "quit the editor"
+  },
+  {
+   "do": "wait",
+   "seconds": 1,
+   "title": "the editor quit"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 64
+   },
+   "title": "action budget"
+  },
+  {
+   "do": "type",
+   "text": "clear; echo scrolljr-${nonce}",
+   "enter": true,
+   "title": "set-up check: the app still types (its result does not decide the numbers)"
+  },
+  {
+   "do": "expect",
+   "title": "the app still types into the base terminal",
+   "timeout": 15,
+   "all": [
+    {
+     "pane_frame_text": "scrolljr-${nonce}"
+    },
+    {
+     "daemon_contains": "scrolljr-${nonce}"
+    },
+    {
+     "app_text_contains": "scrolljr-${nonce}"
+    }
+   ]
+  }
+ ]
+}
