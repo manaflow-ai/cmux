@@ -13,7 +13,9 @@ import tempfile
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import runner_pool_reconcile as reconcile
+import workflow_jobs
 
 POLICY_ROOT = os.environ.get("RUNNER_POOL_POLICY_ROOT")
 WORKFLOW_ROOT = Path(os.environ.get("RUNNER_POOL_WORKFLOW_ROOT", Path(__file__).resolve().parents[1]))
@@ -21,49 +23,35 @@ NOW = dt.datetime(2026, 11, 1, 12, tzinfo=dt.timezone.utc)
 SMALL = "blacksmith-4vcpu-ubuntu-2404"
 LARGE = "blacksmith-16vcpu-ubuntu-2404"
 LINUX_EPHEMERAL = {"blacksmith-8vcpu-ubuntu-2404", LARGE, SMALL}
-# backend.yml's credentialed jobs are read from the workflow, not kept by hand: the hand list
-# (BACKEND_SECRET_JOBS) missed deploy-dashboard-staging when #36559 split it out of deploy-staging.
+# backend.yml's credentialed jobs are read from the workflow by tests/workflow_jobs.py's YAML loader, not
+# kept by hand: the hand list (BACKEND_SECRET_JOBS) missed deploy-dashboard-staging when #36559 split it out of deploy-staging.
 # The anchors only stop a parser regression from emptying the derived set and the route check with it.
 BACKEND_SECRET_ANCHORS = {"deploy-staging", "deploy-production", "preview"}
 BACKEND_SECRETLESS_JOBS = {"test", "migrations-push-guard"}
 
 
-def job_blocks(workflow_text):
-    """Each top-level job's name and its indented body, in file order."""
-    jobs_text = "\n" + workflow_text.split("\njobs:\n", 1)[1]
-    return dict(re.findall(r"\n  ([A-Za-z0-9_-]+):\n(.*?)(?=\n  [A-Za-z0-9_-]+:\n|\Z)", jobs_text, re.S))
-
-
-def is_credentialed(block):
-    """A job holds backend secrets if it reads secrets.* anywhere (steps, env, with), passes them all
-    on with `secrets: inherit`, or runs under a deployment environment (which carries its own secrets)."""
-    return ("secrets." in block
-            or re.search(r"^\s+secrets:\s*inherit\s*$", block, re.M) is not None
-            or re.search(r"^    environment:", block, re.M) is not None)
-
-
 def backend_secret_jobs(workflow_text):
-    return {job for job, block in job_blocks(workflow_text).items() if is_credentialed(block)}
+    return {name for name, job in workflow_jobs.jobs(workflow_text).items() if workflow_jobs.holds_secret(job)}
 
 
 def secret_route_failures(workflow_text):
     """Each credentialed job whose runs-on can leave the ephemeral Linux mirror, with the reason."""
     failures = {}
-    for job, block in job_blocks(workflow_text).items():
-        if not is_credentialed(block):
+    for name, job in workflow_jobs.jobs(workflow_text).items():
+        if not workflow_jobs.holds_secret(job):
             continue
-        route = next((line.strip() for line in block.splitlines() if line.strip().startswith("runs-on:")), "")
+        route = workflow_jobs.runs_on(job)
         match = re.search(r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER", route)
         if "fromJSON(vars.RUNNER_POOLS)" not in route:
-            failures[job] = "runs-on does not read RUNNER_POOLS"
+            failures[name] = "runs-on does not read RUNNER_POOLS"
         elif "github.event.pull_request.head.repo.full_name != github.repository" not in route:
-            failures[job] = "runs-on has no fork guard"
+            failures[name] = "runs-on has no fork guard"
         elif match is None:
-            failures[job] = "runs-on does not gate LINUX_RUNNER on the ephemeral mirror"
+            failures[name] = "runs-on does not gate LINUX_RUNNER on the ephemeral mirror"
         elif set(json.loads(match[1])) != LINUX_EPHEMERAL:
-            failures[job] = f"mirror is {sorted(json.loads(match[1]))}, not {sorted(LINUX_EPHEMERAL)}"
+            failures[name] = f"mirror is {sorted(json.loads(match[1]))}, not {sorted(LINUX_EPHEMERAL)}"
         elif not route.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}"):
-            failures[job] = "runs-on does not fall back to linux_8"
+            failures[name] = "runs-on does not fall back to linux_8"
     return failures
 
 
@@ -119,11 +107,16 @@ class SecretRouteBoundary(unittest.TestCase):
         self.assertIn(name, backend_secret_jobs(fixture))
         self.assertEqual(set(secret_route_failures(fixture)), {name})
 
+    def test_a_repeated_job_name_is_refused_not_hidden(self):
+        """PyYAML keeps the last of two equal keys; the loader refuses them, so a second job with a
+        taken name cannot hide the first from the guard."""
+        text = (WORKFLOW_ROOT / ".github/workflows/backend.yml").read_text()
+        with self.assertRaisesRegex(ValueError, "repeated key 'deploy-staging'"):
+            backend_secret_jobs(text.rstrip("\n") + "\n\n  deploy-staging:\n    runs-on: ubuntu-24.04\n")
+
     def test_backend_migration_push_guard_keeps_the_secretless_fleet_route(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
-        text = path.read_text()
-        block = job_blocks(text)["migrations-push-guard"]
-        route = next(line.strip() for line in block.splitlines() if line.strip().startswith("runs-on:"))
+        route = workflow_jobs.runs_on(workflow_jobs.jobs(path)["migrations-push-guard"])
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", route)
 
 
