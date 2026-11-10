@@ -198,7 +198,7 @@ excerpts, so a quote is an excerpt and "not found" means not in the excerpt]:
   (`ui/views/animation/bounds_animator.cc`, `AnimationProgressed`) [source, 2nd]. A panel does the same: the
   browser view's layout reads the panel's animation value
   (`chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc`, `side_panel->GetAnimationValue()`),
-  so the browser view lays out on the UI thread on each step.
+  so the browser view lays out on the UI thread on each step. Which runner steps the panel was not read.
 - **By default a page that changed size does not hold the browser's frame.** On macOS a new view size makes a
   new surface id with a deadline of 0 frames (`content/browser/renderer_host/browser_compositor_view_mac.mm`,
   `UpdateSurfaceFromNSView`: `cc::DeadlinePolicy::UseSpecifiedDeadline(0u)`). The reason is in
@@ -257,8 +257,8 @@ excerpts, so a quote is an excerpt and "not found" means not in the excerpt]:
 - **The bookmarks bar** uses "fast resize" while it animates: `NativeViewHost` "will move the native view and clip
   its visible region… will not resize the content… Make sure you do a real resize at the end"
   (`ui/views/controls/native/native_view_host.h`, `chrome/browser/ui/views/frame/browser_view.cc`) [source, 2nd].
-  That is so on every platform but macOS (`native_view_host.cc`: the clip is under `#if !BUILDFLAG(IS_MAC)`;
-  `native_view_host_aura.cc` implements it). On macOS fast resize is not implemented
+  That is so on every platform but macOS: Aura, the host on Windows, Linux and ChromeOS, implements it
+  (`native_view_host_aura.cc`, `if (host_->fast_resize())`). On macOS fast resize is not implemented
   (`ui/views/controls/native/native_view_host_mac.mm`: "TODO(crbug.com/41132564): Implement
   host_->fast_resize()", and its clip functions are `NOTIMPLEMENTED()`), so the page gets its full new bounds on
   each frame there too.
@@ -472,19 +472,25 @@ motion. It is the visible cost of principle 2 for a pane that shrinks, and it is
 The page rule, for the films of the page decision: the judge above does not choose between the two page arms,
 because it passes the strip of one arm and has no bound for the lag of the other. In both arms the page's
 picture is not at its pane's size in most frames of the motion, so a count of such frames does not decide
-either. The owner compares the arms on the heavy page, growing and shrinking, in this order, and the first test
-that differs decides:
+either. The owner compares the arms on the heavy page. Each arm has two films, one with the pane growing and one
+with the pane shrinking, each of at least 20 runs (4.1). The number of an arm for a measure is the p95 over the
+runs of each film, added over the two films, so one number per arm and per measure. The two films are added
+because they disagree by construction: a shrinking pane shows ground in the one-size arm, a growing pane shows
+ground in the per-frame arm.
 
-1. A pixel of the page outside its pane fails the arm (Lawrence's rule: a page never protrudes).
-2. Settle lag: refreshes after the landing in which the page's picture is not the final one. The arm that is
-   lower by more than 1 refresh stays. This is first because a change at rest is what principle 4 removes.
-3. Ground shown: the sum, over the frames of the motion, of the width of the pane's ground between the page's
-   picture and the pane's edge, in point-frames. The arm that is lower by more than 10% stays. A cut picture
-   does not count: the pane's edge hides it.
-4. No difference: today's path stays, since that is Chrome's on macOS.
+1. Gate: a pixel of the page outside its pane, in any run, fails that arm as filmed (Lawrence's rule: a page
+   never protrudes). The owner corrects the protrusion and films the arm again. An arm that protrudes is not
+   compared and cannot stay.
+2. Settle lag: refreshes after the landing in which the page's picture is not the final one. The arm whose
+   number is lower by more than 1 refresh stays.
+3. If test 2 does not decide, ground shown: the sum, over the frames of the motion, of the width of the pane's
+   ground between the page's picture and the pane's edge, in point-frames. The arm whose number is lower by more
+   than 10% of the higher number stays. A cut picture does not count: the pane's edge hides it.
+4. If test 3 does not decide: today's path stays, since that is Chrome's on macOS.
 
-The order and the two margins are this document's choice and are not measured. The owner also writes what a
-person sees in each film, and reports the main-thread step time of each arm.
+Settle lag is before ground shown because a change at rest is what principle 4 removes. The order, the p95, the
+addition of the two films and the two margins are this document's choice and are not measured. The owner also
+writes what a person sees in each film, and reports the main-thread step time of each arm.
 
 ## 5. Candidates for Motion Lab (no pick here)
 
