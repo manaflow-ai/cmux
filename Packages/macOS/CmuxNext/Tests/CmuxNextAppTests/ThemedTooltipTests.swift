@@ -1,6 +1,9 @@
 import AppKit
+import CmuxNextActions
+@testable import CmuxNextApp
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
+import CmuxNextSettings
 @testable import CmuxNextSidebar
 import Testing
 import CmuxNextTestSupport
@@ -65,6 +68,39 @@ import CmuxNextTestSupport
         #expect(presenter.shown == nil)
         #expect(!panel.isVisible || panel.isFadingOut)
         window.closeAfterTest()
+    }
+
+    /// The tooltip panel is made once per process and kept. A corner change after that (density,
+    /// `layout.paneCornerRadius`, `layout.cornerPadding`) reaches the next tooltip: its glass and its
+    /// legibility tint take the corner rule in effect when it shows, as its shadow already did.
+    @Test func aCornerChangeReachesTheNextTooltip() throws {
+        func load(radius: Double?) {
+            let layout: JSONValue = .object(radius.map { ["paneCornerRadius": .number($0)] } ?? [:])
+            let snapshot = CmuxConfigSnapshot.parse(.object(["layout": layout]), validDensities: SettingsApplier.validDensities,
+                                                    validMetrics: SettingsApplier.validMetrics)
+            _ = SettingsApplier(registry: ActionRegistry.standard()).apply(snapshot)
+        }
+        defer { load(radius: nil) }
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 300, height: 200), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
+        let button = NSButton(title: "", target: nil, action: nil)
+        button.frame = NSRect(x: 20, y: 20, width: 80, height: 24)
+        window.contentView?.addSubview(button)
+        button.themedToolTip = "New Tab"
+        let presenter = Self.instantPresenter()
+        defer { Self.putAway(presenter) }
+        let tracker = try #require(TooltipTracker.whole(of: button))
+        for radius in [16.0, 8.0] {
+            load(radius: radius)
+            presenter.dismiss()
+            presenter.enter(tracker)
+            #expect(presenter.shown?.text == "New Tab")
+            let panel = presenter.panel
+            #expect(panel.glass.cornerRadius == TooltipPanel.radius, "corner \(radius): the glass is \(panel.glass.cornerRadius) pt")
+            #expect(panel.legibility.layer?.cornerRadius == TooltipPanel.radius,
+                    "corner \(radius): the tint is \(panel.legibility.layer?.cornerRadius ?? -1) pt")
+        }
     }
 
     @Test func theDeepestTooltipUnderThePointerShowsAndRegionsWin() throws {
