@@ -1,18 +1,20 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextTabs
 
 /// Draws an emoji screen icon into a `TabImage` at the tab icon size. The
-/// cache keeps one image per emoji and backing scale.
+/// cache keeps one image per emoji and backing scale; its owner (a screen bar)
+/// keeps one instance.
 @MainActor
-enum ScreenEmojiIcon {
-    private static var cache: [String: TabImage] = [:]
+public final class ScreenEmojiIcon {
+    private var cache: [String: TabImage] = [:]
 
-    static func icon(_ emoji: String) -> TabIcon {
+    public init() {}
+
+    public func icon(_ emoji: String) -> TabIcon {
         let scale = NSScreen.main?.backingScaleFactor ?? 2
         let key = "\(emoji)@\(scale)"
         if let image = cache[key] { return .image(image) }
-        guard let image = render(emoji, scale: scale) else { return .none }
+        guard let image = Self.render(emoji, scale: scale) else { return .none }
         if cache.count > 64 { cache.removeAll() }
         cache[key] = image
         return .image(image)

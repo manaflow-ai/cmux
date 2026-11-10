@@ -62,6 +62,12 @@ const MAX_NODES = 4096;
 const MAX_DEPTH = 64;
 type Listener = () => void;
 
+/** A contribution's own scene limits (an interface's `nodes` and `maxNodes`, such as
+ * `cmux.newtab.widget/1`): a create past them is dropped and recorded as the scene's violation. */
+export type SceneLimits = { maxNodes?: number; types?: ReadonlySet<string> };
+/** Why a scene stopped drawing: more nodes than its interface allows, or a node type it does not. */
+export type SceneViolation = { kind: "nodes"; limit: number } | { kind: "type"; type: string };
+
 /** One mount's scene mirror. Snapshots are immutable; a prop update notifies only that node.
  * Children ops visit only the changed branches, and batches publish their final state once. */
 export class SceneStore {
@@ -75,6 +81,15 @@ export class SceneStore {
   private readonly rootListeners = new Set<Listener>();
   private status: SceneStatus = SCENE_LOADING;
   private readonly statusListeners = new Set<Listener>();
+  private readonly maxNodes: number;
+  private readonly types: ReadonlySet<string> | undefined;
+  /** The first limit a batch broke since the last reset; the scene keeps what it drew before. */
+  violation: SceneViolation | undefined;
+
+  constructor(limits: SceneLimits = {}) {
+    this.maxNodes = Math.min(MAX_NODES, limits.maxNodes ?? MAX_NODES);
+    this.types = limits.types;
+  }
 
   getNode(id: string): SceneNode | undefined {
     return this.nodes.get(id);
@@ -127,6 +142,7 @@ export class SceneStore {
       this.heights.clear();
       this.childHeights.clear();
       this.root = undefined;
+      this.violation = undefined;
     }
     for (const op of ops) this.applyOne(op, changed);
     for (const id of changed) {
@@ -147,7 +163,15 @@ export class SceneStore {
   private applyOne(op: SceneOp, changed: Set<string>): void {
     switch (op.op) {
       case "create": {
-        if (!op.id || this.nodes.has(op.id) || this.nodes.size >= MAX_NODES) return;
+        if (!op.id || this.nodes.has(op.id)) return;
+        if (this.types && !this.types.has(op.type)) {
+          this.violation ??= { kind: "type", type: op.type };
+          return;
+        }
+        if (this.nodes.size >= this.maxNodes) {
+          if (this.maxNodes < MAX_NODES) this.violation ??= { kind: "nodes", limit: this.maxNodes };
+          return;
+        }
         const props = Object.fromEntries(Object.entries(op.props ?? {}).filter(([, value]) => value !== null));
         this.write({ id: op.id, type: op.type, props, children: [] }, changed);
         this.heights.set(op.id, 1);

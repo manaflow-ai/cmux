@@ -12,7 +12,7 @@ extension AppServices {
     /// The favicon URL of the site at `origin` (`https://host[:port]`): the icon an open,
     /// not incognito, browser tab on that origin shows, else the origin's `/favicon.ico`.
     func siteFaviconAddress(origin: String) -> String {
-        let open = machines.local.store.workspaces.lazy.flatMap { OpenTabFavicons.favicons(of: $0, favicon: self.openTabFavicon) }
+        let open = machines.local.store.workspaces.lazy.flatMap { self.openTabFavicons(of: $0) }
         return open.first { $0.origin == origin }?.address ?? origin + "/favicon.ico"
     }
 
@@ -21,12 +21,12 @@ extension AppServices {
     /// draws that one without storing it). One scan of the tabs, for a one-shot read (the debug rows); the sidebar
     /// links follow ``OpenTabFavicons``.
     func openTabFaviconsByOrigin() -> [String: String] {
-        OpenTabFavicons.table(machines.local.store.workspaces.map { OpenTabFavicons.favicons(of: $0, favicon: openTabFavicon) })
+        OpenTabFavicons.table(machines.local.store.workspaces.map { openTabFavicons(of: $0) })
     }
 
-    /// `tab`'s favicon as an open tab gives it to the sidebar links (nil for a terminal, an incognito page, a tab without one).
-    func openTabFavicon(_ tab: TabModel) -> OpenTabFavicons.Favicon? {
-        OpenTabFavicons.favicon(tab, incognito: cache.browserTabs.isIncognitoTab, faviconKey: BookmarkURL.faviconKey(for:))
+    /// `workspace`'s open tab favicons as the sidebar links get them (none for an incognito window's), incognito read once from the workspace's own facts.
+    func openTabFavicons(of workspace: WorkspaceModel) -> [OpenTabFavicons.Favicon] {
+        OpenTabFavicons.favicons(of: workspace, incognito: windows.isIncognito(workspace: workspace), faviconKey: BookmarkURL.faviconKey(for:))
     }
 
     /// The favicon of the page at `url` for `profile`, nil while it loads or without one.

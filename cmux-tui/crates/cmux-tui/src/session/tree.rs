@@ -750,6 +750,7 @@ fn parse_layout(value: &Value) -> Option<Node> {
                 _ => return None,
             };
             Some(Node::Split {
+                divider_hidden: false,
                 id: value.get("split")?.as_u64()?,
                 dir,
                 ratio: value.get("ratio")?.as_f64()? as f32,

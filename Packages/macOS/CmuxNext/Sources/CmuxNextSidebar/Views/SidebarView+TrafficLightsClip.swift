@@ -15,5 +15,7 @@ extension SidebarViewComponents {
         for fade in [aboveFade, edgeFade] {
             fade.topClip = headerHasWindowControls ? max(0, Metrics.titlebarHeight - fade.frame.minY) : 0
         }
+        // A project header sticks under the lights, where the rows start to show.
+        list.stickyTopInset = edgeFade.topClip
     }
 }
