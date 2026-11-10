@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42811608748",
+  "recorded_at": "2026-11-10T12:05:22Z",
+  "reason": "cmux-tui 9906f3f5397d changes the image's cmux-tui (pinned 6656485330c2)",
+  "dry_run": false,
+  "cmux_tui": "9906f3f5397de4f6acd98cf394a9e95bef3afd0c",
+  "fixes": [
+    {
+      "sha": "9906f3f5397de4f6acd98cf394a9e95bef3afd0c",
+      "mergedAt": "2026-11-10T03:39:47-08:00",
+      "subject": "Cloud chats with Cursor: cursor-agent in the VM image and its sign-in card (#40359)"
+    },
+    {
+      "sha": "2cd60b37939e157c156ad483bae5e7f2efccb5fe",
+      "mergedAt": "2026-11-10T03:39:27-08:00",
+      "subject": "acpmux daemon: a panicked background loop restarts, and a panicked startup restarts the daemon (#40364)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T12:05:22Z",
+    "snapshot_id": "sh-a69bbd085e0746ceb174437fcdfae1a6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42811608748): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c2384451b1147b4c00dfee8819090371f78cc24b",
+    "image": "cloud-native-auto-9906f3f5-42811608748-1",
+    "revision": "ci-42811608748-1",
+    "at": "2026-11-10T12:05:22Z"
+  },
+  "rolled_back": false
+}
