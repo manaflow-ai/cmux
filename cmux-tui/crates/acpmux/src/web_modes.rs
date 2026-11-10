@@ -311,7 +311,7 @@ impl WebModeTable {
     }
 
     /// [`Self::session_asks`] by the asking row of `modes_of` (a Web gate's
-    /// [`web_mode_family`]): never when the session's family or `modes_of` is
+    /// [`trusted_mode_family`]): never when the session's family or `modes_of` is
     /// refused; else none reported, or listed in that row.
     pub(crate) fn session_asks_as(&self, m: &SessionMeta, modes_of: &str) -> bool {
         if self.refused.contains(&family_of(m)) || self.refused.contains(modes_of) {
@@ -378,30 +378,28 @@ pub(crate) fn mode_family(m: &SessionMeta) -> String {
     mode_family_by(m.agent_info.as_ref(), m.family.as_deref(), &m.harness)
 }
 
-/// The family whose asking row a Web gate reads for session `m`: `claude` when `now`, the config
-/// entry its harness name runs now, is kind `claude-stdio` (a launcher such as `claude-sr2`
-/// included), else [`family_of`]. Unlike [`mode_family`] it never believes the agent's own
-/// `agentInfo`, which any ACP agent writes: an agent that names itself `claude-stdio` keeps its own
-/// family's row. With no entry (a folder profile, an entry removed, a config being written) it is
-/// [`family_of`], never wider (fail closed).
-pub(crate) fn web_mode_family(
-    m: &SessionMeta,
-    now: Option<&crate::config::HarnessProfile>,
+/// The one rule of every gate that lets a mode through without the person (the Web gates, and the
+/// local person gates for a client that is not the person): `claude` only when `entry`, the config
+/// entry that runs, is kind `claude-stdio` (a launcher such as `claude-sr2` included), else
+/// `family`. It never believes the agent's own `agentInfo`, which any ACP agent writes: an agent
+/// that names itself `claude-stdio` keeps its own family's row. With no config entry (a folder
+/// profile, an entry removed, a config being written) it is `family`, never wider (fail closed).
+/// [`mode_family`], which believes `agentInfo`, only narrows (`policy_mode.rs`).
+pub(crate) fn trusted_mode_family(
+    entry: Option<&crate::config::HarnessProfile>,
+    family: String,
 ) -> String {
-    if now.is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio) {
+    if entry.is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio) {
         return "claude".to_owned();
     }
-    family_of(m)
+    family
 }
 
 /// [`mode_family`] of a profile before its session exists: `claude` for a profile of acpmux's own
 /// Claude Code backend (kind `claude-stdio`, a launcher such as `claude-sr2` included), else its
 /// family (`config::derive_family`).
 pub(crate) fn profile_mode_family(agent: &str, profile: &crate::config::HarnessProfile) -> String {
-    if profile.kind == crate::config::HarnessKind::ClaudeStdio {
-        return "claude".to_owned();
-    }
-    crate::config::derive_family(agent, profile)
+    trusted_mode_family(Some(profile), crate::config::derive_family(agent, profile))
 }
 
 /// [`mode_family`] from a session's detail (`_acpmux/info`: `agentInfo`, `family`, `harness`),

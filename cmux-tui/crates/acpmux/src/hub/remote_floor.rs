@@ -128,7 +128,7 @@ impl Hub {
             return self.cloud_mobile_mode_asks(meta);
         }
         let table = self.web_modes();
-        let modes_of = self.web_mode_family(meta);
+        let modes_of = self.trusted_mode_family(meta);
         if !table.session_asks_as(meta, &modes_of) {
             return false;
         }

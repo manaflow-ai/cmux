@@ -366,13 +366,17 @@ impl Hub {
         bridge: bool,
         start: &StartMode,
     ) -> Result<StartGrant, RpcError> {
-        // The family whose modes the harness offers (`web_modes::mode_family`): a launcher
-        // profile of Claude Code (`claude-sr2`) asks in Claude's `default` and `plan` too.
+        // The family whose modes the configured harness offers (`Hub::trusted_mode_family`): a
+        // launcher profile of Claude Code (`claude-sr2`) asks in Claude's `default` and `plan`
+        // too; an agent that only names itself Claude Code does not.
         let modes_of = match target {
-            LevelTarget::Request { agent, profile, .. } => {
-                crate::web_modes::profile_mode_family(agent, profile)
+            LevelTarget::Request { agent, profile, folder } => {
+                crate::web_modes::trusted_mode_family(
+                    (!folder).then_some(profile),
+                    crate::config::derive_family(agent, profile),
+                )
             }
-            LevelTarget::Session(meta) => crate::web_modes::mode_family(meta),
+            LevelTarget::Session(meta) => self.trusted_mode_family(meta),
         };
         if self.web_modes().config_value_asks(&modes_of, None, Some(start.mode.as_str()))
             || (bridge
@@ -497,7 +501,7 @@ impl Hub {
         let caller = caller.and_then(|id| self.resolve(id).ok());
         caller.is_some_and(|s| {
             let m = s.meta();
-            let family = crate::web_modes::mode_family(&m);
+            let family = self.trusted_mode_family(&m);
             self.web_modes().config_value_asks(
                 &family,
                 None,

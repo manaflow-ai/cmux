@@ -38,17 +38,19 @@ impl Hub {
         crate::web_modes::any_mode_for_web(m, cfg.harnesses.get(&m.harness))
     }
 
-    /// `web_modes::web_mode_family` for a session, against the config entry its
-    /// harness name runs now. A config being written counts as no entry.
-    pub(crate) fn web_mode_family(&self, m: &SessionMeta) -> String {
-        let Ok(cfg) = self.config.try_read() else { return crate::web_modes::family_of(m) };
-        crate::web_modes::web_mode_family(m, cfg.profile(&m.harness))
+    /// `web_modes::trusted_mode_family` for a session: against the config entry
+    /// its harness name runs now, else the session's own family. A config being
+    /// written counts as no entry.
+    pub(crate) fn trusted_mode_family(&self, m: &SessionMeta) -> String {
+        let family = crate::web_modes::family_of(m);
+        let Ok(cfg) = self.config.try_read() else { return family };
+        crate::web_modes::trusted_mode_family(cfg.profile(&m.harness), family)
     }
 
     /// Whether a session's mode asks, for a Web gate: the asking row of
-    /// [`Self::web_mode_family`] (`WebModeTable::session_asks_as`).
+    /// [`Self::trusted_mode_family`] (`WebModeTable::session_asks_as`).
     pub(crate) fn web_session_asks(&self, m: &SessionMeta) -> bool {
-        self.web_modes().session_asks_as(m, &self.web_mode_family(m))
+        self.web_modes().session_asks_as(m, &self.trusted_mode_family(m))
     }
 
     pub(crate) fn cloud_mobile_mode_asks(&self, meta: &SessionMeta) -> bool {
@@ -56,7 +58,7 @@ impl Hub {
         if self.any_mode_for_web(meta) {
             return crate::web_modes::family_of(meta) == "codex" && mode == "ask";
         }
-        if self.web_mode_family(meta) != "claude" {
+        if self.trusted_mode_family(meta) != "claude" {
             return false;
         }
         self.web_session_asks(meta) && matches!(mode.as_str(), "default" | "plan")
@@ -113,7 +115,7 @@ impl Hub {
                 json!(
                     !table.refused().contains(&family)
                         && table.config_value_asks(
-                            &self.web_mode_family(&m),
+                            &self.trusted_mode_family(&m),
                             Some(id),
                             Some(value)
                         )
@@ -161,7 +163,7 @@ impl Hub {
         let left = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let asked = crate::web_modes::mode_of(&m).is_some()
-                && table.session_asks_as(&m, &self.web_mode_family(&m));
+                && table.session_asks_as(&m, &self.trusted_mode_family(&m));
             for w in writes {
                 match w {
                     ModeWrite::Modes(v) => m.modes = Some(v),
