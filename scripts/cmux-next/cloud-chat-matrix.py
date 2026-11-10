@@ -410,14 +410,33 @@ class Matrix:
                            "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"]
             launch += [str(Path(args.app).resolve()), "--args", "--cloud-backend", args.cloud_backend]
             self.launcher = subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        deadline = time.monotonic() + 300
-        while time.monotonic() < deadline:
-            code, out, _ = self.cmux("cloud", "list-machines", "--json", timeout=30)
-            value = self.parsed(out) if code == 0 else {}
-            if (value.get("account") or {}).get("signed_in") and value.get("loaded") is not False:
-                return ""
-            time.sleep(3)
-        return "the app is not signed in to cmux (cloud list-machines: account.signed_in is not true)"
+        # As cloud-chat-proof.py waits: the launched app answers `app identify`, then `auth.status` says it
+        # is signed in on the selected backend (the first CI run read `cloud list-machines` too early and
+        # gave up at 300 s, run 42808502162). Then the machine list loads.
+        steps = []
+        if args.app:
+            app_path = str(Path(args.app).resolve())
+            steps.append(("app identify", ("app", "identify", "--json"), 240,
+                          lambda v: bool(v.get("pid")) and v.get("app_bundle_path") == app_path))
+            origin = (args.expected_api_origin or "").rstrip("/")
+            steps.append(("auth.status", ("app", "call", "auth.status", "--json"), 300,
+                          lambda v: v.get("signed_in") is True and v.get("cloud_environment") == args.cloud_backend
+                          and str(v.get("backend", "")).rstrip("/") == origin))
+        steps.append(("cloud list-machines", ("cloud", "list-machines", "--json"), 300,
+                      lambda v: bool((v.get("account") or {}).get("signed_in")) and v.get("loaded") is not False))
+        for name, words, limit, ready in steps:
+            deadline, last = time.monotonic() + limit, ""
+            while True:
+                code, out, err = self.cmux(*words, timeout=30)
+                value = self.parsed(out) if code == 0 else {}
+                if code == 0 and ready(value):
+                    break
+                last = clean(self.error(out, err).get("message") or err or json.dumps(
+                    {k: value.get(k) for k in ("signed_in", "backend", "cloud_environment", "loaded") if k in value}), 300)
+                if time.monotonic() >= deadline:
+                    return f"the app is not ready: {name} after {limit} s ({last})"
+                time.sleep(3)
+        return ""
 
     def quit(self) -> None:
         if self.launcher is not None:
