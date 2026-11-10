@@ -11,62 +11,25 @@ extension CloudOwnerAPIClient {
     /// is. The answer's machine token is the machine's credential: it is never read here, kept or
     /// logged (the machine reports as its own VM install).
     public func handoffOpen(session: String, machine: String) async throws -> CloudHandoffTurn {
-        guard Self.isSessionID(session) else { throw CloudAPIError.transport("not a session id") }
-        guard machine.range(of: #"^[A-Za-z0-9_-]{1,64}$"#, options: .regularExpression) != nil else {
-            throw CloudAPIError.transport("not a Cloud machine id")
-        }
-        return try await handoffPost("/v1/handoffs", ["sessionId": session, "machine": machine])
+        try await handoffPost("owner.handoff_open", ["session": session, "machine": machine])
     }
 
     /// `POST /v1/handoffs/:id/turns {after}`: begins turn `after + 1` (a repeat answers the same turn).
     public func handoffBeginTurn(_ id: String, after: Int) async throws -> CloudHandoffTurn {
-        guard Self.isHandoffID(id) else { throw CloudAPIError.transport("not a hand-off id") }
-        return try await handoffPost("/v1/handoffs/\(id)/turns", ["after": max(0, after)])
+        try await handoffPost("owner.handoff_begin_turn", ["id": id, "after": max(0, after)])
     }
-
-    /// The store's session ids (`SESSION` in routes.ts).
-    public static func isSessionID(_ id: String) -> Bool { id.range(of: #"^[A-Za-z0-9_.:-]{1,128}$"#, options: .regularExpression) != nil }
 
     /// A POST to the hand-off routes: the `{handoff}` of a 2xx answer, or of a refusal that carries
     /// it (`handoff.conflict`, `handoff.turn_conflict`, `handoff.turn_running`, `handoff.closed`), as
-    /// ``CloudHandoffTurn/refusal``. Any other answer throws.
-    func handoffPost(_ path: String, _ body: [String: Any]) async throws -> CloudHandoffTurn {
-        let access: String
-        do { access = try await accessToken() } catch { throw CloudAPIError.notSignedIn }
-        let base = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard let url = URL(string: base + path) else { throw CloudAPIError.transport("bad path \(path)") }
-        let timeout = Duration.seconds(20)
-        var request = URLRequest(url: url, timeoutInterval: TimeInterval(timeout.components.seconds))
-        request.httpMethod = "POST"
-        // RULE (cx-kvmz, hq-84), as in post(_:_:body:timeout:as:): Authorization, Content-Type and
-        // x-cmux-team only; the path's one varying part is a checked id.
-        request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let data: Data
-        let response: URLResponse
-        do {
-            let session = session, prepared = request
-            (data, response) = try await withDeadline(timeout, label: "POST \(path)") { try await session.data(for: prepared) }
-        } catch is DeadlineExceeded {
-            throw CloudAPIError.timedOut(path)
-        } catch let error as URLError where error.code == .timedOut {
-            throw CloudAPIError.timedOut(path)
-        } catch {
-            throw CloudAPIError.transport(error.localizedDescription)
+    /// ``CloudHandoffTurn/refusal``. Any other answer throws. The daemon reads only the turn's
+    /// fields: the machine token the answer carries never reaches the app.
+    func handoffPost(_ name: String, _ args: [String: any Sendable]) async throws -> CloudHandoffTurn {
+        let data = try await call(name, args, wait: .seconds(20))
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], var turn = CloudHandoffTurn(json: object) else {
+            throw CloudAPIError.decoding("\(name): not a hand-off")
         }
-        guard let http = response as? HTTPURLResponse else { throw CloudAPIError.transport("no HTTP response") }
-        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        let error = object?["error"] as? [String: Any]
-        let code = error?["code"] as? String
-        guard let handoff = (object?["handoff"] as? [String: Any]).flatMap(CloudHandoffTurn.init(json:)),
-              (200..<300).contains(http.statusCode) || CloudHandoffTurn.refusals.contains(code ?? "") else {
-            throw CloudAPIError.http(status: http.statusCode, code: code, message: error?["message"] as? String)
-        }
-        var answer = handoff
-        answer.refusal = (200..<300).contains(http.statusCode) ? nil : code
-        return answer
+        turn.refusal = object["refusal"] as? String
+        return turn
     }
 }
 
@@ -83,9 +46,6 @@ public nonisolated struct CloudHandoffTurn: Equatable, Sendable {
     public var status: String
     /// The store's refusal that carried this view (`handoff.turn_running`, …); nil for a 2xx answer.
     public var refusal: String?
-
-    /// The refusals that answer the hand-off as it is.
-    static let refusals: Set<String> = ["handoff.conflict", "handoff.turn_conflict", "handoff.turn_running", "handoff.closed"]
 
     public init(id: String, sessionId: String, machine: String, turn: Int, state: String, status: String, refusal: String? = nil) {
         (self.id, self.sessionId, self.machine, self.turn, self.state, self.status, self.refusal) = (id, sessionId, machine, turn, state, status, refusal)

@@ -62,7 +62,8 @@ func cloudTryAnotherApproach(chat key: String, session expected: String, through
         forkMachine: { plan in
             let owner = CloudOwnerAPIClient(
                 baseURL: FeedService.apiBaseURL(auth: services.cloud.auth), accessToken: { try await services.cloud.auth.tokens().access },
-                teamID: { [identity = services.cloud.installIdentity] in (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })
+                teamID: { [identity = services.cloud.installIdentity] in (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
+                daemon: services.cloud.daemon)
             let children = try await owner.forkRun(workspace: plan.workspace, clientKey: plan.clientKey,
                                                    sourceMachine: plan.sourceMachine, session: plan.session,
                                                    harnesses: [plan.harness])

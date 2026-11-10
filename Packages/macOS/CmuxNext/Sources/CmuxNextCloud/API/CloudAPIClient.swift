@@ -1,13 +1,14 @@
 public import Foundation
 import CmuxNextCompat
 
-/// The Cloud REST client. A Worker machines client (CloudAPIClient+MachineRoutes.swift) sends a
-/// machine's exec, file, SCP and preview calls to cmux-platform's `/v1/cloud/machines`, the only
-/// machine path. The sign-in client (``init(configuration:tokens:teamID:session:appVersion:)``)
-/// keeps only the sandboxed-Run calls (`Authorization: Bearer <access>`, `X-Stack-Refresh-Token`,
-/// `X-Cmux-Team-Id`); a machine call on it answers 501 at once and sends nothing. Every call has a
-/// deadline; a miss is `CloudAPIError.timedOut`, never a hang. Tokens come from the caller per
-/// request and are never stored here.
+/// NEXT's Cloud API client: each call is one of the cmux daemon's `cloud.*` operations
+/// (``CloudDaemon``; crate `cmux-cloud-api`), which sends the request, holds its deadline, retries
+/// a lost Run create and reads every refusal. A Worker machines client
+/// (CloudAPIClient+MachineRoutes.swift) goes as `worker` to cmux-platform: a machine's exec, file,
+/// SCP and preview calls, the network and the publications. The sign-in client
+/// (``init(configuration:tokens:teamID:daemon:appVersion:)``) keeps only the sandboxed-Run calls, as
+/// `stack` (the Stack access and refresh tokens and the team); a machine call on it answers 501 at
+/// once and sends nothing. Tokens come from the caller per call and are never stored here.
 public struct CloudAPIClient: Sendable {
     public typealias Tokens = @Sendable () async throws -> (access: String, refresh: String)
     public typealias TeamID = @Sendable () async -> String?
@@ -16,14 +17,11 @@ public struct CloudAPIClient: Sendable {
     let backendIsLocalOnly: Bool
     private(set) var tokens: Tokens
     private(set) var teamID: TeamID
-    let session: URLSession
+    let daemon: CloudDaemon
     let appVersion: String
-    /// cmux-platform's machine routes (CloudAPIClient+MachineRoutes.swift, which says what each sends).
-    let machinePath = "/v1/cloud/machines"
-    /// The sign-in client: Stack refresh token and `X-Cmux-Team-Id`, sandboxed Runs only.
+    /// The sign-in client: Stack refresh token and its team, sandboxed Runs only.
     let sendsStackSession: Bool
-    /// A Worker machines client's exec and file routes through cmux-tui (direct to the provider
-    /// with a client session); nil: straight to the cmux API (CloudAPIClient+MachineRoutes.swift).
+    /// The bundled cmux the sealed secret delivery runs (CloudAPIClient+SealedDelivery.swift).
     var machineIO: CloudMachineIO?
     /// A Worker machines client's install token, for the routes that take an install, not a session (``listNetworks()``).
     var installToken: (@Sendable () async throws -> String)?
@@ -40,10 +38,10 @@ public struct CloudAPIClient: Sendable {
         return URLSession(configuration: configuration)
     }()
 
-    /// The team requests go to now (`X-Cmux-Team-Id`).
+    /// The team requests go to now.
     public func currentTeam() async -> String? { await teamID() }
 
-    /// This client with its team fixed to `team`: every request of a create and its retries
+    /// This client with its team fixed to `team`: every call of a create and its retries
     /// goes to the same team whatever the app switches to meanwhile.
     /// A Worker machines client keeps its cmux team: `team` is the app's (Stack) team id.
     public func pinningTeam(_ team: String?) -> CloudAPIClient {
@@ -53,56 +51,46 @@ public struct CloudAPIClient: Sendable {
         return copy
     }
 
-    public init(configuration: CloudConfiguration, tokens: @escaping Tokens, teamID: @escaping TeamID,
-                session: URLSession = CloudAPIClient.noStoreTransport, appVersion: String = "cmux-next") {
+    public init(configuration: CloudConfiguration, tokens: @escaping Tokens, teamID: @escaping TeamID, daemon: CloudDaemon,
+                appVersion: String = "cmux-next") {
         baseURL = configuration.apiBaseURL
         if case .localOnly = configuration.backend { backendIsLocalOnly = true } else { backendIsLocalOnly = false }
         self.tokens = tokens
         self.teamID = teamID
-        self.session = session
+        self.daemon = daemon
         self.appVersion = appVersion
         sendsStackSession = true
     }
 
     /// A Worker machines client (CloudAPIClient+MachineRoutes.swift).
-    init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, session: URLSession, appVersion: String) {
+    init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, daemon: CloudDaemon, appVersion: String) {
         self.baseURL = baseURL
         backendIsLocalOnly = false
         self.tokens = tokens
         self.teamID = teamID
-        self.session = session
+        self.daemon = daemon
         self.appVersion = appVersion
         sendsStackSession = false
     }
 
     // MARK: Files and SCP
 
-    /// Mints a short-lived private SCP route: cmux-platform's `POST /v1/cloud/machines/{id}/ssh-endpoint` on a
-    /// Worker machines client (``workerMachines(baseURL:accessToken:teamID:session:appVersion:machineIO:)``). The
-    /// public key is the only key material sent; the caller owns the secret.
+    /// Mints a short-lived private SCP route (`cloud.vm.scp_endpoint`: cmux-platform's
+    /// `POST /v1/cloud/machines/{id}/ssh-endpoint`, answered only when the route is safe) on a Worker
+    /// machines client. The public key is the only key material sent; the caller owns the secret.
     public func prepareSCP(_ id: String, publicKey: String) async throws -> CloudSCPEndpoint {
-        // cmux-cloud-machine reads only a safe route (port 22, user cmux, an ed25519 host key, not
-        // expired); any other answer throws ``CloudAPIError/decoding(_:)``.
         try requireWorker()
-        return try await send("POST", "\(machinePath)/\(id)/ssh-endpoint", body: ["publicKey": publicKey],
-                       timeout: .seconds(100), as: CloudSCPEndpoint.self)
+        return try await call("vm.scp_endpoint", ["id": id, "publicKey": publicKey], wait: .seconds(100), as: CloudSCPEndpoint.self)
     }
 
-    /// The team's Cloud network: cmux-platform's `GET /v1/host/network/target` on a Worker machines
-    /// client, sent as this Mac's install (`installToken`; the route refuses a Stack session), never
-    /// classic Cloud. A team has one network, named by its team id (what tunnel attach takes), with
-    /// its provider mesh as `meshId`; a team with no mesh yet (404) has none.
+    /// The team's Cloud network (`cloud.vm.networks`: cmux-platform's `GET /v1/host/network/target`), sent
+    /// as this Mac's install (the route refuses a Stack session). A team has one network, named by its
+    /// team id, with its provider mesh as `meshId`; a team with no mesh yet has none.
     public func listNetworks() async throws -> [CloudNetwork] {
         guard !sendsStackSession, let installToken else { throw CloudAPIError.transport("the Cloud network list is a cmux API Worker route") }
-        struct Target: Decodable { var team: String; var mesh: String; var ipv4_cidr: String }
         var install = self
         install.tokens = { (try await installToken(), "") }
-        do {
-            let target = try await install.send("GET", "/v1/host/network/target", as: Target.self)
-            return [CloudNetwork(id: target.team, meshId: target.mesh, cidr: target.ipv4_cidr, cidrV6: nil, scope: "team")]
-        } catch CloudAPIError.http(status: 404, code: _, message: _, action: _, traceId: _) {
-            return []
-        }
+        return try await install.call("vm.networks", wait: .seconds(20), as: [CloudNetwork].self)
     }
 
     // MARK: Domains and publications
@@ -110,110 +98,87 @@ public struct CloudAPIClient: Sendable {
     // cmux-platform's previews (docs/cloud-previews.md) on a preview client (``previewClient(baseURL:)``): a
     // publication is one machine port's preview, `vm_…:port`. The sign-in client answers 501 and sends nothing.
 
-    /// `GET /v1/cloud/domains`: the domains Cloud publications are served on (the platform's managed one).
+    /// The domains Cloud publications are served on (the platform's managed one).
     public func listDomains() async throws -> [CloudDomain] {
-        struct List: Decodable { var domains: [CloudDomain] }
-        return try await sendPreviews("GET", "/v1/cloud/domains", as: List.self).domains
+        try requireWorker(code: "machine.previews_unsupported")
+        return try await call("vm.domains", wait: .seconds(30), as: [CloudDomain].self)
     }
 
-    /// `GET /v1/cloud/previews`: the signed-in person's publications in the current team.
+    /// The signed-in person's publications in the current team.
     public func listPublications() async throws -> [CloudPublication] {
-        struct List: Decodable { var previews: [CloudPublication] }
-        return try await sendPreviews("GET", "/v1/cloud/previews", as: List.self).previews
+        try requireWorker(code: "machine.previews_unsupported")
+        return try await call("vm.publications", wait: .seconds(30), as: [CloudPublication].self)
     }
 
-    /// `POST /v1/cloud/machines/{id}/previews/{port}/api-keys`: publishes `port` of the machine behind
-    /// cmux sign-in (a refresh, when it has no preview yet) and mints an API key for it in one call.
-    /// Calling it again for the same port reuses the publication and mints another key.
+    /// Publishes `port` of the machine behind cmux sign-in (a refresh, when it has no preview yet) and
+    /// mints an API key for it in one call. Calling it again for the same port reuses the publication
+    /// and mints another key.
     public func provisionAPI(machineID: String, port: Int, keyName: String? = nil) async throws -> CloudProvisionedAPI {
-        let body: [String: any Sendable] = keyName.map { ["name": $0] } ?? [:]
-        return try await sendPreviews("POST", "\(machinePath)/\(queryComponent(machineID))/previews/\(port)/api-keys", body: body,
-                                      timeout: .seconds(120), as: CloudProvisionedAPI.self)
+        try requireWorker(code: "machine.previews_unsupported")
+        var args: [String: any Sendable] = ["machine": machineID, "port": port]
+        if let keyName { args["keyName"] = keyName }
+        return try await call("vm.provision_api", args, wait: .seconds(120), as: CloudProvisionedAPI.self)
     }
 
     /// The live API keys of a publication, named by its id or hostname.
     public func listPublicationAPIKeys(_ publication: String) async throws -> [CloudPublicationAPIKey] {
-        struct List: Decodable { var apiKeys: [CloudPublicationAPIKey] }
-        return try await sendPreviews("GET", "\(try await publicationPath(publication))/api-keys", as: List.self).apiKeys
+        try requireWorker(code: "machine.previews_unsupported")
+        return try await call("vm.publication_api_keys", ["publication": publication], wait: .seconds(60), as: [CloudPublicationAPIKey].self)
     }
 
     /// Revokes one key; its next request is refused at the edge.
     public func revokePublicationAPIKey(_ publication: String, keyID: String) async throws -> CloudPublicationAPIKey {
-        struct Revoked: Decodable { var apiKey: CloudPublicationAPIKey }
-        let path = "\(try await publicationPath(publication))/api-keys/\(queryComponent(keyID))"
-        return try await sendPreviews("DELETE", path, as: Revoked.self).apiKey
-    }
-
-    /// `/v1/cloud/machines/{id}/previews/{port}` of the publication whose id or hostname is `publication`.
-    private func publicationPath(_ publication: String) async throws -> String {
-        guard let found = try await listPublications().first(where: { $0.id == publication || $0.hostname == publication }),
-              let machine = found.vmId, let port = found.port else {
-            throw CloudAPIError.http(status: 404, code: "cloud.preview.not_found", message: "no such publication: \(publication)")
-        }
-        return "\(machinePath)/\(queryComponent(machine))/previews/\(port)"
-    }
-
-    private func sendPreviews<T: Decodable>(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
-                                            timeout: Duration = .seconds(20), as type: T.Type) async throws -> T {
         try requireWorker(code: "machine.previews_unsupported")
-        return try await send(method, path, body: body, timeout: timeout, as: type)
+        return try await call("vm.revoke_publication_api_key", ["publication": publication, "keyId": keyID], wait: .seconds(60),
+                              as: CloudPublicationAPIKey.self)
     }
 
     /// Machine, file, SCP and preview calls are cmux-platform's: the sign-in client refuses them with a
-    /// 501 before any request, never a wait on a route NEXT does not serve.
+    /// 501 before any call, never a wait on a route NEXT does not serve.
     func requireWorker(code: String = "machine.unsupported") throws {
         guard !sendsStackSession else { throw CloudAPIError.http(status: 501, code: code, message: nil) }
     }
 
-    func query(_ value: String) -> String {
-        // Keep guest path separators readable, but never let a path inject a
-        // second query item or fragment into the request URL.
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~/"))
-        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
-    }
-
-    private func queryComponent(_ value: String) -> String {
-        value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(.init(charactersIn: "/?&=#"))) ?? value
-    }
-
     // MARK: Runs
 
-    /// `POST /api/runs` for a sandboxed Run (hq#3367): one task on a throwaway VM from a
-    /// pinned image. The key makes a retry after a lost response return the same Run.
+    /// A sandboxed Run (hq#3367, `cloud.runs.create`): one task on a throwaway VM from a pinned
+    /// image. The key makes a retry after a lost answer return the same Run.
     /// Answers the server's JSON as is; the Run API's views already hold no secrets.
     public func createSandboxRun(task: String, agent: String? = nil, image: String? = nil, timeoutMs: Int? = nil,
                                  idempotencyKey: String = UUID().uuidString) async throws -> Data {
-        var body: [String: any Sendable] = ["environment": "sandboxed", "task": task]
-        if let agent, !agent.isEmpty { body["agent"] = agent }
-        if let image, !image.isEmpty { body["image"] = image }
-        if let timeoutMs { body["timeoutMs"] = timeoutMs }
-        return try await sendData("POST", "/api/runs", body: body, idempotencyKey: idempotencyKey)
+        var args: [String: any Sendable] = ["task": task, "idempotencyKey": idempotencyKey]
+        if let agent, !agent.isEmpty { args["agent"] = agent }
+        if let image, !image.isEmpty { args["image"] = image }
+        if let timeoutMs { args["timeoutMs"] = timeoutMs }
+        return try await call("runs.create", args, wait: .seconds(20))
     }
 
-    /// `GET /api/runs/:id/wait`: the snapshot once the Run is terminal or after
-    /// `timeoutMs` (the server caps it at 10 s), with its receipt when it has one.
+    /// The Run's snapshot once it is terminal or after `timeoutMs` (the server caps it at 10 s),
+    /// with its receipt when it has one (`cloud.runs.wait`).
     public func waitRun(_ id: String, timeoutMs: Int) async throws -> Data {
         let wait = max(0, min(timeoutMs, 10_000))
-        return try await sendData("GET", "/api/runs/\(queryComponent(id))/wait?timeoutMs=\(wait)", timeout: .milliseconds(wait + 10_000))
+        return try await call("runs.wait", ["id": id, "timeoutMs": wait], wait: .milliseconds(wait + 10_000))
     }
 
-    /// One sandboxed Run to its end: create it, then long-poll ``waitRun(_:timeoutMs:)`` (10 s a
-    /// call) until the snapshot carries its receipt. Everything (sign-in tokens included) runs under
-    /// one deadline, the task's timeout plus `teardown` (boot, the last output and the VM destroy)
-    /// plus a minute for the calls themselves, so the caller always gets an answer. The poll stops
-    /// at the receipt, at the first error, or at that deadline (`timedOut`); the server destroys
-    /// the VM either way. `idempotencyKey` names this one send: a create whose answer was lost is
-    /// sent once more under it, with the first's own credentials (the server scopes the key per
-    /// account, so a switch of account between the two can't make a second Run; pin the team with
-    /// ``pinningTeam(_:)``), which returns the same Run, never a second paid one. Answers the final
-    /// snapshot (`{run, attempts, artifacts, receipt}`) as JSON. `follow` (``SandboxRunFollower``) waits in place of the poll here.
+    /// One sandboxed Run to its end: `cloud.runs.start` (the create, sent once more under
+    /// `idempotencyKey` with the same credentials when its answer was lost, so never a second paid
+    /// Run; pin the team with ``pinningTeam(_:)``), then `follow` (``SandboxRunFollower``) until the
+    /// Run's receipt. Everything runs under one deadline, the task's timeout plus `teardown` (boot,
+    /// the last output and the VM destroy) plus `callsMargin` for the calls themselves, so the
+    /// caller always gets an answer (`timedOut` past it). Answers the final snapshot
+    /// (`{run, attempts, artifacts, receipt}`).
     public func runSandbox(task: String, agent: String? = nil, timeoutMs: Int = 600_000, idempotencyKey: String = UUID().uuidString,
                            teardown: Duration = .seconds(180), callsMargin: Duration = .seconds(60),
-                           now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }, follow: (@Sendable (_ id: String) async throws -> Data)? = nil) async throws -> [String: Any] {
+                           follow: @escaping @Sendable (_ id: String) async throws -> Data) async throws -> [String: Any] {
         let bound = Duration.milliseconds(timeoutMs) + teardown + callsMargin
         let data = try await SandboxDeadline.race(bound) {
-            try await self.sandboxSnapshot(task: task, agent: agent, timeoutMs: timeoutMs, key: idempotencyKey,
-                                           deadline: now() + .milliseconds(timeoutMs) + teardown, now: now, follow: follow)
+            var args: [String: any Sendable] = ["task": task, "idempotencyKey": idempotencyKey, "timeoutMs": timeoutMs]
+            if let agent, !agent.isEmpty { args["agent"] = agent }
+            let created = try await self.call("runs.start", args, wait: .seconds(50))
+            guard let id = ((try? JSONSerialization.jsonObject(with: created)) as? [String: Any])?["id"] as? String, !id.isEmpty else {
+                throw CloudAPIError.decoding("/api/runs: no run id")
+            }
+            return try await follow(id)
         }
         guard let snapshot = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CloudAPIError.decoding("/api/runs: no snapshot")
@@ -221,116 +186,30 @@ public struct CloudAPIClient: Sendable {
         return snapshot
     }
 
-    private func sandboxSnapshot(task: String, agent: String?, timeoutMs: Int, key: String, deadline: ContinuousClock.Instant,
-                                 now: @Sendable () -> ContinuousClock.Instant, follow: (@Sendable (String) async throws -> Data)?) async throws -> Data {
-        // The create and its retry go with one account's credentials, read once.
+    /// Cancels a Run (`cloud.runs.cancel`); a sandbox's VM is destroyed before it answers.
+    public func cancelRun(_ id: String) async throws -> Data {
+        try await call("runs.cancel", ["id": id], wait: .seconds(60))
+    }
+
+    // MARK: The daemon call
+
+    /// Who this client's calls go as: the Stack session (`stack`) or the person's session at cmux-platform (`worker`).
+    func route() async throws -> CloudDaemon.Route {
         let credentials: (access: String, refresh: String)
         do { credentials = try await tokens() } catch { throw CloudAPIError.notSignedIn }
-        var pinned = self
-        pinned.tokens = { credentials }
-        let create = { try await pinned.createSandboxRun(task: task, agent: agent, timeoutMs: timeoutMs, idempotencyKey: key) }
-        let createdData: Data
-        do {
-            createdData = try await create()
-        } catch CloudAPIError.transport, CloudAPIError.timedOut {
-            // The first create may have made the Run: whatever the retry says, the outcome stays
-            // uncertain (`timedOut`, never a refusal the caller could take as "nothing runs").
-            do { createdData = try await create() } catch { throw CloudAPIError.timedOut("/api/runs") }
-        }
-        let created = try JSONSerialization.jsonObject(with: createdData) as? [String: Any]
-        guard let id = created?["id"] as? String, !id.isEmpty else { throw CloudAPIError.decoding("/api/runs: no run id") }
-        if let follow { return try await follow(id) }
-        while now() < deadline {
-            let data: Data
-            do {
-                data = try await waitRun(id, timeoutMs: 10_000)
-            } catch { // The Run exists: losing sight of it is "no receipt in time", never a refusal to retry past.
-                throw CloudAPIError.timedOut("/api/runs/\(id)")
-            }
-            // A 200 that is no Run snapshot (an array, an error body) won't turn into one: stop now.
-            guard let snapshot = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                  snapshot["run"] is [String: Any] else { throw CloudAPIError.timedOut("/api/runs/\(id)") }
-            if snapshot["receipt"] is [String: Any] { return data }
-            try Task.checkCancellation()
-        }
-        throw CloudAPIError.timedOut("/api/runs/\(id)")
+        return CloudDaemon.Route(api: baseURL, auth: sendsStackSession ? .stack : .worker, credential: credentials.access,
+                                 refresh: sendsStackSession ? credentials.refresh : nil, team: await teamID(),
+                                 appVersion: appVersion, localOnly: backendIsLocalOnly)
     }
 
-    /// `POST /api/runs/:id/cancel`; a sandbox's VM is destroyed before it answers.
-    public func cancelRun(_ id: String) async throws -> Data {
-        try await sendData("POST", "/api/runs/\(queryComponent(id))/cancel", timeout: .seconds(60))
+    /// One `cloud.<name>` call as this client; its body as JSON.
+    func call(_ name: String, _ args: [String: any Sendable] = [:], wait: Duration) async throws -> Data {
+        try await daemon.call(name, args, as: try await route(), wait: wait)
     }
 
-    // MARK: Transport
-
-    struct Ignored: Decodable {}
-
-    /// One request whose JSON body the caller reads itself.
-    func sendData(_ method: String, _ path: String, body: [String: any Sendable]? = nil, idempotencyKey: String? = nil,
-                  timeout: Duration = .seconds(20)) async throws -> Data {
-        try await send(method, path, body: body, idempotencyKey: idempotencyKey, timeout: timeout, as: RawBody.self).data
-    }
-
-    /// The undecoded body; ``send(_:_:body:bodyStream:idempotencyKey:timeout:onSent:as:)`` hands it over as is.
-    struct RawBody: Decodable {
-        let data: Data
-        init(data: Data) { self.data = data }
-        init(from decoder: any Decoder) throws {
-            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "RawBody is not decoded"))
-        }
-    }
-
-    func send<T: Decodable>(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
-                            bodyStream: (stream: InputStream, length: Int, contentType: String)? = nil, idempotencyKey: String? = nil,
-                            timeout: Duration = .seconds(20), onSent: (@Sendable () async -> Void)? = nil,
-                            as type: T.Type) async throws -> T {
-        let (access, refresh): (String, String)
-        do { (access, refresh) = try await tokens() } catch { throw CloudAPIError.notSignedIn }
-        guard let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path) else {
-            throw CloudAPIError.transport("bad path \(path)")
-        }
-        var request = URLRequest(url: url, timeoutInterval: TimeInterval(timeout.components.seconds))
-        request.httpMethod = method
-        request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-        request.setValue("cmux-mac", forHTTPHeaderField: "X-Cmux-Client")
-        request.setValue(appVersion, forHTTPHeaderField: "X-Cmux-App-Version")
-        if sendsStackSession {
-            request.setValue(refresh, forHTTPHeaderField: "X-Stack-Refresh-Token")
-            if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "X-Cmux-Team-Id") }
-        } else if let team = await teamID() {
-            request.setValue(team, forHTTPHeaderField: "x-cmux-team")
-        }
-        if let idempotencyKey { request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key") }
-        if let body {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        } else if let bodyStream {
-            request.setValue(bodyStream.contentType, forHTTPHeaderField: "Content-Type")
-            request.setValue(String(bodyStream.length), forHTTPHeaderField: "Content-Length")
-            request.httpBodyStream = bodyStream.stream
-        }
-        let data: Data
-        let response: URLResponse
-        await onSent?()
-        do {
-            let session = session, prepared = request
-            (data, response) = try await withDeadline(timeout, label: "\(method) \(path)") { try await session.data(for: prepared) }
-        } catch is DeadlineExceeded {
-            throw CloudAPIError.timedOut(path)
-        } catch let error as URLError where error.code == .timedOut {
-            throw CloudAPIError.timedOut(path)
-        } catch let error as URLError where backendIsLocalOnly && error.code == .cannotConnectToHost {
-            throw CloudAPIError.noBackend(baseURL)
-        } catch {
-            throw CloudAPIError.transport(error.localizedDescription)
-        }
-        guard let http = response as? HTTPURLResponse else { throw CloudAPIError.transport("no HTTP response") }
-        guard (200..<300).contains(http.statusCode) else {
-            throw CloudAPIError.from(status: http.statusCode, data: data, headerCode: http.value(forHTTPHeaderField: "x-cmux-vm-error"))
-        }
-        if T.self == Ignored.self, let ignored = Ignored() as? T { return ignored }
-        if T.self == RawBody.self, let raw = RawBody(data: data) as? T { return raw }
-        return try CloudMachineRules().answer(data, as: T.self, context: path)
+    /// ``call(_:_:wait:)`` read as `T`.
+    func call<T: Decodable>(_ name: String, _ args: [String: any Sendable] = [:], wait: Duration, as type: T.Type) async throws -> T {
+        try CloudMachineRules().answer(try await call(name, args, wait: wait), as: T.self, context: "cloud.\(name)")
     }
 }
 

@@ -13,7 +13,8 @@ extension CloudService {
     @discardableResult func readHarnessLoginCopySwitch() async -> Bool? {
         let auth = auth, identity = installIdentity
         let owner = CloudOwnerAPIClient(baseURL: FeedService.apiBaseURL(auth: auth), accessToken: { try await auth.tokens().access },
-                                        teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })
+                                        teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
+                                        daemon: daemon)
         return await harnessLoginCopySwitch.read(owner)
     }
 }
