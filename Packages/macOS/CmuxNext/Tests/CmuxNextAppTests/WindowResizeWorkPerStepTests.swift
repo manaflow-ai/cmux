@@ -19,7 +19,9 @@ import Testing
 /// The rules, counted on a window as the app builds it (sidebar, main pane card, one pane), over the steps of a
 /// corner drag 1280x800 -> 1040x640, at each session size:
 /// 1. The space switcher is not drawn again, and keeps its accessibility elements and its tooltips (the same objects).
-/// 2. No view is laid out twice in one step.
+/// 2. No view of the app is laid out twice in one step, and the layout calls of a step do not grow with the session.
+/// 3. What the switcher shows still follows a space switch and a new sidebar width, in the frame of the change.
+/// Rule 1 is the one a resize step broke (red before the fix). Rules 2 and 3 are guards: they hold before and after.
 /// The suite prints one `WORK` line per arm with the layout calls per view class (the numbers of the PR's table).
 @MainActor @Suite(.serialized, .closesItsWindows) struct WindowResizeWorkPerStepTests {
     /// The session arms (FABLE-COMMON "Session size rule"): the workspaces the sidebar lists. `light` always runs; the
@@ -57,6 +59,8 @@ import Testing
         let root: WindowRootView
         let layout: LayoutRootView
         let provider = LayoutWorkProbe.Panes()
+        let sidebarModel: SidebarModel
+        let spaces = (0..<3).map { ProfileKey("space\($0)") }
         var sidebar: SidebarView { root.sidebar.sidebarView }
         var bar: ProfileBarView { sidebar.profileBar }
         /// Draws of the space switcher's marks since ``countDraws()``.
@@ -70,9 +74,8 @@ import Testing
             let nodes = ids.enumerated().map { index, id in
                 SidebarNode.workspace(SidebarWorkspace(id: id, title: "project-\(index)", directory: "~/p\(index)"))
             }
-            let sidebarModel = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)],
-                                            activeWorkspaceID: ids[ids.count - 1])
-            let spaces = (0..<3).map { ProfileKey("space\($0)") }
+            sidebarModel = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)],
+                                        activeWorkspaceID: ids[ids.count - 1])
             sidebarModel.profiles = spaces.enumerated().map { SidebarProfile(id: $1, name: "Space \($0)") }
             sidebarModel.activeProfileID = spaces[0]
             let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf("p1")))],
@@ -165,40 +168,89 @@ import Testing
                 "the resize made the space switcher's tooltips again")
     }
 
-    /// One step lays a view out one time at most, at each session size. Prints the `WORK` line of the arm.
-    @Test(arguments: Session.arms)
-    func aResizeStepLaysAViewOutOnce(session: Session) throws {
-        let rig = Rig(session)
+    /// A space switch shows in the switcher in its frame: the marks are drawn again and the new space is the
+    /// selected element. (A guard for the fix: it holds before and after.)
+    @Test func aSpaceSwitchStillShowsInTheSwitcher() throws {
+        let rig = Rig(.light)
         defer { rig.close() }
-        typealias Counts = KeyResizeLayoutsPerFrameTests
-        var twice: [String] = []
-        var total: [String: Int] = [:], resizedTotal: [String: Int] = [:]
-        let began = Counts.calls()
-        for step in 1...Self.steps {
-            let before = rig.views()
-            let start = Counts.calls()
-            rig.step(to: Self.size(at: step))
-            let laid = Counts.since(start)
-            let after = rig.views()
-            var count: [String: Int] = [:], resized: [String: Int] = [:]
-            for (id, entry) in after {
-                count[entry.viewClass, default: 0] += 1
-                if before[id]?.size != entry.size { resized[entry.viewClass, default: 0] += 1 }
-            }
-            for (viewClass, calls) in laid {
-                total[viewClass, default: 0] += calls
-                if calls > count[viewClass, default: 0] {
-                    twice.append("step \(step): \(viewClass) laid out \(calls)x, the window has \(count[viewClass, default: 0])")
+        rig.countDraws()
+        rig.sidebarModel.activeProfileID = rig.spaces[1]
+        rig.sidebar.renderNow()
+        rig.show()
+        let elements = try #require(rig.bar.accessibilityChildren() as? [NSAccessibilityElement])
+        try #require(elements.count == 4, "fixture: \(elements.count) accessibility elements for 3 spaces and the +")
+        #expect(rig.markDraws > 0, "the space switch did not draw the switcher's marks")
+        #expect(elements[1].isAccessibilitySelected() && !elements[0].isAccessibilitySelected(),
+                "the switcher's accessibility elements do not show the new space as selected")
+    }
+
+    /// A new sidebar width changes the switcher's size, so its slots move: the marks are drawn again, and the
+    /// tooltips and the accessibility elements are made for the new slots. (A guard for the fix: it holds before and after.)
+    @Test func aNewSidebarWidthMakesTheSwitcherSlotsAgain() throws {
+        let rig = Rig(.light)
+        defer { rig.close() }
+        let bar = rig.bar
+        let size = bar.frame.size
+        let tips = TooltipTracker.all(of: bar)
+        rig.countDraws()
+        rig.root.sidebar.widthConstraint.constant -= 48
+        rig.root.needsLayout = true
+        rig.root.layoutSubtreeIfNeeded()
+        rig.show()
+        try #require(bar.frame.size != size, "fixture: the narrower sidebar did not change the switcher's size")
+        let tipsNow = TooltipTracker.all(of: bar)
+        let elements = try #require(bar.accessibilityChildren() as? [NSAccessibilityElement])
+        let slots = bar.slotRects()
+        #expect(rig.markDraws > 0, "the new size did not draw the switcher's marks")
+        #expect(tipsNow.count == tips.count && !zip(tipsNow, tips).contains { $0 === $1 },
+                "the new size kept the tooltips of the old slots")
+        #expect(elements.count == slots.count && zip(elements, slots).allSatisfy { $0.accessibilityFrameInParentSpace() == $1 },
+                "the accessibility elements are not at the switcher's slots")
+    }
+
+    /// One step lays a view of the app out one time at most, at each session size, and the layout calls of a step do
+    /// not grow from 60 workspaces to 826. Prints the `WORK` line of each arm. (A guard: it holds before and after the
+    /// fix. AppKit's own views are not counted: it lays its frame view out in `setFrame` and again for the display.)
+    @Test func aResizeStepLaysAViewOutOnceAtEachSessionSize() throws {
+        var perStep: [Session: Double] = [:]
+        for session in Session.arms {
+            let rig = Rig(session)
+            defer { rig.close() }
+            typealias Counts = KeyResizeLayoutsPerFrameTests
+            var twice: [String] = []
+            var total: [String: Int] = [:], resizedTotal: [String: Int] = [:]
+            let began = Counts.calls()
+            for step in 1...Self.steps {
+                let before = rig.views()
+                let start = Counts.calls()
+                rig.step(to: Self.size(at: step))
+                let laid = Counts.since(start)
+                let after = rig.views()
+                var count: [String: Int] = [:], resized: [String: Int] = [:]
+                for (id, entry) in after {
+                    count[entry.viewClass, default: 0] += 1
+                    if before[id]?.size != entry.size { resized[entry.viewClass, default: 0] += 1 }
                 }
+                for (viewClass, calls) in laid {
+                    total[viewClass, default: 0] += calls
+                    let appKit = viewClass.hasPrefix("NS") || viewClass.hasPrefix("_NS")
+                    if !appKit, calls > count[viewClass, default: 0] {
+                        twice.append("step \(step): \(viewClass) laid out \(calls)x, the window has \(count[viewClass, default: 0])")
+                    }
+                }
+                for (viewClass, views) in resized { resizedTotal[viewClass, default: 0] += views }
             }
-            for (viewClass, views) in resized { resizedTotal[viewClass, default: 0] += views }
+            let calls = Counts.since(began).values.reduce(0, +)
+            perStep[session] = Double(calls) / Double(Self.steps)
+            let classes = total.sorted { ($0.value, $1.key) > ($1.value, $0.key) }.prefix(24)
+                .map { "\($0.key)=\($0.value)/\(resizedTotal[$0.key, default: 0])" }.joined(separator: " ")
+            print("WORK case=window-resize session=\(session.rawValue) workspaces=\(session.workspaces) steps=\(Self.steps) "
+                + "views=\(rig.views().count) layout_calls=\(calls) per_step=\(String(format: "%.1f", Double(calls) / Double(Self.steps))) "
+                + "laid/resized: \(classes)")
+            #expect(twice.isEmpty, "\(session): \(twice.count) views laid out more than one time in a step: \(twice.prefix(12))")
         }
-        let calls = Counts.since(began).values.reduce(0, +)
-        let classes = total.sorted { $0.value > $1.value }.prefix(24)
-            .map { "\($0.key)=\($0.value)/\(resizedTotal[$0.key, default: 0])" }.joined(separator: " ")
-        print("WORK case=window-resize session=\(session.rawValue) workspaces=\(session.workspaces) steps=\(Self.steps) "
-            + "views=\(rig.views().count) layout_calls=\(calls) per_step=\(String(format: "%.1f", Double(calls) / Double(Self.steps))) "
-            + "laid/resized: \(classes)")
-        #expect(twice.isEmpty, "\(twice.count) views laid out more than one time in a step: \(twice.prefix(12))")
+        if let large = perStep[.large], let real = perStep[.real] {
+            #expect(real <= large, "a resize step lays out \(real) views at 826 workspaces and \(large) at 60")
+        }
     }
 }
