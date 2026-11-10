@@ -3891,6 +3891,82 @@ class InheritedCompileRed(unittest.TestCase):
                 self.judge_status()
 
 
+class NoVerdictCompileStatus(InheritedCompileRed):
+    """2026-11-10: the controller was off from 01:00Z and its receipts answered HTTP 530, so every PR's
+    cmux-next/compile read "No compile result for this head in 40 minutes", and the unread receipt refused each one
+    (cmux#40041 at ab52ea3b). A no-verdict status is ignored when another compile passed at the head, as the
+    no-verdict fleet job is; with none, it is refused, never compared with the base."""
+
+    MAC = "cmux-next Release compile (Xcode 26)"
+
+    def setUp(self):
+        super().setUp()
+        self.status["description"] = "No compile result for this head in 40 minutes"
+        self.mac_runs = []
+        routed = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{self.PR_HEAD}/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": self.mac_runs}]
+            if route.endswith(f"commits/{self.PR_HEAD}/status"):
+                return {"statuses": [copy.deepcopy(self.status)]}
+            if route.endswith("actions/jobs/77"):
+                return {"head_sha": self.PR_HEAD, "name": self.MAC, "run_id": 70, "conclusion": "success",
+                        "steps": [{"name": "Release compile", "conclusion": "success"}]}
+            return routed(route, paginate=paginate)
+
+        self.gh.json = json
+
+        def down(repo, sha):
+            raise excuse.Refused(f"the compile receipt of {sha[:12]}: HTTP 530")
+
+        patch = unittest.mock.patch.object(excuse, "compile_receipt", down)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def mac_pass(self):
+        self.mac_runs.append({"id": 5, "name": self.MAC, "head_sha": self.PR_HEAD, "status": "completed",
+                              "conclusion": "success", "app": {"slug": "github-actions"},
+                              "details_url": f"https://github.com/{REPO}/actions/runs/70/job/77"})
+
+    def test_a_no_verdict_status_is_ignored_when_the_mac_compile_passed(self):
+        self.mac_pass()
+        audit = "\n".join(self.judge_status())
+        self.assertIn("ignored 'cmux-next/compile': it gave no compile verdict", audit)
+        self.assertIn(f"'{self.MAC}' (job 77)", audit)
+
+    def test_a_no_verdict_status_with_nothing_compiled_is_refused(self):
+        for description in ("No compile result for this head in 40 minutes (last: running)",
+                            "The compile check gave no verdict (unavailable); re-run this job",
+                            "The compile result does not match this head; re-run this job"):
+            with self.subTest(description=description):
+                self.status["description"] = description
+                with self.assertRaisesRegex(excuse.Refused, "no compile verdict .* nothing else compiled .*HTTP 530"):
+                    self.judge_status()
+
+    def test_a_compile_fail_still_needs_the_receipts(self):
+        self.mac_pass()
+        self.status["description"] = "The app did not compile in SwiftPM Release (-Onone); see the log"
+        with self.assertRaisesRegex(excuse.Refused, "HTTP 530"):
+            self.judge_status()
+
+    def test_the_no_verdict_fleet_job_is_ignored_when_the_mac_compile_passed(self):
+        self.gh.logs[1] = log(self.FLEET, self.STEP,
+                              f"##[error]cmux-next/compile is not a pass for {self.PR_HEAD} (no result)")
+        with self.assertRaisesRegex(excuse.Refused, "HTTP 530"):
+            self.judge_job()
+        self.mac_pass()
+        self.assertIn(f"ignored '{self.FLEET}'", "\n".join(self.judge_job()))
+
+    # The inherited-red cases are InheritedCompileRed's; this class's status is no verdict and its receipts unread.
+    test_the_status_red_of_a_head_whose_merge_base_fails_is_excused = None
+    test_the_fleet_job_red_of_a_head_whose_merge_base_fails_is_excused = None
+    test_a_head_fail_on_a_merge_base_that_passes_is_the_heads = None
+    test_a_head_with_no_verdict_or_no_receipt_is_never_excused = None
+    test_a_merge_base_with_no_receipt_does_not_excuse = None
+    test_an_unread_receipt_refuses = None
+
+
 class CompileReceiptRead(unittest.TestCase):
     """The receipt read: one anonymous GET; a 404 is no receipt, every other failure refuses."""
 
