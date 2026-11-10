@@ -16,8 +16,9 @@ A cell is one Cloud chat started from one folder on this Mac with `cmux cloud st
 - the reply, which must carry a word only the folder's own file holds (so the agent read the copy).
 
 Workspaces (WORKSPACES): an empty folder, a small repo, a big monorepo (a cmux clone), a repo whose
-remote is private, submodules, Git LFS, a dirty tree, a big non-Git folder, a folder of secrets, and
-odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
+remote is private, submodules, Git LFS, a dirty tree, a big non-Git folder, a folder past the copy's
+limits (`huge-plain`: a sparse 21 GiB file, no disk spent, which must be refused fast with `copy.too_large`
+and no machine made; link/sync_cli/size_cap.rs), a folder of secrets, and odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
 into it, so its cell has no word check. Agents (AGENTS) run on the small repo; the workspace cells use
 the first agent.
 
@@ -47,8 +48,12 @@ from pathlib import Path
 
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
-              "big-plain", "secrets", "odd-names")
+              "big-plain", "huge-plain", "secrets", "odd-names")
 WORD_FILE = "cmux-matrix-word.txt"
+# huge-plain: past the copy's 20 GiB limit (link/sync_cli/size_cap.rs), sparse so it costs no disk.
+HUGE_PLAIN_BYTES = 21 * 1024 ** 3
+# How long the copy may take to refuse huge-plain, from the call to its answer.
+HUGE_PLAIN_REFUSED_WITHIN_S = 30
 
 # What a copy leaves out (link/sync_cli/skips.rs): keep these in step with it.
 CREDENTIAL_FOLDERS = (".ssh", ".aws", ".gnupg", ".config/gcloud", ".config/gh", ".kube", ".docker", ".secrets",
@@ -192,6 +197,11 @@ def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None
             write(path / f"d{index % 200:03d}" / f"f{index:05d}.txt", f"{index}\n" * (1 + index % 512))
         for index in range(4):
             write(path / "large" / f"blob{index}.bin", os.urandom(32 * 1024 * 1024))
+    elif kind == "huge-plain":
+        path.mkdir(parents=True)
+        write(path / "src/app.py", "print('hi')\n")
+        with open(path / "disk.img", "wb") as sparse:
+            sparse.truncate(HUGE_PLAIN_BYTES)
     elif kind == "secrets":
         path.mkdir(parents=True)
         write(path / "app.py", "print('uses env')\n")
@@ -532,6 +542,8 @@ class Matrix:
         if folder is None:
             cell["result"] = note or "skipped"
             return cell
+        if name == "huge-plain":
+            return self.refused_cell(cell, folder, agent)
         started = time.monotonic()
         expected = local_manifest(folder, canary)
         cell["local"] = {key: expected[key] for key in ("files", "bytes", "left_out")}
@@ -641,6 +653,34 @@ class Matrix:
         cell["machine_killed"] = self.kill(machine) if machine else None
         cell["result"] = verdict(cell, canary)
         return cell
+
+
+def _refused_cell(self, cell: dict, folder: Path, agent: str) -> dict:
+    """huge-plain: start-chat refuses the folder with copy.too_large, fast, before any machine is made."""
+    started = time.monotonic()
+    code, out, err = self.cmux("cloud", "start-chat", "--from-folder", str(folder), "--prompt", "x",
+                               "--agent", agent, "--json", timeout=HUGE_PLAIN_REFUSED_WITHIN_S + 60)
+    cell["create_to_reply_s"] = round(time.monotonic() - started, 1)
+    failure = self.error(out, err)
+    cell["start_exit"] = code
+    cell["start_error"] = clean(f"{failure.get('code', '')}: {failure.get('message', '')}", 800)
+    machine = (failure.get("details") or {}).get("machine_id")
+    if machine:
+        with self.lock:
+            self.machines.add(machine)
+        cell["machine_killed"] = self.kill(machine)
+    problems = []
+    if code != 2 or failure.get("code") != "copy.too_large":
+        problems.append(f"not refused as copy.too_large (exit {code}, {failure.get('code')})")
+    if cell["create_to_reply_s"] > HUGE_PLAIN_REFUSED_WITHIN_S:
+        problems.append(f"refused after {cell['create_to_reply_s']} s")
+    if machine:
+        problems.append("a machine was made")
+    cell["result"] = "pass" if not problems else "fail: " + ", ".join(problems)
+    return cell
+
+
+Matrix.refused_cell = _refused_cell
 
 
 def shlex_quote(text: str) -> str:

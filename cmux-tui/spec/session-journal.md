@@ -384,7 +384,22 @@ CLI, preserves only structural string fields and non-string structure before
 it stores the provider shape under `payload.native`, and stores common session,
 turn, directory, transcript, tool, and agent topology fields under
 `payload.normalized`. Content strings and credential fields are redacted.
-Unknown native events become `agent.state.changed`:
+Unknown native events become `agent.state.changed`.
+
+A hook report that changes no durable state (a tool call inside a turn, a
+notification) is answered from daemon memory and gets no record. So that a
+reader of the journal alone still knows when an agent last worked, the daemon
+writes one coalesced record for the whole session, at most one per 5 minutes
+and one at a clean stop, and none while no agent reports: kind
+`agent.state.changed`, adapter `cmux`, `native_event` `AgentActivityObserved`,
+no terminal subject, and `payload.normalized.activity` as a list of
+`{adapter, agent_session_id, terminal, observed_at_ms}` (the newest report time
+of each terminal that reported since the last such record). A fold applies
+each entry as `last activity = max(last activity, observed_at_ms)` of a session
+it already has; the record makes no session and has no state. A reader in the
+daemon (`history.entries.list`) gets the exact time from memory.
+
+An unknown native event through the CLI:
 
 ```bash
 printf '%s\n' '{"session_id":"abc","message":"done"}' | \

@@ -30,8 +30,10 @@ CLOUD = "Packages/macOS/CmuxNext/Sources/CmuxNextCloud"
 PANE = "webviews/src/agent-session"
 ACPMUX = "cmux-tui/crates/acpmux/src"
 
-LABEL_EVENT = {"event": "labeled", "label": "leo-approved-port", "actor": "teamleaderleo", "app": None}
-LEO_NOTE = {"user": "teamleaderleo", "body": "leo-approved-port: yes, move the transcript to React", "app": None}
+LABEL_EVENT = {"event": "labeled", "label": "leo-approved-port", "actor": "teamleaderleo", "type": "User",
+               "app": None}
+LEO_NOTE = {"user": "teamleaderleo", "type": "User", "body": "leo-approved-port: yes, move the transcript to React",
+            "app": None, "source": "comment"}
 
 
 def cli(args: list[str]) -> int:
@@ -95,11 +97,12 @@ class PR37777Tests(unittest.TestCase):
         self.assertTrue(lines[-1].startswith("next: "))
 
     def test_37777_fails_with_the_label_from_an_agent_footer_comment(self) -> None:
-        agent = {"user": "teamleaderleo", "app": None, "body": "leo-approved-port: ported\n\n"
+        agent = {"user": "teamleaderleo", "type": "User", "app": None, "source": "comment",
+                 "body": "leo-approved-port: ported\n\n"
                  "Agent session: [agent session](https://cmux.com/deeplink/agent?id=aid-1)"}
         code, lines = run(FIXTURE.read_text(), ["leo-approved-port"], [LABEL_EVENT], [agent])
         self.assertEqual(code, 1)
-        self.assertIn("no comment or review", lines[-2])
+        self.assertIn("no comment by", lines[-2])
 
     def test_37777_passes_with_leos_approval(self) -> None:
         code, lines = run(FIXTURE.read_text(), ["leo-approved-port"], [LABEL_EVENT], [LEO_NOTE])
@@ -185,6 +188,35 @@ class MinimalTests(unittest.TestCase):
         self.assertEqual(run(f"M\t{CLOUD}/CloudAPIClient.swift\nD\t{CLOUD}/Old.swift\n")[0], 0)
         self.assertEqual(run(f"R100\t{CLOUD}/A.swift\t{CLOUD}/Sub/A.swift\n")[0], 0)
 
+    def test_quoted_and_tab_paths_are_caught(self) -> None:
+        # git quotes a path with a quote, tab, newline or backslash; -z and REST JSON carry it as it is.
+        for name in ('Cloud"New.swift', "Cloud\tNew.swift", "Cloud\nNew.swift", "Cloud\\New.swift"):
+            path = f"{HOME}/{name}"
+            z = lb.parse_records_z(f"D\0{path}\0".encode())
+            self.assertEqual(z, [lb.Record("removed", path)])
+            self.assertEqual(lb.check(AREAS, z, [], [], [])[0], 1, name)
+            js = lb.parse_records_json(json.dumps({"status": "removed", "path": path, "old": ""}) + "\n")
+            self.assertEqual(lb.check(AREAS, js, [], [], [])[0], 1, name)
+            added = lb.parse_records_z(f"A\0{CLOUD}/{name}\0".encode())
+            self.assertEqual(lb.check(AREAS, added, [], [], [])[0], 1, name)
+        moved = lb.parse_records_z(f"R100\0{HOME}/A\tB.swift\0Packages/Elsewhere/A\tB.swift\0M\0x.md\0".encode())
+        self.assertEqual([r.status for r in moved], ["renamed", "modified"])
+        self.assertEqual(lb.check(AREAS, moved, [], [], [])[0], 1)
+
+    def test_tsv_refuses_a_git_quoted_path(self) -> None:
+        with self.assertRaises(ValueError):
+            records(f'D\t"{HOME}/Cloud\\"New.swift"\n')
+        with self.assertRaises(ValueError):
+            records(f'R100\t"{HOME}/A\\tB.swift"\tPackages/Elsewhere/AB.swift\n')
+
+    def test_z_and_json_fail_closed_on_bad_input(self) -> None:
+        for data in (b"D\0", b"R100\0only-old\0", b"X\0path\0", b"removed\0path\0"):
+            with self.assertRaises(ValueError, msg=data):
+                lb.parse_records_z(data)
+        for line in ('{"status": "gone", "path": "a"}', '{"status": "renamed", "path": "a", "old": ""}', "[1]"):
+            with self.assertRaises(ValueError, msg=line):
+                lb.parse_records_json(line)
+
     def test_non_ascii_paths_are_matched(self) -> None:
         self.assertEqual(run(f"D\t{HOME}/Ünïcode.swift\n")[0], 1)
 
@@ -226,9 +258,24 @@ class ApprovalTests(unittest.TestCase):
                      dict(LEO_NOTE, body=LEO_NOTE["body"] + "\n\nCo-authored-by: Claude <noreply@anthropic.com>")):
             self.assertEqual(run(self.BAD, ["leo-approved-port"], [LABEL_EVENT], [note])[0], 1, note)
 
-    def test_approval_in_a_review_passes(self) -> None:
-        notes = [{"user": "teamleaderleo", "body": "Looks right.\nleo-approved-port: the port is mine", "app": None}]
-        self.assertEqual(run(self.BAD, ["leo-approved-port"], [LABEL_EVENT], notes)[0], 0)
+    def test_approval_in_a_review_never_passes(self) -> None:
+        # GitHub reports no app for a review, so a review an app submitted on Leo's behalf looks like his own.
+        review = dict(LEO_NOTE, body="Looks right.\nleo-approved-port: the port is mine", source="review")
+        code, lines = run(self.BAD, ["leo-approved-port"], [LABEL_EVENT], [review])
+        self.assertEqual(code, 1)
+        self.assertIn("a review never counts", lines[-2])
+        self.assertEqual(run(self.BAD, ["leo-approved-port"], [LABEL_EVENT], [review, LEO_NOTE])[0], 0)
+
+    def test_app_or_bot_submitted_approval_fails(self) -> None:
+        for note in (dict(LEO_NOTE, app="cmux-agent"), dict(LEO_NOTE, type="Bot"), dict(LEO_NOTE, type=None),
+                     dict(LEO_NOTE, user="teamleaderleo[bot]"), dict(LEO_NOTE, app="cmux-agent", source="review")):
+            self.assertEqual(run(self.BAD, ["leo-approved-port"], [LABEL_EVENT], [note])[0], 1, note)
+
+    def test_label_added_by_a_bot_typed_actor_fails(self) -> None:
+        for event in (dict(LABEL_EVENT, type="Bot"), {k: v for k, v in LABEL_EVENT.items() if k != "type"}):
+            code, lines = run(self.BAD, ["leo-approved-port"], [event], [LEO_NOTE])
+            self.assertEqual(code, 1, event)
+            self.assertIn("as a bot", lines[-2])
 
 
 class CliAndWorkflowTests(unittest.TestCase):
@@ -244,6 +291,14 @@ class CliAndWorkflowTests(unittest.TestCase):
                                "--notes", str(notes)]
             self.assertEqual(cli(approved), 0)
             self.assertEqual(cli(args + ["--expected-files", "2"]), 1)
+            quoted = f'{HOME}/Cloud"New.swift'
+            zfile, jfile = Path(tmp) / "f.z", Path(tmp) / "f.jsonl"
+            zfile.write_bytes(f"D\0{quoted}\0".encode())
+            jfile.write_text(json.dumps({"status": "removed", "path": quoted, "old": ""}) + "\n")
+            self.assertEqual(cli(["--files", str(zfile), "--format", "git-z", "--manifest", str(MANIFEST)]), 1)
+            self.assertEqual(cli(["--files", str(jfile), "--format", "json", "--manifest", str(MANIFEST)]), 1)
+            zfile.write_bytes(f"M\0{quoted}\0".encode())
+            self.assertEqual(cli(["--files", str(zfile), "--format", "git-z", "--manifest", str(MANIFEST)]), 0)
 
     def test_cli_fails_closed_on_bad_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -266,9 +321,17 @@ class CliAndWorkflowTests(unittest.TestCase):
         self.assertIn(".github/language-boundaries.toml", text)
         self.assertNotIn("github.event.pull_request.head.sha }}\n          fetch-depth", text)
         # The script reads one JSON object per line; gh's --jq would print an object across many lines.
-        self.assertEqual(text.count("| tojson'"), 3)
-        # The git fallback prints non-ASCII paths as they are, so area globs still match them.
-        self.assertIn("git -c core.quotePath=false diff --name-status -M", text)
+        self.assertEqual(text.count("| tojson'"), 4)
+        # Both listings carry every path byte for byte: REST as JSON, the git fallback NUL-separated.
+        self.assertIn("git diff -z --name-status -M", text)
+        self.assertIn("path: .filename, old: (.previous_filename // \"\")} | tojson'", text)
+        self.assertNotIn("@tsv", text)
+        self.assertIn('--format "$format"', text)
+        # Every author's type and app are read, and reviews are marked so they never approve.
+        self.assertIn("type: (.actor.type // null)", text)
+        self.assertEqual(text.count("type: (.user.type // null)"), 2)
+        self.assertIn('source: "review"', text)
+        self.assertNotIn("app: null", text)
 
 
 if __name__ == "__main__":

@@ -1073,9 +1073,13 @@ with a 52x/530 (the origin is down). compile-status read it with `curl --retry-a
 40-minute deadline, so it retried the 530 for 40 minutes and then posted "No compile result for this head in 40
 minutes" on every pull request (cmux#40600, run 42850259745). Now it reads the way release-compile-fast does: two
 probes 30 s apart (`PROBE_GAP`), and no connection (000) or a 52x/530 on both is the service down at once. During the
-wait no read retries inside curl: a 404 (no result yet) is read again 30 s later (`READ_GAP`), and any other answer
-that is not a 200 (a 52x/530, a 403, a 5xx, no connection) for 5 minutes in a row (`BAD_BOUND`) is the service down
-too. release-compile-fast's read uses the same loop, so a service that goes down after its probes hands its gate to
+wait no read retries inside curl. One shared deadline bounds it: `ok_at`, taken before the first probe and moved only by
+a usable answer (a 200, or a 404: no result yet), plus `BAD_BOUND` (5 minutes), and the overall wait's deadline. Each
+read gets `--max-time` and `timeout` of what is left of the nearer of the two (its long poll `wait=` asks for 30 s less),
+so a stalled response (the connection open, no answer) cannot hold a read past the bound, and a 404 is read again 30 s
+later (`READ_GAP`, also cut to what is left). When either deadline runs out with the last answer unusable (a 52x/530,
+a 403, a 5xx, a read that timed out: HTTP 000), the service is down, also when the overall wait is shorter than the
+bound. release-compile-fast's read uses the same loop, so a service that goes down after its probes hands its gate to
 the Mac fallback in 5 minutes, not 20.
 
 The service down is no verdict, and compile-status hands it to the fallback Release compile where one runs for the
@@ -1104,3 +1108,14 @@ the head; a failure says "the Release compile (fallback) failed" and links the r
 ran (a pull request whose app-compile-fleet gave a verdict, so release-compile skipped; a push superseded on the way;
 a cancelled Mac job) it posts `error`, asks for a re-run of all jobs (a re-run of failed jobs alone would rerun only
 this job), and ends with scripts/ci/needs_verdict.py's `no verdict: ` line and exit 3, never the PR's own red.
+
+## note-84
+
+Above `[no-verdict]` in compile-status in `.github/workflows/cmux-next.yml`.
+
+Every cmux-next/compile description that is no verdict (unavailable, a result for another head, no result by the
+deadline, the results service down with no fallback, and compile-status-handoff's no fallback ran) starts with the
+marker `[no-verdict]`. scripts/ci/base_red_excuse.py keys on it (COMPILE_STATUS_NO_VERDICT_MARKER): such a status is
+ignored when another compile passed at the head, and refused with "re-run it" otherwise, never compared with the base
+as a compile red. The classifier still matches the older prose, so statuses posted before the marker read the same.
+A new no-verdict description needs only the marker; a real compile failure must never carry it.

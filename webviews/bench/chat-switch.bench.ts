@@ -94,10 +94,8 @@ let attachPage = { events: 0, bytes: 0 };
 /// Every protocol call the stand-in got, with its arrival (epoch ms) and chat.
 let calls: { method: string; at: number; sessionId: string }[] = [];
 /// The newest page of `chat` before `beforeSeq`, as acpmux cuts it by count and by `maxBytes` (daemonPage.ts).
-const newest = (chat: Chat, limit: number, beforeSeq = Infinity, maxBytes?: number) =>
+const newest = (chat: Chat, limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
   newestPage(chat.events, { limit, beforeSeq, maxBytes });
-const askedBytes = (params: Record<string, unknown>) =>
-  params.maxBytes === undefined ? undefined : Number(params.maxBytes);
 const peerSnapshot = () => {
   const chat = chats.get(B)!;
   const { page, hasMore } = newest(chat, 400);
@@ -128,7 +126,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/watch":
       return { sessions: [...chats.values()].map((one) => one.session) };
     case "_acpmux/attach": {
-      const { page, hasMore } = newest(chat, Number(params.limit ?? 400), Infinity, askedBytes(params));
+      const { page, hasMore } = newest(chat, Number(params.limit ?? 400), Infinity, params.maxBytes);
       const result = { session: chat.session, lastSeq, events: page, hasMore };
       if (params.sessionId === B) attachPage = { events: page.length, bytes: JSON.stringify(result).length };
       return result;
@@ -147,12 +145,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         return { events: prompts, hasMore: false, lastSeq };
       }
       if (params.beforeSeq !== undefined) {
-        const { page, hasMore } = newest(
-          chat,
-          Number(params.limit ?? 400),
-          Number(params.beforeSeq),
-          askedBytes(params),
-        );
+        const { page, hasMore } = newest(chat, Number(params.limit ?? 400), Number(params.beforeSeq), params.maxBytes);
         return { events: page, hasMore, lastSeq };
       }
       return { events: [], hasMore: false, lastSeq };
@@ -599,6 +592,13 @@ try {
               rows: document.querySelectorAll("[data-row-id]").length,
               railTicks: document.querySelectorAll(".acpmux-minimap *").length,
               summary: document.querySelectorAll(".acpmux-summary-card *").length,
+              // The summary column's elements by section (its title), and outside any section.
+              summaryBy: Object.fromEntries(
+                [...document.querySelectorAll(".acpmux-summary-card .acpmux-summary-section")].map((section) => [
+                  section.getAttribute("aria-label") ?? "?",
+                  section.querySelectorAll("*").length,
+                ]),
+              ),
               transcript: document.querySelectorAll(".acpmux-scroll *").length,
             })),
           ),

@@ -3542,10 +3542,17 @@ function TranscriptView({
               const held = chaseHeld.current;
               chase.shift(thread.current, -grew, held ? room : Number.POSITIVE_INFINITY, held);
               chase.land();
-              // The rows under the reply (the turn's footer the fold brought) would move down by
-              // its growth at once: they glide there instead (tailGlide.ts).
+            }
+            // The rows under the reply (the turn's footer the fold brought) would move down by its
+            // growth at once: they glide there instead (tailGlide.ts), in every pass of the drain, not
+            // only the one that read the growth. The reply's drawn height can grow a pass before the
+            // layout takes it (a pass the mounted range brings, as the scroll trail's does), and the
+            // footer then moved by it in the next pass, at once (turn-transition-jumps `tool-group`,
+            // end step: 19.2 and 32.2 px in a frame). Only a move against the reply glides, so a pass
+            // where nothing moved plays nothing.
+            if (reply) {
               tailGlides = true;
-              tailAnchor = reply?.id;
+              tailAnchor = reply.id;
             }
           } else if (foldRiding && !resizing) {
             // The fold playing on: nothing noted, and a chase still landing lands on its own.
