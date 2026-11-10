@@ -21,6 +21,15 @@ struct CloudCapabilityRelayTests {
         var calls: [Call] = []
         var mintStatus = 200
         func refuseMints() { mintStatus = 403 }
+        func acceptMints() { mintStatus = 200 }
+        /// Returns once `count` mints arrived; throws after 10 s (the timer's floor is 1 s a wake).
+        func untilMints(_ count: Int) async throws {
+            let deadline = ContinuousClock.now + .seconds(10)
+            while mints.count < count {
+                guard ContinuousClock.now < deadline else { throw CancellationError() }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+        }
         var mints: [Call] { calls.filter { $0.path == CloudCapabilityHolder.path } }
         var ops: [Call] { calls.filter { $0.path != CloudCapabilityHolder.path } }
 
@@ -147,6 +156,49 @@ struct CloudCapabilityRelayTests {
         install.switchTeam()
         try await Self.send("cloud.machine.create", key: "k-2", relay: Self.relay(worker, install, capability))
         #expect(await worker.ops.last?.capability == nil)
+    }
+
+    /// The install token a test hands out only when it says so, so a clear can land while intent() waits on it.
+    actor Gate {
+        private var asked: CheckedContinuation<Void, Never>?
+        private var waiting: CheckedContinuation<String, Never>?
+        func token() async -> String {
+            await withCheckedContinuation { waiting = $0; asked?.resume(); asked = nil }
+        }
+        func untilAsked() async { if waiting == nil { await withCheckedContinuation { asked = $0 } } }
+        func release(_ token: String) { waiting?.resume(returning: token); waiting = nil }
+    }
+
+    /// cmux#40172 F1: a sign-out while intent() waits for the install token keeps nothing that mint answers.
+    @Test func aSignOutWhileIntentWaitsForTheTokenKeepsNothing() async throws {
+        let worker = Worker(), gate = Gate()
+        let capability = CloudCapabilityHolder(transport: worker, headers: [:], token: { await gate.token() },
+                                               teamOf: Self.teamOf, rules: Self.plainRules)
+        let intent = Task { await capability.intent() }
+        await gate.untilAsked()
+        await capability.clear()
+        await gate.release("install-a")
+        await intent.value
+        #expect(await capability.holds == false, "the signed-out account's capability came back")
+        #expect(await worker.mints.isEmpty, "no mint for the signed-out account")
+    }
+
+    /// cmux#40172 F2: a refresh that fails re-arms the timer, and the next one holds a capability again.
+    @Test func aFailedRefreshIsRetriedAndRecovers() async throws {
+        let worker = Worker(), install = Install()
+        // Due at once, so the timer refreshes as soon as it may (Rust's rules hold the real times and backoff).
+        let rules = CloudCapabilityHolder.Rules(mint: Self.plainRules.mint, plan: { state, _ in
+            let held = state.held.flatMap { $0.team == state.team ? $0 : nil }
+            return .init(send: held?.token, fetch: state.team != nil, wakeIn: held == nil ? nil : 0)
+        })
+        let capability = Self.holder(worker, install, rules: rules)
+        await capability.intent()
+        await worker.refuseMints()
+        try await worker.untilMints(2) // the timer's refresh, refused
+        await worker.acceptMints()
+        try await worker.untilMints(3) // the retry, answered
+        #expect(await capability.holds)
+        await capability.clear()
     }
 
     @Test func signOutForgetsIt() async throws {

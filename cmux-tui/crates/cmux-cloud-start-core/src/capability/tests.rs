@@ -143,3 +143,20 @@ fn the_wire_names_match_the_server() {
         serde_json::from_value(json!({"held": held(0), "team": TEAM, "now": 3})).unwrap();
     assert_eq!(back.now, 3);
 }
+
+/// A refresh that failed wakes again when the backoff ends, not at once, and only while Cloud is in use.
+#[test]
+fn a_failed_refresh_wakes_again_when_the_backoff_ends_while_cloud_is_in_use() {
+    let mut failed = state(Some(held(0)), Some(TEAM), 250_000);
+    failed.failed_at = Some(250_000);
+    failed.failed_team = Some(TEAM.to_owned());
+    failed.last_use = Some(240_000);
+    let retry = plan(&failed, Reason::Timer);
+    assert!(!retry.fetch, "inside the backoff");
+    assert_eq!(retry.wake_in, Some(RETRY_AFTER_MS), "re-armed for the backoff's end");
+    failed.now += RETRY_AFTER_MS;
+    let recovered = plan(&failed, Reason::Timer);
+    assert!(recovered.fetch, "the retry mints");
+    failed.last_use = Some(250_000 - IDLE_STOP_MS);
+    assert_eq!(plan(&failed, Reason::Timer).wake_in, None, "idle: no timer");
+}
