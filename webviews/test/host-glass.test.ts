@@ -477,10 +477,13 @@ test("a surface that closes and opens again during its hold gets its deadline at
   stop = reportHostGlass(doc, (surfaces) =>
     surfaces.length > 0 ? new Promise<void>((resolve) => (answer ??= resolve)) : Promise.resolve(),
   );
+  // Each step in its own task, so the reporter sees the mount, the close and the reopen in turn.
+  // fixed-wait: a zero-delay task, not a sleep; it only orders the steps after the observer.
+  const task = () => new Promise((resolve) => setTimeout(resolve, 0));
   const menu = surface(doc, "menu");
-  await Promise.resolve();
+  await task();
   menu.setAttribute("data-ending-style", "");
-  await Promise.resolve();
+  await task();
   menu.removeAttribute("data-ending-style");
   await frames(HOST_GLASS_HOLD_FRAMES + 2);
   expect(answer).toBeDefined();
