@@ -365,3 +365,49 @@ test("Retry on a failed start sends its prompt alone, under the same key, and ke
   expect(pane.starts[1]!.key).toBe(pane.starts[0]!.key);
   await until(() => composerText() === TYPED, "the typed text stays, unsent");
 }, 60_000);
+
+/// A paste into the prompt, as the person's Cmd-V lands.
+async function pasteInto(clipboard: { files?: File[]; text?: string }) {
+  const editable = promptElement()!.querySelector<HTMLElement>("[contenteditable]")!;
+  const paste = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  const files = clipboard.files ?? [];
+  Object.defineProperty(paste, "clipboardData", {
+    value: {
+      files,
+      items: files.map((file) => ({ kind: "file", type: file.type, getAsFile: () => file })),
+      types: [...(files.length ? ["Files"] : []), ...(clipboard.text !== undefined ? ["text/plain"] : [])],
+      getData: (type: string) => (type === "text/plain" ? (clipboard.text ?? "") : ""),
+    },
+  });
+  await act(async () => void editable.dispatchEvent(paste));
+  for (let step = 0; step < 5; step += 1) await tick();
+}
+const chipsShown = () => host.querySelectorAll(".acpmux-composer-box [data-attachment-id], .acpmux-attachment").length;
+const note = () => host.querySelector(".acpmux-attachment-note")?.textContent ?? "";
+
+test("a file pasted during the start is refused with a note, never a chip the started chat would lose", async () => {
+  await startInCloud();
+  await until(() => composerText() === "", "the sent prompt leaves the composer");
+  await pasteInto({ files: [new File(["{}"], "notes.json", { type: "application/json" })] });
+  expect(chipsShown()).toBe(0);
+  expect(note()).toContain("Cloud chat opens");
+  // Typing stays open.
+  await typeWhileStarting(TYPED);
+}, 60_000);
+
+test("a large paste during the start stays text; one past the field's limit is refused with a note", async () => {
+  const pane = await startInCloud();
+  await until(() => composerText() === "", "the sent prompt leaves the composer");
+  // Past the chip's limit, within what the field draws as text: it goes in as text, which the host carries.
+  const large = "word ".repeat(4_000).trim();
+  await pasteInto({ text: large });
+  expect(chipsShown()).toBe(0);
+  await until(() => composerText() === large, "the large paste is the prompt's text");
+  for (let step = 0; step < 3; step += 1) await tick();
+  expect(pane.hostDraft()).toBe(large);
+  // Past what the field draws as text: refused, and the note says so.
+  await pasteInto({ text: "x".repeat(250_000) });
+  expect(chipsShown()).toBe(0);
+  expect(composerText()).toBe(large);
+  expect(note()).toContain("Cloud chat opens");
+}, 60_000);

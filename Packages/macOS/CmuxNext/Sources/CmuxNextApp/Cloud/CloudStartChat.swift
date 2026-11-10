@@ -235,15 +235,15 @@ struct CloudStartChat {
             _ = try Self.checked(await cli.startChatTargetPane(key: start.key, account: CloudStartCore().accountText(origin.account), machine: machine.machineID, pane: pane))
         }
         if let copy { services.cloud.movedChats.copied(copy) }
-        let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: cwd, draft: services.agentTabs.unsentDrafts.draft(
-            forTab: services.agentTabs.resolve(origin.tab.id), machine: services.agentTabs.daemonListing(origin.tab)?.machineID))), idempotencyKey: tabKey)
+        let (seed, handOff) = AgentPaneSeedSource.handingOffDraft(start.seed(cwd: cwd), limit: .seconds(30))
+        defer { handOff(nil) }
+        let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: seed, idempotencyKey: tabKey)
         let opened = try await pending.value()
-        await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(
-            appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
+        await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
-        services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace,
-                                                                                                                               account: origin.account, machineID: machine.machineID)
+        services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace, account: origin.account, machineID: machine.machineID)
+        handOff(services.agentTabs.unsentDrafts.draft(forTab: services.agentTabs.resolve(origin.tab.id), machine: services.agentTabs.daemonListing(origin.tab)?.machineID))
         await origin.close()
         return machine.machine.title
     }

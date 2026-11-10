@@ -748,6 +748,9 @@ function ComposerFrame({
     },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
+    // A Cloud start is out: the host carries the started chat's text, not its chips, so a file
+    // pasted, dropped or picked now is refused with this note rather than lost with this tab.
+    refusal: () => (cloudStarting ? t("composer.cloudStartingAttach") : undefined),
     // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
     pasteTarget: (target) =>
       shellField.current?.contains(target)
@@ -2669,6 +2672,8 @@ function ComposerFrame({
         originalFailures={originalFailures}
         onPasteFile={(file) => void attach([file], true, "paste")}
         onPasteFiles={(files) => void attach(files, true, "paste")}
+        pasteKeepsText={cloudStarting}
+        onPasteRefused={() => setAttachError(t("composer.cloudStartingAttach"))}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={

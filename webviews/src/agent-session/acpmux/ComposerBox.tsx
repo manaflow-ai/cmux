@@ -66,6 +66,10 @@ export type ComposerBoxProps = {
   onReorderAttachment?(id: string, index: number): void;
   /// Attaches a file as a pasted one is: a paste of text past what a prompt carries goes as one.
   onPasteFile?(file: MadeFile): void;
+  /// A large paste stays text, and one too long for that is refused (`onPasteRefused`), instead of a
+  /// chip or a file (a Cloud start's, composer/pastedChips.ts `keepsText`).
+  pasteKeepsText?: boolean;
+  onPasteRefused?(): void;
   /// Attaches files pasted from the pasteboard at the caret, as the intake's own paste does: a copy of
   /// a composer's text and attachments pasted back in its order (composer/composerCopy.ts).
   onPasteFiles?(files: File[]): void;
@@ -127,6 +131,8 @@ export function ComposerBox({
   onReorderAttachment,
   onPasteFile,
   onPasteFiles,
+  pasteKeepsText = false,
+  onPasteRefused,
   onPersonEdit,
   fieldMenu,
   onFieldMenuOpen,
@@ -170,6 +176,8 @@ export function ComposerBox({
   /// (attachmentIntake.tsx), so `place` reads this in the same call.
   const toStrip = useRef(false);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
+  const keepsTextNow = useRef({ keeps: pasteKeepsText, refused: onPasteRefused });
+  keepsTextNow.current = { keeps: pasteKeepsText, refused: onPasteRefused };
   const pastedChips = usePastedChips(
     attachmentsRef ?? ownAttachments,
     setAttachments,
@@ -183,6 +191,8 @@ export function ComposerBox({
           toStrip.current = false;
         }
       }),
+    () => keepsTextNow.current.keeps,
+    () => keepsTextNow.current.refused?.(),
   );
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
