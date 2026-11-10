@@ -1344,8 +1344,13 @@ _cmux_bash_read_last_history_entry() {
     _CMUX_BASH_HISTORY_TEXT=""
     [[ -n "${_CMUX_BASH_HISTORY_ENTRY_FILE:-}" ]] || return 1
     local line="" HISTTIMEFORMAT=
-    builtin history 1 >| "$_CMUX_BASH_HISTORY_ENTRY_FILE" 2>/dev/null || return 1
+    # The scratch file holds raw command text, so empty it after every read.
+    if ! builtin history 1 >| "$_CMUX_BASH_HISTORY_ENTRY_FILE" 2>/dev/null; then
+        : 2>/dev/null >| "$_CMUX_BASH_HISTORY_ENTRY_FILE" || true
+        return 1
+    fi
     IFS= read -r line < "$_CMUX_BASH_HISTORY_ENTRY_FILE" || line=""
+    : 2>/dev/null >| "$_CMUX_BASH_HISTORY_ENTRY_FILE" || true
     if [[ -z "$line" ]]; then
         _CMUX_BASH_HISTORY_NUMBER=0
         return 0
