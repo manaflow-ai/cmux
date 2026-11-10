@@ -232,74 +232,6 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(await capture.value == terminalError)
     }
 
-    /// A transport that delivers faster than the parser releases must slow down, not end the
-    /// stream: ending it is what turned a burst after a network drop into a full reconnect.
-    @Test(.timeLimit(.minutes(1))) func readerStopsReadingWhileTheConsumerHoldsAFullBuffer() async throws {
-        let pipe = Pipe()
-        let reader = RemoteTmuxProcessOutputReader(
-            label: "remote-tmux-process-output-reader-held-test",
-            maxPendingChunks: 64,
-            maxPendingBytes: 1000
-        )
-        let held = HeldOutputChunks()
-        reader.attach(to: pipe.fileHandleForReading)
-        let capture = Task.detached {
-            var data = Data()
-            for await chunk in reader.stream {
-                data.append(chunk)
-                if held.holdOrRelease(chunk) { reader.release(chunk) }
-            }
-            return data
-        }
-        defer {
-            reader.close()
-            try? pipe.fileHandleForWriting.close()
-            try? pipe.fileHandleForReading.close()
-        }
-
-        let payload = Data((0..<10_000).map { UInt8(truncatingIfNeeded: $0 &* 7) })
-        try pipe.fileHandleForWriting.write(contentsOf: payload)
-        try pipe.fileHandleForWriting.close()
-        try await Task.sleep(for: .milliseconds(300))
-
-        let heldBytes = held.byteCount
-        #expect(heldBytes > 0)
-        #expect(heldBytes <= 1000)
-        for chunk in held.stopHolding() { reader.release(chunk) }
-
-        #expect(await capture.value == payload)
-    }
-
-    @Test(.timeLimit(.minutes(1))) func processExitDrainsEveryByteToASlowConsumer() async throws {
-        let pipe = Pipe()
-        let reader = RemoteTmuxProcessOutputReader(
-            label: "remote-tmux-process-output-reader-slow-drain-test",
-            maxPendingChunks: 2,
-            maxPendingBytes: 1000
-        )
-        reader.attach(to: pipe.fileHandleForReading)
-        let capture = Task.detached {
-            var data = Data()
-            for await chunk in reader.stream {
-                data.append(chunk)
-                try? await Task.sleep(for: .milliseconds(2))
-                reader.release(chunk)
-            }
-            return data
-        }
-        defer {
-            reader.close()
-            try? pipe.fileHandleForWriting.close()
-            try? pipe.fileHandleForReading.close()
-        }
-
-        let payload = Data((0..<10_000).map { UInt8(truncatingIfNeeded: $0 &* 13) })
-        try pipe.fileHandleForWriting.write(contentsOf: payload)
-        reader.processDidExit()
-
-        #expect(await capture.value == payload)
-    }
-
     @Test func backgroundDisplayPaneCreationPreservesSelectedSurface() throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
@@ -542,34 +474,5 @@ struct RemoteTmuxMirrorLifecycleTests {
         )
         #expect(!activity.hasActiveCommand)
         #expect(activity.activeCommandName == nil)
-    }
-}
-
-/// Chunks a test consumer keeps unreleased until the test lets go of them.
-private final class HeldOutputChunks: @unchecked Sendable {
-    private let lock = NSLock()
-    private var chunks: [Data] = []
-    private var holding = true
-
-    var byteCount: Int {
-        lock.withLock { chunks.reduce(0) { $0 + $1.count } }
-    }
-
-    /// Keeps the chunk while holding; returns true when the caller should release it now.
-    func holdOrRelease(_ chunk: Data) -> Bool {
-        lock.withLock {
-            guard holding else { return true }
-            chunks.append(chunk)
-            return false
-        }
-    }
-
-    /// Stops holding and hands back what was held, for the caller to release.
-    func stopHolding() -> [Data] {
-        lock.withLock {
-            holding = false
-            defer { chunks = [] }
-            return chunks
-        }
     }
 }
