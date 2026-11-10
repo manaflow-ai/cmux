@@ -97,7 +97,9 @@ await requireBrowserLane("chat-scroll-back-still.test.ts", async () => {
       const before = new Map((was.rows ?? []).map((row) => [row.id, row.top + was.scrollTop - was.lag]));
       for (const row of now.rows ?? []) {
         const at = before.get(row.id);
-        if (at === undefined) continue;
+        // What the reader sees: a row in the view, over the composer (a row under the glass composer
+        // is the reply's live end, which streams on under it).
+        if (at === undefined || !row.inView || row.top >= (now.composer ?? Number.POSITIVE_INFINITY)) continue;
         const shift = Math.abs(row.top + now.scrollTop - now.lag - at);
         if (shift > drift) {
           drift = shift;
