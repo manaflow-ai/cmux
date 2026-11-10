@@ -206,8 +206,9 @@ public final class CornerFlushChrome: NSView {
         wedges.frame = bounds
         var card = drawn.card
         card.size.height = max(0, card.height - Metrics.tabStripHeight) // the top is maxY
-        // No shown strip on the card's top (vertical tabs hide it): no tab row, so the card is the whole
-        // content, rounded on every corner, with no wedges and no shade band where the strip was.
+        // The shown strips do not span the card's top (a pane's vertical tabs or hidden tab bar): no one
+        // tab row, so the card is the whole content, rounded on every corner, with no wedges and no shade
+        // band over a pane's own content.
         guard hasTopStrip(card: card, in: root) else {
             wedges.path = nil
             if let content { Self.roundBottomOnly(content, false) }
@@ -222,12 +223,20 @@ public final class CornerFlushChrome: NSView {
         shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
     }
 
-    /// Whether a shown strip of this window sits on the card's top edge. O(strips): a window's strips, not its tabs.
+    /// Whether this window's shown strips on the card's top edge span it, side to side (a pane gap
+    /// apart at most): a pane that hides its strip (vertical tabs, a hidden tab bar) leaves its content
+    /// at the top, where a wedge or the tab row's shade would cover it. O(strips log strips): a window's
+    /// strips, not its tabs.
     private func hasTopStrip(card: CGRect, in root: NSView) -> Bool {
-        strips.allObjects.contains { object in
-            guard let strip = object as? any TabStripCorner & NSView, strip.window === root.window, !strip.isHiddenOrHasHiddenAncestor else { return false }
-            return abs(root.convert(strip.cornerFrameInWindow, from: nil).minY - card.maxY) < 2
-        }
+        let spans = strips.allObjects.compactMap { object -> (CGFloat, CGFloat)? in
+            guard let strip = object as? any TabStripCorner & NSView, strip.window === root.window, !strip.isHiddenOrHasHiddenAncestor else { return nil }
+            let frame = root.convert(strip.cornerFrameInWindow, from: nil)
+            return abs(frame.minY - card.maxY) < 2 ? (frame.minX, frame.maxX) : nil
+        }.sorted { $0.0 < $1.0 }
+        let gap = Metrics.scale(2 * LayoutGrid.base) + 1
+        var reached = card.minX
+        for (minX, maxX) in spans where minX <= reached + gap { reached = max(reached, maxX) }
+        return !spans.isEmpty && reached >= card.maxX - gap
     }
 
     /// Whether the shown strip at the card's top corner on the sidebar's side selects its first tab.
