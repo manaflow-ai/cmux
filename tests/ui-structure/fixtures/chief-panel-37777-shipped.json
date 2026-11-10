@@ -1,0 +1,367 @@
+{
+ "surface": "chief-panel",
+ "source": "the shipped cmux NIGHTLY's Chief panel with #37777 (b266fb6), Leo's screenshot 2026-11-10 02:26 PST, measured by hand at 1.036 px/pt",
+ "surface_frame": [
+  234.6,
+  30.9,
+  1121.6,
+  1367.8
+ ],
+ "thread_frame": [
+  321.4,
+  30.9,
+  1034.7,
+  1315.6
+ ],
+ "messages": [
+  {
+   "frame": [
+    820.5,
+    36.7,
+    535.7,
+    330.1
+   ],
+   "mine": false,
+   "sender": "Chief",
+   "text": "Attachment: screenshot",
+   "kind": "attachment",
+   "tail": null
+  },
+  {
+   "frame": [
+    342.7,
+    144.8,
+    625.5,
+    108.1
+   ],
+   "mine": false,
+   "sender": "Chief",
+   "text": "a1096: Hide \"acpmux\" in the GUI ~70%, on a-hide-acpmux, rebase and side-branch push are running",
+   "kind": "text",
+   "tail": null
+  },
+  {
+   "frame": [
+    342.7,
+    301.2,
+    625.5,
+    96.5
+   ],
+   "mine": false,
+   "sender": "Chief",
+   "text": "Needs you: power-cycle the Mac mini cmux-lawrence (offline 9h).\na1057: stale \"lin-shell2\" cursor ~60%",
+   "kind": "text",
+   "tail": null
+  },
+  {
+   "frame": [
+    342.7,
+    439.2,
+    625.5,
+    111.0
+   ],
+   "mine": false,
+   "sender": "Chief",
+   "text": "Needs you: power-cycle the Mac mini cmux-lawrence (offline 9h).\nRemove onboarding ~60%: ready on a-no-onboarding",
+   "kind": "text",
+   "tail": null
+  },
+  {
+   "frame": [
+    342.7,
+    598.5,
+    625.5,
+    91.7
+   ],
+   "mine": false,
+   "sender": "Chief",
+   "text": "a1082: Cmd+W like Chrome ~75%, not landed.",
+   "kind": "text",
+   "tail": null
+  },
+  {
+   "frame": [
+    342.7,
+    725.9,
+    625.5,
+    94.6
+   ],
+   "mine": false,
+   "sender": "Chief",
+   "text": "a1091: Consistent font and icon sizes ~65%, not landed.",
+   "kind": "text",
+   "tail": null
+  },
+  {
+   "frame": [
+    342.7,
+    856.2,
+    625.5,
+    92.7
+   ],
+   "mine": false,
+   "sender": "Chief",
+   "text": "a1092: Crash #40144 ~90%, not landed yet.",
+   "kind": "text",
+   "tail": null
+  },
+  {
+   "frame": [
+    342.7,
+    984.6,
+    625.5,
+    123.6
+   ],
+   "mine": false,
+   "sender": "Chief",
+   "text": "Needs you: power-cycle the Mac mini cmux-lawrence (offline 9h).\nMaximize indicator ~60%",
+   "kind": "text",
+   "tail": null
+  },
+  {
+   "frame": [
+    698.8,
+    1145.8,
+    442.1,
+    47.3
+   ],
+   "mine": true,
+   "sender": "You",
+   "text": "latest nightly chief UI got completely cooked we have massive regression what happened",
+   "kind": "text",
+   "tail": null
+  }
+ ],
+ "avatars": [
+  {
+   "frame": [
+    246.1,
+    96.5,
+    60.8,
+    62.7
+   ],
+   "label": "Chief"
+  },
+  {
+   "frame": [
+    248.1,
+    207.5,
+    56.0,
+    57.9
+   ],
+   "label": "CC"
+  },
+  {
+   "frame": [
+    248.1,
+    311.8,
+    56.0,
+    57.9
+   ],
+   "label": "CF"
+  },
+  {
+   "frame": [
+    248.1,
+    417.0,
+    56.0,
+    57.9
+   ],
+   "label": "CH"
+  },
+  {
+   "frame": [
+    248.1,
+    522.2,
+    56.0,
+    57.9
+   ],
+   "label": "CH"
+  },
+  {
+   "frame": [
+    246.1,
+    627.4,
+    60.8,
+    59.8
+   ],
+   "label": "t messaging"
+  },
+  {
+   "frame": [
+    248.1,
+    733.6,
+    56.0,
+    57.9
+   ],
+   "label": "ME"
+  },
+  {
+   "frame": [
+    248.1,
+    837.8,
+    56.0,
+    57.9
+   ],
+   "label": "ME"
+  },
+  {
+   "frame": [
+    248.1,
+    943.1,
+    56.0,
+    57.9
+   ],
+   "label": "AA"
+  },
+  {
+   "frame": [
+    248.1,
+    1047.3,
+    56.0,
+    57.9
+   ],
+   "label": "AW"
+  },
+  {
+   "frame": [
+    248.1,
+    1152.5,
+    56.0,
+    57.9
+   ],
+   "label": "AW"
+  },
+  {
+   "frame": [
+    248.1,
+    1256.8,
+    56.0,
+    57.9
+   ],
+   "label": "TS"
+  }
+ ],
+ "side_elements": [
+  {
+   "frame": [
+    246.1,
+    96.5,
+    60.8,
+    62.7
+   ],
+   "role": "AXButton",
+   "label": "Chief"
+  },
+  {
+   "frame": [
+    248.1,
+    207.5,
+    56.0,
+    57.9
+   ],
+   "role": "AXButton",
+   "label": "CC"
+  },
+  {
+   "frame": [
+    248.1,
+    311.8,
+    56.0,
+    57.9
+   ],
+   "role": "AXButton",
+   "label": "CF"
+  },
+  {
+   "frame": [
+    248.1,
+    417.0,
+    56.0,
+    57.9
+   ],
+   "role": "AXButton",
+   "label": "CH"
+  },
+  {
+   "frame": [
+    248.1,
+    522.2,
+    56.0,
+    57.9
+   ],
+   "role": "AXButton",
+   "label": "CH"
+  },
+  {
+   "frame": [
+    246.1,
+    627.4,
+    60.8,
+    59.8
+   ],
+   "role": "AXButton",
+   "label": "t messaging"
+  },
+  {
+   "frame": [
+    248.1,
+    733.6,
+    56.0,
+    57.9
+   ],
+   "role": "AXButton",
+   "label": "ME"
+  },
+  {
+   "frame": [
+    248.1,
+    837.8,
+    56.0,
+    57.9
+   ],
+   "role": "AXButton",
+   "label": "ME"
+  },
+  {
+   "frame": [
+    248.1,
+    943.1,
+    56.0,
+    57.9
+   ],
+   "role": "AXButton",
+   "label": "AA"
+  },
+  {
+   "frame": [
+    248.1,
+    1047.3,
+    56.0,
+    57.9
+   ],
+   "role": "AXButton",
+   "label": "AW"
+  },
+  {
+   "frame": [
+    248.1,
+    1152.5,
+    56.0,
+    57.9
+   ],
+   "role": "AXButton",
+   "label": "AW"
+  },
+  {
+   "frame": [
+    248.1,
+    1256.8,
+    56.0,
+    57.9
+   ],
+   "role": "AXButton",
+   "label": "TS"
+  }
+ ]
+}

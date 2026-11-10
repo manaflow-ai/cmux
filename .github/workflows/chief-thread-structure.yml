@@ -1,0 +1,78 @@
+name: chief thread structure
+
+# The Chief thread's structure guard (tests/ui-structure/chief-thread.json; the prose is cmuxterm-hq
+# docs/design/chief-thread.md). Leo, 2026-11-10, on a nightly whose Chief panel was an avatar column
+# beside grey cards (#37777): "latest nightly chief UI got completely cooked we have massive
+# regression what happened" ... "Where's the spec for that? Where's the iMessage".
+#
+#   spec    (Linux)  the checker on recorded threads: the shipped #37777 Chief panel fails on exactly
+#                    its regression, the native transcript's gallery variants pass.
+#   native  (macOS)  the native transcript (MessagesLab) rendered at each gallery width, read through
+#                    its accessibility tree, checked; the snapshots and stills are the run's artifact.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "tests/ui-structure/**"
+      - ".github/workflows/chief-thread-structure.yml"
+      # The transcript and the shared pieces it draws with.
+      - "Packages/Shared/CmuxMessagesLab/**"
+      - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxHomeRender/**"
+      # The Chief panel, conversation tabs and Home that host it.
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextHome/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextChiefViews/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/Chief*.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextPages/HomeMessagesPageRoute.swift"
+      # The web Messages page and its data layer, wherever they host a thread.
+      - "webviews/src/pages/home-messages/**"
+      - "webviews/src/pages/home-channels/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chief-thread-structure-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  spec:
+    name: chief thread structure (spec)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: tests/ui-structure
+      - name: The checker on recorded threads
+        run: python3 -I tests/ui-structure/test_thread_structure.py
+
+  native:
+    name: chief thread structure (native transcript)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: The native transcript's gallery variants against the spec
+        env:
+          CHIEF_THREAD_GALLERY_DIR: ${{ runner.temp }}/chief-thread-gallery
+        run: |
+          set -euo pipefail
+          xcrun swift --version
+          xcrun swift test --package-path Packages/Shared/CmuxMessagesLab --filter ChiefThreadStructureTests
+      - name: Keep the gallery
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chief-thread-gallery-native
+          path: ${{ runner.temp }}/chief-thread-gallery
+          if-no-files-found: ignore
+          retention-days: 14
+

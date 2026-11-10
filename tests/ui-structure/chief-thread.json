@@ -1,0 +1,58 @@
+{
+  "$comment": "The Chief thread's structure, machine-readable (cmuxterm-hq docs/design/chief-thread.md is the prose). tests/ui-structure/thread_structure.py checks a thread snapshot against it. Geometry is in points, from the accessibility tree, so it holds whichever renderer draws the thread (the native transcript, a web page). Numbers come from the native transcript at b266fb6^ (Packages/Shared/CmuxMessagesLab Vendor/catalyst/Fixture.swift and Layout.swift Metrics), which matches macOS Messages.",
+  "version": 1,
+  "surfaces": {
+    "chief-panel": {"single_conversation": true, "$comment": "The Chief panel: one conversation, no list column."},
+    "conversation-tab": {"single_conversation": true, "$comment": "A conversation tab: one conversation, no list column."},
+    "home": {"single_conversation": false, "$comment": "The docked Home Messages view: the list column on the left is allowed; the thread right of it obeys every other rule."}
+  },
+  "thread": {
+    "$comment": "The thread is one accessibility container named Messages (an AXList natively, a labelled region or log on the web). Its messages are its elements with role description 'message' (title: the sender, 'You' for mine) or, on the web, the bubble groups inside it.",
+    "container_names": ["Messages"],
+    "message_role_description": "message",
+    "mine_sender": "You",
+    "surface_edge_slack": 8
+  },
+  "bubble": {
+    "$comment": "Text column: 358.4 pt at a 628 pt thread, plus 0.654 pt per point of width (below 434 pt it keeps its 434 pt share). A bubble is the column plus 12 pt of padding each side.",
+    "text_column_at": 628,
+    "text_column": 358.4,
+    "text_column_slope": 0.654,
+    "narrow_below": 434,
+    "pad_x": 12,
+    "width_slack": 6,
+    "full_width_fraction": 0.85
+  },
+  "alignment": {
+    "$comment": "Mine hug the right edge (20 pt side, 6 pt tail); others the left, after the 36 pt avatar column in a group.",
+    "side": 20,
+    "tail_reach": 6,
+    "avatar_column": 36,
+    "slack": 16
+  },
+  "avatar": {
+    "$comment": "An avatar sits inside the thread, beside the last bubble of an incoming run: bottom-aligned with it, just left of it.",
+    "bottom_slack": 8,
+    "max_gap": 16
+  },
+  "attachment": {
+    "$comment": "Inline at bubble size: never wider than a link preview (350 pt), never wider than the bubble column.",
+    "max_width": 350,
+    "width_slack": 6
+  },
+  "needs_you": {
+    "$comment": "A Needs you item is one inline card or bubble in the thread, said once; the same item never repeats as the heading of several cards.",
+    "prefixes": ["Needs you"]
+  },
+  "rules": [
+    {"id": "thread-present", "says": "The surface has one thread container named Messages."},
+    {"id": "no-side-column", "says": "A single-conversation surface's thread spans it edge to edge: no list or avatar column beside it."},
+    {"id": "avatar-inline", "says": "Every avatar sits inside the thread, bottom-aligned with an incoming bubble and just left of it."},
+    {"id": "bubble-max-width", "says": "No bubble is wider than the bubble column for the thread's width."},
+    {"id": "bubble-not-full-width", "says": "No message is a full-width card."},
+    {"id": "sender-aligned", "says": "Mine hug the right edge, others the left."},
+    {"id": "attachment-bubble-size", "says": "Attachments are inline, inside the thread, at bubble size."},
+    {"id": "needs-you-once", "says": "A Needs you item shows once, inline, not as a repeated heading."},
+    {"id": "tail-on-run-end", "says": "Where tails are reported, the last bubble of each run has one and no other bubble does."}
+  ]
+}
