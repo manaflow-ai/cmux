@@ -236,7 +236,7 @@ fn the_owners_start_waits_for_a_starting_acpmuxs_catalog() {
 fn the_owners_start_survives_acpmux_restarting_under_it() {
     let mode = Arc::new(Mutex::new("default".to_owned()));
     let floor = PhoneFloor { strict: true, family: "claude", mode, stuck: false, table_gate: None };
-    let hang_ups = Arc::new(std::sync::atomic::AtomicU64::new(2));
+    let hang_ups = Arc::new(AtomicU64::new(2));
     let restarting = Fixture { catalog_hang_ups: hang_ups.clone(), ..Default::default() };
     let mut owner = connect_fixture("catalog-restart", false, floor, restarting);
     let start = json!({"cmd":"agent-session-start","surface":owner.surface,"cwd":owner.cwd,
@@ -245,7 +245,7 @@ fn the_owners_start_survives_acpmux_restarting_under_it() {
     let started = owner.client.answer_within(id, Duration::from_secs(30));
     assert_eq!(started["ok"], json!(true), "{started}");
     assert_eq!(started["data"]["session"], json!(SESSION));
-    assert_eq!(hang_ups.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(hang_ups.load(Ordering::SeqCst), 0);
     let methods = owner.methods();
     assert_eq!(methods.iter().filter(|m| *m == "_acpmux/harnesses").count(), 3, "{methods:?}");
     assert!(methods.contains(&"session/new".to_owned()), "{methods:?}");
