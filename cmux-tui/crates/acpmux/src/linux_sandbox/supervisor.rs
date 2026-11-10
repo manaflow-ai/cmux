@@ -1110,6 +1110,84 @@ mod tests {
         ));
     }
 
+    /// Claude Code 2.1.322 makes its scratch folders through
+    /// `/proc/self/fd/<O_PATH dirfd>/<name>`. The prefix resolves to the held
+    /// directory's walked path, and the rest is walked from there.
+    #[test]
+    fn proc_fd_directory_prefix_resolves_through_the_held_directory() {
+        let fixture = Fixture::new();
+        let held =
+            open_at(AT_FDCWD, fixture.0.join("a").to_str().unwrap(), O_PATH | O_DIRECTORY, 0)
+                .expect("held directory");
+        let number = held.as_raw_fd();
+        let pid = nspid();
+        let root = fixture.0.display();
+        for prefix in [
+            format!("/proc/self/fd/{number}"),
+            format!("/proc/thread-self/fd/{number}"),
+            format!("/dev/fd/{number}"),
+        ] {
+            let resolved = resolve(
+                task().as_raw_fd(),
+                AT_FDCWD,
+                &format!("{prefix}/new"),
+                O_PATH | O_NOFOLLOW,
+                &pid,
+            )
+            .unwrap_or_else(|e| panic!("{prefix}/new: errno {e}"));
+            assert_eq!(resolved.logical, format!("{root}/a/new"));
+            assert_eq!(resolved.name, "new");
+            assert!(resolved.object.is_none());
+            let nested = resolve(
+                task().as_raw_fd(),
+                AT_FDCWD,
+                &format!("{prefix}/b/new"),
+                O_CREAT | O_WRONLY,
+                &pid,
+            )
+            .expect("nested name under the held directory");
+            assert_eq!(nested.logical, format!("{root}/a/b/new"));
+            // `..` leaves the held directory and is checked where it lands.
+            let escaped = resolve(
+                task().as_raw_fd(),
+                AT_FDCWD,
+                &format!("{prefix}/../.git/config"),
+                O_WRONLY,
+                &pid,
+            )
+            .expect("dotdot from the held directory");
+            assert_eq!(escaped.logical, format!("{root}/.git/config"));
+        }
+        // Only a live, named directory can be a prefix.
+        let file = fs::File::open(fixture.0.join(".git/config")).expect("regular file");
+        let (socket, _peer) = std::os::unix::net::UnixStream::pair().expect("anonymous socket");
+        for fd in [file.as_raw_fd(), socket.as_raw_fd()] {
+            assert!(
+                resolve(
+                    task().as_raw_fd(),
+                    AT_FDCWD,
+                    &format!("/proc/self/fd/{fd}/new"),
+                    O_CREAT | O_WRONLY,
+                    &pid
+                )
+                .is_err(),
+                "non-directory fd {fd} accepted as a prefix"
+            );
+        }
+        // A symlink back into the same prefix is bounded like any symlink loop.
+        symlink(format!("/proc/self/fd/{number}/loop"), fixture.0.join("a/loop")).unwrap();
+        assert!(matches!(
+            resolve(
+                task().as_raw_fd(),
+                AT_FDCWD,
+                &format!("/proc/self/fd/{number}/loop/x"),
+                O_CREAT | O_WRONLY,
+                &pid
+            ),
+            Err(ELOOP)
+        ));
+    }
+
     #[test]
     fn policy_is_checked_on_the_walked_logical_path() {
         let fixture = Fixture::new();
