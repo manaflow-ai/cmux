@@ -35,6 +35,29 @@ wrong release cannot be fixed by replacing it, so verify before
 `gh release create`. Emergency exit only: an admin deletes ruleset 24624527
 (the rollback lines are in the coordinator's window log), then restores it.
 
+## A pull request that changes FFI inputs
+
+A release is published only from a `feat-cmux-next` push: the `ffi-release`
+environment allows only that branch, and the `cmux-app-ffi-*` tags cannot
+change. So a pull request cannot pin a release of its own FFI sources, and
+"Check the app FFI pin" is red on every pull request that changes an FFI input
+(`scripts/cmux-next/check-app-ffi-pin.sh --list-inputs`). If this PR changes
+FFI inputs: split it into a Rust-only step A and a Swift step B after the
+re-pin.
+
+1. **Step A: the Rust change only.** Make it additive, so that the Swift on
+   `feat-cmux-next` keeps working with the new Rust. Do not change Swift,
+   `Package.swift` or `app-ffi-pin.json`. The merge gate excuses the stale-pin
+   red of such a PR (`scripts/ci/base_red_excuse.py`, the step-A rule). After
+   the merge, `app-ffi-release.yml` publishes the release and the re-pin bot
+   opens the re-pin pull request (branch `app-ffi-repin`). The merge queue
+   merges the re-pin first.
+2. **Step B: the Swift change,** after the re-pin merges. Its FFI inputs then
+   equal the pinned source, so the pin check passes.
+
+If the Rust change cannot be additive (the old Swift breaks with it), tell
+the coordinator before you split.
+
 ## Steps
 
 Set the landed sha and the run. The run must be `app FFI release` on exactly
