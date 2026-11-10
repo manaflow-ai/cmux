@@ -1282,6 +1282,61 @@ struct ComputerUseUXTests {
     }
 
     @Test
+    func permissionSetupReleasesAllowWhenItFinishes() {
+        var setup = ComputerUsePermissionSetupRequest()
+        #expect(setup.begin(.screenRecording))
+        let generation = setup.generation
+        #expect(setup.isInFlight)
+        #expect(!setup.begin(.accessibility))
+        #expect(setup.activeStep == .screenRecording)
+        #expect(setup.generation == generation)
+
+        setup.finish(generation: generation &- 1)
+        #expect(setup.isInFlight)
+        setup.finish(generation: generation)
+        #expect(!setup.isInFlight)
+        #expect(ComputerUsePermissionRowAction.isButtonEnabled(
+            helperIsReady: true,
+            permissionSetupInFlight: setup.isInFlight
+        ))
+    }
+
+    @Test
+    func unavailableDirectCaptureRetriesAutomaticallyOnlyOnce() {
+        var verification = ComputerUseDirectCaptureAutoVerification()
+        #expect(verification.shouldVerifyAutomatically)
+        verification.began()
+        #expect(!verification.shouldVerifyAutomatically)
+
+        verification.recordUnavailable()
+        #expect(verification.shouldVerifyAutomatically)
+        verification.began()
+        verification.recordUnavailable()
+        #expect(!verification.shouldVerifyAutomatically)
+
+        verification.reset()
+        #expect(verification.shouldVerifyAutomatically)
+    }
+
+    @Test
+    func screenshotsRowSaysWhyAllowIsDisabledOrHowToRetry() {
+        func detail(inFlight: Bool, attempted: Bool, ready: Bool = false, granted: Bool = true) -> ComputerUseScreenshotsCardDetail {
+            .resolve(
+                statusIsKnown: true,
+                screenRecordingGranted: granted,
+                directCaptureReady: ready,
+                verificationInFlight: inFlight,
+                verificationAttempted: attempted
+            )
+        }
+        #expect(detail(inFlight: false, attempted: false, granted: false) == .explainScreenshots)
+        #expect(detail(inFlight: false, attempted: false) == .confirmInMacOS)
+        #expect(detail(inFlight: true, attempted: true) == .waitingForMacOSAlert)
+        #expect(detail(inFlight: false, attempted: true) == .retry)
+        #expect(detail(inFlight: false, attempted: true, ready: true) == .explainScreenshots)
+    }
+
+    @Test
     func permissionRowsRemainActionableWhileTheHelperIsBeingPrepared() {
         #expect(ComputerUsePermissionRowAction.isButtonEnabled(
             helperIsReady: false,
