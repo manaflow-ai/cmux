@@ -1214,3 +1214,100 @@ fn pairing_request_resources_require_a_trusted_local_connection() {
     assert_eq!(listed["result"].as_array().unwrap().len(), 1);
     assert_eq!(listed["result"][0]["code"], challenge.code);
 }
+
+/// A journal subscriber never gets a silent hole: a replay from the
+/// beginning starts at the first retained record, a cursor older than the
+/// retained journal gets `cursor.gap` with the oldest revision it can read
+/// from, and that revision gets the replay to the head.
+#[cfg(unix)]
+#[test]
+fn a_journal_subscriber_with_an_old_cursor_gets_cursor_gap() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-journal-retention-gap-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = Mux::open_persistent("retention-gap", SurfaceOptions::default(), &root).unwrap();
+    mux.stop_journal_maintenance();
+    // 24 checkpoints, each after 256 records and each with the worker's
+    // ticks: the newest 16 stay, and the records pass the 4,096 after which
+    // the agent history fold saves its cursor.
+    for cycle in 0..24_u64 {
+        for index in 0..256_u64 {
+            mux.state_project_observe(
+                &crate::workspace_registry::WorkspaceMutation::daemon_local("retention-test"),
+                "acpmux",
+                &json!([{
+                    "path": "/srv/cmux-retention/alpha",
+                    "last_used_ms": (1_000 + cycle * 256 + index).to_string(),
+                }]),
+                true,
+            )
+            .unwrap();
+        }
+        mux.create_journal_checkpoint("retention-test", &format!("retention-gap-{cycle}")).unwrap();
+        for _ in 0..2 {
+            mux.run_journal_maintenance_for_test();
+        }
+    }
+    let head = mux.session_journal_head().unwrap();
+
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let subscribe = |request_id: &str, stream_id: &str, position: Value| {
+        let mut params = json!({
+            "machine":"current",
+            "session":"current",
+            "stream_id":stream_id,
+            "follow":false,
+            "filter":journal_subscription_filter(
+                JournalSensitivity::Sensitive,
+                json!({"kinds":["no.such.kind"]}),
+            ),
+        });
+        for (key, value) in position.as_object().unwrap() {
+            params[key] = value.clone();
+        }
+        let open = resource_request(request_id, "session.journal.subscribe", params, None);
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+        pop_json(&outbound)
+    };
+
+    let opened = subscribe(
+        "journal-retention-whole",
+        "stream_00000000000000000000000000000051",
+        json!({"start":"beginning"}),
+    );
+    assert_eq!(opened["ok"], true, "{opened}");
+    let end = pop_json(&outbound);
+    assert_eq!(end["reason"], "completed", "{end}");
+    assert_eq!(end["cursor"]["revision"], head.to_string());
+    let generation = end["cursor"]["generation"].clone();
+
+    let old = subscribe(
+        "journal-retention-old",
+        "stream_00000000000000000000000000000052",
+        json!({"cursor":{"generation":generation, "revision":"1"}}),
+    );
+    println!("journal_retention_gap: head={head} answer to cursor 1: {old}");
+    assert_eq!(old["error"]["code"], "cursor.gap", "{old}");
+    let oldest: u64 = old["error"]["details"]["oldest_revision"].as_str().unwrap().parse().unwrap();
+    assert!(oldest > 1 && oldest < head, "{old}");
+    assert_eq!(old["error"]["details"]["current"]["revision"], head.to_string());
+
+    // The oldest revision the error names is one the subscriber can use.
+    let retained = subscribe(
+        "journal-retention-retained",
+        "stream_00000000000000000000000000000053",
+        json!({"cursor":{"generation":generation, "revision":oldest.to_string()}}),
+    );
+    assert_eq!(retained["ok"], true, "{retained}");
+    let end = pop_json(&outbound);
+    assert_eq!(end["reason"], "completed", "{end}");
+    assert_eq!(end["cursor"]["revision"], head.to_string());
+
+    assert!(disconnect_client(&mux, client, false));
+    drop(scheduler);
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}

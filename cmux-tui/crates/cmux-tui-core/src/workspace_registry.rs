@@ -44,6 +44,7 @@ mod browser_profile_proxy;
 pub(crate) mod history_check;
 mod idle_policy_store;
 mod journal_extensions;
+pub(crate) mod journal_retention;
 mod mutation_ledger;
 pub(crate) mod mutation_ledger_retention;
 mod open_guard;

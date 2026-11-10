@@ -2138,8 +2138,11 @@ fn archived_records_after(
                 "journal segments contain a gap before sequence {start_sequence}"
             );
         } else {
+            // Retention deleted the segments before this one: the read goes
+            // on from the first retained record.
             anyhow::ensure!(
-                start_sequence <= sequence.saturating_add(1),
+                start_sequence <= sequence.saturating_add(1)
+                    || pruned_gap(connection, sequence, start_sequence)?,
                 "journal segments contain a gap before sequence {start_sequence}"
             );
         }

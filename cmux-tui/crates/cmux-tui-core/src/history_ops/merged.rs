@@ -41,10 +41,14 @@ const LIST_FOLD_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 /// The registry key (`journal_reducer.<id>` in `meta`) of the saved agent
 /// fold: its sessions and the journal cursor they reached. A restart folds
 /// only the records after that cursor, never the whole journal again.
-const AGENT_FOLD_STATE_ID: &str = "history.agent_sessions";
+pub(crate) const AGENT_FOLD_STATE_ID: &str = "history.agent_sessions";
 /// Bump when the saved fold's shape or meaning changes: a saved fold of
-/// another version is dropped and the journal folded again.
-const AGENT_FOLD_STATE_VERSION: u32 = 1;
+/// another version is dropped and the journal folded again. Journal
+/// retention (`workspace_registry::journal_retention`) deletes the records
+/// below this fold's saved cursor, so the fold starts at the first RETAINED
+/// record: a bump must migrate the saved fold, or the agent sessions older
+/// than the retained journal leave the History list.
+pub(crate) const AGENT_FOLD_STATE_VERSION: u32 = 1;
 /// A long fold (the first one over a large journal) saves its progress at
 /// least every this many journal sequences, so a restart midway keeps it.
 const SAVE_STRIDE: u64 = 50_000;
@@ -145,10 +149,17 @@ impl HistoryHost {
     /// cursor moved only by terminal output is not worth a write each
     /// commit). Call with the turn held.
     pub(super) fn save(&self, mux: &Mux) {
+        self.save_past(mux, SAVE_STRIDE);
+    }
+
+    /// [`Self::save`] with another stride: journal retention keeps every
+    /// record after the saved cursor, so the maintenance worker saves it
+    /// more often. Call with the turn held.
+    pub(super) fn save_past(&self, mux: &Mux, stride: u64) {
         let (cursor, snapshot) = {
             let state = self.lock();
-            let due = state.unsaved_agents
-                || state.cursor.saturating_sub(state.saved_cursor) >= SAVE_STRIDE;
+            let due =
+                state.unsaved_agents || state.cursor.saturating_sub(state.saved_cursor) >= stride;
             if state.cursor <= state.saved_cursor || !due {
                 return;
             }

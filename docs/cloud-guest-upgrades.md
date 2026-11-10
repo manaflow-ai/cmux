@@ -129,6 +129,19 @@ else is image-only: design it so old machines keep working without it.
   start on the new registry. To roll back in that window, stop the daemon and
   rename the `.pre-output-cleanup` file over the registry (remove its `-wal`
   and `-shm` files first).
+- **Journal retention is one-way.** The maintenance worker deletes sealed
+  journal segments, and the index, receipt and kept reducer rows of their
+  records, at or below a floor that no reader needs (the newest 16
+  checkpoints, the saved agent roster and agent history cursors, every hook
+  cursor). The deleted prefix is one `journal_pruned_ranges` row from
+  sequence 1 and the `meta` key `journal_retention_floor`. There is no schema
+  version change, so an older build still opens the registry. With the same
+  agent roster reducer version it restores its saved roster and reads only
+  above the floor. With another reducer version it folds the roster again
+  from the records that are left, so agents whose records are all below the
+  floor are missing from its roster, and its journal reads from a cursor
+  below the floor end with a gap error. A rollback after retention ran is
+  degraded in that way; there is no file to rename back.
 - **Startup time is data-dependent.** A daemon replays its journal and adopts
   hosts before it listens; a 12 GB journal took about 3 minutes (2026-09-28).
   Nothing that waits for a daemon may assume seconds.

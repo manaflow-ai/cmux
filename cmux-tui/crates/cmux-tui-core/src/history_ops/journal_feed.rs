@@ -163,6 +163,19 @@ pub(super) fn catch_up(mux: &Mux, deadline: Option<Instant>) -> anyhow::Result<C
     Ok(CaughtUp { changed, complete })
 }
 
+/// [`catch_up`] until `deadline`, then a save of the fold when its cursor is
+/// `stride` records past the saved one (merged.rs `save_past`).
+pub(super) fn catch_up_and_save(
+    mux: &Mux,
+    deadline: Instant,
+    stride: u64,
+) -> anyhow::Result<CaughtUp> {
+    let caught = catch_up(mux, Some(deadline))?;
+    let _turn = mux.history.turn();
+    mux.history.save_past(mux, stride);
+    Ok(caught)
+}
+
 /// Starts the session's history feed once, when the shared journal is on.
 pub(super) fn start(mux: &Arc<Mux>) {
     if !mux.shared_journal_enabled() || mux.daemon_shutdown_requested() {
