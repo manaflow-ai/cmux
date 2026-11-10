@@ -240,6 +240,28 @@ mod launcher_modes {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// The local person gates believe no `agentInfo` either: the CLI (not the person) may not move
+    /// an agent of family `lane` that names itself `claude-stdio` into `plan` or `default`, as it
+    /// may on a configured `claude-stdio` profile (review of #40365).
+    #[tokio::test]
+    async fn the_cli_moves_no_agent_that_names_itself_claude_into_claudes_modes() {
+        let (hub, d) = web_hub("impostor-cli");
+        let mut cli = Client::new(&hub);
+        let r = cli
+            .call(
+                "session/new",
+                json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": "impostor"}}}),
+            )
+            .await;
+        let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+        assert_eq!(cli.mode(&id).await, "default");
+        let set = cli.call("session/set_mode", json!({"sessionId": id, "modeId": "plan"})).await;
+        assert_eq!(set["error"]["data"]["reason"], json!("permission.person_required"), "{set}");
+        assert_eq!(cli.mode(&id).await, "default");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     /// From a remote (Web) connection, a launcher profile of Claude Code gets exactly Claude's set.
     ///
     /// A start from the Web passes the mode gate as `claude`'s does: both get the same outcome,
