@@ -285,14 +285,14 @@ test("New Tab widgets list their interface, mount only placed ones and save the 
   expect(owner.getView().panels.length).toBe(3);
   expect(owner.getView().mounted).toEqual([]);
   expect(mock.mounted).toBe(0);
-  const clock = "app:example/clock#cmux.newtab.widget/1";
+  const clock = "app:manaflow-ai/clock#cmux.newtab.widget/1";
   owner.setLayout(["timer", clock]);
   expect(mock.layouts).toEqual([["timer", clock]]);
   expect(owner.getView().layout).toEqual(["timer", clock]);
   await settled();
   await settled();
   expect(mock.mounted).toBe(1);
-  expect(owner.getView().mounted.map((entry) => entry.panel.app)).toEqual(["example/clock"]);
+  expect(owner.getView().mounted.map((entry) => entry.panel.app)).toEqual(["manaflow-ai/clock"]);
   owner.setLayout(["timer"]);
   expect(mock.mounted).toBe(0);
   owner.stop();
@@ -315,7 +315,7 @@ test("a widget over its limits is unmounted and named; a failed mount is named a
 
 test("hiding the page ends every widget mount", async () => {
   const mock = new MockAppPanelsClient();
-  mock.layout = ["app:example/clock#cmux.newtab.widget/1"];
+  mock.layout = ["app:manaflow-ai/clock#cmux.newtab.widget/1"];
   const owner = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
   owner.start();
   for (let i = 0; i < 4; i++) await settled();

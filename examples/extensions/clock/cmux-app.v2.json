@@ -1,7 +1,7 @@
 {
   "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
   "manifestVersion": 2,
-  "id": "example/clock",
+  "id": "manaflow-ai/clock",
   "name": "Clock",
   "version": "1.0.0",
   "description": "A New Tab widget: the time and the date, with optional seconds and a 12 or 24 hour clock.",

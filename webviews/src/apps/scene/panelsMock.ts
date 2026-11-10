@@ -12,7 +12,7 @@ export const MOCK_APP_PANELS: readonly AppPanel[] = [
  * (examples/extensions/clock), a wide list, and one whose scene breaks the interface's node cap. */
 export const NEW_TAB_WIDGET_INTERFACE = "cmux.newtab.widget/1";
 export const MOCK_NEWTAB_WIDGETS: readonly AppPanel[] = [
-  { app: "example/clock", section: NEW_TAB_WIDGET_INTERFACE, title: "Clock", symbol: "clock", size: "small" },
+  { app: "manaflow-ai/clock", section: NEW_TAB_WIDGET_INTERFACE, title: "Clock", symbol: "clock", size: "small" },
   {
     app: "samples/github-prs",
     section: NEW_TAB_WIDGET_INTERFACE,
@@ -44,7 +44,7 @@ export function mockClockScene(now: number): SceneOp[] {
 
 /** The mock widget scenes: the clock at a fixed time, three review requests, and a 200-node scene. */
 export function mockWidgetScene(panel: AppPanel, now = Date.UTC(2026, 10, 10, 17, 42)): SceneOp[] {
-  if (panel.app === "example/clock") return mockClockScene(now);
+  if (panel.app === "manaflow-ai/clock") return mockClockScene(now);
   if (panel.app === "samples/too-big")
     return [
       { op: "create", id: "root", type: "VStack", props: { spacing: 0 } },

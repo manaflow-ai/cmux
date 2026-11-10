@@ -6,13 +6,14 @@ import { FakeHost } from "./fake-host.ts"
 // The copyable examples (examples/extensions/*): each is a recipe, so its promises are tested here.
 const examples = join(import.meta.dir, "../../../../../examples/extensions")
 const load = (name: string) => readFileSync(join(examples, name, "dist/main.js"), "utf8")
-const ctx = { contribution: "example/clock#cmux.newtab.widget/1", surface: "newTab" }
+const ctx = { contribution: "manaflow-ai/clock#cmux.newtab.widget/1", surface: "newTab" }
 
 function clock(settings: Record<string, unknown>) {
-  const host = new FakeHost(load("clock"), { app: { id: "example/clock", version: "1.0.0" }, apiVersion: "1.0.0", settings })
+  const host = new FakeHost(load("clock"), { app: { id: "manaflow-ai/clock", version: "1.0.0" }, apiVersion: "1.0.0", settings })
   // The VM's clock, so each tick reads a known time (13:41:58 local, then a second later each tick).
   let at = new Date(2026, 10, 10, 13, 41, 58).getTime()
-  host.global.Date.now = () => at
+  // The VM has its own Date (node:vm realm); its clock reads `at`.
+  host.eval("Date").now = () => at
   const step = (ms = 1000) => {
     at += ms
   }

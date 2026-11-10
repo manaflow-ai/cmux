@@ -1,6 +1,6 @@
 {
   "manifestVersion": 2,
-  "id": "example/clock",
+  "id": "manaflow-ai/clock",
   "name": "Clock",
   "version": "1.0.0",
   "description": "A New Tab widget (cmux.newtab.widget/1): the time and the date.",

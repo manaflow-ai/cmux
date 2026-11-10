@@ -10,7 +10,7 @@ import type { Play } from "../../../gallery/play";
 import type { NewTabScreen } from "./NewTabScreen";
 import type { PageWidget } from "./pageWidgets";
 
-const CLOCK = "app:example/clock#cmux.newtab.widget/1";
+const CLOCK = "app:manaflow-ai/clock#cmux.newtab.widget/1";
 const PRS = "app:samples/github-prs#cmux.newtab.widget/1";
 const TOO_BIG = "app:samples/too-big#cmux.newtab.widget/1";
 
@@ -105,7 +105,7 @@ export default componentEntry<Props>({
         const order = cells(ctx).map(
           (cell) => cell.getAttribute("data-app") ?? cell.className.replace(/^nt-extra-/, "").split(" ")[0],
         );
-        if (order.join() !== "warm,example/clock,timer,samples/github-prs,quote")
+        if (order.join() !== "warm,manaflow-ai/clock,timer,samples/github-prs,quote")
           throw new Error(`unexpected row order ${order.join()}`);
       },
     },
