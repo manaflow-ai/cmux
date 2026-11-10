@@ -268,6 +268,15 @@
       }
     },
     {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "escape",
+        "modifiers": [],
+        "target": "palette"
+      }
+    },
+    {
       "do": "expect",
       "title": "a script still runs a debug action with the toggle off",
       "timeout": 10,
@@ -518,6 +527,15 @@
           }
         }
       ]
+    },
+    {
+      "do": "rpc",
+      "method": "debug.key",
+      "params": {
+        "key": "escape",
+        "modifiers": [],
+        "target": "palette"
+      }
     },
     {
       "do": "rpc",
