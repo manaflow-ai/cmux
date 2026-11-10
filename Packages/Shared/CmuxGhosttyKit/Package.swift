@@ -186,6 +186,10 @@ import PackageDescription
 // becomes the layer's contents (pixel size, content or resize, sequence, host
 // time); it replaces cmux's setContents: swizzle on IOSurfaceLayer.
 //
+// a0e665d4f..c31377f1a (release/cmux-gi-renderer-sync-1, ghostty-integration
+// step 4): RESIZE SYNC in the renderer (GHOSTTY_HOST_PRESENT_RENDERER_SYNCED
+// replaces EMBEDDER; the host-frame API is gone).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -209,8 +213,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-a0e665d4fa09e831373c9b1a21b4d51fced467c5-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "38618b48b2ae71f14f3076db0634c0936fe357afa18df791c243b27ef5729988"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-c31377f1a36e61b7dd0b979d3151e87e44baecf6-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "24b30d8c5044163b66d876147c2ebc03ddf3b1d827dca8efaa8873e42766b6db"
         ),
     ]
 )

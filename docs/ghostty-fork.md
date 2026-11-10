@@ -12,6 +12,28 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Resize sync in the renderer replaces the embedder's present (ghostty-next, GI RENDERER SYNC)
+
+- Release branch `release/cmux-gi-renderer-sync-1` at `c31377f1a`, on `a0e665d4f` (`release/cmux-gi-present-cb-1`, the
+  present callback): red `4f79c9b23` (tests only), then `c31377f1a`. GhosttyNextKit
+  `xcframework-c31377f1a36e61b7dd0b979d3151e87e44baecf6-apple-v6` (zip sha256 `24b30d8c...6b6db`, run 42758043804).
+- What: `GHOSTTY_HOST_PRESENT_RENDERER_SYNCED = 2` replaces `GHOSTTY_HOST_PRESENT_EMBEDDER` (value 1 removed). The
+  renderer times a new host size's frame itself: on the alternate screen a new-size frame that is not the program's
+  redraw at the new grid is held (the layer keeps its last frame, top-left, clipped) until the redraw or a bound of
+  3 refreshes at 120 Hz, restarted by `ghostty_surface_set_grid`. A new-size frame goes through main; same-size frames
+  (scroll, output) stay off main, also during a hold. `ghostty_surface_host_frame`, `_host_frame_committed`,
+  `ghostty_host_frame_e` and the present-host-frame path are gone. The main-pending flag is cleared by a one-shot
+  run-loop observer after Core Animation's commit (G1), so a dropped watch can no longer leave it set (S-P3).
+  Counters: `host_main_presents`, `host_size_presents`, `host_held_frames`. Files: `include/ghostty.h`,
+  `src/apprt/embedded.zig`, `src/apprt/structs.zig`, `src/renderer/Metal.zig`, `Thread.zig`, `generic.zig`,
+  `metal/IOSurfaceLayer.zig`, `metal/Target.zig`, `NEXT.md`.
+- Why: plans/cmux-next/ghostty-integration.md step 4 (P1-P8, P10-P12, F8, F47). cmux deletes its frame presenter,
+  frame owner, draw-ahead and screen-switch watch.
+- Supersedes: "The embedder presents a new host size with its bounds", "Host frames say whether the program drew at
+  their grid" and "An update draws at once while a host size's frame waits for the embedder's present" below.
+- Conflict notes: keep the hold in `Metal.holdsFrame` and the bound wake in `generic.zig` when upstream changes the
+  present or vsync path.
+
 ### The embedder hears each frame the layer shows (ghostty-next)
 
 - Release branch `release/cmux-gi-present-cb-1` at `a0e665d4f` (red tests `3e874ce8c` and `6ef7ba722`), on the pin
