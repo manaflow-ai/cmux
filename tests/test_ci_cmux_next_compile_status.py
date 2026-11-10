@@ -435,11 +435,12 @@ SHELL_SEPARATORS = {";", "&&", "||", "|", "&", ";;", "|&"}
 
 
 def shell_tokens(text: str) -> list[str]:
-    """One shell line's words, as a shell splits them: any run of spaces or tabs, quotes removed, `;`, `&&`, `|` apart,
-    a `#` comment to the end of the line. Command substitutions are taken out first (split_substitutions)."""
+    """One shell line's words, as a shell splits them: any run of spaces or tabs, quotes removed, `;`, `&&`, `|` apart.
+    Comments and command substitutions are taken out first (split_substitutions)."""
     try:
         lex = shlex.shlex(text, posix=True, punctuation_chars=";&|")
         lex.whitespace_split = True
+        lex.commenters = ""  # split_substitutions drops comments as a shell does; shlex would cut `${#x}` at its `#`
         return list(lex)
     except ValueError:  # an unbalanced quote (a `"$(` that the next line closes): words without quotes still serve
         return shell_tokens(re.sub(r"""["']""", " ", text))
@@ -452,7 +453,8 @@ def split_substitutions(text: str) -> tuple[str, list[str]]:
     """The line with each outermost command substitution (`$(...)`, a backquoted command) replaced by one plain word,
     and the commands they hold. A substitution is its own command: its curl keeps its own arguments, and the command
     around it keeps its words (`curl -H "$(printf x)" --retry 3` is one curl with --retry; Codex on #40717). One that
-    the line does not close runs to the end of the line."""
+    the line does not close runs to the end of the line. A `#` that starts a word outside quotes ends the line first, so
+    a substitution in a comment runs nothing (Codex on #40725)."""
     outer, bodies, i, quote = [], [], 0, ""
     while i < len(text):
         c = text[i]
@@ -466,6 +468,8 @@ def split_substitutions(text: str) -> tuple[str, list[str]]:
             quote = "'"
         elif c == '"':
             quote = "" if quote == '"' else '"'
+        elif c == "#" and not quote and (i == 0 or text[i - 1] in " \t;&|("):
+            break  # a comment: the rest of the line, substitutions in it included, runs nothing
         elif text.startswith("$(", i) and not text.startswith("$((", i) or c == "`":
             end = matching_close(text, i)
             bodies.append(text[i + (1 if c == "`" else 2):end])
@@ -595,27 +599,50 @@ def outer_bound(prefix: list[str]) -> int | None:
     return None
 
 
-def call_retries(args: list[str]) -> bool:
-    """Whether a curl retries: its last --retry (the one curl uses) is anything but a literal 0 (a variable count may
-    be anything)."""
-    counts = curl_options(args).get("--retry", [])
+def transfers(args: list[str]) -> list[list[str]]:
+    """curl's arguments split at each --next (or -:): each transfer group takes its own --retry and time options."""
+    groups = [[]]
+    for word in args:
+        if word in ("--next", "-:"):
+            groups.append([])
+        else:
+            groups[-1].append(word)
+    return groups
+
+
+def group_retries(group: list[str]) -> bool:
+    """Whether one transfer retries: its last --retry (the one curl uses) is anything but a literal 0 (a variable
+    count may be anything)."""
+    counts = curl_options(group).get("--retry", [])
     return bool(counts) and counts[-1] != "0"
 
 
+def call_retries(args: list[str]) -> bool:
+    return any(group_retries(group) for group in transfers(args))
+
+
 def call_bound(prefix: list[str], args: list[str]) -> int | None:
-    """The most seconds a retrying curl can take, from literal values only; None when nothing fixes the total.
+    """The most seconds a retrying transfer of this curl can take, from literal values only; None when one of them has
+    nothing that fixes its total.
 
     Only two shapes hold with Retry-After, which overrides --retry-delay (curl 8: a 503 with `Retry-After: 8` kept
     `--retry 2 --retry-delay 1 --max-time 1` busy 16 s, not the 3 s that count times delay gives): an outer bound on
-    the whole command (`timeout N`, perl's alarm), or --retry-max-time N with --max-time M, since curl sleeps for no
-    retry that would pass N and each attempt stops at M, so the total is at most N + M. RetryAfterBound checks both
-    against real curl."""
+    the whole command (`timeout N`, perl's alarm), or --retry-max-time N with --max-time M in the same transfer group,
+    since curl sleeps for no retry that would pass N and each attempt stops at M, so it takes at most N + M.
+    RetryAfterBound checks both against real curl."""
     outer = outer_bound(prefix)
     if outer is not None:
         return outer
-    options = curl_options(args)
-    retry_max, max_time = literal(options.get("--retry-max-time")), literal(options.get("--max-time"))
-    return retry_max + max_time if retry_max is not None and max_time is not None else None
+    bounds = []
+    for group in transfers(args):
+        if not group_retries(group):
+            continue
+        options = curl_options(group)
+        retry_max, max_time = literal(options.get("--retry-max-time")), literal(options.get("--max-time"))
+        if retry_max is None or max_time is None:
+            return None
+        bounds.append(retry_max + max_time)
+    return max(bounds, default=None)
 
 
 def retrying(command: str) -> bool:
@@ -721,13 +748,29 @@ class UnboundedRetryDetector(unittest.TestCase):
                 ('curl --retry 5 --retry 0 "$u"\n', False),
                 ('curl --retry 5 --retry=0 "$u"\n', False),
                 ('curl --retry 0 --retry 5 "$u"\n', True),
+                # A comment runs nothing, substitutions in it included (Codex on #40725).
+                ('# code=$(curl --retry 3 "$u")\n', False),
+                ('  # curl -H "$(printf x)" --retry 3 "$u"\n', False),
+                ('echo ok # $(curl --retry 3 "$u")\n', False),
+                ('echo ok; # `curl --retry 3 "$u"`\n', False),
+                ('code=$(curl --retry 3 "$u") # bounded elsewhere\n', True),
+                ('echo "#$(curl --retry 3 "$u")"\n', True),  # a # inside a word or quotes is no comment
+                ('echo ${#x}; curl --retry 3 "$u"\n', True),
+                # Each --next transfer group takes its own --retry and time options (Codex on #40725).
+                ('curl --retry 3 --max-time 5 --retry-max-time 60 "$a" --next --retry 3 "$b"\n', True),
+                ('curl --retry 3 "$a" --next --retry 0 "$b"\n', True),
+                ('curl --retry 3 "$a" --next "$b"\n', True),
+                ('curl "$a" --next --retry 3 --max-time 5 --retry-max-time 60 "$b"\n', False),
+                ('curl --retry 3 --max-time 5 --retry-max-time 60 "$a" -: --retry 2 -m 5 --retry-max-time 30 "$b"\n',
+                 False),
+                ('curl --max-time 5 --retry-max-time 60 "$a" --next --retry 3 "$b"\n', True),  # bounds stay in their group
+                ('timeout 60 curl --retry 3 "$a" --next --retry 3 "$b"\n', False),
             ):
                 with self.subTest(text=text):
                     path.write_text(text)
                     self.assertEqual(bool(unbounded_retries(path)), bad, unbounded_retries(path))
 
 
-@unittest.skipUnless(shutil.which("curl") and shutil.which("timeout") and shutil.which("perl"), "curl, timeout or perl missing")
 class SubstitutionsAreCommands(unittest.TestCase):
     """Each curl keeps exactly its own arguments, whether it sits in a substitution or holds one (Codex on #40717)."""
 
@@ -744,6 +787,7 @@ class SubstitutionsAreCommands(unittest.TestCase):
                 self.assertEqual([found for _, _, found in curl_calls(text)], [args])
 
 
+@unittest.skipUnless(shutil.which("curl") and shutil.which("timeout") and shutil.which("perl"), "curl, timeout or perl missing")
 class RetryAfterBound(unittest.TestCase):
     """The detector's rule, checked against real curl and a local service that answers 503 with Retry-After: a retry
     count and delay bound nothing, while --retry-max-time with --max-time, `timeout N` and perl's alarm each hold."""
