@@ -5834,6 +5834,28 @@ class OrphanedDispatchRerunTests(unittest.TestCase):
                                                      dispatch_jobs={})
                 self.assertEqual([d.action for d in decisions], [action], decisions[0].note)
 
+    def test_a_cmux_tui_dispatch_on_a_long_lived_branch_keeps_its_re_run_when_the_branch_moved(self):
+        """ci-rev-2 on #40111: cmux-tui.yml has 403 dispatch runs on feat-cmux-next and 141 on main. An orphan cancel
+        comes after about 2 h in the queue, when the branch has moved and newer dispatches exist, so the lane rules
+        (a moved head or a newer same-kind verification drops the re-run) must not reach these branches. They keep
+        the long-lived rule: the branch moving on is no reason, and only a newer dispatch with the very same run
+        name that took the job covers it."""
+        sha = "8a1d00cb" + "0" * 32
+        for branch in ("feat-cmux-next", "main"):
+            with self.subTest(branch=branch):
+                run = self.verification_dispatch(request="8a1d00cb1eae-1794271510-52646", sha=sha, mode="full",
+                                                 branch=branch)
+                entry, cancelled = self.verification_entry(run, self.verification_jobs())
+                newer = self.verification_dispatch(request="9b2e11dc2faf-1794280000-61001", sha="9b2e11dc" + "0" * 32,
+                                                   mode="full", branch=branch, age=10)
+                newer_jobs = [{"id": next(_ids), "name": "macOS lint and tests", "status": "in_progress",
+                               "conclusion": None, "started_at": iso(9), "runner_id": 7, "runner_name": "r7"}]
+                decisions = janitor.plan_lost_reruns([entry], {run["id"]: cancelled}, {}, now=NOW, head_runs={},
+                                                     branch_heads={branch: "f" * 40},
+                                                     dispatch_runs={run["id"]: [newer]},
+                                                     dispatch_jobs={newer["id"]: newer_jobs})
+                self.assertEqual([d.action for d in decisions], ["rerun"], decisions[0].note)
+
     def test_a_dry_run_carries_no_orphan_re_run(self):
         run, jobs, fake = self.world()
         with tempfile.TemporaryDirectory() as temp:
