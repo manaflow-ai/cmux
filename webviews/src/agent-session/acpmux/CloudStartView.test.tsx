@@ -231,9 +231,7 @@ test("a plan refusal in a team says so, names the team and switches to the perso
   const host = installDom();
   const picked: string[] = [];
   root = createRoot(host);
-  await act(async () =>
-    root?.render(<CloudStartView start={refusal} onSwitchTeam={(team) => picked.push(team.id)} />),
-  );
+  await act(async () => root?.render(<CloudStartView start={refusal} onSwitchTeam={(team) => picked.push(team.id)} />));
   (host.querySelector('[data-action="switch-team"]') as HTMLButtonElement).click();
   expect(picked).toEqual(["team_0123456789abcdef0123"]);
 });
