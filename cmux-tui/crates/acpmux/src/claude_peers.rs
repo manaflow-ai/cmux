@@ -298,18 +298,22 @@ pub fn launch_args(_pid: u32) -> Option<Vec<String>> {
     None
 }
 
-/// `KERN_PROCARGS2`'s layout: argc (4 bytes), the executable path, padding, then argc arguments,
-/// each NUL-terminated.
+/// `KERN_PROCARGS2`'s layout: argc (4 bytes), the executable path, NUL padding to the next
+/// 8-byte boundary (1 to 8 bytes), then argc arguments, each NUL-terminated, then the environment.
+/// Read exactly, failing closed: the padding must be exactly that long (so an empty first argument
+/// is never taken for padding), argv[0] must name the executable, and exactly argc arguments are
+/// taken, empty ones included, so no environment entry is ever read as one.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn procargs(buf: &[u8]) -> Option<Vec<String>> {
     let (count, rest) = buf.split_first_chunk::<4>()?;
     let argc = usize::try_from(i32::from_ne_bytes(*count)).ok()?;
-    // The executable path, then the NUL padding after it; then exactly argc NUL-terminated
-    // arguments, empty ones included, so none of the environment after them is read as one.
-    let path_end = rest.iter().position(|b| *b == 0)?;
-    let (_, after_path) = rest.split_at(path_end);
-    let start = after_path.iter().position(|b| *b != 0)?;
-    let (_, mut args_buf) = after_path.split_at(start);
+    let path_len = rest.iter().position(|b| *b == 0)?;
+    let (path, after_path) = rest.split_at(path_len);
+    let pad = 8usize.checked_sub(path_len.checked_rem(8)?)?;
+    let (padding, mut args_buf) = after_path.split_at_checked(pad)?;
+    if padding.iter().any(|b| *b != 0) {
+        return None;
+    }
     let mut args = Vec::with_capacity(argc.min(4096));
     for _ in 0..argc {
         let end = args_buf.iter().position(|b| *b == 0)?;
@@ -318,13 +322,65 @@ fn procargs(buf: &[u8]) -> Option<Vec<String>> {
         let (_, next) = tail.split_first()?;
         args_buf = next;
     }
+    let base = |s: &[u8]| s.rsplit(|b| *b == b'/').next().map(<[u8]>::to_vec);
+    let first = args.first()?;
+    if first.is_empty() || base(first.as_bytes()) != base(path) {
+        return None;
+    }
     Some(args)
 }
+
+/// Claude Code's options that never take the next argument as their value: its boolean flags
+/// and those whose value is optional (which never take a dash-led one). Any other option before
+/// a session flag may be taking it as its value, so that launch names no session.
+const NO_OPERAND: &[&str] = &[
+    "--allow-dangerously-skip-permissions",
+    "--ax-screen-reader",
+    "--bg",
+    "--background",
+    "--bare",
+    "--brief",
+    "--chrome",
+    "--no-chrome",
+    "-c",
+    "--continue",
+    "--dangerously-skip-permissions",
+    "--desktop",
+    "--disable-slash-commands",
+    "--exclude-dynamic-system-prompt-sections",
+    "--forward-subagent-text",
+    "-h",
+    "--help",
+    "--ide",
+    "--include-hook-events",
+    "--include-partial-messages",
+    "--no-session-persistence",
+    "-p",
+    "--print",
+    "--replay-user-messages",
+    "--restricted",
+    "--safe-mode",
+    "--strict-mcp-config",
+    "--tmux",
+    "--verbose",
+    "-v",
+    "--version",
+    // Optional values.
+    "--cloud",
+    "-d",
+    "--debug",
+    "--from-pr",
+    "--prompt-suggestions",
+    "--remote-control",
+    "--teleport",
+    "-w",
+    "--worktree",
+];
 
 /// The conversation `args` start Claude Code on (`--resume ID`, `--resume=ID`, `-r ID`,
 /// `--session-id ID`), read conservatively since it decides who may take over a registered chat:
 /// nothing after `--` (positional text), no flag that could be the operand of the option before
-/// it (one with no inline `=value`), and None when more than one argument names a session. A
+/// it (one with no inline `=value` and not in [`NO_OPERAND`]), and None when more than one argument names a session. A
 /// launch this misreads as naming none only means it cannot take a chat over. A forked launch
 /// (`--fork-session`, in any position or spelling) starts a new conversation, so it names none.
 pub fn resumed_session(args: &[String]) -> Option<String> {
@@ -339,7 +395,8 @@ pub fn resumed_session(args: &[String]) -> Option<String> {
             break;
         }
         // An option with no inline value before this argument may take it as its value.
-        let operand = prev.is_some_and(|p| p.starts_with('-') && !p.contains('='));
+        let operand = prev
+            .is_some_and(|p| p.starts_with('-') && !p.contains('=') && !NO_OPERAND.contains(&p));
         let named = ["--resume", "--session-id"]
             .iter()
             .find_map(|flag| arg.strip_prefix(flag).and_then(|r| r.strip_prefix('=')))

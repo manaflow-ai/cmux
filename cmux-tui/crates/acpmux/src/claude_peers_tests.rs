@@ -298,28 +298,62 @@ fn a_launch_names_its_conversation_in_any_spelling() {
         None
     );
     assert_eq!(resumed_session(&args(&["claude", "--model", "-r", "victim"])), None);
+    // Repro (b101a26b F2): a boolean flag takes no value, so a restart after one still names it.
+    assert_eq!(
+        resumed_session(&args(&["claude", "--verbose", "--resume", "sid"])).as_deref(),
+        Some("sid")
+    );
+    assert_eq!(resumed_session(&args(&["claude", "-p", "--resume=sid"])).as_deref(), Some("sid"));
+    assert_eq!(resumed_session(&args(&["claude", "--debug", "-r", "sid"])).as_deref(), Some("sid"));
+    // An option Claude does not list as boolean may take it as its value.
+    assert_eq!(resumed_session(&args(&["claude", "--await-initialize", "--resume=sid"])), None);
     // Two sessions named: neither.
     assert_eq!(resumed_session(&args(&["claude", "--resume=a", "--session-id=b"])), None);
     // A desktop launch: inline values throughout.
     let desktop = ["claude", "--output-format=stream-json", "--resume=s-1", "--allowedTools=x,y"];
     assert_eq!(resumed_session(&args(&desktop)).as_deref(), Some("s-1"));
-    // KERN_PROCARGS2: argc, the executable path, padding, then the arguments.
-    let mut buf = 3i32.to_ne_bytes().to_vec();
-    buf.extend_from_slice(b"/bin/claude\0\0\0claude\0--resume=s-9\0-p\0HOME=/x\0");
-    let got = procargs(&buf).unwrap();
-    assert_eq!(got, args(&["claude", "--resume=s-9", "-p"]), "the environment is not an argument");
-    // Repro (a418d95a F2): an empty argument stays one, so take(argc) never reaches the env.
-    let mut buf = 4i32.to_ne_bytes().to_vec();
-    buf.extend_from_slice(
-        b"/bin/claude\0\0\0\0claude\0--append-system-prompt\0\0hello\0--resume=victim\0",
+    // KERN_PROCARGS2: argc, the executable path, padding to 8 bytes, the arguments, the env.
+    let raw = |argc: i32, path: &str, rest: &[&str]| {
+        let mut buf = argc.to_ne_bytes().to_vec();
+        buf.extend_from_slice(path.as_bytes());
+        buf.resize(buf.len() + 8 - path.len() % 8, 0);
+        for part in rest {
+            buf.extend_from_slice(part.as_bytes());
+            buf.push(0);
+        }
+        buf
+    };
+    let got = procargs(&raw(3, "/bin/claude", &["claude", "--resume=s-9", "-p", "HOME=/x"]));
+    assert_eq!(
+        got,
+        Some(args(&["claude", "--resume=s-9", "-p"])),
+        "the environment is not an argument"
+    );
+    // A path that fills its 8 bytes still gets a full 8 of padding.
+    let got = procargs(&raw(1, "/a/claude/claude", &["claude", "HOME=/x"]));
+    assert_eq!(got, Some(args(&["claude"])));
+    // Repro (a418d95a F2): an empty argument stays one, so argc never reaches the environment.
+    let buf = raw(
+        4,
+        "/bin/claude",
+        &["claude", "--append-system-prompt", "", "hello", "--resume=victim"],
     );
     let got = procargs(&buf).unwrap();
     assert_eq!(got, args(&["claude", "--append-system-prompt", "", "hello"]));
     assert_eq!(resumed_session(&got), None);
+    // Repro (b101a26b F1): an empty argv[0] is not padding; it fails closed.
+    assert_eq!(procargs(&raw(2, "/bin/claude", &["", "--verbose", "--resume=victim"])), None);
+    assert_eq!(procargs(&raw(2, "/bin/claude", &["", "claude", "--resume=victim"])), None);
+    // Padding of the wrong length, or argv[0] naming another program: nothing.
+    let mut short = 2i32.to_ne_bytes().to_vec();
+    short.extend_from_slice(b"/bin/claude\0\0claude\0-p\0");
+    assert_eq!(procargs(&short), None);
+    assert_eq!(procargs(&raw(2, "/bin/claude", &["sh", "-p", "X=1"])), None);
     // Fewer arguments than argc: nothing.
-    let mut buf = 3i32.to_ne_bytes().to_vec();
-    buf.extend_from_slice(b"/bin/claude\0\0claude\0");
-    assert_eq!(procargs(&buf), None);
+    assert_eq!(procargs(&raw(3, "/bin/claude", &["claude"])), None);
+    // The desktop launches by full path; the CLI by its link.
+    let app = "/Apps/claude.app/Contents/MacOS/claude";
+    assert!(procargs(&raw(2, app, &[app, "--resume=s-1", "HOME=/x"])).is_some());
     // Repro (a418d95a F1): a forked launch starts a new conversation, in any position.
     for fork in [
         &["claude", "--resume=victim", "--fork-session"][..],
