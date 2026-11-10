@@ -26,6 +26,8 @@ import { parseProbes, pickFrameTimes } from "./composer/videoFramePick";
 
 /// A screen recording on the Desktop, as the host's `video.info` reads it (AgentPaneVideoInfo.swift).
 const VIDEO_PATH = "/Users/dev/Desktop/Screen Recording 2026-10-25 at 10.42.13.mov";
+/// Where Record Screen… keeps a recording (AgentPaneCapture.recordingsFolder).
+const RECORDING_PATH = "/Users/dev/Movies/cmux/Screen Recording 2026-11-10 10.02.11.mov";
 const VIDEO_INFO = {
   durationMs: 42_400,
   width: 1920,
@@ -2432,7 +2434,15 @@ export default agentPaneEntry({
         // test/composer-plus-menu-shape.browser.test.ts holds the shape: no skill rows, one-line rows,
         // a bounded panel. The play only opens it, so the same state draws the menu before the fix.
         const rows = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")];
-        for (const id of ["add.files", "add.screenshot", "add.window", "add.mode.plan", "add.goal", "add.mention"])
+        for (const id of [
+          "add.files",
+          "add.screenshot",
+          "add.window",
+          "add.recording",
+          "add.mode.plan",
+          "add.goal",
+          "add.mention",
+        ])
           if (!rows.some((row) => row.dataset.value === id)) throw new Error(`the + menu lost ${id}`);
       },
     },
@@ -2492,6 +2502,95 @@ export default agentPaneEntry({
           throw new Error("a cancelled capture attached something or showed a note");
         if (!ctx.document.activeElement?.closest(".acpmux-composer-prompt"))
           throw new Error("a cancelled capture left focus off the prompt");
+      },
+    },
+    // Leo, 2026-11-07 (ask-b640c4d6fa): "could we also have a more native screenshot/screensharer
+    // (ergonomic one)/video recording of the app type thing/route?" + > Record Screen… opens the
+    // system's Screenshot toolbar in its video mode (AgentPaneCapture.swift); the host keeps the
+    // movie in ~/Movies/cmux and answers its path, which goes in as a video chip.
+    "record-screen": {
+      note: "Play: + > Record Screen… asks the host for a recording (mode video); the movie it kept comes back by its path and goes in as a video chip with its poster and length, wearing cmux as its source, and focus goes back to the prompt.",
+      snapshot: chat(finished),
+      native: {
+        "composer.capture": {
+          path: RECORDING_PATH,
+          name: RECORDING_PATH.split("/").pop(),
+          mimeType: "video/quicktime",
+          source: { name: "cmux" },
+        },
+        "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.recording"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+        await ctx.waitFor(() => ctx.document.activeElement?.closest(".acpmux-composer-prompt"));
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
+          .cmuxGalleryLog;
+        const asked = log.find(({ method }) => method === "composer.capture");
+        if ((asked?.params as { mode?: string } | undefined)?.mode !== "video")
+          throw new Error(`capture asked ${JSON.stringify(asked)}`);
+        if (
+          !log.some(({ method, params }) => method === "video.info" && JSON.stringify(params).includes("Movies/cmux"))
+        )
+          throw new Error("the recording's poster was not read from where the host kept it");
+      },
+    },
+    "record-screen-cancelled": {
+      note: "Play: + > Record Screen… that the person closes without recording attaches nothing, shows no error and puts focus back in the prompt.",
+      snapshot: chat(finished),
+      native: { "composer.capture": { cancelled: true } },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.recording"]' });
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
+          .cmuxGalleryLog;
+        await ctx.waitFor(() => log.some(({ method }) => method === "composer.capture"));
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        if (ctx.document.querySelector(".acpmux-attachment-video, .acpmux-attachment-image, .acpmux-attachment-note"))
+          throw new Error("a cancelled recording attached something or showed a note");
+        if (!ctx.document.activeElement?.closest(".acpmux-composer-prompt"))
+          throw new Error("a cancelled recording left focus off the prompt");
+      },
+    },
+    "record-screen-still": {
+      note: "Play: in the toolbar Record Screen… opens, the person takes a still instead; the host answers it as a screenshot and it goes in as an image chip.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      checks: {
+        anchorMovePx: {
+          value: 78,
+          reason: "The attached image's thumbnail row opens above the prompt, the same growth Attach Screenshot makes.",
+        },
+        layoutShiftMax: { value: 0.07, reason: "The thumbnail row the capture adds above the prompt." },
+      },
+      native: {
+        "composer.capture": {
+          name: "Screenshot 2026-11-10 10.02.11.png",
+          mimeType: "image/png",
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+          source: { name: "cmux" },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.recording"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+      },
+    },
+    "record-screen-cloud-chat": {
+      note: "Play: a Cloud chat's + menu offers Attach Screenshot… but no Record Screen…: a recording goes by its path on this Mac, which the Cloud machine cannot read.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        cloudCodex(),
+      ),
+      native: { "composer.capture": null },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="add.screenshot"]'));
+        if (ctx.document.querySelector('.acpmux-composer-plus [data-value="add.recording"]'))
+          throw new Error("a Cloud chat offered Record Screen…");
       },
     },
     "attach-screenshot-oversized": {

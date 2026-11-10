@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
+  CAPTURE_MODES,
   COMPOSER_PLUS_MOTION,
   COMPOSER_PLUS_SECTIONS,
   composerPlusRegistry,
@@ -57,6 +58,29 @@ test("the plus registry puts attach first, then the composer's actions, then the
 test("capture and optional goal rows are omitted when the host lacks those capabilities", () => {
   const rows = composerPlusRegistry({ canCapture: false });
   expect(rows.map((row) => row.id)).toEqual(["add.files", "add.mention", "add.commands", "files.search"]);
+});
+
+// Leo, 2026-11-07 (ask-b640c4d6fa): "could we also have a more native screenshot/screensharer
+// (ergonomic one)/video recording of the app type thing/route?"
+test("Record Screen… follows Attach Window… in a chat that can read the recording, with or without images", () => {
+  const rows = composerPlusRegistry({ canRecord: true });
+  expect(rows.filter((row) => row.section === "attach").map((row) => row.name)).toEqual([
+    "Attach files or images",
+    "Attach Screenshot…",
+    "Attach Window…",
+    "Record Screen…",
+  ]);
+  const record = rows.find((row) => row.id === "add.recording")!;
+  expect(record.action).toEqual({ kind: "command", id: "composer.recordScreen" });
+  expect(record.keywords).toContain("video");
+  // A recording goes by its path, not as image bytes: a model without images still gets it.
+  expect(composerPlusRegistry({ canCapture: false, canRecord: true }).map((row) => row.id)).toContain("add.recording");
+  expect(composerPlusRegistry({}).map((row) => row.id)).not.toContain("add.recording");
+  expect(CAPTURE_MODES).toEqual({
+    "composer.attachScreenshot": "screen",
+    "composer.attachWindow": "window",
+    "composer.recordScreen": "video",
+  });
 });
 
 test("skills are never + rows: one Commands and skills… row opens the slash list, however many there are", () => {

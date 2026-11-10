@@ -20,7 +20,7 @@ import { ShareDialogHost } from "./share/ShareControl";
 import { ShareNudge } from "./share/ShareNudge";
 import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
-import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
+import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { chatOnThisMac, chatPlace } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, offloadReasonsOf, thisMacName } from "./environments";
 import { sayActionRefusal } from "./actionRefusal";
@@ -2463,13 +2463,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const fileRoot = snapshot.summary?.cwd;
   // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
   // screencapture's own pick and answers the PNG, at any size; a cancelled pick answers no data.
-  const captureScreen = useCallback(async (mode: "screen" | "window") => {
+  // Record Screen… (Leo, 2026-11-07: "could we also have a more native screenshot/screensharer
+  // (ergonomic one)/video recording of the app type thing/route?"): the host opens the system's
+  // Screenshot toolbar in its video mode, keeps the movie in ~/Movies/cmux and answers its path, which
+  // goes in as a video link chip (its poster, frames and speech read as any attached video's); a still
+  // taken from that toolbar answers as a screenshot.
+  const captureScreen = useCallback(async (mode: CaptureMode) => {
     const shot = await callNative<{
       name?: string;
       mimeType?: string;
       data?: string;
+      path?: string;
       source?: unknown;
     } | null>("composer.capture", { mode }).catch(() => null);
+    if (mode === "video" && typeof shot?.path === "string" && shot.path.startsWith("/")) {
+      const source = attachmentSource(shot.source);
+      composerHandle.current?.attach({ ...linkAttachment(shot.path, false), ...(source ? { source } : {}) });
+      return undefined;
+    }
     if (!shot?.data) return undefined;
     const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
     // cmux took it: its chip wears cmux's icon (composer/attachmentSources.ts).
@@ -11893,6 +11904,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             plusExtensions={plusSearchExtensions}
             onPlusCommand={runPlusSearch}
             capture={captureScreen}
+            // A recording goes by its path on this Mac: only a chat here can read it (as Sources' + below).
+            canRecord={localCwd !== undefined && !quick && !readOnlySubagent}
             upload={uploadFiles}
             // A chat on this Mac (as Sources' + below); the host refuses any other.
             localPaths={localCwd !== undefined && !quick && !readOnlySubagent ? localPaths : undefined}
