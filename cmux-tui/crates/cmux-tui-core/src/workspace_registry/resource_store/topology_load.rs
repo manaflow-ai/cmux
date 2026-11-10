@@ -25,13 +25,17 @@ impl WorkspaceRegistry {
     }
 
     /// What a workspace registry commit that leaves `live` as the live
-    /// workspaces reads before it: the frame (every workspace's active
-    /// screen) and the subtrees of the workspaces it closes, whose screens,
-    /// panes and tabs its public deltas delete. The rest of the topology is
-    /// not read: the whole of it made every create read the session.
+    /// workspaces and `active` as the active one reads before it: the frame
+    /// (every workspace's active screen), the subtrees of the workspaces it
+    /// closes, whose screens, panes and tabs its public deltas delete, and,
+    /// when the active workspace changes, the active screen of the workspace
+    /// the focus leaves and of the one it goes to (two screens at most),
+    /// which its public deltas restate. The rest of the topology is not
+    /// read: the whole of it made every create read the session.
     pub(crate) fn resource_topology_for_workspace_commit(
         &self,
         live: &[RegistryWorkspace],
+        active: Option<&WorkspacePublicId>,
     ) -> anyhow::Result<ResourceTopologySnapshot> {
         let connection = self.connection.get();
         let mut topology =
@@ -44,6 +48,21 @@ impl WorkspaceRegistry {
             .map(|(workspace, _)| workspace.clone())
             .collect::<Vec<_>>();
         load_subtrees(&connection, &mut topology, &closing)?;
+        if topology.active_workspace.as_ref() != active {
+            let focus_ends = [topology.active_workspace.as_ref(), active]
+                .into_iter()
+                .flatten()
+                .filter(|workspace| live.contains(workspace))
+                .filter_map(|workspace| {
+                    topology
+                        .active_screens
+                        .iter()
+                        .find(|(id, _)| id == workspace)
+                        .and_then(|(_, screen)| screen.clone())
+                })
+                .collect::<Vec<_>>();
+            load_screen_subtrees(&connection, &mut topology, &focus_ends)?;
+        }
         Ok(topology)
     }
 
@@ -213,6 +232,39 @@ fn load_subtrees(
                 &[&browser.as_str()],
             )?);
         }
+    }
+    Ok(())
+}
+
+/// Add each of `screens`, its panes and their tabs to `topology`: what the
+/// public value of a screen and of its panes is built from. A screen that
+/// `topology` holds already is not read again.
+fn load_screen_subtrees(
+    connection: &Connection,
+    topology: &mut ResourceTopologySnapshot,
+    screens: &[ScreenPublicId],
+) -> anyhow::Result<()> {
+    for id in screens {
+        if topology.screens.iter().any(|screen| &screen.public_id == id) {
+            continue;
+        }
+        let loaded = screen_rows::with_side_tables(
+            connection,
+            load_screens(connection, " AND public_id = ?1", &[&id.as_str()])?,
+        )?;
+        for screen in &loaded {
+            let panes =
+                load_panes(connection, " AND screen_id = ?1", &[&screen.public_id.as_str()])?;
+            for pane in &panes {
+                topology.tabs.extend(load_tabs(
+                    connection,
+                    " AND t.pane_id = ?1",
+                    &[&pane.public_id.as_str()],
+                )?);
+            }
+            topology.panes.extend(panes);
+        }
+        topology.screens.extend(loaded);
     }
     Ok(())
 }

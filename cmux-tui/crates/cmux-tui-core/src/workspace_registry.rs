@@ -4583,6 +4583,12 @@ fn normalized_workspace_resource_deltas(
         .filter(|(workspace, _)| !live_workspaces.contains(workspace))
         .map(|(workspace, _)| workspace.clone())
         .collect::<Vec<_>>();
+    workspace_commit_intent::push_focus_move_upserts(
+        &mut deltas,
+        before,
+        &live_workspaces,
+        active_workspace,
+    )?;
     let removed_workspace_ids = removed_workspaces.iter().cloned().collect::<HashSet<_>>();
     let removed_screens = before
         .screens
