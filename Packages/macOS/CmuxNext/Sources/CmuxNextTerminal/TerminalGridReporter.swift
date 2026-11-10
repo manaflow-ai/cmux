@@ -62,7 +62,7 @@ final class TerminalGridReporter {
     private func deliver(_ grid: TerminalGridSize) {
         guard let view, let surface = view.surface else { return }
         TerminalSurfaceView.gridReports &+= 1
-        // The refresh the program gets this grid in: a hold for its redraw at it counts its bound from here (RESIZE P0 23).
+        // Ghostty restarts its resize hold's bound when the PTY owner announces this grid (ghostty_surface_set_grid, RESIZE SYNC).
         let size = ghostty_surface_size(surface)
         let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
                                           paddingWidth: 0, paddingHeight: 0)
