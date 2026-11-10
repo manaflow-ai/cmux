@@ -1,9 +1,9 @@
-//! `MotionPolicy`: tokens resolved for one speed, Reduce Motion state,
-//! bounce setting and set of per-kind switches.
+//! `MotionPolicy`: tokens resolved for one speed, Reduce Motion state
+//! and set of per-kind switches.
 
 use crate::{
-    AnimationSwitches, MotionBounce, MotionFade, MotionKind, MotionLoop, MotionSpeed, MotionSpring,
-    MotionTween, SpringParameters,
+    AnimationSwitches, MotionFade, MotionKind, MotionLoop, MotionSpeed, MotionSpring, MotionTween,
+    SpringParameters,
 };
 
 /// Resolves tokens for one speed setting, Reduce Motion state and set of
@@ -13,10 +13,9 @@ use crate::{
 /// - Reduce Motion: movement (position, size, scale, scroll) is instant;
 ///   fades stay, capped at one crossfade (0.1 s); loops stop.
 /// - `normal`: every time constant is 1.5x `fast`; damping is unchanged.
-/// - Structural springs (`MotionSpring::is_structural`) are critically
-///   damped with bounce `none` and take SwiftUI's subtle bounce with
-///   `subtle`; a kind switched off (`animates(kind)` false) applies in one
-///   frame, like Reduce Motion.
+/// - Every spring is critically damped (no bounce in any motion); a kind
+///   switched off (`animates(kind)` false) applies in one frame, like
+///   Reduce Motion.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(C)]
 pub struct MotionPolicy {
@@ -25,7 +24,7 @@ pub struct MotionPolicy {
     /// Extra time multiplier for screen recordings (`CMUX2_ANIM_SCALE`); 1
     /// normally. Not part of the cmux-next contract.
     pub debug_scale: f64,
-    /// `ui.animations.*`: per-kind switches and the bounce.
+    /// `ui.animations.*`: the per-kind switches.
     pub animations: AnimationSwitches,
 }
 
@@ -74,16 +73,7 @@ impl MotionPolicy {
     /// that steps anyway never divides by zero; callers snap when
     /// `animates_movement` is false (`Spring::step` does).
     pub fn spring(&self, token: MotionSpring) -> SpringParameters {
-        let mut base = token.base();
-        if token.is_structural() {
-            // Bounce none: critically damped (never past the target); subtle: SwiftUI bounce.
-            base = match self.animations.bounce {
-                MotionBounce::None => {
-                    SpringParameters::new(base.response, base.damping_fraction.max(1.))
-                }
-                MotionBounce::Subtle => base.with_bounce(MotionBounce::Subtle.amount()),
-            };
-        }
+        let base = token.base();
         if self.speed == MotionSpeed::Off { base } else { base.scaled(self.scale()) }
     }
 

@@ -70,12 +70,11 @@ would do it, spring curves", "proper physics". Design:
   release or a new target under a moving value stops on its place.
 - One source (hq-1d D2, Lawrence: "decouple from swift app as much as
   possible"): the tokens live in the spec's design-tokens.json `motion`
-  (springs, fades, loops, speed, settle thresholds, the structural set, the
-  bounce and the per-kind defaults; the Swift app passes bounce 0 and its own
-  dampings, all 1, since 2026-11-10: design-tokens.json and cmux-motion still
-  hold the older ones, a follow-up). cmux-tui/crates/cmux-motion reads them
-  at build time (build.rs) and owns the closed-form step
-  (`SpringValue::solve`, `advance_spring`), the structural bounce rule
+  (springs, fades, loops, speed, settle thresholds and the per-kind
+  defaults; every spring's damping is 1 there and in the Swift app since
+  2026-11-10, and build.rs refuses a damping under 1). cmux-tui/crates/cmux-motion
+  reads them at build time (build.rs) and owns the closed-form step
+  (`SpringValue::solve`, `advance_spring`), the speed rule
   (`MotionPolicy::spring`) and the switches (`AnimationSwitches`,
   `set_animation_switches`); cmux-app-ffi exposes them to macOS as
   `cmux_motion_*` (include/cmux_motion_ffi.h). Until the app's FFI pin

@@ -43,7 +43,6 @@ public nonisolated enum MotionTunables {
         // At damping 0.9, 0.22 ended visibly at 190 ms and 0.2 at 173 ms (Leo 2026-10-20); at 1, 0.2
         // ends at 236 ms.
         .scroll: (SpringParameters(response: 0.2, dampingFraction: 1), "Tab strip reveal, strip column reveal, wheel notch, fling snap."),
-        .screen: (SpringParameters(response: 0.2, dampingFraction: 1), "Screen switch slide."),
         .track: (SpringParameters(response: 0.12, dampingFraction: 1), "Drop-zone overlay and the drag ghost jumping between targets."),
         .selection: (SpringParameters(response: 0.15, dampingFraction: 1), "Page info toggle state change. The sidebar selection does not animate."),
         // At damping 0.85, 0.18 ended visibly at 194 ms and 0.165 at 177 ms (Leo 2026-10-20); at 1,

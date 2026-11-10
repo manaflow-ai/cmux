@@ -13,13 +13,13 @@ use std::sync::{
     atomic::{AtomicU8, Ordering},
 };
 
-use crate::{AnimationSwitches, MotionBounce, MotionPolicy, MotionSpeed};
+use crate::{AnimationSwitches, MotionPolicy, MotionSpeed};
 
 const UNSET: u8 = u8::MAX;
 static SPEED: AtomicU8 = AtomicU8::new(UNSET);
 static REDUCE_OVERRIDE: AtomicU8 = AtomicU8::new(UNSET);
-/// `AnimationSwitches` as bits (1 paneAnimations, 2 newTab, 4 newWorkspace, 8
-/// bounce subtle); `UNSET` until the host sets them (the spec defaults).
+/// `AnimationSwitches` as bits (1 paneAnimations, 2 newTab, 4 newWorkspace);
+/// `UNSET` until the host sets them (the spec defaults).
 static SWITCHES: AtomicU8 = AtomicU8::new(UNSET);
 
 fn speed_code(s: MotionSpeed) -> u8 {
@@ -53,14 +53,13 @@ pub fn set_speed(s: MotionSpeed) {
     SPEED.store(speed_code(s), Ordering::Relaxed);
 }
 
-/// Changes the `ui.animations.*` settings (per-kind switches and bounce)
-/// for the whole process. Running animations pick them up on their next
+/// Changes the `ui.animations.*` settings (the per-kind switches) for the
+/// whole process. Running animations pick them up on their next
 /// frame.
 pub fn set_animation_switches(switches: AnimationSwitches) {
     let bits = u8::from(switches.pane_animations)
         | (u8::from(switches.new_tab) << 1)
-        | (u8::from(switches.new_workspace) << 2)
-        | (u8::from(switches.bounce == MotionBounce::Subtle) << 3);
+        | (u8::from(switches.new_workspace) << 2);
     SWITCHES.store(bits, Ordering::Relaxed);
 }
 
@@ -73,7 +72,6 @@ pub fn animation_switches() -> AnimationSwitches {
             pane_animations: bits & 1 != 0,
             new_tab: bits & 2 != 0,
             new_workspace: bits & 4 != 0,
-            bounce: if bits & 8 != 0 { MotionBounce::Subtle } else { MotionBounce::None },
         },
     }
 }
