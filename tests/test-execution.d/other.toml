@@ -290,6 +290,10 @@ path = "tests/test_lan_product_source.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_language_boundaries.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_layout_grid.py"
 lane = "linux-guard"
 
@@ -537,6 +541,11 @@ lane = "legacy"
 [[test]]
 path = "tests/test_recovery_app_archive.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_reload_build_only_app_path_readers.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every workflow or script that reads reload.sh's App path after --build-only passes --keep-app (without it the bundle is deleted and no App path is printed); run python3 tests/test_reload_build_only_app_path_readers.py yourself after adding such a caller (under 1 s, no build)."
 
 [[test]]
 path = "tests/test_reload_tag_lock.py"

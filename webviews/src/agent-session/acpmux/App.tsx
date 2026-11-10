@@ -744,7 +744,7 @@ import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type Ru
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { CloudChatHint } from "./CloudChatHint";
-import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint } from "./cloudChatHintModel";
+import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHintClaim } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
@@ -4490,8 +4490,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Counts the Cloud starts that ended, so the folder default looks again once one has.
   const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
   /// The one-time Cloud hint over a new chat's composer (cloudChatHintModel.ts): its record is the app's.
-  /// A pick of Cloud by any path (the hint, the Where menu, New Cloud Chat) is its use.
-  const cloudHint = useCloudChatHint(paneTipHost, newTabGeneration);
+  /// A pick of Cloud by any path (the hint, the Where menu, New Cloud Chat) is its use. Each adoption
+  /// reads the record again: a hint one tab showed is done before the next tab takes this page.
+  const cloudHint = useCloudChatHint(paneTipHost, newTabAdoptions);
   const featureTipsOn = useFeatureTipsOn();
   /// New Cloud Chat (the handshake's `pickCloud`), counted: the New Tab page or this composer picks
   /// Cloud once Cloud is offered here.
@@ -10111,10 +10112,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudHintDraws =
     !showNewTab || (newTab !== undefined && !newTab.history && shownTemplate(newTab) !== "classic");
   const cloudHintDue = !quick && !onOtherMachine && cloudHintDraws && cloudChatHintDue(cloudHintFacts);
-  const claimCloudHint = cloudHint.claim;
-  useEffect(() => {
-    if (cloudHintDue) claimCloudHint();
-  }, [cloudHintDue, claimCloudHint]);
+  /// Only the page the person looks at asks: a spare in the pool never does.
+  useCloudChatHintClaim(cloudHintDue, cloudHint.claim);
   const cloudHintShown = !quick && !onOtherMachine && cloudChatHintShown(cloudHintFacts);
   /// New Cloud Chat, pending until taken: the New Tab page takes it (`cloudPick`) or this composer
   /// picks Cloud once it is offered; a chat that already started drops it.

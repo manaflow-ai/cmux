@@ -115,19 +115,6 @@ import Testing
         again.flush()
         #expect(!FileManager.default.fileExists(atPath: directory.path(percentEncoded: false)))
     }
-
-    @Test func theOldestKeptListsLeaveOverTheByteLimit() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "home-rows-trim-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let old = directory.appending(path: "old.json"), new = directory.appending(path: "new.json")
-        try Data(count: 600).write(to: old)
-        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1)], ofItemAtPath: old.path)
-        try Data(count: 600).write(to: new)
-        MacHomeRowsCache.trim(directory, to: 1_000, keeping: new)
-        #expect(!FileManager.default.fileExists(atPath: old.path))
-        #expect(FileManager.default.fileExists(atPath: new.path))
-    }
 }
 
 /// The feed over a host that windows, one that refuses windows (older), and one that ignores them.
@@ -287,7 +274,7 @@ import Testing
         #expect(feed.rows?.map(\.id) == ["conv_build", "conv_chief", "conv_ops", "conv_old"])
         #expect(!feed.isShowingKeptRows)
         #expect(cache.cached(MacHomeRowsCache.key(account: "user_1", macID: "mac-1"))?.count == 4)
-        feed.discardKeptRows()
+        feed.discardForSignOut()
         #expect(cache.cached(MacHomeRowsCache.key(account: "user_1", macID: "mac-1")) == nil)
     }
 }

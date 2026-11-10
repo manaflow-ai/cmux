@@ -46,7 +46,7 @@ Home reads windows (since the windowed Home read): the first screen asks cmux-mo
 `limit: 20` rows of the scoped list (`chief_policy.rs`, `InboxWindow`), the whole list follows in
 one read parsed off the main actor, and an event reads only its conversation's row (`ids`, with
 its `index` and the list's `total`). The rows this phone last read show before any of it
-(`MacHomeRowsCache`: the first 100 rows per account and Mac, 1 MB in all, deleted at sign-out).
+(`MacHomeRowsCache`: the first 200 rows per account and Mac, 2 MB in all, deleted at sign-out).
 A host without windows refuses the params and the phone reads the whole list, as before.
 
 The god fixtures are degenerate on purpose: Home rows with pins, ~80 Chiefs

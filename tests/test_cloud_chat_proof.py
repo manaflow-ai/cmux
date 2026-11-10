@@ -116,7 +116,8 @@ class CloudChatProofTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as stopped:
                     runpy.run_path(str(SCRIPT), run_name="__main__")
             launch.assert_called_once_with(
-                ["/usr/bin/open", "-W", "-g", "-n", str(app), "--args", "--cloud-backend", backend_name],
+                ["/usr/bin/open", "-W", "-g", "-n", "--env", "CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-proof-test.sock",
+                 str(app), "--args", "--cloud-backend", backend_name],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             launcher.wait.assert_called_once_with(timeout=60)
             self.assertTrue(evidence_path.is_file(), "Every terminal outcome must write its evidence")
@@ -221,6 +222,148 @@ class CloudChatProofTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(evidence["result"], "fail: the launched app did not exit")
         self.assertEqual(evidence["steps"][-1]["exit"], 124)
+
+
+class CloudPausedCaptureTests(unittest.TestCase):
+    """--paused-capture: one machine paused, the Cloud page's paused price read and captured, the machine killed."""
+
+    def run_capture(self, *, subtitle="Paused · $0.26/h when running · About $1.00 a month while paused",
+                    existing=False, pause_exit=0, cleanup_exit=0, write_images=True):
+        calls = []
+        clock = 0.0
+        state = {"status": "paused" if existing else "starting", "created": existing}
+        launcher = Mock()
+        launcher.wait.return_value = 0
+
+        def sleep(seconds):
+            nonlocal clock
+            clock += seconds
+
+        with tempfile.TemporaryDirectory(prefix="cloud-paused-capture-test-") as temporary:
+            app = Path("/Applications/Cloud Proof.app")
+            evidence_path = Path(temporary) / "evidence.json"
+            shots = Path(temporary) / "shots"
+
+            def run(command, *, env, capture_output, text, timeout):
+                nonlocal clock
+                clock += 0.25
+                self.assertEqual(command[0], str(app / "Contents/Resources/bin/cmux"))
+                words = command[1:]
+                calls.append(words)
+                code = 0
+                if words == ["app", "identify", "--json"]:
+                    value = {"pid": 200, "app_bundle_path": str(app)}
+                elif words == ["app", "call", "auth.status", "--json"]:
+                    value = {"signed_in": True, "backend": STAGING_API, "cloud_environment": "staging"}
+                elif words == ["cloud", "list-machines", "--json"]:
+                    value = {"machines": [{"machine_id": "vm_abc", "title": "proof-test", "status": state["status"]}]
+                             if state["created"] else []}
+                elif words == ["cloud", "new-machine", "--name", "proof-test", "--json"]:
+                    state["created"] = True
+                    value = {"machine_id": "vm_abc", "title": "proof-test", "status": "starting"}
+                elif words == ["cloud", "machine-status", "--target", "machine:vm_abc", "--json"]:
+                    # Starting at first, then running: the capture waits on the server, not a sleep.
+                    if state["status"] == "starting" and clock > 5:
+                        state["status"] = "running"
+                    value = {"status": state["status"], "hourly_rate_usd": 0.26}
+                elif words == ["cloud", "pause-machine", "--target", "machine:vm_abc", "--json"]:
+                    self.assertEqual(state["status"], "running")
+                    code = pause_exit
+                    if code == 0:
+                        state["status"] = "paused"
+                    value = {}
+                elif words[:3] == ["app", "call", "action.run"]:
+                    self.assertEqual(json.loads(words[3]), {"id": "palette.openCloudPane", "focus": True})
+                    value = {"ok": True}
+                elif words[:3] == ["app", "call", "debug.page"]:
+                    params = json.loads(words[3])
+                    self.assertEqual(params["page"], "cmux.cloud")
+                    action = params["action"]
+                    if action == "wait" and params["selector"] == ".cloud-machine":
+                        value = {"matched": True, "text": "proof-test"}
+                    elif action == "query" and params["selector"] == ".cloud-machine-title":
+                        value = {"elements": [{"text": "other"}, {"text": "proof-test"}]}
+                    elif action == "query" and params["selector"] == ".cloud-machine-subtitle":
+                        value = {"elements": [{"text": "Running 2h"}, {"text": subtitle}]}
+                    elif action in ("scroll", "click"):
+                        self.assertEqual(params["selector"], ".cloud-machine-list > .cloud-machine:nth-child(2)")
+                        value = {"scrolled": True} if action == "scroll" else {"clicked": True}
+                    elif action == "wait" and params["selector"] == ".cloud-machine-cost":
+                        value = {"matched": True, "text": subtitle.split("Paused · ", 1)[-1]}
+                    elif action == "snapshot":
+                        if write_images:
+                            Path(params["path"]).write_bytes(b"png")
+                        value = {"path": params["path"]} if write_images else {"error": "snapshot failed"}
+                    else:
+                        self.fail(f"Unexpected debug.page call: {params!r}")
+                elif words[:3] == ["app", "call", "debug.window_snapshot"]:
+                    params = json.loads(words[3])
+                    self.assertEqual(params["kind"], "main")
+                    if write_images:
+                        Path(params["path"]).write_bytes(b"png")
+                    value = {"path": params["path"]} if write_images else {"error": "no such window"}
+                elif words == ["cloud", "kill-machine", "--target", "machine:vm_abc", "--confirm", "--json"]:
+                    code = cleanup_exit
+                    value = {"deleted": code == 0}
+                elif words == ["app", "quit", "--json"]:
+                    value = {"quitting": True}
+                else:
+                    self.fail(f"Unexpected CLI invocation: {words!r}")
+                return subprocess.CompletedProcess(command, code, json.dumps({"result": value}), "")
+
+            argv = [str(SCRIPT), "--app", str(app), "--tag", "proof-test", "--cloud-backend", "staging",
+                    "--expected-api-origin", STAGING_API, "--evidence", str(evidence_path),
+                    "--paused-capture", str(shots)]
+            with patch.object(sys, "argv", argv), patch("subprocess.run", side_effect=run), \
+                    patch("subprocess.Popen", return_value=launcher), \
+                    patch("time.monotonic", side_effect=lambda: clock), \
+                    patch("time.sleep", side_effect=sleep), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as stopped:
+                    runpy.run_path(str(SCRIPT), run_name="__main__")
+            images = sorted(path.name for path in shots.glob("*.png")) if shots.is_dir() else []
+            return stopped.exception.code, json.loads(evidence_path.read_text()), calls, images
+
+    def test_pauses_reads_the_paused_price_captures_and_kills(self):
+        code, evidence, calls, images = self.run_capture()
+        self.assertEqual(code, 0, evidence)
+        self.assertEqual(evidence["result"], "pass")
+        self.assertEqual(images, ["cloud-paused-page.png", "cloud-paused-window.png"])
+        self.assertIn("About $1.00 a month while paused", evidence["paused_capture"]["row_text"])
+        self.assertIn("a month while paused", evidence["paused_capture"]["detail_text"])
+        order = [words[:2] for words in calls if words[0] == "cloud"]
+        self.assertLess(order.index(["cloud", "new-machine"]), order.index(["cloud", "pause-machine"]))
+        self.assertEqual(calls[-2], ["cloud", "kill-machine", "--target", "machine:vm_abc", "--confirm", "--json"])
+        self.assertFalse(any(words[:2] in (["vm", "token"], ["cloud", "start-chat"]) for words in calls))
+
+    def test_reuses_the_machine_its_name_already_has(self):
+        code, evidence, calls, _ = self.run_capture(existing=True)
+        self.assertEqual(code, 0, evidence)
+        self.assertNotIn(["cloud", "new-machine", "--name", "proof-test", "--json"], calls)
+        self.assertFalse(any(words[:2] == ["cloud", "pause-machine"] for words in calls))
+
+    def test_fails_without_the_paused_line_but_still_captures_and_kills(self):
+        code, evidence, calls, images = self.run_capture(subtitle="Paused · $0.26/h when running")
+        self.assertEqual(code, 1)
+        self.assertEqual(evidence["result"], "fail: the Cloud page does not say 'a month while paused' for the paused machine")
+        self.assertEqual(images, ["cloud-paused-page.png", "cloud-paused-window.png"])
+        self.assertIn(["cloud", "kill-machine", "--target", "machine:vm_abc", "--confirm", "--json"], calls)
+
+    def test_failed_pause_fails_and_kills(self):
+        code, evidence, calls, _ = self.run_capture(pause_exit=1)
+        self.assertEqual(code, 1)
+        self.assertEqual(evidence["result"], "fail: cloud pause-machine")
+        self.assertIn(["cloud", "kill-machine", "--target", "machine:vm_abc", "--confirm", "--json"], calls)
+
+    def test_no_image_fails(self):
+        code, evidence, _, images = self.run_capture(write_images=False)
+        self.assertEqual(code, 1)
+        self.assertEqual(images, [])
+        self.assertEqual(evidence["result"], "fail: no image of the Cloud page was written")
+
+    def test_capture_does_not_pass_if_its_machine_is_not_killed(self):
+        code, evidence, _, _ = self.run_capture(cleanup_exit=1)
+        self.assertEqual(code, 1)
+        self.assertEqual(evidence["result"], "fail: the capture passed but its machine was not killed")
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 from cmux_next_push_attribution import (MAX_COMMENTED_PRS, failed_jobs, bisect_history, last_green,
                                          never_passed, should_comment)  # noqa: E402
+import cmux_next_route  # noqa: E402
 from cmux_next_route import MAX_PRIORITY_SUITES, outputs, route  # noqa: E402
 from cmux_next_route import matches as route_matches  # noqa: E402
 
@@ -517,6 +518,24 @@ class PullRequestTiers(unittest.TestCase):
         result = tiers(["scripts/ci/select_package_tests.py", "webviews/src/agent-session/pane.tsx"])
         for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
             self.assertEqual(result[tier], "false", tier)
+
+    def test_a_checks_job_tooling_input_runs_no_mac_tier(self):
+        """A file the checks job's tests read and no build reads (a CI table, a lint, a git hook) is CI-only:
+        a pull request changing one runs the Linux checks, not the Mac compiles."""
+        for path in (".github/runners.json", "scripts/web-lint.sh", "scripts/install-git-hooks.sh"):
+            with self.subTest(path=path):
+                result = tiers([path])
+                for tier in ("macos", "scheme", "native", "mac_release", "swift", "generated", "daemon", "full"):
+                    self.assertEqual(result[tier], "false", tier)
+
+    def test_checks_job_inputs_a_build_reads_keep_the_mac_tiers(self):
+        """Admitted for the checks job's tests too, but each can change what the app build gets: the GhosttyKit
+        download, the reload script's instance stop, the release strip and its symbol map, and the checkout's
+        text attributes (the bundled license texts are `-text`). They stay out of CI_ONLY."""
+        for path in ("scripts/download-prebuilt-ghosttykit.sh", "scripts/lib/stop-app-instances.sh",
+                     "scripts/strip-release-bundle.sh", "scripts/write-app-symbol-map.py", ".gitattributes"):
+            with self.subTest(path=path):
+                self.assertEqual(tiers([path])["native"], "true")
 
     def test_ci_files_a_mac_job_consumes_keep_their_tier(self):
         self.assertEqual(tiers(["scripts/ci/xcode-pins.txt"])["full"], "true")
@@ -1567,6 +1586,102 @@ class RouteLabels(unittest.TestCase):
         self.assertEqual(labels, "dev-build")
         self.assertEqual(len(gh_calls), 1)
         self.assertIn("issues/7/labels", gh_calls[0])
+
+
+class FfiRepinRoute(unittest.TestCase):
+    """A pure app FFI re-pin runs the app compile alone; any other diff keeps every tier (2026-11-10: re-pin
+    #40576 sat 2 h 49 min behind the Mac queue every Package.swift change took, and base stayed red on
+    "Check the app FFI pin" from 13:36 to 18:25Z)."""
+
+    MANIFEST = f"{PACKAGE}/Package.swift"
+    CRATE = "cmux-tui/crates/cmux-app-ffi"
+
+    def setUp(self):
+        import subprocess
+        import tempfile
+        from app_ffi_pin import read, rewrite
+        self.read, self.rewrite = read, rewrite
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name) / "repo"
+        self.git = ["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                    "-c", "commit.gpgsign=false"]
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        (self.repo / PACKAGE).mkdir(parents=True)
+        (self.repo / self.MANIFEST).write_text((ROOT / self.MANIFEST).read_text(encoding="utf-8"), encoding="utf-8")
+        (self.repo / self.CRATE / "src").mkdir(parents=True)
+        (self.repo / self.CRATE / "Cargo.toml").write_text('[package]\nname = "cmux-app-ffi"\n')
+        self.old_source = self.commit({f"{self.CRATE}/src/lib.rs": "// v1\n"}, "ffi v1")
+        self.new_source = self.commit({f"{self.CRATE}/src/lib.rs": "// v2\n"}, "ffi v2")
+        self.commit({"README.md": "unrelated\n"}, "base")
+
+    def commit(self, files: dict[str, str], message: str) -> str:
+        import subprocess
+        for path, text in files.items():
+            (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / path).write_text(text, encoding="utf-8")
+        subprocess.run([*self.git, "add", "-A"], check=True)
+        subprocess.run([*self.git, "commit", "-qm", message], check=True)
+        return subprocess.run([*self.git, "rev-parse", "HEAD"], check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    def repin(self, sha: str, extra: dict[str, str] | None = None, edit=lambda text: text) -> list[str]:
+        """Commit a head that pins cmux-app-ffi-SHA (plus EXTRA files and EDIT of Package.swift); its changed files."""
+        import subprocess
+        text = self.rewrite((self.repo / self.MANIFEST).read_text(encoding="utf-8"), sha, "ab" * 32)
+        self.commit({self.MANIFEST: edit(text), **(extra or {})}, "re-pin")
+        return subprocess.run([*self.git, "diff", "--no-renames", "--name-only", "HEAD^1", "HEAD"], check=True,
+                              capture_output=True, text=True).stdout.split()
+
+    def test_a_pure_repin_routes_to_the_app_compile_alone(self):
+        changed = self.repin(self.new_source)
+        reason = cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1")
+        self.assertIsNotNone(reason)
+        self.assertIn(self.new_source[:12], reason)
+        result = outputs(route(ROOT, "pull_request", changed, set(), repin=reason))
+        self.assertEqual(result["native"], "true")
+        self.assertEqual(result["mac_release"], "true", "the Mac Release compile stays the no-verdict fallback")
+        self.assertEqual(result["macos"], "true")
+        for tier in ("full", "scheme", "generated", "swift", "daemon", "fast_tier"):
+            self.assertEqual(result[tier], "false", tier)
+
+    def test_the_same_files_without_the_repin_reason_run_every_tier(self):
+        self.assertEqual(tiers([self.MANIFEST])["full"], "true")
+
+    def test_a_label_asking_for_more_keeps_every_tier(self):
+        changed = self.repin(self.new_source)
+        reason = cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1")
+        for label in ("full-ci", "dev-build"):
+            result = outputs(route(ROOT, "pull_request", changed, {label}, repin=reason))
+            self.assertEqual(result["full"] if label == "full-ci" else result["scheme"], "true", label)
+
+    def test_a_second_changed_file_is_not_a_repin(self):
+        changed = self.repin(self.new_source, extra={"README.md": "changed too\n"})
+        self.assertEqual(sorted(changed), sorted([self.MANIFEST, "README.md"]))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+        self.assertEqual(outputs(route(ROOT, "pull_request", changed, set(), repin=None))["full"], "true")
+
+    def test_another_package_swift_edit_is_not_a_repin(self):
+        changed = self.repin(self.new_source, edit=lambda text: text.replace(
+            "let appFFI: Target", "// a new dependency rides along\nlet appFFI: Target", 1))
+        self.assertEqual(changed, [self.MANIFEST])
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+
+    def test_a_release_whose_sources_are_not_heads_is_not_a_repin(self):
+        changed = self.repin(self.old_source)
+        self.assertEqual(changed, [self.MANIFEST])
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+
+    def test_an_unpublished_or_unreadable_pin_is_not_a_repin(self):
+        changed = self.repin("0" * 40)  # no such commit, and no origin to fetch it from
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, None))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "no-such-rev"))
+
+    def test_an_unchanged_pin_is_not_a_repin(self):
+        text = (self.repo / self.MANIFEST).read_text(encoding="utf-8")
+        self.commit({self.MANIFEST: text + "// the pin is as it was\n"}, "not a re-pin")
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, [self.MANIFEST], "HEAD^1"))
 
 
 if __name__ == "__main__":

@@ -1,23 +1,22 @@
+import CmuxConversationCore
 import Foundation
 import os
 
-/// Keeps the top of each Mac's Home list as this phone last read it, per account, so Home
-/// shows those rows at once on a launch or when that Mac is chosen again, before its link
-/// answers (Leo, 2026-11-10: "your recent stuff should be showing"). The Mac's own rows
-/// replace them as they arrive (``MacHomeFeed``). Carried forward from Aziz's
-/// `MacHomeRowsCache` (branch ios-instant-chats).
+/// Keeps each Mac's Home list as this phone last read it, per account, so Home shows those rows
+/// at once on a launch or when that Mac is chosen again, instead of an empty list until the Mac
+/// answers (the user, 2026-11-09: "never show an empty UI for data that exists but is still
+/// loading"). The Mac's own list replaces them as soon as it arrives (``MacHomeFeed``).
 ///
-/// One JSON file per account and Mac in Application Support (readable after first unlock, not
-/// in backups): the first ``rowLimit`` rows of each (the owner's order puts the pins and the
-/// newest conversations first), all files together under ``byteLimit`` (the lists written
-/// longest ago leave first). The rows read or written this run stay in memory, so a Mac chosen
-/// again in the same run shows them in the same frame. Disk reads and writes run in order on
-/// one utility queue, never on the main thread. Sign-out deletes them all (``removeAll()``).
+/// One JSON file per account and Mac in Application Support (readable after first unlock, not in
+/// backups), the newest ``rowLimit`` rows of each, all files together under ``byteLimit`` (the
+/// lists written longest ago leave first). The rows read or written this run stay in memory, so a
+/// Mac chosen again in the same run shows them in the same frame. Disk reads and writes run in
+/// order on one utility queue, never on the main thread. Sign-out deletes them all (``removeAll()``).
 public final class MacHomeRowsCache: @unchecked Sendable {
-    /// Rows kept per Mac: a few screens, so a launch can scroll before the Mac answers.
-    public static let rowLimit = 100
+    /// Rows kept per Mac: the owner's order puts the pins and the newest conversations first.
+    public static let rowLimit = 200
     /// Bytes kept on disk for every account and Mac together.
-    public static let byteLimit = 1024 * 1024
+    public static let byteLimit = 2 * 1024 * 1024
 
     public static let standard: MacHomeRowsCache = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -29,7 +28,7 @@ public final class MacHomeRowsCache: @unchecked Sendable {
     public let rowLimit: Int
     public let byteLimit: Int
     let queue = DispatchQueue(label: "dev.cmux.mobile.home-rows", qos: .utility)
-    /// How long a write waits for newer rows (each Mac event may change the list): one file
+    /// How long a write waits for newer rows (each Mac event reads the list again): one file
     /// write per key per `writeDelay`, of the newest rows.
     let writeDelay: DispatchTimeInterval
     /// Rows waiting for their write, by key; the queue takes the newest.
@@ -96,30 +95,8 @@ public final class MacHomeRowsCache: @unchecked Sendable {
             try? directory.setResourceValues(values)
         }
         let written = file(for: key)
-        #if os(iOS)
-        let options: Data.WritingOptions = [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
-        #else
-        let options: Data.WritingOptions = [.atomic]
-        #endif
-        guard (try? data.write(to: written, options: options)) != nil else { return }
-        Self.trim(directory, to: byteLimit, keeping: written)
-    }
-
-    /// Removes the files written longest ago until the directory holds at most `limit` bytes,
-    /// never `keeping` (the list just written).
-    static func trim(_ directory: URL, to limit: Int, keeping: URL) {
-        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey]
-        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys) else { return }
-        let sized = files.map { url -> (url: URL, size: Int, at: Date) in
-            let values = try? url.resourceValues(forKeys: Set(keys))
-            return (url, values?.fileSize ?? 0, values?.contentModificationDate ?? .distantPast)
-        }
-        var total = sized.reduce(0) { $0 + $1.size }
-        for file in sized.sorted(by: { $0.at < $1.at }) where total > limit {
-            guard file.url.standardizedFileURL != keeping.standardizedFileURL else { continue }
-            try? FileManager.default.removeItem(at: file.url)
-            total -= file.size
-        }
+        guard (try? data.write(to: written, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil else { return }
+        ConversationTranscriptCache.trim(directory, to: byteLimit, keeping: written)
     }
 
     /// Sign-out: every kept Home list leaves this device. Writes not yet made are dropped now;
