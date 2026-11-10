@@ -128,21 +128,60 @@ fn git_commit_and_push_run_in_the_repository_through_a_real_daemon() {
         git(&repo, &["rev-parse", "HEAD"])
     );
 
-    // Create PR preserves an already-published head when the local branch was renamed.
+    // A differently named upstream is ambiguous: it may be a renamed branch,
+    // or the base a fresh feature branched from. Never update it implicitly.
     git(&repo, &["push", "publish", "feature:published"]);
     git(&repo, &["checkout", "-q", "-b", "local-feature", "feature"]);
     git(&repo, &["branch", "--set-upstream-to=publish/published"]);
     fs::write(repo.join("a.txt"), "renamed branch\n").unwrap();
     git(&repo, &["commit", "-q", "-am", "local change"]);
     let published = git_cli(&server, &repo, &["push"]);
-    assert_success(&published);
+    assert!(!published.status.success());
+    assert!(String::from_utf8_lossy(&published.stderr).contains("upstream_mismatch"));
     assert_eq!(
         git(&remote, &["rev-parse", "refs/heads/published"]),
-        git(&repo, &["rev-parse", "HEAD"])
+        git(&repo, &["rev-parse", "feature"])
     );
     assert_eq!(
         git(&repo, &["rev-parse", "--abbrev-ref", "local-feature@{upstream}"]),
         "publish/published"
+    );
+
+    git(&repo, &["checkout", "-q", "-b", "fresh-from-main", "publish/main"]);
+    git(&repo, &["config", "push.default", "simple"]);
+    let base = git(&remote, &["rev-parse", "refs/heads/main"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "feature work"]);
+    let refused = git_cli(&server, &repo, &["push"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("upstream_mismatch"));
+    assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), base);
+    assert_eq!(git(&remote, &["branch", "--list", "fresh-from-main"]), "");
+    // Explicitly choosing the same-named destination creates the feature
+    // branch and updates its tracking config without touching main.
+    assert_success(&git_cli(&server, &repo, &["push", "--set-upstream"]));
+    assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), base);
+    assert_eq!(
+        git(&remote, &["rev-parse", "refs/heads/fresh-from-main"]),
+        git(&repo, &["rev-parse", "HEAD"])
+    );
+    assert_eq!(
+        git(&repo, &["rev-parse", "--abbrev-ref", "fresh-from-main@{upstream}"]),
+        "publish/fresh-from-main"
+    );
+    // A separate push remote is a deliberate triangular setup. It receives
+    // the local feature name even when the branch tracks the base elsewhere.
+    let fork = root.join("fork.git");
+    git(&root, &["init", "-q", "--bare", fork.to_str().unwrap()]);
+    git(&repo, &["remote", "add", "fork", fork.to_str().unwrap()]);
+    git(&repo, &["checkout", "-q", "-b", "fork-feature", "publish/main"]);
+    git(&repo, &["config", "branch.fork-feature.pushRemote", "fork"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "fork feature work"]);
+    assert_success(&git_cli(&server, &repo, &["push"]));
+    assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), base);
+    assert_eq!(git(&fork, &["branch", "--list", "main"]), "");
+    assert_eq!(
+        git(&fork, &["rev-parse", "refs/heads/fork-feature"]),
+        git(&repo, &["rev-parse", "HEAD"])
     );
     let _ = fs::remove_dir_all(root);
 }

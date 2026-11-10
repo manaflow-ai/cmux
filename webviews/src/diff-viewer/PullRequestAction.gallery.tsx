@@ -13,7 +13,10 @@ function Gallery({ state }: Props) {
     run: () => undefined,
   };
   return (
-    <div className="diff-git diff-git-tools" style={{ display: "flex", flexDirection: "column", gap: 6, padding: 12 }}>
+    <div
+      className="diff-git diff-git-tools"
+      style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)", padding: "var(--ds-space-3)" }}
+    >
       <div>
         <PullRequestActionButton action={action} />
       </div>

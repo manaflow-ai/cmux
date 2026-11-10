@@ -150,21 +150,30 @@ fn push(
     let upstream_merge = config(format!("branch.{branch}.merge"));
     let tracked = upstream_remote.is_some() && upstream_merge.is_some();
     let set_upstream = fields.get("set_upstream").and_then(Value::as_bool).unwrap_or(!tracked);
-    // A published branch may have a different local name (for example a worktree branch
-    // `local-feature` tracking `origin/published-feature`). When the caller leaves the
-    // upstream intact, push back to that published branch so GitHub keeps the same head
-    // identity. Explicit `set_upstream` retains the opt-in behavior of retargeting to the
-    // local branch name.
-    let destination_branch = if tracked && !set_upstream && upstream_remote.as_deref() == Some(remote.as_str()) {
-        upstream_merge
-            .as_deref()
-            .and_then(|merge| merge.strip_prefix("refs/heads/"))
-            .filter(|merge| !merge.is_empty())
-            .unwrap_or(branch)
-    } else {
-        branch
-    };
+    let destination_branch = branch;
     let destination = format!("refs/heads/{destination_branch}");
+    // Match push.default=simple's name safeguard. A branch tracking origin/main
+    // may be fresh feature work, not a renamed published branch. Never infer
+    // permission to update that differently named branch. A triangular push to
+    // another remote still uses the local name; explicit set_upstream does too.
+    if tracked
+        && !set_upstream
+        && upstream_remote.as_deref() == Some(remote.as_str())
+        && upstream_merge.as_deref() != Some(destination.as_str())
+    {
+        let upstream = format!(
+            "{remote}/{}",
+            upstream_merge.as_deref().unwrap_or_default().trim_start_matches("refs/heads/")
+        );
+        return Err(refused(
+            OPERATION,
+            "upstream_mismatch",
+            format!(
+                "{branch} tracks {upstream}; choose the destination with git push --set-upstream {remote} {branch} in a terminal, then try again"
+            ),
+            json!({"branch": branch, "upstream": upstream, "remote": remote}),
+        ));
+    }
     let refspec = format!("{tip}:{destination}");
     let command = ["push", "--porcelain", "--", remote.as_str(), refspec.as_str()];
     let run = git.run(&command).map_err(|failure| run_failed(OPERATION, &failure))?;
