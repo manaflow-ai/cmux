@@ -135,7 +135,9 @@ class MappingTests(unittest.TestCase):
             self.assertTrue(pb.budget_for(name, budgets).get("p95"), name)
             self.assertTrue(any(re.fullmatch(p, name) for p in budgets["expected"]["terminal_burst"]), name)
         self.assertEqual(pb.budget_for("terminal_burst.new_terminal.growth", budgets)["unit"], "x")
-        self.assertIn("terminal_burst", pb.BENCHES)
+        # Opt-in: the default suite is what stable-next's --gate step runs, and this group must not become a gate row.
+        self.assertNotIn("terminal_burst", pb.BENCHES)
+        self.assertIn("terminal_burst", pb.OPT_IN_BENCHES)
         self.assertEqual(pb.rows_terminal_burst(None), {})
 
     def test_animation_rows_take_their_budgets_from_the_perf_bench_file(self):

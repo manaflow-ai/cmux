@@ -42,7 +42,10 @@ BUDGETS_FILE = os.path.join(HERE, "perf-budgets.json")
 BASELINE_DIR = os.path.join(HERE, "perf-budgets-baseline")
 REGRESSION = 0.10
 
-BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", "acp", "idle", "anim", "terminal_burst"]
+BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", "acp", "idle", "anim"]
+# Benches that run only when --only names them: the default (all of BENCHES) is what stable-next's --gate step runs, and
+# a bench added here is a perf cron row that warns, never a new gate row (CLAUDE.md: no new CI gates).
+OPT_IN_BENCHES = ["terminal_burst"]
 PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
 
 

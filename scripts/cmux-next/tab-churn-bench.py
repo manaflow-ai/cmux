@@ -18,8 +18,8 @@ Launches the tagged app itself (bench_launch.BenchApp: no activation, scratch co
 Every timed open and close goes through the real key path (`debug.key`, in the app). The app reports `visible_ms`, the
 display frame at which the result shows, and `key_ms`, the key's synchronous main-thread time. Each step's rows have
 p50/p95/max of those; perf-budgets.py (group `terminal_burst`) maps them to rows `terminal_burst.*` and their budgets.
-The perf cron's `tabs` part (tab switch, tab close bursts and new tab as tabs and workspaces grow) is where these rows
-are meant to run, so its regression issue warns when they slow down.
+The group is opt-in (perf-budgets.py OPT_IN_BENCHES: the default suite, which stable-next gates, never runs it); the
+perf cron's `tabs` part is to add it to its --only, so the cron's regression issue warns when these rows slow down.
 
 Usage: tab-churn-bench.py --tag TAG --app PATH [--cycles 12] [--terminals 30] [--out DIR] [--json FILE]
 Fleet: through perf-budgets.py: scripts/measure/split-spring.sh --suite=budgets --only=terminal_burst
@@ -73,6 +73,7 @@ def summarize(steps):
 
 class Churn:
     def __init__(self, app, window):
+        # debug.key takes the window's id; debug.new_tab takes an index into the main windows (0: the bench's only one).
         self.app, self.window = app, window
 
     def rpc(self, method, params=None, timeout=30):
@@ -82,7 +83,7 @@ class Churn:
     def focused_pane(self):
         for window in self.rpc("debug.focus").get("windows") or []:
             for pane in window.get("topology") or []:
-                if pane.get("pane") == (window.get("layout_focused_pane") or window.get("focused_pane")):
+                if pane.get("pane") == window.get("layout_focused_pane"):
                     return pane
             panes = window.get("topology") or []
             if len(panes) == 1:
@@ -117,7 +118,7 @@ class Churn:
         return ok
 
     def timed(self, step, action, index, **params):
-        result = self.rpc("debug.new_tab", {"action": action, "window": self.window, **params}, timeout=20)
+        result = self.rpc("debug.new_tab", {"action": action, "window": 0, **params}, timeout=20)
         result.update({"step": step, "run": index})
         print(f"{step} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} err={result.get('error')}",
               flush=True)
