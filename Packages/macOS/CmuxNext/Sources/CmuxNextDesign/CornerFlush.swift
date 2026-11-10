@@ -52,14 +52,16 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
     }
 
     /// The default draws only over the stock chrome: the shipped chrome style (`flat`, the
-    /// `appearance.chromeStyle` fallback, or `default`), tabs on top, no vertical tabs, no
+    /// `appearance.chromeStyle` fallback, or `default`), tabs on top and above a page's toolbar (a strip
+    /// below it is not the card's top row), no vertical tabs, no
     /// `layout.*` pane padding, corner or border the user set, and no Debug Settings main pane
     /// override. Any of those keeps its own look (floating and blocks panes keep their cards, a set
     /// padding or radius still applies, bottom and vertical tabs have no top strip to run into the card).
     @MainActor static var defaultFits: Bool {
         let design = DesignSettings.shared
         let chrome = design.paneChrome
-        guard [.flat, .default].contains(design.chromeStyle), design.tabBarPosition == .top, !design.verticalTabs else { return false }
+        guard [.flat, .default].contains(design.chromeStyle), design.tabBarPosition == .top, design.tabBarOrder == .aboveToolbar,
+              !design.verticalTabs else { return false }
         guard chrome.padding == nil, chrome.cornerRadius == nil, chrome.cornerPadding == nil, chrome.border == nil,
               chrome.borderColor == nil, chrome.borderWidth == nil, chrome.separation == nil else { return false }
         return ChromeTunables.mainPaneCurved.override == nil && ChromeTunables.mainPaneGutter.override == nil
