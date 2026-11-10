@@ -135,6 +135,9 @@ final class RemoteTmuxControlConnection {
     /// Stable pane queue for reconnect snapshots. Only a small fixed number are
     /// captured concurrently so retained history is bounded independently of pane count.
     var pendingReconnectPaneIDs: [Int] = []
+    /// The reader fell a bound behind while a catch-up could not start (one was still waiting on
+    /// tmux). The catch-up's last seed starts the next one. See ``requestCatchUpAfterFallingBehind()``.
+    var catchUpRequested = false
     /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
     /// (style tokens stripped) — exactly the text a native tmux client draws
     /// in that pane's header, custom formats included. Seeded by the
@@ -851,12 +854,21 @@ final class RemoteTmuxControlConnection {
                 let pauseCount = stdoutPipeReader.pauseCount
                 if pauseCount != handledPauseCount {
                     handledPauseCount = pauseCount
-                    self.catchUpAfterFallingBehind()
+                    self.requestCatchUpAfterFallingBehind()
                 }
             }
             guard !Task.isCancelled else { return }
             await self?.handleStreamEnd(processGeneration: generation)
         }
+    }
+
+    /// Starts a catch-up for a reader that fell a bound behind, or keeps the request until the
+    /// catch-up in progress finishes. Before control mode is entered there is nothing to catch up:
+    /// the attach seeds capture every pane anyway.
+    func requestCatchUpAfterFallingBehind() {
+        guard enterReceived else { return }
+        catchUpRequested = true
+        catchUpAfterFallingBehind()
     }
 
     /// Appends captured stderr, bounded (by UTF-8 bytes) so a noisy/hostile remote

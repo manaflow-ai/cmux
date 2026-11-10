@@ -121,4 +121,39 @@ extension RemoteTmuxPaneSeedTransportTests {
         var filter = sessionMirror.titleFilters[7] ?? RemoteTmuxScreenTitleFilter()
         #expect(filter.filter(Data("next".utf8)) == Data("next".utf8))
     }
+
+    /// A transport that keeps flooding makes the reader stop again while a catch-up is still
+    /// waiting on tmux. That pause must not be lost: the output after the first catch-up's
+    /// captures is just as stale, so a second catch-up starts when the first one finishes.
+    @Test func aPauseDuringACatchUpStartsAnotherWhenItFinishes() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(7))
+        )
+        var repaints = 0
+        let token = fixture.connection.addObserver(onPaneSeed: { _, seed in
+            if seed.restartsLiveStream { repaints += 1 }
+        })
+        defer { fixture.connection.removeObserver(token) }
+
+        fixture.connection.requestCatchUpAfterFallingBehind()
+        let queuedCommands = fixture.connection.pendingCommandKindsForTesting.count
+        fixture.connection.requestCatchUpAfterFallingBehind()
+        #expect(fixture.connection.pendingCommandKindsForTesting.count == queuedCommands)
+        #expect(fixture.connection.catchUpRequested)
+
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: ["current screen"],
+            paneHeight: 24,
+            startingAt: 400
+        )
+        #expect(repaints == 2, "the pause during the first catch-up was dropped")
+        #expect(!fixture.connection.catchUpRequested)
+        #expect(!fixture.connection.isCatchingUpAfterFallingBehind)
+    }
 }

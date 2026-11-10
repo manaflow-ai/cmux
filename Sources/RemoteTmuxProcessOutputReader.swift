@@ -34,8 +34,10 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     /// The process exited; reads continue until the pipe is empty, then the stream ends.
     private var draining = false
     private var closed = false
-    /// How many times reading stopped at a bound. Read from the consumer's side,
-    /// so it lives behind its own lock rather than on `queue`.
+    /// How many times reading stopped at a bound. The main-actor consumer reads it after every
+    /// chunk, before the next queued chunk is parsed, so it needs a synchronous read from another
+    /// thread: an actor would cost an await per chunk, and a marker sent through `stream` would
+    /// queue behind the very backlog it reports. Hence one unfair lock around one integer.
     private let pauses = OSAllocatedUnfairLock(initialState: 0)
 
     /// The number of times the consumer fell a full bound behind. A consumer that
@@ -43,6 +45,8 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     /// worth of output.
     var pauseCount: Int { pauses.withLock { $0 } }
 
+    /// Creates a reader that holds at most `maxPendingChunks` unreleased chunks or
+    /// `maxPendingBytes` unreleased bytes, reading at most `maxReadChunkBytes` at a time.
     init(
         label: String,
         maxPendingChunks: Int,
@@ -60,6 +64,7 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         self.maxReadChunkBytes = max(1, maxReadChunkBytes)
     }
 
+    /// Starts reading `handle` on the reader's queue. The descriptor is made nonblocking.
     func attach(to handle: FileHandle) {
         let fileDescriptor = handle.fileDescriptor
         queue.async { [weak self] in
@@ -103,6 +108,7 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         }
     }
 
+    /// Sets `O_NONBLOCK`, so the post-exit drain can tell an empty pipe from a slow writer.
     private func makeNonblocking(_ fileDescriptor: Int32) {
         let flags = fcntl(fileDescriptor, F_GETFL)
         guard flags >= 0 else { return }
@@ -113,6 +119,7 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         pendingChunks >= maxPendingChunks || pendingBytes >= maxPendingBytes
     }
 
+    /// Read-source handler: reads one chunk, or pauses when the consumer is at a bound.
     private func readAvailable(from fileDescriptor: Int32) {
         guard !closed, !draining, let source else { return }
         guard !atBound else {
@@ -124,6 +131,8 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         }
     }
 
+    /// Reads until the pipe is empty after the process exited, pausing at a bound like the
+    /// read source does; a release resumes it.
     private func drain() {
         guard !closed, let handle else {
             finishOnQueue()
@@ -144,6 +153,7 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         }
     }
 
+    /// Reads up to `byteCount` bytes and yields them as one chunk, counting it against the bounds.
     private func readAndPublish(
         from fileDescriptor: Int32,
         byteCount: Int
@@ -173,6 +183,7 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         return max(1, min(maxReadChunkBytes, room, Int(min(available, UInt(maxReadChunkBytes)))))
     }
 
+    /// Returns a chunk's share of the bounds and resumes reading once the consumer is at half.
     private func releaseOnQueue(byteCount: Int) {
         pendingBytes = max(0, pendingBytes - byteCount)
         pendingChunks = max(0, pendingChunks - 1)
@@ -187,6 +198,7 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         }
     }
 
+    /// Stops reading until the consumer releases half of what it holds.
     private func pause() {
         guard !paused else { return }
         paused = true
@@ -194,12 +206,14 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         setSourceSuspended(true)
     }
 
+    /// Suspends or resumes the read source, keeping dispatch's suspend count balanced.
     private func setSourceSuspended(_ suspended: Bool) {
         guard let source, suspended != sourceSuspended else { return }
         sourceSuspended = suspended
         if suspended { source.suspend() } else { source.resume() }
     }
 
+    /// Cancels the read source and ends the stream. Safe to call more than once.
     private func finishOnQueue() {
         guard !closed else { return }
         closed = true
