@@ -134,7 +134,7 @@ pub fn project_rows(count: u32, active: &[Active], caps: &ProjectCaps) -> Projec
     let quiet_total = count - actives.len() as u32;
     let mut limit = if caps.cap == 0 { quiet_total } else { caps.cap.saturating_add(caps.revealed).min(quiet_total) };
     // One row over the limit shows whole: a row that hides one row saves nothing.
-    if quiet_total == limit + 1 {
+    if quiet_total == limit.saturating_add(1) {
         limit = quiet_total;
     }
 
@@ -176,7 +176,7 @@ pub fn project_rows(count: u32, active: &[Active], caps: &ProjectCaps) -> Projec
     let hidden = quiet_total - quiet_shown;
     let tail = if hidden > 0 {
         Tail::ShowMore { hidden, next: hidden.min(SHOW_MORE_STEP) }
-    } else if caps.cap != 0 && caps.revealed > 0 && quiet_total > caps.cap + 1 {
+    } else if caps.cap != 0 && caps.revealed > 0 && quiet_total > caps.cap.saturating_add(1) {
         Tail::ShowLess
     } else {
         Tail::None

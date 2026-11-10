@@ -226,3 +226,16 @@ fn the_projection_costs_the_same_at_thirty_and_three_thousand_chats() {
     );
     assert_eq!(big.rows.len(), 3);
 }
+
+#[test]
+fn caps_from_the_c_abi_never_overflow() {
+    for cap in [u32::MAX, u32::MAX - 1] {
+        for revealed in [0, u32::MAX] {
+            let out = project_rows(10, &[a(3, WAITING)], &ProjectCaps { cap, revealed, ..ProjectCaps::default() });
+            assert_eq!(out.rows.len(), 10);
+            assert_eq!(after_press(out.tail, &ProjectCaps { cap, revealed, ..ProjectCaps::default() }), 0);
+        }
+    }
+    let out = project_rows(u32::MAX, &[], &caps(5));
+    assert_eq!(out.rows.len(), 5);
+}
