@@ -395,18 +395,22 @@ const isCardOf = (row: AcpmuxRow, rowId: string) => Boolean(row.ended) && (row.m
 export const isRevealRow = (row: AcpmuxRow, reveal: Pick<FindRevealTarget, "rowId" | "card">) =>
   (row.id === reveal.rowId || Boolean(row.joined?.includes(reveal.rowId))) && Boolean(row.ended) === reveal.card;
 
+/// The id suffix of the part of a run that ended after a prompt the person sent (turns.ts
+/// `afterSends`): what was still going left its run for one under the prompt, which names the rows
+/// it came from in `joined`.
+export const AFTER_SEND = ":after:";
+
 /** Where the transcript draws match row `rowId`: the row or its fold copy (isFindRow), else the
  * edited-files card that holds it (an edit after the answer is only there); -1 while hidden. A row a
- * prompt sent mid-turn split (turns.ts afterSends: what was still going went to a run under the
- * prompt that names it in `joined`) draws in two places: `holds` picks the one with the match. */
+ * prompt sent mid-turn split (AFTER_SEND) draws in two places: `holds` picks the one with the match.
+ * Any other row draws in one place, the first, as before. */
 export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string, holds?: (row: AcpmuxRow) => boolean): number {
-  let first = -1;
-  for (let at = 0; at < rows.length; at += 1) {
-    if (!isFindRow(rows[at]!, rowId)) continue;
-    if (!holds || holds(rows[at]!)) return at;
-    if (first < 0) first = at;
-  }
-  return first >= 0 ? first : rows.findIndex((row) => isCardOf(row, rowId));
+  const at = rows.findIndex((row) => isFindRow(row, rowId));
+  if (at < 0) return rows.findIndex((row) => isCardOf(row, rowId));
+  if (!holds || holds(rows[at]!)) return at;
+  for (let next = at + 1; next < rows.length; next += 1)
+    if (rows[next]!.id.includes(AFTER_SEND) && isFindRow(rows[next]!, rowId) && holds(rows[next]!)) return next;
+  return at;
 }
 
 /** Whether `row`'s work holds `needle` (folded as Find folds it) or call `toolId`: the part of a

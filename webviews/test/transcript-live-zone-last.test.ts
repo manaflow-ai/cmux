@@ -183,7 +183,9 @@ test("the run under the prompt changes when a call from any of its rows changes"
     steer("landed"),
   ];
   // The later row's call ends after the send; then its result comes in (its row's version moves).
-  const first = view(rows(row("act-2", "activity", 4, { version: 1, items: [call("c-2", "Run tests", "execute", 4, 15)] })));
+  const first = view(
+    rows(row("act-2", "activity", 4, { version: 1, items: [call("c-2", "Run tests", "execute", 4, 15)] })),
+  );
   const failed = { ...call("c-2", "Run tests", "execute", 4, 15) };
   failed.tool = { ...failed.tool!, status: "failed" };
   const next = view(rows(row("act-2", "activity", 4, { version: 2, items: [failed] })));
@@ -203,7 +205,12 @@ for (const offset of [5 * 60_000, -5 * 60_000]) {
     });
     const shaped = (endedAt: number) =>
       turnView(
-        [prompt, reply, row("act-1", "activity", 3, { items: [call("c-1", "Read relay.ts", "read", 3, endedAt)] }), sent],
+        [
+          prompt,
+          reply,
+          row("act-1", "activity", 3, { items: [call("c-1", "Read relay.ts", "read", 3, endedAt)] }),
+          sent,
+        ],
         new Set(),
         { working: true, agentFamily: "claude", now: at(60) + offset, clockOffset: offset },
       );

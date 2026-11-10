@@ -19,7 +19,7 @@ import {
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
-import { findRowIndex } from "./chatFind";
+import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
@@ -2293,8 +2293,9 @@ function goingAt(item: NonNullable<AcpmuxRow["items"]>[number], sentAt: number):
   return item.kind === "thought" && item.endedAt !== undefined && item.endedAt > sentAt;
 }
 
-/// The id suffix of the part of a run that ended after a prompt the person sent (`afterSends`).
-export const AFTER_SEND = ":after:";
+/// The id suffix of the part of a run that ended after a prompt the person sent (`afterSends`;
+/// chatFind.ts holds it, as Find reads the split).
+export { AFTER_SEND };
 
 /// A running turn's drawn rows with what was still going when the person sent a prompt drawn after
 /// that prompt: the transcript only appends, and nothing above the prompt moves once it is drawn
