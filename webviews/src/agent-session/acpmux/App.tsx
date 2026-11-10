@@ -262,6 +262,7 @@ import {
   useProcessRegistry,
 } from "./session-info/processes";
 import {
+  type SessionInfoSectionId,
   setSessionInfoOpen as setSessionInfoPanelOpen,
   setSessionInfoSection,
   setSessionInfoTab,
@@ -5187,7 +5188,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // header state. Its open-in-pane row enables that same panel before revealing the requested list.
   const revealSessionInfo = sessionInfo.reveal;
   const openSummarySection = useCallback(
-    (section: "subagents" | "tasks") => {
+    (section: SessionInfoSectionId) => {
       if (revealSessionInfo) {
         revealSessionInfo(section);
         return;
@@ -6531,7 +6532,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       "resume",
       "login",
     ]);
-    if (snapshot.summary) enabledCmuxActions.add("status");
+    if (snapshot.summary) {
+      enabledCmuxActions.add("status");
+      enabledCmuxActions.add("mcp");
+    }
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
@@ -8911,6 +8915,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const inCloudHere = command.action === "cd" && "place" in placed && placed.place === "cloud" && !state.inCloud;
     if (command.action === "status") {
       setStatusCardOpen(true);
+      return true;
+    }
+    // A bare /mcp opens Session Info on Connectors, the chat's MCP servers, now, mid-turn too: it
+    // sends nothing, so nothing waits. `/mcp <args>` is the agent's own command and goes as typed.
+    if (command.action === "mcp") {
+      if (args?.trim()) return CMUX_PASS_THROUGH;
+      openSummarySection("connectors");
       return true;
     }
     // /resume: the chats search, the same page Show all chats and Cmd-K open, where an earlier chat

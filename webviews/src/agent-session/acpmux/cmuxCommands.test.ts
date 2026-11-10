@@ -19,6 +19,7 @@ test("status is available before harness commands and stays cmux-owned", () => {
     "btw",
     "side",
     "status",
+    "mcp",
     "cd",
     "resume",
     "login",
@@ -136,4 +137,29 @@ test("a Claude skill named like a cmux command stays in the list, and mid-prompt
   expect(
     slashMatches(commands, { query: "pla", length: 4, leading: false }).map((match) => match.command.source),
   ).toEqual(["skill"]);
+});
+
+test("a bare /mcp is cmux's, the agent's own /mcp gives way, and /mcp with arguments is still recognized", () => {
+  const commands = mergedCommands([{ name: "mcp", description: "Manage MCP servers", source: "agent" }]);
+  expect(commands.filter((command) => command.name === "mcp")).toEqual([
+    expect.objectContaining({ source: "cmux", action: "mcp" }),
+  ]);
+  expect(composerCommand("/mcp")).toMatchObject({ kind: "cmux", args: "", command: { action: "mcp" } });
+  expect(composerCommand("/mcp enable github")).toMatchObject({ kind: "cmux", args: "enable github" });
+  // An MCP tool's slash name is no /mcp.
+  expect(composerCommand("/mcp__github__list_prs")).toBeUndefined();
+  const mcp = composerCommand("/mcp")!;
+  if (mcp.kind !== "cmux") throw new Error("not cmux");
+  const state = {
+    summary: true,
+    forkable: false,
+    sideAvailable: false,
+    canContinue: false,
+    sideSessions: false,
+    session: true,
+    isSideSession: false,
+    targets: [],
+  };
+  expect(cmuxCommandRefusal(mcp.command, "", state)).toBeUndefined();
+  expect(cmuxCommandRefusal(mcp.command, "", { ...state, summary: false })).toBe("composer.cmuxUnavailable");
 });

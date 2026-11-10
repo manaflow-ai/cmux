@@ -13,7 +13,12 @@ import type { Root } from "react-dom/client";
 import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "../src/agent-session/acpmux/cmuxCommands";
+import {
+  cmuxCommandRefusal,
+  type CmuxCommand,
+  type CmuxCommandResult,
+  mergedCommands,
+} from "../src/agent-session/acpmux/cmuxCommands";
 import { translate } from "../src/agent-session/acpmux/i18n";
 
 const scope = globalThis as Record<string, unknown>;
@@ -666,3 +671,27 @@ test("one of the agent's own commands still waits for the turn while the chat sh
   await dispatch(field, key({ key: "Enter", keyCode: 13 }));
   expect(sent).toEqual([{ text: "/compact", steer: false }]);
 });
+
+// Leo, 2026-11-10: "typing /mcp or /status on its own should NOT queue/steer and wait behind ... they
+// should just... go there. and run. instead of being treated like normal messages".
+for (const name of ["mcp", "status"]) {
+  test(`a bare /${name} mid-turn runs now: no steer, no queued prompt`, async () => {
+    const ran: string[] = [];
+    // The agent lists its own /mcp and /status too (Claude Code's), which would wait for the turn.
+    const snapshot = {
+      ...working(),
+      commands: mergedCommands([
+        { name: "mcp", description: "MCP", source: "agent" },
+        { name: "status", description: "Status", source: "agent" },
+      ]),
+    };
+    const { field, sent } = await composer(snapshot, `/${name}`, (command) => {
+      ran.push(command.action);
+      return true;
+    });
+    // Return with the menu showing the typed name runs it (slashCommands.ts returnPicks).
+    await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+    expect({ sent, ran }).toEqual({ sent: [], ran: [name] });
+    expect(field.textContent).toBe("");
+  });
+}
