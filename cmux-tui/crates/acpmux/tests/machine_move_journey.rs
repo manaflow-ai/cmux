@@ -1062,7 +1062,8 @@ async fn an_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine
         .unwrap();
     assert!(rerun["msg"].get("hiddenContext").is_some(), "not the whole prompt: {rerun}");
     let reply = events.iter().find(|e| ran_whole(e)).unwrap().to_string();
-    let uri = reply.split("resource_link:notes.txt:").nth(1).and_then(|r| r.split("file://").nth(1));
+    let uri =
+        reply.split("resource_link:notes.txt:").nth(1).and_then(|r| r.split("file://").nth(1));
     let path = uri.and_then(|u| u.split(['"', ' ', '\\']).next()).expect("the document's path");
     assert_eq!(std::fs::read(path).unwrap(), NOTES, "the document the fresh machine saved");
     // Let the redelivery settle, then count again: a late resend runs nothing more.
