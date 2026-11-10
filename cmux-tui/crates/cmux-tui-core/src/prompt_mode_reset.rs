@@ -182,7 +182,7 @@ fn leftover_modes(term: &Terminal) -> Vec<u8> {
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|window| window == needle)
+    memchr::memmem::find(haystack, needle)
 }
 
 #[cfg(test)]
