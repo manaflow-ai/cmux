@@ -347,6 +347,7 @@ impl Mux {
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             agent_hook_projection: Mutex::new(()),
+            agent_hooks_at_rest: Default::default(),
             agent_presence: Mutex::new(HashMap::new()),
             agent_hook_children: Mutex::new(HashMap::new()),
             agent_prompts: Mutex::new(agent_prompts::AgentTexts::with_sessions(
@@ -449,7 +450,7 @@ impl Mux {
             terminal_reap_grace_ms: AtomicU64::new(
                 u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
             ),
-            terminal_reaper_events: Mutex::new(None),
+            terminal_reaper: Mutex::default(),
             launch_snapshot_path: Mutex::new(None),
             settings: settings::SettingsSlot::default(),
             keybindings: keybindings::KeybindingsSlot::default(),

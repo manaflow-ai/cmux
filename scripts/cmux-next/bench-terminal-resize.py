@@ -47,11 +47,12 @@ The rule for the drag and key layouts: a terminal changes size with its pane in 
 Core Animation commit of the run-loop turn in which that window's frame clock ticked, so a sample is what that frame
 committed. It reads its pane's size, the size its host asked of it, and the size its layer shows. Each round reports
 `follow`: per terminal, frames sampled, `held` frames (asked is not the pane's size, more than 0.5 pt off), `lagging`
-frames (shown is not the pane's size), with the first 3 held and lagging ones; and the round's `held_frames` and
-`lagging_frames`. A round with a held frame fails, and the message names
+frames (shown is not the pane's size) and `in_flight` frames (a size asked of Ghostty and not shown yet), with the first
+3 held and lagging ones; the frame presenters' counts in the run (`presenter`: presented, keeps, group waits,
+long keeps); and the round's `held_frames` and `lagging_frames`. A round with a held frame fails, and the message names
 the terminal, its held frames and the first sizes; so does a terminal shown at the start that was never sampled.
-Lagging frames are data only: Ghostty keeps a terminal's last frame while its new size is not drawn yet (RESIZE SYNC,
-`host_held_frames`).
+Lagging frames are data only: the frame owner (``TerminalFramePresenter``) keeps a frame while its new size is not
+drawn yet; in a spring the next size is drawn ahead, so only the spring's first refresh keeps.
 
 Per layout it records display-frame intervals and main-thread busy time per frame (`debug.frames`,
 missed = an interval over 1.5 refresh periods, each split by cause into main late, commit late or presented late),
@@ -170,8 +171,8 @@ def counter_delta(before, after):
     """Sums counter deltas of the terminals present before and after, paired by id (not by x order:
     a pane that appears, closes or moves between the two reads must not pair with another's counters).
     `unpaired` counts the terminals present in only one of the two reads."""
-    keys = ("frames", "frame_updates", "full_resize", "full_swap", "host_display_passes", "host_main_presents", "host_main_draws", "host_size_presents",
-            "host_held_frames")
+    keys = ("frames", "frame_updates", "full_resize", "full_swap", "host_display_passes", "host_present_calls", "host_main_draws", "host_fresh_presents",
+            "host_late_presents")
     total = {k: 0 for k in keys}
     by_id = {b["id"]: b for b in before}
     paired = [(by_id[a["id"]], a) for a in after if a["id"] in by_id]
