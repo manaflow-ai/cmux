@@ -529,10 +529,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         // outbox is set aside (kept for a look, never read again) and this one starts empty.
         if cloned {
             let path = home().join("outbox.json");
-            if let Err(e) = std::fs::rename(&path, home().join("outbox.json.clone-boot"))
-                && e.kind() != std::io::ErrorKind::NotFound
+            let journal = crate::hub::outbox::journal_path(&path);
+            // The journal first: a start cut short between the two never reads the copied
+            // journal over an empty snapshot.
+            for (from, to) in
+                [(journal, "outbox.journal.clone-boot"), (path, "outbox.json.clone-boot")]
             {
-                tracing::warn!("copied machine's outbox not set aside: {e}");
+                if let Err(e) = std::fs::rename(&from, home().join(to))
+                    && e.kind() != std::io::ErrorKind::NotFound
+                {
+                    tracing::warn!("copied machine's outbox not set aside: {e}");
+                }
             }
         }
         let pending = hub.outbox.open(&home().join("outbox.json"));
