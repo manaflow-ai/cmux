@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
+import { keyProbeCommand, keyProbeDetail, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable, IDLE_JOURNEY_MS, listAllMachines, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
@@ -906,5 +907,83 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     const scope = { ...f.scope, get: async () => machine() };
     const r = await deleteJourneyMachines([id(1)], [scope], "t", deps([]));
     expect(r.failed[0]!.reason).toContain("read back");
+  });
+});
+
+describe("clean-room provider key probe", () => {
+  const tok = (prefix: string, n = 40) => `${prefix}${"Ab3".repeat(Math.ceil(n / 3)).slice(0, n)}`;
+  const OAUTH = tok("sk-ant-oat01-");
+  const PROJ = tok("sk-proj-", 32);
+  const GEMINI = "AQ.Ab8RN6Jq2ZkVd0wXyP4s";
+  const REFRESH = tok("rt_", 30);
+  const plant = (files: Record<string, string>): string => {
+    const root = mkdtempSync(join(tmpdir(), "key-probe-"));
+    for (const [rel, text] of Object.entries(files)) {
+      const p = join(root, rel);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, text);
+    }
+    return root;
+  };
+  const run = (root: string) => {
+    const r = spawnSync("bash", ["-c", keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8"), ["--root", root, "--budget-s", "20"])], { encoding: "utf8" });
+    expect(r.status).toBe(0);
+    return { out: r.stdout, probe: parseKeyProbe(r.stdout) };
+  };
+
+  test("names every planted key by place and kind, and prints no value", () => {
+    const root = plant({
+      "proc/101/comm": "claude\n",
+      "proc/101/environ": `ANTHROPIC_API_KEY=cmux-vm-edge-placeholder\0CLAUDE_CODE_OAUTH_TOKEN=${OAUTH}\0PATH=/usr/bin\0`,
+      "proc/101/cmdline": "claude\0--print\0",
+      "proc/102/comm": "node\n",
+      "proc/102/environ": "HOME=/home/cmux\0",
+      "proc/102/cmdline": `node\0--key\0${PROJ}\0`,
+      "home/cmux/.claude/.credentials.json": JSON.stringify({ claudeAiOauth: { accessToken: OAUTH } }),
+      "home/cmux/.codex/auth.json": JSON.stringify({ tokens: { refresh_token: REFRESH } }),
+      "home/cmux/.bashrc": `export PATH=$HOME/bin:$PATH\nexport GEMINI_API_KEY=${GEMINI}\n`,
+      // The model plane's placeholder and a key named in prose or as a reference are not keys.
+      "etc/cmux/model-plane.env": "export OPENAI_API_KEY='cmux-vm-edge-placeholder'\nexport ANTHROPIC_API_KEY='cmux-vm-edge-placeholder'\n",
+      "home/cmux/notes.md": "Set OPENAI_API_KEY before you run it: OPENAI_API_KEY=$OPENAI_API_KEY\n",
+    });
+    try {
+      const { out, probe } = run(root);
+      for (const v of [OAUTH, PROJ, GEMINI, REFRESH, OAUTH.slice(13, 30)]) expect(out).not.toContain(v);
+      const got = probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort();
+      expect(got).toEqual([
+        "cmdline process node (1 pid): an OpenAI project key",
+        "env process claude (1 pid): CLAUDE_CODE_OAUTH_TOKEN (an Anthropic OAuth token)",
+        "file /home/cmux/.bashrc:2: GEMINI_API_KEY",
+        "file /home/cmux/.claude/.credentials.json: a Claude login file",
+        "file /home/cmux/.claude/.credentials.json:1: an Anthropic OAuth token",
+        "file /home/cmux/.codex/auth.json: a Codex login file",
+        "file /home/cmux/.codex/auth.json:1: an OAuth refresh token",
+      ]);
+      expect(keyProbeDetail(probe)).toStartWith("7 findings: ");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a clean machine is zero, and the probe's own source never counts as a key", () => {
+    const root = plant({
+      "proc/7/comm": "bash\n",
+      "proc/7/environ": "HOME=/root\0OPENAI_API_KEY=cmux-vm-edge-placeholder\0",
+      "proc/7/cmdline": `bash\0-c\0${keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8"))}\0`,
+      "tmp/cloud-key-probe.py": readFileSync(KEY_PROBE_PY, "utf8"),
+      "home/cmux/.claude/settings.json": JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://coderouter.cmux.internal" } }),
+    });
+    try {
+      const { probe } = run(root);
+      expect(probe.findings).toEqual([]);
+      expect(probe.scanned.processes).toBe(1);
+      expect(keyProbeDetail(probe)).toStartWith("no provider key (");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an answer without the marker line is an error, not a clean machine", () => {
+    expect(() => parseKeyProbe("python3: command not found\n")).toThrow("printed no answer");
   });
 });
