@@ -58,8 +58,8 @@ export async function traceUpwardAnchors({
 
   function markFor(row: HTMLElement): number | null {
     const kind = [...row.classList].find((name) => name.startsWith("acpmux-") && !name.startsWith("acpmux-row"));
-    // A turn's "Worked for" line, as every family folds a turn under it now (Codex parity): the room
-    // under its rule is its own, so no gap follows it (transcriptGrid.ts MARK_WORKED, #37727).
+    // A turn's "Worked for" line, as every family folds a turn under it now (Codex parity): its rule
+    // opens the turn over its words, and on either side it is a step row (transcriptGrid.ts MARK_WORKED, #40062).
     if (kind === "acpmux-worked") return transcriptMark.worked;
     if (
       row.classList.contains("acpmux-row--line") ||
@@ -100,8 +100,7 @@ export async function traceUpwardAnchors({
   ): number {
     if (previous === null || next === null) return 0;
     const { footer, block, turn, run } = tokens;
-    // transcriptGrid.ts transcriptGap: none after "Worked for" inside its turn; elsewhere a step row.
-    if (previous === transcriptMark.worked && next !== transcriptMark.prompt) return 0;
+    // transcriptGrid.ts transcriptGap: "Worked for" is a step row on either side.
     if (previous === transcriptMark.worked) previous = transcriptMark.step;
     if (next === transcriptMark.worked) next = transcriptMark.step;
     if (
