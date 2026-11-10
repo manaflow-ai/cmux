@@ -616,6 +616,19 @@ GENERATED_VERDICT_JOB = "cmux-next generated files (shared build)"
 GENERATED_NO_VERDICT = re.compile(
     r"^##\[error\]\s*(?:swift-test|daemon-test) \(cancelled\) gave no generated files verdict:"
 )
+# A summary gate whose dependencies judged nothing (cancelled, abandoned, skipped though required, an empty result)
+# says so in one annotation that starts "no verdict: " (scripts/ci/needs_verdict.py, NO_VERDICT_PREFIX). It ends red
+# so it never reads as a pass, but it is never the pull request's own red and never a base red: it gets re-run.
+# 2026-11-09: #39791's `rust workspaces` summary read `plan: abandoned` as a red, compared it with a green base and
+# refused the merge as the pull request's own. Only the live annotation counts (test_reds.lines_of drops the echoed
+# script, which spells the same words).
+SUMMARY_NO_VERDICT = re.compile(r"^##\[error\]\s*no verdict: ")
+# The same rule's red: `summary red: <what>: <job>: failure; ...`. It names which needs failed, in words every summary
+# shares, so it is never a signature, an error to compare or evidence of any kind (signature drops it): two summaries
+# match on it whichever children failed (cmux#39857 review, 2026-11-09: rust workspaces failing crate-a on the head
+# was excused by a base failing crate-b). A summary red is refused with "compare its failed children" unless its
+# children are compared one by one, as Guard status's are (validate_guard_routes).
+SUMMARY_RED = re.compile(r"^##\[error\]\s*summary red: ")
 # A real compile pass at the head: the Mac Release compile (a check run), or the fleet's cmux-next/compile
 # commit status.
 COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
@@ -914,7 +927,7 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
     errors: set[str] = set()
     skip = test_reds.echoed(test_reds.log_lines(log))
     for n, text in enumerate(lines_of(log)):
-        if n in skip or text.startswith(test_reds.TAP_MARKER):
+        if n in skip or text.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(text):
             continue
         if ((ERROR.search(text)
              or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(text))
@@ -932,6 +945,16 @@ def no_verdict(log: str) -> str | None:
     return next((text for text in lines_of(log) if NO_VERDICT.match(text)), None)
 
 
+def summary_red(log: str) -> str | None:
+    """The line where a summary gate names its failed needs (SUMMARY_RED), if it does."""
+    return next((text for text in test_reds.lines_of(log) if SUMMARY_RED.match(text)), None)
+
+
+def summary_no_verdict(log: str) -> str | None:
+    """The line where a summary gate says nothing it summarizes was judged (SUMMARY_NO_VERDICT), if it does."""
+    return next((text for text in test_reds.lines_of(log) if SUMMARY_NO_VERDICT.match(text)), None)
+
+
 def generated_no_verdict(log: str) -> str | None:
     """The shared generated-files check's fail-closed prerequisite diagnostic, if it printed one.
 
@@ -943,7 +966,16 @@ def generated_no_verdict(log: str) -> str | None:
 
 def compile_pass_at(repo: str, sha: str, github) -> str | None:
     """What compiled SHA itself and passed: the newest Mac Release compile job at SHA that ran (its
-    `Release compile` or `Reuse that pass` step succeeded), or a cmux-next/compile success."""
+    `Release compile` or `Reuse that pass` step succeeded), a cmux-next/compile success, or else the fleet's compile
+    receipt for SHA reading "pass" (compile_receipt: this repository, that exact commit, recipe 2, release-onone).
+
+    The receipt is what cmux-next/compile publishes (cmux-next.yml's compile-status step maps the same fields to the
+    same verdict), and the fleet keeps one for every same-repository PR head whether or not that job runs: a PR whose
+    route skips the status job has no status, but its receipt still says whether the app compiled. The fleet compiles
+    each head as the app executable (`--app --release`, compiled and linked), resolving the binary targets the
+    head's own manifest pins (its url and checksum), so a pass compiled the app against the head's pin
+    (cmux#39251, 2026-11-10: every app compile check skipped by routing, the receipt at 3c886d8d a pass). An unread
+    receipt, or one of another commit, repository or recipe, refuses (compile_receipt)."""
     candidates = []
     # Every attempt (filter=all): one rerun into startup_failure ran no jobs and must not hide the pass before it.
     for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True):
@@ -977,6 +1009,10 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
             if found.get("state") == "success":
                 return f"the {COMPILE_PASS_STATUS} status"
             break
+    receipt = compile_receipt(repo, sha)
+    if receipt is not None and receipt.get("state") == "pass":
+        return (f"the fleet's app compile receipt (job {receipt.get('job_id') or 'unnamed'}, recipe "
+                f"{receipt['recipe_version']}, {receipt['configuration']})")
     return None
 
 
@@ -1133,6 +1169,11 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
     steps, _, errors = signature(guard, text)
     if steps != {"Check routed guard jobs"}:
         raise Refused(f"'{name}': non-routing failed steps: {'; '.join(sorted(steps))}")
+    # The step judges its needs with scripts/ci/needs_verdict.py's rule: no verdict is re-run, never compared. Its
+    # red line (SUMMARY_RED) is no error here (signature drops it): the route reports below are the evidence.
+    if (said := summary_no_verdict(text)) is not None:
+        raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
+                      "neither a pass nor this PR's own red; re-run it")
     if errors:
         raise Refused(f"'{name}': routing error: {'; '.join(sorted(errors))[:600]}")
     report = test_reds.read(text)
@@ -1327,7 +1368,8 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # moves the pin, so this base classifier can judge that PR) is
 # published, its SOURCE_SHA names that sha, its SHA256SUMS carries that checksum for the archive, and that sha is on
 # the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
-# PR's exact head (compile_pass_at). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
+# PR's exact head (compile_pass_at: the Mac Release compile, cmux-next/compile, or the fleet's compile receipt for that
+# head, which cmux-next/compile publishes and which a PR whose route skips the status job still has). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
 # resolves the binary target from that URL and checksum, nothing else. Drift since the pinned source can then only be
 # other PRs' additive FFI changes, and the compile proves the symbols the app calls are in the pinned library.
 FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
@@ -1431,8 +1473,8 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
         return None, f"the pinned release's source {pin[:12]} is not an ancestor of {base} (it is {status or 'unread'})"
     proof = compile_pass_at(repo, sha, github)
     if proof is None:
-        return None, (f"no app compile check passed at {sha} (cmux-next/compile, or the Release compile), so nothing "
-                      f"proves the app builds against {tag}")
+        return None, (f"no app compile check passed at {sha} (cmux-next/compile, the Release compile, or the fleet's "
+                      f"compile receipt), so nothing proves the app builds against {tag}")
     return (f"pins {tag}, a published release built from {pin[:12]}, which is on {base}, and {proof} compiled {sha} "
             "against that pin and passed"), ""
 
@@ -3361,6 +3403,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
             raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
                           "re-run its prerequisite and this dependent job together")
+        if (said := summary_no_verdict(head_log)) is not None:
+            raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
+                          "neither a pass nor this PR's own red; re-run it")
+        if (said := summary_red(head_log)) is not None:
+            raise Refused(f"'{name}' is a summary red ({said[:300]}): its line names failed children in words every "
+                          "summary shares, never a red the base can share; compare its failed children, each as itself")
         if name in NO_VERDICT_JOBS and (said := no_verdict(head_log)) is not None:
             proof = compile_pass_at(repo, sha, github)
             if proof is None:

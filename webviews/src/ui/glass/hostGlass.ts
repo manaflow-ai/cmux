@@ -19,6 +19,16 @@
 // answered for by HOST_GLASS_DEADLINE_MS shows with the page's own glass (`data-host-glass-drawn="0"`,
 // the old look), so a slow or older App never leaves a menu on no glass.
 //
+// A surface that starts to close (Base UI's `data-ending-style`, the 80 ms fade of popupSurface.css)
+// leaves the App's glass and its in-place blur in the task its close starts in, and fades out on the
+// page's own glass (Leo, 2026-11-09, of the This Mac/Cloud/Remote and Bypass permissions menus: "What
+// the heck is this?"; the empty glass box stayed where the menu was after it closed). The App's glass
+// is drawn in another process from the page's reports, so it can never fade in step with the content:
+// it trailed the fade by the App's own latency (a pick keeps the App busy as the menu closes), and the
+// blur under a cover surface is all or nothing (seeThroughBlur.ts), so it stayed whole while the rows
+// faded. The page's glass is drawn with the content in one layer, so both fade in the same frames,
+// and the App has the whole fade to take its glass away behind them.
+//
 // Cost: one MutationObserver (added nodes and the marker attribute only), and while a marked surface
 // moves (an open, a fade, a resize, a scroll), one rect and opacity read per surface per frame. The loop
 // stops after STABLE_FRAMES unchanged frames; a resize, a style write, a transition or a scroll starts it
@@ -39,6 +49,8 @@ export const HOST_GLASS_DRAWN_ATTRIBUTE = "data-host-glass-drawn";
 export const HOST_GLASS_COVER_ATTRIBUTE = "data-host-glass-cover";
 /** On `<html>` while the App draws host glass: glass.css hides a marked surface until it is drawn. */
 export const HOST_GLASS_ROOT_ATTRIBUTE = "data-host-glass-on";
+/** On a surface while it closes (Base UI sets it for the close fade): it leaves the App's glass. */
+export const HOST_GLASS_ENDING_ATTRIBUTE = "data-ending-style";
 
 export type HostGlassLevel = "popover" | "menu" | "chip";
 const LEVELS: ReadonlySet<string> = new Set<HostGlassLevel>(["popover", "menu", "chip"]);
@@ -164,9 +176,12 @@ export function reportHostGlass(
   const timedOut = new WeakSet<Element>();
   // Surfaces the App answered a report for: drawn, so the deadline leaves them be.
   const answered = new WeakSet<Element>();
+  // Surfaces closing (data-ending-style): never reported, on the page's glass until they go.
+  const leaving = new WeakSet<Element>();
   const forget = (element: Element) => {
     timedOut.delete(element);
     answered.delete(element);
+    leaving.delete(element);
     const timer = deadlines.get(element);
     if (timer !== undefined) clearTimeout(timer);
     deadlines.delete(element);
@@ -193,13 +208,29 @@ export function reportHostGlass(
       if (!live || !hostGlassApplies(doc)) return;
       // A surface that already fell back keeps the page's glass: a late answer never swaps it.
       for (const element of elements)
-        if (ids.has(element) && element.isConnected && !fellBack(element)) {
+        if (ids.has(element) && element.isConnected && !fellBack(element) && !leaving.has(element)) {
           answered.add(element);
           mark(element, "1");
         }
     }, end);
   };
   const fellBack = (element: Element) => timedOut.has(element);
+  /** Whether the surface is closing now; one that opens again before it went is reported again. */
+  const closing = (element: Element) => {
+    const ending = element.hasAttribute(HOST_GLASS_ENDING_ATTRIBUTE);
+    if (ending) {
+      // Its glass is withdrawn: an earlier answer no longer says the App draws it if it opens again.
+      leaving.add(element);
+      answered.delete(element);
+    } else if (leaving.delete(element) && live && !answered.has(element) && !timedOut.has(element)) {
+      // Opened again before the App answered: a deadline that passed while it closed skipped it, so
+      // it gets a new one (a slow App still never leaves it on no glass).
+      const timer = deadlines.get(element);
+      if (timer !== undefined) clearTimeout(timer);
+      arm(element, view.performance.now(), false);
+    }
+    return ending;
+  };
   const measure = (): string => {
     const applies = live && hostGlassApplies(doc);
     root.toggleAttribute(HOST_GLASS_ROOT_ATTRIBUTE, applies);
@@ -208,6 +239,11 @@ export function reportHostGlass(
     for (const [element, id] of ids) {
       if (!element.isConnected || !element.hasAttribute(HOST_GLASS_ATTRIBUTE)) {
         forget(element);
+        continue;
+      }
+      // A closing surface fades out on the page's glass, and is not reported: its App glass is gone.
+      if (closing(element)) {
+        if (live) mark(element, "0");
         continue;
       }
       // A fallen-back surface is not reported: the App draws no glass under the page's own.
@@ -244,6 +280,11 @@ export function reportHostGlass(
       mark(element, "0");
       return;
     }
+    // A surface already closing when first seen fades out on the page's glass.
+    if (closing(element)) {
+      mark(element, "0");
+      return;
+    }
     // Its content shows in the frame that first paints it, on the glass its report asks for; the
     // report goes out this frame (kick). While host glass does not apply, measure gives it the page's.
     if (hostGlassApplies(doc)) mark(element, "1");
@@ -255,7 +296,7 @@ export function reportHostGlass(
       element,
       setTimeout(() => {
         deadlines.delete(element);
-        if (!live || answered.has(element) || !ids.has(element)) return;
+        if (!live || answered.has(element) || !ids.has(element) || leaving.has(element)) return;
         // While host glass does not apply the surface already shows the page's glass (measure), and
         // it goes back to the App's glass when host glass applies again: only a slow App keeps it off.
         if (!hostGlassApplies(doc)) return;
@@ -282,12 +323,20 @@ export function reportHostGlass(
   const observer = new view.MutationObserver((records) => {
     let changed = false;
     let gone = false;
+    let ending = false;
     for (const record of records) {
       if (record.type === "attributes") {
         // The page's look changed (see-through, the lens, the live background, Reduce Transparency), or a surface was
-        // marked or unmarked in place.
+        // marked or unmarked in place, or started or stopped closing.
         const element = record.target as Element;
-        if (element !== root && element.hasAttribute(HOST_GLASS_ATTRIBUTE)) adopt(element);
+        // Another popup's close (a dialog, a tooltip) is none of this reporter's.
+        if (record.attributeName === HOST_GLASS_ENDING_ATTRIBUTE && !element.hasAttribute(HOST_GLASS_ATTRIBUTE))
+          continue;
+        if (element !== root && element.hasAttribute(HOST_GLASS_ATTRIBUTE)) {
+          adopt(element);
+          if (record.attributeName === HOST_GLASS_ENDING_ATTRIBUTE && element.hasAttribute(HOST_GLASS_ENDING_ATTRIBUTE))
+            ending = true;
+        }
         changed = true;
         continue;
       }
@@ -298,6 +347,8 @@ export function reportHostGlass(
     // A surface that went is withdrawn now, not on the next frame: the App takes its glass away as the
     // page paints the frame without its content.
     if (gone && [...ids.keys()].some((element) => !element.isConnected)) measure();
+    // A surface that starts to close leaves the App's glass and its blur now, as its fade starts.
+    else if (ending) measure();
     if (changed) kick();
   });
   observer.observe(root, {
@@ -310,6 +361,7 @@ export function reportHostGlass(
       LENS_ATTRIBUTE,
       LIVE_BACKGROUND_ATTRIBUTE,
       "data-reduce-transparency",
+      HOST_GLASS_ENDING_ATTRIBUTE,
     ],
   });
   // A popup is placed by its positioner's inline style, rewritten on scroll; a fade is a transition.

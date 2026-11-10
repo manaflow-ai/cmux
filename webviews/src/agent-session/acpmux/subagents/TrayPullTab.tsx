@@ -93,6 +93,9 @@ export function TrayPullTab({
       data-hat={look}
       data-running={running > 0 || working || undefined}
       data-waiting={waiting > 0 || undefined}
+      // What the slot opens for (none, the dot, or the count's width in digits), so the composer's
+      // top line can leave a gap the pill's width under it (subagents.css "The line stops at the hat").
+      data-mark={target === undefined ? undefined : target.kind === "dot" ? "dot" : String(target.text.length)}
     >
       <button
         type="button"
