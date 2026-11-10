@@ -144,6 +144,10 @@ struct CloudBringBack {
         return ActionWorkFailure(failure.message)
     }
 
+    /// The target folder's suffix: a folder of its own per machine and per chat, so two chats of one folder never seed over
+    /// each other there. Whole ids: time-ordered ids share their first characters for hours.
+    static func targetSuffix(machineID: String, session: String) -> String { "-" + machineID + "-" + session }
+
     /// What the refusal toast's "Ask first, then bring back" runs on machine tab `tab`.
     static func askFirstInvocation(tab: String) -> ActionInvocation {
         ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), arguments: [askFirstArgument: .bool(true)], origin: .user)
@@ -213,8 +217,7 @@ struct CloudBringBack {
             guard let socket = await target.daemon.connection?.endpoint?.socketPath, let folder = CloudMoveFolder(chat: entry.localChat) else {
                 throw Failure(message: CloudMoveStrings.notConnected(target.machine.title), retry: again)
             }
-            // A folder of its own on the target, per machine and per chat: two chats of one folder never seed over each other.
-            let suffix = "-" + String(target.machineID.prefix(8)) + "-" + String(entry.session.prefix(8))
+            let suffix = Self.targetSuffix(machineID: target.machineID, session: entry.session)
             var remote = CloudMove.remote(folder, under: services.cloud.move.workRoots.first ?? "", suffix: suffix)
             if pending == nil {
                 remote = try await CloudMove(services: services).sync(folder, to: socket, machine: target.machine.title, cli: cli, retry: again,
