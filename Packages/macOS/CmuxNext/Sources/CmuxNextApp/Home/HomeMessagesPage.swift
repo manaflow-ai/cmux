@@ -70,9 +70,9 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
     required init?(coder: NSCoder) { nil }
 
     /// The Messages page for the docked Home (`dock`), classic Home's top page or a Home pane tab
-    /// (no dock: no view switch); nil when the page bundle is missing.
-    static func make(services: AppServices, dock: HomeDockView? = nil) -> HomeMessagesPage? {
-        guard let made = PageFactory(services: services).homeMessagesWebPage(dock: dock) else { return nil }
+    /// (no dock: no view switch); nil when the page bundle is missing. `widthKey`: the list's width is kept per key.
+    static func make(services: AppServices, dock: HomeDockView? = nil, widthKey: String = HomeDockTab.widthKey) -> HomeMessagesPage? {
+        guard let made = PageFactory(services: services).homeMessagesWebPage(dock: dock, widthKey: widthKey) else { return nil }
         // A web link the person clicks opens on the Home workspace's right side, as in Channels.
         made.page.onOpenExternal = { [weak services] in services?.home.dock.openLink($0, on: services?.daemon.connection) }
         return HomeMessagesPage(services: services, page: made.page, route: made.route, host: made.host)
@@ -92,7 +92,7 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
 
     override func layout() {
         super.layout()
-        dragStrip.frame = CGRect(x: 0, y: 0, width: bounds.width, height: HomeWindowDragStrip.height)
+        dragStrip.frame = dragStrip.frame(in: bounds)
         updateWindowControls()
         toastRoom.follow()
     }
@@ -106,19 +106,7 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
     /// The window's traffic lights over the page's top band, in its points from its top-left; nil
     /// when none lie there (the window's sidebar beside the page, full screen, no window).
     func updateWindowControls() {
-        route.setWindowControls(windowControls(band: Self.band))
-    }
-
-    private func windowControls(band: CGFloat) -> CGRect? {
-        guard let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else { return nil }
-        var controls = lights
-        if let accessory = (window as? any TitlebarAccessoryHosting)?.titlebarAccessoryFrame, accessory.width > 0,
-           abs(accessory.midY - lights.midY) < lights.height {
-            controls = controls.union(accessory)
-        }
-        let local = convert(controls, from: nil)
-        guard local.intersects(CGRect(x: 0, y: 0, width: bounds.width, height: band)) else { return nil }
-        return local.integral
+        route.setWindowControls(HomeWindowDragStrip.windowControls(over: self, band: Self.band))
     }
 
     private func watch(_ home: HomeService) {
@@ -151,7 +139,7 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
         watches.append(Task { [weak self] in
             for await _ in ObservationStream({ store.rows.map(\.id) }) {
-                guard let self, host.reported, host.shown == nil, !host.composing,
+                guard let self, host.page.reported, host.shown == nil, !host.page.composing,
                       let first = HomeDefaultConversation.defaultConversation(rows: visibleRows(home), home: home) else { continue }
                 followed = first.rawValue
                 show(HomeDockSelection(conversation: first.rawValue))
@@ -159,8 +147,13 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         })
         // The conversations deleted from the list: any page's Delete or Show Hidden Conversations
         // (``HomeService/hiddenRevision``) reads this page's set again, and the page hears each change.
-        host.hidden = { [weak self] in self?.sidebar.hidden ?? [:] }
+        host.hidden.hidden = { [weak self] in self?.sidebar.hidden ?? [:] }
+        host.hidden.archived = { HomeArchivedChiefs(home.directory.archivedChiefs, me: home.homeStore.me?.id).hiddenConversations(store.rows) }
         let source = sidebar
+        host.list.sources = HomeMessagesListSources(model: { [weak source] in source?.model() }, contacts: { [weak home] in home?.contacts() ?? [] },
+                                                    rows: { store.rows }, chiefsChanged: { [weak home] in home?.refreshChiefHarnesses(); home?.refreshChiefAvatars() },
+                                                    listedChanged: { [weak home] in home?.requests.refresh() })
+        host.list.onDragBand = { [weak self] in self?.dragStrip.setBand($0, controls: $1) }
         // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
         watches.append(Task { [weak self] in
             var last = home.hiddenRevision
@@ -172,7 +165,7 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         })
         // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
         watches.append(Task { [weak self] in
-            for await _ in ObservationStream({ source.hidden }) { self?.host.publishHidden() }
+            for await _ in ObservationStream({ (source.hidden, home.directory.archivedChiefs, store.rows.map(\.id)) }) { self?.host.hidden.publish() }
         })
         // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
         watches.append(Task { [weak self] in
@@ -180,7 +173,7 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
             for await key in ObservationStream({ HomeDefaultConversation.chiefKey(home) }) {
                 guard let self, key != last else { continue }
                 last = key
-                let next = HomeDefaultConversation.followUp(chief: key.chief, shown: shown, followed: followed, composing: host.composing,
+                let next = HomeDefaultConversation.followUp(chief: key.chief, shown: shown, followed: followed, composing: host.page.composing,
                                                             rows: visibleRows(home), home: home)
                 followed = next.followed
                 if let open = next.open { show(HomeDockSelection(conversation: open.rawValue)) }
@@ -216,21 +209,25 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
 
     // MARK: Asking the page
 
-    /// Calls the page op `op`, waiting for the page to load and answer (``answerDeadline``); nil
-    /// when it never answers (a closed page, an older bundle).
+    /// Calls the page op `op`, waiting for the page to load and answer (`within`, ``answerDeadline``); nil
+    /// when it never answers (a closed page, an older bundle) or refuses. Every try carries one
+    /// request id, so a try that timed out but ran is not run again (``HomePageAskAttempt``).
     @discardableResult
-    func ask(_ op: String, _ params: [String: JSONValue] = [:]) async -> JSONValue? {
-        let router = page.router
-        let clock = ContinuousClock()
-        let end = clock.now.advanced(by: Self.answerDeadline)
+    func ask(_ op: String, _ params: [String: JSONValue] = [:], within: Duration = HomeMessagesPage.answerDeadline) async -> JSONValue? {
+        let (router, clock, call) = (page.router, ContinuousClock(), JSONValue.object(params.merging(["request": .string(UUID().uuidString)]) { $1 }))
+        let end = clock.now.advanced(by: within)
         var backoff = Backoff(initial: .milliseconds(100), maximum: .seconds(1))
         // A page still loading (or reconnecting) has no handler yet: ask again, spaced by a backoff,
-        // until it answers. Stops at the first answer, at the deadline, or when the task ends.
+        // until it answers. Stops at the first answer or refusal, at the deadline, or when the task ends.
         while clock.now < end, !Task.isCancelled {
-            if let answer = await PageAnswerDeadline(.seconds(1)).answer({ try await router.callPage(op, params: .object(params)) }) {
-                return answer
+            switch await PageAnswerDeadline(.seconds(1)).answer({ () async -> HomePageAskAttempt in
+                do { return .answered(try await router.callPage(op, params: call)) } catch { return HomePageAskAttempt(error) }
+            }) {
+            case .answered(let answer)?: return answer
+            case .refused?: return nil
+            case .notReady?, nil: break
             }
-            // concurrency-allow: Backoff.wait suspends the task (no thread blocks); it spaces the retries of a refused call
+            // concurrency-allow: Backoff.wait suspends the task (no thread blocks); it spaces the retries of a call the page could not take yet
             do { try await backoff.wait(owner: "home.messages.ask") } catch { return nil }
         }
         return nil
@@ -259,7 +256,10 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         if let prefill { params["prefill"] = .string(prefill) }
         // task-owner: one page call; ends with its answer (bounded by answerDeadline)
         // main-hop-allow: already on main (a menu, palette or CLI action); the task only awaits the page's answer
-        Task { @MainActor [weak self] in await self?.ask("home.messages.present", params) }
+        Task { @MainActor [weak self] in
+            let answer = await self?.ask("home.messages.present", params)
+            if let refusal = HomeGroupOutcome.presentRefusal(sheet: sheet.rawValue, answer: answer) { self?.services?.registry.refuse(refusal) }
+        }
     }
 
     /// The previous or next conversation in the list (wrapping), opened.

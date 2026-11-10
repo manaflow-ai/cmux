@@ -1,5 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import { parseChiefTurn } from "../../detail/detailHost";
 import { parseNeedsYou } from "./NeedsYouSection";
 
 describe("needs you wire", () => {
@@ -49,11 +48,4 @@ describe("needs you wire", () => {
     expect(parseNeedsYou({ title: "T", rows: [{ id: "r", headline: "h" }], look: "odd" })?.look).toBe("rows");
   });
 
-  it("reads the Chief's turn", () => {
-    expect(parseChiefTurn({ conversation: "c1", continueAvailable: true })).toEqual({
-      conversation: "c1",
-      continueAvailable: true,
-    });
-    expect(parseChiefTurn(null)).toEqual({ continueAvailable: false });
-  });
 });

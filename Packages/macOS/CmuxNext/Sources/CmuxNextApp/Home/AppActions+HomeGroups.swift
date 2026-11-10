@@ -15,6 +15,7 @@ extension AppActions {
         let registry = services.registry
         registry.bind("home.conversationInfo", invoke: { invocation in
             guard let id = conversation(invocation, services) else { return }
+            guard services.home.groupActions.info(id) != nil else { return services.registry.refuse(HomeGroupOutcome.unknownConversation.message ?? "") }
             guard services.home.dock.isClassic else {
                 return withDock(services) { dock in
                     guard let page = dock.messages else { return services.registry.refuse(RefusalStrings.homeNotReady) }
@@ -40,8 +41,14 @@ extension AppActions {
         })
         registry.bind("home.leaveConversation", invoke: { invocation in
             guard let id = conversation(invocation, services) else { return }
-            // The Messages page follows its own list when the conversation goes.
-            runGroup(services) { await $0.leave(id) }
+            // The page showing it moves to its neighbor once the owner took the leave (the same rule as Delete).
+            let page = listedPage(services)
+            let next = page.flatMap { $0.shown == id ? $0.sidebar.model().neighbor(of: id, offset: 1) : nil }
+            runGroup(services) { actions in
+                let outcome = await actions.leave(id)
+                if outcome == .left, let page { page.conversationLeft(id, next: next) }
+                return outcome
+            }
         })
         for (action, on) in [("home.muteConversation", true), ("home.unmuteConversation", false)] as [(ActionID, Bool)] {
             registry.bind(action, invoke: { invocation in

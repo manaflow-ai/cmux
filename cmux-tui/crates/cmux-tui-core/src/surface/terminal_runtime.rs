@@ -113,6 +113,11 @@ impl PtyTerminalRuntime {
             metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
         }
         metadata.observe_output(bytes);
+        if self.tail_pin.feed(bytes)
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.queue_terminal_tail(self.event_surface_id);
+        }
         metadata.take_admitted_notifications(Instant::now())
     }
 
@@ -286,6 +291,9 @@ pub struct PtyTerminalRuntime {
     /// or roster knowledge, so userland plugins can consume it through the
     /// resource API without moving detection policy into core.
     pub(super) terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
+    /// The last line of a pinned terminal (`terminal-tail-pin-v1`); idle
+    /// unless the terminal is pinned.
+    pub(crate) tail_pin: crate::terminal_tail::TailPinSlot,
     /// OSC 133 command tracking (`terminal-command-history-v1`); idle unless
     /// the daemon records terminal commands.
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,

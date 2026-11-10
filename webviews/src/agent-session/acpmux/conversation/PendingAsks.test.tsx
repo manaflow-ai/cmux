@@ -73,18 +73,21 @@ const asked = card(1_000, "[taste] Which look should ship?\n- Box\n- Inline");
 const buttons = (container: HTMLElement) => [...container.querySelectorAll("button")];
 const named = (container: HTMLElement, text: string) => buttons(container).find((b) => b.textContent?.includes(text))!;
 
-test("an answer goes as the person's message", async () => {
+// Leo, 2026-11-08, on a bare "Not now" bubble: "wait this thing should've shown that it was a
+// reply to an ask from you". The answer quotes the ask and who asked, as Quote in Reply quotes.
+test("an answer goes as the person's reply, quoting the ask and who asked", async () => {
   const sent: string[] = [];
   const container = await render(
     <PendingAsks
       asks={[asked]}
       onAnswer={(text) => (sent.push(text), Promise.resolve())}
       onDismiss={() => undefined}
+      asker="Claude Code"
     />,
   );
   expect(container.textContent).toContain("Which look should ship?");
   await act(async () => named(container, "Inline").click());
-  expect(sent).toEqual(["Inline"]);
+  expect(sent).toEqual(["> Claude Code: Which look should ship?\n\nInline"]);
 });
 
 test("a send that fails says so and keeps the answers", async () => {
@@ -137,17 +140,18 @@ test("question, a peer message's turn, then the answer through the card reaches 
   const sent: string[] = [];
   const answer = (said: string) => (sent.push(said), Promise.resolve());
   const container = await render(
-    <TurnActionsContext.Provider value={{ answer }}>
+    <TurnActionsContext.Provider value={{ answer, asker: "Codex" }}>
       <NextStepRow row={inTranscript!} onToggleActivity={() => undefined} expanded={false} />
-      <PendingAsks asks={pinned} onAnswer={answer} onDismiss={() => undefined} />
+      <PendingAsks asks={pinned} onAnswer={answer} onDismiss={() => undefined} asker="Codex" />
     </TurnActionsContext.Provider>,
   );
   const [inline, pinnedYes] = buttons(container).filter((b) => b.textContent?.includes("Yes"));
   await act(async () => inline!.click());
   await act(async () => pinnedYes!.click());
-  expect(sent).toEqual(["Yes", "Yes"]);
+  const reply = "> Codex: Do you mean computer use, still working while the Mac is locked?\n\nYes";
+  expect(sent).toEqual([reply, reply]);
   // Once sent, the person's prompt settles the card in the transcript and leaves the pinned list.
-  const answered = [...rows, line("p2", "user", { text: "Yes" })];
+  const answered = [...rows, line("p2", "user", { text: reply })];
   expect(turnView(answered, new Set()).find((row) => row.kind === NEXT_STEP)?.nextStep?.answer).toBe("Yes");
   expect(waitingAsks(turnViewFrom(answered, new Set()))).toEqual([]);
 });

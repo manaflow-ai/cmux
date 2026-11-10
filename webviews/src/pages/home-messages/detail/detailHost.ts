@@ -11,16 +11,17 @@
 //                      starters?}: the empty Chief chat's host facts (HomeMessagesFirstRun.swift)
 //   chief.settings {conversation, anchor: {x, y, width, height}}: the Chief's settings popover under
 //                      the name pill (a click only)
-//   chief.stop {conversation, all}: stops the Chief's turn, or with `all` every agent of it (a click only)
-//   chiefTurn (stream) {conversation, continueAvailable}: the shown Chief's turn after a Stop
-//   chief.continue {conversation}: goes on with a stopped turn; chief.retry {conversation, message}:
-//                      the Chief answers my message again (Retry Reply) (each a click only)
 //   chiefFace (stream) {conversation, picture?, text?}: the shown Chief's header avatar as the app reads it
 //   chiefPlace (stream) {conversation, chip: {tone, text, glyph, label, help}} | null: its location chip;
 //                      chief.place {conversation, anchor}: the Teleport menu under the chip (a click only)
 //   needsYou (stream) {title, rows, more?, look} | null: the pinned Needs you section of the shown
 //                      Chief chat (cards/needsYou); needsYou.open {id}, needsYou.answer {id, answer},
 //                      needsYou.showAll {} (each a click only)
+//   bubble.facts {conversation} -> {linkScheme?, forward, share, retryReply, files}: what a bubble's
+//                      menu may offer in this conversation (bubbleMenu.ts)
+//   bubble.retryReply {conversation, message}, bubble.forward {text}, bubble.share {text | url},
+//   bubble.file {action, path | attachment {conversation, message, partIndex, part}}: its rows' runs
+// Stop, Stop all agents, Continue, Restart and Start now are transcript/chiefTurn.ts's.
 import { useEffect, useMemo, useState } from "react";
 import type { DictationUpdate } from "../../../agent-session/acpmux/dictationText";
 import { deliverDictation } from "../../../agent-session/acpmux/dictation";
@@ -38,6 +39,7 @@ import type {
 } from "../cards/firstRun/firstRunModel";
 import { LINK_PREVIEW_OP } from "../cards/links/linkPreview";
 import { BUBBLE_LOOKS, type BubbleLook, type ChatColors } from "../transcript/colors";
+import { NO_BUBBLE_HOST, type BubbleHostFacts, type FileAction, type FileTarget } from "../transcript/bubbleMenu";
 import type { DictationCall } from "../transcript/MessageComposer";
 
 export const DetailOps = {
@@ -49,10 +51,6 @@ export const DetailOps = {
   openLink: "cmux.home.messages.openLink",
   firstRun: "cmux.home.messages.firstRun",
   chiefSettings: "cmux.home.messages.chief.settings",
-  chiefStop: "cmux.home.messages.chief.stop",
-  chiefContinue: "cmux.home.messages.chief.continue",
-  chiefRetry: "cmux.home.messages.chief.retry",
-  chiefTurn: "cmux.home.messages.chiefTurn",
   chiefFace: "cmux.home.messages.chiefFace",
   chiefPlace: "cmux.home.messages.chiefPlace",
   chiefPlaceOpen: "cmux.home.messages.chief.place",
@@ -60,22 +58,12 @@ export const DetailOps = {
   needsYouOpen: "cmux.home.messages.needsYou.open",
   needsYouAnswer: "cmux.home.messages.needsYou.answer",
   needsYouShowAll: "cmux.home.messages.needsYou.showAll",
+  bubbleFacts: "cmux.home.messages.bubble.facts",
+  bubbleRetryReply: "cmux.home.messages.bubble.retryReply",
+  bubbleForward: "cmux.home.messages.bubble.forward",
+  bubbleShare: "cmux.home.messages.bubble.share",
+  bubbleFile: "cmux.home.messages.bubble.file",
 } as const;
-
-// ---------- The Chief's turn ----------
-
-export interface ChiefTurnState {
-  conversation?: string;
-  continueAvailable: boolean;
-}
-
-export const NO_CHIEF_TURN: ChiefTurnState = { continueAvailable: false };
-
-export function parseChiefTurn(event: unknown): ChiefTurnState {
-  const raw = record(event);
-  const conversation = typeof raw?.conversation === "string" && raw.conversation ? raw.conversation : undefined;
-  return { ...(conversation ? { conversation } : {}), continueAvailable: raw?.continueAvailable === true };
-}
 
 type Json = Record<string, unknown>;
 const record = (value: unknown): Json | undefined =>
@@ -91,6 +79,8 @@ export interface MessagesAppearance {
   chiefLook: BubbleLook;
   defaults: ChatColors;
   colors: ReadonlyMap<string, ChatColors>;
+  /** The message boxes check spelling (Settings agentPane.spellChecking, as the native composer). */
+  spellChecking: boolean;
 }
 
 export const DEFAULT_APPEARANCE: MessagesAppearance = {
@@ -98,6 +88,7 @@ export const DEFAULT_APPEARANCE: MessagesAppearance = {
   chiefLook: "imessage",
   defaults: {},
   colors: new Map(),
+  spellChecking: false,
 };
 
 const lookOf = (value: unknown): BubbleLook | undefined =>
@@ -121,7 +112,13 @@ export function parseAppearance(event: unknown): MessagesAppearance {
     const parsed = parseChatColors(value);
     if (Object.keys(parsed).length) colors.set(id, parsed);
   }
-  return { look, chiefLook: lookOf(raw?.chiefLook) ?? look, defaults: parseChatColors(raw?.defaults), colors };
+  return {
+    look,
+    chiefLook: lookOf(raw?.chiefLook) ?? look,
+    defaults: parseChatColors(raw?.defaults),
+    colors,
+    spellChecking: raw?.spellChecking === true,
+  };
 }
 
 /** One conversation's look and colours: its own over the defaults, field by field. */
@@ -203,23 +200,26 @@ export function useHostStream<T>(host: PageClient | null, stream: string, parse:
 
 const unknownOp = (error: unknown) => isPageError(error) && error.code === "cmux.protocol.unknown_op";
 
-/** The host's dictation for the composer, or undefined (no host, or a host without the op: no
- * mic). Its events go to every composer listening (`deliverDictation`). */
+/** The host's dictation for the composer, or undefined: no mic until the host has accepted the
+ * dictation stream (its capability: a host without dictation refuses the subscription), and none
+ * again once a call says the op is unknown. Its events go to every composer listening
+ * (`deliverDictation`). */
 export function useHostDictation(host: PageClient | null): DictationCall | undefined {
-  const [available, setAvailable] = useState(true);
+  // The host that accepted the stream; a new host starts without a mic until it does too.
+  const [offered, setOffered] = useState<PageClient | null>(null);
   const call = useMemo<DictationCall | undefined>(
     () =>
       host
         ? (method, params) =>
             host.call<unknown>(DetailOps.dictation, { method, params: params ?? {} }).catch((error: unknown) => {
-              if (unknownOp(error)) setAvailable(false);
+              if (unknownOp(error)) setOffered((current) => (current === host ? null : current));
               throw error;
             })
         : undefined,
     [host],
   );
   useEffect(() => {
-    if (!host || !available) return;
+    if (!host) return;
     let stop: (() => void) | undefined;
     let ended = false;
     void host
@@ -228,16 +228,18 @@ export function useHostDictation(host: PageClient | null): DictationCall | undef
         if (update) deliverDictation(update);
       })
       .then((unsubscribe) => {
-        if (ended) unsubscribe();
-        else stop = unsubscribe;
+        if (ended) return unsubscribe();
+        stop = unsubscribe;
+        setOffered(host);
       })
       .catch(() => undefined);
     return () => {
       ended = true;
       stop?.();
+      setOffered((current) => (current === host ? null : current));
     };
-  }, [host, available]);
-  return available ? call : undefined;
+  }, [host]);
+  return offered === host ? call : undefined;
 }
 
 // ---------- Links ----------
@@ -315,5 +317,67 @@ export function parseFirstRun(event: unknown): FirstRunFacts {
       ...(strings(starters?.failures) ? { failures: strings(starters?.failures) } : {}),
       ...(strings(starters?.pullRequests) ? { pullRequests: strings(starters?.pullRequests) } : {}),
     },
+  };
+}
+
+// ---------- Bubble menus ----------
+
+const SCHEME = /^cmux(?:-[a-z0-9]+)*$/;
+
+/** The host's answer to `bubble.facts`; anything else offers nothing. */
+export function parseBubbleFacts(value: unknown): BubbleHostFacts {
+  const raw = record(value);
+  if (!raw) return NO_BUBBLE_HOST;
+  const scheme = typeof raw.linkScheme === "string" && SCHEME.test(raw.linkScheme) ? raw.linkScheme : undefined;
+  return {
+    ...(scheme ? { linkScheme: scheme } : {}),
+    forward: raw.forward === true,
+    share: raw.share === true,
+    retryReply: raw.retryReply === true,
+    files: raw.files === true,
+  };
+}
+
+/** What the open conversation's bubble menus offer: read once per conversation (none without a host). */
+export function useBubbleFacts(host: PageClient | null, conversation: string): BubbleHostFacts {
+  const [facts, setFacts] = useState<{ conversation: string; facts: BubbleHostFacts }>();
+  useEffect(() => {
+    if (!host) return;
+    let live = true;
+    void host
+      .call<unknown>(DetailOps.bubbleFacts, { conversation })
+      .then(parseBubbleFacts, () => NO_BUBBLE_HOST)
+      .then((read) => {
+        if (live) setFacts({ conversation, facts: read });
+      });
+    return () => {
+      live = false;
+    };
+  }, [host, conversation]);
+  return facts?.conversation === conversation ? facts.facts : NO_BUBBLE_HOST;
+}
+
+/** The runs of a bubble's host rows; each is the person's click (a refusal changes nothing). */
+export function bubbleHostActions(host: PageClient | null) {
+  const call = (op: string, params: Record<string, unknown>) => void host?.call(op, params).catch(() => undefined);
+  return {
+    retryReply: (conversation: string, message: string) => call(DetailOps.bubbleRetryReply, { conversation, message }),
+    forward: (text: string) => call(DetailOps.bubbleForward, { text }),
+    share: (item: { text: string } | { url: string }) => call(DetailOps.bubbleShare, item),
+    file: (action: FileAction, target: FileTarget) =>
+      call(
+        DetailOps.bubbleFile,
+        "path" in target
+          ? { action, path: target.path }
+          : {
+              action,
+              attachment: {
+                conversation: target.conversation,
+                message: target.message,
+                partIndex: target.partIndex,
+                part: target.attachment,
+              },
+            },
+      ),
   };
 }

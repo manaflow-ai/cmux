@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextHomeModel
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -23,7 +24,7 @@ import Testing
     }
 
     private func rig() throws -> Rig {
-        let defaults = try #require(UserDefaults(suiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
         let store = HomeChatColorStore(defaults: defaults)
         let provider = HomeChatColorsProvider(store: store, design: DesignSettings())
         let session = HomeChatColorsProvider.Session(id: "s1", conversation: "chat", name: "Ada")
@@ -80,7 +81,7 @@ import Testing
         }
     }
 
-    @Test func aChangeFromTheCLIWhileOpenStreamsTheNewState() async throws {
+    @Test(.timeLimit(.minutes(1))) func aChangeFromTheCLIWhileOpenStreamsTheNewState() async throws {
         let rig = try rig()
         let events = Events()
         let subscription = try await rig.provider.subscribe(HomeChatColorsProvider.stateStream, filter: .object([:]),
@@ -99,11 +100,12 @@ import Testing
         try await call(rig, "set", ["role": .string("sent"), "color": .string("#AF52DE")])
         await settle { color(events.last, "sent") == "#AF52DE" }
         #expect(color(events.last, "sent") == "#AF52DE")
-        // Closed: a later change sends nothing.
+        // Closed: the loop that streamed the state is over, so a later change sends nothing.
+        let loop = try #require(rig.provider.following)
         rig.provider.end()
+        await loop.value
         let count = events.count
         try rig.store.apply([:], reset: true, to: "chat")
-        try? await Task.sleep(for: .milliseconds(100))
         #expect(events.count == count)
     }
 
@@ -139,7 +141,7 @@ import Testing
     }
 
     @Test func thePanelIs340WideWithTheChatsNameAndDoneClosesIt() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
         let service = HomeChatColorsService(store: HomeChatColorStore(defaults: defaults), design: DesignSettings())
         service.show(conversation: "chat", name: "Ada", over: nil)
         let window = try #require(service.window)
@@ -160,7 +162,7 @@ import Testing
         defer { design.uiScale = saved }
         design.uiScale = 1.5
         #expect(HomeChatColorsService.contentSize(zoom: 1.5) == NSSize(width: 510, height: 510))
-        let defaults = try #require(UserDefaults(suiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
         let service = HomeChatColorsService(store: HomeChatColorStore(defaults: defaults), design: design)
         service.show(conversation: "chat", name: "Ada", over: nil)
         let window = try #require(service.window)

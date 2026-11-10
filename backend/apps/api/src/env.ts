@@ -227,7 +227,7 @@ export interface Env {
   readonly CHIEF_CREDITS_DOGFOOD?: string
   readonly CHIEF_CREDITS_DOGFOOD_USD?: string
   readonly CHIEF_CREDITS_DOGFOOD_ROUND?: string
-  /** `e2e` on the development Worker only: the usage sync uses the e2e price set (1 USD included; billing-catalog.ts). */
+  /** `e2e` (development only): the e2e price set (1 USD included); `v2` (development or staging only): Team 25 USD per seat (billing-catalog.ts). Production is always v1. */
   readonly BILLING_USAGE_PRICE_SET?: string
   /** `1`: a team the usage sync has not seen on a billable subscription stops at its plan's included AI amount (inference/included-stop.ts). */
   readonly USAGE_HARD_STOP_UNBILLED?: string

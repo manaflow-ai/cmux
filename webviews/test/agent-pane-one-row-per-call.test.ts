@@ -220,14 +220,19 @@ await requireBrowserLane("agent-pane-one-row-per-call.test.ts", async () => {
     const next = seen.pop()!;
     expect(next.line).toStartWith("Read");
     expect(seen.map((step) => step.rows)).toEqual([1, 1, 1]);
-    // The same row the whole way: one id, never a run's row then the line then the run again.
-    expect(new Set(seen.flatMap((step) => step.ids)).size).toBe(1);
-    expect(new Set(seen.map((step) => step.top)).size).toBe(1);
-    // The line says what the call's own row would: Writing a file, Writing gen.py, Wrote gen.py.
-    expect(seen.map((step) => step.line.replace(/\s*\d.*$/, ""))).toEqual([
+    // Pending and running: the same row, one id, its top still. Done: the Write folds into its run
+    // the moment it completes and the line reads Thinking (Leo, 2026-11-07: "Why don't we just
+    // immediately switch to the thinking?"), never a run's row and the line at once.
+    const [pending, running, done] = seen;
+    expect(running!.ids).toEqual(pending!.ids);
+    expect(running!.top).toBe(pending!.top);
+    expect(done!.ids).not.toEqual(pending!.ids);
+    expect(done!.ids).toEqual(next.ids);
+    // The line says what the call's own row would while it runs, then Thinking.
+    expect(seen.map((step) => step.line.replace(/\s*\d.*$/, "").replace(/ · .*$/, ""))).toEqual([
       "Writing a file",
       "Writing gen.py",
-      "Wrote gen.py",
+      "Thinking",
     ]);
     await page.close();
   });

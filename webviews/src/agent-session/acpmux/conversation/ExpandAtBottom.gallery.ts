@@ -268,9 +268,17 @@ declare global {
   }
 }
 
-/// At the bottom of the running turn, with the next snapshot armed for the test to deliver.
+/// At the bottom of the running turn, with the next snapshot armed for the test to deliver. A running
+/// turn keeps its run open while it runs (turns.ts `codexRuns`), so the reader has shut it first, at
+/// the very bottom, and gone back to the end.
 const armUnderLoad: Play = async (ctx) => {
   await atBottom(ctx);
+  await settle(ctx);
+  const group = ctx.document.querySelector<HTMLElement>(GROUP);
+  if (group?.getAttribute("aria-expanded") === "true") {
+    await toggleAndSettle(ctx, group, "false");
+    await toEnd(ctx);
+  }
   const view = ctx.document.defaultView!;
   view.cmuxGalleryArrive = () => view.cmuxAcpmuxBridge?.receive(structuredClone(arrivedSnapshot));
 };
@@ -311,7 +319,7 @@ export default agentPaneEntry({
       play: collapseTallGroup,
     },
     "under-load": {
-      note: "A running turn scrolled to the very bottom with “Ran 2 commands” closed. Opened while a third command joins the group: one motion, the bottom stays pinned, nothing overlaps.",
+      note: "A running turn scrolled to the very bottom with “Ran 2 commands” shut by the reader. Opened while a third command joins the group: one motion, the bottom stays pinned, nothing overlaps.",
       snapshot: runningSnapshot,
       play: armUnderLoad,
     },

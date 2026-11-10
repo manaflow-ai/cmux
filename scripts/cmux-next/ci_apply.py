@@ -25,6 +25,8 @@ resource, manifest or plist, Swift outside the patched modules), Rust the app li
 (scripts/ci/cmux_next_route.py SWIFT_JOB_INPUTS and app_ffi_inputs), an input of every CI tier
 (FULL_INPUTS), iOS, the `full-ci`, `dev-build`, release or nightly labels, or any event other than a
 pull request. Signed, nightly and release builds are never patched builds: they always build clean.
+A pull request into any base but feat-cmux-next (`main` ships to everyone) is full too, and so is
+one whose base is not given (`--base-ref`): the stakes decide before the diff does.
 
 `commands` prints the fleet steps for the lane, every one an existing command:
 
@@ -35,7 +37,8 @@ pull request. Signed, nightly and release builds are never patched builds: they 
   swift-body  scripts/live-code/build.sh at BASE (kept by tree), patch.py --tree HEAD FILES
   tests       the tests scripts/ci/cmux_next_route.py picks for the change, minus its compile tiers
 
-`replay` reads CI history saved from GitHub (PRS: one merged PR per line with its last heads;
+`replay` reads CI history saved from GitHub (PRS: one merged PR per line with its last heads and
+its baseRefName, without which the PR replays as full;
 CHECKS: one head commit per line with every check run, both from GraphQL) and, for every head,
 compares what full CI concluded with what the lane would have concluded: the lane drops the app
 build jobs (APP_BUILD_JOBS) and keeps every other check. A miss is a head that full CI failed only
@@ -62,6 +65,8 @@ import live_apply  # noqa: E402
 LANES = ("no-app", "web", "daemon", "swift-body", "full")
 # Labels that ask for the full build on purpose (docs/ci/cmux-next-tiers.md, pr-ci-coverage.md).
 FULL_LABELS = {"full-ci", "dev-build", "release", "nightly", "media-tour"}
+# The one base a lane may check against a prebuilt build; every other base gets the full build.
+LANE_BASE = "feat-cmux-next"
 # The checks whose work a prebuilt base replaces: compiling or building the app. Matched against
 # "workflow / job" names. Everything else (tests, lints, guards) runs in the lane as in full CI.
 APP_BUILD_JOBS = re.compile(
@@ -79,7 +84,7 @@ APP_BUILD_JOBS = re.compile(
 DAEMON_BUILD_JOBS = re.compile(r"^cmux-tui artifacts / (build|build-windows|build-darwin-fallback)( \(.*\))?$")
 # Jobs that compile the app's test targets. The lane keeps them for Swift: a unit test needs its
 # own target built, and no prebuilt build holds a PR's test bundle.
-TEST_COMPILE_JOBS = re.compile(r"^cmux-next / cmux-next (swift test|fast tier)|^fleet test-compile / ")
+TEST_COMPILE_JOBS = re.compile(r"^cmux-next / cmux-next (swift test|fast tier)|^fleet test-compile( \(advisory\))? / ")
 
 # Measured costs of the lane's own steps, in minutes, added back to its time.
 # base app: an answered `cmux-ci build cmux --any-tag` download (cmuxterm-hq#7238, median ready
@@ -112,13 +117,16 @@ def full_inputs(paths: list[str]) -> list[str]:
     return [p for p in paths if p in route.FULL_INPUTS or p in route.VENDORED_PINS]
 
 
-def plan_from(result: dict, labels: set[str] = frozenset(), event: str = "pull_request", repo: Path = ROOT) -> dict:
-    """The lane for a live_apply.classify() result."""
+def plan_from(result: dict, labels: set[str] = frozenset(), event: str = "pull_request", repo: Path = ROOT,
+              base_ref: str | None = LANE_BASE) -> dict:
+    """The lane for a live_apply.classify() result. base_ref is the PR's base branch; None means unknown."""
     files = result["files"]
     every = sorted({p for paths in files.values() for p in paths})
     reasons: dict[str, list[str]] = {}
     if event != "pull_request":
         reasons[f"{event} builds are clean full builds"] = []
+    if base_ref != LANE_BASE:
+        reasons[f"base {base_ref or 'not given'}: only {LANE_BASE} pull requests take a lane"] = []
     hit = sorted(set(labels) & FULL_LABELS)
     if hit:
         reasons[f"label {', '.join(hit)}"] = []
@@ -159,8 +167,9 @@ def rust_bucket(repo: str, base: str, head: str) -> dict | None:
     return json.loads(run.stdout) if run.returncode == 0 and run.stdout.strip() else None
 
 
-def plan(repo: str, base: str, head: str, labels: set[str] = frozenset(), event: str = "pull_request") -> dict:
-    out = plan_from(live_apply.classify_range(repo, base, head), labels, event, Path(repo))
+def plan(repo: str, base: str, head: str, labels: set[str] = frozenset(), event: str = "pull_request",
+         base_ref: str | None = None) -> dict:
+    out = plan_from(live_apply.classify_range(repo, base, head), labels, event, Path(repo), base_ref)
     out.update(base=base, head=head)
     if "daemon" in out["appliers"]:
         out["rust"] = rust_bucket(repo, base, head)
@@ -251,7 +260,7 @@ def merge_diff_plan(repo: str, pr: dict) -> dict:
         return {"lane": "unknown", "appliers": [], "fallback": {"no merge commit": []}, "files": {}}
     labels = {n["name"] for n in pr.get("labels", {}).get("nodes", [])}
     try:
-        return plan(repo, f"{merge}^1", merge, labels)
+        return plan(repo, f"{merge}^1", merge, labels, base_ref=pr.get("baseRefName"))
     except subprocess.CalledProcessError as error:
         return {"lane": "unknown", "appliers": [], "fallback": {f"git: {error}": []}, "files": {}}
 
@@ -335,6 +344,7 @@ def main(argv=None) -> int:
         sp.add_argument("--repo", default=os.getcwd())
         sp.add_argument("--labels", default="")
         sp.add_argument("--event", default="pull_request")
+        sp.add_argument("--base-ref", help=f"the PR's base branch; anything but {LANE_BASE}, or none, is full")
         sp.add_argument("--json", action="store_true")
         sp.add_argument("base")
         sp.add_argument("head")
@@ -349,7 +359,7 @@ def main(argv=None) -> int:
         print(json.dumps(rep, indent=1) if args.json else summarize(rep))
         return 0
     labels = {x for x in args.labels.split(",") if x}
-    p = plan(args.repo, args.base, args.head, labels, args.event)
+    p = plan(args.repo, args.base, args.head, labels, args.event, args.base_ref)
     if args.cmd == "commands":
         print("\n".join(commands(p)))
     elif args.json:

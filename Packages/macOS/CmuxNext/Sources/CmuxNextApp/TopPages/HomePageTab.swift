@@ -31,7 +31,7 @@ final class HomePageTab: InternalPageProvider {
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services else { return NSView() }
-        guard let view = HomeMessagesPage.make(services: services) else { return NSView() }
+        guard let view = HomeMessagesPage.make(services: services, widthKey: "home-tab") else { return NSView() }
         views[key] = view
         order.append(key)
         return view

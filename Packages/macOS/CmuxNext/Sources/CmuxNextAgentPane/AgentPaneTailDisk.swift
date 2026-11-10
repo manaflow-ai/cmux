@@ -22,7 +22,7 @@ public import Foundation
 /// quit awaits its queued saves with the other state files' (#36492 review F3).
 public nonisolated final class AgentPaneTailDisk: Sendable {
     public let directory: URL
-    private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.tail-disk", qos: .utility)
+    private let queue: DispatchQueue
     /// The newest save's number per file name: a queued save with an older one does nothing.
     private let newest = Mutex<[String: UInt64]>([:])
     private let counter = Mutex<UInt64>(0)
@@ -30,15 +30,26 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
     private let pending = Mutex<Int>(0)
     private let limitFiles: Int
     private let limitBytes: Int
+    /// Whether a file read back is one this keeps (a tail, by default); one that is not is removed.
+    private let accepts: @Sendable (JSONValue) -> Bool
     /// Told each time a ``read(_:)`` is queued, before it runs (a test holds the queue there).
     private let readQueued: @Sendable () -> Void
 
+    /// - Parameters:
+    ///   - accepts: Whether a value read back is one this keeps: a chat tail when nil; the chats'
+    ///     drawn copies (``AgentPaneChatSnapshots``) keep theirs in a disk of their own.
+    ///   - qos: The queue's class: utility for tails, user-initiated for a copy the next document
+    ///     waits on before its first frame.
     public init(directory: URL, files: Int = AgentPaneTailCache.chats, bytes: Int = AgentPaneTailCache.bytes,
+                qos: DispatchQoS = .utility,
+                accepts: (@Sendable (JSONValue) -> Bool)? = nil,
                 readQueued: @escaping @Sendable () -> Void = {}) {
         self.directory = directory
         limitFiles = files
         limitBytes = bytes
+        self.accepts = accepts ?? { AgentPaneTailCache.holds($0) }
         self.readQueued = readQueued
+        queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.tail-disk", qos: qos)
     }
 
     /// The file chat `sessionId`'s tail is kept in.
@@ -80,9 +91,10 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
     public func read(_ sessionId: String) async -> JSONValue? {
         let file = url(for: sessionId)
         let limit = limitBytes
+        let accepts = accepts
         return await withCheckedContinuation { (done: CheckedContinuation<JSONValue?, Never>) in
             queue.async {
-                done.resume(returning: Self.load(file, limit: limit))
+                done.resume(returning: Self.load(file, limit: limit, accepts: accepts))
             }
             readQueued()
         }
@@ -107,11 +119,11 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
         queue.async(execute: work)
     }
 
-    private static func load(_ file: URL, limit: Int) -> JSONValue? {
+    private static func load(_ file: URL, limit: Int, accepts: (JSONValue) -> Bool) -> JSONValue? {
         let size = (try? file.blockingResourceValues(forKeys: [.fileSizeKey]))?.fileSize
         guard let size else { return nil }
         guard size <= limit, let data = try? Data(blockingContentsOf: file),
-              let tail = try? JSONDecoder().decode(JSONValue.self, from: data), AgentPaneTailCache.holds(tail)
+              let tail = try? JSONDecoder().decode(JSONValue.self, from: data), accepts(tail)
         else {
             try? FileManager.checked.removeItem(at: file)
             return nil

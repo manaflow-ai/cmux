@@ -58,7 +58,7 @@ dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
-const { FOLLOW_BOTTOM_DEADBAND_PX } = await import("../src/agent-session/acpmux/VirtualTranscript");
+const { FOLLOW_BOTTOM_DEADBAND_PX } = await import("../src/agent-session/acpmux/virtualTranscriptModel");
 
 afterAll(() => {
   dom.window.close();
@@ -299,6 +299,52 @@ test("once shown, the button stays shown back inside its distance and hides only
   } finally {
     await act(async () => root.unmount());
   }
+});
+
+test("the transcript tells its pane when Jump to latest shows and hides, so the toast deck can clear it", async () => {
+  // A router review of the toast deck (#37629): the deck stood on the same bottom edge as Jump to
+  // latest, a layer over it, so a toast could cover the button and take its clicks. The pane lifts
+  // the deck while the button shows (toastLayer.css); it learns that from here.
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const rows = turnView(turns, new Set());
+  const reports: boolean[] = [];
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          jumpButton
+          onJumpShownChange={(shown: boolean) => reports.push(shown)}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const latest = scrollerEnd(scroller);
+    const button = () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-latest");
+    const scrollTo = async (top: number) => {
+      scroller.scrollTop = top;
+      await act(async () => {
+        scroller.dispatchEvent(new dom.window.Event("scroll"));
+        await nextFrame();
+      });
+    };
+    await scrollTo(latest);
+    expect(reports.at(-1) ?? false).toBe(false);
+    await scrollTo(latest - 120);
+    expect(button()?.dataset.shown).toBe("");
+    expect(reports.at(-1)).toBe(true);
+    await scrollTo(latest);
+    expect(button()?.dataset.shown).toBeUndefined();
+    expect(reports.at(-1)).toBe(false);
+    // Shown again, then gone with the transcript: the pane is told it is not shown any more.
+    await scrollTo(latest - 120);
+    expect(reports.at(-1)).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+  }
+  expect(reports.at(-1)).toBe(false);
 });
 
 test("a keyboard jump hands focus to the composer instead of losing it with the hidden button", async () => {

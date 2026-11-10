@@ -1,7 +1,8 @@
 public import CmuxNextDaemon
 
-/// The daemon side of a pane split: `split` (right or down), then
-/// `swap-pane` for a left or up split so the new pane lands on that side.
+/// The daemon side of a pane split: `split` (right or down). A left or up split is `split {before: true}`
+/// on a daemon with `split-before-v1`, so the new pane lands on that side in the one split; an older daemon
+/// gets `split`, then `swap-pane`.
 public struct PaneSplitCommand: Sendable {
     public let pane: PaneID
     public let direction: SplitDirection
@@ -23,13 +24,20 @@ public struct PaneSplitCommand: Sendable {
     /// A pane still opening (a split's or Cmd-N's stand-in) is waited for and named by its daemon pane
     /// (``DaemonStore/daemonTarget(_:)``), never refused.
     @MainActor public func send(on daemon: DaemonService) async throws -> SurfaceCreated {
-        let direction = direction, options = options, swapTowards = swapTowards
+        let direction = direction, options = options, before = placesBefore(on: daemon)
+        let swapTowards = before ? nil : swapTowards
         let pane = try await daemon.store.daemonTarget(self.pane)
         return try await daemon.perform("split") { connection in
-            let created = try await connection.split(pane, direction: direction, options: options)
+            let created = try await connection.split(pane, direction: direction, before: before, options: options)
             if let swapTowards { try await connection.swapPane(pane, with: .direction(swapTowards)) }
             return created
         }
+    }
+
+    /// Whether the daemon makes this left or up split in the one `split` (`split-before-v1`): the new pane goes
+    /// before the pane on the split axis, and no `swap-pane` follows. False for a right or down split.
+    @MainActor public func placesBefore(on daemon: DaemonService) -> Bool {
+        swapTowards != nil && daemon.supports(DaemonCapability.splitBefore.rawValue)
     }
 
     /// The optimistic split (`split-client-keys-v1`, plans/cmux-next/remote-state-ownership.md
@@ -49,6 +57,9 @@ public struct PaneSplitCommand: Sendable {
     @MainActor
     public func intendNow(on daemon: DaemonService, provisional: ProvisionalPane) -> @MainActor () async throws -> SurfaceCreated {
         let transaction = ClientTransactionID.generate()
+        // A left or up split shows its pane on that side (``placesBefore(on:)``); ``isOptimistic(on:)`` admits no other.
+        let before = placesBefore(on: daemon)
+        let provisional = provisional.placed(before: before)
         var options = options
         options.paneID = provisional.paneID
         options.tabID = provisional.tabID
@@ -63,7 +74,7 @@ public struct PaneSplitCommand: Sendable {
         // (``DaemonStore/daemonHandle(showing:)``). P0 2026-10-30: a quick second Cmd-D made no pane, 12 of 12.
         let target: @MainActor @Sendable () async throws -> PaneID = { try await daemon.store.daemonTarget(pane) }
         let send = daemon.intendNowReporting("split", intent, transaction: transaction) { connection in
-            try await connection.split(try await target(), direction: direction, options: sent)
+            try await connection.split(try await target(), direction: direction, before: before, options: sent)
         }
         return {
             // A failure is the real one (``NewTerminalTabCommand``, FC-1): the daemon's answer, a lost connection,
@@ -82,10 +93,11 @@ public struct PaneSplitCommand: Sendable {
     public static let optimisticSplitEnabled = true
 
     /// Whether `daemon` takes the optimistic split for this command: the fast path is on, it serves
-    /// the client keys, and the split does not swap (a left or up split moves the original pane
-    /// afterwards).
+    /// the client keys, and the daemon's split lands where the window shows it: a right or down split,
+    /// or a left or up one the daemon makes before the pane (``placesBefore(on:)``). A left or up split
+    /// on an older daemon swaps the panes after its split, so it waits for the daemon.
     @MainActor public func isOptimistic(on daemon: DaemonService) -> Bool {
-        Self.optimisticSplitEnabled && swapTowards == nil
+        Self.optimisticSplitEnabled && (swapTowards == nil || placesBefore(on: daemon))
             && daemon.supports(DaemonCapability.splitClientKeys.rawValue)
     }
 }

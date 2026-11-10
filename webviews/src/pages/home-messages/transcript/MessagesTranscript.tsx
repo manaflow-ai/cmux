@@ -11,6 +11,7 @@
 // viewport render (useTimelineWindow), so a chat of 10,000 messages opens as one of 10 does. A send
 // moves the rows above it together: the stack is moved by the new row's height in the same frame
 // the window scrolls, then eases back to rest, so nothing jumps and nothing pops in after.
+import type { PrepareFile } from "./prepareAttachment";
 import {
   useEffect,
   useImperativeHandle,
@@ -30,13 +31,25 @@ import type { HomeAttachment, HomeMessage } from "../../home-channels/types";
 import { useTimelineWindow } from "../../home-channels/useTimelineWindow";
 import type { Strings } from "../../shared/i18n";
 import { WEB_SWAP_KEPT_SCROLL } from "../../shared/webSwap";
+import type { FileDropTarget } from "../nav";
 import type { AttachmentDrafts } from "./attachmentDrafts";
 import { bubbleStyle, type BubbleLook, type ChatColors } from "./colors";
 import { historyEntries } from "./history";
-import { MessageComposer, dragOffersFiles, type DictationCall, type MessageComposerHandle } from "./MessageComposer";
+import { withExtras, type ShownRow, type TranscriptExtras } from "./extras";
+import {
+  MessageComposer,
+  dragOffersFiles,
+  type ComposerChief,
+  type DictationCall,
+  type MessageComposerHandle,
+} from "./MessageComposer";
 import { estimateRow, RowCache, transcriptRows, type TranscriptData, type TranscriptRow } from "./rows";
 import { TranscriptHeader, alsoHereNames, type HeaderPanelItem, type TranscriptHeaderProps } from "./TranscriptHeader";
+import type { ReplyQuote } from "./replyQuote";
 import { TranscriptRowView, type RowActions, type RowLinks } from "./TranscriptRows";
+import type { BubbleContext, BubbleHostFacts, FileAction, FileTarget } from "./bubbleMenu";
+import { NO_BUBBLE_HOST } from "./bubbleMenu";
+import { MediaViewerHost } from "../viewer/MediaViewer";
 import "./transcript.css";
 
 /** The room the header takes over the rows (its avatar, pill and padding). */
@@ -49,6 +62,9 @@ export interface MessagesTranscriptHandle {
   focusComposer(): boolean;
   /** The compose bar, for what the app hands over (composerHandoff.ts). */
   composer(): MessageComposerHandle | null;
+  /** Files dragged over the conversation list come here, with this transcript's drop highlight;
+   * undefined when it takes no files. */
+  fileDrop: FileDropTarget | undefined;
 }
 
 export interface MessagesTranscriptProps extends TranscriptData {
@@ -70,27 +86,47 @@ export interface MessagesTranscriptProps extends TranscriptData {
   pinned?: ReactNode;
   /** The page's attachment service: images draw, files attach. Absent: named rows only, no +. */
   attachments?: AttachmentService;
+  /** What each attached file goes through before it uploads (the app's location removal). */
+  prepareFile?: PrepareFile;
   dictation?: DictationCall;
   /** The page's files per conversation (they outlive this conversation's composer); absent: the composer's own. */
   attachmentDrafts?: AttachmentDrafts;
   initialDraft?: string;
   onDraftChange?(text: string): void;
-  /** The Chief answers now: the composer's emoji button is Stop (`onStop`). */
-  working?: boolean;
-  onStop?(all: boolean): void;
-  /** A stopped Chief turn may go on: the composer's emoji button is Continue (`onContinue`). */
-  continueAvailable?: boolean;
-  onContinue?(): void;
-  /** Retry Reply on my messages (a Chief chat while it does not answer). */
-  onRetryChief?(message: HomeMessage): void;
   onSend(text: string, attachments?: readonly HomeAttachment[]): Promise<boolean>;
   onLoadOlder(): void;
   /** My read cursor moves forward to `seq`. */
   onRead?(seq: number): void;
   onRetry?(key: string): void;
   onDiscard?(key: string): void;
-  onReact?(message: HomeMessage, partIndex: number, value: string, tapback: string): void;
+  /** Cancel Upload on a send still going (its row's menu). */
+  canCancelUpload?(key: string): boolean;
+  onCancelUpload?(key: string): void;
+  onReact?(message: HomeMessage, partIndex: number, value: string, tapback?: string): void;
   onCopy?(text: string): void;
+  /** Reply… on a message (its thread opens, the reply answering it); absent: no Reply. */
+  onReply?(message: HomeMessage): void;
+  /** Delete on my committed message in a Chief chat (bubbleMenu `canDeleteMessage`). */
+  onDelete?(message: HomeMessage): void;
+  /** Retry Reply: the Chief answers my message again. */
+  onRetryReply?(message: HomeMessage): void;
+  onForward?(text: string): void;
+  onShare?(item: { text: string } | { url: string }): void;
+  /** A path link's or an attachment's file row (the host runs it). */
+  onFile?(action: FileAction, target: FileTarget): void;
+  /** What the app offers the bubbles' menus (Copy Link's scheme, Forward…, Share…, Retry Reply, file rows). */
+  bubbleHost?: BubbleHostFacts;
+  /** Reply to Selection on a message's selected words (its thread opens with the quote). */
+  onReplyToSelection?(message: HomeMessage, quote: ReplyQuote): void;
+  /** "N Replies" under a message: its thread, or in a thread its branch, opens. */
+  onOpenReplies?(message: string): void;
+  /** The quote the next send carries, on its card above the field. */
+  quote?: { text: string; name?: string };
+  onRemoveQuote?(): void;
+  /** The composer's placeholder (a thread's says Reply). */
+  composerPlaceholder?: string;
+  /** The message box checks spelling (Settings). */
+  spellChecking?: boolean;
   /** The clock for day labels (the gallery's); default: now. */
   now?: number;
   /** A message a link or the host opened at: it scrolls into view, marked. */
@@ -101,6 +137,14 @@ export interface MessagesTranscriptProps extends TranscriptData {
   composerKey?: string;
   /** Link chips in people's text: their previews and opening. Absent: plain text. */
   links?: RowLinks;
+  /** A Chief's permission cards: their state and the app's decision. Absent: cards without buttons. */
+  approvals?: RowActions["approvals"];
+  /** Rows the page adds (an agents row under its message, the Chief's status line at the end). */
+  extras?: TranscriptExtras;
+  /** A Chief's Stop, Escape and Continue in the message box (chiefTurn.ts). */
+  chief?: ComposerChief;
+  /** A toast over the message box; the newest message keeps clear of it (the toast room). */
+  toast?: ReactNode;
   ref?: Ref<MessagesTranscriptHandle>;
 }
 
@@ -144,6 +188,8 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           draft: props.draft,
           hasOlder: props.hasOlder,
           loadingOlder: props.loadingOlder,
+          ...(props.replyCounts ? { replyCounts: props.replyCounts } : {}),
+          ...(props.threadMode ? { threadMode: true } : {}),
         },
         now,
         cache,
@@ -159,13 +205,40 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       props.draft,
       props.hasOlder,
       props.loadingOlder,
+      props.replyCounts,
+      props.threadMode,
       now,
     ],
   );
   const [pinnedHeight, setPinnedHeight] = useState(0);
+  // A toast over the message box takes room under the newest message (+ToastRoom.swift): a row of
+  // its height ends the transcript while it shows, so the rows move up with it and back down after.
+  const [toastHeight, setToastHeight] = useState(0);
+  const toastBox = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const element = toastBox.current;
+    if (!element) return setToastHeight(0);
+    const observer = new ResizeObserver(() => setToastHeight(element.offsetHeight ? element.offsetHeight + 8 : 0));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [props.toast]);
+  const extras = useMemo<TranscriptExtras | undefined>(() => {
+    if (!toastHeight) return props.extras;
+    const room = {
+      key: "toast-room",
+      estimate: toastHeight,
+      node: <div style={{ height: toastHeight }} aria-hidden />,
+    };
+    return { ...props.extras, tail: [...(props.extras?.tail ?? []), room] };
+  }, [props.extras, toastHeight]);
+  const shown = useMemo(() => withExtras(rows, extras), [rows, extras]);
   const sized = useMemo(() => {
     const out = [{ key: TOP_KEY, estimate: HEADER_ROOM + pinnedHeight }];
-    for (const row of rows) {
+    for (const row of shown) {
+      if (row.kind === "extra") {
+        out.push({ key: row.key, estimate: row.estimate });
+        continue;
+      }
       let entry = estimates.get(row);
       if (!entry) {
         entry = { key: row.key, estimate: estimateRow(row) };
@@ -174,7 +247,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       out.push(entry);
     }
     return out;
-  }, [rows, pinnedHeight, estimates]);
+  }, [shown, pinnedHeight, estimates]);
   // The highlighted message's first row: the window scrolls it to the middle once.
   const focusKey = useMemo(
     () => (highlight ? rows.find((row) => row.kind === "bubble" && row.message.id === highlight)?.key : undefined),
@@ -186,17 +259,68 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
   const stack = useRef<HTMLDivElement | null>(null);
   const [dropping, setDropping] = useState(false);
 
+  // The menus read the conversation's facts as they open: a typing change or a reconnect re-renders no row.
+  const facts = useRef<BubbleContext>(undefined as unknown as BubbleContext);
+  facts.current = {
+    me,
+    conversation,
+    online: connection === "online",
+    typing: (props.typing ?? []).some((person) => person !== me) || props.draft !== undefined,
+    host: props.bubbleHost ?? NO_BUBBLE_HOST,
+  };
   const actions = useMemo<RowActions>(
     () => ({
       onRetry: props.onRetry,
       onDiscard: props.onDiscard,
+      ...(props.canCancelUpload ? { canCancelUpload: props.canCancelUpload } : {}),
+      ...(props.onCancelUpload ? { onCancelUpload: props.onCancelUpload } : {}),
       onReact: props.onReact,
       onCopy: props.onCopy ?? ((text) => void navigator.clipboard?.writeText(text)),
-      ...(props.onRetryChief ? { onRetryChief: props.onRetryChief } : {}),
+      ...(props.onReply ? { onReply: props.onReply } : {}),
+      ...(props.onDelete ? { onDelete: props.onDelete } : {}),
+      ...(props.onRetryReply ? { onRetryReply: props.onRetryReply } : {}),
+      ...(props.onForward ? { onForward: props.onForward } : {}),
+      ...(props.onShare ? { onShare: props.onShare } : {}),
+      ...(props.onFile ? { onFile: props.onFile } : {}),
+      ...(props.onReplyToSelection ? { onReplyToSelection: props.onReplyToSelection } : {}),
+      ...(props.onOpenReplies ? { onOpenReplies: props.onOpenReplies } : {}),
       ...(links ? { links } : {}),
+      ...(props.approvals ? { approvals: props.approvals } : {}),
+      context: () => facts.current,
     }),
-    [props.onRetry, props.onDiscard, props.onReact, props.onCopy, props.onRetryChief, links],
+    [
+      props.onRetry,
+      props.onDiscard,
+      props.canCancelUpload,
+      props.onCancelUpload,
+      props.onReact,
+      props.onCopy,
+      props.onReply,
+      props.onDelete,
+      props.onRetryReply,
+      props.onForward,
+      props.onShare,
+      props.onFile,
+      props.onReplyToSelection,
+      props.onOpenReplies,
+      links,
+      props.approvals,
+    ],
   );
+  const fileDrop: FileDropTarget | undefined = attachments
+    ? {
+        over: (types) => {
+          if (!dragOffersFiles(types)) return false;
+          setDropping(true);
+          return true;
+        },
+        leave: () => setDropping(false),
+        drop: (files) => {
+          setDropping(false);
+          composer.current?.addFiles(files);
+        },
+      }
+    : undefined;
   useImperativeHandle(props.ref, () => ({
     focusComposer: () => {
       if (!composer.current) return false;
@@ -204,6 +328,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       return true;
     },
     composer: () => composer.current,
+    fileDrop,
   }));
 
   // A send (new rows at the end while the reader is at the newest): the window already scrolled by
@@ -213,7 +338,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
   useLayoutEffect(() => {
     const state = motion.current;
     const element = scroller.current;
-    const lastKey = rows.at(-1)?.key ?? "";
+    const lastKey = shown.at(-1)?.key ?? "";
     const delta = total - state.total;
     const sameConversation = state.conversation === conversation.id;
     if (sameConversation && state.atBottom && lastKey !== state.lastKey && delta > 0 && delta < 600 && !reducedMotion())
@@ -299,80 +424,104 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           composer.current?.addFiles(event.dataTransfer.files);
         }}
       >
-        <div
-          ref={scroller}
-          className="mt-scroller"
-          {...{ [WEB_SWAP_KEPT_SCROLL]: "end" }}
-          onScroll={() => {
-            if (onScroll() && props.hasOlder && !props.loadingOlder) onLoadOlder();
-            readRef.current();
-          }}
-          role="log"
-          aria-live="polite"
-        >
-          <div ref={stack} className="mt-stack" style={{ height: total }}>
-            {items.map((item) => {
-              const row = item.index > 0 ? rows[item.index - 1]! : undefined;
-              return (
-                <div
-                  key={item.key}
-                  data-key={item.key}
-                  ref={measure}
-                  className="mt-slot"
-                  style={{ transform: `translateY(${item.start}px)` }}
-                >
-                  {row ? (
-                    <TranscriptRowView
-                      row={row}
-                      me={me}
-                      strings={strings}
-                      now={now}
-                      people={people}
-                      actions={actions}
-                      highlight={highlight}
-                    />
-                  ) : (
-                    <div className="mt-top" style={{ height: HEADER_ROOM + pinnedHeight }} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {empty && rows.length === 0 && <div className="mt-empty">{empty}</div>}
-        </div>
-        <TranscriptHeader
-          title={title}
-          participant={other}
-          {...(props.face ? { face: props.face } : {})}
-          {...(props.place ? { place: props.place } : {})}
-          {...(props.onPlace ? { onPlace: props.onPlace } : {})}
-          alsoHere={alsoHere}
-          panels={props.panels}
-          onPanel={props.onPanel}
-          onContact={props.onContact}
+        <MediaViewerHost
           strings={strings}
-        />
-        {pinned && (
-          <div ref={pinnedBox} className="mt-pinned">
-            {pinned}
+          onClosed={() => composer.current?.focus()}
+          {...(attachments ? { onSend: (file: File) => composer.current?.addFiles([file]) } : {})}
+        >
+          <div
+            ref={scroller}
+            className="mt-scroller"
+            {...{ [WEB_SWAP_KEPT_SCROLL]: "end" }}
+            onScroll={() => {
+              if (onScroll() && props.hasOlder && !props.loadingOlder) onLoadOlder();
+              readRef.current();
+            }}
+            role="log"
+            aria-live="polite"
+          >
+            <div ref={stack} className="mt-stack" style={{ height: total }}>
+              {items.map((item) => {
+                const row: ShownRow | undefined = item.index > 0 ? shown[item.index - 1]! : undefined;
+                return (
+                  <div
+                    key={item.key}
+                    data-key={item.key}
+                    ref={measure}
+                    className="mt-slot"
+                    style={{ transform: `translateY(${item.start}px)` }}
+                  >
+                    {row?.kind === "extra" ? (
+                      row.node
+                    ) : row ? (
+                      <TranscriptRowView
+                        row={row}
+                        me={me}
+                        strings={strings}
+                        now={now}
+                        people={people}
+                        actions={actions}
+                        highlight={highlight}
+                      />
+                    ) : (
+                      <div className="mt-top" style={{ height: HEADER_ROOM + pinnedHeight }} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {empty && rows.length === 0 && <div className="mt-empty">{empty}</div>}
           </div>
-        )}
-        {dropping && <div className="mt-drop-highlight" aria-hidden />}
+          <TranscriptHeader
+            title={title}
+            participant={other}
+            {...(props.face ? { face: props.face } : {})}
+            {...(props.place ? { place: props.place } : {})}
+            {...(props.onPlace ? { onPlace: props.onPlace } : {})}
+            alsoHere={alsoHere}
+            panels={props.panels}
+            onPanel={props.onPanel}
+            onContact={props.onContact}
+            strings={strings}
+          />
+          {pinned && (
+            <div ref={pinnedBox} className="mt-pinned">
+              {pinned}
+            </div>
+          )}
+          {dropping && <div className="mt-drop-highlight" aria-hidden />}
+        </MediaViewerHost>
         <MessageComposer
           ref={composer}
           strings={strings}
           sendEnabled={connection === "online"}
           onSend={props.onSend}
-          attachments={attachments ? { service: attachments, conversation: conversation.id } : undefined}
+          attachments={
+            attachments
+              ? {
+                  service: attachments,
+                  conversation: conversation.id,
+                  ...(props.prepareFile ? { prepare: props.prepareFile } : {}),
+                }
+              : undefined
+          }
           history={history}
           dictation={props.dictation}
           initialText={props.initialDraft}
           onDraftChange={props.onDraftChange}
-          working={props.working === true}
-          {...(props.onStop ? { onStop: props.onStop } : {})}
-          continueAvailable={props.continueAvailable === true}
-          {...(props.onContinue ? { onContinue: props.onContinue } : {})}
           {...(props.attachmentDrafts ? { drafts: props.attachmentDrafts } : {})}
+          {...(props.composerPlaceholder ? { placeholder: props.composerPlaceholder } : {})}
+          spellChecking={props.spellChecking === true}
+          {...(props.quote ? { quote: props.quote } : {})}
+          {...(props.onRemoveQuote ? { onRemoveQuote: props.onRemoveQuote } : {})}
+          {...(props.chief ? { chief: props.chief } : {})}
+          toast={
+            props.toast ? (
+              <div ref={toastBox} className="mt-toast-room">
+                {props.toast}
+              </div>
+            ) : undefined
+          }
           key={`${conversation.id}:${props.composerKey ?? ""}`}
         />
       </section>

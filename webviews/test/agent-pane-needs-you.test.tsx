@@ -17,19 +17,11 @@ import type { AgentQuestion } from "../src/agent-session/acpmux/question/model";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
 import { needsYouLink, needsYouTarget, onOpenNeedsYou, openNeedsYou } from "../src/agent-session/acpmux/needsYou/links";
-import {
-  nextAsk,
-  NeedsYouPill,
-  pillAsks,
-  type TranscriptNeedsYou,
-} from "../src/agent-session/acpmux/needsYou/JumpPill";
+import { NeedsYouPill, type TranscriptNeedsYou } from "../src/agent-session/acpmux/needsYou/JumpPill";
+import { nextAsk, pillAsks } from "../src/agent-session/acpmux/needsYou/jumpPillModel";
 import { answerParams, useNeedsYou } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
-import {
-  NeedsYouPanel,
-  needsYouMode,
-  sideQuestionPrompt,
-  type NeedsYouActions,
-} from "../src/agent-session/acpmux/needsYou/NeedsYou";
+import { NeedsYouPanel, type NeedsYouActions } from "../src/agent-session/acpmux/needsYou/NeedsYou";
+import { needsYouMode, sideQuestionPrompt } from "../src/agent-session/acpmux/needsYou/needsYouModel";
 import { askContext, CONTEXT_TURNS, turnsBefore } from "../src/agent-session/acpmux/needsYou/context";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
 
@@ -540,8 +532,14 @@ afterEach(async () => {
 });
 
 const click = (element: Element) => element.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true }));
+/// A button's name as read aloud: its text without what it hides from assistive tech (a keycap).
+const readName = (element: Element) => {
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+  return copy.textContent;
+};
 const buttonNamed = (host: HTMLElement, name: string) =>
-  [...host.querySelectorAll("button")].find((button) => button.textContent === name);
+  [...host.querySelectorAll("button")].find((button) => readName(button) === name);
 
 test("the panel lists each ask with who asked, answers it, and hides it once sent", async () => {
   const host = installDom();

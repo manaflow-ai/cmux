@@ -106,11 +106,20 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-cloud-config",
                     # The follower of the app's cloud tasks (cmux-cloud-tasks).
                     "cmux-cloud-tasks",
+                    # Which imported Chrome cookie domains changed (cmux-cookie-sync).
+                    "cmux-cookie-sync",
+                    # The control connection rules (cmux-daemon-conn-core).
+                    "cmux-daemon-conn-core",
                     # The daemon launch rules and the install-key proof they use (cmux-daemon-launch-core).
                     "cmux-daemon-launch-core",
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
+                    # The app's daemon client: the cmux SDK and its C ABI.
+                    "cmux-sdk",
+                    "cmux-sdk-ffi",
+                    # Predictive local echo for remote terminals (cmux-terminal-prediction).
+                    "cmux-terminal-prediction",
                     # The window handlers' rules (cmux-window-rules).
                     "cmux-window-rules",
                 ]

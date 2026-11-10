@@ -25,62 +25,82 @@ import MessagesLabHome
 ///   actions read it); `composing`: New Message shows, which the default selection leaves alone.
 /// - `drafts.load {}` -> `{drafts}`; `drafts.save {conversation, text}`: the composer drafts, kept in
 ///   HomeStore's draft cache (as the native composer kept them) across reconnects and launches.
+/// - `attachments.load {}` -> `{attachments, legacy}`; `attachments.save {conversation, parts, migrated}`:
+///   the staged attachments, kept the same way (``HomeMessagesAttachmentDrafts``);
+///   `attachments.prepare.*`: a photo's or video's bytes through the host's preparation before they
+///   upload, location removed unless kept (``HomeAttachmentPreparer``).
+/// - `outbox.load {}` -> `{pending}`; `outbox.save {conversation, pending}`: the unsent sends, kept the
+///   same way (``HomeMessagesOutbox``).
 /// - `requests.list {}` -> `{requests}`; `requests.answer {conversation, answer}` -> `{ok}`.
 /// - `group.info {conversation}` -> `{info, addable}`; `group.rename|add|remove|mute|chiefReplies` -> `{outcome}`.
-/// - `contacts {}` -> `{contacts, inviteTeam, pendingInvites}` (the addresses invited into a DM who have not joined).
-/// - `chief.create {name, backend}`, `invite.send {email}`, `start {recipients, text}` -> `{outcome}`.
+/// - `contacts {}` -> `{contacts, inviteTeam, pendingInvites}`.
+/// - `chief.create {name, backend}`, `invite.send {email}`, `start {recipients, text}` -> `{outcome}`
+///   (``HomeMessagesFirstSend``: a first send with no answer comes with its outbox row).
 /// - `teamInvite.seatImpact {}` -> `{impact}`; `teamInvite.send {email}` -> `{result}`.
-/// - `linkPreview {url, kind, details}` -> a preview (cards/links/linkPreview.ts).
+/// - `linkPreview {url, kind, details}` -> a preview (cards/links/linkPreview.ts); `approval.decide` (``HomeMessagesApprovals``).
 /// - `headerPanels.toggle {id}`: runs that panel's action as the person's own (a click only).
 /// - Clicks: `chief.settings {conversation, anchor}` -> `{shown}` (the settings under the name pill, page points),
-///   `chief.stop {conversation, all}`, `chief.continue {conversation}`, `chief.retry {conversation, message}`,
-///   `chief.place {conversation, anchor}` (the Teleport menu), `needsYou.open|answer|showAll {id, answer}`.
-/// Streams, sent on subscribe and on every change: `appearance` (bubble look, chat colours), `headerPanels`,
-/// `chiefTurn` (`{conversation, continueAvailable}`), `chiefFace` (`{conversation, picture?, text?}`),
-/// `chiefPlace` (`{conversation, chip}`: ``ChiefTeleportChipFace``, or null), `needsYou` (``FeedNeedsYouRows``), `dictation` (``HomePageDictation``; with its op),
-/// `hidden` (`{hidden: {id: seq}}`: the conversations deleted from the list, each listed again by a message after its seq).
+///   `chief.place {conversation, anchor}` (the Teleport menu), `needsYou.open|answer|showAll {id, answer}`;
+///   Stop, Stop all agents, Continue, Restart and Start now are ``HomeMessagesChiefTurn``'s.
+/// Streams: `appearance` (the bubble look, each chat's colours, the composer's spell checking),
+/// `group.follow {conversation}` and `requests.follow` (Group Info and Requests while they show,
+/// ``HomeMessagesFollow``), `headerPanels` (the toggles of
+/// the open conversation), `hidden` (`{hidden: {id: seq}}`: the conversations deleted from the
+/// list, each listed again by a message after its seq), `chiefFace` (`{conversation, picture?, text?}`),
+/// `chiefPlace` (`{conversation, chip}`: ``ChiefTeleportChipFace``, or null), `needsYou` (``FeedNeedsYouRows``)
+/// and `dictation` (``HomePageDictation``; with its op), each sent on subscribe and on every change.
 @MainActor
 final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
-    static let prefixes = ["selected", "drafts.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
-                           "linkPreview", "openLink", "headerPanels", "appearance", "chiefTurn", "chiefFace", "chiefPlace", "needsYou", "dictation"].map { HomeMessagesPageRoute.prefix + $0 }
+    static let prefixes = ["selected", "drafts.", "attachments.", "outbox.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
+                           "linkPreview", "openLink", "headerPanels", "appearance", "approval.", "chiefFace", "chiefPlace", "needsYou", "dictation",
+                           HomeMessagesBubbleOps.prefix].map { HomeMessagesPageRoute.prefix + $0 }
+    private static let personOnly: Set<String> = ["chief.create", "invite.send", "teamInvite.send", "openLink", "headerPanels.toggle", "chief.settings",
+                                                  "chief.place", "needsYou.open", "needsYou.answer", "needsYou.showAll"]  // a click only
 
     private weak var services: AppServices?
-    /// The page's open conversation, as it last said.
-    private(set) var shown: ConversationID?
-    /// New Message shows on the page (it reports no conversation then).
-    private(set) var composing = false
-    /// The page said what it shows at least once (its inbox is read).
-    private(set) var reported = false
+    /// What the page shows, as it last said (``HomeMessagesShown``: New Message keeps the conversation open before it).
+    private(set) var page = HomeMessagesShown()
+    var shown: ConversationID? { page.conversation }
     /// The page's report changed what it shows (its first report too).
     var onShown: (@MainActor (ConversationID?, Bool) -> Void)?
-    /// The conversations deleted from the page's list (``HomeSidebarSource/hidden``).
-    var hidden: @MainActor () -> [ConversationID: Seq] = { [:] }
-    private lazy var hiddenStream = HomePageStream(initial: .object(["hidden": .object([:])]))
+    /// The `hidden` stream: the deleted conversations and the archived Chiefs' ones.
+    let hidden = HomeMessagesHiddenFeed()
+    /// The `list` stream (tags, Cloud note, teammates, header sizes) and the list's width (``HomeMessagesListFeed``).
+    let list: HomeMessagesListFeed
     private var previewProvider: HomeLinkPreviewProvider?
-    /// The page's streams; an observed one reads only while it has a listener.
-    private lazy var appearanceStream = HomePageStream(observing: { [weak self] in self?.appearance() ?? .null })
-    private lazy var panelsStream = HomePageStream(observing: { [weak self] in self?.panels() ?? .null })
+    private var keeping: HomeMessagesKept?
+    private var bubbleOps: HomeMessagesBubbleOps?
+    /// Stop, Stop all agents, Continue and Restart on the conversation's own Chief (``HomeMessagesChiefTurn``).
+    private lazy var chiefTurn = HomeMessagesChiefTurn { [weak services] id in services.map { services in
+        HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag),
+                         chief: services.home.homeStore.namedChief(of: id)).turnControl
+    } }
+    /// The first run of an empty Chief chat (``HomeMessagesFirstRunProvider``): it follows ``shown``.
+    var firstRun: HomeMessagesFirstRunProvider?
+    private var appearanceListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
+    private var panelListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
+    /// The observation of what the streams read; runs only while one has a listener.
+    private var appearanceWatch: Task<Void, Never>?
+    private var panelsWatch: Task<Void, Never>?
     private lazy var needsYouStream = HomePageStream(observing: { [weak self] in self?.needsYouRows() ?? .null })
-    private let chiefTurn = HomePageStream(initial: .object(["continueAvailable": .bool(false)]))
     private let chiefFace = HomePageStream(initial: .null)
     private lazy var chiefPlace = HomePageStream(observing: { [weak self] in self?.place() ?? .null })
-    /// The page's Chief controls for conversation `id` (its name pill's settings, Stop, Continue, Retry,
-    /// the location chip's menu); nil when the page does not show that Chief. Set by the view that holds the page.
+    /// The page's Chief controls for conversation `id` (its name pill's settings, the location chip's menu);
+    /// nil when the page does not show that Chief. Set by the view that holds the page.
     var chiefShown: @MainActor (ConversationID) -> HomeChiefSurface? = { _ in nil }
     /// The pinned Needs you section, made on the first listener.
     private var needsYou: FeedNeedsYouPin?
-    /// The first run's facts follow the conversation shown (held strongly: the page's route holds it too).
-    var firstRun: HomeMessagesFirstRunProvider?
     /// The window the page is in (the header panels read it).
     var window: () -> NSWindow? = { nil }
     /// The files the app hands the page's composer, by token, while it reads them (``HomeComposerHandoff``).
     let composerFiles = HomeComposerFiles()
     let dictation = HomePageDictation()
 
-    init(services: AppServices) {
+    init(services: AppServices, widthKey: String) {
         self.services = services
+        list = HomeMessagesListFeed(widthKey: { widthKey })
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -88,28 +108,22 @@ final class HomeMessagesHostProvider: PageProvider {
         let home = services.home
         let fields = params.objectValue ?? [:]
         let name = op.hasPrefix(HomeMessagesPageRoute.prefix) ? String(op.dropFirst(HomeMessagesPageRoute.prefix.count)) : op
+        if let answer = try await kept(home).call(name, fields, context: context) { return answer }
+        let userOnly = context.userGesture ? nil : PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+        if let answer = try await bubbles(services).call(name, fields, refusal: userOnly) { return answer }
+        if let userOnly, Self.personOnly.contains(name) { throw userOnly }
+        if let answer = try await chiefTurn.call(name, fields, userGesture: context.userGesture) { return answer }
         switch name {
         case "selected":
             let id = fields["conversation"]?.stringValue.flatMap { Self.isID($0) ? ConversationID($0) : nil }
-            let composing = id == nil && fields["composing"]?.boolValue == true
-            guard !reported || id != shown || composing != self.composing else { return .null }
-            let moved = id != shown
-            (reported, shown, self.composing) = (true, id, composing)
-            onShown?(id, composing)
-            if moved { [panelsStream, chiefPlace, needsYouStream].forEach { $0.restart() }; firstRun?.restart() }
-            return .null
-        case "drafts.load": return home.homeStore.pageDrafts
-        case "drafts.save":
-            guard try home.homeStore.savePageDraft(fields["text"]?.stringValue ?? "", for: conversation(fields)) else {
-                throw PageError.invalidParams("text is longer than a draft keeps")
-            }
+            reportShown(id, composing: id == nil && fields["composing"]?.boolValue == true)
             return .null
         case "requests.list":
             await home.requests.reload()
             return .object(["requests": .array(home.requests.items.map(\.pageJSON))])
         case "requests.answer":
             let id = try conversation(fields)
-            guard let answer = fields["answer"]?.stringValue.flatMap(HomeRequestAnswer.init(pageValue:)) else { throw PageError.invalidParams("answer must be accept, decline or block") }
+            guard let answer = fields["answer"]?.stringValue.flatMap(HomeRequestAnswer.init(pageText:)) else { throw PageError.invalidParams("answer must be accept, decline or block") }
             let ok = await home.requests.answer(id, answer)
             if ok, answer == .accept { home.pendingSelection = id }
             return .object(["ok": .bool(ok)])
@@ -117,7 +131,7 @@ final class HomeMessagesHostProvider: PageProvider {
             let id = try conversation(fields)
             let actions = home.groupActions
             guard let info = actions.info(id) else { throw PageError(code: "cmux.home.unknown_conversation", message: HomeGroupOutcome.unknownConversation.message ?? "") }
-            return .object(["info": info.pageJSON, "addable": .array(actions.addable(to: id).map(\.pageJSON))])
+            return info.pageAnswer(addable: actions.addable(to: id))
         case "group.rename":
             let id = try conversation(fields)
             return (await home.groupActions.rename(id, to: fields["title"]?.stringValue ?? "")).pageOutcome
@@ -140,16 +154,13 @@ final class HomeMessagesHostProvider: PageProvider {
             return (await home.groupActions.setChiefReplies(policy, id)).pageOutcome
         case "contacts":
             let team = services.cloud.isSignedIn ? services.cloud.auth.activeTeam.team?.displayName : nil
-            return .object(["contacts": .array(home.contacts().map(\.pageJSON)), "inviteTeam": team.map(JSONValue.string) ?? .null,
-                            "pendingInvites": .array(home.homeStore.rows.pendingInvites.map { .string($0.contact) })])
+            return HomeContact.pageAnswer(home.chiefRoster.mainFirst(home.contacts(), rows: home.homeStore.rows), inviteTeam: team, rows: home.homeStore.rows, roster: home.chiefRoster, harnesses: home.directory.chiefHarnesses)
         case "chief.create":
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             let name = (fields["name"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { throw PageError.invalidParams("name must not be empty") }
             let backend = fields["backend"]?.stringValue.flatMap(ChiefBackend.init(id:)) ?? .claude
             return (await home.createChief(named: name, backend: backend)).pageOutcome
         case "invite.send":
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             let text = fields["email"]?.stringValue ?? ""
             guard let address = ContactAddress.parse(text), address.isEmail else { return HomeComposeOutcome.invalidAddress(text).pageOutcome }
             return (await home.invite(address)).pageOutcome
@@ -157,7 +168,6 @@ final class HomeMessagesHostProvider: PageProvider {
             guard let team = services.cloud.auth.activeTeam.team else { return .object(["impact": .object(["kind": .string("unknown")])]) }
             return .object(["impact": await HomeTeamInviteRun.seatImpact(of: team.id, auth: services.cloud.auth).pageJSON])
         case "teamInvite.send":
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             guard let team = services.cloud.auth.activeTeam.team else { return .object(["result": .object(["kind": .string("notAllowed")])]) }
             let text = fields["email"]?.stringValue ?? ""
             guard let address = ContactAddress.parse(text), address.isEmail else { return .object(["result": .object(["kind": .string("sendFailed")])]) }
@@ -165,24 +175,15 @@ final class HomeMessagesHostProvider: PageProvider {
             return .object(["result": .object(["kind": .string(answer.rawValue)])])
         case "start":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
-            return (await start(fields, home: home)).pageOutcome
-        case "chief.settings", "chief.place", "chief.stop", "chief.continue", "chief.retry":
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
+            return await HomeMessagesFirstSend(store: home.homeStore, contacts: home.contacts(), start: { await home.startConversation($0, title: "", firstMessage: $1) },
+                                               refusal: { home.composer.outcome(for: $0, naming: $1) }).run(fields)
+        case "chief.settings", "chief.place":
             let chief = chiefShown(try conversation(fields))
             let anchor = HomeChiefSettingsAnchor.box(fields["anchor"])
-            switch name {
-            case "chief.settings": return .object(["shown": .bool(chief?.toggleSettings(under: anchor) ?? false)])
-            case "chief.place": if let chief, let anchor { chief.openTeleportMenu(under: anchor) }
-            case "chief.stop" where fields["all"]?.boolValue == true: chief?.stopAllAgents()
-            case "chief.stop": if chief != nil { _ = services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
-            case "chief.continue": chief?.turnActions.continueTurn()
-            default:
-                guard let message = fields["message"]?.stringValue, Self.isID(message) else { throw PageError.invalidParams("message must be a message id") }
-                chief?.turnActions.retry(MessageID(message))
-            }
+            if name == "chief.settings" { return .object(["shown": .bool(chief?.toggleSettings(under: anchor) ?? false)]) }
+            if let chief, let anchor { chief.openTeleportMenu(under: anchor) }
             return .null
         case "needsYou.open", "needsYou.answer", "needsYou.showAll":
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             let item = fields["id"]?.stringValue ?? ""
             switch name {
             case "needsYou.open": needsYou?.open(id: item)
@@ -199,10 +200,9 @@ final class HomeMessagesHostProvider: PageProvider {
             let previews = previewProvider ?? HomeLinkPreviewProvider(services: services)
             previewProvider = previews
             let quick = previews.preview(for: url, kind: kind)
-            return (fields["details"]?.boolValue == true ? await previews.details(for: url, preview: quick) : quick).pageJSON(maxLines: HomeLinkPreview.maxLines)
+            return (fields["details"]?.boolValue == true ? await previews.details(for: url, preview: quick) : quick).pageJSON(maxLines: HomeLinkPreviewProvider.maxLines)
         case "openLink":
             // A chip's app link or path: the Home workspace's right side opens it, as a click in Channels does.
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             guard let text = fields["url"]?.stringValue,
                   let url = URL(string: text).flatMap({ $0.scheme == nil ? nil : $0 }) ?? (text.hasPrefix("/") ? URL(fileURLWithPath: text) : nil) else {
                 throw PageError.invalidParams("url must name a link or a path")
@@ -210,7 +210,6 @@ final class HomeMessagesHostProvider: PageProvider {
             home.dock.openLink(url, on: services.daemon.connection)
             return .object(["opened": .bool(true)])
         case "headerPanels.toggle":
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             guard let id = fields["id"]?.stringValue else { throw PageError.invalidParams("id must name a panel") }
             return .object(["ran": .bool(HomeHeaderPanels.toggle(id, panelContext(services)))])
         default:
@@ -220,13 +219,37 @@ final class HomeMessagesHostProvider: PageProvider {
 
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+        let key = UUID()
         switch stream {
-        case HomeMessagesPageRoute.prefix + "appearance": return appearanceStream.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + "appearance":
+            appearanceListeners[key] = onEvent
+            onEvent(appearance())
+            if appearanceWatch == nil { watchAppearance() }
+            return PageSubscription { [weak self] in
+                guard let self else { return }
+                appearanceListeners[key] = nil
+                if appearanceListeners.isEmpty { appearanceWatch?.cancel(); appearanceWatch = nil }
+            }
+        case HomeMessagesPageRoute.prefix + "group.follow":
+            guard let actions = services?.home.groupActions else { throw PageError.unavailable("cmux is closing") }
+            let id = try conversation(filter.objectValue ?? [:])
+            return HomeMessagesFollow.start({ actions.info(id)?.pageAnswer(addable: actions.addable(to: id)) }, onEvent: onEvent)
+        case HomeMessagesPageRoute.prefix + "requests.follow":
+            guard let requests = services?.home.requests else { throw PageError.unavailable("cmux is closing") }
+            requests.refresh()
+            return HomeMessagesFollow.start({ .object(["requests": .array(requests.items.map(\.pageJSON))]) }, onEvent: onEvent)
         case HomeMessagesPageRoute.prefix + "hidden":
-            hiddenStream.publish(hidden().pageHidden)
-            return hiddenStream.subscribe(onEvent)
-        case HomeMessagesPageRoute.prefix + "headerPanels": return panelsStream.subscribe(onEvent)
-        case HomeMessagesPageRoute.prefix + "chiefTurn": return chiefTurn.subscribe(onEvent)
+            hidden.subscribe(key, onEvent)
+            return PageSubscription { [weak self] in self?.hidden.unsubscribe(key) }
+        case HomeMessagesPageRoute.prefix + "headerPanels":
+            panelListeners[key] = onEvent
+            onEvent(panels())
+            if panelsWatch == nil { restartPanels() }
+            return PageSubscription { [weak self] in
+                guard let self else { return }
+                panelListeners[key] = nil
+                if panelListeners.isEmpty { panelsWatch?.cancel(); panelsWatch = nil }
+            }
         case HomeMessagesPageRoute.prefix + "chiefFace": return chiefFace.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "dictation": return dictation.stream.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "chiefPlace":
@@ -243,11 +266,9 @@ final class HomeMessagesHostProvider: PageProvider {
         }
     }
 
-    /// Follows `chief`'s turn (Continue after a Stop) for the `chiefTurn` stream.
+    /// Follows `chief`'s face for the `chiefFace` stream.
     func follow(_ chief: HomeChiefSurface) {
         let id = chief.conversation
-        chief.turnActions.onContinueAvailable = { [weak self] in self?.publishChiefTurn(id, continueAvailable: $0) }
-        publishChiefTurn(id, continueAvailable: chief.turnActions.continueAvailable)
         chief.onFace = { [weak self] picture, text in
             var face: [String: JSONValue] = ["conversation": .string(id.rawValue)]
             if let picture { face["picture"] = .string(picture) }
@@ -264,11 +285,6 @@ final class HomeMessagesHostProvider: PageProvider {
         return .object(["conversation": .string(shown.rawValue), "chip": face])
     }
 
-    /// The shown Chief's turn changed (``HomeChiefTurnActions/onContinueAvailable``).
-    func publishChiefTurn(_ id: ConversationID, continueAvailable: Bool) {
-        chiefTurn.publish(.object(["conversation": .string(id.rawValue), "continueAvailable": .bool(continueAvailable)]))
-    }
-
     /// The Needs you section: its rows while the shown conversation is a Chief's and the section is
     /// on (opt-in, off by default), else null. Off reads no Feed state, so the Feed's changes never wake it.
     private func needsYouRows() -> JSONValue {
@@ -277,30 +293,32 @@ final class HomeMessagesHostProvider: PageProvider {
         return chief && pin.isEnabled() ? pin.rows().flatMap { try? JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode($0)) } ?? .null : .null
     }
 
-    // MARK: New Message's first send
-
-    /// The blank page's first send (what the native New Message sent first): makes the DM or group with the
-    /// recipients and posts `text` there. Addresses only: the email-link start carries the text.
-    private func start(_ fields: [String: JSONValue], home: HomeService) async -> HomeComposeOutcome {
-        let recipients = HomeRecipient.page(fields["recipients"], contacts: home.contacts())
-        guard !recipients.isEmpty else { return .refused("") }
-        let text = (fields["text"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts: [MessagePart] = text.isEmpty ? [] : [.text(text)]
-        let addressesOnly = recipients.allSatisfy { if case .address = $0 { true } else { false } }
-        let outcome = await home.startConversation(recipients, title: "", firstMessage: addressesOnly ? parts : [])
-        if case .opened(let id) = outcome, !addressesOnly, !parts.isEmpty {
-            // The real store owns the send from here (its offline queue and Not Delivered state).
-            _ = try? await home.homeStore.perform(.sendMessage(conversation: id, parts: parts))
-        }
-        return outcome
+    /// The page says what it shows (`selected`).
+    func reportShown(_ id: ConversationID?, composing: Bool) {
+        guard let moved = page.report(id, composing: composing) else { return }
+        onShown?(page.conversation, composing)
+        if moved { restartPanels(); [chiefPlace, needsYouStream].forEach { $0.restart() }; firstRun?.restart() }
     }
 
     // MARK: Streams
 
-    /// The deleted conversations changed: the page's list reads them again.
-    func publishHidden() { hiddenStream.publish(hidden().pageHidden) }
+    private func appearance() -> JSONValue {
+        guard let home = services?.home else { return .null }
+        return HomeChatColorStore.pageAppearance(home.chatColors, spellChecking: services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false)
+    }
 
-    private func appearance() -> JSONValue { services?.home.chatColors.pageAppearance(.shared) ?? .null }
+    private func watchAppearance() {
+        guard let chats = services?.home.chatColors else { return }
+        // task-owner: lives while the page listens to `appearance` (cancelled with its last listener); event-driven (Observation)
+        appearanceWatch = Task { [weak self] in
+            for await _ in ObservationStream({ [weak self] in (chats.chats, DesignSettings.shared.homeBubbleColors, DesignSettings.shared.homeChiefBubblesThemed,
+                                                                   self?.services?.settings?.snapshot.agentPaneComposer.spellChecking) }) {
+                guard let self else { return }
+                let value = appearance()
+                for listener in appearanceListeners.values { listener(value) }
+            }
+        }
+    }
 
     /// What the header's toggles read: the page's window and its open conversation's Chief.
     private func panelContext(_ services: AppServices) -> HomeHeaderPanelContext {
@@ -323,12 +341,44 @@ final class HomeMessagesHostProvider: PageProvider {
         return .object(["enabled": .bool(HomeTunables.headerPanelToggles.value), "panels": .array(states)])
     }
 
+    /// Follows the toggles while the page listens, for the conversation it shows now.
+    private func restartPanels() {
+        panelsWatch?.cancel()
+        panelsWatch = nil
+        guard !panelListeners.isEmpty else { return }
+        // task-owner: lives while the page listens to `headerPanels` (restarted on a new conversation, cancelled with its last listener); event-driven (Observation)
+        panelsWatch = Task { [weak self] in
+            guard let self else { return }
+            for await value in ObservationStream({ [weak self] in self?.panels() ?? .null }) {
+                for listener in panelListeners.values { listener(value) }
+            }
+        }
+    }
+
+    /// The bubble menus' app rows (``HomeMessagesBubbleOps``): Retry Reply through the Chief's control, Forward… as Send To…, the file rows.
+    private func bubbles(_ services: AppServices) -> HomeMessagesBubbleOps {
+        if let bubbleOps { return bubbleOps }
+        let files = HomeFileActions(services: services), registry = services.registry, home = HomeBrainHost.muxHome(tag: services.environment.tag)
+        let made = HomeMessagesBubbleOps(store: services.home.homeStore, host: .init(linkScheme: services.linkScheme, retryReply: { [weak services] id in
+            guard let control = services.map({ HomeChiefControl(services: $0, conversation: id, muxHome: home).turnControl }), !control.isHosted else { return nil }
+            return { if case .success = await control.retryChief(message: $0) { true } else { false } }
+        }, forward: { registry.perform("home.sendSelectionTo", invocation: ActionInvocation(arguments: ["text": .string($0)], origin: .user)) },
+            openFile: { files.open($0) }, fileMenu: { files.menuItems(forFileNamed: $0, resolve: $1) }))
+        bubbleOps = made
+        return made
+    }
+
+    /// The drafts, staged files and unsent sends kept in HomeStore (``HomeMessagesKept``).
+    private func kept(_ home: HomeService) -> HomeMessagesKept {
+        if let keeping { return keeping }
+        let made = HomeMessagesKept(store: home.homeStore, keepLocation: { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }, approvals: services.map { ChiefApprovalDecider(home: home.chief.home, app: QuitAgents.environment($0), work: $0.work, environment: ChiefHomeAcpmux.environment) })
+        keeping = made
+        return made
+    }
+
     // MARK: Wire
 
-    private func conversation(_ fields: [String: JSONValue]) throws -> ConversationID {
-        guard let id = fields["conversation"]?.stringValue, Self.isID(id) else { throw PageError.invalidParams("conversation must be a conversation id") }
-        return ConversationID(id)
-    }
+    private func conversation(_ fields: [String: JSONValue]) throws -> ConversationID { try HomeMessagesKept.conversation(fields) }
 
     static func isID(_ text: String) -> Bool { !text.isEmpty && text.count <= 256 }
 }

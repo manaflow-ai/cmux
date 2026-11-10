@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+import CmuxNextActions
 public import CmuxNextDaemon
 
 /// The brain's owner controls for the Chief a Home view shows: stop, stop all, continue and retry,
@@ -14,6 +15,9 @@ public final class HomeChiefTurnActions {
     private var inFlight = false
 
     public var onStopFailure: ((HomeChiefEngineError) -> Void)?
+    /// The app's Chief Homes (``HomeChiefHomes/turnActions(for:)``): Stop and the pill's Start now row run its
+    /// registry's actions. Nil: neither.
+    private weak var homes: HomeChiefHomes?
 
     /// Continue is offered (a stopped turn, nothing running); the view follows it.
     public private(set) var continueAvailable = false {

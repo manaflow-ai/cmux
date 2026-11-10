@@ -1,5 +1,18 @@
 [
  {
+  "name": "fix from link always",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "chat.fix_from_link",
+   "params": {
+    "url": "https://github.com/acme/widget/issues/1"
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
   "name": "prompt always",
   "frame": {
    "jsonrpc": "2.0",
@@ -316,6 +329,35 @@
   },
   "denies": [],
   "needs": true
+ },
+ {
+  "name": "side_chat with a prompt runs a turn",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/side_chat",
+   "params": {
+    "sessionId": "s",
+    "throughSeq": 4,
+    "prompt": "try the other fix"
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "side_chat without a prompt only forks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/side_chat",
+   "params": {
+    "sessionId": "s",
+    "live": true
+   }
+  },
+  "denies": [],
+  "needs": false
  },
  {
   "name": "app_reply always",

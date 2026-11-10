@@ -92,6 +92,12 @@ public struct HomeComposerHandoff {
         await call("home.messages.quoteSelection", [:], within: Self.answerDeadline)?.objectValue?["quoted"]?.boolValue == true
     }
 
+    /// Reply to Selection (Cmd-Shift-R, the palette): the words selected in one shown message open its
+    /// reply with them quoted (pageCommands.ts `home.messages.replyToSelection`); false when none are.
+    public func replyToSelection() async -> Bool {
+        await call("home.messages.replyToSelection", [:], within: Self.answerDeadline)?.objectValue?["replied"]?.boolValue == true
+    }
+
     /// The file picker as a sheet on the page's window (the app's panel made ahead of the click,
     /// shared with an agent composer's attach); the chosen files go to the composer, and the person
     /// goes back to typing in the box. A window that already shows a sheet opens none.

@@ -12,16 +12,26 @@
 // - Files attach from the + button, a paste or a drop (intake.ts rules); each uploads at once with
 //   its progress in the tray above the field (the Channels plumbing, attachmentService.ts). A file
 //   the data side cannot take is refused before it uploads, with a notice. Send waits for uploads.
-// - While the Chief answers (`working`), the emoji button is Stop (ChatController+Stop.swift): a
+// - While the Chief answers (`chief.working`), the emoji button is Stop (ChatController+Stop.swift): a
 //   click stops the Chief's turn, Option-click stops all its agents. After a Stop, while nothing
-//   runs, it is Continue (`continueAvailable`): a click asks the Chief to go on with the turn.
+//   runs, it is Continue (`chief.continueAvailable`): a click asks the Chief to go on with the turn.
 // - The files are the conversation's (attachmentDrafts.ts, kept by the page): another conversation
 //   showing leaves them, uploads and all, and coming back finds them in the tray.
-import { useEffect, useImperativeHandle, useRef, useState, useSyncExternalStore, type Ref } from "react";
+import type { PrepareFile } from "./prepareAttachment";
+import {
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { PromptEditor, type PromptEditorHandle } from "../../../agent-session/acpmux/composer/PromptEditor";
 import { DictationButton } from "../../../agent-session/acpmux/DictationButton";
 import { DictationNotice } from "../../../agent-session/acpmux/DictationNotice";
-import { useDictation } from "../../../agent-session/acpmux/dictation";
+import { isActive, useDictation } from "../../../agent-session/acpmux/dictation";
+import { Icon } from "../../../agent-session/acpmux/icons/Icon";
 import type { EmojiTable } from "../../../icon-picker/emojiData";
 import { AttachmentTray } from "../../home-channels/AttachmentViews";
 import { attachmentClass, attachmentType, type AttachmentService } from "../../home-channels/attachmentService";
@@ -34,6 +44,7 @@ import { quoteMarkdown } from "../../home-channels/quoteSelection";
 import type { ComposerTarget } from "../composerHandoff";
 import { AttachmentDrafts } from "./attachmentDrafts";
 import { ComposerHistory, historyTakesArrow } from "./history";
+import { excerpt } from "./replyQuote";
 import { intakeProblem, textBeside, transferFiles, type TransferLike } from "./intake";
 
 /** The host's call for dictation (`dictation.toggle`, `dictation.cancel`, ...), as the agent pane's. */
@@ -51,8 +62,9 @@ export interface MessageComposerProps {
   sendEnabled: boolean;
   /** True when the owner took the message (the store logged it); false gives the text back. */
   onSend(text: string, attachments?: readonly HomeAttachment[]): Promise<boolean>;
-  /** Files upload to this conversation through this service; absent: no + and no file intake. */
-  attachments?: { service: AttachmentService; conversation: string };
+  /** Files upload to this conversation through this service; absent: no + and no file intake.
+   * `prepare`: what each file goes through first (the app's location removal, prepareAttachment.ts). */
+  attachments?: { service: AttachmentService; conversation: string; prepare?: PrepareFile };
   /** The history's entries, newest first (`historyEntries`), read when a browse begins. */
   history?: () => string[];
   /** The host's dictation; absent: no mic (Debug Settings > Home > Mic button). */
@@ -61,17 +73,32 @@ export interface MessageComposerProps {
   initialText?: string;
   /** The field's text changed (the host keeps the draft per conversation). */
   onDraftChange?(text: string): void;
-  /** The Chief answers now: the emoji button is Stop. */
-  working?: boolean;
-  /** Stop's click; `all` with Option: stop all the Chief's agents. */
-  onStop?(all: boolean): void;
-  /** A stopped Chief turn may go on: the emoji button is Continue. */
-  continueAvailable?: boolean;
-  onContinue?(): void;
   /** Where the files are kept per conversation (the page's); absent: this composer's own, which
    * end with it. */
   drafts?: AttachmentDrafts;
+  /** The field's placeholder (a thread's composer says Reply); default: the conversation's. */
+  placeholder?: string;
+  /** The field checks spelling (Settings agentPane.spellChecking; off by default, as the setting). */
+  spellChecking?: boolean;
+  /** Reply to Selection's quote, shown in a card above the field (`name`: whose words; absent:
+   * "Replying to Selection"); the send carries it (the caller's `onSend`). */
+  quote?: { text: string; name?: string };
+  onRemoveQuote?(): void;
+  /** A Chief's turn controls (chiefTurn.ts): while it works the emoji button is Stop, and Escape
+   * and Cmd-. in the field stop it; after a stop, Continue. Absent: the emoji button only. */
+  chief?: ComposerChief;
+  /** Over the field: the page's toast (Stop all agents' answer). */
+  toast?: ReactNode;
   ref?: Ref<MessageComposerHandle>;
+}
+
+/** What the composer's round button and keys do for a Chief (ChatController+Stop.swift). */
+export interface ComposerChief {
+  working: boolean;
+  continueAvailable: boolean;
+  /** Stop the Chief's turn; `all`: Stop all agents (Option-click). */
+  onStop(all: boolean): void;
+  onContinue(): void;
 }
 
 type Notice = { text: string; alert: boolean };
@@ -87,14 +114,17 @@ export function MessageComposer({
   dictation,
   initialText = "",
   onDraftChange,
-  working = false,
-  onStop,
-  continueAvailable = false,
-  onContinue,
   drafts: kept,
+  placeholder,
+  spellChecking = false,
+  quote,
+  onRemoveQuote,
+  chief,
+  toast,
   ref,
 }: MessageComposerProps) {
   const { t } = strings;
+  const prompt = placeholder ?? t("compose.placeholder");
   const [value, setValue] = useState(initialText);
   // The page's drafts when it keeps them, else this composer's own (their uploads end with it).
   const [own] = useState(() => (kept ? undefined : new AttachmentDrafts()));
@@ -114,14 +144,15 @@ export function MessageComposer({
   const ready = files.filter((item) => item.part).map((item) => item.part as HomeAttachment);
   const uploading = files.some((item) => !item.part && !item.error);
   const empty = !value.trim() && ready.length === 0;
-  // WEB-SWAP: staged files live only in this page (in any conversation's tray), so a web update's
-  // reload waits for them to be sent or removed (pages/shared/webSwap.ts).
+  // WEB-SWAP: a staged file the app does not keep yet (uploading, failed, or any in a composer
+  // with no keeper) lives only in this page, so a web update's reload waits for it to finish, be
+  // sent or be removed (pages/shared/webSwap.ts, attachmentDrafts.ts `holdReason`).
   useWebSwapHold(hold);
   const canSend = sendEnabled && !empty && !uploading;
 
   const addFiles = (list: Iterable<File>, group?: string) => {
     if (!attachments) return;
-    const { service, conversation } = attachments;
+    const { service, conversation, prepare } = attachments;
     const added: string[] = [];
     for (const file of list) {
       const problem = intakeProblem(file, t("home.composer.attach.pasted"));
@@ -133,7 +164,12 @@ export function MessageComposer({
       const id = drafts.add(
         conversation,
         file,
-        (signal, progress) => service.upload(conversation, file, progress, signal),
+        async (signal, progress, sending) => {
+          const ready = prepare ? await prepare(file, signal) : file;
+          // The bytes that go are the ones kept (the app's preparation may have changed them).
+          if (ready !== file) sending(ready);
+          return service.upload(conversation, ready, progress, signal);
+        },
         t("home.composer.attach.failed"),
       );
       added.push(id);
@@ -156,7 +192,7 @@ export function MessageComposer({
     return true;
   };
   // Quote in Reply: the quote goes after what is typed, with a line for the reply, and typing goes on there.
-  const quote = (text: string): boolean => {
+  const quoteInReply = (text: string): boolean => {
     const markdown = quoteMarkdown(text);
     const field = editor.current;
     if (field?.quoteReply(markdown)) {
@@ -227,7 +263,7 @@ export function MessageComposer({
     takesFiles: !!attachments,
     addFiles,
     removeGroup,
-    quote,
+    quote: quoteInReply,
     recallHistory: (direction) => {
       const field = editor.current;
       if (!field || !history) return false;
@@ -242,12 +278,23 @@ export function MessageComposer({
 
   return (
     <div className="mt-compose" data-offline={sendEnabled ? undefined : "true"}>
+      {toast}
       {notice && (
         <div className={`mt-notice${notice.alert ? " alert" : ""}`} role={notice.alert ? "alert" : "status"}>
           {notice.text}
         </div>
       )}
       {dictation && <DictationNotice dictation={voice} />}
+      {quote && (
+        <QuoteCard
+          quote={quote}
+          strings={strings}
+          onRemove={() => {
+            onRemoveQuote?.();
+            editor.current?.focus();
+          }}
+        />
+      )}
       <AttachmentTray items={files} strings={strings} onRemove={removeFile} />
       <div className="mt-compose-bar">
         {attachments && (
@@ -291,44 +338,47 @@ export function MessageComposer({
               if (notice && !notice.alert) setNotice(undefined);
             }}
             onKeyDown={(event) => {
+              // Escape and Cmd-. stop a working Chief (AppKit's cancelOperation), after the emoji
+              // picker and dictation, which Escape ends first.
+              const cancel =
+                (event.key === "Escape" && !event.metaKey && !event.ctrlKey && !event.altKey) ||
+                (event.key === "." && event.metaKey && !event.ctrlKey && !event.altKey);
+              if (cancel && chief?.working && !emoji && !isActive(voice.state)) {
+                event.preventDefault();
+                chief.onStop(false);
+                return;
+              }
               if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
               if (event.key === "ArrowUp" && recall("older")) event.preventDefault();
               else if (event.key === "ArrowDown" && recall("newer")) event.preventDefault();
             }}
             onSubmit={(markdown, { cmd }) => (cmd ? undefined : submit(markdown))}
-            placeholder={t("compose.placeholder")}
-            attributes={{ "aria-label": t("compose.placeholder") }}
+            placeholder={prompt}
+            attributes={{ "aria-label": prompt, spellcheck: String(spellChecking) }}
             features={{ multiline: true }}
             className="mt-field-editor"
           />
-          {working && onStop ? (
+          {chief?.working ? (
             <button
               type="button"
-              className="mt-field-button mt-stop"
+              className="mt-field-button mt-chief-stop"
               aria-label={t("compose.stop")}
               title={t("home.stop.toolTip")}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={(event) => onStop(event.altKey)}
+              onClick={(event) => chief.onStop(event.altKey)}
             >
-              <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
-                <rect x="5.5" y="5.5" width="9" height="9" rx="1.5" fill="currentColor" />
-              </svg>
+              <Icon name="action.stop" selected size={14} />
             </button>
-          ) : continueAvailable && onContinue ? (
+          ) : chief?.continueAvailable ? (
             <button
               type="button"
-              className="mt-field-button mt-continue"
+              className="mt-field-button mt-chief-continue"
               aria-label={t("home.compose.continue")}
               title={t("home.compose.continue")}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => onContinue()}
+              onClick={() => chief.onContinue()}
             >
-              <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
-                <path
-                  d="M6.5 4.8v10.4a.8.8 0 0 0 1.2.7l8.2-5.2a.8.8 0 0 0 0-1.4L7.7 4.1a.8.8 0 0 0-1.2.7Z"
-                  fill="currentColor"
-                />
-              </svg>
+              <Icon name="media.play" selected size={14} />
             </button>
           ) : (
             <button
@@ -380,6 +430,35 @@ export function MessageComposer({
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** The quote a reply answers, on the message box (ReplyQuoteCardView): whose words, the words in
+ * two lines at most, and a remove button. */
+export function QuoteCard({
+  quote,
+  strings,
+  onRemove,
+}: {
+  quote: { text: string; name?: string };
+  strings: Strings;
+  onRemove(): void;
+}) {
+  const title = quote.name
+    ? strings.format("home.replyQuote.replyingTo", quote.name)
+    : strings.t("home.replyQuote.replyingToSelection");
+  const words = excerpt(quote.text);
+  const remove = strings.t("home.replyQuote.remove");
+  return (
+    <div className="mt-quote-card">
+      <span className="mt-quote-text">
+        <span className="mt-quote-title">{title}</span>
+        <span className="mt-quote-words">{words}</span>
+      </span>
+      <button type="button" className="mt-quote-remove" aria-label={remove} title={remove} onClick={onRemove}>
+        <HomeIcon name="close" size={14} />
+      </button>
     </div>
   );
 }

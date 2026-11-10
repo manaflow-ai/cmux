@@ -44,7 +44,8 @@ afterAll(() => {
 
 test("a Claude Code or Codex row's menu offers View Only and names the chat", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { AllChatsList, watchable } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const { watchable } = await import("../src/agent-session/acpmux/newtab/allChatsListModel");
   expect(["claude-code:a", "codex:b"].every(watchable)).toBe(true);
   expect(["opencode:a", "claude-code:", "pi:x"].some(watchable)).toBe(false);
   const load = async () => ({

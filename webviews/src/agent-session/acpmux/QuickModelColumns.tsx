@@ -6,6 +6,7 @@
 // A click applies at once and the menu stays open; Return closes it. Left and Right move between
 // the columns, Up and Down within one.
 import React, { Fragment, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Spinner } from "./conversation/icons";
 import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -13,17 +14,16 @@ import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
 import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
-import { SearchIcon, reasoningChoices, type Choice } from "./ComposerPickers";
+import { SearchIcon } from "./ComposerPickers";
+import { reasoningChoices, type Choice } from "./composerPickerModel";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { OnNewTab } from "./newTabComposer";
 import { isModelRouterKind } from "./routerKinds";
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
+import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
 import {
-  QuickModelMenu,
-  StarIcon,
-  UsedMark,
   familyTabs,
   heldTab,
   initialOf,
@@ -36,7 +36,7 @@ import {
   type QuickFamily,
   type QuickMenu,
   type QuickModel,
-} from "./QuickModelMenu";
+} from "./quickModelMenuModel";
 import "./quickModelColumns.css";
 
 type Column = 0 | 1 | 2;
@@ -254,7 +254,7 @@ function Columns({
     }),
     [trigger],
   );
-  const { families, current, effort, fast, auth, search } = menu;
+  const { families, current, effort, fast, auth, search, setup } = menu;
   const account = menu.ownModel ? undefined : menu.account;
   const accounts = useAccountList(open, account);
   const [addingAccount, setAddingAccount] = useState(false);
@@ -340,7 +340,8 @@ function Columns({
       const box = frame.getBoundingClientRect();
       if (box.width > width) {
         width = box.width;
-        popup.style.minWidth = `min(${width}px, var(--available-width, calc(100vw - 24px)))`;
+        // The em floor stays: a larger interface or chrome text size still widens the open menu.
+        popup.style.minWidth = `min(max(var(--acpmux-cols-min-width), ${width}px), var(--available-width, calc(100vw - 24px)))`;
       }
       if (box.height > height) {
         height = box.height;
@@ -945,6 +946,7 @@ function Columns({
           <div className="acpmux-cols-group">
             <AgentMark agent={list.find((family) => family.id === group.rows[0]?.family)?.mark} size={12} />
             {group.name}
+            {group.note && <span className="acpmux-cols-group-note">{group.note}</span>}
           </div>
           {group.rows.map((model, offset) => modelRow(model, start + offset))}
         </Fragment>
@@ -1135,6 +1137,30 @@ function Columns({
                   </button>
                 )}
               </div>
+              <hr className="acpmux-cols-sep" />
+            </>
+          )}
+          {/* A picked model's harness being set up (harnessSetup.ts): installing, signing in or
+              starting, or why it could not, whatever tab or search shows. */}
+          {setup && (
+            <>
+              <output className="acpmux-cols-setup" data-busy={setup.busy ? "" : undefined}>
+                {setup.busy && <Spinner size={12} className="acpmux-cols-setup-spinner" loading />}
+                <span className="acpmux-cols-setup-text">
+                  <span>{setup.text}</span>
+                  {setup.detail && (
+                    // tooltip-allow: the installer's last line can run long; the strip shows one line
+                    <span className="acpmux-cols-setup-detail" title={setup.detail}>
+                      {setup.detail}
+                    </span>
+                  )}
+                </span>
+                {setup.actions.map((action) => (
+                  <button key={action.label} type="button" className="acpmux-cols-update-action" onClick={action.run}>
+                    {action.label}
+                  </button>
+                ))}
+              </output>
               <hr className="acpmux-cols-sep" />
             </>
           )}

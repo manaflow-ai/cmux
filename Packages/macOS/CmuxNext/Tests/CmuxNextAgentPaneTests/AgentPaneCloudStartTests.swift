@@ -213,6 +213,145 @@ struct AgentPaneCloudStartTests {
         #expect(starts.seen.isEmpty)
     }
 
+    /// The page left Cloud while the sign-in still waited on its folder checks (or the send line),
+    /// before it reached the browser: no browser opens, and the hold is not kept.
+    @Test func leavingCloudBeforeTheBrowserOpensNoBrowser() async throws {
+        let starts = Starts()
+        let (root, folder) = try Self.project()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let model = Self.pane(starts, root: root)
+        var signIns = 0
+        model.onCloudSignIn = {
+            signIns += 1
+            return true
+        }
+        model.onCloudSignedIn = { false }
+        model.transport.gestures.record()
+        let request = AgentPaneRequest(body: ["method": "cloud.signIn", "params": [
+            "task": "preserved prompt", "key": UUID().uuidString, "cwd": folder,
+        ]])
+        let send = Task { ((await model.respond(to: request))["error"] as? [String: Any])?["code"] as? String }
+        // The send runs up to its first folder check, off the main actor, and waits there.
+        await Task.yield()
+        #expect(await model.respond(to: AgentPaneRequest(body: ["method": "cloud.signInCancel"]))["ok"] as? Bool == true)
+        let code = await send.value
+        #expect(code == "cloud_sign_in_cancelled", "answered \(code ?? "no code")")
+        #expect(signIns == 0)
+        #expect(starts.seen.isEmpty)
+        #expect(model.transport.replacements.beginSandbox())
+    }
+
+    private static func signInRequest() -> AgentPaneRequest {
+        AgentPaneRequest(body: ["method": "cloud.signIn", "params": [
+            "task": "preserved prompt", "key": UUID().uuidString, "home": true,
+        ]])
+    }
+
+    /// Yields until `ready` holds or a generous deadline passes; the caller asserts `ready` after.
+    /// A deadline, not a yield count: a busy runner needs more reschedules, not a failure.
+    private static func settle(_ ready: () -> Bool) async {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !ready(), ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+    }
+
+    /// Signed in meanwhile (Settings, another pane or window): the click resumes without the browser.
+    @Test func anAccountAlreadySignedInResumesWithoutTheBrowser() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        var signIns = 0
+        model.onCloudSignIn = {
+            signIns += 1
+            return true
+        }
+        model.onCloudSignedIn = { true }
+        model.transport.gestures.record()
+        let request = Self.signInRequest()
+        #expect(Self.code(await model.respond(to: request)) == "cloud_signed_in")
+        #expect(signIns == 0)
+        #expect(await model.respond(to: Self.signedIn(request))["ok"] as? Bool == true)
+        #expect(starts.seen.map(\.task) == ["preserved prompt"])
+    }
+
+    /// One sign-in at a time per pane: a click after a cancel, while the first browser is still
+    /// open, waits on that browser (no second one), and only its own wait is out.
+    @Test func aClickAfterACancelWaitsOnTheSameBrowserSignIn() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        var signIns = 0
+        let opened = AsyncStream<Void>.makeStream()
+        let browser = AsyncStream<Bool>.makeStream()
+        model.onCloudSignIn = {
+            signIns += 1
+            opened.continuation.yield()
+            for await signedIn in browser.stream { return signedIn }
+            return false
+        }
+        model.transport.gestures.record()
+        let request = Self.signInRequest()
+        let first = Task { Self.code(await model.respond(to: request)) }
+        for await _ in opened.stream { break }
+        #expect(await model.respond(to: AgentPaneRequest(body: ["method": "cloud.signInCancel"]))["ok"] as? Bool == true)
+        #expect(await first.value == "cloud_sign_in_cancelled")
+        model.transport.gestures.record()
+        let second = Task { Self.code(await model.respond(to: request)) }
+        await Self.settle { model.cloudSignInWait != nil }
+        #expect(model.cloudSignInWait != nil)
+        #expect(signIns == 1)
+        browser.continuation.yield(true)
+        browser.continuation.finish()
+        #expect(await second.value == "cloud_signed_in")
+        #expect(signIns == 1)
+        #expect(model.cloudSignInWait == nil)
+        #expect(model.cloudSignInBrowser == nil)
+        #expect(starts.seen.isEmpty)
+    }
+
+    /// A browser sign-in that never returns ends at the wait's limit as the card's sign in again:
+    /// the hold goes, the abandoned sign-in is cancelled, a late answer sends nothing, and the next
+    /// click opens a fresh sign-in.
+    @Test func aSignInThatNeverReturnsExpiresToSignInAgain() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        model.cloudSignInWaitLimit = .milliseconds(20)
+        var signIns = 0
+        var abandoned = false
+        let browser = AsyncStream<Bool>.makeStream()
+        model.onCloudSignIn = {
+            signIns += 1
+            if signIns > 1 { return true }
+            for await signedIn in browser.stream { return signedIn }
+            abandoned = Task.isCancelled
+            return false
+        }
+        model.transport.gestures.record()
+        let request = Self.signInRequest()
+        let generation = model.cloudSignInGeneration
+        let reply = await model.respond(to: request)
+        #expect(Self.code(reply) == "not_signed_in")
+        #expect(((reply["error"] as? [String: Any])?["userMessage"] as? String)?.contains("timed out") == true)
+        // Ended the way a cancel ends it: a new generation, no kept click, no wait, and the hold is gone.
+        #expect(model.cloudSignInGeneration == generation + 1)
+        #expect(model.cloudSignInGrant == nil)
+        #expect(model.cloudSignInWait == nil)
+        #expect(model.transport.replacements.beginSandbox())
+        model.transport.replacements.endSandbox()
+        // The expiry cancelled the browser's task, which is how the App's sign-in ends its attempt.
+        for _ in 0..<50 where !abandoned { await Task.yield() }
+        #expect(abandoned)
+        // The abandoned browser answering late starts nothing.
+        browser.continuation.yield(true)
+        browser.continuation.finish()
+        await Task.yield()
+        #expect(Self.code(await model.respond(to: Self.signedIn(request))) == "cloud_sign_in_cancelled")
+        #expect(starts.seen.isEmpty)
+        // Sign in again opens a fresh browser sign-in.
+        model.transport.gestures.record()
+        #expect(Self.code(await model.respond(to: request)) == "cloud_signed_in")
+        #expect(signIns == 2)
+    }
+
     /// A chat adopted this pane while the browser was open: Cloud never starts over it.
     @Test func aChatOpenedDuringInlineSignInKeepsThePromptOffCloud() async {
         let starts = Starts()

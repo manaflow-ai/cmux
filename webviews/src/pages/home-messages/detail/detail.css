@@ -26,3 +26,29 @@
   justify-content: flex-end;
   height: 100%;
 }
+
+/* The open thread's bar under the header: Back to the conversation. */
+.hm-thread-bar {
+  display: flex;
+  justify-content: flex-start;
+}
+
+/* A drilled thread: Back and the names of the levels above the branch. */
+.hm-thread-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The open conversation (Home never splits: no agent pane beside it). */
+.hm-detail-frame > .hm-detail-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.hm-detail-split > .mt-transcript {
+  flex: 1;
+  min-width: 0;
+}

@@ -13,15 +13,14 @@ import { ChevronRight, ToolGroup } from "./icons";
 import { openSessionAttributes } from "./menuParts";
 import { useTranscriptReadOnly } from "./readOnly";
 import { resolveSessionRef } from "./sessionRefs";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { pullLabel, type WhoElseCall, type WhoElseSession } from "./whoElseCalls";
 import "./WhoElseCard.css";
+import { whatText } from "./whoElseCardModel";
+import { signed } from "../../../ui/Typography";
 
 /// Rows shown before "N more" opens the rest.
 const ROWS_SHOWN = 5;
-/// Files listed per row; the count says the rest.
-const FILES_SHOWN = 3;
-
 export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoElseCall }) {
   const t = useT();
   const listId = useId();
@@ -66,7 +65,8 @@ export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoEls
           aria-controls={listId}
           onClick={() => setOpen(true)}
         >
-          {t("whoElse.more", { count: String(hidden) })}
+          {/* One flex item, so the button's gap never parts the sign from its number. */}
+          <span>{signed(t("whoElse.more", { count: String(hidden) }))}</span>
           <ChevronRight size={12} className="cv-tool__chevron cv-rotor" />
         </button>
       )}
@@ -122,25 +122,9 @@ function WhoElseRow({ session: s }: { session: WhoElseSession }) {
         ))}
         <span className="cv-who-else__ago">{agoText(t, s.agoMs)}</span>
       </div>
-      <div className="cv-who-else__what">{whatText(t, s)}</div>
+      <div className="cv-who-else__what">{signed(whatText(t, s))}</div>
     </li>
   );
-}
-
-/// What the session has in common: `edited a.rs, b.rs · read c.rs · +2 more`, or why it matched.
-export function whatText(t: Translate, s: WhoElseSession): string {
-  const base = (path: string) => path.split("/").pop() ?? path;
-  const edited = s.files.filter((f) => f.edited).slice(0, FILES_SHOWN);
-  const read = s.files.filter((f) => !f.edited).slice(0, Math.max(0, FILES_SHOWN - edited.length));
-  const parts: string[] = [];
-  if (edited.length) parts.push(t("whoElse.edited", { files: edited.map((f) => base(f.path)).join(", ") }));
-  if (read.length) parts.push(t("whoElse.read", { files: read.map((f) => base(f.path)).join(", ") }));
-  const rest = s.filesInCommon - edited.length - read.length;
-  if (rest > 0) parts.push(t("whoElse.more", { count: String(rest) }));
-  if (s.sameWorktree) parts.push(t("whoElse.sameWorktree"));
-  if (s.sameBranch) parts.push(t("whoElse.sameBranch"));
-  if (s.topicWords.length) parts.push(t("whoElse.topic", { words: s.topicWords.join(", ") }));
-  return parts.join(" · ");
 }
 
 function agoText(t: Translate, ms: number): string {

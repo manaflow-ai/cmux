@@ -1,7 +1,10 @@
 // l10n-allow-file: gallery fixtures (sample lanes, messages and commands), not shipped UI.
 // The system and tool rows of Leo's 2026-11-02 capture of a Claude chat, in order (Leo: "these are
 // all so stupid looking"): the end of a reply, another agent's received line, a reply that said only
-// ".", a quiet "Scheduled check", an opened "Ran 2 commands" and "Compacting the conversation…".
+// ".", a quiet "Scheduled check", an opened "Ran 2 commands" and a compaction's note. The capture's
+// compaction still ran; a running or just completed one is now the running turn's live line
+// (Thinking.tsx), so the note here is one whose end was never heard, "Compaction ended", which
+// keeps its own row.
 // The one-line rows sit flush on the tool rows' 22 pitch with no gap between any two of them, the
 // "." reply draws nothing, and every row's words start on the tool rows' text column
 // (leo-workspace design/transcript-spacing.md rule 3; design/chat-transcript.md "One frame").
@@ -64,7 +67,7 @@ const rows = () => [
     4,
     { id: "system-rows-run" },
   ),
-  row("compaction", 2, { compaction: { state: "running" } }),
+  row("compaction", 2, { compaction: { state: "failed", inferred: true } }),
 ];
 
 /// Opens "Ran 2 commands", as Leo's capture shows it.
@@ -104,9 +107,14 @@ export default agentPaneEntry({
   ],
   variants: {
     "leo-capture": {
-      note: 'Leo\'s capture in order: a reply\'s end, a received line, a "." reply (draws nothing), "Scheduled check", "Ran 2 commands" opened and "Compacting the conversation…", flush on the 22 pitch.',
+      note: 'Leo\'s capture in order: a reply\'s end, a received line, a "." reply (draws nothing), "Scheduled check", "Ran 2 commands" opened and "Compaction ended", flush on the 22 pitch.',
       snapshot: snapshot(),
       play: openRun,
+    },
+    "scheduled-check-hover": {
+      note: '"Scheduled check" under the pointer: its words light all the way through, as "Ran 2 commands" does, not only its chevron (Leo, 2026-11-09: "this scheduled check thing isn\'t highlighted all the way through like other tool calls are").',
+      snapshot: snapshot(),
+      play: async (ctx) => ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" }),
     },
   },
 });

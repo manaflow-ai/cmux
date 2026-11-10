@@ -1482,13 +1482,14 @@ impl Hub {
         result: &Value,
     ) {
         // `kinds` is a name or a list of names (`EventKinds`): without `transcript`, the page
-        // leaves the chat out.
+        // leaves the chat out. So does a page of one subagent's records (`subagent`).
         let transcript = |k: &Value| k.as_str() == Some("transcript");
-        let leaves_out = match params.get("kinds") {
-            None | Some(Value::Null) => false,
-            Some(Value::Array(kinds)) => !kinds.iter().any(transcript),
-            Some(kind) => !transcript(kind),
-        };
+        let leaves_out = params.get("subagent").is_some_and(|v| !v.is_null())
+            || match params.get("kinds") {
+                None | Some(Value::Null) => false,
+                Some(Value::Array(kinds)) => !kinds.iter().any(transcript),
+                Some(kind) => !transcript(kind),
+            };
         // A page of the newest records (`beforeSeq` past every seq and no `afterSeq`: the pane's
         // read-ahead, a read ahead here, `warm.rs`) is the chat's run as an attach's is. One with
         // an `afterSeq` too is the newest `limit` records after it, which need not start there.

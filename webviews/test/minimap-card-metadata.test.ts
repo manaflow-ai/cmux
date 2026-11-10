@@ -8,6 +8,49 @@ const row = (partial: Partial<AcpmuxRow> & Pick<AcpmuxRow, "id" | "kind" | "at">
   ...partial,
 });
 
+test("a received message's card retains its sender without changing prompt ticks", () => {
+  const rows = [
+    row({
+      id: "received",
+      kind: "user",
+      at: 1,
+      text: "Review complete.",
+      incoming: {
+        kind: "message",
+        message: { name: "peer/pr-row", sessionId: "review", text: "Review complete.", raw: "Review complete." },
+      },
+    }),
+  ];
+  const turns = minimapTurns(rows, "current");
+  expect(turns.turns[0]?.metadata?.sender).toEqual({ name: "peer/pr-row", sessionId: "review", relation: undefined });
+  expect(turns.turns[0]?.id).toBe("received");
+  expect(turns.ticks[0]?.id).toBe("received");
+});
+
+for (const [kind, extra] of [
+  ["an app or persona", { app: "Muse" }],
+  ["a Chief", { chief: "agent_ops" }],
+  ["a person", { fromPerson: true }],
+] as const) {
+  test(`${kind} sender keeps its own name: its card carries no session sender`, () => {
+    const rows = [
+      row({
+        id: "relayed",
+        kind: "user",
+        at: 1,
+        text: "Yes, on it.",
+        incoming: {
+          kind: "message",
+          message: { name: "Muse", ...extra, sessionId: "child-3", text: "Yes, on it.", raw: "Yes, on it." },
+        },
+      }),
+    ];
+    const turns = minimapTurns(rows, "current");
+    expect(turns.turns[0]?.from).toBe("Muse");
+    expect(turns.turns[0]?.metadata?.sender).toBeUndefined();
+  });
+}
+
 test("a minimap card keeps the turn metadata needed for a compact hover summary", () => {
   const rows: AcpmuxRow[] = [
     row({

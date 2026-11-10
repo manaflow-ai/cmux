@@ -164,6 +164,8 @@ install -m 0644 scripts/cmux-next/prepush-gate.py "$TRUSTED_HOOK_DIR/cmux_next_p
 install -m 0644 scripts/git-hooks/refresh_checks.py "$TRUSTED_HOOK_DIR/refresh_checks.py"
 # The gate loads its git helper from its own folder (guardrails.py loads the snapshot's copy below).
 install -m 0644 scripts/cmux-next/git_batch.py "$TRUSTED_HOOK_DIR/git_batch.py"
+# ...and its lint-tool download fallback (shared with scripts/ci/base_red_excuse.py, which runs from scripts/ci alone).
+install -m 0644 scripts/ci/github_release_download.py "$TRUSTED_HOOK_DIR/github_release_download.py"
 install -m 0644 scripts/ci/base_merge_warning.py "$TRUSTED_HOOK_DIR/base_merge_warning.py"
 # The hooks are per clone: every worktree of it (main-based ones too) runs these copies. A push in another
 # worktree can run while this installs, so each install writes a new versioned copy and points the
@@ -316,6 +318,7 @@ install -m 0755 scripts/merge-xcstrings.py "$MERGE_DRIVER_DIR/merge-xcstrings.py
 install -m 0755 scripts/merge-pbxproj.py "$MERGE_DRIVER_DIR/merge-pbxproj.py"
 install -m 0755 scripts/merge-baseline.py "$MERGE_DRIVER_DIR/merge-baseline.py"
 install -m 0755 scripts/merge-daemon-capabilities.py "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
+install -m 0755 scripts/merge-insertions.py "$MERGE_DRIVER_DIR/merge-insertions.py"
 install -m 0644 scripts/ci/merge_main_resolver.py "$MERGE_DRIVER_DIR/ci/merge_main_resolver.py"
 install -m 0755 scripts/normalize-pbxproj.py "$MERGE_DRIVER_DIR/normalize-pbxproj.py"
 printf -v XCSTRINGS_DRIVER '%q -I %q %%O %%A %%B %%P %%L' \
@@ -326,6 +329,8 @@ printf -v BASELINE_DRIVER '%q -I %q %%O %%A %%B %%P' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-baseline.py"
 printf -v CAPABILITIES_DRIVER '%q -I %q %%O %%A %%B %%P' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
+printf -v INSERTIONS_DRIVER '%q -I %q %%O %%A %%B %%P %%L' \
+    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-insertions.py"
 git config merge.xcstrings-v2.name "Xcode string catalog (trusted key-wise three-way merge)"
 git config merge.xcstrings-v2.driver "$XCSTRINGS_DRIVER"
 # Neutralize the checkout-relative command installed by older setup versions.
@@ -345,6 +350,9 @@ echo "==> ratchet baseline merge driver installed (merge.cmux-baseline-v1.driver
 git config merge.cmux-capabilities-v1.name "Daemon capability export (trusted per-list set merge)"
 git config merge.cmux-capabilities-v1.driver "$CAPABILITIES_DRIVER"
 echo "==> daemon capability merge driver installed (merge.cmux-capabilities-v1.driver)."
+git config merge.cmux-insertions-v1.name "Lists and logs both sides inserted into (trusted union of insertions)"
+git config merge.cmux-insertions-v1.driver "$INSERTIONS_DRIVER"
+echo "==> insertions merge driver installed (merge.cmux-insertions-v1.driver)."
 # Generated web bundles keep the current branch's copy and are rebuilt by
 # scripts/cmux-next/regenerate-web-bundles.sh. `true` is a git no-op, not a
 # checkout path, so this driver needs no trusted copy.

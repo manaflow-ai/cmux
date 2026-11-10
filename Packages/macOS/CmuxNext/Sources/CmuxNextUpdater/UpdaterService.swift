@@ -86,8 +86,9 @@ public final class UpdaterService {
     @ObservationIgnored var releasePushRetry: DemandTimer
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
-    /// Opens the changelog page for the releases after `from` up to `to` (set by the App).
-    @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String) -> Bool)?
+    /// Opens the changelog page for the releases after `from` up to `to`, scrolled to `focus`
+    /// when given (set by the App).
+    @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String, _ focus: ChangelogFocus?) -> Bool)?
     /// Opens a web release notes page in a browser tab (set by the App;
     /// "See all changes" when the staged build has no signed notes).
     @ObservationIgnored public var openReleaseNotesURL: ((URL) -> Bool)?
@@ -188,6 +189,10 @@ public final class UpdaterService {
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
+    /// ``followNetwork()`` started the monitor and its first path has not arrived: until it does the
+    /// link counts as metered, so a launch check's update does not download on Low Data Mode before
+    /// the monitor says which link this is (#39680 review F1).
+    @ObservationIgnored var networkPending = false
     /// `updates.downloadAutomatically` and `meteredNetwork` as last configured; nothing downloads
     /// by itself until the settings load (``configure``).
     @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (false, .deferLowData)
@@ -520,7 +525,7 @@ public final class UpdaterService {
             // flow (a fresh check that installs the newest at once). The
             // user asked, so its progress and result show on the notice
             // card (up to date, downloading, the failure), as for a check.
-            send(.checkRequested)
+            send(.attemptRequested)
             controller.attemptUpdate()
         }
     }

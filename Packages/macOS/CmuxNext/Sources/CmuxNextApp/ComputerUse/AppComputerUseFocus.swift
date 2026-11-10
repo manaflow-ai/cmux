@@ -38,13 +38,13 @@ final class AppComputerUseFocus: ComputerUseFocusing {
 extension AgentTabStore {
     /// Every agent chat with a page, with what links it to a Computer Use session.
     func computerUsePreviewChats() -> [ComputerUsePreviewChat] {
-        ComputerUsePreviewChat.chats(keys: views.keys, session: session(of:), lanes: AgentLaneStore.shared.lanes)
+        ComputerUsePreviewChat.chats(keys: views.keys.map { $0.relaunchKeyCandidates[0] }, session: { chat in self.views.keys.first { $0.relaunchKeyCandidates[0] == chat }.flatMap { self.session(of: $0.key, machine: $0.machine) } }, lanes: AgentLaneStore.shared.lanes)
     }
 
     /// Shows `card` (nil: none) in chat tab `chat`'s page; a click on it goes to `respond`.
     func showComputerUsePreview(_ card: ComputerUsePreviewCard?, in chat: String,
                                 respond: @escaping @MainActor (String, ComputerUsePreviewClick) -> Void) {
-        guard let view = views[chat] else { return }
+        guard let view = views.first(where: { $0.key.relaunchKeyCandidates[0] == chat })?.value else { return }
         let pane = { (t: ComputerUsePreviewTelepointer) in AgentPaneComputerUsePreview.Telepointer(x: t.x, y: t.y, visible: t.visible, movedAt: t.movedAt, idle: t.idle) }
         let preview = card.map { AgentPaneComputerUsePreview(session: $0.session, app: $0.app, done: $0.done, frame: $0.frame, icon: $0.icon,
                                                              pointer: $0.pointer.map { .init(x: $0.x, y: $0.y, click: $0.click, windowWidth: $0.windowWidth) },

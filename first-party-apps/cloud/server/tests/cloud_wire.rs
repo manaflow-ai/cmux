@@ -537,3 +537,41 @@ fn every_vector_op_the_server_serves_reaches_the_backend_by_its_wire_name() {
         }
     }
 }
+
+/// A backend snapshot as `cloud.snapshot.list` and `create` answer it, at `revision`.
+fn snapshot_at(revision: &str) -> Value {
+    json!({ "id": snap(9), "machine": vm(1), "name": null, "size_mb": 512, "status": "ready",
+        "created_at": 1_790_000_000_000i64, "revision": revision })
+}
+
+/// `cloud.snapshot.list` of one machine, when the backend lists `snapshot`.
+fn list_answering(snapshot: Value) -> Result<Value, CloudError> {
+    let mut s = server();
+    let params = json!({ "machine": vm(1) });
+    let answer = json!({ "snapshots": [snapshot] });
+    s.control_plane_mut().answer("cloud.snapshot.list", params.clone(), None, answer);
+    s.handle(&Request::new("cloud.snapshot.list", params))
+}
+
+/// `cloud.snapshot.create`, when the backend answers `snapshot`.
+fn create_answering(snapshot: Value) -> Result<Value, CloudError> {
+    let mut s = server();
+    let args = json!({ "machine": vm(1), "name": "one" });
+    let answer = json!({ "snapshot": snapshot });
+    s.control_plane_mut().answer("cloud.snapshot.create", args.clone(), Some("key-rev"), answer);
+    s.handle(&mutation("cloud.snapshot.create", args, "key-rev"))
+}
+
+#[test]
+fn a_snapshot_revision_is_a_checked_decimal() {
+    let list = list_answering(snapshot_at("007")).expect("lists");
+    assert_eq!(list["snapshots"][0]["revision"], "7", "{list}");
+    let made = create_answering(snapshot_at("007")).expect("creates");
+    assert_eq!(made["snapshot"]["revision"], "7", "{made}");
+    for bad in ["", "7a", "-1", "0x2"] {
+        let listed = err_json(list_answering(snapshot_at(bad)));
+        assert_eq!(listed["code"], "cmux.cloud.bad_response", "{bad:?}: {listed}");
+        let created = err_json(create_answering(snapshot_at(bad)));
+        assert_eq!(created["code"], "cmux.cloud.bad_response", "{bad:?}: {created}");
+    }
+}
