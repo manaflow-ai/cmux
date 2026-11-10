@@ -41,6 +41,9 @@ final class AgentCursorOverlay {
         didSet { if !enabled { hideAll() } }
     }
     private var cursors: [String: SessionCursor] = [:]
+    /// Where each session's cursor last was (AppKit points) and its label, for Show Cursor after
+    /// the cursor hid.
+    private var lastSeen: [String: (tip: CGPoint, label: String)] = [:]
     private let reduceMotion: () -> Bool
     /// A real, invisible (alpha 0, 1 x 1 point, click-through) window ordered in from the start: a
     /// panel that was never ordered in has no window-server window, so ScreenCaptureKit would not
@@ -62,6 +65,7 @@ final class AgentCursorOverlay {
     func show(_ event: AgentCursorEvent) {
         if event.kind == .hide {
             cursors.removeValue(forKey: event.session)?.close(animated: false, speed: motion.speed)
+            lastSeen.removeValue(forKey: event.session)
             return
         }
         guard enabled else { return }
@@ -70,10 +74,36 @@ final class AgentCursorOverlay {
         cursor.label = event.label
         let geometry = AgentCursorGeometry(primaryHeight: NSScreen.screens.first?.frame.height ?? 0)
         cursor.apply(event, geometry: geometry, animated: animates, speed: motion.speed)
+        if let tip = cursor.currentTip { lastSeen[event.session] = (tip, event.label) }
+        armIdleHide(cursor, session: event.session)
+    }
+
+    private func armIdleHide(_ cursor: SessionCursor, session: String) {
         cursor.armIdleHide(after: Self.idleHide) { [weak self] in
-            guard let self, self.cursors[event.session] === cursor else { return }
-            self.cursors.removeValue(forKey: event.session)?.close(animated: self.animates, speed: self.motion.speed)
+            guard let self, self.cursors[session] === cursor else { return }
+            self.cursors.removeValue(forKey: session)?.close(animated: self.animates, speed: self.motion.speed)
         }
+    }
+
+    /// Show Cursor (the menu bar): rings spread from the session's cursor where it is, or where
+    /// it last was if it hid, so the person finds it. False when the session never showed one.
+    @discardableResult
+    func spotlight(session: String) -> Bool {
+        guard enabled else { return false }
+        let cursor: SessionCursor
+        if let shown = cursors[session] {
+            cursor = shown
+        } else if let last = lastSeen[session] {
+            cursor = SessionCursor()
+            cursor.label = last.label
+            cursor.glide(to: last.tip, animated: false, speed: motion.speed)
+            cursors[session] = cursor
+        } else {
+            return false
+        }
+        cursor.spotlight(animated: animates, speed: motion.speed)
+        armIdleHide(cursor, session: session)
+        return true
     }
 
     func hideAll() {
@@ -83,15 +113,21 @@ final class AgentCursorOverlay {
 
     var sessionCount: Int { cursors.count }
 
+    static func render(_ events: [AgentCursorEvent], label: String, size: CGSize, scale: CGFloat,
+                       backdrop: [(CGRect, NSColor)] = []) -> CGImage? {
+        render(events, label: label, size: size, scale: scale, backdrop: backdrop) { _ in }
+    }
+
     /// Draws one cursor after `events` (desktop points in a `size`-point space, top-left origin)
     /// into an image at `scale`, over a plain backdrop, with no window and no animation: the same
     /// layers the overlay shows, for tests and the detail catalog.
-    static func render(_ events: [AgentCursorEvent], label: String, size: CGSize, scale: CGFloat,
-                       backdrop: [(CGRect, NSColor)] = []) -> CGImage? {
+    fileprivate static func render(_ events: [AgentCursorEvent], label: String, size: CGSize, scale: CGFloat,
+                                   backdrop: [(CGRect, NSColor)] = [], then extra: (SessionCursor) -> Void) -> CGImage? {
         let cursor = SessionCursor(offscreen: CGRect(origin: .zero, size: size), scale: scale)
         cursor.label = label
         let geometry = AgentCursorGeometry(primaryHeight: size.height)
         for event in events { cursor.apply(event, geometry: geometry, animated: false, speed: 1) }
+        extra(cursor)
         let width = Int(size.width * scale), height = Int(size.height * scale)
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
@@ -104,6 +140,13 @@ final class AgentCursorOverlay {
         }
         cursor.draw(in: context)
         return context.makeImage()
+    }
+
+    /// The Show Cursor spotlight drawn offscreen (no animation: the rings at full size).
+    static func renderSpotlight(label: String, size: CGSize, scale: CGFloat, at point: CGPoint,
+                                backdrop: [(CGRect, NSColor)] = []) -> CGImage? {
+        render([AgentCursorEvent(kind: .move, session: "s", label: label, at: point)], label: label, size: size,
+               scale: scale, backdrop: backdrop) { $0.spotlight(animated: false, speed: 1) }
     }
 
     /// The scroll's main direction as an arrow.
@@ -145,6 +188,10 @@ private final class SessionCursor {
     private var panel: NSPanel?
     private let root = CALayer()
     private let body = CALayer()
+    /// The pointer and its tail, scaled and wagged as one around the tip.
+    private let figure = CALayer()
+    private let tailEdge = CAShapeLayer()
+    private let tail = CAShapeLayer()
     private let shadow = CAShapeLayer()
     private let pointer = CAShapeLayer()
     private let shine = CAGradientLayer()
@@ -168,11 +215,13 @@ private final class SessionCursor {
         didSet { if label != oldValue { layoutName() } }
     }
 
-    static let pointerSize = CGSize(width: 18, height: 24)
+    static let pointerSize = CGSize(width: 22, height: 28)
     /// The widest the agent's name gets (points).
     static let maxNameWidth: CGFloat = 200
     /// The pointer's tip inside its bounds (y up).
-    static let tipPoint = CGPoint(x: 2, y: 22)
+    static let tipPoint = CGPoint(x: 2.5, y: 26)
+    /// Where the tail leaves the pointer: the middle of the stem's end (y up).
+    static let tailRoot = CGPoint(x: 12.8, y: 5.0)
     static var captionSize: CGFloat { NSFont.preferredFont(forTextStyle: .caption1).pointSize }
     static var smallSize: CGFloat { NSFont.preferredFont(forTextStyle: .caption2).pointSize }
 
@@ -183,14 +232,29 @@ private final class SessionCursor {
         root.masksToBounds = false
         body.anchorPoint = .zero
         body.bounds = .zero
-        for layer in [shadow, pointer] {
-            layer.path = path
-            layer.bounds = CGRect(origin: .zero, size: Self.pointerSize)
-            layer.anchorPoint = CGPoint(x: Self.tipPoint.x / Self.pointerSize.width,
-                                        y: Self.tipPoint.y / Self.pointerSize.height)
-            layer.position = .zero
+        figure.bounds = CGRect(origin: .zero, size: Self.pointerSize)
+        figure.anchorPoint = CGPoint(x: Self.tipPoint.x / Self.pointerSize.width,
+                                     y: Self.tipPoint.y / Self.pointerSize.height)
+        figure.position = .zero
+        for layer in [tailEdge, tail, shadow, pointer] {
+            layer.frame = figure.bounds
             layer.lineJoin = .round
         }
+        shadow.path = path
+        pointer.path = path
+        // The tail: a soft S of cmux blue with a white edge, behind the pointer.
+        let rest = Self.tailPath(.rest)
+        for (layer, width, color) in [(tailEdge, 4.6, NSColor.white), (tail, 2.4, AgentCursorOverlay.deepBlue)] {
+            layer.path = rest
+            layer.fillColor = nil
+            layer.strokeColor = color.cgColor
+            layer.lineWidth = width
+            layer.lineCap = .round
+        }
+        tailEdge.shadowColor = NSColor.black.cgColor
+        tailEdge.shadowOpacity = 0.22
+        tailEdge.shadowRadius = 2
+        tailEdge.shadowOffset = CGSize(width: 0, height: -1)
         shadow.fillColor = NSColor.black.withAlphaComponent(0.001).cgColor
         shadow.shadowColor = NSColor.black.cgColor
         shadow.shadowOpacity = 0.32
@@ -199,13 +263,13 @@ private final class SessionCursor {
         shadow.shadowPath = path
         pointer.fillColor = AgentCursorOverlay.blue.cgColor
         pointer.strokeColor = NSColor.white.cgColor
-        pointer.lineWidth = 1.75
+        pointer.lineWidth = 2
         // A soft light along the pointer's top edge: a gradient masked to the pointer's shape.
         shineMask.path = path
         shine.frame = CGRect(origin: .zero, size: Self.pointerSize)
-        shine.colors = [NSColor.white.withAlphaComponent(0.38).cgColor, NSColor.white.withAlphaComponent(0).cgColor]
-        shine.startPoint = CGPoint(x: 0.5, y: 1)
-        shine.endPoint = CGPoint(x: 0.5, y: 0.45)
+        shine.colors = [NSColor.white.withAlphaComponent(0.5).cgColor, NSColor.white.withAlphaComponent(0).cgColor]
+        shine.startPoint = CGPoint(x: 0.2, y: 1)
+        shine.endPoint = CGPoint(x: 0.6, y: 0.4)
         shine.mask = shineMask
         pointer.addSublayer(shine)
 
@@ -235,8 +299,11 @@ private final class SessionCursor {
         chipLayer.shadowRadius = 4
         chipLayer.shadowOffset = CGSize(width: 0, height: -1)
 
-        body.addSublayer(shadow)
-        body.addSublayer(pointer)
+        figure.addSublayer(tailEdge)
+        figure.addSublayer(tail)
+        figure.addSublayer(shadow)
+        figure.addSublayer(pointer)
+        body.addSublayer(figure)
         body.addSublayer(nameTag)
         body.addSublayer(chipLayer)
         root.addSublayer(body)
@@ -251,22 +318,88 @@ private final class SessionCursor {
         text.truncationMode = .end
     }
 
-    /// The cursor's pointer: a slim arrow with rounded joins, tip at (2, 22) (y up).
+    /// The cursor's pointer: a chubby arrow with soft, rounded corners, tip at (2.5, 26) (y up).
     static func pointerPath() -> CGPath {
+        let points = [
+            CGPoint(x: 2.5, y: 26), CGPoint(x: 2.5, y: 6.5), CGPoint(x: 7.6, y: 11.2), CGPoint(x: 11.0, y: 3.4),
+            CGPoint(x: 15.0, y: 5.2), CGPoint(x: 11.9, y: 12.8), CGPoint(x: 19.0, y: 12.8),
+        ]
+        let radii: [CGFloat] = [2.0, 2.4, 1.4, 1.6, 1.6, 1.4, 2.4]
         let path = CGMutablePath()
-        path.move(to: CGPoint(x: 2, y: 22))
-        path.addLine(to: CGPoint(x: 2, y: 4.2))
-        path.addQuadCurve(to: CGPoint(x: 3.6, y: 3.6), control: CGPoint(x: 2.2, y: 3.2))
-        path.addLine(to: CGPoint(x: 7.4, y: 8.4))
-        path.addLine(to: CGPoint(x: 10.6, y: 1.6))
-        path.addQuadCurve(to: CGPoint(x: 11.9, y: 1.1), control: CGPoint(x: 11.1, y: 0.9))
-        path.addLine(to: CGPoint(x: 13.9, y: 2.0))
-        path.addQuadCurve(to: CGPoint(x: 14.3, y: 3.3), control: CGPoint(x: 14.5, y: 2.5))
-        path.addLine(to: CGPoint(x: 11.3, y: 9.6))
-        path.addLine(to: CGPoint(x: 16.4, y: 9.9))
-        path.addQuadCurve(to: CGPoint(x: 16.9, y: 11.2), control: CGPoint(x: 17.4, y: 10.4))
+        let first = points[0], last = points[points.count - 1]
+        path.move(to: CGPoint(x: (first.x + last.x) / 2, y: (first.y + last.y) / 2))
+        for i in points.indices {
+            path.addArc(tangent1End: points[i], tangent2End: points[(i + 1) % points.count], radius: radii[i])
+        }
         path.closeSubpath()
         return path
+    }
+
+    /// How the tail lies.
+    enum TailPose: Equatable {
+        /// At rest: a soft S below the pointer.
+        case rest
+        /// Trailing behind a move in direction (dx, dy) (unit vector, y up).
+        case trailing(CGFloat, CGFloat)
+        /// A wag to one side (+1 or -1).
+        case wag(CGFloat)
+    }
+
+    /// The tail as a curve from the stem's end.
+    static func tailPath(_ pose: TailPose) -> CGPath {
+        let a = tailRoot
+        let (c1, c2, end): (CGPoint, CGPoint, CGPoint)
+        switch pose {
+        case .rest:
+            c1 = CGPoint(x: a.x + 0.5, y: a.y - 6)
+            c2 = CGPoint(x: a.x + 8.5, y: a.y - 1.5)
+            end = CGPoint(x: a.x + 9, y: a.y - 8)
+        case .trailing(let dx, let dy):
+            // Behind the move, with a little curl to the side.
+            let (bx, by) = (-dx, -dy)
+            let (px, py) = (-by, bx)
+            c1 = CGPoint(x: a.x + bx * 4, y: a.y + by * 4)
+            c2 = CGPoint(x: a.x + bx * 8 + px * 3, y: a.y + by * 8 + py * 3)
+            end = CGPoint(x: a.x + bx * 13 - px * 1.5, y: a.y + by * 13 - py * 1.5)
+        case .wag(let side):
+            c1 = CGPoint(x: a.x + 0.5 + side * 2, y: a.y - 6)
+            c2 = CGPoint(x: a.x + 8.5 + side * 3, y: a.y - 1.5 + side * 2)
+            end = CGPoint(x: a.x + 9 + side * 4, y: a.y - 8 + side * 4)
+        }
+        let path = CGMutablePath()
+        path.move(to: a)
+        path.addCurve(to: end, control1: c1, control2: c2)
+        return path
+    }
+
+    /// Animates the tail through `poses` (from rest, back to rest).
+    private func swish(_ poses: [TailPose], keyTimes: [NSNumber], duration: CFTimeInterval) {
+        // motion: allow called only from gated, animated motion (cursor switches, Reduce Motion, ui.animationSpeed).
+        let swing = CAKeyframeAnimation(keyPath: "path")
+        swing.values = poses.map { Self.tailPath($0) }
+        swing.keyTimes = keyTimes
+        swing.duration = duration
+        swing.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: max(poses.count - 1, 1))
+        tail.add(swing, forKey: "swish")
+        tailEdge.add(swing, forKey: "swish")
+    }
+
+    /// A happy squish around the tip (the tip stays on its point) and a wag of the tail.
+    private func squish(speed: Double) {
+        // motion: allow called only from gated, animated motion (cursor switches, Reduce Motion, ui.animationSpeed).
+        let squash = CAKeyframeAnimation(keyPath: "transform")
+        squash.values = [CATransform3DIdentity, CATransform3DMakeScale(1.1, 0.84, 1), CATransform3DMakeScale(0.95, 1.06, 1),
+                         CATransform3DIdentity].map { NSValue(caTransform3D: $0) }
+        squash.keyTimes = [0, 0.3, 0.65, 1]
+        squash.duration = 0.3 / max(speed, 0.25)
+        figure.add(squash, forKey: "squish")
+        swish([.rest, .wag(1), .wag(-1), .rest], keyTimes: [0, 0.3, 0.65, 1], duration: 0.42 / max(speed, 0.25))
+    }
+
+    /// The tail and pointer follow the alert color (amber, red), else cmux blue.
+    private func tint(_ color: NSColor?) {
+        pointer.fillColor = (color ?? AgentCursorOverlay.blue).cgColor
+        tail.strokeColor = (color?.blended(withFraction: 0.25, of: .black) ?? AgentCursorOverlay.deepBlue).cgColor
     }
 
     /// Every layer under `layer` draws at `scale` (vector paths, text, shadows stay sharp).
@@ -378,6 +511,10 @@ private final class SessionCursor {
             let move = plan.positionAnimation(from: from)
             move.duration /= max(speed, 0.25)
             body.add(move, forKey: "glide")
+            let length = max(hypot(to.x - from.x, to.y - from.y), 1)
+            let way = TailPose.trailing((to.x - from.x) / length, (to.y - from.y) / length)
+            swish([.rest, way, way, .wag(0.6), .rest], keyTimes: [0, 0.12, 0.62, 0.84, 1],
+                  duration: move.duration + 0.25 / max(speed, 0.25))
         }
         body.removeAnimation(forKey: "fade")
         panel?.orderFrontRegardless()
@@ -480,20 +617,12 @@ private final class SessionCursor {
         let shake = CAKeyframeAnimation(keyPath: "transform.translation.x")
         shake.values = [0, -5, 5, -3, 3, 0]
         shake.duration = 0.32 / max(speed, 0.25)
-        pointer.add(shake, forKey: "shake")
-        shadow.add(shake, forKey: "shake")
+        figure.add(shake, forKey: "shake")
     }
 
     func press(animated: Bool, speed: Double) {
         guard animated else { return }
-        // motion: allow called only when the cursor switches and Reduce Motion allow animation.
-        let dip = CABasicAnimation(keyPath: "transform.scale")
-        dip.fromValue = 1
-        dip.toValue = 0.84
-        dip.autoreverses = true
-        dip.duration = 0.09 / max(speed, 0.25)
-        pointer.add(dip, forKey: "press")
-        shadow.add(dip, forKey: "press")
+        squish(speed: speed)
     }
 
     /// Three chevrons by the pointer, running in the scroll's direction.
@@ -580,6 +709,48 @@ private final class SessionCursor {
         Self.remove([brackets], after: animated ? lifetime : 0.5)
     }
 
+    /// The tip in AppKit screen points, once the cursor has been placed.
+    var currentTip: CGPoint? { tip }
+
+    /// Rings spread from the tip three times and the pointer squishes: "here I am".
+    func spotlight(animated: Bool, speed: Double) {
+        guard let tip else { return }
+        panel?.orderFrontRegardless()
+        let center = local(tip)
+        let lifetime = 0.9 / max(speed, 0.25)
+        for n in 0..<3 {
+            let ring = effect(CAShapeLayer())
+            let r: CGFloat = 46
+            ring.path = CGPath(ellipseIn: CGRect(x: -r, y: -r, width: r * 2, height: r * 2), transform: nil)
+            ring.position = center
+            ring.fillColor = AgentCursorOverlay.blue.withAlphaComponent(n == 0 ? 0.14 : 0).cgColor
+            ring.strokeColor = AgentCursorOverlay.blue.cgColor
+            ring.lineWidth = 3
+            if animated {
+                // motion: allow gated by `animated` (cursor switches, Reduce Motion), speed from ui.animationSpeed.
+                let grow = CABasicAnimation(keyPath: "transform.scale")
+                grow.fromValue = 0.15
+                grow.toValue = 1
+                // motion: allow the same gated spotlight.
+                let fade = CAKeyframeAnimation(keyPath: "opacity")
+                fade.values = [0, 1, 0]
+                fade.keyTimes = [0, 0.2, 1]
+                // motion: allow the same gated spotlight.
+                let group = CAAnimationGroup()
+                group.animations = [grow, fade]
+                group.duration = lifetime
+                group.beginTime = CACurrentMediaTime() + Double(n) * 0.28 / max(speed, 0.25)
+                group.fillMode = .both
+                group.isRemovedOnCompletion = false
+                group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                ring.add(group, forKey: "spotlight")
+            }
+            Self.remove([ring], after: animated ? lifetime + Double(n) * 0.28 / max(speed, 0.25) : 1.2)
+        }
+        chip(.text(ComputerUseText.t("computerUse.cursor.here", "Here")))
+        if animated { squish(speed: speed) }
+    }
+
     func pulse(speed: Double) {
         // motion: allow called only when the cursor switches and Reduce Motion allow animation (AgentCursorOverlay.animates).
         let pulse = CABasicAnimation(keyPath: "transform.scale")
@@ -587,7 +758,7 @@ private final class SessionCursor {
         pulse.toValue = 1.18
         pulse.autoreverses = true
         pulse.duration = 0.16 / max(speed, 0.25)
-        pointer.add(pulse, forKey: "pulse")
+        figure.add(pulse, forKey: "pulse")
     }
 
     // MARK: Name and chip
@@ -603,7 +774,7 @@ private final class SessionCursor {
         var height: CGFloat = 0
         let alert: CursorAlert? = if case .alert(_, let kind) = content { kind } else { nil }
         chipLayer.backgroundColor = alert?.color.cgColor ?? NSColor(white: 0.08, alpha: 0.86).cgColor
-        pointer.fillColor = alert?.color.cgColor ?? AgentCursorOverlay.blue.cgColor
+        tint(alert?.color)
         nameTag.backgroundColor = alert?.color.cgColor ?? AgentCursorOverlay.blue.cgColor
         name.foregroundColor = (alert?.textColor ?? .white).cgColor
         dot.backgroundColor = (alert?.textColor ?? .white).cgColor
@@ -697,7 +868,7 @@ private final class SessionCursor {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 self.chipLayer.isHidden = true
-                self.pointer.fillColor = AgentCursorOverlay.blue.cgColor
+                self.tint(nil)
                 self.nameTag.backgroundColor = AgentCursorOverlay.blue.cgColor
                 self.name.foregroundColor = NSColor.white.cgColor
                 self.dot.backgroundColor = NSColor.white.cgColor
@@ -723,8 +894,9 @@ private final class SessionCursor {
         dot.position = CGPoint(x: padX + 3, y: tagSize.height / 2)
         name.frame = CGRect(x: padX + dotSpace, y: padY, width: size.width, height: size.height)
         // Below and right of the tip (AppKit y up): clear of the pointer's body.
-        nameTag.position = CGPoint(x: 15, y: -24 - tagSize.height)
-        chipLayer.position = CGPoint(x: 15, y: nameTag.position.y - 5 - chipLayer.bounds.height)
+        // Right of the tail's tip, so the tail shows.
+        nameTag.position = CGPoint(x: 24, y: -24 - tagSize.height)
+        chipLayer.position = CGPoint(x: 24, y: nameTag.position.y - 5 - chipLayer.bounds.height)
         CATransaction.commit()
     }
 

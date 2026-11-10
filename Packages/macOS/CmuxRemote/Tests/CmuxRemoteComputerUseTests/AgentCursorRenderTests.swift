@@ -91,6 +91,20 @@ import UniformTypeIdentifiers
         }
     }
 
+    @Test func theSpotlightAndTailRender() throws {
+        let dir = ProcessInfo.processInfo.environment["CMUX_CURSOR_RENDER_DIR"].map(URL.init(fileURLWithPath:))
+        if let dir { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        let image = try #require(AgentCursorOverlay.renderSpotlight(label: "Claude Code", size: Self.size, scale: 2,
+                                                                    at: CGPoint(x: 150, y: 90), backdrop: Self.backdrop))
+        #expect(Self.bluePixels(image) > 400, "rings and pointer in cmux blue")
+        if let dir {
+            let url = dir.appendingPathComponent("21-show-cursor.png")
+            let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
+            CGImageDestinationAddImage(dest, image, nil)
+            #expect(CGImageDestinationFinalize(dest))
+        }
+    }
+
     @Test func everyInteractionRendersSharpInCmuxBlue() throws {
         let dir = ProcessInfo.processInfo.environment["CMUX_CURSOR_RENDER_DIR"].map(URL.init(fileURLWithPath:))
         if let dir { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }

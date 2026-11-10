@@ -1394,7 +1394,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paused \u00b7 you\u2019re in control"
+            "value": "Paused · you’re in control"
           }
         }
       }
@@ -1406,6 +1406,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Looking"
+          }
+        }
+      }
+    },
+    "computerUse.cursor.here": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Here"
           }
         }
       }
