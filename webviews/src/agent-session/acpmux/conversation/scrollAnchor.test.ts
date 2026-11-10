@@ -191,4 +191,4 @@ test("the anchor is the folding row however far the view is into its body", () =
     { index: 10, delta: -50 },
   ];
   expect(anchor(5150, two)).toBe(5150);
-})
+});

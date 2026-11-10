@@ -103,7 +103,8 @@ export function preserveScrollAnchorTop({
       break;
     }
     // The folding row, unless a close shows the row after it at the view's top already.
-    const passed = fold && at === end && end + 1 < oldGeometry.count && oldGeometry.topAt(end + 1) + shift + fold.delta <= liveTop;
+    const passed =
+      fold && at === end && end + 1 < oldGeometry.count && oldGeometry.topAt(end + 1) + shift + fold.delta <= liveTop;
     if (at <= end && !passed) {
       first = at;
       break;
