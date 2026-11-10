@@ -95,7 +95,7 @@ const LIST_DEVICES: &str = "run `cmux machine list` for your devices and their i
 const LIST_VMS: &str = "run `cmux vm list-machines` for your VMs, or use --on vm:new";
 
 pub(super) const USAGE: &str = "\
-usage: cmux chat [--on TARGET] [--environment ENV] [--agent AGENT] [--model MODEL]
+usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model MODEL]
                  [--cwd DIR] [--repo URL] [--name NAME] [--attach FILE]... [--wait]
                  [--timeout SECONDS] [--json] [[--prompt] TEXT]
 
@@ -116,7 +116,7 @@ Starts an agent chat, right here unless --on names another target:
                      new machine boots in, with --on cloud or --on vm:new; without
                      it, Auto, as in the app's composer
 
-  --agent AGENT      claude (default), codex, ...
+  --harness HARNESS  claude (default), codex, ... (--agent is its old name)
   --attach FILE      A file the first prompt carries; repeat for more (a chat here).
                      Any type and size: small files go inline, larger ones are uploaded
                      to the chat first. A missing or unreadable file starts nothing

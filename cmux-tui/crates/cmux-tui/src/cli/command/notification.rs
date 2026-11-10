@@ -117,7 +117,10 @@ pub(super) fn parse_notification(
 /// it is not validated with `--clear`.
 pub(super) fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     if !words.is_empty() {
-        return usage("notify takes flags only");
+        return Err(UsageError::new(format!(
+            "notify takes flags only, not {:?}; run `cmux notify --help` for its flags",
+            words[0]
+        )));
     }
     let selectors = Selectors::default();
     let reply = flags.boolean("reply");
