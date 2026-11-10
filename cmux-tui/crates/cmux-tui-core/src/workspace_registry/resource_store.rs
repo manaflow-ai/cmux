@@ -1326,6 +1326,26 @@ impl WorkspaceRegistry {
             .map_err(Into::into)
     }
 
+    /// Tests: hide (or restore) a terminal's resource row, so the terminal
+    /// looks like one from before resource ids and closes through the legacy
+    /// path (`Mux::close_terminal_guarded` without a resource id).
+    #[cfg(test)]
+    pub(crate) fn set_terminal_resource_hidden_for_test(
+        &self,
+        terminal_id: &str,
+        hidden: bool,
+    ) -> anyhow::Result<()> {
+        let sql = if hidden {
+            "UPDATE resource_terminals SET deleted_revision = updated_revision,
+             lifecycle = 'tombstoned' WHERE terminal_id = ?1"
+        } else {
+            "UPDATE resource_terminals SET deleted_revision = NULL, lifecycle = 'active'
+             WHERE terminal_id = ?1"
+        };
+        anyhow::ensure!(self.connection.execute(sql, [terminal_id])? == 1, "no resource row");
+        Ok(())
+    }
+
     /// Return every live public terminal-to-host identity in one deterministic
     /// bulk read instead of resolving each terminal with a separate query.
     pub fn live_terminal_resource_ids(&self) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
