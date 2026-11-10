@@ -688,3 +688,7 @@ fn current_placements(mux: &Mux, generation: &str) -> anyhow::Result<Arc<Vec<Val
 #[cfg(test)]
 #[path = "session_event_live_tests.rs"]
 mod live_tests;
+
+#[cfg(test)]
+#[path = "session_event_resume_tests.rs"]
+mod resume_tests;
