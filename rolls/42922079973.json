@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42922079973",
+  "recorded_at": "2026-11-10T23:25:06Z",
+  "reason": "cmux-tui 2a7fe8a479d8 changes the image's cmux-tui (pinned 6a3f047fe024)",
+  "dry_run": false,
+  "cmux_tui": "2a7fe8a479d8bf915b823fb4f6f887e8154898ab",
+  "fixes": [
+    {
+      "sha": "2a7fe8a479d8bf915b823fb4f6f887e8154898ab",
+      "mergedAt": "2026-11-10T23:02:26Z",
+      "subject": "cmux-tui: a plugin report that repeats the roster writes nothing, and only a follower that is sent a row keeps it (#40763)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T23:25:06Z",
+    "snapshot_id": "sh-1c1297f9803845c89e43da4d3f1d848d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42922079973): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e5870ec1729b8bc6c664e7db674f870fc5d6f1ef",
+    "image": "cloud-native-auto-2a7fe8a4-42922079973-1",
+    "revision": "ci-42922079973-1",
+    "at": "2026-11-10T23:25:06Z"
+  },
+  "rolled_back": false
+}
