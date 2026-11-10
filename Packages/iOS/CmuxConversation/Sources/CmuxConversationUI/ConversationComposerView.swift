@@ -141,6 +141,15 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             : String(localized: "conversation.composer.send", defaultValue: "Send", bundle: .module)
     }
 
+    /// The audio message stage (`ConversationAudioComposer`), nil while typing.
+    var audioStage: ComposerAudioLayout.Stage? {
+        didSet { if oldValue != audioStage { setNeedsLayout() } }
+    }
+    /// The last audio layout applied, for tests and the recording field.
+    private(set) var audioLayout: ComposerAudioLayout?
+    /// The recording / review content inside the field while `audioStage` is set.
+    weak var audioFieldView: AudioRecordingFieldView?
+
     /// Edge inset of the + button and field with no keyboard: Messages'
     /// 28 pt concentric padding, or the keyboard inset while the Photos
     /// drawer stands in for the keyboard.
@@ -393,7 +402,9 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             width: bounds.width, fieldBottom: bounds.height - 4, fieldHeight: fieldHeight,
             oneLineHeight: t.composerMinHeight, sideInset: sideInset, scale: traitCollection.displayScale
         )
-        plusGlass.frame = row.plus
+        // Bounds and center: the audio stage scales the "+" (a frame under a transform is undefined).
+        plusGlass.bounds = CGRect(origin: .zero, size: row.plus.size)
+        plusGlass.center = CGPoint(x: row.plus.midX, y: row.plus.midY)
         plusButton.frame = plusGlass.bounds
         fieldGlass.frame = row.field
         let field = fieldGlass.bounds
@@ -445,6 +456,38 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         if field.width > 0, measurement.needsRemeasure(textWidth: textWidth(forFieldWidth: field.width)) {
             updateHeight()
         }
+        layoutAudioStage(resting: row, sideInset: sideInset)
+    }
+
+    /// Recording or reviewing an audio message reshapes the row the way
+    /// Messages does (`ComposerAudioLayout`): the field lifts and widens
+    /// over the "+", then returns with an "x" in the "+"'s place. Called
+    /// inside the audio composer's spring so the glass morphs.
+    private func layoutAudioStage(resting: ComposerBarGeometry.Layout, sideInset: CGFloat) {
+        guard let audioStage else {
+            audioLayout = nil
+            plusGlass.alpha = 1
+            plusGlass.transform = .identity
+            return
+        }
+        let audio = ComposerAudioLayout(stage: audioStage, resting: resting, width: bounds.width, sideInset: sideInset, scale: traitCollection.displayScale)
+        audioLayout = audio
+        fieldGlass.frame = audio.field
+        fieldGlass.layer.cornerRadius = audio.field.height / 2
+        plusGlass.bounds = CGRect(origin: .zero, size: audio.leadingButton.size)
+        plusGlass.center = CGPoint(x: audio.leadingButton.midX, y: audio.leadingButton.midY)
+        plusButton.frame = plusGlass.bounds
+        // The "+" melts into the widening field rather than vanishing.
+        plusGlass.alpha = audio.showsLeadingButton ? 1 : 0
+        plusGlass.transform = audio.showsLeadingButton ? .identity : CGAffineTransform(scaleX: 0.6, y: 0.6)
+        audioFieldView?.apply(audio, stage: audioStage)
+    }
+
+    /// The recorded field's taller glass reaches above the row: its stop,
+    /// play and send buttons still take touches there.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if audioStage != nil, fieldGlass.frame.contains(point) || plusGlass.frame.contains(point) { return true }
+        return super.point(inside: point, with: event)
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
