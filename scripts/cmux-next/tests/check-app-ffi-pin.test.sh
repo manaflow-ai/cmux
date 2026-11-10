@@ -50,11 +50,15 @@ crate cmux-unrelated
 core="$repo/cmux-tui/crates/cmux-rd-core"
 mkdir -p "$core/tests/vectors" "$core/scripts" "$core/benches" "$core/examples"
 printf 'pub const DATA: &str = include_str!("../data.json");\n' >> "$core/src/lib.rs"
+# rustfmt's form of a long include (the path on its own line, a trailing comma), and the other delimiters.
+printf 'pub const ML: &str = include_str!(\n    "../ml.json",\n);\npub const BR: &[u8] = include_bytes!["../br.json"];\n' \
+  >> "$core/src/lib.rs"
+printf '/// A doc comment may spell out include_str!(PATH) with no literal.\n' >> "$core/src/lib.rs"
 printf 'fn main() { println!("cargo:rerun-if-changed=build-data.txt"); std::fs::read_to_string("build-data.txt").unwrap(); }\n' > "$core/build.rs"
 printf 'const V: &str = include_str!("../../cmux-rd-core/tests/vectors/lines.json");\n' > "$repo/cmux-tui/crates/cmux-rd-ffi/src/vectors.rs"
 printf 'const D: &str = include_str!("../.descriptor.json");\n' > "$core/tests/api.rs"
-for f in data.json build-data.txt .descriptor.json README.md LICENSE tests/vectors/lines.json scripts/sync.py \
-  benches/b.rs examples/e.rs; do
+for f in data.json ml.json br.json build-data.txt .descriptor.json README.md LICENSE tests/vectors/lines.json \
+  scripts/sync.py benches/b.rs examples/e.rs; do
   echo "$f" > "$core/$f"
 done
 git -C "$repo" init -q
@@ -89,7 +93,7 @@ out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)" || fail 
 [[ "$out" == *"sources match $pinned"* ]] || fail "no match line after a test-only change: $out"
 # What the library build reads stays an input: a file a library source includes (include_str!), one its build script
 # reads, and a tests/ file that a library source of another input crate includes.
-for f in data.json build-data.txt tests/vectors/lines.json; do
+for f in data.json ml.json br.json build-data.txt tests/vectors/lines.json; do
   echo "changed" >> "$core/$f"
   git -C "$repo" commit -qam "input $f"
   if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
@@ -98,6 +102,40 @@ for f in data.json build-data.txt tests/vectors/lines.json; do
   [[ "$out" == *"cmux-tui/crates/cmux-rd-core/$f"* ]] || fail "the stale report does not name $f: $out"
   git -C "$repo" reset -q --hard HEAD~1
 done
+# What cargo and rustup read above the crate files: the crate's own and its parents' cargo config and toolchain, and
+# the cmux-tui workspace manifest the crates inherit `workspace = true` keys from (review of #40095).
+for f in cmux-tui/crates/cmux-app-ffi/.cargo/config.toml cmux-tui/crates/cmux-app-ffi/rust-toolchain.toml \
+  cmux-tui/crates/.cargo/config.toml cmux-tui/.cargo/config.toml .cargo/config.toml cmux-tui/Cargo.toml; do
+  mkdir -p "$(dirname "$repo/$f")"
+  echo "changed" > "$repo/$f"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "input $f"
+  if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+    fail "a change to $f, which cargo or rustup reads, kept the pin current: $out"
+  fi
+  [[ "$out" == *"$f"* ]] || fail "the stale report does not name $f: $out"
+  git -C "$repo" reset -q --hard HEAD~1
+done
+# A name the scan cannot read refuses, never leaves the file out: a build script that reads by a computed path, an
+# include whose argument is not one string literal, and a #[path] module outside src/ (its own modules would go
+# unread).
+refuse() { # refuse FILE TEXT WHY
+  printf '%s\n' "$2" >> "$repo/$1"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "refuse $1"
+  if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
+    fail "$3 passed: $out"
+  fi
+  [[ "$out" == *"the app FFI inputs cannot be listed"* ]] || fail "$3 did not refuse: $out"
+  git -C "$repo" reset -q --hard HEAD~1
+}
+refuse cmux-tui/crates/cmux-rd-core/build.rs \
+  'fn more() { let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("x.txt"); std::fs::read_to_string(&p).unwrap(); }' \
+  "a build script that reads by a computed path"
+refuse cmux-tui/crates/cmux-rd-core/src/lib.rs 'pub const Q: &str = include_str!(concat!("../", "q.json"));' \
+  "an include by a computed path"
+refuse cmux-tui/crates/cmux-rd-core/src/lib.rs '#[path = "../shared/foo.rs"] mod foo;' \
+  "a #[path] module outside src/"
 
 # --verify-release reads the release-assets API's answer with python3 -c from
 # the repository root. A json.py there does not change that verdict. curl is a
