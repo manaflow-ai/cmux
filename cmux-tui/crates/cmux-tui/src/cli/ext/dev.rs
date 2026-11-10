@@ -1076,7 +1076,16 @@ pub(super) fn once(global: &GlobalArgs, options: &DevOptions, interrupts: bool) 
         Ok(daemon) => daemon,
         Err(message) => {
             let mut outcome = Outcome::new(Phase::Daemon);
-            outcome.app = load_package(&options.dir).ok().map(|pkg| pkg.id);
+            let Ok(pkg) = load_package(&options.dir) else {
+                return outcome.failed(Phase::Daemon, vec![Problem::message(message)]);
+            };
+            outcome.app = Some(pkg.id.clone());
+            // With no daemon the build still runs: a broken build is the
+            // first thing to fix, and it says so with its own exit code.
+            let plan = build_plan(&pkg, options.build.as_deref(), options.bun.as_deref());
+            if let Err(errors) = build(&pkg, &plan) {
+                return outcome.failed(Phase::Build, errors);
+            }
             return outcome.failed(Phase::Daemon, vec![Problem::message(message)]);
         }
     };
