@@ -254,3 +254,35 @@ python3 scripts/perf-bench/parity_appclock.py report --out DIR --md table.md
 - `chrome_parity.py`, `framewatch.swift`: the Chrome parity bench (`suite=parity`).
 - `parity_appclock.py`, `parity_chrome_cdp.py`: the same rows by the app-clock method (no privacy right).
 - `../measure/perf-bench.sh`: the fleet entry.
+
+## The shared `real` session (`session_real.py`)
+
+One bench session of the size of the person who uses the app (read from his session daemon on
+2026-11-10): 826 workspaces, 858 panes, 1600 tabs, 798 terminals, 170 agents, 13 clients. Every
+bench that has a session-size arm uses this script; the count tests use the same mix rule
+(`SessionFixtureSize.real`). Fleet minis only.
+
+```sh
+S=scripts/perf-bench/session_real.py
+# The saved session of one bench app, made by the bundle's own daemon with no app (1 to 3 minutes):
+python3 $S build --app "/path/cmux DEV <tag>.app" --to /path/saved/<tag>
+# One launch on it: restore time, read-back counts, agents and clients as his, then your steps:
+python3 $S launch --app "/path/cmux DEV <tag>.app" --saved /path/saved/<tag> --out /path/out \
+  --steps "counts,agents,clients:13,measure:--seconds 30,map"
+# Or with your own bench driver: install, launch with BENCH_LAUNCH_KEEP_STATE=1, uninstall.
+python3 $S install --saved /path/saved/<tag> --tag <tag>
+python3 $S agents --app-socket /tmp/cmux-debug-<tag>.sock      # after every restore
+python3 $S clients --app-socket /tmp/cmux-debug-<tag>.sock --total 13 &
+python3 $S uninstall --tag <tag>
+# Or make it live in a running bench app, through its daemon:
+python3 $S make --app-socket /tmp/cmux-debug-<tag>.sock
+```
+
+- A saved session is tied to its tag: the registry names its session `cmux-app-<tag>` and the
+  daemon refuses another one's. A clone of a bench app that keeps the bundle name uses the same one.
+- PTY limit: macOS has `kern.tty.ptmx_max` PTYs for the whole machine (511). The script keeps a
+  shell in the 170 agent terminals and in 30 plain ones and parks the other 598 (`park-tabs`: the
+  tab stays, its shell starts when its workspace shows). It says so and never makes fewer silently.
+- An agent is not a model session: `session_real_agent.zsh` draws like an agent TUI and reports
+  through the hook helper (`$CMUX_TUI_HOOK claude <event>`), so the daemon lists 170 agents.
+- `build` starts 200 shells in a minute: on a bench host run it only inside your own GUI hold.

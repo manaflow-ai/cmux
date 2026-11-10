@@ -1029,7 +1029,8 @@ def launch(args):
         result["model_loaded_s"], result["app_counts_at_load"] = loaded_at, seen
         try:
             marks = app_rpc(app.socket, "debug.timings", timeout=60) or {}
-            result["launch_marks_ms"] = marks.get("launch") or marks.get("launch_marks") or {k: v for k, v in marks.items() if "launch" in k}
+            result["launch_marks_ms"] = marks.get("launch_ms_since_process_start")
+            result["launch_terminals_frame_shown_max_ms"] = marks.get("launch_terminals_frame_shown_max_ms")
         except (RuntimeError, OSError, ValueError) as error:
             result["launch_marks_ms"] = {"error": str(error)}
         if loaded_at is None:
@@ -1068,11 +1069,11 @@ def launch(args):
         began = time.monotonic()
         app.stop(quit_timeout=args.quit_timeout)
         result["quit_s"] = round(time.monotonic() - began, 1)
-        if args.saved and not args.keep_installed:
-            uninstall(argparse.Namespace(tag=tag, home=None))
         with open(os.path.join(args.out, "launch.json"), "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=1)
         print("SESSION-REAL-LAUNCH-END " + json.dumps({k: result.get(k) for k in ("window_and_socket_s", "model_loaded_s", "quit_s", "steps")}), flush=True)
+        if args.saved and not args.keep_installed:
+            uninstall(argparse.Namespace(tag=tag, home=None))
 
 
 def tag_of_app(app):
