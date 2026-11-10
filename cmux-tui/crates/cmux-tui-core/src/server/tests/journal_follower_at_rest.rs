@@ -94,6 +94,15 @@ fn session_with_an_agent_at_rest() -> (Arc<Mux>, String) {
     (mux, terminal)
 }
 
+/// The `journal_followers` section of `server-stats`.
+fn follower_stats(mux: &Arc<Mux>) -> Value {
+    let client = mux.control_clients.register(ClientTransport::Unix, test_writer());
+    let include = Some(vec!["journal_followers".to_string()]);
+    let stats =
+        handle_command(mux, client, Command::ServerStats { include }, &test_writer()).unwrap();
+    stats["journal_followers"].clone()
+}
+
 /// Opens a live journal stream with `filter` on a new local client.
 fn follow_live(mux: &Arc<Mux>, stream: &str, filter: Value) {
     let (writer, outbound) = captured_writer();
@@ -228,4 +237,60 @@ fn the_follower_grace_runs_from_the_daemon_start() {
     );
     mux.pass_journal_follower_grace_for_test();
     assert_eq!(rows_of_three_tool_reports(&mux, &terminal), 0, "after the grace: no row");
+}
+
+/// `server-stats` with `include: ["journal_followers"]` names each live
+/// follower, its filter and whether it keeps the rows; without the name the
+/// section is absent.
+#[test]
+fn server_stats_lists_the_journal_followers_and_what_keeps_the_rows() {
+    let (mux, _terminal) = session_with_an_agent_at_rest();
+    let client = mux.control_clients.register(ClientTransport::Unix, test_writer());
+    let plain =
+        handle_command(&mux, client, Command::ServerStats { include: None }, &test_writer())
+            .unwrap();
+    assert!(plain.get("journal_followers").is_none(), "{plain}");
+
+    let none = follower_stats(&mux);
+    assert_eq!(none["followers"], json!([]), "{none}");
+    assert_eq!(none["hook_rows_kept"], false, "{none}");
+    assert_eq!(none["report_rows_kept"], false, "{none}");
+    assert_eq!(none["keep_all_ms"], 0, "{none}");
+    assert_eq!(none["grace_ms"], 120_000, "{none}");
+
+    let quiet = "stream_00000000000000000000000000000b31";
+    follow_live(&mux, quiet, json!({"kinds":["agent.*", "terminal.exited"]}));
+    let keeper = "stream_00000000000000000000000000000b32";
+    follow_live(
+        &mux,
+        keeper,
+        journal_subscription_filter(JournalSensitivity::Sensitive, json!({"kinds":["agent.*"]})),
+    );
+    let stats = follower_stats(&mux);
+    let followers = stats["followers"].as_array().unwrap();
+    assert_eq!(followers.len(), 2, "{stats}");
+    let of = |stream: &str| {
+        followers
+            .iter()
+            .find(|follower| follower["stream_id"] == stream)
+            .unwrap_or_else(|| panic!("{stream} is not listed: {stats}"))
+    };
+    assert_eq!(of(quiet)["kinds"], json!(["agent.*", "terminal.exited"]), "{stats}");
+    assert_eq!(of(quiet)["max_sensitivity"], "metadata", "{stats}");
+    assert_eq!(of(quiet)["keeps_hook_rows"], false, "{stats}");
+    assert_eq!(of(quiet)["keeps_report_rows"], false, "{stats}");
+    assert_eq!(of(quiet)["remote"], false, "{stats}");
+    assert!(of(quiet)["left_ms"].is_null(), "{stats}");
+    assert_eq!(of(keeper)["kinds"], json!(["agent.*"]), "{stats}");
+    assert_eq!(of(keeper)["max_sensitivity"], "sensitive", "{stats}");
+    assert_eq!(of(keeper)["keeps_hook_rows"], true, "{stats}");
+    assert_eq!(of(keeper)["keeps_report_rows"], true, "{stats}");
+    assert_eq!(stats["hook_rows_kept"], true, "{stats}");
+    assert_eq!(stats["report_rows_kept"], true, "{stats}");
+    assert_eq!(stats["journal_hook_keeps_rows"], false, "{stats}");
+
+    mux.mark_server_lifecycle_ready();
+    let started = follower_stats(&mux);
+    let keep_all = started["keep_all_ms"].as_u64().unwrap_or(0);
+    assert!(keep_all > 0 && keep_all <= 120_000, "{started}");
 }

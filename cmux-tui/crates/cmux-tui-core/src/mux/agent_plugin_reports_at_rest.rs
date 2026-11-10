@@ -27,7 +27,7 @@
 //!   to the journal, or the roster has not folded every row asked of it;
 //! - after a row of the terminal whose result is not known;
 //! - while a journal hook or a live journal follower reads the kind or
-//!   `agent.report` (`Mux::journal_reader_keeps_agent_rows`).
+//!   `agent.report` (`Mux::journal_reader_keeps_plugin_rows`).
 //!
 //! What a reader sees change: the entry's `updated_at_ms` stays at the first
 //! report of the state while the state holds. Its `since_ms`, state, source
@@ -113,7 +113,7 @@ impl Mux {
         idempotency_key: &str,
     ) -> Option<crate::JournalAppendCommit> {
         let terminal = plugin_report_terminal(ingress)?;
-        if self.journal_reader_keeps_agent_rows() {
+        if self.journal_reader_keeps_plugin_rows(ingress) {
             return None;
         }
         // Held through the roster read: a report of this terminal that is

@@ -30,7 +30,8 @@ use terminal_host_records::{
     terminate_discovered_terminal_host_in,
 };
 mod detached_terminals;
-pub(crate) use agent_hooks_at_rest::JournalRowFollower;
+pub(crate) use agent_hooks_at_rest::{JournalFollowerFilter, JournalRowFollower};
+pub use agent_hooks_at_rest::{JournalFollowerSnapshot, JournalFollowersSnapshot};
 pub(crate) use detached_terminals::DetachedTerminalSpawn;
 mod terminal_runtime_index;
 use terminal_runtime_index::{

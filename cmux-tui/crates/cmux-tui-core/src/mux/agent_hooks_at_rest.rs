@@ -30,10 +30,15 @@
 //!   (the row keeps its place in their order);
 //! - while an enabled journal hook's kind filter matches
 //!   `agent.state.changed`: that hook is delivered every row;
-//! - while a client follows the journal live with a kind filter that matches
-//!   it (chatmux-relay's forwarder subscribes to `agent.*`), and for
-//!   [`FOLLOWER_GRACE`] after the last one left: a follower reads the journal
-//!   and nothing else. A bounded read (`follow: false`) does not count;
+//! - while a client follows the journal live with a filter that lets the row
+//!   through (chatmux-relay's forwarder subscribes to `agent.*` at the
+//!   `sensitive` limit), for [`FOLLOWER_GRACE`] after the last one left, and
+//!   for the same time after the daemon became ready (a follower of the last
+//!   run comes back with its cursor): a follower reads the journal and
+//!   nothing else. A bounded read (`follow: false`) does not count, and
+//!   neither does a follower whose sensitivity limit is below the row's
+//!   (the default limit is `metadata`, and a remote client has no other): it
+//!   is never sent the row;
 //! - after a row of the terminal whose result is not known (its append
 //!   failed or timed out, or it was a retry the registry answered): the
 //!   table no longer knows what the journal holds;
@@ -56,12 +61,18 @@ const MAX_SUBJECT_LISTS: usize = 512;
 /// from a new report.
 const MAX_RECENT_KEYS: usize = 64;
 /// How long every report stays a row after the last live journal follower
-/// of the kind left. A follower that lost its connection comes back with its
-/// cursor and must find the rows of the gap: chatmux-relay's forwarder
-/// reconnects within its 30 s backoff limit plus its 15 s socket scan. A
-/// follower that left for good (one `cmux session journal subscribe` in a
-/// shell) costs rows for this long, not until the daemon restarts.
+/// of the kind left, and after the daemon became ready. A follower that lost
+/// its connection (or its daemon, at a restart) comes back with its cursor
+/// and must find the rows of the gap: chatmux-relay's forwarder reconnects
+/// within its 30 s backoff limit plus its 15 s socket scan. A follower that
+/// left for good (one `cmux session journal subscribe` in a shell) costs rows
+/// for this long, not until the daemon restarts.
 const FOLLOWER_GRACE: Duration = Duration::from_secs(120);
+/// The sensitivity of every row this module and
+/// `agent_plugin_reports_at_rest.rs` leave out, but a plugin's own row: the
+/// hook producer's events and the `agent.report` projection row are
+/// `sensitive`. A stream with a lower limit is never sent one.
+const AT_REST_SENSITIVITY: crate::JournalSensitivity = crate::JournalSensitivity::Sensitive;
 
 /// What the journal already holds of the agent session in one terminal.
 #[derive(Debug)]
@@ -178,28 +189,159 @@ impl StoredHookFacts {
     }
 }
 
-/// The clients that follow the journal live with a kind filter that matches
-/// `agent.state.changed`.
-#[derive(Debug, Default)]
-struct JournalRowFollowers {
-    live: usize,
-    /// When the last one left; `None` while none ever followed.
-    last_left: Option<Instant>,
+/// Followers that left and are still inside their grace, at most. Past it
+/// (a client that opens and closes streams in a loop) they fold into
+/// `keep_all_until`: every row is kept until the last of them is out.
+const MAX_LEFT_FOLLOWERS: usize = 64;
+
+/// Whether a stream's filter lets through a record of a kind at a
+/// sensitivity (`JournalStreamFilter::may_send`). The other filters
+/// (subjects, classes, a regex) are not asked: they can only keep fewer rows.
+type RowGate = Box<dyn Fn(&str, crate::JournalSensitivity) -> bool + Send + Sync>;
+
+/// What one live journal stream asked for, for the follower diagnostic.
+#[derive(Clone, Debug)]
+pub(crate) struct JournalFollowerFilter {
+    pub(crate) client: u64,
+    pub(crate) stream_id: String,
+    /// The client is not on the local socket: its limit is `metadata`.
+    pub(crate) remote: bool,
+    /// The kind filter as sent (`agent.*`); empty for every kind.
+    pub(crate) kinds: Vec<String>,
+    /// `None`: no limit.
+    pub(crate) max_sensitivity: Option<crate::JournalSensitivity>,
 }
 
-/// One live journal stream that is sent `agent.state.changed` rows. While it
-/// lives, and for [`FOLLOWER_GRACE`] after, every hook report is a row.
+struct Follower {
+    filter: JournalFollowerFilter,
+    since: Instant,
+    /// When its stream ended; it can come back with its cursor until the
+    /// grace is over.
+    left: Option<Instant>,
+    reads: RowGate,
+}
+
+impl Follower {
+    fn in_grace(&self, now: Instant) -> bool {
+        self.left.is_none_or(|left| now.saturating_duration_since(left) < FOLLOWER_GRACE)
+    }
+}
+
+/// The clients that follow the journal live, and those that left less than
+/// [`FOLLOWER_GRACE`] ago. A row left out at rest is appended while one of
+/// them is sent rows of its kind and sensitivity.
+#[derive(Default)]
+struct JournalRowFollowers {
+    next_id: u64,
+    followers: HashMap<u64, Follower>,
+    /// Every row is kept until here, whatever its kind: the grace after the
+    /// daemon became ready (a follower of the last run comes back with a
+    /// saved cursor, and its filter is not known), or after more followers
+    /// left than the table holds.
+    keep_all_until: Option<Instant>,
+}
+
+impl std::fmt::Debug for JournalRowFollowers {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("JournalRowFollowers")
+            .field("followers", &self.followers.len())
+            .field("keep_all_until", &self.keep_all_until)
+            .finish()
+    }
+}
+
+impl JournalRowFollowers {
+    /// Whether a follower is sent a row of `kind` at `sensitivity` at `now`.
+    fn reads(&self, kind: &str, sensitivity: crate::JournalSensitivity, now: Instant) -> bool {
+        self.keeps_all(now)
+            || self
+                .followers
+                .values()
+                .any(|follower| follower.in_grace(now) && (follower.reads)(kind, sensitivity))
+    }
+
+    fn keeps_all(&self, now: Instant) -> bool {
+        self.keep_all_until.is_some_and(|until| now < until)
+    }
+
+    fn keep_all_until(&mut self, until: Instant) {
+        self.keep_all_until = Some(self.keep_all_until.map_or(until, |kept| kept.max(until)));
+    }
+
+    /// Drops the followers whose grace is over, and folds the ones that left
+    /// into `keep_all_until` when there are too many.
+    fn prune(&mut self, now: Instant) {
+        self.followers.retain(|_, follower| follower.in_grace(now));
+        let left = self.followers.values().filter_map(|follower| follower.left);
+        if left.clone().count() <= MAX_LEFT_FOLLOWERS {
+            return;
+        }
+        if let Some(last) = left.max() {
+            self.keep_all_until(last + FOLLOWER_GRACE);
+        }
+        self.followers.retain(|_, follower| follower.left.is_none());
+    }
+}
+
+/// One live journal stream, counted as a journal follower for its life and
+/// for [`FOLLOWER_GRACE`] after.
 #[derive(Debug)]
 pub(crate) struct JournalRowFollower {
     followers: Arc<Mutex<JournalRowFollowers>>,
+    id: u64,
 }
 
 impl Drop for JournalRowFollower {
     fn drop(&mut self) {
         let mut followers = self.followers.lock().unwrap_or_else(PoisonError::into_inner);
-        followers.live = followers.live.saturating_sub(1);
-        followers.last_left = Some(Instant::now());
+        let now = Instant::now();
+        if let Some(follower) = followers.followers.get_mut(&self.id) {
+            follower.left = Some(now);
+        }
+        followers.prune(now);
     }
+}
+
+/// One journal follower in [`JournalFollowersSnapshot`].
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct JournalFollowerSnapshot {
+    pub client: u64,
+    pub stream_id: String,
+    pub remote: bool,
+    /// The kind filter as sent; empty for every kind.
+    pub kinds: Vec<String>,
+    /// `None`: no limit.
+    pub max_sensitivity: Option<crate::JournalSensitivity>,
+    pub connected_ms: u64,
+    /// `None` while the stream is live; else how long ago it ended (it still
+    /// keeps rows until the grace is over).
+    pub left_ms: Option<u64>,
+    /// It is sent the hook rows (`agent.state.changed`, `sensitive`), so
+    /// every hook report is a row.
+    pub keeps_hook_rows: bool,
+    /// It is sent `agent.report` rows, so every plugin report is a row.
+    pub keeps_report_rows: bool,
+}
+
+/// The `journal_followers` section of `server-stats`: who follows the journal
+/// live, and why a report that changes nothing is still a row.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct JournalFollowersSnapshot {
+    pub grace_ms: u64,
+    /// What is left of the time in which every row is kept, whatever its
+    /// kind (after the daemon became ready); 0 when it is over.
+    pub keep_all_ms: u64,
+    /// An enabled journal hook's kind filter matches a row left out at rest.
+    /// `None`: not read since the daemon started or the hooks changed (the
+    /// next report reads it; this section never reads the registry).
+    pub journal_hook_keeps_rows: Option<bool>,
+    /// Every hook report is a row now.
+    pub hook_rows_kept: bool,
+    /// Every plugin report is a row now (a follower of the plugin's own kind
+    /// keeps them too; it shows in `followers` with its `kinds`).
+    pub report_rows_kept: bool,
+    pub followers: Vec<JournalFollowerSnapshot>,
 }
 
 /// Which agent sessions the journal holds, per terminal, and whether a
@@ -234,14 +376,8 @@ impl AgentHooksAtRest {
         self.terminals().len()
     }
 
-    /// Whether a journal follower reads `agent.state.changed` rows at `now`:
-    /// one is connected, or the last one left less than the grace ago.
-    fn journal_follower_reads_rows(&self, now: Instant) -> bool {
-        let followers = self.journal_followers.lock().unwrap_or_else(PoisonError::into_inner);
-        followers.live > 0
-            || followers
-                .last_left
-                .is_some_and(|left| now.saturating_duration_since(left) < FOLLOWER_GRACE)
+    fn followers(&self) -> MutexGuard<'_, JournalRowFollowers> {
+        self.journal_followers.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The installed journal hooks are about to change. Hold the guard
@@ -318,35 +454,98 @@ impl Mux {
         self.agent_hooks_at_rest.slots()
     }
 
-    /// Counts a live journal stream as a reader of `agent.state.changed` rows
-    /// when its kind filter can match them (`matches_kind`). The stream holds
-    /// it for its life: every hook report from here on is a row it can read.
-    pub(crate) fn follow_journal_agent_rows(
+    /// Counts a live journal stream as a journal follower; the stream holds
+    /// the guard for its life. `reads` says whether its filter lets through a
+    /// record of a kind at a sensitivity. From here on, and for
+    /// [`FOLLOWER_GRACE`] after the guard drops, a report whose row it would
+    /// be sent is appended.
+    pub(crate) fn follow_journal(
         &self,
-        matches_kind: impl FnOnce(&str) -> bool,
-    ) -> Option<JournalRowFollower> {
-        if !matches_kind(AT_REST_KIND) {
-            return None;
-        }
-        let followers = self.agent_hooks_at_rest.journal_followers.clone();
-        followers.lock().unwrap_or_else(PoisonError::into_inner).live += 1;
-        Some(JournalRowFollower { followers })
+        filter: JournalFollowerFilter,
+        reads: impl Fn(&str, crate::JournalSensitivity) -> bool + Send + Sync + 'static,
+    ) -> JournalRowFollower {
+        let now = Instant::now();
+        let mut followers = self.agent_hooks_at_rest.followers();
+        followers.prune(now);
+        followers.next_id += 1;
+        let id = followers.next_id;
+        followers
+            .followers
+            .insert(id, Follower { filter, since: now, left: None, reads: Box::new(reads) });
+        JournalRowFollower { followers: self.agent_hooks_at_rest.journal_followers.clone(), id }
     }
 
-    /// Live followers of the at-rest rows.
+    /// The daemon serves from now (`mark_server_lifecycle_ready`). A follower
+    /// of its last run comes back with a saved cursor and must find the rows
+    /// of the gap, and its filter is not known: every report is a row for
+    /// [`FOLLOWER_GRACE`].
+    pub(super) fn start_journal_follower_grace(&self) {
+        self.agent_hooks_at_rest.followers().keep_all_until(Instant::now() + FOLLOWER_GRACE);
+    }
+
+    /// The journal followers and what keeps the rows left out at rest
+    /// (`server-stats`, section `journal_followers`). Memory only: two short
+    /// locks, no registry read.
+    pub fn journal_followers_stats(&self) -> JournalFollowersSnapshot {
+        let journal_hook_keeps_rows = *self
+            .agent_hooks_at_rest
+            .journal_hook_reads_rows
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let hook_keeps_rows = journal_hook_keeps_rows == Some(true);
+        let now = Instant::now();
+        let table = self.agent_hooks_at_rest.followers();
+        let millis = |duration: Duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+        let mut followers = table
+            .followers
+            .values()
+            .filter(|follower| follower.in_grace(now))
+            .map(|follower| JournalFollowerSnapshot {
+                client: follower.filter.client,
+                stream_id: follower.filter.stream_id.clone(),
+                remote: follower.filter.remote,
+                kinds: follower.filter.kinds.clone(),
+                max_sensitivity: follower.filter.max_sensitivity,
+                connected_ms: millis(now.saturating_duration_since(follower.since)),
+                left_ms: follower.left.map(|left| millis(now.saturating_duration_since(left))),
+                keeps_hook_rows: (follower.reads)(AT_REST_KIND, AT_REST_SENSITIVITY),
+                keeps_report_rows: (follower.reads)(REPORT_KIND, AT_REST_SENSITIVITY),
+            })
+            .collect::<Vec<_>>();
+        followers.sort_by(|a, b| (a.client, &a.stream_id).cmp(&(b.client, &b.stream_id)));
+        JournalFollowersSnapshot {
+            grace_ms: millis(FOLLOWER_GRACE),
+            keep_all_ms: table
+                .keep_all_until
+                .map_or(0, |until| millis(until.saturating_duration_since(now))),
+            journal_hook_keeps_rows,
+            hook_rows_kept: hook_keeps_rows || table.reads(AT_REST_KIND, AT_REST_SENSITIVITY, now),
+            report_rows_kept: hook_keeps_rows || table.reads(REPORT_KIND, AT_REST_SENSITIVITY, now),
+            followers,
+        }
+    }
+
+    /// Live journal followers.
     #[cfg(all(test, unix))]
     pub(crate) fn journal_row_followers_for_test(&self) -> usize {
-        let followers = &self.agent_hooks_at_rest.journal_followers;
-        followers.lock().unwrap_or_else(PoisonError::into_inner).live
+        let followers = self.agent_hooks_at_rest.followers();
+        followers.followers.values().filter(|follower| follower.left.is_none()).count()
     }
 
-    /// Makes the last follower's leave [`FOLLOWER_GRACE`] older, as if that
-    /// time passed.
+    /// Makes each follower's leave and the start of the daemon's grace
+    /// [`FOLLOWER_GRACE`] older, as if that time passed.
     #[cfg(all(test, unix))]
     pub(crate) fn pass_journal_follower_grace_for_test(&self) {
-        let followers = &self.agent_hooks_at_rest.journal_followers;
-        let mut followers = followers.lock().unwrap_or_else(PoisonError::into_inner);
-        followers.last_left = followers.last_left.and_then(|left| left.checked_sub(FOLLOWER_GRACE));
+        let mut followers = self.agent_hooks_at_rest.followers();
+        followers.keep_all_until =
+            followers.keep_all_until.and_then(|until| until.checked_sub(FOLLOWER_GRACE));
+        followers.followers.retain(|_, follower| match follower.left {
+            None => true,
+            Some(left) => {
+                follower.left = left.checked_sub(FOLLOWER_GRACE);
+                follower.left.is_some()
+            }
+        });
     }
 
     /// The answer to a hook report that changes no durable state, with its
@@ -369,7 +568,8 @@ impl Mux {
         {
             return None;
         }
-        if self.journal_reader_keeps_agent_rows() {
+        let sensitivity = ingress.sensitivity.unwrap_or(AT_REST_SENSITIVITY);
+        if self.journal_reader_keeps_row(AT_REST_KIND, sensitivity) {
             return None;
         }
         // Held through the presence change: a later row of this terminal (a
@@ -398,13 +598,31 @@ impl Mux {
         Some(commit)
     }
 
-    /// Whether a journal hook or a journal follower reads the rows left out
-    /// at rest (module doc): an enabled hook's kind filter matches one, a
-    /// matching follower is connected, or the last one left less than
-    /// [`FOLLOWER_GRACE`] ago. While it does, every report is a row.
-    pub(super) fn journal_reader_keeps_agent_rows(&self) -> bool {
+    /// Whether a journal hook or a journal follower reads a row of `kind` at
+    /// `sensitivity` that would be left out at rest (module doc): an enabled
+    /// hook's kind filter matches a kind left out at rest, a follower that is
+    /// sent the row is connected or left less than [`FOLLOWER_GRACE`] ago, or
+    /// the daemon became ready less than that ago. While it does, the report
+    /// is a row.
+    pub(super) fn journal_reader_keeps_row(
+        &self,
+        kind: &str,
+        sensitivity: crate::JournalSensitivity,
+    ) -> bool {
         self.journal_hook_reads_at_rest_rows()
-            || self.agent_hooks_at_rest.journal_follower_reads_rows(Instant::now())
+            || self.agent_hooks_at_rest.followers().reads(kind, sensitivity, Instant::now())
+    }
+
+    /// The same for the two rows of a plugin report that repeats the roster
+    /// (`agent_plugin_reports_at_rest.rs`): the plugin's own row, and the
+    /// `agent.report` projection row (always `sensitive`). The plugin's
+    /// manifest sets the sensitivity of its own row when the report names
+    /// none; it is not read here, so the lowest one stands for it: a follower
+    /// of the kind keeps the row at any limit.
+    pub(super) fn journal_reader_keeps_plugin_rows(&self, ingress: &crate::JournalIngress) -> bool {
+        let own = ingress.sensitivity.unwrap_or(crate::JournalSensitivity::Public);
+        self.journal_reader_keeps_row(&ingress.kind, own)
+            || self.journal_reader_keeps_row(REPORT_KIND, AT_REST_SENSITIVITY)
     }
 
     /// The projection of a journal row of the hook producer failed and waits

@@ -253,7 +253,33 @@ fn equal_plugin_refreshes_are_rows_while_a_journal_follower_reads_them() {
     let (mux, agents) = session_with_a_visible_dialog(1, &root);
     let agent = &agents[0];
 
-    let follower = mux.follow_journal_agent_rows(|_kind| true).expect("the follower is counted");
+    // A follower that is never sent the plugin's rows keeps none.
+    let stream = |kinds: &[&str]| crate::mux::JournalFollowerFilter {
+        client: 0,
+        stream_id: "stream_test".into(),
+        remote: false,
+        kinds: kinds.iter().map(|kind| kind.to_string()).collect(),
+        max_sensitivity: Some(crate::JournalSensitivity::Metadata),
+    };
+    let other =
+        mux.follow_journal(stream(&["terminal.*"]), |kind, _| kind.starts_with("terminal."));
+    let before = written(&mux);
+    tick();
+    let answer = screen(&mux, agent, "blocked", 1);
+    assert!(answer.replayed, "a follower of terminal.* reads no plugin row: {answer:?}");
+    assert_eq!(written(&mux), before);
+    // `agent.report` is sensitive: a follower at the metadata limit is never
+    // sent it, and it does not ask for the plugin's kind.
+    let low = mux.follow_journal(stream(&["agent.report"]), |kind, sensitivity| {
+        kind == "agent.report" && sensitivity != crate::JournalSensitivity::Sensitive
+    });
+    tick();
+    let answer = screen(&mux, agent, "blocked", 1);
+    assert!(answer.replayed, "agent.report at the metadata limit reads no row: {answer:?}");
+    assert_eq!(written(&mux), before);
+    drop((other, low));
+
+    let follower = mux.follow_journal(stream(&["agent.report"]), |kind, _| kind == "agent.report");
     let before = written(&mux);
     for _ in 0..3 {
         tick();
