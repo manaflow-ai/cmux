@@ -983,9 +983,7 @@ impl Session {
             (_, Some(dir)) => PathBuf::from(dir),
             (Some(dir), None) => dir.clone(),
             (None, None) => {
-                return Err(Ok(
-                    "this cmux does not say where it loads local apps from (it is older than cmux ext dev, or has no state folder); update cmux".into(),
-                ));
+                return Err(Ok(super::no_local_dir(self.daemon.socket.as_deref())));
             }
         };
         self.local_dir = Some(local_dir.clone());

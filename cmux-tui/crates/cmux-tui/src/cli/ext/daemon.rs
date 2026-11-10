@@ -51,6 +51,8 @@ pub(super) struct Daemon {
     logs: Vec<Value>,
     /// Print each log line as it comes (`ext dev` without `--once`).
     pub(super) echo_logs: bool,
+    /// The daemon's socket, which a skew error's fix names (`None`: a test's fake daemon).
+    pub(super) socket: Option<std::path::PathBuf>,
 }
 
 impl Daemon {
@@ -64,7 +66,9 @@ impl Daemon {
             .map_err(|error| crate::cli::wire::resolve_failure_message(&error))?;
         let stream = cmux_tui_core::server::connect_session_socket(&socket, derived)
             .map_err(|error| crate::cli::wire::connect_failure(&socket, &error))?;
-        Self::over(stream, sender, wakes).map_err(|error| error.to_string())
+        let mut daemon = Self::over(stream, sender, wakes).map_err(|error| error.to_string())?;
+        daemon.socket = Some(socket);
+        Ok(daemon)
     }
 
     /// The loop over an open stream (tests hand in a fake daemon's socket).
@@ -97,6 +101,7 @@ impl Daemon {
             files_changed: false,
             logs: Vec::new(),
             echo_logs: false,
+            socket: None,
         })
     }
 
