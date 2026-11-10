@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42744789516",
+  "recorded_at": "2026-11-10T02:55:52Z",
+  "reason": "cmux-tui b69eaf50adcc changes the image's cmux-tui (pinned 94ac2da5bb61)",
+  "dry_run": false,
+  "cmux_tui": "b69eaf50adcc702a30dfa55fd7d3e2f6263f15a0",
+  "fixes": [
+    {
+      "sha": "2a2dbe9a91046858980966c8f78c871a4532a6e1",
+      "mergedAt": "2026-11-09T18:23:39-08:00",
+      "subject": "cmux chat --repo: @BRANCH reuses a clone on that branch (#40047) (#40054)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T02:55:52Z",
+    "snapshot_id": "sh-9da9993cf25447d8a62700cd54fb0726",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42744789516): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "de96015000a6240d2ebf42ff0e56c22b890019e5",
+    "image": "cloud-native-auto-b69eaf50-42744789516-1",
+    "revision": "ci-42744789516-1",
+    "at": "2026-11-10T02:55:52Z"
+  },
+  "rolled_back": false
+}
