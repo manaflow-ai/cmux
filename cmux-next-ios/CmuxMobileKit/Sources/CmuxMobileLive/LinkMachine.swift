@@ -32,6 +32,11 @@ public struct LinkMachine: Sendable {
         case connected(TransportKind, LinkPathKind, rttMillis: UInt32?)
         /// The last dial or link failed; the next dial is scheduled.
         case waiting(TransportKind, attempt: Int, reason: String, retryIn: Duration)
+        /// The account's session was revoked: the cmux service refused even a
+        /// freshly minted token. Nothing redials (a retry cannot succeed); the
+        /// person is asked to sign in again. Only a new target (none, after
+        /// sign-out) leaves it.
+        case signedOut
     }
 
     public enum Event: Equatable, Sendable {
@@ -67,6 +72,9 @@ public struct LinkMachine: Sendable {
         /// one, as for `macSignaled`. A live link roams in place (the dialer's
         /// `networkChanged`), so it is left alone.
         case networkChanged
+        /// The dial of `generation` failed because the account's session was
+        /// revoked (``Phase/signedOut``).
+        case signedOut(generation: Int)
     }
 
     public enum Effect: Equatable, Sendable {
@@ -103,7 +111,15 @@ public struct LinkMachine: Sendable {
     }
 
     public mutating func handle(_ event: Event) -> [Effect] {
+        if case .signedOut = phase {
+            // Terminal: no dial, probe or retry until the target goes (sign-out).
+            if case .target(let next) = event, next == nil { target = nil; return reset(to: .idle) }
+            return []
+        }
         switch event {
+        case .signedOut(let gen):
+            guard gen == generation else { return [] }
+            return reset(to: .signedOut)
         case .background:
             isBackgrounded = true
             return []
@@ -206,7 +222,7 @@ public struct LinkMachine: Sendable {
     private var isActive: Bool {
         switch phase {
         case .connecting, .connected, .waiting: true
-        case .idle, .macOffline: false
+        case .idle, .macOffline, .signedOut: false
         }
     }
 
@@ -249,7 +265,7 @@ extension LinkMachine.Phase {
     public func showsTerminalsOffline(notConnectedFor down: Duration) -> Bool {
         switch self {
         case .idle, .connected: false
-        case .macOffline: true
+        case .macOffline, .signedOut: true
         case .waiting(_, _, let reason, _) where reason == LinkController.reason(LinkError(code: "offline", message: "")): true
         // A first dial gets longer (a slow connect is not a dead Mac), but
         // never unbounded: one after a lost link can wait out its whole dial
@@ -266,6 +282,7 @@ extension LinkMachine.Phase {
         switch self {
         case .idle: nil
         case .macOffline: "Offline"
+        case .signedOut: "Signed out"
         case .connecting: "Reconnecting…"
         case .connected: "Connected"
         case .waiting(_, _, let reason, _):
@@ -280,6 +297,7 @@ extension LinkMachine.Phase {
         switch self {
         case .idle: nil
         case .macOffline: "\(macName) is offline"
+        case .signedOut: "This device was signed out (the cmux service refused a fresh token)"
         case .connecting(let transport, let attempt):
             "\(transport.displayName) connecting · attempt \(attempt)"
         case .connected(let transport, let path, let rtt):

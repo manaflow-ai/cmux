@@ -201,6 +201,41 @@ import Testing
         guard case .connecting = machine.phase else { Issue.record("expected connecting"); return }
     }
 
+    /// A revoked session (the service refused a token minted fresh for the
+    /// dial) stops every redial: no retry, foreground, signal or network
+    /// event dials again, and the status says "Signed out", never
+    /// "Reconnecting…". Only sign-out (no target) leaves it.
+    @Test func aRevokedSessionStopsRedialingAndSaysSignedOut() {
+        var machine = LinkMachine(transport: .webRTC)
+        _ = machine.handle(.target(mac))
+        #expect(machine.handle(.signedOut(generation: 1)) == [])
+        #expect(machine.phase == .signedOut)
+        #expect(machine.phase.statusLine(macName: "Studio") == "Signed out")
+        for event: LinkMachine.Event in [.retryDue(generation: 2), .foreground, .resume, .macSignaled,
+                                         .networkChanged, .target(mac), .transport(.wireGuard),
+                                         .dialFailed(generation: 2, reason: "x")] {
+            #expect(machine.handle(event) == [], "\(event) dialed a signed-out session")
+        }
+        #expect(machine.phase == .signedOut)
+        _ = machine.handle(.target(nil))
+        #expect(machine.phase == .idle)
+        // A late result for an older dial changes nothing.
+        var other = LinkMachine(transport: .webRTC)
+        _ = other.handle(.target(mac))
+        _ = other.handle(.transport(.wireGuard))
+        #expect(other.handle(.signedOut(generation: 1)) == [])
+        guard case .connecting = other.phase else { Issue.record("a stale revoke ended a live dial"); return }
+    }
+
+    @Test func onlyARefusedFreshTokenIsARevokedSession() {
+        let refused = LiveAPI.Failure(status: 401, code: "unauthorized", message: "refresh token revoked")
+        #expect(LinkController.sessionRevoked(refused, afterRefresh: true))
+        // The first 401 may be an expired token: it refreshes and redials.
+        #expect(!LinkController.sessionRevoked(refused, afterRefresh: false))
+        #expect(!LinkController.sessionRevoked(LiveAPI.Failure(status: 503, code: "x", message: ""), afterRefresh: true))
+        #expect(!LinkController.sessionRevoked(LinkError(code: "timeout", message: ""), afterRefresh: true))
+    }
+
     /// termfix-r13 D4 (T-LIFE-13: offline label ≤ 5 s): terminals say the Mac
     /// is offline at once when presence says so, and after a bounded time
     /// when the link just cannot be brought back; never while connected.
