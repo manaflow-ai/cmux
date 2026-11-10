@@ -180,19 +180,17 @@ fn a_long_turn_stays_current_in_history(workspaces: usize) {
     while now_ms + REPORT_GAP_MS <= end_ms {
         now_ms += REPORT_GAP_MS;
         mux.set_agent_activity_clock_for_test(now_ms);
-        let event = if round.is_multiple_of(2) { "PreToolUse" } else { "PostToolUse" };
         for (index, agent) in agents.iter().enumerate() {
+            // Each agent starts a tool call in one round and completes it in
+            // the next. Neighbours are half a call apart, so the report that
+            // comes right after an activity row is a completed call: no wait
+            // for the roster's owner here, the row must not make that report
+            // (or any other) a journal row.
+            let event =
+                if (round + index).is_multiple_of(2) { "PreToolUse" } else { "PostToolUse" };
             let tool = json!({ "tool_name": "Read", "tool_input": { "file_path": "/a.rs" } });
             let answer = send_at(&mux, agent, event, tool, now_ms);
             assert!(answer.sequence > 0, "the hook's caller gets a receipt: {answer:?}");
-            // A round's first report can be the one that writes the activity
-            // row. The roster's owner folds each agent row (milliseconds in a
-            // daemon); until it did, a completed tool call is appended, not
-            // answered at rest (`tool_completion_may_resume_agent`). The next
-            // report here comes 30 simulated seconds later, so let it finish.
-            if index == 0 {
-                assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
-            }
         }
         round += 1;
     }
