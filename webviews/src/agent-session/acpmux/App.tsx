@@ -524,7 +524,7 @@ import {
   type CloudStartProgress,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
-import { cloudStartCarry, cloudStartCarrySource, type CloudStartDraft } from "./cloudStartCarry";
+import { cloudStartCarry, cloudStartCarrySource, draftIsEmpty, type CloudStartDraft } from "./cloudStartCarry";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import {
   registerChatDisplayHost,
@@ -4528,10 +4528,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudCarrySource] = useState(() => cloudStartCarrySource(cloudStartCarry()));
   /// The chat composer's draft as a composer start sent it: at a stall it is taken out of the box.
   const cloudSentDraft = useRef<CloudStartDraft | undefined>(undefined);
-  const cloudStalledKey = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (cloudStart?.state !== "starting" || !cloudStart.stalled || cloudStalledKey.current === cloudStart.key) return;
-    cloudStalledKey.current = cloudStart.key;
+    // Once per attempt (cloudStartCarrySource `stalled`).
+    if (cloudStart?.state !== "starting" || !cloudStart.stalled) return;
     const handle = composerHandle.current;
     const held = cloudCarrySource.stalled(
       cloudStart.key,
@@ -4632,6 +4631,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return beginCloudSend(resumed, true, expected);
     };
     lastCloudAttempt.current = { key, request };
+    // Each attempt stalls on its own: a retry under the same key carries again what is typed after it.
+    cloudCarrySource.begin(key);
     cloudStartPending.current = true;
     if (signingIn) cloudSignInPending.current = true;
     if (fromPage) {
@@ -4712,7 +4713,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     newTabCloudSent.current = false;
     cloudCarrySource.reset();
     cloudSentDraft.current = undefined;
-    cloudStalledKey.current = undefined;
     cloudDraftMachineID.current = undefined;
     cloudTypingPrewarm.reset();
     const view = { ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}), generation: newTabGeneration };
@@ -7384,7 +7384,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           !reconnect && typeof host.cloudStartKey === "string" && host.cloudStartKey
             ? cloudStartCarry().take(host.cloudStartKey)
             : undefined;
-        if (carried) restoreComposerDraft(composerHandle, heldBack, carried.text, carried.attachments);
+        if (carried && !draftIsEmpty(carried))
+          restoreComposerDraft(composerHandle, heldBack, carried.text, carried.attachments);
+        // A chip that only named a file on that Mac stayed there: say so, never drop it silently.
+        if (carried?.left) notices.transient(translate("cloudStart.carryLeftFiles", { count: carried.left }));
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
         // New Cloud Chat from the palette opened this tab: it picks Cloud, as the Where menu's Cloud row does.
