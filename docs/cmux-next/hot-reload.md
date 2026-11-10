@@ -482,7 +482,11 @@ what feat-cmux-next published for SHA and diffs it against the app's `CMUXCommit
   `completion.json`, replaces the app's `bin/cmux`. The app's daemon then hands off to it as in
   `cmux live start --rust`: same app pid, terminals kept. `bin/cmux` is also `cmux-tui` and `acpmux`,
   so `cmux link`, the CLI in the app's terminals and acpmux daemons started after the swap run SHA's
-  build. A running acpmux daemon keeps its build until it restarts (`--acpmux-home H` restarts one).
+  build. A running acpmux daemon keeps its build until it restarts: `--restart-acpmux` restarts every
+  acpmux daemon running from the app's bin folder (each found by its socket's `daemon status`), so the
+  agent daemon swaps too, its hosted sessions kept, and checks each answers from a new pid;
+  `--acpmux-home H` restarts one by its home. Without either, the receipt lists the acpmux daemons
+  left on the old build (`acpmux_left_on_old_build`), and `rollback` restarts the ones it restarted.
 - **Web:** SHA's published web bundles go into the app's web overlay, as long as SHA's web ABI is
   the app's.
 - **Neither:** Swift, resources, Rust the app links through FFI, and helpers such as

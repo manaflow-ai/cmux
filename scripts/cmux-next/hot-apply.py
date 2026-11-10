@@ -3,6 +3,7 @@
 
     hot-apply.py plan SHA [--app APP] [--repo DIR]
     hot-apply.py apply SHA [--app APP] [--repo DIR] [--parts web,rust] [--socket P] [--acpmux-home H]...
+                       [--restart-acpmux]
     hot-apply.py rollback [--app APP] [--socket P]
     hot-apply.py status
 
@@ -25,7 +26,11 @@ with live_apply.py's rules:
          hands off its own (rust-live.py's Swapper: same app pid, terminals kept). bin/cmux is
          also cmux-tui and acpmux (one multi-call binary), so `cmux link`, the CLI in the app's
          terminals and every acpmux daemon started after it run SHA's build. A running acpmux
-         daemon keeps its build until it restarts: --acpmux-home H restarts the one of H.
+         daemon keeps its build until it restarts: --acpmux-home H restarts the one of H, and
+         --restart-acpmux restarts every acpmux daemon running from the app's bin folder (each
+         `acpmux daemon run` there whose socket's `daemon status` names its pid), so the agent
+         daemon swaps too: `daemon restart` keeps hosted sessions, which resume on the new build.
+         The receipt lists the acpmux daemons left on the old build when it is not given.
   left   what needs a new app: Swift, resources and manifests, Rust the app links, a web ABI
          change, and the helpers the app bundles from cmux-tui crates (cmux-mobile-host; these
          keep the app's build while the daemon part still applies)
@@ -518,16 +523,56 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) 
     return step
 
 
-def restart_acpmux(app: Path, homes: list[str]) -> list[dict]:
+def acpmux_status(app: Path, **where: str) -> dict:
+    """`acpmux daemon status` of one daemon, by ACPMUX_SOCKET or ACPMUX_HOME; {} when none answers."""
+    env = {k: v for k, v in os.environ.items() if k not in ("ACPMUX_SOCKET", "ACPMUX_HOME")}
+    env.update({f"ACPMUX_{k.upper()}": v for k, v in where.items()})
+    try:
+        out = subprocess.run([str(app / BIN / "acpmux"), "--json", "daemon", "status"], capture_output=True,
+                             text=True, env=env, timeout=10).stdout
+        status = json.loads(out or "{}")
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        return {}
+    return status if isinstance(status, dict) else {}
+
+
+def running_acpmux(app: Path) -> list[dict]:
+    """The acpmux daemons running from APP's bin folder: each `acpmux daemon run` there, with the home its
+    socket's `daemon status` names when that status names the same pid (Leo's chief and the app's own)."""
+    found = []
+    for pid in app_pids(app, ("acpmux",)):
+        command = subprocess.run(["ps", "-ww", "-o", "command=", "-p", pid], capture_output=True, text=True).stdout
+        if " daemon run" not in f" {command}":
+            continue  # the CLI, an agent host or an MCP server: not a daemon
+        lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
+        for name in sorted({entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}):
+            status = acpmux_status(app, socket=name)
+            if str(status.get("pid")) == pid and status.get("home"):
+                found.append({"pid": int(pid), "home": str(status["home"]), "build": str(status.get("build", ""))})
+                break
+    return found
+
+
+def restart_acpmux(app: Path, homes: list[str], before: dict[str, int] | None = None) -> list[dict]:
+    """`acpmux daemon restart` in each home (hosted sessions are kept and resume). With BEFORE (home -> the
+    pid that ran), each must answer again from another pid, else it raises."""
     done = []
     for home in homes:
         # ACPMUX_SOCKET wins over ACPMUX_HOME: an inherited one would restart another home's daemon.
         env = {k: v for k, v in os.environ.items() if k != "ACPMUX_SOCKET"}
+        t0 = time.monotonic()
         result = subprocess.run([str(app / BIN / "acpmux"), "daemon", "restart"], capture_output=True, text=True,
                                 env=dict(env, ACPMUX_HOME=home), timeout=60)
         if result.returncode != 0:
             raise RuntimeError(f"acpmux daemon restart ({home}): {(result.stderr or result.stdout).strip()[:300]}")
-        done.append({"home": home, "restarted": True})
+        step = {"home": home, "restarted": True}
+        if before and home in before:
+            now = acpmux_status(app, home=home)
+            step.update(old_pid=before[home], new_pid=now.get("pid"), build=now.get("build"),
+                        seconds=round(time.monotonic() - t0, 3))
+            if not now.get("pid") or now.get("pid") == before[home]:
+                raise RuntimeError(f"acpmux in {home} did not answer from a new daemon after its restart")
+        done.append(step)
     return done
 
 
@@ -648,9 +693,13 @@ def command_apply(args) -> int:
             receipt["steps"]["rust"] = swap_cmux(app, new, want, args.socket, state)
             receipt["steps"]["rust"]["from"] = prior_sha
             receipt["applied"].append("rust")
-            if args.acpmux_home:
-                undo["rust"]["acpmux_homes"] = args.acpmux_home
-                receipt["steps"]["acpmux"] = restart_acpmux(app, args.acpmux_home)
+            daemons = running_acpmux(app) if args.restart_acpmux or not args.acpmux_home else []
+            homes = list(dict.fromkeys(args.acpmux_home + ([d["home"] for d in daemons] if args.restart_acpmux else [])))
+            if homes:
+                undo["rust"]["acpmux_homes"] = homes
+                receipt["steps"]["acpmux"] = restart_acpmux(app, homes, {d["home"]: d["pid"] for d in daemons})
+            elif daemons:  # not asked to restart them: they keep the build they mapped
+                receipt["steps"]["rust"]["acpmux_left_on_old_build"] = daemons
         if "web" in parts:
             undo["web"] = overlay_snapshot(live)
             receipt["steps"]["web"] = apply_web(repo, args.sha, live)
@@ -741,6 +790,8 @@ def main(argv=None) -> int:
             p.add_argument("--binary", help="the cmux binary to swap in, instead of the one published for SHA")
             p.add_argument("--socket")
             p.add_argument("--acpmux-home", action="append", default=[])
+            p.add_argument("--restart-acpmux", action="store_true",
+                           help="also restart every acpmux daemon running from the app's bin folder (sessions resume)")
     p = sub.add_parser("rollback")
     p.add_argument("--app")
     p.add_argument("--socket")
