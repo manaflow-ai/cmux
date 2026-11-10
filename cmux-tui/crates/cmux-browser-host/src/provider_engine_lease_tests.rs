@@ -183,3 +183,45 @@ fn a_sessions_lease_terminal_is_the_callers() {
     let wire = serde_json::to_value(leases(&app, "X").last().cloned().flatten().unwrap()).unwrap();
     assert!(wire.get("terminal").is_none(), "{wire}");
 }
+
+/// #39163 review F1: a screenshot of a tab with typed secrets masks them
+/// through the gate's own host-world `frame.evaluate` (sessions may not send
+/// one). That mask is part of a read: after the agent that drove the tab ends,
+/// a capture session's mask takes no lease, and the next agent acts at once.
+#[test]
+fn a_captures_secret_mask_takes_no_lease_from_the_next_agent() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let agent = session(&provider, "webkit", "s1");
+    agent.call("tab.navigate", &json!({"targetId": "W", "url": "https://b.test/"})).unwrap();
+    agent.end_session();
+    provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
+    assert_eq!(leases(&app, "W").last().unwrap(), &None, "the agent's end clears its lease");
+    let capture = session(&provider, "webkit", "acpmux-turn-shots");
+    let before = leases(&app, "W").len();
+    capture
+        .call("frame.evaluate", &json!({"targetId": "W", "world": "host", "source": "() => 1"}))
+        .unwrap();
+    assert_eq!(leases(&app, "W").len(), before, "the capture's mask changes no lease");
+    let next = session(&provider, "webkit", "s2");
+    next.call("tab.navigate", &json!({"targetId": "W", "url": "https://c.test/"})).unwrap();
+    assert_eq!(leases(&app, "W").last().unwrap().as_ref().unwrap().session, "s2");
+}
+
+/// #39163 review: the gate's host-world focus check runs before every key it
+/// sends. It takes no lease and is not the fresh read a hand back asks for:
+/// after the person hands the tab back, the agent's next key is still refused
+/// until it observes the tab.
+#[test]
+fn a_host_world_check_is_not_the_fresh_read_after_hand_back() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let first = session(&provider, "webkit", "s1");
+    first.call("tab.navigate", &json!({"targetId": "W", "url": "https://b.test/"})).unwrap();
+    app.send(Frame::UserInput { target_id: "W".into() });
+    app.send(Frame::LeaseUser { op: "hand_back".into(), target_id: Some("W".into()), actor: None });
+    provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
+    first
+        .call("frame.evaluate", &json!({"targetId": "W", "world": "host", "source": "() => 1"}))
+        .unwrap();
+    let stale = first.call("input.key", &json!({"targetId": "W"})).unwrap_err();
+    assert_eq!(stale.error_name.as_deref(), Some("stale_after_hand_back"), "{stale}");
+}

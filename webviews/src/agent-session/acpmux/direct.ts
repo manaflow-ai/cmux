@@ -194,6 +194,7 @@ import {
   memoryRowId,
   settleMemoryOffer,
 } from "./conversation/memoryInbox";
+import { readTurnShots, type TurnShotPair } from "./turnChanges/turnShots";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -672,6 +673,9 @@ const MEMORY_INBOX_CAPABILITY = "memory-inbox-v1";
 /// machine opens the chat's side chats there, with `_acpmux/side_chat`.
 const SIDE_CHAT_FEATURE = "side_chat";
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
+/// The capability id an acpmux that keeps a turn's before and after picture of the chat's page names
+/// (`_acpmux/turn_shots`, hub/turn_shots.rs): without it no turn reads its pictures.
+const TURN_SHOTS_CAPABILITY = "turn-shots-v1";
 
 const objectValue = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
@@ -10088,6 +10092,22 @@ export class AcpmuxDirectClient {
     } catch {
       return undefined;
     }
+  }
+  /// Turn `turnId`'s before and after picture of the chat's page, as data URLs
+  /// (`_acpmux/turn_shots`), or undefined when it has none or acpmux keeps none. acpmux answers
+  /// once a pair still being taken is kept or dropped.
+  async turnShots(turnId: string): Promise<TurnShotPair | undefined> {
+    const sessionId = this.selectedSession;
+    if (!sessionId || this.capabilities?.has(TURN_SHOTS_CAPABILITY) !== true) return undefined;
+    // A pair still being taken answers `pending` (acpmux waited 30 s): ask again, at most twice
+    // more, past the longest a turn's two captures take. Still pending, or a failed request, throws:
+    // the cache keeps only a definite answer, so a later draw asks again.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const reply = await this.request("_acpmux/turn_shots", { sessionId, turnId });
+      if (objectValue(reply)?.pending !== true) return readTurnShots(reply);
+    }
+    // l10n-allow: an internal retry signal for TurnShotCache; never shown.
+    throw new Error("turn pictures still being taken");
   }
   async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;

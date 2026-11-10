@@ -158,6 +158,11 @@ pub trait TabSource: Send + Sync {
     fn kept_tabs(&self) -> Vec<String> {
         Vec::new()
     }
+    /// Whether an agent session called on `target_id` while the source knew it, so the app
+    /// already treats it as agent-driven (false when the source does not track it).
+    fn agent_tab(&self, _target_id: &str) -> bool {
+        false
+    }
     /// Installs (or with `None` removes) a session's request filter; false
     /// when the engine cannot filter (the gate then fails closed).
     fn set_request_filter(&self, session: u64, engine: &str, filter: Option<RequestFilter>)

@@ -175,7 +175,13 @@ impl ProviderEngine {
                     if created.contains(&row.target_id) {
                         row.active = current.as_deref() == Some(row.target_id.as_str());
                     }
-                    row.to_json()
+                    let agent = all && provider_session && self.provider.agent_tab(&row.target_id);
+                    let mut json = row.to_json();
+                    // A tab an agent already drove (any session): touching it leaves its page.
+                    if agent {
+                        json.set("agentDriven", Value::Bool(true));
+                    }
+                    json
                 })
                 .collect(),
         )
@@ -328,9 +334,16 @@ impl ProviderEngine {
         // source routed to this session, are neither inputs nor reads: they
         // never take, block or refresh a lease (the session that listens for
         // a tab's dialogs is often not the one that drives it; the source
-        // refuses an answer from a session the event did not go to).
-        let registration =
-            matches!(method, "tab.handleEvents" | "dialog.respond" | "filechooser.respond");
+        // refuses an answer from a session the event did not go to). Nor is a
+        // host-world evaluate, the gate's own (it refuses one from a session):
+        // a screenshot's secret mask and the checks before a key. As an act a
+        // capture took a tab from the next agent (#39163 F1); as a read the
+        // check before a key was the fresh read a hand back asks for, so the
+        // key went through unobserved.
+        let host_world = method == "frame.evaluate"
+            && params.get("world").and_then(Value::as_str) == Some("host");
+        let registration = host_world
+            || matches!(method, "tab.handleEvents" | "dialog.respond" | "filechooser.respond");
         if !reads && !registration {
             let act = LeaseOp::Act { target: target_id.to_owned() };
             self.provider.lease(&act, &self.lease).map_err(|error| lease_refusal(method, error))?;
