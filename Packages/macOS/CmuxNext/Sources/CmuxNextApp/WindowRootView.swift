@@ -182,7 +182,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebarFloat.install(in: self) { [weak self] in self?.applySidebarRail() }
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
-                                           TitlebarBandButton.side, TitlebarToolbarBand.width, Metrics.space2, Metrics.space3,
+                                           TopRowSpacing.buttonSide, TitlebarToolbarBand.width, Metrics.space2, Metrics.space3,
                                            DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0,
@@ -302,21 +302,21 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // as wide as the sidebar's on-screen share: 0 wide, with no gap
         // after the lights, while the sidebar is hidden (cx-uxdr).
         let rowHeight = titlebarStyle == .minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
-        var lightsMaxX: CGFloat = 0
-        var midY = bounds.maxY - rowHeight / 2
+        var (lightsMaxX, lead, midY) = (CGFloat(0), Metrics.space3, bounds.maxY - rowHeight / 2)
         if let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
             (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
-            lightsMaxX = local.maxX
+            // The toggle's glyph sits as far right of the lights as they sit from the window's edge (`TopRowSpacing`).
+            (lightsMaxX, lead) = (local.maxX, TopRowSpacing.leadingGap(lightsInset: min(local.minX, bounds.maxX - local.maxX), glyphWidth: toolbarBand.sidebarToggle.image?.size.width ?? 0))
             midY = WindowTitlebar.topRowLine(in: window).map { bounds.maxY - $0.centerY } ?? local.midY
         }
         let presence = toolbarBandPresence
-        let bandHeight = TitlebarBandButton.side
-        let fullBand = CGRect(x: lightsMaxX + Metrics.space3, y: midY - bandHeight / 2,
+        let bandHeight = TopRowSpacing.buttonSide
+        let fullBand = CGRect(x: lightsMaxX + lead, y: midY - bandHeight / 2,
                               width: TitlebarToolbarBand.width, height: bandHeight)
         let presenceChanged = toolbarBand.presence != presence
         toolbarBand.presence = presence
-        toolbarBand.frame = WindowTitlebar.alignedFrame(CGRect(x: lightsMaxX + Metrics.space3 * presence, y: fullBand.minY,
+        toolbarBand.frame = WindowTitlebar.alignedFrame(CGRect(x: lightsMaxX + lead * presence, y: fullBand.minY,
                                                               width: fullBand.width * presence, height: bandHeight),
                                                        scale: window?.backingScaleFactor ?? 1)
         // A right sidebar's header is clear of the traffic lights and the band.

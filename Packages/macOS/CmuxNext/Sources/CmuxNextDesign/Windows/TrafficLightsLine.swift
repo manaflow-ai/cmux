@@ -9,7 +9,9 @@ public import AppKit
 /// band and the sidebar's + on the pills' line, which moves down as the density grows (20 pt at
 /// Compact, 21.5 pt at Default). The lights move onto that line, so the whole top row shares it. With
 /// no such line (a standard titlebar, tab bars at the bottom, and the `lights` and `off` variants,
-/// whose line is the lights' own) they go back to macOS's place.
+/// whose line is the lights' own) they go back to macOS's place. Either way the close button sits as far
+/// from the window's left edge as from its top (Lawrence 2026-11-10: "make sure top land left are even"),
+/// the way macOS places it in its own titlebar (9 pt and 9 pt), so the lights keep the corner's proportion.
 @MainActor
 public struct TrafficLightsLine {
     public init() {}
@@ -20,6 +22,8 @@ public struct TrafficLightsLine {
         public var containerHeight: CGFloat
         /// The buttons' center, from the window's top edge.
         public var centerY: CGFloat
+        /// The close button's left edge, from the window's left edge: its top edge's inset.
+        public var leadingX: CGFloat
     }
 
     /// The placement for buttons `buttonHeight` tall centered `centerY` below the window's top, in a
@@ -32,7 +36,7 @@ public struct TrafficLightsLine {
         let s = max(scale, 1)
         let center = ((centerY ?? nativeHeight / 2) * s).rounded() / s
         let height = max(nativeHeight, ((center + buttonHeight / 2) * s).rounded(.up) / s)
-        return Placement(containerHeight: height, centerY: center)
+        return Placement(containerHeight: height, centerY: center, leadingX: ((center - buttonHeight / 2) * s).rounded() / s)
     }
 
     /// The line the lights take in `window`: the top row's (``WindowTitlebar/topRowLine(in:look:)``) for the
@@ -64,12 +68,14 @@ public struct TrafficLightsLine {
                                     y: frameView.isFlipped ? 0 : frameView.bounds.maxY - placement.containerHeight,
                                     width: container.frame.width, height: placement.containerHeight)
         if container.frame != containerFrame { container.frame = containerFrame }
-        // The buttons' center in window coordinates (bottom-left origin), then in the titlebar view's.
-        let center = titlebar.convert(CGPoint(x: 0, y: window.frame.height - placement.centerY), from: nil)
+        // The buttons' center and the close button's left edge in window coordinates (bottom-left origin), then
+        // in the titlebar view's. All three move by the close button's shift, so macOS's spacing between them stays.
+        let anchor = titlebar.convert(CGPoint(x: placement.leadingX, y: window.frame.height - placement.centerY), from: nil)
+        let dx = window.windowTitlebarLayoutDirection == .leftToRight ? anchor.x - close.frame.minX : 0
         for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             guard let button = window.standardWindowButton(type), button.superview === titlebar else { continue }
-            let y = center.y - button.frame.height / 2
-            if button.frame.minY != y { button.setFrameOrigin(CGPoint(x: button.frame.minX, y: y)) }
+            let origin = CGPoint(x: button.frame.minX + dx, y: anchor.y - button.frame.height / 2)
+            if button.frame.origin != origin { button.setFrameOrigin(origin) }
         }
     }
 }
