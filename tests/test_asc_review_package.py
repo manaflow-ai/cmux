@@ -288,6 +288,16 @@ class NotesTests(FakeAscCase):
         })
         self.assertIn("https://www.mailinator.com/v4/public/inboxes.jsp?to=reviewer\n", notes.replace(" (no", "\n"))
 
+    def test_a_new_mailinator_demo_account_gets_its_own_inbox(self):
+        notes = pkg.render_notes(self.TEMPLATE, {
+            "demoAccountName": "new-review@mailinator.com",
+            "contactEmail": "c@example.com",
+            "contactPhone": "1",
+            "notes": "old notes: https://www.mailinator.com/v4/public/inboxes.jsp?to=old-review.",
+        })
+        self.assertIn("inboxes.jsp?to=new-review", notes)
+        self.assertNotIn("old-review", notes)
+
     def test_render_refuses_missing_review_information(self):
         with self.assertRaises(pkg.PackageError):
             pkg.render_notes(self.TEMPLATE, {"demoAccountName": "x@mailinator.com", "contactEmail": "", "contactPhone": "1"})

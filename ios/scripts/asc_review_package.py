@@ -178,12 +178,15 @@ def load_manifest(path: Path) -> dict:
 def render_notes(template: str, detail: dict) -> str:
     demo = (detail.get("demoAccountName") or "").strip()
     inbox = ""
-    match = MAILINATOR_URL.search(detail.get("notes") or "")
-    if match:
-        inbox = match.group(0).rstrip(".,")
-    elif demo.lower().endswith("@mailinator.com"):
+    if demo.lower().endswith("@mailinator.com"):
+        # The current demo account decides its inbox; notes from an earlier
+        # account must never send the reviewer to the old one.
         local = demo.split("@", 1)[0]
         inbox = "https://www.mailinator.com/v4/public/inboxes.jsp?" + urllib.parse.urlencode({"to": local})
+    else:
+        match = MAILINATOR_URL.search(detail.get("notes") or "")
+        if match:
+            inbox = match.group(0).rstrip(".,")
     values = {
         "DEMO_ACCOUNT_EMAIL": demo,
         "MAILINATOR_PUBLIC_INBOX_URL": inbox,
