@@ -537,14 +537,20 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
                 Failed::new("bad_request", "a relay names the source machine's socket".to_string())
             })?;
             let mut quiet = |_: sync_cli::Progress| {};
-            return sync_cli::relay(from, &sync.local.to_string_lossy(), &sync.socket, &sync.remote, &mut quiet)
-                .map(|_| ())
-                .map_err(|e| {
-                    Failed::new(
-                        sync_cli::push_failure_code(&e),
-                        format!("the folder's last changes: {e:#}"),
-                    )
-                });
+            return sync_cli::relay(
+                from,
+                &sync.local.to_string_lossy(),
+                &sync.socket,
+                &sync.remote,
+                &mut quiet,
+            )
+            .map(|_| ())
+            .map_err(|e| {
+                Failed::new(
+                    sync_cli::push_failure_code(&e),
+                    format!("the folder's last changes: {e:#}"),
+                )
+            });
         }
         Way::Pull => {}
     }

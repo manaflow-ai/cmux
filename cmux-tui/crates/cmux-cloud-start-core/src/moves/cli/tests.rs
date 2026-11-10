@@ -186,10 +186,12 @@ fn each_verb_carries_its_arguments() {
     );
     assert_eq!(agent_move_flags(None, false, None, None), ["--interrupt"]);
     // Move to another Cloud machine: the frozen copy is a relay between the two machines.
-    let relayed = call(json!({"verb": "agent-move", "from": "/one.sock", "surface": 3, "to": "/two.sock",
+    let relayed = call(
+        json!({"verb": "agent-move", "from": "/one.sock", "surface": 3, "to": "/two.sock",
         "cwd": "/home/cmux/work/app",
         "sync": {"pull": false, "socket": "/two.sock", "local": "/home/cmux/work/app", "remote": "/home/cmux/work/app",
-                 "fromSocket": "/one.sock"}, "vmKind": "owner"}));
+                 "fromSocket": "/one.sock"}, "vmKind": "owner"}),
+    );
     assert_eq!(
         relayed.args[11..],
         [

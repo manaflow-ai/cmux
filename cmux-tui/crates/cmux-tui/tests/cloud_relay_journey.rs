@@ -65,7 +65,13 @@ fn vm(root: &Path, name: &str, github: &Path) -> Machine {
     )
 }
 
-fn relay(mac: &Machine, from: &Machine, from_folder: &Path, to: &Machine, to_folder: &Path) -> serde_json::Value {
+fn relay(
+    mac: &Machine,
+    from: &Machine,
+    from_folder: &Path,
+    to: &Machine,
+    to_folder: &Path,
+) -> serde_json::Value {
     let (ok, summary) = run_json(
         Command::new(bin())
             .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
@@ -112,10 +118,14 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     git(&first, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "on vm one"]);
     fs::write(first.join("src/staged.txt"), "staged on vm one\n").unwrap();
     git(&first, &["add", "src/staged.txt"]);
-    fs::write(first.join("src/lib.txt"), "committed\nuncommitted change\nmore on vm one\n").unwrap();
+    fs::write(first.join("src/lib.txt"), "committed\nuncommitted change\nmore on vm one\n")
+        .unwrap();
     fs::write(first.join("stashme.txt"), "to stash\n").unwrap();
     git(&first, &["add", "stashme.txt"]);
-    git(&first, &["-c", "user.name=t", "-c", "user.email=t@t", "stash", "push", "-q", "--", "stashme.txt"]);
+    git(
+        &first,
+        &["-c", "user.name=t", "-c", "user.email=t@t", "stash", "push", "-q", "--", "stashme.txt"],
+    );
     fs::write(first.join("run.sh"), "#!/bin/sh\necho hi\n").unwrap();
     fs::set_permissions(first.join("run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
     std::os::unix::fs::symlink("src/lib.txt", first.join("lib-link")).unwrap();
@@ -123,8 +133,11 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     fs::create_dir_all(first.join("target/debug")).unwrap();
     fs::write(first.join("target/debug/big.o"), vec![7u8; 1 << 20]).unwrap();
     // A file big enough to be streamed part by part.
-    fs::write(first.join("data.bin"), (0..(12u32 << 20)).map(|i| (i % 251) as u8).collect::<Vec<_>>())
-        .unwrap();
+    fs::write(
+        first.join("data.bin"),
+        (0..(12u32 << 20)).map(|i| (i % 251) as u8).collect::<Vec<_>>(),
+    )
+    .unwrap();
 
     // 1. The bulk: VM one's folder to VM two.
     let second = two.home().join("work/app");
@@ -149,7 +162,8 @@ fn a_chat_and_its_dirty_checkout_move_from_one_cloud_vm_to_another() {
     assert!(skipped.iter().any(|s| s["path"] == "target"), "{bulk}");
     assert!(skipped.iter().any(|s| s["path"] == "outside-link"), "{bulk}");
     // Nothing of the folder was written on the Mac.
-    let leaked = walk_names(&mac.dir).into_iter().any(|name| name == "data.bin" || name == "run.sh");
+    let leaked =
+        walk_names(&mac.dir).into_iter().any(|name| name == "data.bin" || name == "run.sh");
     assert!(!leaked, "the relay wrote the folder on the Mac");
 
     // Again, with nothing changed: nothing is written.

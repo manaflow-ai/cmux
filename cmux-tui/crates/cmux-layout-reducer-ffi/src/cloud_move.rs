@@ -2,7 +2,7 @@
 //! Back Local and a chat start's machine steps. The app runs the cmux-tui CLIs and git, reads its
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
-use cmux_cloud_start_core::moves::{autosize, cli, folder, ledger, pin, seed, wait};
+use cmux_cloud_start_core::moves::{autosize, cli, folder, ledger, pin, seed, targets, wait};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -384,6 +384,30 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({ "reusable": wait::run_reusable(request.age_ms) })
+        }
+        // Move to…: where a started chat can go, and the folder a machine-to-machine move takes.
+        b"cloud_move_targets" => {
+            let chat: targets::Chat = read(request)?;
+            json!({ "targets": targets::targets(&chat) })
+        }
+        b"cloud_move_relocate_folder" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                remote_folder: Option<String>,
+                #[serde(default)]
+                remote_chat: Option<String>,
+                #[serde(default)]
+                cwd: Option<String>,
+            }
+            let request: Request = read(request)?;
+            let folder = targets::folder(
+                request.remote_folder.as_deref(),
+                request.remote_chat.as_deref(),
+                request.cwd.as_deref(),
+            );
+            json!({ "folder": folder })
         }
         b"cloud_move_list_current" => {
             #[derive(Deserialize)]

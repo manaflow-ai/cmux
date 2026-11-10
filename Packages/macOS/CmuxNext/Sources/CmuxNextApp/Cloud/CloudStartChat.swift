@@ -150,7 +150,7 @@ struct CloudStartChat {
                          cloneState: copy.0.seedState, clonePhase: copy.0.seedPhase,
                          cloneStartedAt: copy.0.seedStartedAt, cloneFinishedAt: copy.0.seedFinishedAt,
                          start: .init(environmentId: plan.environmentId, setup: plan.setup)))
-            guard copy.0.ok else { throw await CloudMoveFolder.orGone(CloudMove.failure(syncing: copy.0, machine: name, retry: again), root: folder.root) }
+            guard copy.0.ok else { throw await CloudMoveFolder.orGone(CloudMoveFailure.syncing(copy.0, machine: name, retry: again), root: folder.root) }
             // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this Mac's tab stays.
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             _ = await loginPassed
@@ -337,7 +337,7 @@ extension CloudStartSession {
         } catch {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), await CloudMoveFolder.isFolder(folder.root) ? CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)) : CloudStartSessionStrings.fromFolderMissing(local))
         }
-        guard copy.0.ok else { throw ActionFailure(message: await CloudMoveFolder.isFolder(folder.root) ? CloudMove.failure(syncing: copy.0, machine: name, retry: .move(machineID: session.machineID)).message : CloudStartSessionStrings.fromFolderMissing(local)) }
+        guard copy.0.ok else { throw ActionFailure(message: await CloudMoveFolder.isFolder(folder.root) ? CloudMoveFailure.syncing(copy.0, machine: name, retry: .move(machineID: session.machineID)).message : CloudStartSessionStrings.fromFolderMissing(local)) }
         return (copy.1.chat, copy.1.sourceTrusted)
     }
 }

@@ -169,7 +169,7 @@ struct CloudBringBack {
             throw Failure(message: CloudBringBackStrings.unresolved, retry: again)
         }
         guard moved.ok, let session = moved.sessionID else {
-            throw Self.failure(moving: moved, machine: name, retry: again, askedFirst: askFirst)
+            throw CloudMoveFailure.bringingBack(moved, machine: name, retry: again, askedFirst: askFirst)
         }
         // The move committed: from here Retry only opens the chat's tab on this Mac. The ledger
         // keeps that (not only memory) until the tab opened.
@@ -222,40 +222,6 @@ struct CloudBringBack {
         let tab = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
         if let pane = await daemon.store.firstPane(mirroring: workspace) {
             for window in services.windows.controllers { window.state.selection.select(tab, in: pane.id) }
-        }
-    }
-
-    /// The failure of a `cmux link agent move` answer, in plain words. This Mac's guard refuses a
-    /// chat that approves on its own (`transfer.policy`), runs in a mode that doesn't ask
-    /// (`transfer.mode`), or runs an agent it can't guard (`transfer.family`); the chat stays on
-    /// the machine, unchanged, and the first two offer "Ask first, then bring back", which narrows
-    /// the chat on the machine and moves it again. When that run (`askedFirst`) is refused too, the
-    /// chat can't be narrowed there (no asking mode it offers, say): the person changes it in the
-    /// chat, then Retry.
-    static func failure(moving answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry,
-                        askedFirst: Bool = false) -> Failure {
-        let detail = answer.error ?? ""
-        var askFirst = retry
-        if case .move(let machineID) = retry { askFirst = .askFirst(machineID: machineID) }
-        if detail.contains("transfer.policy") {
-            if askedFirst { return Failure(message: CloudBringBackStrings.policyStillBlocks, retry: retry) }
-            return Failure(message: CloudBringBackStrings.policyBlocks, retry: askFirst)
-        }
-        if detail.contains("transfer.mode") {
-            if askedFirst { return Failure(message: CloudBringBackStrings.modeStillBlocks, retry: retry) }
-            return Failure(message: CloudBringBackStrings.modeBlocks, retry: askFirst)
-        }
-        if detail.contains("transfer.family") { return Failure(message: CloudBringBackStrings.familyBlocks) }
-        switch answer.errorCode {
-        // The turn's last changes conflicted: the chat went back to the machine and goes on there.
-        case "sync_conflict": return Failure(message: CloudBringBackStrings.conflict(answer.conflicts), retry: retry)
-        case "move_unresolved", CloudMoveCLI.badAnswer: return Failure(message: CloudBringBackStrings.unresolved, retry: retry)
-        case "move_in_progress": return Failure(message: CloudMoveStrings.inProgress, retry: retry)
-        case "source_unreachable", "target_unreachable": return Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)
-        // This Mac's own daemon (the target) is never the machine to update.
-        case CloudMoveStrings.outdatedCode where answer.side != "target":
-            return Failure(message: CloudBringBackStrings.outdatedMachine(machine), retry: retry.updating)
-        default: return Failure(message: CloudBringBackStrings.failed(answer.error ?? answer.errorCode ?? ""))
         }
     }
 }

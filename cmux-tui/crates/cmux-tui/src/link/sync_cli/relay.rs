@@ -53,8 +53,7 @@ use sha2::{Digest as _, Sha256};
 use super::remote::{self, Remote};
 use super::{Progress, Summary, skips};
 
-pub(super) const USAGE: &str =
-    "usage: cmux link sync relay --from-socket SOURCE_LINK --socket TARGET_LINK SOURCE_FOLDER TARGET_FOLDER";
+pub(super) const USAGE: &str = "usage: cmux link sync relay --from-socket SOURCE_LINK --socket TARGET_LINK SOURCE_FOLDER TARGET_FOLDER";
 
 /// A file at most this big is read whole, then written; a bigger one is
 /// streamed from the source to the target part by part.
@@ -238,7 +237,11 @@ pub(in crate::link) fn relay(
                     totals.files_done += 1;
                     totals.bytes_done += size;
                 } else {
-                    jobs.push(Job { relative: relative.clone(), size: *size, revision: revision.clone() });
+                    jobs.push(Job {
+                        relative: relative.clone(),
+                        size: *size,
+                        revision: revision.clone(),
+                    });
                 }
             }
             Item::Link { target: text } => {
@@ -315,13 +318,18 @@ fn walk(
         let Some(entries) = source.list(&folder)? else { continue };
         let names: BTreeSet<&str> = entries.keys().map(String::as_str).collect();
         for (name, entry) in &entries {
-            let path = if relative.is_empty() { name.clone() } else { format!("{relative}/{name}") };
+            let path =
+                if relative.is_empty() { name.clone() } else { format!("{relative}/{name}") };
             match entry.kind.as_str() {
                 "dir" => {
                     let heavy = skips::heavy_by(name, |file| {
                         names.contains(file)
                             || (file.contains('/')
-                                && source.kind(&format!("{folder}/{file}")).ok().flatten().as_deref()
+                                && source
+                                    .kind(&format!("{folder}/{file}"))
+                                    .ok()
+                                    .flatten()
+                                    .as_deref()
                                     == Some("file"))
                     });
                     if heavy {
@@ -510,7 +518,8 @@ fn copy_on(
         let written = target.write(&target_path, &mut reader, mode);
         // A write that stopped early drops the reader, which ends the read.
         drop(reader);
-        let read = reading.join().map_err(|_| anyhow::anyhow!("the read of {} panicked", job.relative))?;
+        let read =
+            reading.join().map_err(|_| anyhow::anyhow!("the read of {} panicked", job.relative))?;
         read?;
         written
     })
@@ -568,7 +577,8 @@ impl Read for PartReader {
 fn record_path(from: &Path, from_root: &str, to: &Path, to_root: &str) -> Option<PathBuf> {
     let state = cmux_tui_core::platform::workspace_state_dir()?;
     let mut hash = Sha256::new();
-    for part in [from.to_string_lossy().as_ref(), from_root, to.to_string_lossy().as_ref(), to_root] {
+    for part in [from.to_string_lossy().as_ref(), from_root, to.to_string_lossy().as_ref(), to_root]
+    {
         hash.update(part.as_bytes());
         hash.update([0]);
     }
@@ -622,7 +632,17 @@ mod tests {
     #[test]
     fn both_folders_are_absolute() {
         let args = |list: &[&str]| list.iter().map(|arg| (*arg).to_string()).collect::<Vec<_>>();
-        assert!(parse(&args(&["--from-socket", "/a", "--socket", "/b", "/home/cmux/work/app", "/home/cmux/work/app/"])).is_some());
+        assert!(
+            parse(&args(&[
+                "--from-socket",
+                "/a",
+                "--socket",
+                "/b",
+                "/home/cmux/work/app",
+                "/home/cmux/work/app/"
+            ]))
+            .is_some()
+        );
         assert!(parse(&args(&["--from-socket", "/a", "--socket", "/b", "rel", "/x"])).is_none());
         assert!(parse(&args(&["--socket", "/b", "/x", "/y"])).is_none());
     }
