@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest"
 import { CI_SESSION_PATH, GITHUB_ACTIONS_ISSUER, handleCiSession, matchCiSessionToken, parseCiSessionTrust } from "../src/ci-session.ts"
 import type { Env } from "../src/env.ts"
 import type { StackServer } from "../src/stack-server.ts"
+// @ts-expect-error a Vite raw import (the test runner bundles it; the Worker build never sees it)
+import wranglerText from "../wrangler.jsonc?raw"
 
 /**
  * ci-session.ts (hq#7076): a GitHub Actions job signs in as one test account by its OIDC token. Only a token
@@ -213,5 +215,49 @@ describe(`POST ${CI_SESSION_PATH}`, () => {
     const signed = await new SignJWT(CLAIMS).setProtectedHeader({ alg: "RS256", kid: "github-actions-test" }).setIssuer(GITHUB_ACTIONS_ISSUER).setAudience(ROW.audience).setIssuedAt().setExpirationTime("5m").sign(key)
     const r = await worker.fetch(`https://api.test${CI_SESSION_PATH}`, { method: "POST", headers: { authorization: `Bearer ${signed}` } })
     expect(r.status).toBe(401)
+  })
+})
+
+/** JSONC to JSON: drops comments outside strings (wrangler.jsonc has no trailing commas). */
+const stripComments = (text: string): string => {
+  let out = ""
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!
+    if (c === '"') {
+      let j = i + 1
+      while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1
+      out += text.slice(i, j + 1)
+      i = j
+    } else if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++
+      out += "\n"
+    } else out += c
+  }
+  return out
+}
+
+// cmux#35703: the production journey's sign-in failed because production trusted no job. The production Worker's
+// own CI_SESSION_TRUST must hold exactly main's cloud-journey-prod.yml row for the production test account.
+describe("the production Worker's CI_SESSION_TRUST", () => {
+  const production = (JSON.parse(stripComments(wranglerText as string)) as { env: { production: { name: string; vars: Record<string, string> } } }).env.production
+  const parsed = parseCiSessionTrust(production.vars.CI_SESSION_TRUST)
+
+  it("is valid and holds the one cloud-journey-prod row for cmux-cloud-capture-prod@manaflow.dev", () => {
+    expect(production.name).toBe("cmux-api")
+    expect(parsed.ok).toBe(true)
+    expect(parsed.rows).toEqual([{ ...ROW, stackUser: "3d89cfba-ac68-4e64-93aa-370a913a8b1c" }])
+  })
+
+  it("trusts main's scheduled and dispatched runs of the file, and refuses its other runs", async () => {
+    expect(await matchCiSessionToken(await token(), parsed.rows, getKey)).toMatchObject({ ok: true, row: { id: "ci-cloud-journey-prod" } })
+    expect(await matchCiSessionToken(await token({ event_name: "workflow_dispatch" }), parsed.rows, getKey)).toMatchObject({ ok: true })
+    for (const claims of [
+      { sub: "repo:manaflow-ai/cmux:environment:cmux-next-cloud-journey" },
+      { event_name: "pull_request" },
+      { ref: "refs/heads/feat-cmux-next", sub: "repo:manaflow-ai/cmux:ref:refs/heads/feat-cmux-next" }
+    ]) {
+      expect(await matchCiSessionToken(await token(claims), parsed.rows, getKey), JSON.stringify(claims)).toMatchObject({ ok: false })
+    }
+    expect(await matchCiSessionToken(await token({}, { aud: "https://cloud-api-staging.cmux.dev" }), parsed.rows, getKey)).toMatchObject({ ok: false })
   })
 })
