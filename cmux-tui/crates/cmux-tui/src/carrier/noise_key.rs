@@ -70,7 +70,9 @@ mod keychain {
     use security_framework_sys::access_control::kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly;
     use security_framework_sys::base::{errSecDuplicateItem, errSecItemNotFound, errSecSuccess};
     use security_framework_sys::item::kSecValueData;
-    use security_framework_sys::keychain::SecKeychainSetUserInteractionAllowed;
+    use security_framework_sys::keychain::{
+        SecKeychainGetUserInteractionAllowed, SecKeychainSetUserInteractionAllowed,
+    };
     use security_framework_sys::keychain_item::SecItemAdd;
 
     /// errSecInteractionNotAllowed: the item exists, but reading it would
@@ -97,18 +99,23 @@ mod keychain {
     /// is a CLI or daemon: a login-Keychain approval dialog from it is
     /// never something the person asked for (an item made by
     /// another build's signature prompted on every dial).
-    struct NoUi;
+    /// Holds the setting it found, put back on drop.
+    struct NoUi(u8);
     impl NoUi {
         fn new() -> Self {
-            // SAFETY: plain setter, no pointers.
-            unsafe { SecKeychainSetUserInteractionAllowed(0) };
-            NoUi
+            let mut previous: u8 = 1;
+            // SAFETY: `previous` is a live u8 for the call; the setter takes no pointers.
+            unsafe {
+                SecKeychainGetUserInteractionAllowed(&mut previous);
+                SecKeychainSetUserInteractionAllowed(0);
+            }
+            NoUi(previous)
         }
     }
     impl Drop for NoUi {
         fn drop(&mut self) {
-            // SAFETY: as above.
-            unsafe { SecKeychainSetUserInteractionAllowed(1) };
+            // SAFETY: plain setter, no pointers.
+            unsafe { SecKeychainSetUserInteractionAllowed(self.0) };
         }
     }
 
