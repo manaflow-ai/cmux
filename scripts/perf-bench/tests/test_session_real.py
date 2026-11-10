@@ -429,7 +429,12 @@ class RestoredAgents(unittest.TestCase):
         daemon, tabs, rows = self.world()
         states = m.agent_terminal_states(daemon, tabs, rows)
         self.assertEqual(states["real-0001"], ("resumed", {102: START, 103: START}))
-        self.assertEqual(states["real-0002"], ("shell", None))
+        self.assertEqual(states["real-0002"][0], "shell")
+        self.assertGreater(states["real-0002"][1], 3600)                  # the age of its newest shell, in seconds
+        young = dict(rows)
+        young[111] = (110, "Tue Nov 10 10:00:20 2026", "-/bin/zsh")
+        at = m.time.mktime(m.time.strptime("Tue Nov 10 10:00:25 2026", "%a %b %d %H:%M:%S %Y"))
+        self.assertEqual(m.agent_terminal_states(daemon, tabs, young, now=at)["real-0002"], ("shell", 5.0))
         self.assertEqual(states["real-0003"], ("program", 121))
         self.assertEqual(states["real-0007"], ("none", None))
         for name in ("real-0004", "real-0005", "real-0006", "real-0008", "real-0009", "real-0010", "real-0011"):
@@ -555,6 +560,14 @@ class RestoredAgents(unittest.TestCase):
         self.assertGreaterEqual(len(log["send"]), 2)
         self.assertLessEqual(len(log["send"]), 3)                                         # every RETYPE_SECONDS, not every round
         self.assertEqual(result["started"], 1)
+
+    def test_a_new_shell_gets_no_start_line_before_the_products_resume_time_is_over(self):
+        states = {"real-0002": ("shell", 2.0), "real-0005": ("shell", 400.0)}
+        result, log = self.run_agents(states, settle=5)
+        self.assertEqual([name for name, _, _ in log["send"]], ["real-0005"])           # the young shell: not yet
+        self.assertEqual(result["not_typed"], ["real-0002"])
+        faults = m.agents_faults(2, 1, 2, len(result["not_typed"]), [])
+        self.assertTrue(faults)                                                          # and that is never exit 0
 
     def test_with_no_time_nothing_is_typed_and_nothing_is_ended(self):
         states = {"real-0001": ("resumed", {102: START}), "real-0002": ("shell", None)}

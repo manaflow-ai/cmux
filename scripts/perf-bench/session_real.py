@@ -728,13 +728,21 @@ def below(pid, rows):
     return found
 
 
-def agent_terminal_states(conn, tabs, rows=None):
+def started_seconds_ago(start, now):
+    """How long ago a process started, from its `ps lstart` text (`Tue Nov 10 18:29:37 2026`); None when not readable."""
+    try:
+        return now - time.mktime(time.strptime(" ".join(start.split()), "%a %b %d %H:%M:%S %Y"))
+    except (ValueError, OverflowError, AttributeError):
+        return None
+
+
+def agent_terminal_states(conn, tabs, rows=None, now=None):
     """{name: state} of each agent terminal, from the daemon's `terminal-resources` (its own terminals only) and the
     process table. A state is ("program", pid): the bench agent program with this terminal's name runs;
     ("resumed", {pid: start}): the real CLI that the product's resume started for this terminal's bench session runs,
-    with the processes below it; ("shell", None): only shells; ("other", command): another program runs, it is not
-    this tool's; ("none", None): the daemon has no terminal for the tab (a dead tab). A reply that is not OK stops
-    the command (exit 1)."""
+    with the processes below it; ("shell", seconds): only shells, the newest one started `seconds` ago (None: not
+    known); ("other", command): another program runs, it is not this tool's; ("none", None): the daemon has no
+    terminal for the tab (a dead tab). A reply that is not OK stops the command (exit 1)."""
     reply = conn.call("terminal-resources", surfaces=[tab["surface"] for _, tab in tabs])
     if not reply.get("ok"):
         raise SystemExit(f"session_real: the daemon did not answer terminal-resources: {reply.get('error')!r}; "
@@ -749,7 +757,8 @@ def agent_terminal_states(conn, tabs, rows=None):
             continue
         pids = [pid for pid in [terminal.get("pid")] + [process.get("pid") for process in terminal.get("processes") or []]
                 if pid in rows]
-        state = ("shell", None)
+        ages = [started_seconds_ago(rows[pid][1], time.time() if now is None else now) for pid in pids]
+        state = ("shell", min(ages) if ages and None not in ages else None)
         for pid in pids:
             command = rows[pid][2]
             named = AGENT_COMMAND.search(command)
@@ -797,6 +806,10 @@ def end_resumed(resumed, sig=signal.SIGTERM, rows=None, kill=None):
 
 
 RETYPE_SECONDS = 8   # a start line that did not start the program (typed at the moment the product typed its own) is typed again
+# The product types its resume command into a new shell at the shell's first prompt, at most 10 s after the shell's
+# start (terminal_respawn/prefill.rs PROMPT_WAIT). A shell younger than this gets no start line yet, so the line does
+# not go into a CLI that starts in that moment. (If it still does: that CLI is ended in the next round, with the line.)
+SHELL_SETTLE_SECONDS = 15
 KILL_SECONDS = 5     # a resumed CLI that does not end on SIGTERM gets SIGKILL after this
 OTHER_SECONDS = 10   # another program for this long is not a start-up step (the product's shim, the wrapper): it stays
 
@@ -808,7 +821,8 @@ def start_agents(tabs, states_now, send, restart, end, state_of, settle, force=F
     - "resumed": the real CLI that the product's "Resume Agents After Restart" started: `end(pids, SIGTERM)` one time,
       SIGKILL after KILL_SECONDS; nothing is typed into it, the start line is typed when only the shell is left;
     - "none": the daemon has no terminal (a dead tab): `restart(tab)` one time, then the start line;
-    - "shell": `send(number, tab, state)`; again after RETYPE_SECONDS when the program did not start;
+    - "shell": `send(number, tab, state)` when its newest shell is SHELL_SETTLE_SECONDS old (the product's own
+      resume command comes before that); again after RETYPE_SECONDS when the program did not start;
     - "other": another program: never typed into, never signalled; after OTHER_SECONDS it is not waited for;
     - "unknown" (a daemon without `terminal-resources`): `restart` for a dead tab, the start line one time, as the
       tool did before.
@@ -854,6 +868,8 @@ def start_agents(tabs, states_now, send, restart, end, state_of, settle, force=F
                 restarted.add(name)
                 result["restarted_shells"] += 1
             if name in typed and clock() - typed[name] < RETYPE_SECONDS:
+                continue
+            if kind == "shell" and detail is not None and detail < SHELL_SETTLE_SECONDS and name not in typed:
                 continue
             if send(number, tab, state_of(rank)):
                 result["started"] += 0 if name in typed else 1
