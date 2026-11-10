@@ -1,14 +1,15 @@
 // The Cloud page (plans/cmux-next/cloud-app.md L7, cloud-parity.md "cmux-next UI mapping"). State
 // lives in `CloudStore`; this file only renders it and turns plain keys and clicks into intents.
 // Cmd and Ctrl chords never reach a page handler (`plain`): the app's key dispatcher owns them.
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { useLasting, useLoadingShown } from "../../ui/lasting";
 import { AccountPanel } from "./AccountPanel";
+import { ArchiveList } from "./ArchiveList";
 import { CreateSheet } from "./CreateSheet";
 import { MachineDetailView } from "./MachineDetail";
 import { MachineList } from "./MachineList";
-import { MigrationBanner, PlanNotice } from "./Notices";
+import { MigrationBanner, PlanNotice, SpendCapBanner } from "./Notices";
 import type { CloudStore } from "./store";
 import { Storefront } from "./Storefront";
 import { errorText, L } from "./strings";
@@ -16,6 +17,9 @@ import { errorText, L } from "./strings";
 export function CloudPage({ store, strings }: { store: CloudStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
+  // The near-cap banner's dismissal, kept across the storefront and the machine list (Notices.tsx).
+  const [capNearHidden, setCapNearHidden] = useState(false);
+  const capBannerProps = { hiddenNear: capNearHidden, onHideNear: () => setCapNearHidden(true) };
   // A lost link shows nothing until it lasts past the grace (a launch, a daemon restart: the store
   // reads again on its own); then the disconnected state with Retry.
   const down = snap.connection === "disconnected";
@@ -70,6 +74,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     if (!snap.auth.signedIn || storefront)
       return (
         <>
+          {snap.auth.signedIn && <SpendCapBanner state={snap} strings={strings} {...capBannerProps} />}
           {snap.refusal && (
             <PlanNotice refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />
           )}
@@ -87,6 +92,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     const selected = snap.rows.find((row) => row.id === snap.selection);
     return (
       <>
+        <SpendCapBanner state={snap} strings={strings} {...capBannerProps} />
         <MigrationBanner store={store} state={snap} strings={strings} />
         {snap.refusal && <PlanNotice refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />}
         {snap.blocked === "no_snapshot_configured" && (
@@ -114,6 +120,15 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
               onOpen={(id) => void store.connect(id)}
               onPause={(id) => void store.pause(id)}
               onResume={(id) => void store.resume(id)}
+              dismissed={snap.dismissed}
+              onKeep={(id, keep) => void store.keep(id, keep)}
+              onDismissNotice={(id, at) => store.dismissNotice(id, at)}
+            />
+            <ArchiveList
+              archives={snap.archives}
+              strings={strings}
+              disabled={!signedIn}
+              onRestore={(snapshot) => void store.restoreArchive(snapshot)}
             />
           </section>
           {selected?.machine && snap.detail?.machine === selected.id ? (

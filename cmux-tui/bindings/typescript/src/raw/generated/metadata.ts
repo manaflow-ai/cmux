@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 33411ed45c930dea0ca028b6db8e5d621ec07122b5a27ea06083372650d53a2c. */
+/* cmux-tui mux protocol 12, IR 1b4bf7a9d9ddfbe05f536c4ddb18034f2dacac28fed74012dc84a291d52c998e. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "33411ed45c930dea0ca028b6db8e5d621ec07122b5a27ea06083372650d53a2c" as const;
+export const SDK_IR_SHA256 = "1b4bf7a9d9ddfbe05f536c4ddb18034f2dacac28fed74012dc84a291d52c998e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3170,6 +3170,42 @@ export const COMMAND_METADATA = {
       "See spec/commands.md for the result object."
     ]
   },
+  "shell-read": {
+    "authority": "control",
+    "since": 12,
+    "capability": "shell-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+      "Waits at most 10 s (the default) for output after `after` or the command's end.",
+      "Answers {output, next, truncated?, exit?} or {refused}: unknown_run, busy.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "shell-run": {
+    "authority": "control",
+    "since": 12,
+    "capability": "shell-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+      "Answers {run} or {refused}: too_many, folder_missing, spawn_failed, invalid.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "shell-stop": {
+    "authority": "control",
+    "since": 12,
+    "capability": "shell-runs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner only (local Unix connection of the daemon's user bound to no agent, or the owner's signed Native link); others get forbidden.",
+      "Answers {} or {refused: unknown_run}."
+    ]
+  },
   "shutdown-daemon": {
     "authority": "local-admin",
     "since": 9,
@@ -4056,6 +4092,22 @@ export const EVENT_METADATA = {
   "empty": {
     "since": 5,
     "capability": null,
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "feed-reports-changed": {
+    "since": 12,
+    "capability": "feed-client-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "feed-view-changed": {
+    "since": 12,
+    "capability": "feed-client-v1",
     "streams": [
       "subscribe"
     ],
@@ -28042,6 +28094,111 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "shell-read": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after": {
+          "default": 0,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "run": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "wait_ms": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "shell-run": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "command": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "cwd": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "run": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "scope": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "shell-stop": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "run": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "shutdown-daemon": {
     "request": {
       "additional_properties": false,
@@ -31410,6 +31567,61 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": "empty"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "feed-reports-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "feed-reports-changed"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "feed-view-changed": {
+    "additional_properties": false,
+    "fields": {
+      "changed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "feed-view-changed"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },

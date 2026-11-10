@@ -41,7 +41,6 @@ public struct CodeCard: View {
                     .padding(.bottom, 16)
                     // Wrapping: as wide as the card, so lines break instead of scrolling.
                     .containerRelativeFrame(wrapCode ? .horizontal : [], alignment: .leading)
-                    .textSelection(.enabled)
             }
             .scrollIndicators(.hidden)
             .trailingOverflowFade()
@@ -70,6 +69,7 @@ public struct CodeCard: View {
         }
         .contextMenu {
             Button("Copy", systemImage: "doc.on.doc") { copy() }
+            Button("Select Text", systemImage: "selection.pin.in.out") { SelectableTextView(code, monospaced: true).present() }
             Button("Copy as Markdown", systemImage: "text.document") {
                 UIPasteboard.general.string = "```\(language ?? "")\n\(code)\n```"
             }

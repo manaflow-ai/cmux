@@ -25,8 +25,10 @@ struct NewTabSpareShownChatsTests {
         return tree
     }
 
-    /// A fresh pool on a window, with the native spare on, and `loading` as the shown chats not drawn yet.
-    private static func withPool(loading: Int, _ body: (NewTabSparePool, NSWindow, [() -> Void]) async throws -> Void) async throws {
+    /// A fresh pool on a window, with the native spare on, and `loading` as the shown chats not drawn yet. The body
+    /// gets `paint[i]` (page i drawing) and `asked()`, how many pages the launch warm asked to wait on: the warm
+    /// ran and holds the spare once it is `loading`.
+    private static func withPool(loading: Int, _ body: (NewTabSparePool, NSWindow, [() -> Void], () -> Int) async throws -> Void) async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -56,41 +58,50 @@ struct NewTabSpareShownChatsTests {
         var waiters: [() -> Void] = []
         pool.shownChats.standIn = { (0..<loading).map { _ in { waiters.append($0) } } }
         let paint: [() -> Void] = (0..<loading).map { index in { if index < waiters.count { waiters[index]() } } }
-        try await body(pool, window, paint)
+        try await body(pool, window, paint, { waiters.count })
         pool.dropAll()
     }
 
-    /// Long enough for the launch warm (``NewTabSparePool/openSettle``) to have run.
-    private static let afterWarm: Duration = NewTabSparePool.openSettle + .milliseconds(400)
+    /// Waits for a state the pool's own timers reach (the launch warm, the shown-chats deadline): a poll of that
+    /// state bounded by a deadline, never a fixed sleep. Long enough for the 3 s shown-chats deadline on a busy runner.
+    private static func until(_ reached: () -> Bool, within limit: Duration = .seconds(30)) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: limit)
+        while !reached(), clock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+    }
 
     @Test func theLaunchSpareWaitsUntilEveryShownChatDrew() async throws {
-        try await Self.withPool(loading: 2) { pool, window, paint in
+        try await Self.withPool(loading: 2) { pool, window, paint, asked in
             pool.retarget(window)
-            try await Task.sleep(for: Self.afterWarm)
+            // The launch warm ran and asked to wait on both shown chats: it holds the spare.
+            await Self.until { asked() == 2 }
+            #expect(asked() == 2, "the launch warm never asked about the shown chats")
             #expect(pool.nativeSpare == nil, "the spare was made while the shown chats were still loading")
             paint[0]()
-            try await Task.sleep(for: Self.afterWarm)
+            // One page drawing runs nothing while the other still loads (the wait counts down at once).
             #expect(pool.nativeSpare == nil, "the spare was made while one shown chat was still loading")
             paint[1]()
-            try await Task.sleep(for: Self.afterWarm)
+            await Self.until { pool.nativeSpare != nil }
             #expect(pool.nativeSpare != nil, "no spare after every shown chat drew")
         }
     }
 
     @Test func withNoShownChatLoadingTheSpareComesAtOnce() async throws {
-        try await Self.withPool(loading: 0) { pool, window, _ in
+        try await Self.withPool(loading: 0) { pool, window, _, _ in
             pool.retarget(window)
-            try await Task.sleep(for: Self.afterWarm)
+            await Self.until { pool.nativeSpare != nil }
             #expect(pool.nativeSpare != nil, "no spare after the launch warm")
         }
     }
 
     @Test func aShownChatThatNeverDrawsHoldsTheSpareOnlyUntilTheDeadline() async throws {
-        try await Self.withPool(loading: 1) { pool, window, _ in
+        try await Self.withPool(loading: 1) { pool, window, _, asked in
             pool.retarget(window)
-            try await Task.sleep(for: Self.afterWarm)
+            await Self.until { asked() == 1 }
+            #expect(asked() == 1, "the launch warm never asked about the shown chat")
             #expect(pool.nativeSpare == nil)
-            try await Task.sleep(for: AgentPaneShownChatsWait.deadline + Self.afterWarm)
+            // The page never draws: only the wait's deadline ends the hold.
+            await Self.until { pool.nativeSpare != nil }
             #expect(pool.nativeSpare != nil, "a page that never drew kept the spare away past the deadline")
         }
     }
