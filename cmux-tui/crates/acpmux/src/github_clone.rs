@@ -286,8 +286,8 @@ fn make_stage(root: &Path) -> Result<PathBuf, RpcError> {
     let failed = |e: &dyn std::fmt::Display| {
         RpcError::internal(format!("could not make a staging folder in {}: {e}", root.display()))
     };
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&root).map_err(|e| failed(&e))?;
-    if !std::fs::symlink_metadata(&root).is_ok_and(|m| m.is_dir()) {
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(root).map_err(|e| failed(&e))?;
+    if !std::fs::symlink_metadata(root).is_ok_and(|m| m.is_dir()) {
         return Err(failed(&"it is not a folder"));
     }
     let template = std::ffi::CString::new(root.join("clone-XXXXXX").as_os_str().as_bytes())
