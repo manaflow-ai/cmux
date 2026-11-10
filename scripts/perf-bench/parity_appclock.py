@@ -712,6 +712,15 @@ def run(args):
                     try:
                         with gui_lock(not args.no_lock):  # both arms of one row in one hold: the same minutes, the same load
                             for arm in order:
+                                busy = chrome_arm.load1()
+                                if busy >= args.max_host_load:
+                                    # Measured on aws-m4pro-8: at a 1-min load of 37 the capture had no callback for 13% of
+                                    # the refreshes, and the app's own frame clock did not show it. No number from such a run.
+                                    record({"row": row, "load": load, "arm": arm, "status": "invalid", "round": rnd,
+                                            "load1_before": busy, "method": METHOD,
+                                            "reason": f"host 1-min load {busy:g} >= {args.max_host_load:g} before the run: "
+                                                      "the screen capture loses frames on a loaded host"})
+                                    continue
                                 if arm == "cmux":
                                     record(cmux_row(args.cmux, out, server, args.screen, args.hz, row, load, rnd, args.note, wanted))
                                 else:
@@ -847,6 +856,8 @@ def main():
             p.add_argument("--rounds", type=int, default=2)
             p.add_argument("--arms", default="cmux,chrome")
             p.add_argument("--cmux-sha", default="")
+            p.add_argument("--max-host-load", type=float, default=15.0,
+                           help="a run that starts at this 1-min load average or more is 'invalid' (no number)")
             p.add_argument("--note", default="")
     r = sub.add_parser("report")
     r.add_argument("--out", required=True)
