@@ -39,6 +39,9 @@ Two shapes (`--shape`), say which one next to each number:
           repeats: a CPU burst of 2 to 24 ms, ONE I/O step (write 64 KiB, with an fsync each 8th turn; or lstat
           200 system files; or start /usr/bin/true and wait for it; or read the 64 KiB back), a sleep of 0 to
           20 ms. Its files are in the tool's private state folder (64 KiB per process) and are removed at the end.
+          Each one is a NEW process of this file (not a fork: macOS refuses the QoS class call in a forked child,
+          and such a child stays at 31), so each has its own interpreter memory. A process that does not get its
+          class ends with an error and the holder ends with it: the shape never runs at the wrong priority.
 
 What neither shape copies from his Mac: memory pressure, page cache traffic of large files, timers of real
 programs, GPU work, network. `spin` also has no disk I/O and no process starts.
@@ -286,10 +289,11 @@ def worker_main(threads: int, deadline: float, iters: int, supervisor: int) -> N
 
 AGENT_BLOCK = 65536
 AGENT_NAMES = 4000
+AGENT_QOS_REFUSED = 3  # exit status of an `agents` process that could not get its QoS class
 
 
 def agent_names() -> list:
-    """Paths of system files for the lstat step (read-only; the supervisor makes the list once before it forks)."""
+    """Paths of system files for the lstat step (read-only; each `agents` process makes its own list)."""
     names: list = []
     for root in ("/usr/share", "/usr/lib"):
         for base, _dirs, files in os.walk(root):
@@ -309,7 +313,8 @@ def agent_main(index: int, deadline: float, iters: int, supervisor: int, folder:
         resource.setrlimit(resource.RLIMIT_CPU, (left + 5, left + 5))
     except (ValueError, OSError):
         pass
-    set_qos("background" if index % 3 == 2 else "utility")
+    if not set_qos("background" if index % 3 == 2 else "utility") and _libsystem() is not None:
+        os._exit(AGENT_QOS_REFUSED)  # at priority 31 this would be a second `spin`, not this shape
     rnd = random.Random(index * 7919 + os.getpid())
     burst = max(100, iters // 2)  # about 2 ms on a quiet core
     block = os.urandom(AGENT_BLOCK)
@@ -354,6 +359,17 @@ def agent_main(index: int, deadline: float, iters: int, supervisor: int, folder:
     os._exit(0)
 
 
+def cmd_agent(args) -> int:
+    """One process of the shape `agents`, started NEW by the supervisor. It is not forked: macOS refuses the QoS
+    class call in a forked child (rc 1), and such a child stays at the default priority 31."""
+    folder = agent_folder(args.supervisor)
+    if os.getppid() != args.supervisor or args.supervisor <= 1 or not os.path.isdir(folder):
+        return fail("_agent is started only by the supervisor of a holder")
+    life = min(max(args.life, 0.0), HARD_LIMIT_S)
+    agent_main(args.index, time.monotonic() + life, args.iters, args.supervisor, folder, agent_names())
+    return 0
+
+
 def agent_folder(supervisor: int) -> str:
     return os.path.join(state_dir(), "agents-%d" % supervisor)
 
@@ -390,11 +406,8 @@ def supervise(args) -> int:
 
     per = [args.threads // args.procs + (1 if i < args.threads % args.procs else 0) for i in range(args.procs)]
     agents = args.shape == "agents"
-    folder, names = "", []
     if agents:
-        folder = agent_folder(me)
-        os.makedirs(folder, mode=0o700, exist_ok=True)
-        names = agent_names()
+        os.makedirs(agent_folder(me), mode=0o700, exist_ok=True)
     state = {"pid": me, "token": args.token, "owner": args.owner, "watch_pid": args.watch_pid, "shape": args.shape,
              "threads": args.threads, "procs": args.procs, "cores": os.cpu_count(),
              "threads_per_core": round(args.threads / float(os.cpu_count() or 1), 1),
@@ -404,13 +417,16 @@ def supervise(args) -> int:
              "workers": [], "ready": False, "ended": None}
     workers = []
     for index, n in enumerate(per):
+        if agents:  # a NEW process each (not a fork): only there does macOS permit the QoS class call
+            workers.append(os.posix_spawn(sys.executable, [
+                sys.executable, os.path.abspath(__file__), "_agent", "--index", str(index),
+                "--life", "%.1f" % max(0.0, deadline - time.monotonic()), "--iters", str(args.iters),
+                "--supervisor", str(me)], os.environ))
+            continue
         pid = os.fork()
         if pid == 0:
             try:
-                if agents:
-                    agent_main(index, deadline, args.iters, me, folder, names)
-                else:
-                    worker_main(n, deadline, args.iters, me)
+                worker_main(n, deadline, args.iters, me)
             finally:
                 os._exit(0)
         workers.append(pid)
@@ -419,21 +435,25 @@ def supervise(args) -> int:
     state["ready"] = True
     write_state(me, state)
 
-    reason, last_lock, cpu_s, live = None, 0.0, 0.0, set(workers)
+    reason, last_lock, cpu_s, live, refused = None, 0.0, 0.0, set(workers), 0
     while reason is None:
         time.sleep(0.1)
         now = time.monotonic()
         for pid in list(live):
             try:
-                done, _, ru = os.wait4(pid, os.WNOHANG)
+                done, status, ru = os.wait4(pid, os.WNOHANG)
             except ChildProcessError:
-                done, ru = pid, None
+                done, status, ru = pid, 0, None
             if done:
                 live.discard(pid)
                 if ru is not None:
                     cpu_s += ru.ru_utime + ru.ru_stime
+                if os.WIFEXITED(status) and os.WEXITSTATUS(status) == AGENT_QOS_REFUSED:
+                    refused += 1
         if stop["reason"]:
             reason = stop["reason"]
+        elif refused:
+            reason = "agents: the QoS class was refused in %d processes" % refused
         elif now >= deadline:
             reason = "max-seconds"
         elif not alive(args.watch_pid):
@@ -460,6 +480,8 @@ def supervise(args) -> int:
         remove_agent_files(me, workers)
     wall = time.monotonic() - t_start
     cores_used = min(args.threads, os.cpu_count() or 1)
+    if agents:
+        state["qos_refused"] = refused
     state.update({"ended": reason, "seconds": round(wall, 2), "worker_cpu_seconds": round(cpu_s, 1),
                   "cores_filled": round(cpu_s / wall, 2) if wall > 0 else 0.0,
                   "fill_ratio": round(cpu_s / (wall * cores_used), 3) if wall > 0 else 0.0,
@@ -930,9 +952,15 @@ def cmd_selftest(args) -> int:
         made = len(os.listdir(files)) if os.path.isdir(files) else 0
         check("agents: 6 processes, each with its own file", pid > 0 and st.get("shape") == "agents"
               and len(st.get("workers", [])) == 6 and made == 6, "files %d %s" % (made, err[:200]))
+        if sys.platform == "darwin":  # workers 2 and 5 asked for background: the kernel holds them at 4 or less
+            pris = [sched_pri(w) for w in st.get("workers", [])]
+            check("agents: each process has its QoS class (priority: utility 20 or less, background 4 or less)",
+                  len(pris) == 6 and all(x is not None and x <= 20 for x in pris)
+                  and all(pris[i] is not None and pris[i] <= 4 for i in (2, 5)), "priorities %s" % pris)
         rc, out, err = run("stop", str(pid))
         summary = json.loads(out) if out.startswith("{") else {}
-        check("agents: stop leaves 0 processes and no file", rc == 0 and summary.get("left_after_stop") == 0
+        check("agents: stop leaves 0 processes and no file, no QoS refusal", rc == 0
+              and summary.get("left_after_stop") == 0 and summary.get("qos_refused") == 0
               and gone(pid, st, 3) is not None and not os.path.exists(files), out[:200] or err)
         check("agents: the processes used CPU time and slept", 0.02 < summary.get("fill_ratio", 0) < 0.99
               or (os.cpu_count() or 1) < 4, "fill_ratio %s" % summary.get("fill_ratio"))
@@ -968,6 +996,10 @@ def main(argv=None) -> int:
                       ("--max-seconds", float), ("--iters", int), ("--shape", str)):
         v.add_argument(flag, type=typ, required=True)
     v.set_defaults(fn=supervise)
+    a = sub.add_parser("_agent")
+    for flag, typ in (("--index", int), ("--life", float), ("--iters", int), ("--supervisor", int)):
+        a.add_argument(flag, type=typ, required=True)
+    a.set_defaults(fn=cmd_agent)
     t = sub.add_parser("stop")
     t.add_argument("pid", type=int)
     t.set_defaults(fn=cmd_stop)

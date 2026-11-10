@@ -295,7 +295,10 @@ $BH selftest               # the safety rules with 4 threads for at most 10 s ea
   three at utility QoS (priority 20), one of three at background (4); each repeats a CPU burst of 2 to 24 ms, one
   I/O step (write 64 KiB with an fsync each 8th turn, lstat 200 system files, start `/usr/bin/true` and wait for
   it, read the 64 KiB back) and a sleep of 0 to 20 ms. Its files are in the tool's private state folder and are
-  removed at the end. Say the shape next to each number; a row made with one shape does not pair with the other.
+  removed at the end. Each one is a new process, not a fork: macOS refuses the QoS class call in a forked child
+  (it stays at 31), and a process that does not get its class ends the holder with an error. Read the priorities
+  in the arm (`ps -M`, or the `selftest` on the bench host inside your hold) before you trust a row.
+  Say the shape next to each number; a row made with one shape does not pair with the other.
 - Neither shape copies memory pressure, page cache traffic of large files, GPU work or network.
 - Time each row with the app's own clock (or the frame on the display), not with the wall time of the call that
   sends the input: under this load the call itself can take seconds while the app answers in one frame.
