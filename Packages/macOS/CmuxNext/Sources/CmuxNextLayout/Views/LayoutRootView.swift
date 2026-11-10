@@ -340,10 +340,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     /// the content or synced to the overlay here. The next tick presents once (`advanceFrame`), and it is asked for.
     /// The key's own turn stays a model change. A root that runs
     /// no frames (parked, out of its window) syncs as ``syncWithModel()`` does. A screen the change did not put on a
-    /// spring (Reduce Motion, pane animations off: its frames snapped) is asked to present in this turn. When the snap
-    /// resizes a pane's host, that screen gives the host its size ahead in this turn and presents at the next frame
-    /// tick (``ScreenContentView/holdsSnapForContent(keyPress:)``, #37330), so `applyPresentation` here returns at once. Only a
-    /// snap that resizes no host presents in this turn.
+    /// spring (Reduce Motion, pane animations off: its frames snapped) presents in this turn, a resized terminal's last
+    /// frame kept top-left by its renderer until the program's redraw (`GHOSTTY_HOST_PRESENT_RENDERER_SYNCED`).
     public func syncWithModelForNextFrame() {
         guard isLive, driver.isAttached else { return syncWithModel() }
         let held = context.holdsPresentations
@@ -444,7 +442,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
                 // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
                 // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
                 if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
-                               animated: (animated || reflows) && !view.isHidden, snapWaitsForFrame: isLive && driver.isAttached) {
+                               animated: (animated || reflows) && !view.isHidden) {
                     needsFrames = true
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still

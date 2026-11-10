@@ -34,18 +34,10 @@ struct LayoutFrameInput {
     }
 
     /// The pass a screen's presentation waited for in the frame's input, for each screen whose springs did not
-    /// present it this frame (a drag moves no spring), before the frame syncs its overlay. A snap held for its terminals'
-    /// sizes drawn ahead (Reduce Motion: no spring lands it, so no settle shows it) shows here, through the same path as a
-    /// settle (``ScreenContentView/presentHeldSnap()``): each host lets go of a size drawn ahead for it that its placement
-    /// did not take (review of b8085fe5bf1, P1 1 and 2). It never waits for a terminal's program: Ghostty holds a resized
-    /// terminal's old frame until its new-size frame is drawn (RESIZE SYNC, ghostty-integration sec. 4).
+    /// present it this frame (a drag moves no spring), before the frame syncs its overlay. It never waits for a
+    /// terminal's program: Ghostty holds a resized terminal's old frame until its new-size frame is drawn (RESIZE SYNC,
+    /// ghostty-integration sec. 4).
     func presentWaiting() { // perf-hot: 4ms motion-frame
-        for view in root.screenViews.values where view.frameInput.presentationWaiting {
-            guard view.frameInput.snapWaitsForContent else {
-                view.applyPresentation()
-                continue
-            }
-            view.presentHeldSnap()
-        }
+        for view in root.screenViews.values where view.frameInput.presentationWaiting { view.applyPresentation() }
     }
 }

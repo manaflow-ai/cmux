@@ -778,7 +778,7 @@ struct PaneContentPolicyTests {
         rig.model.cancelPaneClose(close)
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
-        // A snap that resizes a pane shows at the next frame tick, its content drawn at the new size (#37330): one frame.
+        // A snap shows in its own turn (GI RENDERER SYNC 2); the frame after it must keep p2 at its place.
         _ = rig.frame()
         #expect(rig.root.context.hosts["p2"] === host, "the close taken back made a new host")
         #expect(abs(host.frame.minX - rest.minX) < 0.5 && abs(host.frame.width - rest.width) < 0.5, "p2 is at \(host.frame), not at its place \(rest)")

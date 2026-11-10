@@ -58,19 +58,12 @@ public protocol PaneMotionHoldFollowing: NSView {
     /// Draw ahead of the hold's first frame (T-KEYS 3): a key press's spring gives this follower `nextHostSize` at its
     /// first refresh, the refresh whose layout hands it the hold. A producer that draws on another thread asks for that
     /// size in the key's turn, so the frame that shows the press is ready. Called once per press, in the key's turn, on
-    /// the followers the hold will hand. `keyPress`: false for a snapped structural change (split, close, zoom with Reduce
-    /// Motion or pane animations off, ``ScreenContentView`` `holdsSnapForContent`), which asks the size render only; a key
-    /// press's size also takes its grid to the program (RESIZE P0 11).
-    func drawAheadOfFollow(nextHostSize: CGSize, keyPress: Bool)
-    /// A snapped change this follower's size was drawn ahead for showed (``ScreenContentView`` `presentHeldSnap`, RESIZE
-    /// P0 14): a size drawn ahead that the change's placement did not take goes now. Until then only a placement at a new
-    /// size may take it or drop it.
-    func aheadOfFollowShown()
+    /// the followers the hold will hand.
+    func drawAheadOfFollow(nextHostSize: CGSize)
 }
 
 public extension PaneMotionHoldFollowing {
     var followsPaneMotion: Bool { true }
     func drawAhead(nextHostSize: CGSize) {}
-    func drawAheadOfFollow(nextHostSize: CGSize, keyPress: Bool) {}
-    func aheadOfFollowShown() {}
+    func drawAheadOfFollow(nextHostSize: CGSize) {}
 }

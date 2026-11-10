@@ -11,9 +11,4 @@ struct ScreenFrameInput {
     /// A presentation asked for while the frame tick's input held them (`LayoutViewContext.holdsPresentations`): the
     /// frame's one pass shows it.
     var presentationWaiting = false
-    /// A structural change that snapped waits for the next frame tick, its terminals' new sizes drawn ahead in its turn
-    /// (`ScreenContentView+SnapFrame`, CLOSE MOTION 3).
-    var snapWaitsForContent = false
-    /// The panes that change took out, shown as they were until it shows.
-    var snapDeparted: [PaneID] = []
 }
