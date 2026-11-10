@@ -108,7 +108,9 @@ final class ConversationAudioComposer {
 
     func noteConversationChanged() {
         guard !showsRecordButton, let store = controller?.store, let meID = store.meID else { return }
-        let sentAudio = store.messages.contains(where: { $0.senderID == meID && $0.audioAttachment != nil })
+        // A synthetic or file input (UI tests, demos) stands in for audio already sent.
+        let sentAudio = ConversationAudioRecorder.Input.fromEnvironment != .microphone
+            || store.messages.contains(where: { $0.senderID == meID && $0.audioAttachment != nil })
         if ComposerBarGeometry.showsRecordGlyph(iOS27: ConversationComposerView.isIOS27, sentAudio: sentAudio) {
             setShowsRecordButton()
         }
