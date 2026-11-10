@@ -173,11 +173,99 @@ fn cloud_environment_reads_and_patch_use_the_install_token_and_never_return_secr
     assert_eq!(patched[0].bearer, "install.jwt");
     drop(patched);
     assert!(backend.got().iter().all(|read| read.bearer == "install.jwt"));
-    assert_forbidden(&reply(&mux, plain, environment("list", json!({}))), "environment read");
-    assert_forbidden(
-        &reply(&mux, plain, environment("update", json!({"id":"env_default","patch":{}}))),
-        "environment write",
+    // `cmux env` on the local socket forwards its own install token (`cmux auth token`) too.
+    backend.reply("/v1/cloud-environments", 200, json!([]));
+    let local = reply(&mux, plain, environment("list", json!({})));
+    assert_eq!(local["ok"], true, "{local}");
+}
+
+/// A refusal of `cloud-environment` to a connection that is not this machine's person: by this
+/// op's own gate, or earlier by the connection's admission.
+fn assert_environment_forbidden(reply: &Value, what: &str) {
+    assert_eq!(reply["ok"], false, "{what}: {reply}");
+    if reply["error_code"] == "cloud_conversation_rejected" {
+        assert_eq!(reply["reason"], "forbidden", "{what}: {reply}");
+    }
+}
+
+#[test]
+fn cloud_environment_refuses_a_websocket_or_remote_connection_before_sending_anything() {
+    let (mux, _, _, backend) = daemon();
+    for transport in [ClientTransport::WebSocket, ClientTransport::Remote] {
+        let page = mux.control_clients.register(transport, writer());
+        assert_environment_forbidden(
+            &reply(&mux, page, environment("list", json!({}))),
+            "environment read",
+        );
+        assert_environment_forbidden(
+            &reply(&mux, page, environment("update", json!({"id":"env_default","patch":{}}))),
+            "environment write",
+        );
+    }
+    assert!(backend.got().is_empty());
+    assert!(backend.patched.lock().unwrap().is_empty());
+}
+
+#[test]
+fn cloud_environment_project_default_reads_and_puts_one_repository() {
+    let (mux, _, plain, backend) = daemon();
+    backend.reply(
+        "/v1/cloud-environments/project-defaults?repo=manaflow-ai/cmux",
+        200,
+        json!([{"scope":"personal","repo":"manaflow-ai/cmux","environment":"env_a"}]),
     );
+    let read = reply(&mux, plain, environment("default-get", json!({"repo":"manaflow-ai/cmux"})));
+    assert_eq!(read["data"][0]["environment"], "env_a", "{read}");
+    assert_eq!(
+        backend.got()[0].url,
+        format!("{PLATFORM_BASE}/v1/cloud-environments/project-defaults?repo=manaflow-ai/cmux")
+    );
+    backend.reply(
+        "/v1/cloud-environments/project-defaults",
+        200,
+        json!({"repo":"manaflow-ai/cmux"}),
+    );
+    let set = reply(
+        &mux,
+        plain,
+        environment("default-set", json!({"repo":"manaflow-ai/cmux","environment":"env_a"})),
+    );
+    assert_eq!(set["ok"], true, "{set}");
+    let put = backend.platform_put.lock().unwrap();
+    assert_eq!(put.len(), 1);
+    assert_eq!(put[0].body, json!({"repo":"manaflow-ai/cmux","environment":"env_a"}));
+    assert_eq!(put[0].bearer, "install.jwt");
+    drop(put);
+    for request in [
+        environment("default-get", json!({"repo":"manaflow-ai/cmux&next=x"})),
+        environment("default-get", json!({"repo":"../cmux"})),
+        environment("default-get", json!({"repo":"manaflow-ai"})),
+        environment("default-set", json!({"repo":"a/b","environment":"../x"})),
+        environment("default-set", json!({"repo":"a/b"})),
+    ] {
+        assert_eq!(reply(&mux, plain, request)["ok"], false);
+    }
+    assert_eq!(backend.got().len(), 1, "a refused default read sends nothing");
+    assert_eq!(backend.platform_put.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn cloud_environment_update_and_create_forward_the_newer_fields() {
+    let (mux, _, plain, backend) = daemon();
+    let patch = json!({"repo":"a/b","ref":"main","maintenance_script":"bun install",
+        "files":[{"path":".env.example","content":"A=1"}],"image":"ubuntu-24.04","expected_revision":7,
+        "network":{"mode":"off","package_managers":false,"domains":[]}});
+    backend.reply("/v1/cloud-environments/env_default", 200, json!({"id":"env_default"}));
+    let updated =
+        reply(&mux, plain, environment("update", json!({"id":"env_default","patch":patch})));
+    assert_eq!(updated["ok"], true, "{updated}");
+    assert_eq!(backend.patched.lock().unwrap()[0].body, patch);
+    let body = json!({"name":"web","repo":"a/b","ref":"dev","setup_script":"make",
+        "maintenance_script":"make update"});
+    backend.reply("/v1/cloud-environments", 200, json!({"id":"env_new"}));
+    let created = reply(&mux, plain, environment("create", json!({"environment":body})));
+    assert_eq!(created["ok"], true, "{created}");
+    assert_eq!(backend.posted()[0].body, body);
 }
 
 #[test]
@@ -322,8 +410,10 @@ fn cloud_environment_create_posts_only_the_platform_create_fields() {
         assert_eq!(reply(&mux, app, request)["ok"], false);
     }
     assert_eq!(backend.posted().len(), 1, "a refused create sends nothing");
-    assert_forbidden(
-        &reply(&mux, plain, environment("create", json!({"environment":{"name":"x"}}))),
+    let page = mux.control_clients.register(ClientTransport::WebSocket, writer());
+    assert_environment_forbidden(
+        &reply(&mux, page, environment("create", json!({"environment":{"name":"x"}}))),
         "environment create",
     );
+    let _ = plain;
 }

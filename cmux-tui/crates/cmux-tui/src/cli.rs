@@ -79,6 +79,8 @@ mod cloud_retention;
 #[cfg(unix)]
 mod cloud_secret;
 #[cfg(unix)]
+mod env_command;
+#[cfg(unix)]
 mod cloud_start_chat;
 #[cfg(unix)]
 mod cloud_workspaces;
@@ -487,6 +489,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "remote-host",
     "chat",
     "vm",
+    "env",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -798,6 +801,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| env_command::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))

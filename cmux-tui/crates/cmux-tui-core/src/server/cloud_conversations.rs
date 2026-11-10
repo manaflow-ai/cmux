@@ -408,20 +408,45 @@ impl std::fmt::Debug for EnvironmentParams {
     }
 }
 
-/// Only the verified native app may forward its platform origin and install token.
+/// Whether `client` may forward a platform origin and an install token through
+/// `cloud-environment`: the verified app, or a process of this machine's user on the local Unix
+/// socket (`cmux env`: a shell, a cmux terminal, an agent's session). That process got the token
+/// from the app's own `auth.token` (`cmux auth token`), which any process the app's socket admits
+/// can already ask for and send to the platform itself, so this grants it nothing new; the op still
+/// checks the origin and the routes. A link peer, a WebSocket or remote connection (a page) and an
+/// in-process cmux app are refused: none of them is this machine's person.
+fn may_forward_install_token(mux: &Mux, client: u64) -> bool {
+    matches!(
+        super::origin_gate::connection_actor(mux, client),
+        crate::Actor::Frontend { .. }
+            | crate::Actor::User { .. }
+            | crate::Actor::Terminal { .. }
+            | crate::Actor::AcpSession { .. }
+    )
+}
+
+/// [`may_forward_install_token`] as the refusal both gates of `cloud-environment` answer: the
+/// request loop's precheck and the worker's call.
+fn check_install_token_forwarder(mux: &Mux, client: u64) -> anyhow::Result<()> {
+    if may_forward_install_token(mux, client) {
+        return Ok(());
+    }
+    Err(CloudError::Rejected {
+        code: "forbidden".into(),
+        message: "cloud-environment requires the cmux app or a local process of this user".into(),
+        retryable: false,
+    }
+    .into())
+}
+
+/// The verified app, or a local process with its own install token
+/// ([`may_forward_install_token`]), forwards a platform origin and an install token.
 pub(super) fn environment(
     mux: &Mux,
     client: u64,
     params: EnvironmentParams,
 ) -> anyhow::Result<Value> {
-    if !is_app(mux, client) {
-        return Err(CloudError::Rejected {
-            code: "forbidden".into(),
-            message: "cloud-environment requires the verified cmux app connection".into(),
-            retryable: false,
-        }
-        .into());
-    }
+    check_install_token_forwarder(mux, client)?;
     Ok(service(mux, client)?.environment(
         &params.action,
         &params.params,
@@ -658,14 +683,7 @@ pub(super) fn start(
 ) -> bool {
     let precheck = || {
         if matches!(&cmd, Command::CloudEnvironment(_)) {
-            if !is_app(mux, client) {
-                return Err(CloudError::Rejected {
-                    code: "forbidden".into(),
-                    message: "cloud-environment requires the verified cmux app connection".into(),
-                    retryable: false,
-                }
-                .into());
-            }
+            check_install_token_forwarder(mux, client)?;
             return Ok(service(mux, client)?.begin_request()?);
         }
         lease_user(mux, client).and_then(|service| {

@@ -8098,10 +8098,15 @@ subscriptions reconnect to carry it. Same admission as `cloud-inbox-list`.
 | status | implemented |
 | since | protocol 12 additive extension; capability `cloud-environments-v1` |
 
-The cloud environment editor uses the existing Cloud transport on an off-loop
-request worker. Only the verified native app may call it. The app supplies
-`platform_origin` from its existing platform resolver and `access_token`, its
-cmux install JWT with team authorization. The page never supplies or sees either.
+The cloud environment editor and `cmux env` use the existing Cloud transport on an
+off-loop request worker. The verified native app may call it, and so may a process of
+this machine's user on the local Unix socket (actor `user`, `terminal` or `acp_session`):
+`cmux env` brings the install token the app's `auth.token` minted for it (`cmux auth
+token`), which that process could already send to the platform itself. A link peer, a
+WebSocket or remote connection and an in-process cmux app are refused (`forbidden`).
+The app supplies `platform_origin` from its existing platform resolver and
+`access_token`, its cmux install JWT with team authorization; `cmux env` supplies the
+platform of the API that issued its token. The page never supplies or sees either.
 No Home session lease is needed or modified. Redirects are disabled. The platform
 owns validation, authorization, storage and default locking.
 
@@ -8114,7 +8119,16 @@ Actions and their params:
 - `get`, `{id}`: `GET /v1/cloud-environments/{id}`, answers the environment.
 - `update`, `{id, patch}`: `PATCH /v1/cloud-environments/{id}`, answers the saved
   environment. The patch accepts `name`, `setup_script`, `env_vars`, `set_secrets`,
-  `remove_secrets` and `network`. Null and empty values reach the owner unchanged.
+  `remove_secrets`, `network`, `repo`, `ref`, `maintenance_script`, `files`, `image` and
+  `expected_revision` (the platform refuses a stale one with 409
+  `cloud_environment.revision_conflict`, whose code reaches the caller).
+  Null and empty values reach the owner unchanged.
+- `create`, `{environment}`: `POST /v1/cloud-environments`, with `name` (not blank),
+  `scope`, `secrets` and the patch's fields other than `set_secrets` and `remove_secrets`.
+- `default-get`, `{repo}`: `GET /v1/cloud-environments/project-defaults?repo=OWNER/NAME`,
+  the project's defaults (`[{scope, repo, environment, updated_at, updated_by}]`).
+- `default-set`, `{repo, environment}`: `PUT /v1/cloud-environments/project-defaults` with
+  `{repo, environment}`. `repo` is `OWNER/NAME` of letters, digits, `-`, `_` and `.`.
 - `derive`, `{repo, ref?, environment?}`: `POST /v1/environments/derive`, answers
   the derived setup including `setup.script`.
 
@@ -8126,7 +8140,7 @@ the install token. Upstream error messages are sanitized.
 The app requires the Save click for `update`. Platform `cloud_environment.*`
 refusals preserve their code; invalid fields fail before an HTTP call. Neither
 this command nor its reads change focus. CLI/MCP use requires the person's own
-API authorization; this native forwarding command never grants it to agents.
+API authorization, the token the caller brings; this command never grants one.
 
 ### cloud-conversation-thread
 
