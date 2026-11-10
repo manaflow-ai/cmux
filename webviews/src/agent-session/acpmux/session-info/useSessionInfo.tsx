@@ -400,14 +400,16 @@ export function useSessionInfo({
   const held = heldChats.has(heldKey);
   // Shown at a width: asked for, or saved open where it has room and no narrow pane held it.
   const shownAt = (isNarrow: boolean | undefined) => roomyShown && (asked || (!isNarrow && !held));
+  // Narrowed while it showed: it stays (the first measure is a start, not a narrowing). One held
+  // closed is not showing, so narrowing again leaves it closed.
+  const keeps = narrow === true && narrowWas === false && shownAt(false);
   if (narrowWas !== narrow) {
     setNarrowWas(narrow);
-    // Narrowed while it showed: it stays (the first measure is a start, not a narrowing). One held
-    // closed is not showing, so narrowing again leaves it closed.
-    if (narrow && narrowWas === false && shownAt(false)) setAsked(true);
+    if (keeps) setAsked(true);
   }
-  // Held only where it would show: one aside for a view its row opened, covered or closed is not.
-  if (narrow && !asked && !held && roomyShown) setHeldChats(new Set(heldChats).add(heldKey));
+  // Held only where it would show: one aside for a view its row opened, covered, closed, or kept as
+  // the pane narrowed is not.
+  if (narrow && !asked && !keeps && !held && roomyShown) setHeldChats(new Set(heldChats).add(heldKey));
   const shown = shownAt(narrow);
   // The person opens it here (the toggle, the palette, a running line's count).
   const ask = useCallback(() => {
