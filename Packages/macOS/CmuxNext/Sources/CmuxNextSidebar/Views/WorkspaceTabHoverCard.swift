@@ -30,6 +30,8 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
     var onClose: ((TabID) -> Void)? { didSet { rowViews.forEach(wireClose) } }
 
     var reportedLines: [String] { rowViews.prefix(tabs.count).map(\.reportedLine) }
+    /// The list's scroll view, so a test can show the legacy scrollers a mouse or the "always" setting shows.
+    var listScrollView: NSScrollView { scrollView }
     override var isFlipped: Bool { true }
 
     init(style: WorkspaceTabHoverCardStyle = .standard) {
