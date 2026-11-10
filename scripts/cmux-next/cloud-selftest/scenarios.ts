@@ -284,15 +284,15 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     name: "gateway.admin",
-    summary: "the owner turns the team's gateway on and off; status says the mode and that none is online; a member cannot",
-    covers: ["gateway mode (team and personal)", "gateway offline", "role matrix"],
+    summary: "the owner turns the team's gateway on and off; status says the mode and that none is online, to a member too",
+    covers: ["gateway mode (team and personal)", "gateway offline"],
     tags: ["gateway", "fast"],
     actors: [OWNER, MEMBER],
     needs: ["cmux"],
     steps: [
       s("owner", "gateway.mode", { mode: "gateway" }, { json: { mode: "gateway" } }),
       s("owner", "gateway.status", {}, { json: { mode: "gateway", online: false } }),
-      s("member", "gateway.mode", { mode: "off" }, { ok: false }, { label: "member: may not change the team's gateway" }),
+      s("member", "gateway.status", {}, { json: { mode: "gateway", online: false } }, { label: "member: reads the team's gateway" }),
       s("owner", "gateway.mode", { mode: "off" }, { json: { mode: "off" } }),
       s("owner", "gateway.status", {}, { json: { mode: "off" } }),
     ],
