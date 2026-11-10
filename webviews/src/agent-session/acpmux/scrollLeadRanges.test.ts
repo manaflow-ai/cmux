@@ -65,18 +65,17 @@ describe("scrollLeadRanges fast fling", () => {
   /// A range's rows past its span: a jump's one row of overscan each side, and its edge rows.
   const edges = 4 * PITCH;
 
-  test("a jump past the cap mounts the view and the next views, no lead between", () => {
+  test("a jump past the cap mounts the view and the next frame's view, nothing between or beyond", () => {
     const delta = 8 * VIEW;
     const ranges = scrollLeadRanges(long, far, delta, VIEW, LEAD_STEPS, MAX_LEAD, TRAIL);
-    // The view and two next views with their margins (half a view each side).
-    expect(at(8)).toBeLessThanOrEqual(VIEW * (1 + LEAD_STEPS * 2) + 3 * edges);
+    // The view and the next view with its margin (half a view each side).
+    expect(at(8)).toBeLessThanOrEqual(VIEW * 3 + 2 * edges);
     expect(at(-8)).toBe(at(8));
-    const lead = rowAt(far + 2 * VIEW);
-    expect(ranges.some((range) => range.first <= lead && lead < range.last)).toBe(false);
-    for (const step of [1, 2]) {
-      const next = rowAt(far + delta * step);
-      expect(ranges.some((range) => range.first <= next && rowAt(far + delta * step + VIEW) < range.last)).toBe(true);
-    }
+    const mounted = (y: number) => ranges.some((range) => range.first <= rowAt(y) && rowAt(y) < range.last);
+    expect(mounted(far + 2 * VIEW)).toBe(false);
+    expect(mounted(far + delta)).toBe(true);
+    expect(mounted(far + delta + VIEW - 1)).toBe(true);
+    expect(mounted(far + 2 * delta)).toBe(false);
   });
 
   test("a jump too far for its margin to hold mounts the view alone, however far", () => {

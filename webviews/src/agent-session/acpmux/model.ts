@@ -3483,8 +3483,8 @@ export const PREDICTED_JITTER = 0.05;
 /// The rows a transcript at `scrollTop` mounts while it moves `delta` per scroll: the view and
 /// `steps` scrolls of motion ahead of it, capped at `maxLead`. A scroll past the cap (a fling or a
 /// scrollbar drag that moves several viewports a frame) also mounts each view the next `steps`
-/// frames reach, with a margin for uneven frames: the rows between them and the capped lead are
-/// never on screen, so they are not built (cx-j33s4).
+/// frames reach (a jump past the cap itself, only the next one), with a margin for uneven frames:
+/// the rows between them are never on screen, so they are not built (cx-j33s4).
 /// A moving scroll within the cap also keeps `trail` px behind the view mounted: the rows the
 /// reader just passed, already drawn. Dropping them the moment they left the view made a quick
 /// reversal (up and down fast) scroll the compositor into bare background for a frame before its
@@ -3508,7 +3508,7 @@ export function scrollLeadRanges(
   // A scroll that moves past the cap in one frame lands past the capped lead too: the lead between
   // the view and the next frame's view is never on screen, so only a scroll that can slow into it
   // (a scrollbar drag of a few viewports a move) builds it. Faster, each frame mounts the view and
-  // the views the next `steps` frames reach, not the rows it jumps over: a fling of tens of
+  // the view the next frame reaches, not the rows it jumps over: a fling of tens of
   // viewports a frame (a god session) built 5 viewports of rows a frame that no frame showed.
   const jumping = Math.abs(delta) > maxLead;
   const contiguous = jumping ? 0 : lead;
@@ -3527,7 +3527,10 @@ export function scrollLeadRanges(
   // its jump): past that, the next frame lands outside the window it built as often as in it, and
   // the view it lands on is built in its own commit anyway.
   if (margin < Math.abs(delta) * PREDICTED_JITTER) return ranges;
-  for (let step = 1; step <= steps; step += 1)
+  // A jump builds only the next frame's view: the commit after it builds the one after that, and a
+  // second window ahead doubled the rows a frame built (and drew again as rows above them measured).
+  const predicted = jumping ? 1 : steps;
+  for (let step = 1; step <= predicted; step += 1)
     ranges.push(
       visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin, overscan),
     );

@@ -180,7 +180,7 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
     // moves tens of viewports a frame).
     const jumping = await fling(repeat([20, 21, 19.5, 20.5]));
     console.log(`transcript-fling jumping: ${JSON.stringify({ ...jumping, blanks: jumping.blanks.length })}`);
-    expect(results.up.mountedViewports).toBeLessThanOrEqual(6);
+    expect(results.up.mountedViewports).toBeLessThanOrEqual(4.5);
     // Twenty viewports a frame is past what a frame's margin can predict: the view alone.
     expect(jumping.mountedViewports).toBeLessThanOrEqual(2.5);
 
