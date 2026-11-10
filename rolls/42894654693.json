@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42894654693",
+  "recorded_at": "2026-11-10T20:31:31Z",
+  "reason": "cmux-tui 1cef6e2a2a56 changes the image's cmux-tui (pinned 180fbb50d442)",
+  "dry_run": false,
+  "cmux_tui": "1cef6e2a2a56544b98bf5a988345ab55bada82fc",
+  "fixes": [
+    {
+      "sha": "1cef6e2a2a56544b98bf5a988345ab55bada82fc",
+      "mergedAt": "2026-11-10T12:02:31-08:00",
+      "subject": "rust panic ratchet: remove the 4 new cmux-tui panic sites (and 1 acpmux) that made feat's lint red (#40569)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-10T20:31:31Z",
+    "snapshot_id": "sh-a690fcf1af2c48d58de2ac705949a42c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42894654693): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "eae225424d8cfa8e1dabc4d9cca6e3a44bff16ca",
+    "image": "cloud-native-auto-1cef6e2a-42894654693-1",
+    "revision": "ci-42894654693-1",
+    "at": "2026-11-10T20:31:31Z"
+  },
+  "rolled_back": false
+}
