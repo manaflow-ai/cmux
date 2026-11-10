@@ -19,6 +19,8 @@ pub(crate) mod agent_hold;
 mod agent_pairs;
 mod away_recap;
 mod memory_inbox;
+mod prompt_coach;
+pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
@@ -556,6 +558,10 @@ pub struct PromptOptions {
     /// person's prompt, yet no connection proved the person, so it lifts no protected hold
     /// (`protected_hold.rs`), as #37497 made it.
     pub unproven_owner: bool,
+    /// The text of a prompt a connection proved the person's (`server/requests.rs`
+    /// `person_admitted`), for the prompt coach (`prompt_coach.rs`): recorded by the prompt's
+    /// id once it has one, so its own turn's end settles it.
+    pub coach: Option<String>,
     /// Sender identity carried across a peer link. Provenance is intentionally removed at that
     /// boundary, but the additive message event still needs the sender's stable identity.
     pub message_sender: Option<Value>,
@@ -697,6 +703,9 @@ pub struct Hub {
     /// Set only by an explicit daemon restart/update handoff. Ordinary stops
     /// close clients normally so they do not immediately reconnect to a dead daemon.
     pub(crate) restart_requested: std::sync::atomic::AtomicBool,
+    /// Raised when a supervised task cannot go on: the daemon stops for a restart
+    /// (`crate::supervise`).
+    pub(crate) fatal: crate::supervise::Fatal,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
@@ -872,6 +881,8 @@ pub struct Hub {
     pub(super) recap_due: StdMutex<HashMap<String, u64>>,
     /// Wakes the recap loop when `recap_due` changes.
     pub(super) recap_wake: Arc<Notify>,
+    /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
+    pub(super) coach_rewriter: StdMutex<Option<prompt_coach::CoachRewriter>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
@@ -1137,6 +1148,7 @@ impl Hub {
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
+            fatal: crate::supervise::Fatal::default(),
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
@@ -1224,6 +1236,7 @@ impl Hub {
             session_recap: AtomicBool::new(away_recap::saved_setting()),
             recap_due: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
+            coach_rewriter: StdMutex::new(None),
             start_mode_state,
             caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
@@ -1320,8 +1333,8 @@ impl Hub {
             // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
             // they can configure fields before entering their runtime.
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
-            let h = hub.clone();
-            tokio::spawn(async move { h.peer_notice_loop().await });
+            // It takes the notices' receiver: it cannot run twice.
+            crate::supervise::once("peer notice", &hub.fatal, hub.clone().peer_notice_loop());
             hub.rehydrate_worker();
             if !loading {
                 hub.watch_orphans();
@@ -1620,6 +1633,7 @@ impl Hub {
             sent_seam: Default::default(),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),
+            coach: StdMutex::new(Default::default()),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             prepared: StdMutex::new(std::collections::VecDeque::new()),

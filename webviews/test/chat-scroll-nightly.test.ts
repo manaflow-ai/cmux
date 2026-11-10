@@ -176,7 +176,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       };
       const stop = window.cmuxAfterPaint(() => {
         const view = scroller.getBoundingClientRect();
-        const jump = document.querySelector<HTMLElement>(".acpmux-jump-latest");
+        const jump = document.querySelector<HTMLElement>(".acpmux-jump-latest:not(.acpmux-jump-up)");
         const faded: string[] = [];
         const animating: string[] = [];
         const live: string[] = [];

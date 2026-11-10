@@ -19,9 +19,9 @@ export type MotionStep = keyof typeof MOTION_MS;
 export const MOTION_EASE_OUT = "cubic-bezier(0, 0, 0.58, 1)";
 
 /**
- * The one spring (`--cmux-ease-spring`): a selection or view that travels to where it lands and settles with a touch of give (a sliding tab indicator, the chat switch); run over its step (large, 240 ms) it is visibly settled by 58% (about 140 ms) and at rest by the end.
+ * The one spring (`--cmux-ease-spring`): a selection or view that travels to where it lands and stops there, never past it (a sliding tab indicator, the chat switch; Lawrence: no bounce in any motion); run over its step (large, 240 ms) it is at its end by 55% (about 130 ms) and stays there.
  */
-export const MOTION_SPRING = "linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1.006 58%, 1.004 72%, 1)";
+export const MOTION_SPRING = "linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1 54.57%, 1)";
 
 /** The step the spring runs over (`MOTION_MS[MOTION_SPRING_STEP]`). */
 export const MOTION_SPRING_STEP: MotionStep = "large";
