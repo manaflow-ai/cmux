@@ -6452,5 +6452,39 @@ class FailingStepLogOnly(unittest.TestCase):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
 
+    def test_a_continue_on_error_step_that_failed_still_counts(self):
+        # The jobs API reads a continue-on-error step that failed as a success, and the job's rollup step fails for
+        # it. Its section's own `##[error]Process completed` line keeps its errors compared: a different red there
+        # is never excused by the rollup lines alone.
+        check, rollup = "Main-thread concurrency", "Fail on any red check"
+
+        def job(job_id, run_id, sha):
+            found = self.job(job_id, run_id, sha)
+            found["steps"] = [
+                {"name": check, "status": "completed", "conclusion": "success",
+                 "started_at": "2026-11-10T12:00:10Z", "completed_at": "2026-11-10T12:00:12Z"},
+                {"name": rollup, "status": "completed", "conclusion": "failure",
+                 "started_at": "2026-11-10T12:00:20Z", "completed_at": "2026-11-10T12:00:22Z"}]
+            return found
+
+        def lines(error):
+            return [(check, 10, "##[group]Run scripts/cmux-next/check-concurrency.sh"),
+                    (check, 10, "##[endgroup]"),
+                    (check, 11, f"concurrency: error: {error}"),
+                    (check, 11, "##[error]Process completed with exit code 1."),
+                    (rollup, 20, "##[group]Run scripts/ci/rollup.sh"),
+                    (rollup, 20, "##[endgroup]"),
+                    (rollup, 21, f"##[error]red check: {check}"),
+                    (rollup, 21, "##[error]Process completed with exit code 1.")]
+
+        for fmt in (self.raw, self.columns):
+            with self.subTest(log=fmt.__name__):
+                github = self.github(fmt(lines("Sources/New.swift:9 blocks the main thread")),
+                                     fmt(lines("Sources/Old.swift:3 blocks the main thread")))
+                github.jobs = {1: job(1, 10, HEAD), 2: job(2, 20, BASE_SHA)}
+                with self.assertRaisesRegex(excuse.Refused, "New.swift"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+
 if __name__ == "__main__":
     unittest.main()
