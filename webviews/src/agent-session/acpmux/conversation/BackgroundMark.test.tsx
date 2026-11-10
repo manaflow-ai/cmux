@@ -475,6 +475,35 @@ test("a finished task is read once; a read that failed or found it running is re
   expect(lists).toEqual(["running", "exited", "exited", "exited"]);
 });
 
+test("a click after a read-ahead that found the task still running reads again and opens the final output", async () => {
+  const bytes = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  let state = "running";
+  const reader: BackgroundTaskOutputReader = {
+    sessionId: "s-race",
+    source: {
+      listProcesses: async () => ({
+        processes: [{ id: "s-race/p", toolCallId: "bg-race", harness: "claude", state, exitCode: 0 }],
+      }),
+      tailProcess: async () => ({
+        data: bytes(state === "running" ? "partial\n" : "partial\nall done\n"),
+        fromByte: 0,
+      }),
+    },
+  };
+  const container = await render(
+    <BackgroundTaskOutputContext.Provider value={reader}>
+      <BackgroundTaskNote task={{ toolCallId: "bg-race", command: "cargo test", state: "completed" }} />
+    </BackgroundTaskOutputContext.Provider>,
+  );
+  // Focus reads ahead (as a hover does), and that read finds the task still running.
+  await act(async () => (container.querySelector("button.cv-bgtask") as HTMLElement).focus());
+  await settle();
+  state = "exited";
+  await click(container.querySelector("button.cv-bgtask")!);
+  await settle();
+  expect(container.querySelector(".cv-shell__output")!.textContent).toContain("all done");
+});
+
 test("a live tail keeps the last lines and removes terminal control escapes", () => {
   expect(
     tailLines("first\n\u001b]8;;https://example.test\u0007\u001b[31msecond\u001b[0m\u001b]8;;\u0007\nthird\n", 2),
