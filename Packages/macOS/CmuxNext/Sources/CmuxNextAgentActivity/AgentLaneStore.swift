@@ -89,7 +89,17 @@ public final class AgentLaneStore {
     /// about its sessions such as the Priority view's Archive.
     @ObservationIgnored public var socketPath: String?
     /// The watch is up and has delivered its page: `lanes` is every session, not a gap.
-    public var live = false
+    public var live = false {
+        didSet {
+            // Going down, keep the sessions it showed (before `lanes` is emptied), for the gap; a page ends the gap.
+            if oldValue, !live { beforeGap = Set(storage.keys) } else if live, beforeGap != nil { beforeGap = nil }
+        }
+    }
+
+    /// The sessions the watch listed when it last went down, nil while it is live or before its first page. Through a
+    /// watch gap the sidebar keeps these sessions' rows and leaves the ones it had hidden (gone sessions) hidden
+    /// (`keepsWorkspace`; Leo 2026-11-05: "randomly there's these workspaces that appear and disappear").
+    public private(set) var beforeGap: Set<String>?
 
     /// Changes only when ownership changes; ordinary lane output does not remap every row.
     public private(set) var chiefParticipants: [String: String] = [:]

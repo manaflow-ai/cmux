@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-05",
+  "row": "app_lines",
+  "allow": 185,
+  "why": "AgentTabs machine-qualified routing keeps duplicate machine tab IDs isolated while preserving existing App ownership boundaries.",
+  "author": "lane/agenttabs-machine-key",
+  "owner": "p0-machines-r3",
+  "receipt": "Review (codex gpt-6-astra high; fix-forward from SHIP at 32a3bed78fcf208dbdf5794223f1761dc26d46b4): SHIP at bcb7f122b511a3b65dbd0b4fd8d2b330720ecf96",
+  "expiry": "2026-12-05"
+}

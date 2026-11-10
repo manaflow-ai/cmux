@@ -1,3 +1,4 @@
+import Darwin
 public import Foundation
 
 /// Whether classic cmux is running now, so it may still save its session.
@@ -8,8 +9,11 @@ public import Foundation
 /// on classic's `main`). No sentinel means classic quit: the Sparkle update
 /// relaunch starts cmux-next seconds after classic's quit save, and that save
 /// migrates. A sentinel with a save older than ``quietSeconds`` is a classic
-/// that crashed (it autosaves every 8 s while it runs). No process scan
-/// (plans/cmux-next/pty-holder.md).
+/// that crashed (it autosaves every 8 s while it runs). Classic builds older
+/// than the sentinel write none, so the app also asks whether the lock classic
+/// holds beside its control socket is taken (``lockPaths(channel:home:)``,
+/// ``isLockHeld(_:)``). cmux-next listens on the same socket names but holds no
+/// such lock. No process scan (plans/cmux-next/pty-holder.md).
 ///
 /// ```swift
 /// let probe = ClassicRunningProbe(stateRoot: ClassicRunningProbe.defaultStateRoot(home: home, environment: environment))
@@ -46,5 +50,32 @@ public nonisolated struct ClassicRunningProbe: Sendable {
     /// Whether the classic that wrote `source` is running now (`now` in seconds since 1970).
     public func isRunning(_ source: ClassicMigrationSource, now: Double) -> Bool {
         FileManager.default.fileExists(atPath: sentinel(channel: source.bundleID).path) && now - source.modifiedAt < Self.quietSeconds
+    }
+
+    /// The lock files classic of `channel` (a bundle id) holds while it listens:
+    /// `<socket>.lock` beside `~/.local/state/cmux/cmux[-<channel>].sock`, then
+    /// beside the `/tmp` one. cmux-next uses the same socket names
+    /// (`ControlSocketPath`) but never takes these locks.
+    public static func lockPaths(channel: String, home: URL) -> [String] {
+        let suffix = ["com.cmuxterm.app.nightly": "-nightly", "com.cmuxterm.app.rc": "-rc",
+                      "com.cmuxterm.app.staging": "-staging"][channel] ?? ""
+        let name = "cmux\(suffix).sock.lock"
+        return [home.appendingPathComponent(".local/state/cmux/\(name)").path, "/tmp/\(name)"]
+    }
+
+    /// Whether a process holds the `flock` on `path`, asked without blocking.
+    /// A missing file, one another user owns, or a free lock is not held; a
+    /// free lock is taken shared for an instant and let go at once.
+    public static func isLockHeld(_ path: String) -> Bool {
+        let fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_uid == getuid() else { return false }
+        if flock(fd, LOCK_SH | LOCK_NB) == 0 {
+            flock(fd, LOCK_UN)
+            return false
+        }
+        return errno == EWOULDBLOCK
     }
 }

@@ -121,6 +121,9 @@ impl Translator {
         // A subagent's usage is its own context, not the chat's, and its cache is its own too.
         if !subagent {
             self.context_used.store(used, Ordering::SeqCst);
+            // What the next call will read: this one's prompt and what it wrote.
+            self.context_end.store(used + output, Ordering::SeqCst);
+            self.turn_calls.fetch_add(1, Ordering::SeqCst);
             self.context_from_compaction.store(false, Ordering::SeqCst);
             if let Some(at) = self.cache.call(u) {
                 acpmux.set("cacheExpiresAt", json!(at));
@@ -132,7 +135,7 @@ impl Translator {
         // subagent's calls are marked too: they are the turn's spend. The four counts split the
         // call so the line can say its output apart from what it read (fresh input, cache reads
         // and cache writes).
-        json!({
+        let mut update = json!({
             "sessionUpdate": "usage_update",
             "used": used,
             "size": size,
@@ -141,7 +144,14 @@ impl Translator {
             "cachedWriteTokens": cache_write,
             "outputTokens": output,
             "_meta": {"acpmux": acpmux},
-        })
+        });
+        // The chat's context after this call (its prompt and its output), so the running line
+        // can say what the context holds rather than every call's reads added up. A
+        // subagent's call names none: its context is not the chat's.
+        if !subagent {
+            update.set("contextTokens", json!(used + output));
+        }
+        update
     }
 }
 

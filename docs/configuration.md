@@ -139,21 +139,6 @@ Default: `always` for stable, nightly, and RC builds. DEV builds always behave a
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
-## `tabs.cmdWClosesPinnedTabs`
-
-What Cmd-W does on a pinned tab.
-
-```json
-{
-  "tabs": { "cmdWClosesPinnedTabs": false }
-}
-```
-
-- `true` (default): Cmd-W closes a pinned tab like any other tab, as in Chrome.
-- `false`: Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
-
-A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
-
 ## `tabs.swapCmdTAndCmdN`
 
 Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
@@ -648,7 +633,8 @@ A binding you set yourself for either action stays when you pick a choice. Rebin
 
 | Keys | Action | Id |
 | --- | --- | --- |
-| Ctrl+Option+Cmd+Left / Right | Previous / Next Space | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+H / L | Previous / Next Space | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+Left / Right | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Option+Cmd+[ / ] | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Ctrl+Option+Cmd+1…9 | Select Space 1…9 (9 is the last) | `space.selectByNumber` |
 | Ctrl+Option+1…9 | Select Space 1…9 (the Number Keys default) | `space.selectByNumber` |

@@ -1,6 +1,7 @@
 // cmux NEXT action catalog data. Edit by hand: this is the source of truth.
 //! The `NotificationActionCatalog` actions.
 
+use super::args;
 use crate::model::*;
 use crate::text::t;
 
@@ -8,18 +9,35 @@ const GROUP: &str = "NotificationActionCatalog";
 
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
+    // The Feed page's native UI ops (feed-page.md 2): the page passes an item id; the item itself is read
+    // from the daemon's feed client, never taken from the caller. Open Feed Item without an item opens the Inbox.
     Action {
-        id: "feed.show",
+        id: "feed.openItem",
         group: GROUP,
-        title: t("ActionCatalog", "action.feed.show", "Show Feed"),
-        keywords: &["inbox", "requests", "notifications", "approvals"],
-        default_shortcut: Some(Shortcut { key: "i", modifiers: SHIFT | CMD }),
+        title: t("ActionCatalog", "action.feed.openItem", "Open Feed Item"),
+        keywords: &["feed", "inbox", "open", "item"],
         category: "notifications",
-        symbol: "tray.full",
-        surfaces: PALETTE | KEYBOARD | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "feed show",
-        main_menu: Some("window"),
+        symbol: "arrow.up.forward.square",
+        surfaces: KEYBOARD,
+        surface_plan: SurfacePlan { palette: Decision::Exempt("liveInput"), cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::FEED_ITEM.optional()],
+        cli_name: "action feed-open-item",
+        ..Action::DEFAULT
+    },
+    // Person-only: it types `gh pr review --approve` or a comment into a terminal, so only the person's own
+    // click or key in the Feed page starts it, never page script.
+    Action {
+        id: "feed.githubAction",
+        group: GROUP,
+        title: t("ActionCatalog", "action.feed.githubAction", "Run a Feed Item's GitHub Action"),
+        keywords: &["feed", "inbox", "github", "pull request", "review", "approve", "comment", "checkout"],
+        category: "notifications",
+        symbol: "arrow.triangle.pull",
+        surfaces: KEYBOARD,
+        surface_plan: SurfacePlan { palette: Decision::Exempt("liveInput"), cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::FEED_ITEM, args::FEED_GITHUB_ACTION, args::FEED_COMMENT.optional()],
+        cli_name: "action feed-github-action",
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {
@@ -225,7 +243,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "notifications.toggleBanners",
         group: GROUP,
-        title: t("ActionCatalog", "action.notifications.toggleBanners", "Toggle Notification Banners"),
+        title: t("ActionCatalog", "action.notifications.toggleBanners", "Notification Banners"),
         keywords: &["banner", "desktop", "system", "macos", "notifications"],
         category: "notifications",
         symbol: "rectangle.stack.badge.minus",

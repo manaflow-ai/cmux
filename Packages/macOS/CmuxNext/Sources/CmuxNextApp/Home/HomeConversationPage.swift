@@ -22,7 +22,6 @@ final class HomeConversationPage: NSView {
     let host: HomeMessagesHostProvider
     let chief: HomeChiefSurface
     private weak var services: AppServices?
-    private lazy var toastRoom = HomePageToastRoom(page: page)
     /// How long the page call that gives the message box the keyboard waits for the page.
     static let answerDeadline: Duration = .seconds(5)
 
@@ -36,11 +35,13 @@ final class HomeConversationPage: NSView {
         setAccessibilityIdentifier("cmux.homeConversation")
         wantsLayer = true
         addSubview(page)
+        host.toastAvoidance.attach(self, page: page)
         host.chiefShown = { [weak self] id in id == conversation ? self?.chief : nil }
         host.follow(chief)
+        host.seeThrough.onHeaderHeight = { [weak self] in self.map { HomeMessagesSeeThrough.relayout(from: $0) { $0 is ChiefPanelView } } }
         // A launch holds a Home still being made until its page paints (WorkspaceContentController).
         let reveal = services.launchReveal
-        page.whenPainted { reveal.markReady(.home) }
+        page.whenPainted { reveal.markReady(.home); DebugTimings.markLaunch("home.first_page") }
     }
 
     @available(*, unavailable)
@@ -67,7 +68,7 @@ final class HomeConversationPage: NSView {
     override func layout() {
         super.layout()
         page.frame = bounds
-        toastRoom.follow()
+        host.toastAvoidance.moved()
     }
 
     /// The popover is a child panel of the window, not a subview: the page leaving its window (a tab
@@ -105,22 +106,26 @@ final class HomeConversationPage: NSView {
         if page.hasPainted { focus() } else { page.whenPainted(focus) }
     }
 
-    /// The tab closed: the page's document ends.
+    /// The tab closed: the page's document ends once it has handed the app what it held alone
+    /// (``HomeComposerHandoff/settle()``: the pause's drafts, an unanswered send or staged file).
     func close() {
         chief.close()
         host.dictation.close()
-        page.close()
+        let page = page, handoff = composerHandoff
+        guard page.hasPainted else { return page.close() }
+        // task-owner: keeps the closed page until its settle answers (bounded by settleDeadline), then ends it
+        Task { await handoff.settle(); page.close() }
     }
 }
 
-/// Up and Down while the tab has the keyboard outside the page step its box's history; toasts keep
-/// the page's composer clear (``HomePageToastRoom``).
-extension HomeConversationPage: PrimaryInputTarget, CmuxToastReserving {
+/// Up and Down while the tab has the keyboard outside the page step its box's history; toasts rest
+/// above the page's compose bar (``HomePageToastAvoidance``).
+extension HomeConversationPage: PrimaryInputTarget, CmuxToastAvoiding {
     var primaryInputView: NSView? { nil }
     var acceptsRedirectedTyping: Bool { true }
     func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool { false }
     func routesToPrimaryInput(_ event: NSEvent) -> Bool { HomeComposerHandoff.historyArrow(event, outside: page) != nil }
-    func toastsSettled(in rect: NSRect?, duration: TimeInterval) { toastRoom.settled(rect, duration: duration) }
+    var toastAvoidanceRect: NSRect { host.toastAvoidance.rect(in: self) }
     func beginTyping(with event: NSEvent) { recallHistory(event, page: page) }
 }
 
@@ -132,6 +137,9 @@ extension HomeConversationPage: HomeChiefShowing {
     var shownChief: HomeChiefSurface? { chief.showsChiefOnScreen ? chief : nil }
 }
 
+/// The see-through Chief: the page clears its background and reports its header (``HomeMessagesSeeThrough``).
 extension HomeConversationPage: ChiefPanelContent {
     var chiefIsAnswering: Bool { chief.isWorking }
+    var chiefShowsThrough: Bool { get { host.seeThrough.showsThrough } set { host.seeThrough.showsThrough = newValue } }
+    var chiefHeaderHeight: CGFloat { host.seeThrough.headerHeight(zoom: page.pageZoom) }
 }

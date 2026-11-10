@@ -119,10 +119,40 @@ public struct NextStepAsk: Equatable, Sendable {
     /// The answer the person gave: the option their next prompt chose (case and outer space
     /// aside), else that prompt's first line, so a typed answer reads too.
     public func chosenAnswer(_ reply: String) -> String {
-        let said = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        let said = answer(of: reply).trimmingCharacters(in: .whitespacesAndNewlines)
         if let picked = options.first(where: { $0.label.caseInsensitiveCompare(said) == .orderedSame }) { return picked.title }
         let first = said.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespaces) ?? ""
         return first.count > 120 ? String(first.prefix(119)) + "…" : first
+    }
+
+    /// The prompt an answer sends: the ask quoted under who asked, then the answer, as the Mac's
+    /// card sends it (nextStepAsk.ts `answerPrompt`), so every surface shows it as a reply to the ask.
+    public func answerPrompt(_ label: String, asker: String?) -> String {
+        guard !question.isEmpty else { return label }
+        let who = asker?.trimmingCharacters(in: .whitespaces) ?? ""
+        let quoted = (who.isEmpty ? question : "\(who): \(question)")
+            .components(separatedBy: "\n").map { "> \($0)" }.joined(separator: "\n")
+        return "\(quoted)\n\n\(label)"
+    }
+
+    /// A reply's leading Markdown quote (`> ` lines, then a blank line), as Quote in Reply and an
+    /// answer to an agent's ask record it on the Mac: the quoted text and the reply under it. The
+    /// one reader of that record on the phone: the bubble (`UserBubble`), the native row's choice
+    /// to leave it to SwiftUI (`ChatNativeWidgets`), the row estimate and `answer(of:)`.
+    public static func replyQuote(_ prompt: String) -> (quote: String, body: String)? {
+        let lines = prompt.components(separatedBy: "\n")
+        let quoted = lines.prefix { $0.hasPrefix(">") }
+        guard !quoted.isEmpty, quoted.count < lines.count else { return nil }
+        let quote = quoted.map { String($0.dropFirst($0.hasPrefix("> ") ? 2 : 1)) }.joined(separator: "\n")
+        let body = lines.dropFirst(quoted.count).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return body.isEmpty ? nil : (quote.trimmingCharacters(in: .whitespaces), body)
+    }
+
+    /// A reply without its quote of this ask (nextStepAsk.ts `answerOf`); any other prompt as it is.
+    public func answer(of reply: String) -> String {
+        guard !question.isEmpty, let split = Self.replyQuote(reply) else { return reply }
+        guard split.quote == question || split.quote.hasSuffix(": \(question)") else { return reply }
+        return split.body
     }
 
     nonisolated(unsafe) private static let quote = try? NSRegularExpression(pattern: #"^\s{0,3}>"#)

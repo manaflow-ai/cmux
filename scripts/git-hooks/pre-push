@@ -19,6 +19,9 @@
 # 3. Base-merge warning (always, never refuses): scripts/ci/base_merge_warning.py says when the push
 #    merges the base into a branch whose old head still has CI running, which the push cancels.
 # 4. Namespace autofix (opt-in): only when installed with --namespace-fix.
+# Each run that checks commits ends with one `pre-push: hook times:` line on stderr (each phase's seconds and the
+# total), then what a failure means: after a pass, a failure is git or GitHub (retry); a refusal names its phase.
+# Pushes took 34-98 s on 2026-11-09 and nothing said whether the hook, git's pack step or GitHub was slow.
 # A push whose every ref is a delete (`git push origin :refs/heads/x`) sends no commits: nothing above has
 # anything to check, so it passes before any step, the work-tree lookup included (a clone without a work tree,
 # a bare or core.bare one such as a shared clone root, deletes branches too). Any other ref runs every step.
@@ -30,7 +33,40 @@ PUSHED_REFS="$(cat)"
 # Each check reads the refs from a file, never `printf | python`: on a Mac short of pipe memory a write into a
 # pipe blocks for good (git_batch.py), and pushes hung in this hook for up to an hour on 2026-10-28.
 REFS_FILE="$(mktemp "${TMPDIR:-/tmp}/cmux-pre-push-refs.XXXXXX")"
-trap 'rm -f "$REFS_FILE"' EXIT
+# Phase times, reported by the EXIT trap (header). Whole seconds: /bin/bash 3.2 on macOS has no EPOCHREALTIME.
+# Phase names are single hyphenated words: the tests read "web lint" in the output as the web lint having run.
+HOOK_STARTED=$SECONDS
+TIMED=0
+PHASE=""
+PHASE_STARTED=0
+PHASE_TIMES=""
+phase() {  # phase NAME: end the running phase (if any) and start NAME; `phase ""` only ends it
+    if [[ -n "$PHASE" ]]; then
+        PHASE_TIMES="${PHASE_TIMES:+$PHASE_TIMES, }$PHASE $((SECONDS - PHASE_STARTED))s"
+    fi
+    PHASE="$1"
+    PHASE_STARTED=$SECONDS
+}
+finish() {
+    local status=$?
+    rm -f "$REFS_FILE"
+    (( TIMED )) || return 0
+    local failed="$PHASE"
+    phase ""
+    echo "pre-push: hook times: ${PHASE_TIMES:-none}; total $((SECONDS - HOOK_STARTED))s" >&2
+    if (( status == 0 )); then
+        echo "pre-push: passed. git now packs and uploads: a failure after this line is git or GitHub, not a check." \
+            "Retry it as AGENTS.md says (\"Retry a failed push\": git push -q, at most 3 retries, 30, 60, then 120 s apart)." >&2
+    else
+        echo "pre-push: refused in ${failed:-setup} (exit $status). A check that names a violation: fix it, do not retry" \
+            "unchanged. The gate's \"ran past its 600s limit\" only: retry as AGENTS.md says (\"Retry a failed push\")." >&2
+    fi
+}
+trap finish EXIT
+# A signal must reach finish as a failure: on a fatal SIGTERM or SIGINT bash runs the EXIT trap with $? of the last
+# command (0), and a hook stopped in the middle of a check printed "pre-push: passed" (review of #39787).
+trap 'exit 143' TERM
+trap 'exit 130' INT
 printf '%s\n' "$PUSHED_REFS" > "$REFS_FILE"
 
 # A delete-only push passes here (header). Each line is `<local ref> <local sha> <remote ref> <remote sha>`;
@@ -51,6 +87,8 @@ if (( PUSHED_REF_COUNT > 0 && DELETED_REF_COUNT == PUSHED_REF_COUNT )); then
     exit 0
 fi
 
+TIMED=1  # a push with commits to check: report the phase times (header)
+phase setup
 HOOK_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
 PYTHON_PATH_FILE="$HOOK_DIR/python3-path"
 if [[ ! -r "$PYTHON_PATH_FILE" ]] || ! IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_FILE" \
@@ -66,6 +104,7 @@ PUSHED_REMOTE="${1:-origin}"
 CHECKS="$HOOK_DIR/cmux-next-checks"
 
 # Clone-local extras first (header, step 0): a clone's own rule refuses before the slower checks run.
+phase extras
 EXTRAS_STATUS=0
 EXTRAS="$(git config --path --get-all cmux.prePushExtra)" || EXTRAS_STATUS=$?
 if (( EXTRAS_STATUS > 1 )); then  # 1 is "not set"; anything else is a config git cannot read
@@ -97,6 +136,7 @@ fi
 # The checks copy is refreshed from the fetched feat-cmux-next before a push to it (refresh_checks.py says why);
 # it never refuses a push.
 REFRESH="$HOOK_DIR/refresh_checks.py"
+phase checks-refresh
 if [[ -f "$REFRESH" ]]; then
     "$PYTHON3_BIN" -I "$REFRESH" --hook-dir "$HOOK_DIR" --repo "$REPO_ROOT" \
         --remote-url "${2:-}" < "$REFS_FILE" || true
@@ -107,9 +147,11 @@ WEB_LINT="$HOOK_DIR/web_lint_prepush.py"
 # Its installed reviewed copy reads commit blobs; candidate tests run only in its disposable sandbox.
 # A deadline or missing warm tool is deferred to the existing mandatory checks, never called a pass.
 FAST_TIER="$CHECKS/prepush_fast_tier.py"
+phase fast-tier
 if [[ -f "$FAST_TIER" ]]; then
     "$PYTHON3_BIN" -I "$FAST_TIER" --repo "$REPO_ROOT" --remote "$PUSHED_REMOTE" < "$REFS_FILE"
 fi
+phase web-lint
 if [[ -f "$WEB_LINT" ]]; then
     "$PYTHON3_BIN" -I "$WEB_LINT" --pre-push --repo "$REPO_ROOT" \
         --remote "$PUSHED_REMOTE" --trusted-scripts-dir "$CHECKS" < "$REFS_FILE"
@@ -119,6 +161,7 @@ else
 fi
 
 GATE="$HOOK_DIR/cmux_next_prepush_gate.py"
+phase cmux-next-gate
 if [[ -f "$GATE" ]]; then
     # The remote's URL ($2): the compile trailer rule applies only to a push to manaflow-ai/cmux's feat-cmux-next.
     CMUX_PREPUSH_REMOTE_URL="${2:-}" "$PYTHON3_BIN" -I "$GATE" --pre-push \
@@ -130,19 +173,22 @@ fi
 
 # A base merge pushed while the old head's CI runs cancels it: warn, never refuse.
 BASE_MERGE_WARNING="$HOOK_DIR/base_merge_warning.py"
+phase base-merge-warning
 if [[ -f "$BASE_MERGE_WARNING" ]]; then
     "$PYTHON3_BIN" -I "$BASE_MERGE_WARNING" --pre-push --repo "$REPO_ROOT" < "$REFS_FILE" || true
 fi
 
+phase ""
 SCANNER="$HOOK_DIR/lint_swift_namespaces.py"
 MASKER="$HOOK_DIR/swift_source_mask.py"
 if [[ ! -f "$SCANNER" || ! -f "$MASKER" ]]; then
     exit 0  # the namespace autofix is opt-in (install-git-hooks.sh --namespace-fix)
 fi
 
+phase namespace-autofix
 before="$(git status --porcelain --untracked-files=normal)"
 enum_roots=()
-for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxSyncStore ios/cmux; do
+for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* ios/cmux; do
     [[ -d "$d" ]] && enum_roots+=("$d")
 done
 type_roots=()

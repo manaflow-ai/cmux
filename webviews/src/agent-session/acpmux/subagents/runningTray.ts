@@ -15,8 +15,9 @@
 import { useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";
-import type { BackgroundCommand } from "../session-info/processes";
-import { nestAgents } from "./AgentsPill";
+import type { SubagentStatus } from "../summary/subagentStatusListModel";
+import { arrivalKey, type BackgroundCommand } from "../session-info/processes";
+import { nestAgents } from "./agentsPillModel";
 import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./subagentRows";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";
@@ -54,6 +55,11 @@ export type TrayItem =
       owner?: Subagent;
     }
   | { kind: "session"; id: string; session: StartedSession };
+
+/// A tray line's key: a command's is the call that started it, which stays when the registry lists a
+/// command only the transcript knew, so its line is the same node running and finished.
+export const trayItemKey = (item: TrayItem): string =>
+  item.kind === "command" ? `command:${arrivalKey(item.command)}` : `${item.kind}:${item.id}`;
 
 /// What the tray lists and its header counts: what runs or waits on the person, never what ended
 /// (Leo 2026-10-21 on "2 subagents running · 2 commands · 32 sessions": "THIS IS LYING"). The
@@ -177,6 +183,13 @@ export function finishedTrayItems(agents: readonly Subagent[], sessions: readonl
   return items;
 }
 
+/// A command's line status: running, done (exit 0), failed, or stopped (killed, or acpmux lost it).
+export function commandStatus(command: BackgroundCommand): SubagentStatus {
+  if (command.state === "running") return "running";
+  if (command.state === "completed") return "done";
+  return command.state === "failed" ? "failed" : "stopped";
+}
+
 /// When an item started, if known.
 export const itemStart = (item: TrayItem): number | undefined =>
   item.kind === "agent" ? item.agent.startedAt : item.kind === "command" ? item.command.startedAt : undefined;
@@ -210,8 +223,8 @@ function doneLine(
     agent.stopReason ?? "",
     retryKey(agent),
     inBackground ?? "",
-    // The chat's reaction to its end (ReactionMark.tsx): its new mark comes and goes, its reply grows.
-    agent.reaction ? `${agent.reaction.turn}:${agent.reaction.fresh ? 1 : 0}:${agent.reaction.text?.length ?? 0}` : "",
+    // The chat's reaction to its end (ReactionMark.tsx): its new mark comes and goes.
+    agent.reaction ? `${agent.reaction.turn}:${agent.reaction.fresh ? 1 : 0}` : "",
   ].join("\u0000");
   made.add(id);
   const kept = cache.get(id);

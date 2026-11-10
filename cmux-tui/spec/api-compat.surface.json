@@ -929,6 +929,9 @@
         "values": [
           "\"daemon-shutdown\""
         ]
+      },
+      "/restart": {
+        "ty": "boolean"
       }
     },
     "event:detached": {
@@ -981,6 +984,39 @@
         "values": [
           "\"empty\""
         ]
+      }
+    },
+    "event:feed-reports-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"feed-reports-changed\""
+        ]
+      },
+      "/revision": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:feed-view-changed": {
+      "/changed": {
+        "ty": "array",
+        "required": true
+      },
+      "/changed/*": {
+        "ty": "string"
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"feed-view-changed\""
+        ]
+      },
+      "/revision": {
+        "ty": "uint64",
+        "required": true
       }
     },
     "event:frame": {
@@ -3962,6 +3998,19 @@
         "required": true
       },
       "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:stash-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"stash-changed\""
+        ]
+      },
+      "/revision": {
         "ty": "uint64",
         "required": true
       }
@@ -10762,6 +10811,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/filename": {
+        "ty": "string",
+        "nullable": true
+      },
       "/lease": {
         "ty": "string",
         "required": true
@@ -11936,6 +11989,20 @@
         "nullable": true
       }
     },
+    "request:set-terminal-tail-pin": {
+      "/pinned": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/terminal": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
     "request:set-viewport-pane-width": {
       "/pane": {
         "ty": "uint64",
@@ -12002,6 +12069,43 @@
         "nullable": true
       }
     },
+    "request:shell-read": {
+      "/after": {
+        "ty": "uint64"
+      },
+      "/run": {
+        "ty": "string",
+        "required": true
+      },
+      "/wait_ms": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
+    "request:shell-run": {
+      "/command": {
+        "ty": "string",
+        "required": true
+      },
+      "/cwd": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/run": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/scope": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:shell-stop": {
+      "/run": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:shutdown-daemon": {
       "/end_terminals": {
         "ty": "boolean"
@@ -12019,6 +12123,10 @@
       "/pid": {
         "ty": "uint32",
         "required": true
+      },
+      "/restart": {
+        "ty": "boolean",
+        "nullable": true
       }
     },
     "request:sidebar-plugin": {
@@ -12065,6 +12173,9 @@
       }
     },
     "request:split": {
+      "/before": {
+        "ty": "boolean"
+      },
       "/cols": {
         "ty": "uint16",
         "nullable": true
@@ -16374,6 +16485,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/registry_id": {
         "ty": "string",
         "required": true
@@ -16387,10 +16501,16 @@
         "required": true,
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -16412,6 +16532,9 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:create-workspace": {
@@ -17314,6 +17437,17 @@
       "/data/agents/*/state": {
         "ty": "enum",
         "required": true,
+        "values": [
+          "blocked",
+          "done",
+          "idle",
+          "unknown",
+          "working"
+        ]
+      },
+      "/data/agents/*/status": {
+        "ty": "enum",
+        "nullable": true,
         "values": [
           "blocked",
           "done",
@@ -18478,6 +18612,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/registry_id": {
         "ty": "string",
         "required": true
@@ -18491,10 +18628,16 @@
         "required": true,
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18505,6 +18648,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
@@ -18513,6 +18659,9 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       },
       "/data/workspace_key": {
         "ty": "string",
@@ -18571,9 +18720,20 @@
       }
     },
     "response:new-browser-tab": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18582,6 +18742,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-conversation-tab": {
@@ -18657,6 +18823,9 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -18672,6 +18841,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-pane-right": {
@@ -18683,6 +18858,9 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -18698,6 +18876,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-remote-terminal-tab": {
@@ -18714,6 +18898,9 @@
       "/data/pane_id": {
         "ty": "string"
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -18729,14 +18916,31 @@
         "ty": "string",
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/transaction": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
         "ty": "string"
       }
     },
     "response:new-screen": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18745,12 +18949,29 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-tab": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18759,12 +18980,29 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-workspace": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18773,6 +19011,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:note-size-activity": {
@@ -19502,14 +19746,23 @@
           "tombstoned"
         ]
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
       },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -19520,9 +19773,15 @@
         "required": true,
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       },
       "/data/workspace_key": {
         "ty": "string",
@@ -19598,15 +19857,24 @@
         "required": true,
         "nullable": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/screen": {
         "ty": "uint64",
         "required": true,
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -19617,6 +19885,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
@@ -19625,6 +19896,9 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:save-screen-group": {
@@ -19675,6 +19949,193 @@
         "required": true
       },
       "/data/connections/refused": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk": {
+        "ty": "object"
+      },
+      "/data/disk/error": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/files": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/files/*": {
+        "ty": "object"
+      },
+      "/data/disk/files/*/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/files/*/files": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/files/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/files_truncated": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/disk/files_unlisted": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/freelist_pages": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/journal/estimated_live_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/first_sequence": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/head_sequence": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/kinds": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*": {
+        "ty": "object"
+      },
+      "/data/disk/journal/kinds/*/budget_bytes_per_day": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/bytes_per_day": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/journal/kinds/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/over_budget": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/sample_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/kinds/*/sample_rows": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/live_rows": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/sample_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/sample_rows": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/journal/sample_span_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/page_count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/page_size": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/registry_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/disk/segments/by_codec": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*": {
+        "ty": "object"
+      },
+      "/data/disk/segments/by_codec/*/codec": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/compressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/records": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/segments": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/by_codec/*/uncompressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/compressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/kinds": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/disk/segments/kinds/*": {
+        "ty": "object"
+      },
+      "/data/disk/segments/kinds/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/disk/segments/kinds/*/segments": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/records": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/segments": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/segments/uncompressed_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/shm_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/wal_bytes": {
         "ty": "uint64",
         "required": true
       },
@@ -20672,6 +21133,12 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/write_path/registry_wal_file_bytes": {
+        "ty": "uint64"
+      },
+      "/data/write_path/registry_wal_file_high_water_bytes": {
+        "ty": "uint64"
+      },
       "/data/write_path/registry_wal_frame_bytes": {
         "ty": "uint64"
       },
@@ -21022,6 +21489,16 @@
         "nullable": true
       }
     },
+    "response:set-terminal-tail-pin": {
+      "/data/pinned": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/terminal": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "response:set-viewport-pane-width": {
       "/data/width": {
         "ty": "float32",
@@ -21030,6 +21507,24 @@
     },
     "response:set-window-title": {},
     "response:set-workspace-metadata": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:shell-read": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:shell-run": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:shell-stop": {
       "/data": {
         "ty": "json",
         "required": true
@@ -21109,6 +21604,9 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -21124,6 +21622,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:subscribe": {},

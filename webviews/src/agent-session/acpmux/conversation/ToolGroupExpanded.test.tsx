@@ -6,13 +6,14 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { appendThought, mergeToolItem } from "../direct";
 import { SubagentFold } from "../subagents/subagentFold";
-import { firstStepCount, stepProbe, ToolGroupRow } from "./ToolGroupRow";
+import { ToolGroupRow } from "./ToolGroupRow";
+import { firstStepCount, stepProbe } from "./toolGroupRowModel";
 import { FindReveal, type FindRevealTarget } from "./chatFind";
 import { ToolRows } from "./TurnRows";
 import * as toolFailure from "./toolFailure";
 import * as thoughts from "./thoughts";
-import { thoughtLayout } from "./ThoughtRow";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { thoughtLayout } from "./thoughtRowModel";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -112,6 +113,9 @@ for (const [kind, toolKind] of GROUP_KINDS.slice(1))
     const container = await render(<ToolGroupRow kind={kind} items={items} disclosureKey={`all-${kind}`} />);
     // One step row per call, each between the group's hairlines (ToolGroupRow.tsx Step).
     expect(container.querySelectorAll(".cv-steps > .cv-step > .cv-tool")).toHaveLength(items.length);
+    // The shipped sheet keeps a kind icon on every step, so readers can scan a mixed run before
+    // opening one row (Leo 2026-11-04, iOS-style grouped tool calls).
+    expect(container.querySelectorAll(".cv-steps > .cv-step > .cv-tool > .cv-tool__icon")).toHaveLength(items.length);
     expect(container.textContent).not.toMatch(/\+\d+ more/);
     for (const item of items) expect(container.textContent).toContain(item.text);
   });
@@ -333,6 +337,136 @@ test("a failed step of an opened command group opens to its command, Exit code 1
   const shellBlock = container.querySelector(".cv-shell")!;
   expect(shellBlock.querySelector(".cv-shell__exit")?.textContent).toBe("Exit code 1");
   expect(shellBlock.textContent).toContain("No such file or directory");
+});
+
+test("one mixed run exposes individual steps and drills into an MCP call's fields without JSON plumbing", async () => {
+  const { mixedToolRunFixture } = await import("./mixedToolRunFixture");
+  const row: AcpmuxRow = {
+    id: "mixed-sheet",
+    kind: "activity",
+    at: 1,
+    version: 1,
+    settled: true,
+    foldRun: true,
+    items: mixedToolRunFixture(),
+  };
+  const container = await render(<ToolRows row={row} sessionId="mixed-sheet" />);
+  const header = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
+  expect(header.textContent).toContain("Ran 2 commands and used 3 tools");
+  expect(container.querySelector("[data-mixed-tool-steps]")).toBeNull();
+  await act(async () => header.click());
+  const steps = container.querySelector("[data-mixed-tool-steps]")!;
+  expect(steps.querySelectorAll(":scope > .cv-step")).toHaveLength(5);
+  // Same fixture's redundant subgroup summaries: before 1 (Ran 2 commands), after 0.
+  expect(steps.querySelectorAll(".is-run")).toHaveLength(0);
+  expect(steps.textContent).not.toContain("Loaded tools");
+  expect(steps.textContent).toContain("Find the retry handler");
+  const grep = [...steps.querySelectorAll<HTMLButtonElement>(".cv-tool")].find((button) =>
+    button.textContent?.includes("Find the retry handler"),
+  )!;
+  await act(async () => grep.click());
+  // An opened call is its arguments as labeled fields and its output (ToolDetail.tsx), never one JSON block.
+  const fields = [...steps.querySelectorAll(".cv-tool-detail__key")].map((node) => node.textContent);
+  expect(fields).toContain("pattern");
+  expect(steps.textContent).toContain('"line": 12');
+  expect(steps.textContent).not.toContain('"pattern"');
+  const waiting = [...steps.querySelectorAll<HTMLElement>(".cv-tool")].find((node) =>
+    node.textContent?.includes("Read the retry context"),
+  )!;
+  expect(waiting.tagName).toBe("DIV");
+  expect(waiting.hasAttribute("aria-expanded")).toBe(false);
+  expect(waiting.parentElement?.querySelector(".cv-mcp-call")).toBeNull();
+  expect(steps.textContent).not.toContain("Waiting…");
+});
+
+for (const agentFamily of ["claude", "codex"])
+  for (const working of [false, true])
+    test(`${agentFamily} ${
+      working ? "live turn keeps mixed calls in sight" : "finished turn projects mixed calls into one folded run"
+    }`, async () => {
+      const { mixedToolTurnFixture } = await import("./mixedToolRunFixture");
+      const { turnView } = await import("./turns");
+      const projected = turnView(mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]), {
+        agentFamily,
+        working,
+      });
+      const work = projected.find((row) => row.kind === "activity")!;
+      expect(work).toBeDefined();
+      if (working) {
+        // While the turn runs nothing folds: the run's finished calls are in sight with no click,
+        // and only the turn's end folds them (Leo, 2026-11-08: "you only do the overarching fold
+        // at the very end").
+        expect(work.foldRun).toBe(false);
+        const live = await render(<ToolRows row={work} sessionId={`${agentFamily}-${working}`} />);
+        expect(live.textContent).toContain("Find the retry handler");
+        expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
+        return;
+      }
+      expect(work.foldRun).toBe(true);
+      const container = await render(<ToolRows row={work} sessionId={`${agentFamily}-${working}`} />);
+      const header = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
+      expect(header.getAttribute("aria-expanded")).toBe("false");
+      await act(async () => header.click());
+      expect(container.querySelectorAll("[data-mixed-tool-steps] > .cv-step")).toHaveLength(5);
+      expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
+    });
+
+test("an opened mixed run keeps a command's returned image and printed screenshot", async () => {
+  const shot = "data:image/png;base64,iVBORw0KGgo=";
+  const row: AcpmuxRow = {
+    id: "mixed-capture",
+    kind: "activity",
+    at: 1,
+    version: 1,
+    settled: true,
+    foldRun: true,
+    items: [
+      {
+        kind: "tool",
+        text: "Read notes.md",
+        tool: { id: "read-notes", title: "Read notes.md", kind: "read", status: "completed", output: "notes" },
+      },
+      {
+        kind: "tool",
+        text: "screencapture",
+        tool: {
+          id: "capture-shell",
+          title: "Bash",
+          kind: "execute",
+          status: "completed",
+          command: "screencapture /tmp/shot.png",
+          output: "Saved /tmp/shot.png",
+          images: [shot],
+        },
+      },
+    ],
+  };
+  const container = await render(<ToolRows row={row} sessionId="mixed-capture" />);
+  await act(async () => container.querySelector<HTMLButtonElement>("button.cv-tool")!.click());
+  const steps = container.querySelector("[data-mixed-tool-steps]")!;
+  // As base draws a run's command (ToolRow): its images show under its row, opened or not.
+  const strip = steps.querySelector(".cv-tool-images");
+  expect(strip).not.toBeNull();
+  expect(strip!.querySelector(`img[src="${shot}"]`)).not.toBeNull();
+});
+
+test("a finished turn whose only work is hidden discovery folds nothing under Worked for", async () => {
+  const { mixedToolRunFixture } = await import("./mixedToolRunFixture");
+  const { turnView, WORKED } = await import("./turns");
+  const at = Date.UTC(2026, 10, 4, 0, 0);
+  const discovery = mixedToolRunFixture()[2]!;
+  const turn: AcpmuxRow[] = [
+    { id: "discovery-prompt", version: 1, kind: "user", at, text: "Which tools can you use?" },
+    { id: "discovery-activity", version: 1, kind: "activity", at: at + 1000, items: [discovery], toolCount: 0 },
+    { id: "discovery-answer", version: 1, kind: "assistant", at: at + 2000, text: "The repo tools." },
+    { id: "discovery-summary", version: 1, kind: "turnSummary", at: at + 3000, status: "completed", toolCount: 0 },
+  ];
+  for (const agentFamily of ["codex", "claude"]) {
+    const projected = turnView(turn, new Set(), { agentFamily });
+    expect(projected.some((row) => row.kind === WORKED)).toBe(false);
+    expect(projected.some((row) => row.kind === "activity")).toBe(false);
+    expect(projected.some((row) => row.text === "The repo tools.")).toBe(true);
+  }
 });
 
 test("a click opens a long run with only a window's steps drawn, the rest reserved and drawn after the fold", async () => {

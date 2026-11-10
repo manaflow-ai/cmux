@@ -44,6 +44,10 @@ public nonisolated enum HomeCoreMapping {
                   let question = AgentQuestion(conversationPart: json, messageID: messageID, partIndex: index)
             else { return .text("question") }
             return .question(question)
+        case .unknown("widget", let payload):
+            // An agent's widget part: drawn from its app, or its fallback text.
+            guard let widget = Self.widget(payload) else { return .text(part.plainText) }
+            return .widget(widget)
         case .linkPreview(let link):
             return .linkPreview(LinkPreview(url: link.url, title: link.title, site: link.site, image: link.image.map {
                 AttachmentDerivedImage(hash: $0.hash, mimeType: $0.mimeType, byteCount: $0.byteCount)
@@ -143,9 +147,9 @@ public nonisolated enum HomeCoreMapping {
                 return .linkPreview(ConversationLinkPreview(url: link.url, title: link.title, site: link.site, image: link.image.map {
                     ConversationDerivedImage(hash: $0.hash, mimeType: $0.mimeType, byteCount: $0.byteCount)
                 }))
-            case .approval, .location, .question:
+            case .approval, .location, .question, .widget:
                 // The local owner has no approval or location parts;
-                // a person never sends a question (agents post them).
+                // a person never sends a question or a widget (agents post them).
                 return .text(part.plainText, runs: [])
             }
         }

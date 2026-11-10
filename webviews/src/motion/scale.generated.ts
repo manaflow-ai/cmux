@@ -26,5 +26,24 @@ export const MOTION_SPRING = "linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0
 /** The step the spring runs over (`MOTION_MS[MOTION_SPRING_STEP]`). */
 export const MOTION_SPRING_STEP: MotionStep = "large";
 
+/**
+ * A sent prompt's one motion (ms, `--cmux-motion-send`): a prompt the reader sends: its room opens, the bubble comes in from the right and the thread rises, in one motion that settles (Leo 2026-11-07: "it's all just one unified motion"), on the standard step's 180 ms like the settle (Leo 2026-11-09: "the animations end to end need to just resolve faster"); scaled with the move step by ui.animationSpeed.
+ */
+export const MOTION_SEND_MS = 180;
+
+/** The sent prompt's curve (`--cmux-ease-send`): a fast start that settles. */
+export const MOTION_EASE_SEND = "cubic-bezier(0.16, 1, 0.3, 1)";
+
+/** The same curve's control points, for a scroll stepped from script. */
+export const MOTION_SEND_CURVE = [0.16, 1, 0.3, 1] as const;
+
+/**
+ * The settle (`--cmux-ease-settle`, over `--cmux-motion-settle`): a fold, a Show more or a panel that grows or shrinks to its new height: a strong ease-out that starts at full speed and decelerates into its end on a long soft tail, never past it (Leo 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key"). Measured on the reference panel's folds (split-motion-sweep, 4 events): a first-order exponential, 1 - e^(-t/38 ms), about 53% of the way in the first frame and within 0.5 pt of rest by about 225 ms, fold and unfold alike; this cubic-bezier over 265 ms was within 1.1% of it at every point. It runs the standard step's 180 ms instead, the same curve compressed, so a fold is at rest 85 ms sooner (Leo 2026-11-09: "there's some sort of 'settling' and like ok maybe but the animations end to end need to just resolve faster"); no house move outlasts the large step. The exact curve as linear(0, .393, .632, .778, .866, .920, .952, .972, .984, .991, .996, .998, 1) over 230 ms is not the value because WebKit before Safari 17.2 (macOS 14.0 and 14.1) has no linear() easing. Native: the same CAMediaTimingFunction(0.16, 1, 0.3, 1) over 0.18 s, or, where a spring must take an interruption, an overdamped one with mass 1, stiffness 45100 and damping 1216.
+ */
+export const MOTION_SETTLE = "cubic-bezier(0.16, 1, 0.3, 1)";
+
+/** How long the settle runs (ms, `--cmux-motion-settle`): measured, not a step of the scale. */
+export const MOTION_SETTLE_MS = 180;
+
 /** One turn of every spinner (ms, `--cmux-spinner-period`); a loop, not a step of the scale. */
 export const SPINNER_PERIOD_MS = 2000;

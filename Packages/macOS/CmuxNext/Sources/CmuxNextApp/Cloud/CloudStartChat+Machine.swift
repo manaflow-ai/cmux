@@ -17,7 +17,7 @@ extension CloudStartChat {
     /// reads them), the store's others (`stored`: kept for a pin, never picked), and the chat's folder, environment and token flag (`access`).
     static func planRequest(key: String, account: [String?], workspace: String?, user: String?, machines: [CloudMachineSession],
                             local: String? = nil, stored: [String], environment: String? = nil, access: Bool = false, reservationKey: String? = nil,
-                            platform: String? = nil, team: String? = nil, ensureProject: Bool? = nil) -> String {
+                            platform: String? = nil, ensureProject: Bool? = nil) -> String {
         let listed: [[String: Any]] = machines.map { session in
             let connected = session.daemon.connection != nil
             let chats = connected ? session.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
@@ -25,7 +25,7 @@ extension CloudStartChat {
             return session.machine.startChatPlanEntry(connected: connected, chats: chats)
         }
         var request: [String: Any] = ["key": key, "account": CloudStartCore().accountText(account), "loaded": true, "machines": listed,
-                                      "stored": stored, "credential_on_stdin": access, "reservation_key": reservationKey, "platform": platform, "team": team, "ensure_project": ensureProject]
+                                      "stored": stored, "credential_on_stdin": access, "reservation_key": reservationKey, "platform": platform, "ensure_project": ensureProject]
         for (name, value) in [("user", user), ("workspace", workspace), ("local", local), ("environment", environment)] { request[name] = value }
         let data = (try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])) ?? Data("{}".utf8)
         return String(decoding: data, as: UTF8.self)
@@ -62,13 +62,13 @@ extension CloudStartChat {
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         let listed = cloud.listedMachineIDs
         let ensureProject = CloudStartCore().ensuresProject(account: account, platform: cloud.configuration.artifactsAPIBaseURL(), production: cloud.auth.configuration.isProductionAuth)
-        let team = start.reservationKey != nil ? try await cloud.reservationTeam() : nil
+        let install = start.reservationKey != nil ? try await cloud.installIdentity.installToken() : nil
         let access = try? await (ensureProject || start.reservationKey != nil ? cloud.auth.tokens().access : nil)
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
                                        stored: machines.cloud.map(\.machine).keptForPin(listed: listed), environment: start.environment, access: access != nil,
-                                       reservationKey: start.reservationKey, platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, team: team, ensureProject: ensureProject)
-        var plan = try Self.checked(await cli.startChatPlan(request: request, access: access))
+                                       reservationKey: start.reservationKey, platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, ensureProject: ensureProject)
+        var plan = try Self.checked(await cli.startChatPlan(request: request, access: access, install: install))
         var invocation = invocation
         if let id = plan.machine, !listed.contains(id) {
             await cloud.refresh() // List a platform-reserved or project machine before attaching.
@@ -81,9 +81,7 @@ extension CloudStartChat {
                 plan.createSent = false
             }
         }
-        if let id = plan.machine {
-            invocation.arguments["machine"] = .string(id)
-        } else {
+        if let id = plan.machine { invocation.arguments["machine"] = .string(id) } else {
             if !plan.createSent {
                 _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: CloudStartCore().accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
             }
@@ -107,13 +105,14 @@ extension CloudStartChat {
             _ = try Self.checked(await cli.startChatPin(key: start.key, account: CloudStartCore().accountText(account), machine: created.machineID, workspace: workspace))
             invocation.arguments["machine"] = .string(created.machineID)
         }
+        invocation.arguments["machine"]?.stringValue.map { Self.warmSpare(services, claimed: $0) } // the claim's copy overlaps the dial; the install waits on it
         return (try await CloudMove(services: services).machine(invocation, pick: pick), plan)
     }
 
     /// `answer`, or its error as the person reads it.
     static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
         guard answer.0.ok else {
-            throw CloudMove.Failure(message: CloudMoveStrings.moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
+            throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMove.Failure(message: CloudMoveStrings.moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
         }
         return answer.1
     }

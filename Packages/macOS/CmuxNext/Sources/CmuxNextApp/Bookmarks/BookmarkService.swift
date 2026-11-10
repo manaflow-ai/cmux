@@ -37,7 +37,6 @@ final class BookmarkService {
     @ObservationIgnored var fetching: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var homeObservation: Task<Void, Never>?
     @ObservationIgnored var barObservation: Task<Void, Never>?
-    @ObservationIgnored var faviconObservation: Task<Void, Never>?
     /// Stored folder icons a bar drew the folder symbol for while they load (``followFolderIcons()``).
     var awaitedFolderIcons: Set<String> = []
     @ObservationIgnored var folderIconObservation: Task<Void, Never>?
@@ -53,14 +52,15 @@ final class BookmarkService {
 
     final class WeakChrome {
         weak var entry: BrowserEntry?
-        let bar: BookmarksBarView
-        let source: BookmarkBarSourceAdapter
-        init(entry: BrowserEntry, bar: BookmarksBarView, source: BookmarkBarSourceAdapter) {
+        let bar: BookmarksBarHostView
+        init(entry: BrowserEntry, bar: BookmarksBarHostView) {
             self.entry = entry
             self.bar = bar
-            self.source = source
         }
     }
+
+    /// The pages of the bookmarks bars on screen, lent to the tab whose bar is in a window.
+    @ObservationIgnored lazy var barPages = BookmarksBarPages { [weak self] in self?.services.bookmarksBarPage() }
 
     init(services: AppServices) {
         self.services = services
@@ -137,6 +137,9 @@ final class BookmarkService {
         return change
     }
 
+    /// The home daemon's routed `bookmarks.*` ops (codec, imports, search, rank).
+    var routed: BookmarkRoutedClient { BookmarkRoutedClient(connection: services.machines.local.connection) }
+
     /// Marks a bookmark as used now (opened from any bookmark surface).
     func touch(_ id: String, profile: String) {
         try? apply(.update(id: id, lastUsed: .set(Date())), profile: profile)
@@ -147,11 +150,10 @@ final class BookmarkService {
         return false
     }
 
-    /// Every view of `profiles` redraws (stars, bars, manager pages).
+    /// Every view of `profiles` redraws (stars, bars; the manager page follows the daemon's events).
     func changed(profiles: Set<String>) {
         generation &+= 1
         refreshChromes(profiles: profiles)
-        services.bookmarkPages.reload(profiles: profiles)
         chromium?.treesChanged(profiles)
     }
 

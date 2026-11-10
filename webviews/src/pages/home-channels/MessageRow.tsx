@@ -11,7 +11,7 @@ import { Avatar } from "./Avatar";
 import { Composer } from "./Composer";
 import type { HomeDraft } from "./drafts";
 import { MessageActions } from "./MessageActions";
-import { MAX_THREAD_INDENT, messageText, mentionsMe } from "./model";
+import { MAX_THREAD_INDENT, messageText, mentionsMe, partText } from "./model";
 import { MessageRuns, RunsContext } from "./RunCard";
 import type { HomeAttachment, HomeMessage, HomeParticipant, HomePart } from "./types";
 
@@ -83,7 +83,14 @@ export const MessageRow = memo(function MessageRow({
   const body = (
     <>
       <div className="hc-msg-gutter">
-        {head ? <Avatar participant={author} size={20} /> : <time className="hc-msg-hover-time">{time}</time>}
+        {/* The row's label already says the time: the hover copy is only for the eye (CMUX-326). */}
+        {head ? (
+          <Avatar participant={author} size={20} />
+        ) : (
+          <time className="hc-msg-hover-time" aria-hidden="true">
+            {time}
+          </time>
+        )}
       </div>
       <div className="hc-msg-main">
         {parent && depth > MAX_THREAD_INDENT && (
@@ -254,6 +261,10 @@ function Part({ part, strings }: { part: HomePart; strings: Strings }) {
       return null;
     case "other":
       return <p className="hc-msg-other">{part.text}</p>;
+    case "question":
+    case "link_preview":
+    case "location":
+      return <p className="hc-msg-other">{partText(part)}</p>;
   }
 }
 

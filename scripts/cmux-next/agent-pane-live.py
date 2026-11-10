@@ -146,9 +146,11 @@ def descendants(pid):
     return kids
 
 # This tag's own daemon state (tabs and panes of earlier runs): moved aside, so each run starts clean.
-TAG_STATE = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")
-if os.environ.get("HQNT_KEEP_STATE") != "1" and os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
-    os.rename(TAG_STATE, TAG_STATE + ".old-" + str(int(time.time())))
+# NEXT's own folder and the one in classic's that a build from before it used (a new build adopts that at launch).
+for TAG_STATE in (os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{TAG}"),
+                  os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")):
+    if os.environ.get("HQNT_KEEP_STATE") != "1" and os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
+        os.rename(TAG_STATE, TAG_STATE + ".old-" + str(int(time.time())))
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 os.makedirs(HOME_ACP, exist_ok=True)

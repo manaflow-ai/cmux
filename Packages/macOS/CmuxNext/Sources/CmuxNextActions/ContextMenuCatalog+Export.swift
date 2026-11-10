@@ -32,7 +32,7 @@ nonisolated extension ContextMenuCatalog {
         ["name": "browserDevToolsDivider", "source": "CmuxNextBrowser/CEF/CEFDevToolsDivider.swift"],
         ["name": "browserProfileLink", "source": "CmuxNextApp/BrowserProfiles/BrowserProfileLinkMenu.swift"],
         ["name": "browserToolbar", "source": "CmuxNextApp/Handlers/BrowserToolbarHandlers.swift"],
-        ["name": "bookmarkFolder", "source": "CmuxNextBookmarks/UI/BookmarkFolderMenu.swift"],
+        ["name": "bookmarkFolder", "source": "CmuxNextBookmarks/Page/BookmarksBarPage.swift"],
         ["name": "titlebarHistory", "source": "CmuxNextHistory/TitlebarHistoryMenu.swift"],
         ["name": "notificationRow", "source": "CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift"],
         ["name": "agentPaneMessage", "source": "CmuxNextAgentPane/AgentPaneContextMenu.swift"],
@@ -48,9 +48,6 @@ nonisolated extension ContextMenuCatalog {
         ["name": "debugSidebarToggleIcon", "source": "CmuxNextApp/Windows/SidebarToggleIconMenu.swift"],
         ["name": "debugStatusIconSet", "source": "CmuxNextApp/Windows/StatusIconSetMenu.swift"],
         ["name": "homeBackground", "source": "CmuxNextHomeEngine/HomePageMenus.swift"],
-        ["name": "historyToolbar", "source": "CmuxNextHistory/HistoryPageView.swift"],
-        ["name": "historyRow", "source": "CmuxNextHistory/HistoryPageRow.swift"],
-        ["name": "taskAssignee", "source": "CmuxNextTasks/Views/AssigneeMenu.swift"],
     ]
 
     /// Every context menu's export, keyed by `ActionMenuContext.exportName`.

@@ -574,7 +574,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             #if DEBUG
             self?.devProbe?.sent(data)
             #endif
-            self?.model.session.send(data)
+            guard let self else { return }
+            // A refusal comes back as `.inputNotSent` from inside `send`.
+            inputRefused = false
+            model.session.send(data)
+        }
+        // Held for a reattach (or a first attach still coming) is not sent:
+        // the echo may never come, so nothing is predicted for it.
+        surface.inputGoesOut = { [weak self] in
+            guard let self else { return false }
+            return model.connectionState.isAttached && !inputRefused
         }
         // Every input path (keyboard, key bar, composer, paste) goes through
         // the surface's `perform`: typing brings the prompt into view, like Terminal.
@@ -1057,10 +1066,25 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scheduleOutput()
         case .hostGridOwner(let name):
             hostGridOwner = name
+        case .inputNotSent:
+            // Keys refused, or held through an outage and dropped: their
+            // predicted glyphs would stand for keys that never arrive.
+            inputRefused = true
+            surface.prediction?.inputDropped()
+            model.ingest(event)
+        case .connection(let state):
+            // The link went down with keys on it: the ones in flight may be
+            // held, resent or dropped, and their echoes may never come.
+            if !state.isAttached { surface.prediction?.inputDropped() }
+            model.ingest(event)
         default:
             model.ingest(event)
         }
     }
+
+    /// The session refused the input `send` was just given (`.inputNotSent`
+    /// during the call): prediction does not record it.
+    private var inputRefused = false
 
     /// Feeds at once when nothing was fed in this display frame (an echo is
     /// not held back to the next frame); otherwise the display link feeds at

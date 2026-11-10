@@ -31,9 +31,9 @@ public final class HomeChatColorsService {
     let provider: HomeChatColorsProvider
     private var panel: HomeChatColorsWindow?
     private var host: HomeChatColorsHostView?
-    private let colorTarget = HomeChatColorsColorTarget()
-    /// Whether the system colour panel is ours now (Custom Color opened it and the panel is open).
-    private var ownsColorPanel = false
+    /// The system colour panel's borrow while Custom Color has it (``GroupColorPanel`` lends it to
+    /// one part of the app at a time; a group editor that takes it ends this one).
+    private var colorBorrow: GroupColorPanel.Borrow?
     private var zoomFollower: Task<Void, Never>?
 
     /// The panel, once shown (tests, `debug.home`).
@@ -81,6 +81,7 @@ public final class HomeChatColorsService {
         let panel = HomeChatColorsWindow(contentRect: NSRect(origin: .zero, size: Self.size),
                                          styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: true)
         panel.isReleasedWhenClosed = false
+        panel.delegate = panel
         panel.hidesOnDeactivate = true
         panel.setAccessibilityIdentifier("cmux.home.chatColors")
         panel.onClose = { [weak self] in
@@ -116,49 +117,56 @@ public final class HomeChatColorsService {
     /// Opens the system colour panel beside this one, starting from `start`; each change is a pick for `role`.
     private func showColorPanel(for role: HomeChatColorsProvider.Role, from start: HomeColor) {
         let colors = NSColorPanel.shared
-        // The start colour is set with no target, so setting it is not a pick.
-        colors.setTarget(nil)
-        colors.setAction(nil)
-        colors.showsAlpha = false
-        colors.isContinuous = true
-        colors.color = NSColor(srgbRed: start.red, green: start.green, blue: start.blue, alpha: 1)
-        colorTarget.onPick = { [weak provider] color in provider?.pick(role, HomeColor(srgb: color)) }
-        colors.setTarget(colorTarget)
-        colors.setAction(#selector(HomeChatColorsColorTarget.changed(_:)))
-        ownsColorPanel = true
+        colorBorrow = GroupColorPanel.shared.borrow(
+            start: NSColor(srgbRed: start.red, green: start.green, blue: start.blue, alpha: 1), continuous: true,
+            onPick: { [weak provider] color in provider?.pick(role, HomeColor(srgb: color)) },
+            onEnd: { [weak self] in self?.colorPanelTaken() })
         if let panel {
-            if !colors.isVisible { colors.setFrameTopLeftPoint(NSPoint(x: panel.frame.maxX + 8, y: panel.frame.maxY)) }
+            // Beside this panel unless it already sits here: a panel another part of the app had
+            // open moves over too.
+            if !colors.isVisible || colors.parent !== panel {
+                colors.setFrameTopLeftPoint(NSPoint(x: panel.frame.maxX + 8, y: panel.frame.maxY))
+            }
             // Attached: it moves with the panel and hides with it.
             if colors.parent == nil { panel.addChildWindow(colors, ordered: .above) }
         }
         colors.orderFront(nil)
     }
 
-    /// Stops the colour panel picking for this chat, and closes it when Custom Color opened it.
-    /// The shared panel is touched only while it is still open and attached here: once the person
-    /// closed it (ordering a child out detaches it), another part of the app may have it, so only
-    /// this panel's own claim is dropped.
+    /// Stops the colour panel picking for this chat, and closes it when this chat still has it.
+    /// Once another part of the app borrowed it (a group editor's custom color) or the person
+    /// closed it, the panel is theirs: it is left as it is.
     private func releaseColorPanel() {
-        guard ownsColorPanel else { return }
-        ownsColorPanel = false
-        colorTarget.onPick = nil
+        guard let borrow = colorBorrow else { return }
+        colorBorrow = nil
         let colors = NSColorPanel.shared
-        guard let panel, colors.parent === panel, colors.isVisible else { return }
-        colors.setTarget(nil)
-        colors.setAction(nil)
-        panel.removeChildWindow(colors)
-        colors.orderOut(nil)
+        let held = GroupColorPanel.shared.holds(borrow)
+        GroupColorPanel.shared.giveBack(borrow)
+        detachColorPanel()
+        if held, colors.isVisible { colors.orderOut(nil) }
+    }
+
+    /// Another part of the app borrowed the colour panel, or the person closed it: this chat's picks
+    /// end, and the panel no longer moves or hides with this one.
+    private func colorPanelTaken() {
+        colorBorrow = nil
+        detachColorPanel()
+    }
+
+    private func detachColorPanel() {
+        let colors = NSColorPanel.shared
+        if let panel, colors.parent === panel { panel.removeChildWindow(colors) }
     }
 }
 
-/// The Chat Colors panel: its close button and Escape end the session as Done does.
+/// The Chat Colors panel: its close button and Escape end the session as Done does. It is its own
+/// delegate, so every close (the button, Escape, `close()`) reaches `onClose` with no `close` override.
 @MainActor
-final class HomeChatColorsWindow: NSPanel {
+final class HomeChatColorsWindow: NSPanel, NSWindowDelegate {
     var onClose: (() -> Void)?
 
-    override func close() {
+    func windowWillClose(_ notification: Notification) {
         onClose?()
-        super.close()
     }
 
     override func cancelOperation(_ sender: Any?) {
@@ -188,16 +196,6 @@ final class HomeChatColorsHostView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         onThemeChange?()
-    }
-}
-
-/// The system colour panel's target while Custom Color is open.
-@MainActor
-final class HomeChatColorsColorTarget: NSObject {
-    var onPick: ((NSColor) -> Void)?
-
-    @objc func changed(_ sender: NSColorPanel) {
-        onPick?(sender.color)
     }
 }
 

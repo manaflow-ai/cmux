@@ -16,6 +16,8 @@ import { installSpinnerClock } from "../../ui/spinnerClock";
 import { installTooltips } from "../../ui/titleTooltips";
 import { installWave } from "../../ui/wave";
 import { installPageLoops } from "../../ui/pageLoops";
+import { installAdaptiveSelection } from "../../ui/adaptiveSelection";
+import { installFocusModality } from "../../ui/focusModality";
 import { installImeKeyLayer } from "./imeKeys";
 import { installWebSwap } from "./webSwap";
 
@@ -67,12 +69,17 @@ export function installDesktopLayer(doc: Document = document): void {
   // RUNNING-WAVE: no wave runs while the page is hidden (ui/wave.ts).
   installWave(doc);
   installPageLoops(doc);
+  // HIGHLIGHT-CONTRAST: the selection keeps its contrast on every surface (ui/adaptiveSelection.ts).
+  installAdaptiveSelection(doc);
   // CHROMIUM OVER THE WINDOW GLASS: the glass underlay's strength (chromiumUnderlay.experiment.ts).
   root.setAttribute(GLASS_UNDERLAY_ATTRIBUTE, experimentArm(chromiumGlassUnderlay));
   const view = doc.defaultView;
   if (!view) return;
   // IME-KEYS: keys an input method is using never reach page handlers (imeKeys.ts).
   installImeKeyLayer(doc);
+  // FOCUS-RING: rings only for focus a navigation key moved; any press, Escape, scroll or pointer
+  // move takes them away (ui/focusModality.ts).
+  installFocusModality(doc);
   // WEB-SWAP: the page answers whether a web update may reload it now (webSwap.ts).
   installWebSwap(doc);
   // HAIRLINE: rims and rings in whole device pixels at every scale and zoom (desktop.css).

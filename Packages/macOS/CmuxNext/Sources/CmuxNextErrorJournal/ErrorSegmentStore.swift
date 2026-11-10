@@ -3,20 +3,23 @@ import Foundation
 /// The journal's files: NDJSON segments of ``ErrorEntry`` snapshots, newest line per
 /// fingerprint wins. Appends go to the newest segment; once it passes the size limit the live
 /// table is written to a new segment (temp file, then rename) and every older segment is
-/// deleted, so disk use stays below about twice the limit. Owned by ``ErrorJournal``, which
-/// serializes every call.
+/// deleted, so disk use stays below about twice the limit. Every line it writes carries
+/// `redaction` (``StoredErrorEntry``). Owned by ``ErrorJournal``, which serializes every call.
 struct ErrorSegmentStore {
     let directory: URL
     let segmentBytes: Int
+    /// The stamp of the lines this store writes: the journal's ``ErrorRedactor/rulesDigest``.
+    let redaction: String
     private let files = FileManager()
     private var current: URL?
     private var currentBytes = 0
     private var sequence = 0
     private var cleanupPending = false
 
-    init(directory: URL, segmentBytes: Int) {
+    init(directory: URL, segmentBytes: Int, redaction: String) {
         self.directory = directory
         self.segmentBytes = segmentBytes
+        self.redaction = redaction
         try? Self.protectDirectory(directory)
     }
 
@@ -32,19 +35,18 @@ struct ErrorSegmentStore {
         }.sorted { $0.0 < $1.0 }
     }
 
-    /// Reads every snapshot, oldest first; a line that does not decode (a torn last write) is skipped.
-    ///
-    /// The journal canonicalizes every snapshot before choosing the newest one
-    /// per fingerprint, so a secret in shadowed history still triggers compaction.
-    mutating func load() -> [ErrorEntry] {
-        var entries: [ErrorEntry] = []
+    /// Reads every line, oldest first, with its stamp; a line that does not decode (a torn last
+    /// write) is skipped. The journal re-redacts only lines another rule set wrote, and compacts
+    /// when there is one anywhere, so a secret in shadowed history is still rewritten away.
+    mutating func load() -> [StoredErrorEntry] {
+        var entries: [StoredErrorEntry] = []
         let decoder = JSONDecoder()
         let all = segments()
         for (_, url) in all {
             try? Self.protectFile(url)
             guard let data = try? Data(contentsOf: url) else { continue }
             for line in data.split(separator: UInt8(ascii: "\n")) where !line.isEmpty {
-                if let entry = try? decoder.decode(ErrorEntry.self, from: Data(line)) { entries.append(entry) }
+                if let entry = try? decoder.decode(StoredErrorEntry.self, from: Data(line)) { entries.append(entry) }
             }
         }
         if let last = all.last {
@@ -62,7 +64,7 @@ struct ErrorSegmentStore {
             try compact(all())
             return
         }
-        let data = try Self.lines(changed)
+        let data = try lines(changed)
         if current == nil || currentBytes + data.count > segmentBytes {
             try compact(all())
             return
@@ -85,7 +87,7 @@ struct ErrorSegmentStore {
         sequence = (old.last?.sequence ?? sequence) + 1
         let name = Self.prefix + String(format: "%06d", sequence) + Self.suffix
         let url = directory.appendingPathComponent(name)
-        let data = try Self.lines(entries)
+        let data = try lines(entries)
         try data.write(to: url, options: .atomic)
         try Self.protectFile(url)
         current = url
@@ -109,12 +111,12 @@ struct ErrorSegmentStore {
         }
     }
 
-    private static func lines(_ entries: [ErrorEntry]) throws -> Data {
+    private func lines(_ entries: [ErrorEntry]) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         var data = Data()
         for entry in entries {
-            data.append(try encoder.encode(entry))
+            data.append(try encoder.encode(StoredErrorEntry(entry: entry, redaction: redaction)))
             data.append(UInt8(ascii: "\n"))
         }
         return data

@@ -5,8 +5,11 @@
 // store, read with useSyncExternalStore (no effects).
 import { useSyncExternalStore } from "react";
 
-/** A place a decoration can fill (ThemeDecorations.Slot). */
-export type DecorationSlot = "updated-card";
+/** A place a decoration can fill (ThemeDecorations.Slot). `updated-notes-look` carries how the
+    Updated card's changes stand in their popover (UpdatedNotesLook), only when not `sections`.
+    `updated-card-preview` carries the
+    Updated card's Debug look for its changes (UpdatedCardPreviewMode), only when not the shipped one. */
+export type DecorationSlot = "updated-card" | "updated-card-preview" | "updated-notes-look";
 
 /** The decoration filling `slot` now, or null. */
 export function readDecoration(slot: DecorationSlot): string | null {

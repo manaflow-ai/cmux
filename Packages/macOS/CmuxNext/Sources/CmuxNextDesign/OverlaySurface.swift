@@ -86,6 +86,14 @@ public final class OverlaySurfaceView: NSView {
 
     private var glassStyle: Glass.Style { isClear ? .clear : .regular }
 
+    /// The glass level whose density the theme tint takes (``GlassLevel``). Popover by default,
+    /// through ``ChromeTunables/glassOverlayTintStrength``; a panel that holds a long list over the
+    /// transcript (Session Info) takes the denser chip level so the chat under it does not wash its
+    /// text out. Neutral tones and the opaque material ignore it.
+    public var tintLevel: GlassLevel = .popover {
+        didSet { if tintLevel != oldValue { applyTheme() } }
+    }
+
     /// No material of its own over a translucent window: the content stands on the window's own
     /// material and tint (glass, frost or plain see-through), as it did in place. For a dragged
     /// sidebar row, whose clear Liquid Glass still frosted the window under it (the ask-116775fd17
@@ -287,15 +295,16 @@ public final class OverlaySurfaceView: NSView {
                 materialView?.layer?.borderColor = nil
                 return
             }
+            let veil = tone.style.map { Palette.veil(of: $0) }
             switch material {
             case .liquidGlass:
-                (materialView as? GlassPanelView)?.tintColor = isClear ? nil : look?.veil.nsColor ?? overlayTint
+                (materialView as? GlassPanelView)?.tintColor = isClear ? nil : veil ?? overlayTint
                 if let card {
                     tintView?.layer?.backgroundColor = card.tint.nsColor.cgColor
                     tintView?.layer?.borderColor = Borders.color(card.rim.nsColor).cgColor
                 }
             case .vibrancy:
-                tintView?.layer?.backgroundColor = (card?.tint.nsColor ?? look?.veil.nsColor ?? overlayTint).cgColor
+                tintView?.layer?.backgroundColor = (card?.tint.nsColor ?? veil ?? overlayTint).cgColor
                 // The neutral glass's rim replaces the hairline.
                 materialView?.layer?.borderColor = look == nil
                     ? Borders.color(card?.rim.nsColor ?? Palette.separator).cgColor : NSColor.clear.cgColor
@@ -317,7 +326,8 @@ public final class OverlaySurfaceView: NSView {
     /// overlay tint strength tunable that defaults to it (1.25, a little denser than the theme tint
     /// so text over busy content stays readable; 1 is unchanged).
     private var overlayTint: NSColor {
-        GlassLevel.scaled(Palette.glassTint, by: ChromeTunables.glassOverlayTintStrength.value)
+        guard tintLevel == .popover else { return tintLevel.tint(Palette.glassTint) }
+        return GlassLevel.scaled(Palette.glassTint, by: ChromeTunables.glassOverlayTintStrength.value)
     }
 }
 

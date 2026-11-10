@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextHome
 import CmuxNextHomeModel
 import CmuxNextHomeEngine
 
@@ -24,18 +25,10 @@ enum HomeChiefActions {
         frontHome().flatMap { $0.control.isHosted ? nil : $0 }
     }
 
-    /// The Home in the front window (``HomeChiefSettingsPopover/frontToggleTarget``) that shows a Chief.
-    private static func frontHome() -> HomeChiefSurface? {
-        guard let root = HomeChiefSettingsPopover.frontToggleTarget?.contentView else { return nil }
-        return firstChiefHome(in: root)
-    }
-
-    private static func firstChiefHome(in view: NSView) -> HomeChiefSurface? {
-        if let home = view as? any HomeChiefShowing, let chief = home.shownChief { return chief }
-        for subview in view.subviews where !subview.isHidden {
-            if let home = firstChiefHome(in: subview) { return home }
-        }
-        return nil
+    /// The Chief a Messages page in the front window (``HomeChiefSettingsPopover/frontToggleTarget``) shows:
+    /// the docked page, a conversation tab or the Chief panel, the one with the keyboard first (``HomeShownView``).
+    static func frontHome() -> HomeChiefSurface? {
+        HomeShownView.find(in: HomeChiefSettingsPopover.frontToggleTarget) { ($0 as? any HomeChiefShowing)?.shownChief }
     }
 
     private static func plan(_ context: AppActionContext, front: HomeChiefSurface?) -> HomeChiefActionPlan {

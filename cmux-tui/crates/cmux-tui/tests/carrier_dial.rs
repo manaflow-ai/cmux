@@ -5,276 +5,16 @@
 //! dial's stdio and the daemon's mux socket. Every key is generated here.
 #![cfg(target_os = "linux")]
 
-use std::io::{BufRead, BufReader, Write};
-use std::net::SocketAddr;
-use std::path::Path;
+mod carrier_support;
+
+use std::io::{BufReader, Write};
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use cmux_link::carrier_grant::{CarrierGrantVerifier, GRANT_TYP, noise_key_digest};
-use cmux_link::keyset::Keyset;
-use cmux_relay::{Relay, RelayConfig};
-use cmux_remote::daemon::RemoteDaemon;
-use cmux_remote::identity::AuthDatabase;
-use cmux_remote::provider::{RelayDaemonConfig, register_relay_daemon};
-use cmux_remote::services::DaemonServices;
-use cmux_remote::session::SessionLimits;
-use cmux_remote::workspace::WorkspaceService;
-use ring::signature::{Ed25519KeyPair, KeyPair as _};
+use carrier_support::*;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-
-const MACHINE: &str = "vm_0123456789abcdefghij";
-const ISSUER: &str = "cmux:cloud:test";
-const SLOT: &str = "carrier-dial-slot";
-const TOKEN: &str = "person-test-credential";
-const TEAM: &str = "team_00000000000000000001";
-const BIN: &str = env!("CARGO_BIN_EXE_cmux-tui");
-
-fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
-}
-
-/// The platform's grant key and the service the grants it signs name.
-struct Signer(Ed25519KeyPair, &'static str);
-
-impl Signer {
-    fn generate(service: &'static str) -> Self {
-        let pkcs8 = Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new()).unwrap();
-        Self(Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap(), service)
-    }
-
-    fn keyset(&self) -> Keyset {
-        let public: [u8; 32] = self.0.public_key().as_ref().try_into().unwrap();
-        Keyset { version: "0123456789abcdef".into(), keys: [("k1".to_string(), public)].into() }
-    }
-
-    /// A grant for `noise_key`, as the platform signs it.
-    fn grant(&self, noise_key: &[u8; 32], jti: usize) -> String {
-        let header = json!({"alg": "EdDSA", "kid": "k1", "typ": GRANT_TYP});
-        let claims = json!({
-            "iss": ISSUER,
-            "aud": MACHINE,
-            "team": TEAM,
-            "sub": "user_00000000000000000001",
-            "svc": [self.1],
-            "nk": noise_key_digest(noise_key),
-            "jti": URL_SAFE_NO_PAD.encode((jti as u128).to_be_bytes()),
-            "iat": now() - 5,
-            "exp": now() + 60,
-        });
-        let message = format!(
-            "{}.{}",
-            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).unwrap()),
-            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap())
-        );
-        let signature = self.0.sign(message.as_bytes());
-        format!("{message}.{}", URL_SAFE_NO_PAD.encode(signature.as_ref()))
-    }
-}
-
-/// The platform's carrier route: checks the bearer, answers a Connect
-/// ticket for the open relay, a grant for the asked key, and the daemon key.
-/// `status` other than 200 refuses every request.
-async fn platform(
-    signer: Arc<Signer>,
-    relay: SocketAddr,
-    daemon_key: Option<String>,
-    status: u16,
-    asked: Arc<AtomicUsize>,
-    teams: Teams,
-) -> SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        loop {
-            let Ok((mut stream, _)) = listener.accept().await else { return };
-            let signer = signer.clone();
-            let daemon_key = daemon_key.clone();
-            let asked = asked.clone();
-            let teams = teams.clone();
-            tokio::spawn(async move {
-                let mut reader = tokio::io::BufReader::new(&mut stream);
-                let (mut length, mut authorized, mut path, mut team) =
-                    (0, false, String::new(), None);
-                let mut line = String::new();
-                reader.read_line(&mut line).await.unwrap();
-                path.push_str(line.split_whitespace().nth(1).unwrap_or(""));
-                loop {
-                    line.clear();
-                    reader.read_line(&mut line).await.unwrap();
-                    let header = line.trim().to_ascii_lowercase();
-                    if header.is_empty() {
-                        break;
-                    }
-                    if let Some(value) = header.strip_prefix("x-cmux-team:") {
-                        team = Some(value.trim().to_owned());
-                    }
-                    if let Some(value) = header.strip_prefix("content-length:") {
-                        length = value.trim().parse().unwrap();
-                    }
-                    authorized |=
-                        header == format!("authorization: bearer {}", TOKEN.to_ascii_lowercase());
-                }
-                let mut body = vec![0; length];
-                reader.read_exact(&mut body).await.unwrap();
-                let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
-                teams.lock().unwrap().push(team);
-                let n = asked.fetch_add(1, Ordering::SeqCst);
-                assert_eq!(path, format!("/v1/cloud/machines/{MACHINE}/carrier"));
-                let (code, answer) = if status != 200 || !authorized {
-                    (
-                        403,
-                        json!({"ok": false, "error": {"code": "auth.forbidden", "message": "no"}}),
-                    )
-                } else {
-                    let mut value = json!({
-                        "relay": format!("relay+ws://{relay}"),
-                        "slot": SLOT,
-                        "ticket": "open-client-ticket",
-                        "expires_at": now() + 300,
-                    });
-                    if let Some(key) = &daemon_key {
-                        value["daemon_key"] = json!(key);
-                    }
-                    if let Some(key) = request["noise_key"].as_str() {
-                        let key: [u8; 32] =
-                            URL_SAFE_NO_PAD.decode(key).unwrap().try_into().unwrap();
-                        value["grant"] = json!(signer.grant(&key, n));
-                    }
-                    (200, json!({"ok": true, "value": value}))
-                };
-                let body = answer.to_string();
-                let reply = format!(
-                    "HTTP/1.1 {code} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                let _ = stream.write_all(reply.as_bytes()).await;
-            });
-        }
-    });
-    address
-}
-
-/// The session's mux socket: echoes each line, then pushes one line of its own.
-async fn fake_mux(path: &Path) {
-    let listener = tokio::net::UnixListener::bind(path).unwrap();
-    tokio::spawn(async move {
-        loop {
-            let Ok((stream, _)) = listener.accept().await else { return };
-            tokio::spawn(async move {
-                let (reader, mut writer) = stream.into_split();
-                let mut lines = tokio::io::BufReader::new(reader).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    writer.write_all(format!("{line}\n").as_bytes()).await.unwrap();
-                    writer.write_all(b"{\"event\":\"pushed\"}\n").await.unwrap();
-                }
-            });
-        }
-    });
-}
-
-/// The `x-cmux-team` header of each platform request (`None` when absent).
-type Teams = Arc<Mutex<Vec<Option<String>>>>;
-
-struct World {
-    platform: SocketAddr,
-    teams: Teams,
-    dir: tempfile::TempDir,
-    _registration: cmux_remote::provider::RelayDaemonRegistration,
-    _runtime: tokio::runtime::Runtime,
-}
-
-/// A relay, a registered daemon with a grant verifier and a mux socket, and
-/// the platform route answering `status` with grants for `service`.
-fn world(status: u16, asked: Arc<AtomicUsize>) -> World {
-    world_granting(status, asked, "mux-control")
-}
-
-/// What the platform answers as `daemon_key`.
-#[derive(Clone, Copy)]
-enum DaemonKey {
-    /// The daemon's own key.
-    Real,
-    /// No `daemon_key` at all.
-    Missing,
-    /// Not 32 canonical base64url bytes.
-    Malformed,
-    /// A well-formed key that is not the daemon's.
-    Other,
-}
-
-fn world_granting(status: u16, asked: Arc<AtomicUsize>, service: &'static str) -> World {
-    world_full(status, asked, service, DaemonKey::Real)
-}
-
-fn world_full(
-    status: u16,
-    asked: Arc<AtomicUsize>,
-    service: &'static str,
-    key: DaemonKey,
-) -> World {
-    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let mux = dir.path().join("mux.sock");
-    let state = dir.path().join("daemon");
-    let teams = Teams::default();
-    let (platform, registration) = runtime.block_on(async {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let relay_address = listener.local_addr().unwrap();
-        let relay = Relay::new(RelayConfig { allow_open: true, ..RelayConfig::default() }).unwrap();
-        let (listener, router) = relay.server_parts(listener);
-        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-
-        let signer = Arc::new(Signer::generate(service));
-        std::fs::create_dir_all(&state).unwrap();
-        let auth = AuthDatabase::load_or_create(&state, "carrier-dial-test", false).unwrap();
-        let verifier =
-            CarrierGrantVerifier::new(ISSUER, MACHINE, TEAM, signer.keyset(), || Some(now()), 64)
-                .unwrap();
-        auth.set_grant_verifier(Arc::new(verifier)).unwrap();
-        let (daemon, accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
-        let registration = register_relay_daemon(
-            daemon,
-            RelayDaemonConfig {
-                endpoint: url::Url::parse(&format!("relay+ws://{relay_address}")).unwrap(),
-                slot: SLOT.into(),
-                ticket: "open-daemon-ticket".into(),
-                maximum_frame_bytes: 65_535,
-                control_timeout: Duration::from_secs(5),
-            },
-        )
-        .await
-        .unwrap();
-        fake_mux(&mux).await;
-        let services = DaemonServices::new(WorkspaceService::new(), Some(mux.clone()));
-        std::thread::spawn(move || {
-            let local = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-            local.block_on(services.run(accepted));
-        });
-        let platform = platform(
-            signer,
-            relay_address,
-            match key {
-                DaemonKey::Real => Some(URL_SAFE_NO_PAD.encode(auth.identity().public_key())),
-                DaemonKey::Missing => None,
-                DaemonKey::Malformed => Some("not-a-key".into()),
-                DaemonKey::Other => Some(URL_SAFE_NO_PAD.encode([9_u8; 32])),
-            },
-            status,
-            asked,
-            teams.clone(),
-        )
-        .await;
-        (platform, registration)
-    });
-    World { platform, teams, dir, _registration: registration, _runtime: runtime }
-}
 
 fn dial(world: &World) -> Child {
     dial_with(world, &[])
@@ -293,12 +33,6 @@ fn dial_with(world: &World, extra: &[&str]) -> Child {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap()
-}
-
-fn line(reader: &mut impl BufRead) -> String {
-    let mut line = String::new();
-    reader.read_line(&mut line).unwrap();
-    line
 }
 
 #[test]
@@ -329,7 +63,7 @@ fn a_carrier_dial_carries_the_daemon_stream_both_ways() {
     );
     assert_eq!(
         line(&mut stdout),
-        "{\"event\":\"pushed\"}\n",
+        "{\"event\":\"pushed\",\"conn\":0}\n",
         "the daemon's own line reached the device"
     );
 
@@ -341,12 +75,70 @@ fn a_carrier_dial_carries_the_daemon_stream_both_ways() {
         !teams.is_empty() && teams.iter().all(Option::is_none),
         "no team, no header: {teams:?}"
     );
-    // The route line also went to the dial's own connect log, exactly.
+    // The route line also went to the dial's own connect log, exactly,
+    // followed by the attempt's phases line and its carriers line (which
+    // stderr never gets): no ssh candidate in this answer, so the relay alone.
     let log = world.dir.path().join(".local/state/cmux-tui/sessions/carrier/connect.log");
     let text = std::fs::read_to_string(&log).unwrap();
-    assert_eq!(text, route, "connect.log holds the route line and nothing else");
+    let (logged, rest) = text.split_at(route.len().min(text.len()));
+    assert_eq!(logged, route, "connect.log starts with the route line: {text}");
+    let (phases, routes) = rest.split_once('\n').unwrap_or((rest, ""));
+    assert!(
+        phases.starts_with(&format!(
+            "carrier.phases machine={MACHINE} phase=connect carrier=relay:0 outcome=ok ticket_ms="
+        )),
+        "then one phases line: {text}"
+    );
+    assert_eq!(
+        routes,
+        format!(
+            "carrier.routes machine={MACHINE} phase=connect ssh=no_candidate carrier=relay:0 outcome=ok\n"
+        ),
+        "then its carriers line and nothing else: {text}"
+    );
+    assert!(phases.contains(" lanes=") && !phases.contains("cloud.connect"), "{text}");
     let ms = route.trim_end().rsplit_once(" ms=").unwrap().1;
     assert!(!ms.is_empty() && ms.bytes().all(|b| b.is_ascii_digit()), "nothing after ms=: {route}");
+}
+
+/// A fresh machine's daemon registers after the dial's Connect: the relay
+/// parks the Connect until then. A Register 20 s later, past the relay
+/// client's 15 s control timeout, is still inside the dial's one deadline
+/// (30 s here), so the first attempt connects: one route line, ok, and no
+/// retry.
+#[test]
+fn a_dial_parked_until_the_daemon_registers_20_s_later_connects_on_its_first_attempt() {
+    let world = world_parked(Duration::from_secs(20));
+    let mut child = dial(&world);
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(reply, json!({"ok": true, "path_state": "relay", "route": "carrier"}));
+    let route = line(&mut stderr);
+    let prefix =
+        format!("cloud.connect route=carrier machine={MACHINE} phase=connect outcome=ok ms=");
+    let ms: u64 = route
+        .strip_prefix(&prefix)
+        .and_then(|ms| ms.trim_end().parse().ok())
+        .unwrap_or_else(|| panic!("not the first attempt's ok line: {route}"));
+    assert!(ms >= 20_000, "connected after {ms} ms, before the daemon registered");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    stdin.write_all(b"{\"cmd\":\"identify\",\"id\":1}\n").unwrap();
+    stdin.flush().unwrap();
+    assert_eq!(line(&mut stdout), "{\"cmd\":\"identify\",\"id\":1}\n");
+    drop(stdin);
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+    // The connect log has every attempt's route line (each followed by its
+    // phases line): this one alone.
+    assert_eq!(route_lines(&world), [route.trim_end()], "the dial retried");
+}
+
+/// The route lines of the dial's connect log, without its phases lines.
+fn route_lines(world: &World) -> Vec<String> {
+    let log = world.dir.path().join(".local/state/cmux-tui/sessions/carrier/connect.log");
+    let text = std::fs::read_to_string(&log).unwrap();
+    text.lines().filter(|l| l.starts_with("cloud.connect ")).map(str::to_owned).collect()
 }
 
 #[test]
@@ -366,6 +158,29 @@ fn a_named_team_goes_to_the_platform_as_x_cmux_team() {
 }
 
 #[test]
+fn the_ok_line_says_the_grant_s_vmk() {
+    for vmk in ["owner", "team"] {
+        let world = world_signed(
+            200,
+            Arc::new(AtomicUsize::new(0)),
+            "mux-control",
+            DaemonKey::Real,
+            Some(vmk),
+        );
+        let mut child = dial(&world);
+        let mut stderr = BufReader::new(child.stderr.take().unwrap());
+        let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+        assert_eq!(
+            reply,
+            json!({"ok": true, "path_state": "relay", "route": "carrier", "vmk": vmk}),
+            "the daemon admitted the grant and the dial read its vmk"
+        );
+        drop(child.stdin.take());
+        assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+    }
+}
+
+#[test]
 fn a_refused_ticket_names_the_ticket_step() {
     let world = world(403, Arc::new(AtomicUsize::new(0)));
     let mut child = dial(&world);
@@ -376,7 +191,11 @@ fn a_refused_ticket_names_the_ticket_step() {
     assert!(reply["error_detail"].as_str().unwrap().contains("auth.forbidden"), "{reply}");
     let route = line(&mut stderr);
     assert!(route.contains("phase=connect outcome=ticket"), "{route}");
+    // The platform's status is the detail code, after ms, on stderr and in
+    // the connect log alike.
+    assert!(route.trim_end().ends_with(" detail=http_403"), "{route}");
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(2));
+    assert_eq!(route_lines(&world), [route.trim_end()]);
 }
 
 #[test]
@@ -440,18 +259,71 @@ fn a_desktop_dial_without_the_owner_grant_is_refused_as_a_service() {
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(6));
 }
 
-/// The child's exit code, or None (and the child ended) past `limit`.
-fn wait(child: &mut Child, limit: Duration) -> Option<i32> {
-    let started = std::time::Instant::now();
-    loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            return status.code();
-        }
-        if started.elapsed() > limit {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-        std::thread::sleep(Duration::from_millis(20));
+/// Another device's Noise key (base64url of 32 bytes of 5).
+const OTHER_DEVICE: &str = "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU";
+
+#[test]
+fn a_handed_over_answer_is_the_first_attempt_s_without_asking_the_platform() {
+    // Off a Mac each dial makes its own Noise key, so the handed-over grant
+    // names another device's: the daemon refusing it shows the dial used it.
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    let mut child = dial_with(&world, &["--answer-fd", "0"]);
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(world.answer_line(OTHER_DEVICE, true).as_bytes()).unwrap();
+    stdin.flush().unwrap();
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    let route = line(&mut stderr);
+    assert!(route.contains("phase=connect outcome=handshake"), "{route} {reply}");
+    let keys = world.keys.lock().unwrap().clone();
+    assert!(
+        keys.iter().all(|key| key.as_deref() != Some(OTHER_DEVICE)),
+        "the platform never named the other device: {keys:?}"
+    );
+    drop(stdin);
+    let _ = wait(&mut child, Duration::from_secs(20));
+}
+
+#[test]
+fn an_answer_line_that_is_not_an_answer_is_bad_usage() {
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    for bad in ["not json\n", "{\"carrier_answer\":{}}\n", ""] {
+        let mut child = dial_with(&world, &["--answer-fd", "0"]);
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(bad.as_bytes()).unwrap();
+        drop(stdin);
+        let mut stderr = BufReader::new(child.stderr.take().unwrap());
+        let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+        assert_eq!(reply["error_code"], "bad_request", "{bad:?}: {reply}");
+        assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(64), "{bad:?}");
+    }
+}
+
+#[test]
+fn key_public_prints_no_key_where_none_lasts_past_one_dial() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        Command::new(BIN)
+            .arg("carrier")
+            .args(args)
+            .env_clear()
+            .env("HOME", dir.path())
+            .output()
+            .unwrap()
+    };
+    // Off a Mac each dial makes its own key, so no key printed here could
+    // be the one a later dial presents: nothing on stdout, dial's line.
+    let out = run(&["key", "--public"]);
+    assert!(out.stdout.is_empty(), "{:?}", String::from_utf8_lossy(&out.stdout));
+    let reply: Value = serde_json::from_slice(&out.stderr).unwrap();
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error_code"], "handshake", "{reply}");
+    assert_eq!(out.status.code(), Some(5));
+    for bad in [&["key"][..], &["key", "--private"], &["key", "--public", "x"]] {
+        let out = run(bad);
+        assert!(out.stdout.is_empty());
+        let reply: Value = serde_json::from_slice(&out.stderr).unwrap();
+        assert_eq!(reply["error_code"], "bad_request", "{bad:?}: {reply}");
+        assert_eq!(out.status.code(), Some(64), "{bad:?}");
     }
 }

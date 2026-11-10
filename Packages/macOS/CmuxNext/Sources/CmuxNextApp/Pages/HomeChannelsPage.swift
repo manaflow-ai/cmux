@@ -2,13 +2,18 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextChiefMemory
+import CmuxNextCLIInstall
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextHomeModel
+import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextSidebar
 import Foundation
 
 extension InternalPageID {
@@ -51,8 +56,8 @@ extension PageFactory {
     /// ``HomePageMenus``), the runs, the unread colour and the traffic lights; ``HomeMessagesHostProvider``
     /// serves its sheets, cards, colours and the conversation it shows. With `conversation` it is a
     /// conversation tab's or the Chief panel's page (``HomeConversationPage``): that conversation
-    /// only, no list (`#/conversation/<id>`).
-    func homeMessagesWebPage(dock: HomeDockView? = nil, conversation: ConversationID? = nil)
+    /// only, no list (`#/conversation/<id>`). `widthKey` keys the list column's width.
+    func homeMessagesWebPage(dock: HomeDockView? = nil, conversation: ConversationID? = nil, widthKey: String = "conversation")
         -> (page: PageWebView, route: HomeMessagesPageRoute, host: HomeMessagesHostProvider)? {
         let (home, registry, app) = (services.home, services.registry, services)
         let route = HomeMessagesPageRoute(menu: { id in
@@ -66,19 +71,44 @@ extension PageFactory {
             return true
         }, unreadColor: { app.settings?.snapshot.attention.color?.nsColor ?? Palette.notificationBlue },
            personOnlyMessage: RefusalStrings.personOnlyFromPage)
-        let host = HomeMessagesHostProvider(services: services)
-        let firstRun = HomeMessagesFirstRunProvider(services: services, shown: { [weak host] in host?.shown })
+        let host = HomeMessagesHostProvider(services: services, widthKey: widthKey)
+        let sources = Self.firstRunSources(services), firstRun = HomeMessagesFirstRunProvider(sources: sources, shown: { [weak host] in host?.shown })
+        let setup = SetupCardRoute(setup: app.onboarding.setup, agents: { [weak app] in app?.onboarding.signInHarnesses }, environment: SetupCardEnvironment( // HomeHostView+SetupCard.swift's
+            account: { [weak app] in (app?.cloud.auth.isSignedIn ?? false, app?.cloud.auth.user?.primaryEmail) }, signInAccount: { sources.perform("palette.auth.signIn") },
+            cliState: { CLIInstallReport.setupRow(await CLIInstallHandlers.pathCheck(CLIPathInstaller().source)) }, installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) },
+            openAgents: { [weak app] in app?.onboarding.show(step: .agents) }, historySources: { await sources.memoryOffer() != nil },
+            importHistory: { [weak app] in app.map { TopPages.show(.page(.importHistory), services: $0) != nil } ?? false }))
         host.firstRun = firstRun
         let actions = PageGestureActionProvider(page: .homeMessages, wrapping: AppPageNativeProvider(services: services, page: .homeMessages))
         let extra = [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route), PageRoute(prefix: PageNativeOp.actionRun, provider: actions)]
-            + HomeMessagesHostProvider.prefixes.map { PageRoute(prefix: $0, provider: host) }
-            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun),
+            + (HomeMessagesHostProvider.prefixes + [HomeMessagesHostProvider.feedPrefix]).map { PageRoute(prefix: $0, provider: host) }
+            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun), PageRoute(prefix: SetupCardPageProvider.prefix, provider: setup),
+               PageRoute(prefix: HomeMessagesWidgets.prefix, provider: HomeMessagesWidgets(host: services.sidebarCustomization.chatWidgets, personOnlyMessage: RefusalStrings.personOnlyFromPage)),
                PageRoute(prefix: HomeComposerFiles.prefix, provider: host.composerFiles)]
+            + HomeMessagesListFeed.prefixes.map { PageRoute(prefix: $0, provider: host.list) }
         let single = conversation.flatMap { $0.rawValue.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }.map { "#/conversation/\($0)" }
         guard let page = homeWebPage(.homeMessages, dock: dock, extra: extra, route: single) else { return nil }
         host.window = { [weak page] in page?.window }
         services.home.homeDidOpen(asked: true)
         return (page, route, host)
+    }
+
+    /// What the Messages page's first run reads and runs from the App (``HomeFirstRunSources``).
+    static func firstRunSources(_ services: AppServices) -> HomeFirstRunSources {
+        let (app, home, registry, muxHome) = (services, services.home, services.registry, HomeBrainHost.muxHome(tag: services.environment.tag).path)
+        return HomeFirstRunSources(
+            store: { home.homeStore }, isCloud: { home.isCloudConversation($0) },
+            otherChiefs: { id in HomeArchivedChiefs(home.directory.archivedChiefs, me: home.homeStore.me?.id).visible(home.homeStore.rows).filter { $0.kind == .chief && $0.id != id }.count },
+            agents: { HomeAgentGlances(services: app).current },
+            starters: { HomeAgentGlances(services: app).starters(agents: $0, badges: SidebarSessionTree.shared.pullRequests).mapValues { $0 } },
+            switchKeys: { app.homeSwitchKeys.keys(registry: registry) }, shortcut: { registry.shortcutDisplay(for: ActionID(rawValue: $0)) },
+            perform: { _ = registry.perform(ActionID(rawValue: $0), invocation: ActionInvocation(origin: .user)) },
+            openAgent: { _ = app.revealTab($0) }, hideSwitchKeys: { app.homeSwitchKeys.hide() },
+            openKeyboardSettings: { if let url = HomeSwitchKeysSource.keyboardShortcutsURL { NSWorkspace.shared.openInBackground(url) } },
+            playWelcome: { id in home.chiefWelcome.play(in: id, source: home.homeSource, connection: home.chief.connection,
+                                                        intro: ChiefIntroStore(defaults: .standard), text: ChiefWelcome.text(registry)) },
+            memoryOffer: { MemorySource.offerTitle(await ChiefMemoryImportHandlers.detectForOffer(muxHome: muxHome)) },
+            personOnlyMessage: RefusalStrings.personOnlyFromPage)
     }
 
     /// A Home page on this instance's daemon (Channels, Messages): the credential verb, the Chief's

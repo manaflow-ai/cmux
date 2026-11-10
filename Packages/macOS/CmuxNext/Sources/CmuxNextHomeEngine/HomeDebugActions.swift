@@ -22,7 +22,7 @@ public struct HomeDebugActions {
     }
 
     /// Binds `home.saveFlightRecording`, `debug.allThemesPlayground` and, in DEV builds, `home.agentMessagePlayground` (its `style`,
-    /// `expanded`, `team`, `open`, `peer` and `dark` arguments switch the playground; none opens it as it is) and
+    /// `expanded`, `team`, `peer` and `dark` arguments switch the playground; none opens it as it is) and
     /// `home.chiefTeleportPlayground` (its `state` picks the menu shown beside the chips).
     /// Why the agent message playground no longer opens.
     static var playgroundMoved: String {

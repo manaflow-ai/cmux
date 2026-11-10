@@ -25,6 +25,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Chromium's AsyncLiveResize (below fork API 27): off only for the Debug Settings "Synced live"
     /// drag resize (a Synced live drag resize, removed 2026-11-06), which lets Chromium hold a frame for the page again.
     var asyncLiveResize = true
+    /// The profile Chromium opens at startup (`profile-directory`), a directory name under the root
+    /// cache: the default cmux profile's (`CEFProfileStorage.initialProfileDirectory`). Nil leaves
+    /// Chromium's own choice (its last-used profile, `Default` on a first launch).
+    var initialProfileDirectory: String?
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -82,6 +86,13 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // the check per renderer only (a renderer with a DevTools agent is never shared), so one
         // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
         if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
+        // Every agent chat is the same first-party page (cmux-page://cmux.agent/), and Chromium's
+        // process-per-site-instance gave each its own renderer: 100 idle chats held 107 renderers,
+        // 17.5 GB of footprint and 30% CPU. The same-site main-frame sharing above never applies to
+        // these pages (threshold 8 changed nothing). The fork gives the named schemes one renderer
+        // per site, as Chrome gives its NTP (process-per-site for all sites in the same bench: 6
+        // renderers, 6.6 GB, 7.3%); web pages keep Chrome's model. Older forks ignore the switch.
+        result.append(Self.processPerSitePageSchemes)
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -103,6 +114,18 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // built-in entry Chromium keeps in the profile. The shim merges this
         // into CEF's list.
         if keepsUnpackedEnabled { result.append("disable-features=ExtensionDisableUnsupportedDeveloper") }
+        // Chrome style opens one startup profile and makes it the global request context
+        // (ChromeBrowserMainExtraPartsCef::PostProfileInit); CefSettings.cache_path does not choose
+        // it. Without this switch that profile is `Default`, which no cmux tab uses, yet every regular
+        // profile loads the --load-extension extensions: `Default` ran its own uBlock Origin
+        // background page, an extension renderer of about 105 MB, from launch on (hq#7860).
+        // Starting in the default cmux profile leaves one regular profile at idle. An
+        // off-the-record context (an incognito window's store; the app opens one at launch)
+        // derives from CEF's GetPrimaryUserProfile, which is this startup profile from fork
+        // cmux.48 on (manaflow-ai/cef#32); before it was always `Default`, so `Default` loaded anyway.
+        if let initialProfileDirectory, !initialProfileDirectory.isEmpty {
+            result.append("profile-directory=" + initialProfileDirectory)
+        }
         result.append(contentsOf: extraSwitches)
         return result
     }
@@ -146,6 +169,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The fork's switch for per-renderer DevTools checks in main-frame process reuse (fork API 29).
     static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
 
+    /// The fork's switch: one renderer per site for cmux's first-party page scheme
+    /// (`PageDescriptor.scheme`; `cmux-process-per-site-schemes`, chrome_content_browser_client_cef.cc).
+    static let processPerSitePageSchemes = "cmux-process-per-site-schemes=cmux-page"
+
     static let chromePromptOffSwitches = [
         "no-first-run",
         "no-default-browser-check",
@@ -165,7 +192,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         environment: [String: String],
         builtInExtensions: [String] = [],
         keepsUnpackedEnabled: Bool = false,
-        asyncLiveResize: Bool = true
+        asyncLiveResize: Bool = true,
+        initialProfileDirectory: String? = nil
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
@@ -186,7 +214,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
-            asyncLiveResize: asyncLiveResize
+            asyncLiveResize: asyncLiveResize,
+            initialProfileDirectory: initialProfileDirectory
         )
     }
 

@@ -1,4 +1,4 @@
-//! `cmux vm ls|status|pause|resume|rm|resize|fork|rename [NAME|ID]`: the short Cloud VM verbs
+//! `cmux vm ls|status|pause|shutdown|resume|rm|resize|fork|rename [NAME|ID]`: the short Cloud VM verbs
 //! (Leo's CLI walkthrough, 2026-11-07, cmuxterm-hq#7487). A VM is named by its id or its one
 //! title, or not at all when you have one VM, instead of `--target machine:ID`. Each runs the
 //! app's Cloud verb (`pause-machine --target machine:ID`, ...), so the app's answers, refusals
@@ -22,6 +22,9 @@ const VERBS: &[(&str, &str)] = &[
     ("list", "list-machines"),
     ("status", "machine-status"),
     ("pause", "pause-machine"),
+    // Leo, 2026-11-08: "how would I be able to shut it down?" `shutdown` is `pause` (the disk and
+    // memory stay; `rm` deletes). Not `stop`: the VM API's `vm stop` is its own verb (vm.rs).
+    ("shutdown", "pause-machine"),
     ("resume", "resume-machine"),
     ("rm", "kill-machine"),
     ("resize", "resize-machine"),
@@ -30,7 +33,7 @@ const VERBS: &[(&str, &str)] = &[
 ];
 
 /// The short verbs the VM API (vm.rs) also has: with no signed-in app to answer, they go there.
-const API_VERBS: &[&str] = &["ls", "list", "pause", "resume", "rm", "fork"];
+const API_VERBS: &[&str] = &["ls", "list", "pause", "shutdown", "resume", "rm", "fork"];
 
 /// Options only the VM API reads (its issuer, team and page size): a short verb with one goes
 /// there, app or not.
@@ -159,7 +162,7 @@ pub(super) fn resolve(named: Option<&str>, listed: &Value) -> Resolved {
             )),
         };
     };
-    let id = named.strip_prefix("machine:").unwrap_or(named);
+    let id = super::vm_words::bare_id(named);
     if rows.iter().any(|row| text(row, "machine_id").as_deref() == Some(id)) {
         return Resolved::Id(id.to_owned());
     }

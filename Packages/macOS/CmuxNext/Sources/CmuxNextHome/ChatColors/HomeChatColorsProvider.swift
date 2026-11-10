@@ -64,7 +64,7 @@ final class HomeChatColorsProvider: PageProvider {
     private var sessionListener: (@MainActor (JSONValue) -> Void)?
     private var stateListener: (@MainActor (JSONValue) -> Void)?
     /// The loop that streams the open chat's state; one at a time, none while the panel is closed.
-    private var following: Task<Void, Never>?
+    private(set) var following: Task<Void, Never>?
 
     /// Done, Return or Escape on the page.
     var onDone: (() -> Void)?

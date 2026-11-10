@@ -1,0 +1,9 @@
+{
+  "source": "schemas/settings/source/updates.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
+  "type": "UpdateSettingsSchema",
+  "lists": {
+    "updates": ["descriptors", "UpdatesSettings"],
+    "announcements": ["announcements", "AnnouncementsSettings"]
+  }
+}

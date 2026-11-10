@@ -10,6 +10,7 @@
 //   home.messages.focusComposer {}                                -> {focused}
 //   home.moveConversation     {delta}                             -> {moved}    (as Channels serves it)
 //   home.messages.selectNumber {number: 1..9}                     -> {selected} (9 = the last)
+//   home.messages.replyToSelection {}                             -> {replied}  (Cmd-Shift-R, the palette)
 //   home.messages.attach | detach | quoteSelection                -> composerHandoff.ts
 //   home.messages.recallHistory {older}                        -> {recalled}: Up or Down from outside the
 //       page (the pane has the keyboard): the composer takes it and steps its history
@@ -32,7 +33,7 @@ import type { PageClient } from "../shared/pageClient";
 import { PAGE_COMMAND, type PageCommand } from "../shared/pageStreams";
 import { attach, detach, HandoffOps, quoteSelection, recallFromOutside } from "./composerHandoff";
 import { conversationNumber, neighbor, type ListModel } from "./list/model";
-import type { MessagesNav, SheetKind } from "./nav";
+import { newMessageHasKeyboard, type MessagesNav, type SheetKind } from "./nav";
 
 export const MessagesPageOps = {
   currentSelection: CURRENT_SELECTION_OP,
@@ -41,6 +42,7 @@ export const MessagesPageOps = {
   focusComposer: "home.messages.focusComposer",
   moveConversation: MOVE_CONVERSATION_OP,
   selectNumber: "home.messages.selectNumber",
+  replyToSelection: "home.messages.replyToSelection",
 } as const;
 
 /** Page → host: the shown conversation changed. */
@@ -95,11 +97,19 @@ export async function show(context: PageCommandContext, params: unknown): Promis
   return { shown };
 }
 
+/** New Message closes back to the conversation shown before it (`MessagesNav.endCompose`). */
+export function closeNewMessage({ nav, store }: Pick<PageCommandContext, "nav" | "store">): boolean {
+  return nav.endCompose(newMessageHasKeyboard(), (conversation) => {
+    const now = store.getSnapshot();
+    if (now.selected !== conversation && now.conversations.has(conversation)) void store.select(conversation);
+  });
+}
+
 export function present(context: PageCommandContext, params: unknown): { presented: boolean } {
   const raw = record(params);
   const { nav, store } = context;
   const sheet = raw.sheet;
-  if (sheet === "closeNewMessage") return { presented: nav.closeCompose() };
+  if (sheet === "closeNewMessage") return { presented: closeNewMessage(context) };
   if (sheet === "newMessage") {
     nav.dismiss();
     nav.openCompose();
@@ -145,16 +155,52 @@ export async function selectNumber(context: PageCommandContext, params: unknown)
   return { selected: true };
 }
 
+/** The requests a page remembers (a host retries within seconds; a few dozen cover any burst). */
+const REMEMBERED_REQUESTS = 64;
+
+/** The requests the page ran, by id, with their answers: one map for the page's life, so a request
+ * retried across a reconnect's remount runs once too. */
+const ranRequests = new Map<string, Promise<unknown>>();
+
+/** Runs each host request once: the host asks again, with the same `request` id, when its try
+ * timed out (HomeMessagesPage.ask), and a try that timed out may have run (a move that waited on
+ * the transcript). A repeat gets the first run's answer. A call without an id always runs. */
+export function once<T>(run: (params: unknown) => T | Promise<T>, ran: Map<string, Promise<unknown>> = ranRequests) {
+  return (params: unknown): Promise<T> => {
+    const request = record(params).request;
+    if (typeof request !== "string" || !request) return Promise.resolve(run(params));
+    const known = ran.get(request);
+    if (known) return known as Promise<T>;
+    const answer = Promise.resolve().then(() => run(params));
+    ran.set(request, answer);
+    if (ran.size > REMEMBERED_REQUESTS) ran.delete(ran.keys().next().value as string);
+    return answer;
+  };
+}
+
 /** Serves every command on `host` with the context `latest` returns at call time. Returns the stop. */
 export function servePageCommands(host: PageClient, latest: () => PageCommandContext): () => void {
   const stops = [
     host.handle(MessagesPageOps.currentSelection, () => currentSelection(latest())),
-    host.handle(MessagesPageOps.show, (params) => show(latest(), params)),
-    host.handle(MessagesPageOps.present, (params) => present(latest(), params)),
+    host.handle(
+      MessagesPageOps.show,
+      once((params) => show(latest(), params)),
+    ),
+    host.handle(
+      MessagesPageOps.present,
+      once((params) => present(latest(), params)),
+    ),
     host.handle(MessagesPageOps.focusComposer, () => ({ focused: latest().nav.focus() })),
-    host.handle(MessagesPageOps.moveConversation, (params) => moveConversation(latest(), params)),
-    host.handle(MessagesPageOps.selectNumber, (params) => selectNumber(latest(), params)),
-    host.handle(HandoffOps.attach, (params) => attach(host, latest().nav.composer(), params)),
+    host.handle(
+      MessagesPageOps.moveConversation,
+      once((params) => moveConversation(latest(), params)),
+    ),
+    host.handle(
+      MessagesPageOps.selectNumber,
+      once((params) => selectNumber(latest(), params)),
+    ),
+    host.handle(MessagesPageOps.replyToSelection, () => ({ replied: latest().nav.replyToSelection() })),
+    host.handle(HandoffOps.attach, (params) => attach(host, () => latest().nav.composer(), params)),
     host.handle(HandoffOps.detach, (params) => detach(latest().nav.composer(), params)),
     host.handle(HandoffOps.quoteSelection, () => quoteSelection(document, latest().nav.composer())),
     host.handle(HandoffOps.recallHistory, (params) => ({
@@ -164,15 +210,17 @@ export function servePageCommands(host: PageClient, latest: () => PageCommandCon
           ?.recallHistory(record(params).older === false ? "newer" : "older") ?? false,
     })),
   ];
+  // Up and Down outside the box step its history; none without a document (a test host).
+  const doc = globalThis.document as Document | undefined;
   const onKey = (event: KeyboardEvent) => void recallFromOutside(event, latest().nav.composer());
-  document.addEventListener("keydown", onKey);
-  stops.push(() => document.removeEventListener("keydown", onKey));
+  doc?.addEventListener("keydown", onKey);
+  stops.push(() => doc?.removeEventListener("keydown", onKey));
   // The app's menu on selected message text: Quote in Reply.
   let ended = false;
   let unsubscribe: (() => void) | undefined;
   void host
     .subscribe<PageCommand>(PAGE_COMMAND, (data) => {
-      if (data?.command === "quoteSelection") quoteSelection(document, latest().nav.composer());
+      if (data?.command === "quoteSelection" && doc) quoteSelection(doc, latest().nav.composer());
     })
     .then((stop) => {
       if (ended) stop();
@@ -184,6 +232,16 @@ export function servePageCommands(host: PageClient, latest: () => PageCommandCon
     unsubscribe?.();
     for (const stop of stops) stop();
   };
+}
+
+/** The conversation the page reports as open: the store's selection while it is still listed (a
+ * conversation that left the list, by Leave or Delete, is not), and none while New Message shows. */
+export function reportedConversation(
+  selected: string | undefined,
+  listed: ReadonlyMap<string, unknown>,
+  composing: boolean,
+): string | undefined {
+  return !composing && selected && listed.has(selected) ? selected : undefined;
 }
 
 /** What the page tells the host of what it shows (``SELECTED_OP``). */
@@ -236,4 +294,46 @@ export function followPageFocus(
   };
   target.addEventListener("focus", focused);
   return () => target.removeEventListener("focus", focused);
+}
+
+/** A key the message box takes from anywhere on the page (KeyRouter.isPrintable or isDeadKey): one
+ * typed character (space too) or a dead key, with no Command or Control chord. */
+export function isTypedKey(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey">): boolean {
+  if (event.metaKey || event.ctrlKey) return false;
+  if (event.key === "Dead") return true;
+  // One code point (a letter, a symbol, an emoji); a named key ("Enter", "ArrowDown") is longer.
+  const code = event.key.codePointAt(0) ?? 0;
+  return event.key.length === String.fromCodePoint(code).length && code >= 0x20 && code !== 0x7f;
+}
+
+/** Whether `element` keeps its own keys: a text field, a text area or editable text. */
+function ownsTypedText(element: Element): boolean {
+  const tag = element.tagName;
+  if (tag === "TEXTAREA" || tag === "SELECT" || tag === "INPUT") return true;
+  return (element as HTMLElement).isContentEditable === true;
+}
+
+/**
+ * A letter typed while the page itself or the conversation list has the keyboard goes to the
+ * message box (or To: on New Message), as the native Home routed it
+ * (TopHomePageView+PrimaryInputTarget: `routesToPrimaryInput`; Lawrence 2026-10-19: "If I type
+ * randomly ... it doesn't actually work"). The box takes the keyboard during the key's keydown, so
+ * the key's character lands in it. The list keeps its arrows and Return; a text field (the search,
+ * a sheet's field) keeps its keys; a button or menu with the keyboard is left alone.
+ */
+export function followTyping(
+  target: Pick<Window, "addEventListener" | "removeEventListener">,
+  doc: Pick<Document, "activeElement" | "body">,
+  nav: Pick<MessagesNav, "focus">,
+): () => void {
+  const typed = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.isComposing || !isTypedKey(event)) return;
+    const active = doc.activeElement;
+    const page = !active || active === doc.body;
+    const list = !!active && !page && !ownsTypedText(active) && active.closest?.(".hm-scroller") === active;
+    if (!page && !list) return;
+    nav.focus();
+  };
+  target.addEventListener("keydown", typed as EventListener);
+  return () => target.removeEventListener("keydown", typed as EventListener);
 }

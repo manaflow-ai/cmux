@@ -6,20 +6,33 @@
 //
 // The page makes one for its whole life (main.tsx), so a daemon reconnect, which mounts a new store
 // and a new shell, keeps what the person typed, the files they attached and what they had open.
-// The composer drafts are also kept durably by the app (`keeper`: HomeStore's draft cache, as the
-// native composer kept them), so a relaunch finds them too.
+// The composer drafts and the finished files are also kept durably by the app (`keeper`,
+// `attachmentKeeper`: HomeStore's draft cache, as the native composer kept them), so a relaunch
+// finds them too.
 import type { ComposerTarget } from "./composerHandoff";
 import type { HomeConversation } from "../home-channels/types";
 import type { MessageRequest } from "./sheets/model";
 import { EMPTY_DRAFT, isDraftEmpty, type RecipientDraft } from "./sheets/recipients";
-import { AttachmentDrafts } from "./transcript/attachmentDrafts";
+import { AttachmentDrafts, type AttachmentKeeper, type KeeperAck } from "./transcript/attachmentDrafts";
 
 /** Where the composer drafts are kept across launches (the app's HomeStore, host.ts). */
 export interface DraftKeeper {
   /** Every kept draft by conversation. */
   load(): Promise<Record<string, string>>;
-  /** Keeps `text` as `conversation`'s draft; empty text clears it. */
-  save(conversation: string, text: string): void;
+  /** Keeps `text` as `conversation`'s draft; empty text clears it. Resolves once the app holds it
+   * (false: it refused); nothing: it holds it already. */
+  save(conversation: string, text: string): KeeperAck;
+}
+
+/** Where files dragged over the conversation list go: the shown conversation's transcript, which
+ * draws its drop highlight and takes them (HomeSidebarSplitView+Drop.swift). */
+export interface FileDropTarget {
+  /** A drag with `types` is over the list: true when the files would be taken (the highlight shows). */
+  over(types: readonly string[]): boolean;
+  /** The drag left the list. */
+  leave(): void;
+  /** The files were dropped on the list. */
+  drop(files: Iterable<File>): void;
 }
 
 /** How long typing waits before its draft goes to the keeper (one write per pause, not per key). */
@@ -54,6 +67,11 @@ export interface NavState {
   focusEpoch: number;
 }
 
+/** New Message holds the keyboard (its To: field or its message box has it). */
+export function newMessageHasKeyboard(doc: Document | undefined = globalThis.document): boolean {
+  return !!doc?.activeElement?.closest(".hm-new-message");
+}
+
 export class MessagesNav {
   private state: NavState = { requests: [], draftEpoch: 0, focusEpoch: 0 };
   private readonly listeners = new Set<() => void>();
@@ -64,18 +82,34 @@ export class MessagesNav {
   /** Drafts typed since their last save, written after a pause (``DRAFT_SAVE_DELAY_MS``). */
   private readonly unsaved = new Set<string>();
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Each conversation's newest draft save handed to the keeper (its number), until the app answers it. */
+  private readonly saving = new Map<string, number>();
+  private saves = 0;
+  /** Drafts the app refused to keep (too long): they live only in this page. */
+  private readonly refusedDrafts = new Set<string>();
   /** The files attached per conversation (they outlive the composer that shows them). */
-  readonly attachments = new AttachmentDrafts();
+  readonly attachments: AttachmentDrafts;
   /** The conversation the page last showed: a reconnect's new store opens it again. */
   lastShown: string | undefined;
   /** The New Message page's message box text (it ends with the draft). */
   composeText = "";
+  /** The conversation New Message shows under To: (the chosen people already have it), if one:
+   * its message box is that conversation's composer, with that conversation's draft. */
+  private composeExisting: string | undefined;
   /** What takes the keyboard now (the detail registers it): true when something took it. */
   private focuser: (() => boolean) | undefined;
   /** The composer the app's hand-off reaches now (the detail registers it). */
   private composerTarget: (() => ComposerTarget | null | undefined) | undefined;
+  /** Where files dropped on the list go now (the detail registers it); none on New Message. */
+  private dropTarget: (() => FileDropTarget | undefined) | undefined;
+  private replier: (() => boolean) | undefined;
 
-  constructor(private readonly keeper?: DraftKeeper) {}
+  constructor(
+    private readonly keeper?: DraftKeeper,
+    attachmentKeeper?: AttachmentKeeper,
+  ) {
+    this.attachments = new AttachmentDrafts(attachmentKeeper);
+  }
 
   getSnapshot = (): NavState => this.state;
 
@@ -103,8 +137,37 @@ export class MessagesNav {
   leaveCompose(): void {
     const compose = this.state.compose;
     if (!compose?.shown) return;
-    if (isDraftEmpty(compose.draft) && !this.composeText.trim()) this.closeCompose();
+    if (this.composeIsEmpty()) this.closeCompose();
     else this.set({ compose: { ...compose, shown: false } });
+  }
+
+  /** New Message's message box text: the blank page's, or the shown conversation's draft. */
+  composeMessage(): string {
+    return this.composeExisting ? this.draft(this.composeExisting) : this.composeText;
+  }
+
+  /** Nothing chosen and nothing typed (HomeNewMessageView.isEmpty): Escape and leaving end it. */
+  composeIsEmpty(): boolean {
+    const compose = this.state.compose;
+    return !compose || (isDraftEmpty(compose.draft) && !this.composeMessage().trim());
+  }
+
+  /** The chosen people changed what New Message shows under To: (`existing`: their conversation,
+   * else the blank page). The typed text moves with the message box, as HomeNewMessageView's
+   * `recipientsChanged`: the conversation left gives its draft up, and the one shown takes the text
+   * unless it has a draft of its own. */
+  composeShows(existing: string | undefined): void {
+    const previous = this.composeExisting;
+    if (existing === previous) return;
+    const text = this.composeMessage();
+    if (previous) this.keepDraft(previous, "");
+    this.composeExisting = existing;
+    if (existing) {
+      this.composeText = "";
+      if (text && !this.draft(existing)) this.replaceDraft(existing, text);
+    } else {
+      this.composeText = text;
+    }
   }
 
   /** The draft, its page and its row go, whatever was typed (the row's x, `closeNewMessage`).
@@ -112,7 +175,19 @@ export class MessagesNav {
   closeCompose(): boolean {
     if (!this.state.compose) return false;
     this.composeText = "";
+    this.composeExisting = undefined;
     this.set({ compose: undefined });
+    return true;
+  }
+
+  /** `home.closeNewMessage`, the draft row's x and Escape (TopHomePageView.closeNewMessage): the
+   * draft and its page go, the conversation shown before it comes back (`back`), and its message
+   * box takes the keyboard only when New Message had it (`hadKeyboard`). True when there was one. */
+  endCompose(hadKeyboard: boolean, back: (conversation: string) => void): boolean {
+    const wasShowing = this.state.compose?.shown === true;
+    if (!this.closeCompose()) return false;
+    if (wasShowing && this.lastShown) back(this.lastShown);
+    if (wasShowing && hadKeyboard) this.requestFocus();
     return true;
   }
 
@@ -146,15 +221,61 @@ export class MessagesNav {
   flushDrafts(): void {
     if (this.saveTimer !== undefined) clearTimeout(this.saveTimer);
     this.saveTimer = undefined;
-    for (const conversation of this.unsaved) this.keeper?.save(conversation, this.drafts.get(conversation) ?? "");
+    for (const conversation of this.unsaved) {
+      const call = this.keeper?.save(conversation, this.drafts.get(conversation) ?? "");
+      if (!call) {
+        this.refusedDrafts.delete(conversation);
+        continue;
+      }
+      const save = ++this.saves;
+      this.saving.set(conversation, save);
+      const answered = (held: boolean) => {
+        if (this.saving.get(conversation) !== save) return;
+        this.saving.delete(conversation);
+        if (held) this.refusedDrafts.delete(conversation);
+        else this.refusedDrafts.add(conversation);
+      };
+      void call.then(
+        (answer) => answered(answer !== false),
+        () => answered(false),
+      );
+    }
     this.unsaved.clear();
   }
+
+  /** Why a web update's reload would lose something the page holds alone (pages/shared/webSwap.ts),
+   * or null: a draft typed but not yet saved, or saved but not yet answered, or refused by the
+   * app; a hidden New Message with people or text (the app keeps no New Message); a staged file
+   * the app does not hold yet (attachmentDrafts.ts). Nothing leaves this page for the app's copy
+   * before the app has said it holds it. */
+  holdReason = (): string | null => {
+    if (this.unsaved.size || this.saving.size || this.refusedDrafts.size) return "home.draft";
+    const compose = this.state.compose;
+    if (compose && !compose.shown && !this.composeIsEmpty()) return "home.newMessage";
+    return this.attachments.holdReason();
+  };
 
   /** Replaces `conversation`'s draft from outside: its composer starts again with `text`. */
   replaceDraft(conversation: string, text: string): void {
     this.keepDraft(conversation, text);
     this.versions.set(conversation, (this.versions.get(conversation) ?? 0) + 1);
     this.set({ draftEpoch: this.state.draftEpoch + 1 });
+  }
+
+  /** A gone conversation (a Chief home made again: the owner no longer lists `from`) was replaced
+   * by the live Chief `to`: what the person typed and attached there goes with it, after the
+   * Chief's own (`own + "\n" + text`, the files one per hash), and `from` empties, as the native
+   * page's `replaceGone`. Returns whether anything went. */
+  carry(from: string, to: string): boolean {
+    if (from === to) return false;
+    const text = this.draft(from);
+    if (text) {
+      const own = this.draft(to);
+      this.replaceDraft(to, own ? `${own}\n${text}` : text);
+      this.replaceDraft(from, "");
+    }
+    const files = this.attachments.carry(from, to);
+    return !!text || files > 0;
   }
 
   /** `conversation`'s draft version (its composer's key): it changes when the draft is replaced. */
@@ -210,6 +331,33 @@ export class MessagesNav {
   /** The composer that shows now (New Message's box, else the conversation's), or undefined. */
   composer(): ComposerTarget | undefined {
     return this.composerTarget?.() ?? undefined;
+  }
+
+  /** The detail says where files dropped on the list go; the returned stop clears it. */
+  setFileDrop(target: () => FileDropTarget | undefined): () => void {
+    this.dropTarget = target;
+    return () => {
+      if (this.dropTarget === target) this.dropTarget = undefined;
+    };
+  }
+
+  /** Where files dropped on the list go now; undefined when nothing takes them. */
+  fileDrop(): FileDropTarget | undefined {
+    return this.dropTarget?.();
+  }
+
+  /** Who answers the host's Reply to Selection (the shown conversation); returns the stop. */
+  setReplier(replier: () => boolean): () => void {
+    this.replier = replier;
+    return () => {
+      if (this.replier === replier) this.replier = undefined;
+    };
+  }
+
+  /** Reply to Selection: the words selected in one message open its reply with them quoted;
+   * false when nothing is selected in one shown message. */
+  replyToSelection(): boolean {
+    return this.replier?.() ?? false;
   }
 
   /** The keyboard goes to the composer after the next commit (the detail's effect). */

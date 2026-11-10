@@ -240,6 +240,8 @@ export type CloudMachine = {
   readonly hourly_rate_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
   readonly running_since?: number | null
   readonly desktop?: boolean
+  readonly paused_by?: "spend_cap"
+  readonly spend_cap_pause_at?: number
   readonly revision: Revision
 }
 
@@ -266,7 +268,17 @@ export type CloudPlan = {
     readonly active: number
     readonly saved: number
     readonly vm_hours_used: number | "Infinity" | "-Infinity" | "NaN" | null
+    readonly vm_hours_used_by_you?: number | "Infinity" | "-Infinity" | "NaN" | null
     readonly period_end: number
+  }
+  readonly spend_cap?: {
+    readonly state: "under" | "near" | "at_cap" | null
+    readonly spent_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    readonly period_end: number | null
+    readonly checked_at: number | null
+    readonly pause_at: number | null
+    readonly paused_at: number | null
   }
 }
 
@@ -934,7 +946,7 @@ export type ManagedDevice = {
 
 export type MessageId = string
 
-export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
+export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd" | "cloud.machine_usd"
 
 export type MovedAutomation = {
   readonly id: AutomationId

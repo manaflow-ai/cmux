@@ -93,15 +93,17 @@ export async function readHostFile(client: Pick<PageClient, "call">, file: HostF
   return new File(chunks, file.name, file.mimeType ? { type: file.mimeType } : {});
 }
 
+/** `composer`: the composer that shows at call time; it is asked again once the files are read, so
+ * they go to the one that shows then (the person may have moved on meanwhile). */
 export async function attach(
   client: Pick<PageClient, "call">,
-  composer: ComposerTarget | undefined,
+  composer: () => ComposerTarget | undefined,
   params: unknown,
 ): Promise<{ attached: boolean; reason?: string }> {
   const raw = record(params);
   const files = hostFiles(raw.files);
   if (!files) return { attached: false, reason: "noFiles" };
-  if (!composer?.takesFiles) return { attached: false, reason: "noComposer" };
+  if (!composer()?.takesFiles) return { attached: false, reason: "noComposer" };
   const group = typeof raw.group === "string" && GROUP.test(raw.group) ? raw.group : undefined;
   let read: File[];
   try {
@@ -109,7 +111,9 @@ export async function attach(
   } catch {
     return { attached: false, reason: "unreadable" };
   }
-  composer.addFiles(read, group);
+  const target = composer();
+  if (!target?.takesFiles) return { attached: false, reason: "noComposer" };
+  target.addFiles(read, group);
   return { attached: true };
 }
 
@@ -131,11 +135,13 @@ export function selectedMessageText(doc: Document): string | undefined {
   return text;
 }
 
-/** The keys that keep their arrows: a field, a list or menu that moves with them, the first run's rows. */
+/** The keys that keep their arrows: a field, a list or menu that moves with them, the first run's rows,
+ *  the Set Up cmux card (a focused button on it keeps Space and the arrows, as the native Home's
+ *  HomePrimaryInputHistoryTests `theSetupCardKeepsItsKeys`). */
 const KEEPS_ARROWS =
   'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="listbox"], [role="menu"], ' +
   '[role="menubar"], [role="grid"], [role="tree"], [role="tablist"], [role="radiogroup"], [role="slider"], ' +
-  '[role="dialog"], .hm-first-run';
+  '[role="dialog"], .hm-first-run, .hm-setup';
 
 /** A plain Up or Down from anywhere in the page that does not keep its arrows (Lawrence 2026-10-19:
  *  "Up arrow ... handle unfocus as well"; HomeHostView+PrimaryInputHistory.swift): the composer

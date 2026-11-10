@@ -1,59 +1,38 @@
 import { describe, expect, it } from "bun:test";
-import { parseChiefTurn } from "../../detail/detailHost";
-import { parseNeedsYou } from "./NeedsYouSection";
+import type { PageClient } from "../../../shared/pageClient";
+import { ACTION_RUN, FeedOps } from "../../../feed/types";
+import { NEEDS_YOU_ACTION, needsYouFeedClient, parseNeedsYouRoute } from "./FeedNeedsYou";
 
 describe("needs you wire", () => {
-  it("reads the host's rows and answers", () => {
-    const state = parseNeedsYou({
-      title: "Needs you",
-      more: "2 more",
-      look: "bar",
-      rows: [
-        {
-          id: "r1",
-          headline: "Allow push?",
-          who: "a12",
-          urgent: true,
-          answers: [
-            { id: "decline", title: "Decline", role: "plain" },
-            { id: "primary", title: "Confirm", role: "destructive", enabled: false },
-            { id: "bad" },
-          ],
-        },
-        { id: "", headline: "no id" },
-      ],
-    });
-    expect(state).toEqual({
-      title: "Needs you",
-      more: "2 more",
-      look: "bar",
-      rows: [
-        {
-          id: "r1",
-          headline: "Allow push?",
-          who: "a12",
-          urgent: true,
-          answers: [
-            { id: "decline", title: "Decline", role: "plain", enabled: true },
-            { id: "primary", title: "Confirm", role: "destructive", enabled: false },
-          ],
-        },
-      ],
-    });
+  it("reads the Feed route the host names, else nothing shows", () => {
+    expect(parseNeedsYouRoute({ route: "#/needs-you" })).toBe("#/needs-you");
+    expect(parseNeedsYouRoute({ route: "#/needs-you?style=bar" })).toBe("#/needs-you?style=bar");
+    expect(parseNeedsYouRoute(null)).toBeUndefined();
+    expect(parseNeedsYouRoute({})).toBeUndefined();
+    expect(parseNeedsYouRoute({ route: "#/inbox" })).toBeUndefined(); // only the Needs you view
+    expect(parseNeedsYouRoute([{ route: "#/needs-you" }])).toBeUndefined();
   });
 
-  it("shows nothing for no rows, null or an unknown shape", () => {
-    expect(parseNeedsYou(null)).toBeUndefined();
-    expect(parseNeedsYou({ title: "Needs you", rows: [] })).toBeUndefined();
-    expect(parseNeedsYou({ rows: [{ id: "r", headline: "h" }] })).toBeUndefined();
-    expect(parseNeedsYou({ title: "T", rows: [{ id: "r", headline: "h" }], look: "odd" })?.look).toBe("rows");
-  });
-
-  it("reads the Chief's turn", () => {
-    expect(parseChiefTurn({ conversation: "c1", continueAvailable: true })).toEqual({
-      conversation: "c1",
-      continueAvailable: true,
-    });
-    expect(parseChiefTurn(null)).toEqual({ continueAvailable: false });
+  it("sends the Feed page's actions as the host's needsYou.action and its feed ops as they are", async () => {
+    const calls: string[] = [];
+    const streams: string[] = [];
+    const host: PageClient = {
+      call: async <R>(op: string) => {
+        calls.push(op);
+        return {} as R;
+      },
+      subscribe: async (stream) => {
+        streams.push(stream);
+        return () => {};
+      },
+      handle: () => () => {},
+    };
+    const client = needsYouFeedClient(host);
+    await client.call(ACTION_RUN, { action: "feed.openItem", args: {} });
+    await client.call(FeedOps.viewRead, { layout: "needs_you" });
+    await client.call(FeedOps.intent, {});
+    await client.subscribe(FeedOps.viewChanged, () => {});
+    expect(calls).toEqual([NEEDS_YOU_ACTION, FeedOps.viewRead, FeedOps.intent]);
+    expect(streams).toEqual([FeedOps.viewChanged]);
   });
 });

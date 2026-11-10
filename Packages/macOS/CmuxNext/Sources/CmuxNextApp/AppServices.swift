@@ -22,7 +22,6 @@ import CmuxNextDaemonService
 import CmuxNextMacScreen
 import CmuxNextDaemonRecovery
 public import CmuxNextDictation
-import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextFavicons
 import CmuxNextHibernation
@@ -123,21 +122,19 @@ final class AppServices {
     private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
                                                                   deadline: DemandTimer(owner: "workspace-hibernation"), memoryPressure: memoryPressure, terminals: LocalTerminalFreeing(DaemonParkableTerminals(store: machines.local.store, connection: { [machines] in machines.local.connection })))
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild, mainWork: mainWork, work: work, loginKeychain: loginKeychain, authCaptureFixture: environment.authCaptureFixture, configuration: environment.cloudConfiguration)  // first read in init (no IUO)
-    /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
+    /// The feed: the daemon's feed client (`feed.*`) and the app's presence, GitHub setting and API calls.
     private(set) lazy var feed: FeedService = FeedService(
-        auth: cloud.auth,
-        showcase: environment.showcase,
-        acpmuxEnvironment: QuitAgents.environment(self), approvalHolds: cloud.approvalHolds,
+        auth: cloud.auth, local: daemon, approvalHolds: cloud.approvalHolds,
         appActive: { [weak self] in self?.appActiveSource() ?? false }
     )  // first read in init (no IUO)
     var showcase = ShowcaseState()
-    /// The wide Inbox page, backed by `feed.model`.
+    /// The wide Inbox page (the Feed page on `#/inbox`).
     private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID, mainWork: mainWork)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
-    private(set) lazy var addMachine = AddMachineCard(services: .app(self))
+    private(set) lazy var addMachine = AddMachineCard(services: .app(self), panel: { [weak self] in self?.serverMenuBar.cardPanel() })
     /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
@@ -200,7 +197,7 @@ final class AppServices {
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { cloud.codexBroker.localSignIn = CloudStartChat.codexLocalSignIn(self); onboarding.followImportSetting(settings); madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { cloud.codexBroker.consent = CloudStartChat.codexConsent(self); onboarding.followImportSetting(settings); madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
@@ -245,8 +242,6 @@ final class AppServices {
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
-    /// Find Work's GitHub reads, with the user's `gh` login (``FindWorkPalettePage``); tests replace it.
-    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The terminals and agent chats focused last: what new ones copy (``WorkContextTrail``).
@@ -293,7 +288,7 @@ final class AppServices {
     /// The live preview card of computer use in agent chats (`computerUse.livePreview`); its live
     /// view runs only while the person can see the chat's page.
     private(set) lazy var computerUsePreview = ComputerUseLivePreview(
-        host: self, sight: ComputerUsePreviewViewSight { [weak self] in self?.agentTabs.views[$0] })
+        host: self, sight: ComputerUsePreviewViewSight { [weak self] in self?.agentTabs.views[AgentTabKey(relaunchStorageKey: $0)] })
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
     private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
@@ -395,6 +390,8 @@ final class AppServices {
     private(set) lazy var pageHostPool = PageHostPool(memoryPressure: memoryPressure)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
+    /// The sidebar's workspace group editor: one warm page in a glass panel (GroupEditorService).
+    private(set) lazy var groupEditor = GroupEditorService(overlayProcess: overlayProcess)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // first read in init (no IUO)
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
@@ -434,6 +431,11 @@ final class AppServices {
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
     /// Each Chief's own uploaded avatar, kept on this Mac only (Application Support/<bundle id>/AvatarUploads).
     let chiefAvatarUploads = ChiefAvatarUploads(folder: ChiefAvatarUploads.defaultFolder)
+    let chiefSidebarPictures = ChiefSidebarPictures()  // the sidebar Chief item's picture, one per upload
+    /// The chat the Chief pet (the floating mini) stands for: the Chief, or one Show in Mini picked.
+    private(set) lazy var chiefPetMini = ChiefPetMini(uploads: chiefAvatarUploads, localHost: { [weak self] in self?.agentTabs.localHost },
+                                                      settings: { [weak self] in self?.settings }, pet: { [weak self] in self?.notifications.chiefPet },
+                                                      acpmux: QuitAgents.environment(self))
 
     /// The picture Chief `chief` (a participant id; nil: the default Chief) wears where it has no avatar
     /// of its own: its worn upload's first frame, else the character it picked, else nil (its monogram).
@@ -456,7 +458,7 @@ final class AppServices {
     private(set) lazy var background = BackgroundActivation(registry: registry, icon: MenuBarIcon().image(), mayEnter: { [weak self] in
         guard let self else { return false }
         return AppProcessRoot.shared.services === self && self.windows.controllers.isEmpty && !self.quit.isQuitting
-            && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback
+            && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsDefault
     }, menuBarItemShown: { [weak self] in self?.menuBarExtra.isShown ?? false })
     /// The cmux menu bar item (`app.showMenuBarIcon`): account, agents, help, community, updates, logs, Quit.
     private(set) lazy var menuBarExtra = MenuBarExtra(registry: registry, icon: MenuBarIcon().image(), host: self)
@@ -542,6 +544,9 @@ final class AppServices {
     /// The one owner of hover cards in the app: at most one card, ever
     /// (plans/cmux-next/hovercards.md).
     let hoverCards = HoverCardCoordinator()
+    let overlayProcess = PageOverlayProcess() // the overlay pages' one web content process, handed to each page's owner
+    let dialogs: OverlayDialogDrawing // the shared center's dialogs draw on the overlay page
+    let toasts: CmuxToastWebHost // the shared center's toasts draw on the overlay page
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -581,6 +586,7 @@ final class AppServices {
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil,
          agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
+        (dialogs, toasts) = (OverlayDialogDrawing(drawing: .shared, overlayProcess: overlayProcess), CmuxToastWebHost(drawing: .shared, overlayProcess: overlayProcess))
         self.work = work
         bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))
@@ -592,7 +598,7 @@ final class AppServices {
         // never sees the Browser tip (AgentPaneFeatureTipRecords.settleInstall).
         AgentPaneFeatureTipRecords().settleInstall(launchedBefore: WhatsNewSeenStore(defaults: .standard).hasRecord)
         updater = UpdaterService(work: work)
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), warmingOn: mainWork)
+        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), warmingOn: mainWork, symbolOverride: NSImage.packOverride)
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         daemon = DaemonService(echoesPlacementShift: true, mainWork: mainWork)
@@ -629,7 +635,9 @@ final class AppServices {
         }
         _ = remoteLocalhost  // built here, as before
         cache.configureBrowser = { [weak self] tab, url, base in  // a Cloud proxied tab's store first (ProxiedBrowserTabs)
-            let base = self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true, tab: tab.id) ?? base  // cx-d0d.59
+            // cx-d0d.59; a person's new tab (a stand-in) is never a reopen (#37384).
+            let base = ProvisionalTab.isProvisional(surface: tab.surface) ? base
+                : self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true, tab: tab.id) ?? base
             // Nil (a blocked proxied tab, a remote-localhost route that cannot start) leaves the page
             // blank (TabContentCache.chromiumConfiguration), never on this Mac's localhost.
             return await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) }

@@ -89,20 +89,21 @@ extension AppActions {
             }
         })
         // Reply to Selection (Cmd-Shift-R on Home, the palette): the text selected in a message of
-        // the shown Messages page becomes a quote in its composer, as the selection menu's Quote in Reply.
+        // the shown Messages page opens that message's reply with them quoted (pageCommands.ts `home.messages.replyToSelection`).
         registry.bindEffect("home.replyToSelection", effect: { _ in
             guard let handoff = HomeComposerHandoff.shown(in: services.windows.active?.window) else {
                 return .refused(RefusalStrings.homeReplyNoSelection)
             }
             // action-wait-allow: only the page knows its selected text; the quote shows in its composer when it answers
             return .waiting(.externalProcess) {
-                await handoff.quoteSelection() ? nil : ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.homeReplyNoSelection)
+                await handoff.replyToSelection() ? nil : ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.homeReplyNoSelection)
             }
         })
         // The Home page's New Message, Invite, New Chief, Archive Chief and Open Conversation.
         bindHomeConversations(services)
         bindHomeGroups(services)
         bindHomeMessaging(services)
+        services.home.chiefHomes.bind(into: registry)  // Start now on a queued agent: its pill's menu, the palette, the CLI
         // Debug > Save Last 10 Seconds (DEV and NIGHTLY) and, in DEV, Agent Messages Playground; All Themes Playground (HomeDebugActions).
         HomeDebugActions(flightRecorderOff: RefusalStrings.homeFlightRecorderOff, themeFolders: Bundle.main.resourceURL.map { [$0.appending(path: "ghostty/themes")] } ?? []).bind(into: registry)
                 registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
@@ -284,6 +285,10 @@ extension AppActions {
                     if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
                     if failure == nil, let personalGroup {
                         PersonalGroupLife(machines: services.machines).deleteIfEmpty(personalGroup, failed: { _ in controller?.sidebar.resync() })
+                    }
+                    // A person's close of a Cloud workspace keeps its machine (Leo, 2026-11-08): say so, and until when.
+                    if failure == nil, invocation.origin == .user, let machine = services.machines.session(daemon.machineID)?.machine, let shown = controller?.window ?? services.windows.active?.window {
+                        CmuxToastCenter.shared.show(CmuxToast(id: "cloud-close-keeps-machine", message: CloudStrings.closeKeepsMachine(until: machine.evictAt), duration: .seconds(8)), in: shown)
                     }
                     guard hidden else { return failure }
                     ClosingWorkspaces.shared.end(id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure), in: controller?.window)

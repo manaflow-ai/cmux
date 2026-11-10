@@ -310,6 +310,13 @@ final class HomeChiefSurface {
         loadAvatar()
         return await view.debugEditPicture(source, zoom: zoom, save: save)
     }
+
+    /// `debug.home.drive` chief_name (the native HomeHostView's, d6a68ad3): the settings open with the keyboard in
+    /// the name field, as a click does; `close` closes them, as a click outside does.
+    func debugEditName(close: Bool) -> Bool {
+        if close { self.close(); return true }
+        return toggleSettings(openOnly: true) && make().view.beginEditingName()
+    }
     #endif
 }
 

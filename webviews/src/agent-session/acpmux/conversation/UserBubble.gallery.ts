@@ -4,12 +4,13 @@
 // then cmux's Edit; under the answer Claude's Copy, Fork, Pin, Read aloud and its age. Each age shows
 // its exact date and time above it on hover (the *-time-tooltip plays). Edit shows on a Claude
 // chat's prompts after its first turn, which acpmux can fork through (cx-ncc.60). The icon buttons
-// name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first ten
-// lines, fading out, with Show more; a pasted block is a chip that opens in place (PromptText.tsx).
+// name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first twenty
+// lines, fading out, with Show more; a pasted block is the bubble's own text (PromptText.tsx).
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../model";
+import { answerPrompt } from "./nextStepAsk";
 
 const claude = (snapshot: AcpmuxSnapshot): AcpmuxSnapshot => ({
   ...snapshot,
@@ -25,6 +26,20 @@ const turns = (family: (snapshot: AcpmuxSnapshot) => AcpmuxSnapshot) =>
       user("Now cover it with a test that fakes two timeouts", 6, { seq: 4 }),
       assistant("Added `uploader.retry.test.ts`; it passes and fails without the retry.", 5),
       summary(5, { seq: 6, status: "completed" }),
+    ]),
+  );
+
+/// A turn that ended on an agent's ask, then the person's answer to it (NextStepCard.tsx). Leo,
+/// 2026-11-08, on a bare "Not now" bubble: "wait this thing should've shown that it was a reply to
+/// an ask from you". `reply` is the answer's prompt as sent.
+const ASKED = "Should I open a PR for this?";
+const answeredAsk = (reply: string): AcpmuxSnapshot =>
+  claude(
+    chat([
+      user("Fix the layout shift on the product grid", 9, { seq: 1 }),
+      assistant(`The grid reserves a 4:5 box while images load, so nothing shifts.\n\n[outward] ${ASKED}`, 8.5),
+      summary(8.5, { seq: 3, status: "completed" }),
+      user(reply, 1, { seq: 4 }),
     ]),
   );
 
@@ -203,7 +218,7 @@ export default agentPaneEntry({
       play: hoverTime("time.cv-user__time"),
     },
     "answer-time-tooltip": {
-      note: "Play: point at an answer's footer; its exact date and time shows at the row's end, after the buttons (hidden at rest, as ChatGPT's: #31609), its tooltip the turn's time and tokens.",
+      note: "Play: point at an answer's footer; its age (15 hours ago) shows at the row's end, after the buttons (hidden at rest: #31609), as a prompt's does; its tooltip the exact date and time, the turn's time and tokens under it.",
       snapshot: yesterday(),
       play: async (ctx) => {
         const selector = "time.cv-turn-time";
@@ -213,7 +228,7 @@ export default agentPaneEntry({
           const time = ctx.document.querySelector<HTMLElement>(selector);
           return (
             time !== null &&
-            /\d:\d\d/.test(time.textContent ?? "") &&
+            (time.textContent ?? "").endsWith(" ago") &&
             ctx.document.defaultView!.getComputedStyle(time).opacity === "1"
           );
         });
@@ -235,7 +250,7 @@ export default agentPaneEntry({
       play: hoverTooltip("Copy"),
     },
     "long-collapsed": {
-      note: "A 60-line prompt opens on its first ten lines, the last ones fading out, with Show more under them.",
+      note: "A 60-line prompt opens on its first twenty lines, the last ones fading out, with Show more under them.",
       snapshot: longPrompt(),
     },
     "long-expanded": {
@@ -259,6 +274,28 @@ export default agentPaneEntry({
           summary(8.5, { seq: 3, status: "completed" }),
         ]),
       ),
+    },
+    "answered-ask": {
+      note: "Shipped. A click on an ask's Not now sends a reply to the ask: the question quoted under who asked, as Quote in Reply quotes, the answer under it. The card above folds to the answer.",
+      snapshot: answeredAsk(answerPrompt(ASKED, "Not now", "Claude Code")),
+    },
+    "answered-ask-typed": {
+      note: "Shipped. The hat's Type puts the same quote in the draft: a typed answer goes under it.",
+      snapshot: answeredAsk(
+        answerPrompt(ASKED, "Not yet, the CI fix lands first.\nThen open it as a draft.", "Claude Code"),
+      ),
+    },
+    "answered-ask-asked": {
+      note: 'Variant, not shipped: "asked" after the name. Reads well, but one word longer on every answer than the name and colon.',
+      snapshot: answeredAsk(`> Claude Code asked: ${ASKED}\n\nNot now`),
+    },
+    "answered-ask-name-line": {
+      note: "Variant, not shipped: the name on a line of its own over the question. Clearer as a header, but every answer's quote is a line taller.",
+      snapshot: answeredAsk(`> **Claude Code**\n> ${ASKED}\n\nNot now`),
+    },
+    "answered-ask-bare": {
+      note: "Variant, not shipped: the question alone. The shortest, but it does not say who asked.",
+      snapshot: answeredAsk(answerPrompt(ASKED, "Not now")),
     },
     "markdown-parity": {
       note: "Sent prompts render quotes, lists, inline code, fenced code and links with the transcript renderer. The second prompt has no quote marker.",
@@ -299,27 +336,27 @@ export default agentPaneEntry({
       ),
     },
     "pasted-chip": {
-      note: "A pasted 2,300-line stack trace is a card under the typed question: its first three lines, the last fading, over 'Pasted text', its line count and its characters.",
+      note: "A pasted 2,300-line stack trace under the typed question: its own lines as the bubble's text, folded under the prompt's Show more (the card is gallery agent-pane.sent-bubble-size, arm card).",
       snapshot: pastedPrompt(),
     },
     "pasted-chip-open": {
-      note: "Play: the card opens in place, the same text growing to the whole paste, its label under it to close it, with Show less to fold the prompt again.",
+      note: "Play: Show more opens the whole paste in place, with Show less to fold the prompt again.",
       snapshot: pastedPrompt(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-user__paste" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
+        await ctx.click({ selector: ".cv-user__more" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__more[aria-expanded='true']"));
       },
     },
     "pasted-paragraph": {
-      note: "One pasted paragraph of 1,100 words: its first three lines wrapped at the bubble's width, and its size in characters, never '1 line'.",
+      note: "One pasted paragraph of 1,100 words: its words wrapped at the bubble's width as its own text, folded under Show more.",
       snapshot: pastedParagraph(),
     },
     "pasted-paragraph-open": {
-      note: "Play: the paragraph's card opens in place to the whole paragraph.",
+      note: "Play: Show more opens the whole paragraph in place.",
       snapshot: pastedParagraph(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-user__paste" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
+        await ctx.click({ selector: ".cv-user__more" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__more[aria-expanded='true']"));
       },
     },
     editing: {

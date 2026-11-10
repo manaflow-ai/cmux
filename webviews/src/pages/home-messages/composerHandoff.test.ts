@@ -47,26 +47,44 @@ describe("composer hand-off", () => {
     const { call } = host("abc");
     const { target, added } = composer();
     const files = [{ token: "t1", name: "card.md", mimeType: "text/markdown", size: 3 }];
-    expect(await attach({ call }, target, { files, group: "card-1" })).toEqual({ attached: true });
+    expect(await attach({ call }, () => target, { files, group: "card-1" })).toEqual({ attached: true });
     expect(added).toHaveLength(1);
     expect(added[0]!.group).toBe("card-1");
     expect(await added[0]!.files[0]!.text()).toBe("abc");
   });
 
+  it("hands the files to the composer that shows once they are read (cmux#37736 round 10)", async () => {
+    const { calls } = host("abc");
+    const first = composer();
+    const second = composer();
+    let shown = first.target;
+    const read = (op: string, params: unknown) => {
+      shown = second.target; // the person opened another conversation while the bytes came
+      return calls(op, params);
+    };
+    const files = [{ token: "t1", name: "card.md", mimeType: "text/markdown", size: 3 }];
+    expect(await attach({ call: read as never }, () => shown, { files })).toEqual({ attached: true });
+    expect(first.added).toHaveLength(0);
+    expect(second.added).toHaveLength(1);
+  });
+
   it("refuses without a composer that takes files, or with an unreadable file", async () => {
     const { call } = host("abc");
     const files = [{ token: "t1", name: "x", mimeType: "", size: 3 }];
-    expect(await attach({ call }, undefined, { files })).toEqual({ attached: false, reason: "noComposer" });
-    expect(await attach({ call }, composer(false).target, { files })).toEqual({
+    expect(await attach({ call }, () => undefined, { files })).toEqual({ attached: false, reason: "noComposer" });
+    expect(await attach({ call }, () => composer(false).target, { files })).toEqual({
       attached: false,
       reason: "noComposer",
     });
     const gone = [{ token: "t2", name: "x", mimeType: "", size: 3 }];
-    expect(await attach({ call }, composer().target, { files: gone })).toEqual({
+    expect(await attach({ call }, () => composer().target, { files: gone })).toEqual({
       attached: false,
       reason: "unreadable",
     });
-    expect(await attach({ call }, composer().target, { files: [] })).toEqual({ attached: false, reason: "noFiles" });
+    expect(await attach({ call }, () => composer().target, { files: [] })).toEqual({
+      attached: false,
+      reason: "noFiles",
+    });
   });
 
   it("takes a group back", () => {

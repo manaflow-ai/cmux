@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-05",
+  "row": "app_lines",
+  "allow": 1,
+  "why": "Fork, subagent, and link-created-tab focus callbacks preserve machine-qualified tab identity.",
+  "author": "lane/agenttabs-machine-key",
+  "owner": "p0-machines-r3",
+  "receipt": "Review (codex gpt-6-astra high; follow-up fixes): SHIP at ee2d469f7e7bfae483803b4b2dc988fadf4b6187",
+  "expiry": "2026-12-05"
+}

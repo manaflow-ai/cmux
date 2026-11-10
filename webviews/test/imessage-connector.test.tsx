@@ -1,5 +1,6 @@
 // l10n-allow-file: synthetic contacts and permission replies used by connector tests.
 import { afterEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -341,4 +342,16 @@ test("native rows retain Connect without MCP and connected contacts in reader or
     "Maya",
     "Dinner",
   ]);
+});
+
+// The rows' stylesheet loads with the module the Connectors section imports: a component moved
+// away from its `imessage.css` import draws its rows unstyled (Codex review of #36824).
+test("the Connectors section's iMessage module loads imessage.css", () => {
+  const dir = new URL("../src/agent-session/acpmux/session-info/", import.meta.url);
+  const section = readFileSync(new URL("ConnectorsSection.tsx", dir), "utf8");
+  const from = /import \{[^}]*\bIMessageConnector\b[^}]*\} from "\.\/([^"]+)"/.exec(section)?.[1];
+  expect(from).toBeDefined();
+  const module = readFileSync(new URL(`${from}.tsx`, dir), "utf8");
+  expect(module).toContain('import "./imessage.css";');
+  expect(module).toContain("export const IMessageConnector");
 });

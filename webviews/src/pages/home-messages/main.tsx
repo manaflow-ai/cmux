@@ -7,12 +7,13 @@
 // The host adds only what the app knows (host.ts: the row and compose menus, the traffic lights).
 // In the gallery and dev loop (`?mock`) the Channels page's in-memory mock provider stands in.
 import "../shared/desktop";
-import { installToastRoom } from "../../agent-session/acpmux/toastRoom";
 // Before any part that reads the pane's table: the Channels rows' keys, the mic's and the chips'.
 import "./paneStrings";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { holdWebSwap } from "../shared/webSwap";
+import { settle, SETTLE_OP } from "./settle";
 import { createStrings, type Strings } from "../shared/i18n";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
@@ -23,7 +24,8 @@ import { DaemonGate, type DaemonSource, type HostCredential } from "../home-chan
 import { DaemonHomeClient } from "../home-channels/daemonHome";
 import { MessagesApp } from "./App";
 import { MessagesDetail as MessagesDetailView } from "./detail/MessagesDetail";
-import { noMessagesHost, pageDraftKeeper, pageMessagesHost } from "./host";
+import { noMessagesHost, pageAttachmentKeeper, pageDraftKeeper, pageMessagesHost } from "./host";
+import { KeptPendingCarry, pageOutboxKeeper } from "./outbox";
 import { MessagesNav } from "./nav";
 import { singleConversation } from "./single";
 import type { MessagesDetail, MessagesHost } from "./types";
@@ -67,10 +69,27 @@ export function mountMessagesPage(
   document.title = strings.t("home.title");
   const single = singleConversation(location.hash);
   // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
-  const carry = new PendingCarry();
+  // The app keeps them across launches too (outbox.ts): a relaunch shows a send it never took.
   // One per mount too: a reconnect keeps the drafts, the files, New Message and what showed.
-  const nav = new MessagesNav(client ? pageDraftKeeper(client) : undefined);
+  const nav = new MessagesNav(
+    client ? pageDraftKeeper(client) : undefined,
+    client ? pageAttachmentKeeper(client) : undefined,
+  );
+  // A sent file's kept bytes pass from its tray to the outbox once the outbox keeps the send.
+  const carry = client
+    ? new KeptPendingCarry(pageOutboxKeeper(client), (hashes) => nav.attachments.handedOver(hashes))
+    : new PendingCarry();
+  if (carry instanceof KeptPendingCarry) void carry.load();
+  // WEB-SWAP: a web update's reload waits while anything lives only in this page: a draft, a staged
+  // file or a send the app has not said it holds (nav.ts, attachmentDrafts.ts, outbox.ts). Each
+  // composer's own hold ends with it; this one is the page's whole life.
+  const heldAlone = () => nav.holdReason() ?? (carry instanceof KeptPendingCarry ? carry.holdReason() : null);
+  holdWebSwap(heldAlone);
+  // Before the app ends this document (a conversation tab or the Chief panel closing), everything
+  // held alone goes to its owner first (settle.ts).
+  client?.handle(SETTLE_OP, (params) => settle(() => nav.flushDrafts(), heldAlone, params));
   void nav.loadDrafts();
+  void nav.attachments.load();
   // The page's whole life: what was typed in the last pause is kept before the document ends.
   window.addEventListener("pagehide", () => nav.flushDrafts());
   const messages = client ? pageMessagesHost(client) : noMessagesHost;
@@ -122,6 +141,8 @@ function DaemonMessages({
     // In the app the app opens the default conversation (its preferred Chief), on the first load
     // as later; a reconnect reopens what showed.
     if (host) made.pickDefault = (conversations) => nav.restorable(conversations);
+    // Read receipts follow the transcript on screen (New Message hides it), as natively.
+    made.readsOnView = true;
     return made;
   });
   return (
@@ -150,9 +171,6 @@ function daemonEndpoint(): string | null {
   }
 }
 
-// The app's toasts keep a band at the page's foot that the transcript and composer stay above
-// (HomePageToastRoom.swift, transcript.css --cmux-toast-room).
-installToastRoom(document, ".mt-transcript > .mt-scroller, .mt-transcript > .mt-compose");
 const root = document.getElementById("root");
 if (root && document.documentElement.dataset.cmuxPage === "home-messages") {
   const query = new URLSearchParams(location.search);

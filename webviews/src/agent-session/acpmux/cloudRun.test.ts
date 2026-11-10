@@ -14,72 +14,8 @@ import {
   makeCloudSignInRetry,
   newTabProjectPick,
   oneCloudStart,
-  resumeSignedIn,
   startCloudChat,
-  type CloudStartAnswer,
 } from "./cloudRun";
-
-test("sign-in recovery preserves the prompt and resumes it once", async () => {
-  const prompt = { task: "Fix the failing Cloud build", home: true, harness: "codex", model: "gpt-6.1-sol" };
-  let resolveSignIn!: (signedIn: boolean) => void;
-  const sends: [string, Record<string, unknown>][] = [];
-  let delivered = 0;
-  const send = oneCloudStart(async (method, params) => {
-    sends.push([method, params]);
-    if (method === "cloud.startChat" && params.signedIn) return void (delivered += 1);
-    if (method !== "cloud.signIn") throw { code: "not_signed_in" };
-    const signedIn = await new Promise<boolean>((resolve) => {
-      resolveSignIn = resolve;
-    });
-    // The host starts nothing on sign-in: it keeps the click for the page's send again.
-    throw { code: signedIn ? "cloud_signed_in" : "not_signed_in" };
-  });
-  expect(await send(prompt, "first-send")).toEqual({ ok: false, code: "not_signed_in" });
-  const signingIn = () =>
-    send(prompt, "first-send", true)?.then((answer) =>
-      resumeSignedIn(
-        answer,
-        () => true,
-        () => send({ ...prompt, signedIn: true }, "first-send"),
-      ),
-    );
-  const retry = makeCloudSignInRetry(signingIn);
-  const first = retry();
-  const second = retry();
-  expect(first).toBe(second);
-  expect(delivered).toBe(0);
-  resolveSignIn(true);
-  await expect(first).resolves.toBe(true);
-  expect(delivered).toBe(1);
-  expect(sends).toEqual([
-    ["cloud.startChat", { ...prompt, key: "first-send" }],
-    ["cloud.signIn", { ...prompt, key: "first-send" }],
-    ["cloud.startChat", { ...prompt, key: "first-send", signedIn: true }],
-  ]);
-  await expect(retry()).resolves.toBe(false);
-  expect(sends).toHaveLength(3);
-});
-
-test("a page that left Cloud after the browser signed in sends nothing again", async () => {
-  // The race: the host answered signed in, and the page withdrew before reading that answer.
-  let waiting = true;
-  const sends: string[] = [];
-  const again = () => (sends.push("again"), Promise.resolve<CloudStartAnswer>({ ok: true }));
-  const signedIn = Promise.resolve<CloudStartAnswer>({ ok: false, code: "cloud_signed_in" });
-  waiting = false;
-  const answer = await signedIn.then((reply) => resumeSignedIn(reply, () => waiting, again));
-  expect(answer).toEqual({ ok: false, code: "cloud_sign_in_cancelled" });
-  expect(sends).toEqual([]);
-  // Still waiting: the start goes again once; any other answer passes through untouched.
-  await expect(resumeSignedIn({ ok: false, code: "cloud_signed_in" }, () => true, again)).resolves.toEqual({
-    ok: true,
-  });
-  await expect(resumeSignedIn({ ok: false, code: "not_signed_in" }, () => true, again)).resolves.toEqual({
-    ok: false,
-    code: "not_signed_in",
-  });
-  expect(sends).toEqual(["again"]);
-});
 
 test("sign-in recovery can be reused after its card resets", async () => {
   let starts = 0;
@@ -144,6 +80,7 @@ test("a refusal keeps its code and the host's words; only a start the host ran w
   );
   expect(failed).toEqual({ ok: false, code: "cloud_start_failed", message: "Could not copy the folder." });
   expect(cloudStartSaid(failed)).toBe(true);
+  expect(cloudStartSaid({ ok: false, code: "cloud_plan_required" })).toBe(true);
   const off = await startCloudChat(async () => Promise.reject({ code: "not_signed_in" }), { task: "t" });
   expect(cloudStartSaid(off)).toBe(false);
   const lost = await startCloudChat(async () => Promise.reject(new Error("bridge gone")), { task: "t" });
@@ -395,6 +332,17 @@ test("the cap card's Run on This Mac ends the start; a changed prompt, folder or
   expect(keys.keyFor({ ...start, cwd: "/Users/me/other" })).not.toBe(first);
   expect(keys.keyFor({ ...start, harness: "claude" })).not.toBe(first);
   expect(keys.keyFor(start)).toBe(first);
+  keys.ended(start, { ok: false, code: "run_on_this_mac" });
+  expect(keys.keyFor(start)).not.toBe(first);
+});
+
+test("a refused plan keeps the retry key until the person chooses Run Here inline", () => {
+  const keys = cloudStartKeys(memoryStore(), () => 1_000, counter());
+  const start = { task: "fix it", home: true };
+  const first = keys.keyFor(start);
+  keys.ended(start, { ok: false, code: "cloud_plan_required" });
+  expect(keys.keyFor(start)).toBe(first);
+  // The inline action must send the same explicit local-choice answer as the native cap card.
   keys.ended(start, { ok: false, code: "run_on_this_mac" });
   expect(keys.keyFor(start)).not.toBe(first);
 });

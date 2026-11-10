@@ -6,6 +6,7 @@ import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -230,7 +231,7 @@ public final class AgentChatSurface {
         if let scroller {
             scroller.scrollTranscript(toTop: false, animated: animated)
         } else if animated, !UIAccessibility.isReduceMotionEnabled {
-            withAnimation(.smooth(duration: 0.35)) { position.scrollTo(edge: .bottom) }
+            withAnimation(.smooth(duration: 0.35).unlessReduceMotion) { position.scrollTo(edge: .bottom) }
         } else {
             position.scrollTo(edge: .bottom)
         }
@@ -271,12 +272,12 @@ public final class AgentChatSurface {
             if let scroller {
                 scroller.scrollTranscript(toTop: toTop, animated: true)
             } else {
-                withAnimation(.smooth(duration: 0.9)) { position.scrollTo(edge: toTop ? .top : .bottom) }
+                withAnimation(.smooth(duration: 0.9).unlessReduceMotion) { position.scrollTo(edge: toTop ? .top : .bottom) }
             }
         case .chatPermission(let kind):
             if let permission = store.pendingPermission,
                let option = permission.request.options.first(where: { $0.kind.rawValue == kind }) {
-                withAnimation(.cmuxMobileSmooth) { store.respond(to: permission.request, option: option) }
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.respond(to: permission.request, option: option) }
             }
         case .chatOpenChanges, .chatOpenFirstFile:
             // The diff is awaited (cached, computing, or computed off the main thread), never run here.
@@ -297,7 +298,7 @@ public final class AgentChatSurface {
             artifacts.path = []
             showArtifacts = true
         case .artifactsFilter(let name):
-            if let filter = ArtifactFilter(rawValue: name) { withAnimation(.snappy) { artifacts.filter = filter } }
+            if let filter = ArtifactFilter(rawValue: name) { withAnimation(.snappy.unlessReduceMotion) { artifacts.filter = filter } }
         case .artifactsLayout(let grid):
             artifacts.grid = grid
         case .artifactsOpen(let reference):
@@ -468,9 +469,9 @@ public struct AgentChatTranscript: View {
             configureRows: { context in
                 context.openDiff = OpenDiffAction { changes, file in surface.diffRoute = AgentChatSurface.DiffRoute(changes: changes, fileID: file) }
                 context.openFile = openFile
-                context.attachmentLoader = AttachmentLoader { [weak source = store.source] attachment in
+                context.attachmentLoader = AttachmentLoader(load: { [weak source = store.source] attachment in
                     await source?.attachmentData(attachment)
-                }
+                }, files: store.source.artifactSource)
                 // A file link in an answer opens its preview, a cmux link what it names; web links open as before.
                 context.openURL = OpenURLAction { url in
                     if CmuxLinkOpener.shared.open(url) { return .handled }
@@ -609,9 +610,8 @@ struct AgentChatJumpButton: View {
                         .frame(width: metrics.glassButton, height: metrics.glassButton)
                         .overlay(alignment: .topTrailing) {
                             if store.isRunning {
-                                ProgressView()
+                                CmuxSpinner(tint: .primary)
                                     .controlSize(.mini)
-                                    .tint(.primary)
                                     .frame(width: metrics.workingIndicatorBadge, height: metrics.workingIndicatorBadge)
                                     .background(Color.cmuxMobileBackground, in: .circle)
                                     .allowsHitTesting(false)
@@ -665,7 +665,7 @@ public struct AgentChatBottomStack: View {
                     if store.canRetryPrompt {
                         HStack(spacing: 8) {
                             Button {
-                                withAnimation(.cmuxMobileSmooth) { store.clientError = nil }
+                                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
                             } label: {
                                 Label(error, systemImage: "exclamationmark.circle")
                                     .font(.footnote.weight(.semibold))
@@ -686,7 +686,7 @@ public struct AgentChatBottomStack: View {
                         .transition(.opacity.combined(with: .offset(y: 8)))
                     } else {
                         Button {
-                            withAnimation(.cmuxMobileSmooth) { store.clientError = nil }
+                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
                         } label: {
                             Label(error, systemImage: "exclamationmark.circle")
                                 .font(.footnote.weight(.semibold))
@@ -709,11 +709,22 @@ public struct AgentChatBottomStack: View {
                     QueuedPromptsView(store: store, text: $surface.text)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
-                if let permission = store.pendingPermission, !surface.permissionBarHidden {
+                if let ask = store.pendingElevation {
+                    // The sudo card (acpmux hub/elevation.rs) takes the composer's place until answered.
+                    ElevationCard(ask: ask, agentName: store.summary.agentName, sending: store.sendingElevation) { password in
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.answerElevation(ask, password: password) }
+                    }
+                    // A new card is a new view: a password typed for one command never stays for the next.
+                    .id(ask.id)
+                    .padding(16)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
+                    .padding(.horizontal, 12)
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
+                } else if let permission = store.pendingPermission, !surface.permissionBarHidden {
                     PermissionActionBar(request: permission.request, approvingOptionID: store.approvingOptionID) { option in
-                        withAnimation(.cmuxMobileSmooth) { store.respond(to: permission.request, option: option) }
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.respond(to: permission.request, option: option) }
                     } replyInstead: {
-                        withAnimation(.cmuxMobileSmooth) { surface.replyInsteadOfPermission = true }
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.replyInsteadOfPermission = true }
 
                     }
                     .padding(12)
@@ -754,7 +765,7 @@ public struct AgentChatBottomStack: View {
                         store.placeBottomStackInstantly = false
                         reportedHeight = frame.height
                     } else {
-                        withAnimation(.cmuxMobileSmooth) { reportedHeight = frame.height }
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { reportedHeight = frame.height }
                     }
                 }
             }
@@ -772,8 +783,8 @@ public struct AgentChatBottomStack: View {
         }
         .padding(.bottom, bottomPadding)
         // History (the chat opening, a reattach) brings its open ask and queue in place.
-        .animation(store.lastChangeWasReplay ? nil : .cmuxMobileSmooth, value: store.pendingPermission?.request.id)
-        .animation(store.lastChangeWasReplay ? nil : .cmuxMobileSmooth, value: store.queue)
+        .animation(store.lastChangeWasReplay ? nil : Animation.cmuxMobileSmooth.unlessReduceMotion, value: store.pendingPermission?.request.id)
+        .animation(store.lastChangeWasReplay ? nil : Animation.cmuxMobileSmooth.unlessReduceMotion, value: store.queue)
         .onChange(of: store.pendingPermission?.request.id) { _, new in
             surface.replyInsteadOfPermission = false
             // Never pull the composer out from under someone typing.
@@ -789,7 +800,7 @@ public struct AgentChatBottomStack: View {
             if surface.composerFocused != focused { surface.composerFocused = focused }
             // Leaving "Reply instead" without typing brings the permission choices back.
             if !focused, surface.permissionBarHidden, surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, surface.attachments.isEmpty {
-                withAnimation(.cmuxMobileSmooth) { surface.showPermissionChoices() }
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.showPermissionChoices() }
             }
         }
     }
@@ -868,6 +879,7 @@ struct StreamingMarkdown: View {
                      animatesBlocks: animatesBlocks, marks: findMarks)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
+                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(markdown) }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
             }
     }
@@ -894,16 +906,13 @@ struct UserBubble: View {
     var editEarlier: (() -> Void)?
     /// Bookmark and Read Aloud.
     var polish: ChatPolishMenuButtons?
-    @State private var selecting = false
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
             if !attachments.isEmpty {
                 SentAttachments(attachments: attachments)
             }
-            Text(prompt)
-                .font(.body)
-                .lineSpacing(4)
+            bubbleText
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))
@@ -911,7 +920,7 @@ struct UserBubble: View {
                 .contextMenu {
                     Section(AgentTurn.menuTimestamp(promptAt)) {
                         Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = prompt }
-                        Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
+                        Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(prompt) }
                         if isLast {
                             Button("Edit and Resend", systemImage: "pencil") { editAndResend() }
                         } else if let editEarlier {
@@ -924,38 +933,51 @@ struct UserBubble: View {
         }
         .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.8 }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .sheet(isPresented: $selecting) {
-            NavigationStack {
-                ScrollView {
-                    Text(prompt).textSelection(.enabled).padding(20).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .navigationTitle("Select text")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { selecting = false } } }
+    }
+}
+
+extension UserBubble {
+    /// The prompt, its leading quote drawn as the Mac draws one: muted, behind a bar.
+    @ViewBuilder var bubbleText: some View {
+        if let split = NextStepAsk.replyQuote(prompt) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(split.quote)
+                    .font(.body).lineSpacing(4).foregroundStyle(.secondary)
+                    .padding(.leading, 10)
+                    .overlay(alignment: .leading) { Capsule().fill(.tertiary).frame(width: 2) }
+                Text(split.body).font(.body).lineSpacing(4)
             }
-            .presentationDetents([.medium, .large])
+        } else {
+            Text(prompt).font(.body).lineSpacing(4)
         }
     }
 }
 
 /// Sent attachments above the user bubble (SPEC 4.4 "images above text as
 /// a stacked strip, radius 16"): a lone image shows large like ChatGPT and
-/// Messages; several share a row of squares; files stay chips. Trailing
-/// edges line up with the bubble (no remove-badge room).
+/// Messages; several share a row of squares; files stay chips. A video is a
+/// tile among the images: its poster (first frame), a play glyph and its length;
+/// a tap plays it full screen. Trailing edges line up with the bubble (no
+/// remove-badge room).
 struct SentAttachments: View {
     let attachments: [AgentAttachment]
     /// A tapped attachment: every attachment of the message opens full screen, to swipe between.
     @State private var preview: FilePreviewRequest?
-    /// Bytes read for recorded images (a prompt this launch did not send).
+    /// Bytes read for recorded images and video posters (a prompt this launch did not send), by picture id.
     @State private var fetched: [String: Data] = [:]
-    /// Thumbnails decoded off the main thread, by attachment id (never decoded in a body).
+    /// Thumbnails decoded off the main thread, by picture id (never decoded in a body).
     @State private var decoded: [String: UIImage] = [:]
     private let thumbnails = SentAttachmentThumbnails.shared
     @Environment(\.attachmentLoader) private var loader
 
+    /// Drawn as a picture (an image, or a video's tile), not a file chip.
+    nonisolated static func isVisual(_ attachment: AgentAttachment) -> Bool {
+        attachment.kind == .image || attachment.video != nil
+    }
+
     var body: some View {
-        let images = attachments.filter { $0.kind == .image }
-        let files = attachments.filter { $0.kind != .image }
+        let images = attachments.filter(Self.isVisual)
+        let files = attachments.filter { !Self.isVisual($0) }
         VStack(alignment: .trailing, spacing: 6) {
             if images.count == 1, let image = images.first {
                 thumbnail(image, size: SentAttachmentThumbnails.size(images: 1))
@@ -981,52 +1003,98 @@ struct SentAttachments: View {
         .filePreview($preview)
     }
 
-    /// Images first, then files: the order they show in. A recorded image's bytes come from the
-    /// session (read once here, or by the preview when it opens first).
+    /// Pictures first, then files: the order they show in. A recorded image's bytes come from the
+    /// session (read once here, or by the preview when it opens first); a video this phone does not
+    /// hold is read from the Mac over the link (`AttachmentLoader.files`: the `file-preview` service).
     private func open(_ attachment: AgentAttachment) {
-        let ordered = attachments.filter { $0.kind == .image } + attachments.filter { $0.kind != .image }
-        let files = ordered.map { item in
+        let ordered = attachments.filter(Self.isVisual) + attachments.filter { !Self.isVisual($0) }
+        var local: [LocalFile] = []
+        var artifacts: [TerminalArtifact] = []
+        for item in ordered {
+            if item.data == nil, item.fileURL == nil, item.recordedImageID == nil, let path = item.macPath {
+                artifacts.append(FilePreviewRequest.artifact(for: path))
+                continue
+            }
             var file = item.localFile
             if file.data == nil { file.data = fetched[item.id] }
-            return file
+            local.append(file)
+            artifacts.append(file.artifact)
         }
         let load = loader.load
-        preview = FilePreviewRequest(files: files, startingAt: attachment.id) { file in
+        let source = LocalFileArtifactSource(files: local, fallback: loader.files) { file in
             await load(AgentAttachment(id: file.id, kind: file.isImage ? .image : .file, name: file.name))
         }
+        preview = FilePreviewRequest(artifacts: artifacts, source: source, start: ordered.firstIndex { $0.id == attachment.id } ?? 0)
     }
 
     @ViewBuilder
     private func thumbnail(_ attachment: AgentAttachment, size: CGSize) -> some View {
         let side = SentAttachmentThumbnails.side(size)
+        // An image is its own picture; a video's is its first frame.
+        let picture = attachment.picture
         Group {
             // Decoded by this view's `.task`, or already (a tab card's picture runs no `.task`:
             // its key waits for the thumbnail, `SentAttachmentThumbnails.ready`).
-            if let image = decoded[attachment.id]
-                ?? (attachment.data ?? fetched[attachment.id]).flatMap({ thumbnails.image(attachment, data: $0, side: side) }) {
+            if let picture, let image = decoded[picture.id]
+                ?? (picture.data ?? fetched[picture.id]).flatMap({ thumbnails.image(picture, data: $0, side: side) }) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
-                Color.cmuxMobileFill.overlay { Image(systemName: "photo").font(.title3).foregroundStyle(.secondary) }
+                Color.cmuxMobileFill.overlay {
+                    Image(systemName: attachment.video == nil ? "photo" : "film").font(.title3).foregroundStyle(.secondary)
+                }
             }
         }
         .frame(width: size.width, height: size.height)
+        .overlay { if let video = attachment.video { SentVideoBadge(video: video, compact: size.width < 120) } }
         .clipShape(.rect(cornerRadius: 16, style: .continuous))
         .contentShape(.rect(cornerRadius: 16, style: .continuous))
-        // Tap opens it full screen (swipe to the message's other attachments).
+        // Tap opens it full screen (swipe to the message's other attachments); a video plays there.
         .onTapGesture { open(attachment) }
-        .task(id: attachment.id) {
-            var data = attachment.data ?? fetched[attachment.id]
-            if data == nil, let loaded = await loader.load(attachment) {
-                fetched[attachment.id] = loaded
+        .task(id: picture?.id) {
+            guard let picture else { return }
+            var data = picture.data ?? fetched[picture.id]
+            if data == nil, let loaded = await loader.load(picture) {
+                fetched[picture.id] = loaded
                 data = loaded
             }
-            guard let data, decoded[attachment.id] == nil else { return }
-            if let image = await thumbnails.decode(attachment, data: data, side: side) { decoded[attachment.id] = image }
+            guard let data, decoded[picture.id] == nil else { return }
+            if let image = await thumbnails.decode(picture, data: data, side: side) { decoded[picture.id] = image }
         }
         .accessibilityElement()
-        .accessibilityLabel(Text("Image, \(attachment.name)"))
+        .accessibilityLabel(Text(attachment.video.map { "Video, \(attachment.name), \(AgentVideo.length($0.durationMs))" }
+            ?? "Image, \(attachment.name)"))
         .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Opens full screen")
+        .accessibilityHint(attachment.video == nil ? "Opens full screen" : "Plays full screen")
+        .accessibilityIdentifier(attachment.video == nil ? "attachment.sentImage" : "attachment.sentVideo")
+    }
+}
+
+/// A sent video tile's marks over its poster: a play glyph in the middle and its length in the
+/// corner (the Mac's SentVideoTile).
+struct SentVideoBadge: View {
+    let video: AgentVideo
+    /// A square in a row of several: a smaller glyph.
+    var compact = false
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Image(systemName: "play.fill")
+                .font(compact ? .footnote : .title3)
+                .foregroundStyle(.white)
+                .frame(width: compact ? 30 : 44, height: compact ? 30 : 44)
+                .background(.black.opacity(0.45), in: .circle)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if video.durationMs > 0 {
+                Text(AgentVideo.length(video.durationMs))
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.black.opacity(0.55), in: .capsule)
+                    .padding(6)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -1070,6 +1138,9 @@ extension SentAttachments {
 /// Reads the bytes of an attachment a recorded prompt names (`AgentSessionSource.attachmentData`).
 struct AttachmentLoader: Sendable {
     let load: @MainActor @Sendable (AgentAttachment) async -> Data?
+    /// The session's files on the Mac (`AgentSessionSource.artifactSource`): a sent video this
+    /// phone does not hold opens from here.
+    var files: any ArtifactSource = UnavailableArtifactSource()
 }
 
 extension EnvironmentValues {
@@ -1131,10 +1202,10 @@ struct AnswerActionRow: View {
         HStack(spacing: 0) {
             IconAction(copied ? "checkmark" : "doc.on.doc", label: "Copy") {
                 UIPasteboard.general.string = turn.answerMarkdown
-                withAnimation(.cmuxMobileSnap) { copied = true }
+                withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = true }
                 Task {
                     try? await Task.sleep(for: .seconds(1.5))
-                    withAnimation(.cmuxMobileSnap) { copied = false }
+                    withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = false }
                 }
             }
             .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in

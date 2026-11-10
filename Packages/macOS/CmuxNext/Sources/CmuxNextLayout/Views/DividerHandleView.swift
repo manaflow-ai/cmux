@@ -5,7 +5,7 @@ import QuartzCore
 /// Draggable handle for a split divider, a column's trailing edge or the gap
 /// between two rows. The frame is the hit area; a thin line is drawn in its
 /// center for splits.
-final class DividerHandleView: NSView {
+final class DividerHandleView: NSView, KeyNeutralPressTarget {
     enum Kind: Hashable {
         case split(SplitID)
         case columnEdge(ColumnID)
@@ -102,7 +102,18 @@ final class DividerHandleView: NSView {
         CATransaction.setDisableActions(true)
         line.frame = lineFrame
         CATransaction.commit()
-        glow.place(along: lineFrame, vertical: axis == .horizontal)
+        glow.place(along: lineFrame, vertical: axis == .horizontal, thickness: bandThickness)
+    }
+
+    /// The lit band lights the line and nothing past it (RESIZE P0 5): a split's line fills the whole gap between its
+    /// panes, so a band wider than it lit half a point of each pane in every drag frame (a 1 pt seam beside a page,
+    /// whose occlusion hole is the band). As wide as the line, at most the band's core; floating panes, whose splits
+    /// draw no line (thickness 0), keep the core over their cards' padding. A column or row edge sits in a gap, not
+    /// filling it, so it keeps the full core.
+    private var bandThickness: CGFloat {
+        guard !isEdgeHandle else { return DividerGlowBand.coreThickness }
+        let line = axis == .horizontal ? lineFrame.width : lineFrame.height
+        return line > 0 ? min(line, DividerGlowBand.coreThickness) : DividerGlowBand.coreThickness
     }
 
     /// A column edge sits in a gap and draws only while hovered or dragged.

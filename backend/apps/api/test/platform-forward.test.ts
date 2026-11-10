@@ -58,6 +58,7 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
   ["cloud client-session", () => post(`/v1/cloud/machines/${VM}/client-session`, "{}")],
   ["cloud guest exec", () => post(`/v1/cloud/machines/${VM}/exec`, "{}")],
   ["cloud trajectory", () => post(`/v1/cloud/machines/${VM}/trajectories/append`, "{}")],
+  ["cloud carrier ticket", () => post(`/v1/cloud/machines/${VM}/carrier`, "{}")],
   ["inference gateway read", () => new Request(`${ORIGIN}/v1/cloud/inference-gateway`)],
   ["inference gateway set", () => new Request(`${ORIGIN}/v1/cloud/inference-gateway`, { method: "PUT", body: '{"mode":"gateway"}' })],
   ["inference gateway socket", () => new Request(`${ORIGIN}/v1/cloud/inference-gateway/connect`, { headers: { upgrade: "websocket" } })],
@@ -99,7 +100,7 @@ describe("PLATFORM_SURFACES", () => {
 
 describe("cloud surface on", () => {
   it("forwards NEXT Cloud's machine routes and CloudDO ops with the body intact", async () => {
-    for (const [name, make] of requests.slice(0, 14)) {
+    for (const [name, make] of requests.slice(0, 15)) {
       const platform = fakePlatform()
       const original = make()
       const body = await original.clone().text()
@@ -140,7 +141,7 @@ describe("cloud surface on", () => {
 
   it("stays here and logs when the PLATFORM binding is absent", async () => {
     const log = vi.spyOn(console, "error")
-    for (const [name, make] of requests.slice(0, 14)) {
+    for (const [name, make] of requests.slice(0, 15)) {
       const off = await call(make(), {})
       const on = await call(make(), { PLATFORM_SURFACES: "cloud" })
       expect(on.status, name).toBe(off.status)

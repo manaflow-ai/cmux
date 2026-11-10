@@ -1,16 +1,18 @@
 // The pane's Needs you wiring (App.tsx): the list from the snapshot, the header badge's actions,
 // and the transcript's Needs your input pill, which share one list and one way to answer.
 import { useMemo, useRef } from "react";
-import { answerFromHome } from "../HomeInbox";
+import { answerFromHome } from "../homeInboxModel";
 import { revealTurnWhenShown } from "../links";
 import type { AcpmuxSnapshot } from "../model";
 import { reply, replyParams, selection, type QuestionReply } from "../question/model";
 import { ATTENTION_OPEN_OP, useAttentionTabs } from "./attentionTabs";
 import type { AttentionTab } from "./attentionTabs";
 import { askContext } from "./context";
-import { nextAsk, needsYouPillOn, pillAsks, type TranscriptNeedsYou } from "./JumpPill";
+import { type TranscriptNeedsYou } from "./JumpPill";
+import { nextAsk, needsYouPillOn, pillAsks } from "./jumpPillModel";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
-import { needsYouMode, type NeedsYouActions, type NeedsYouMode, type NeedsYouPlace } from "./NeedsYou";
+import { findSession } from "../sessionIndex";
+import { needsYouMode, type NeedsYouActions, type NeedsYouMode, type NeedsYouPlace } from "./needsYouModel";
 
 type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
 
@@ -36,6 +38,23 @@ export function answerParams(
     method: "chat.permission",
     params: { sessionId: item.sessionId, permissionId: item.permissionId, optionId: choice.id },
   };
+}
+
+/// An answer to an ask of a chat this pane does not show: a tool permission the host answers on
+/// this click (`chat.asks.answer`, AgentPaneAskAnswer: allow once or deny once, a chat on this
+/// Mac's acpmux only), else that chat opens, where its card takes the answer ("opened"). A
+/// question, or another computer's chat, always opens. Needs you's rows and Waiting on you
+/// (queue/QueueScreen.tsx) answer through this one path.
+export async function answerAnotherChat(
+  callNative: CallNative,
+  item: NeedsYouItem,
+  choice: NeedsYouAnswer,
+  { peer, open }: { peer: boolean; open: () => unknown },
+): Promise<"answered" | "opened"> {
+  if (!answerParams(item, choice)) throw new Error("unanswerable");
+  if (!item.question && !peer) return answerFromHome(callNative, item, choice, () => void open());
+  await open();
+  return "opened";
 }
 
 export function useNeedsYou({
@@ -119,10 +138,11 @@ export function useNeedsYou({
       // Mac's acpmux only); a host that can't opens that chat, whose card answers it, and the row
       // stays. A question, or another computer's chat, opens the chat on the side.
       if (item.sessionId !== sessionId && item.kind !== "held") {
-        if (!item.question && !isPeer(item)) {
-          const outcome = await answerFromHome(callNative, item, choice, () => void openElsewhere(item));
-          if (outcome === "answered") return;
-        } else await openElsewhere(item);
+        const outcome = await answerAnotherChat(callNative, item, choice, {
+          peer: isPeer(item),
+          open: () => openElsewhere(item),
+        });
+        if (outcome === "answered") return;
         throw new Error();
       }
       return callNative(call.method, call.params);
@@ -158,7 +178,7 @@ export function useNeedsYou({
   const ours = useMemo(
     () =>
       (pillOn ? pillAsks(items, sessions, sessionId) : []).filter((item) => {
-        const target = sessions.find((session) => session.sessionId === item.sessionId);
+        const target = findSession(sessions, item.sessionId);
         if (target?.peer) return false;
         return item.sessionId === sessionId || target !== undefined;
       }),

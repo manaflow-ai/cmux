@@ -29,3 +29,8 @@ import CmuxNextTestSupport
         #expect(KeyRouter.historyArrow(Self.key(123)) == nil)
     }
 }
+
+/// A card button that takes the keyboard whatever Full Keyboard Access says (an `NSButton` does only with it on).
+private final class CardButton: NSView {
+    override var acceptsFirstResponder: Bool { true }
+}

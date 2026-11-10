@@ -500,14 +500,24 @@ macro_rules! home_rule {
   workspace named for the work; never Home's column or the dock, never move
   focus), and link the workspace or each tab you opened in your reply. Show nothing when nothing helps (a status, a stuck
   check). The setting `show.afterReport` (default true) adds the block.
+- Lifetimes: every action is Direct, Task or Workspace. Direct: a change to
+  the app (organize, group, rename, move, hide workspaces) you make yourself
+  now with the `workspace_*` and `workspace_group_*` tools, never a helper or
+  a workspace; `spawn` refuses such a task. Task: a helper with no workspace
+  (`sidebar: hidden`), a row in the composer hat until it ends. Workspace:
+  only for something to watch or touch (an agent the user steers, a
+  terminal, a browser, a running app). When the user says how they want a
+  kind of work done (\"just organize it directly\"), `remember` it: spawn
+  checks it first.
 - Sidebar groups: never make a sidebar group, and never group workspaces
   by topic, unless the user asks. A subagent's workspace (when shown) is
   named after its title: start each spawn task with a `Title: <2-5 words>`
-  line (never \"User (u…)\"). Add a `Group: Chief agents` line only to put
-  it in the user's own \"Chief agents\" group; the host ignores any other
-  group and never makes one. A short task's workspace closes when its
-  subagent finishes; a bigger one stays. Home stays on top. Never close or
-  rename the user's workspaces.
+  line (never \"User (u…)\"), and an `Expect: <minutes>m` line when it
+  should run long. Add a `Group: Chief agents` line only to put it in the
+  user's own \"Chief agents\" group. A workspace the user did not name,
+  that needs no input and runs short is tucked into a collapsed \"Chief\"
+  group and closes when its work ends; a bigger one stays. Home stays on
+  top. Never close or rename the user's workspaces unasked.
 - Processes: signal only a process you started and still track (its pid
   from your own shell job, or its `_acpmux/process` id), never one found by
   name or command line: no `pkill`, `killall`, `kill $(pgrep ...)` or
@@ -1089,6 +1099,10 @@ pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two 
 /// What zoom adds for subagents (the MCP tool; the native engine has none).
 pub const ZOOM_AGENT_DESCRIPTION: &str = " With a subagent's id (a1) as id, it gives that subagent's whole chat; a long chat comes in pages from character at, saying where to go on.";
 pub const DATE_DESCRIPTION: &str = "The date and time of message id.";
+/// The `mcp` tool (optchat-chief mcp_hub): MCP servers the Chief adds itself,
+/// used in code mode. One fixed tool, so the tool list never changes.
+pub const MCP_DESCRIPTION: &str = "MCP servers, in code mode. When the person says \"connect to X\" (a name like linear or deepwiki, an https URL, or a command like `npx -y @scope/server`), call action add with target X yourself: no config, no restart; it works in this same turn. A server that needs a sign-in answers with a page to open for the person (your auth-escalation flow) and you wake when it is connected. Use servers without loading their schemas: action search (query) finds tools across servers; describe (server, tool) gives TypeScript declarations; run (code) runs a script where `await mcp.<server>.<tool>({...})` calls a tool (structuredContent, or text parsed as JSON when it is; errors throw), so loop, filter and join results in the script and print only what you need. call (server, tool, args) is one direct call; with task: true (and note) it runs off your turn as an MCP task and you wake once with its result (tasks, task: id with op status|wait|cancel). subscribe (server, uri or event, note) wakes you when a resource changes or the server sends that notification (events, unsubscribe: id). Also list, remove, signin, resources, read, prompts, prompt (server, name, args). Subagents use servers but only you add or remove them.";
+
 pub const VERSION_DESCRIPTION: &str = "Which cmux and Chief you run, read-only: the cmux CLI and the app its socket reaches (version with the nightly build, channel, build sha, bundle id and path, pid), whether the CLI is the app's own, the update state (phase, ready on quit, last check), the bundled acpmux and helper stamps, macOS, and this Chief host's version and engine (each role's harness CLI and its version).";
 
 /// The turn's user message (spec 6): the view rendered before the new

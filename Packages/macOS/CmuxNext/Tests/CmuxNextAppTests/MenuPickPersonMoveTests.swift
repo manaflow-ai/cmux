@@ -31,7 +31,7 @@ struct MenuPickPersonMoveTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let suite = "cmux-menu-pick-test-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         services.rightSidebarDefaults = defaults // the right sidebar's state, never the test process's own defaults
         defer { defaults.removePersistentDomain(forName: suite) }
         AppActions.bind(services)

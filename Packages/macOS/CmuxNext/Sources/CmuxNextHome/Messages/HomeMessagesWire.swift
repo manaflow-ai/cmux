@@ -1,14 +1,31 @@
+import AppKit
+import CmuxNextDesign
 public import CmuxHomeCore
 public import CmuxHomeRender
-public import CmuxNextDesign
 public import CmuxNextHomeModel
 public import CmuxNextSettings
-import AppKit
+public import Foundation
 import MessagesLabHome
 
 // The Messages page's wire (`webviews/src/pages/home-messages`): the Home model values its host
 // (the App's `HomeMessagesHostProvider`) sends, in the shapes the page parses (sheets/wire.ts,
 // detail/detailHost.ts, cards/links/linkPreview.ts). Values only: no view, no service.
+
+extension HomeChatColorStore {
+    /// The `appearance` stream (detail/detailHost.ts parseAppearance): the bubble look, a Chief's
+    /// look, the default and per-chat colours (Settings > Design), and the composer's spell checking.
+    @MainActor public static func pageAppearance(_ store: HomeChatColorStore, spellChecking: Bool) -> JSONValue {
+        let design = DesignSettings.shared
+        let chats = store.chats.reduce(into: [String: JSONValue]()) { $0[$1.key] = $1.value.pageJSON }
+        return .object([
+            "look": .string("imessage"),
+            "chiefLook": .string(design.homeChiefBubblesThemed ? "theme" : "imessage"),
+            "defaults": Self.colors(fromHexes: design.homeBubbleColors).pageJSON,
+            "colors": .object(chats),
+            "spellChecking": .bool(spellChecking),
+        ])
+    }
+}
 
 extension HomeMessageRequest {
     /// As the Messages page reads it (sheets/model.ts).
@@ -32,7 +49,53 @@ extension HomeContact {
     }
 }
 
+extension HomeContact {
+    /// `contacts`' answer (sheets/wire.ts parseContactsAnswer): the people New Message offers, the
+    /// team an invite row names, and the invites still pending (the Invite sheet's list, as the
+    /// native HomeInviteSheet's `pending`: each address invited into a conversation not joined yet).
+    /// A Chief's entry carries its `look` (``HomeChiefRoster/pageLook(of:rows:harnesses:now:)``).
+    @MainActor public static func pageAnswer(_ contacts: [HomeContact], inviteTeam: String?, rows: [InboxRow],
+                                  roster: HomeChiefRoster = HomeChiefRoster(), harnesses: [String: String] = [:], now: Date = Date()) -> JSONValue {
+        let entries: [JSONValue] = contacts.map { contact in
+            guard case .object(var fields) = contact.pageJSON, let look = roster.pageLook(of: contact, rows: rows, harnesses: harnesses, now: now) else {
+                return contact.pageJSON
+            }
+            fields["look"] = look
+            return .object(fields)
+        }
+        return .object(["contacts": .array(entries), "inviteTeam": inviteTeam.map(JSONValue.string) ?? .null,
+                        "pendingInvites": .array(rows.pendingInvites.map { .string($0.contact) })])
+    }
+}
+
+extension HomeChiefRoster {
+    /// How New Message's To: list tells a Chief apart (the native HomeChiefRoster+NewMessage `look`):
+    /// `tag`, where it runs as the Home list tags it ("Main · Cloud", "This Mac", with a non-default
+    /// engine), and `activity`, "Active 2 hours ago" or "No messages yet" (shown only to tell alike
+    /// Chiefs apart). Nil for anyone else, or a Chief with no conversation listed.
+    @MainActor public func pageLook(of contact: HomeContact, rows: [InboxRow], harnesses: [String: String], now: Date) -> JSONValue? {
+        guard contact.source == .agent,
+              let row = rows.first(where: { $0.kind == .chief && $0.summary.participants.contains { $0.id == contact.id } }) else { return nil }
+        var fields: [String: JSONValue] = ["activity": .string(Self.activity(of: row, now: now))]
+        if let tag = tag(for: row.id, engine: ChiefBackend.badge(for: harnesses[contact.id.rawValue])) { fields["tag"] = .string(tag) }
+        return .object(fields)
+    }
+
+    /// "Active 2 hours ago" for a Chief's conversation, or "No messages yet" for an empty one.
+    static func activity(of row: InboxRow, now: Date) -> String {
+        guard row.summary.lastSeq > 0 else { return HomeConversationStrings.noMessagesYet }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return HomeConversationStrings.activeAgo(formatter.localizedString(for: min(row.timestamp, now), relativeTo: now))
+    }
+}
+
 extension HomeGroupInfo {
+    /// `group.info`'s answer and each event of `group.follow` (sheets/wire.ts parseGroupInfoAnswer).
+    public func pageAnswer(addable: [HomeContact]) -> JSONValue {
+        .object(["info": pageJSON, "addable": .array(addable.map(\.pageJSON))])
+    }
+
     /// As the Messages page reads it (sheets/model.ts).
     public var pageJSON: JSONValue {
         var fields: [String: JSONValue] = [
@@ -86,23 +149,6 @@ extension HomeComposeOutcome {
         }
         return .object(["outcome": value])
     }
-
-    /// The blank page's first send (what the native New Message sent first): `start` makes the DM or
-    /// group with the recipients, and `text` is posted there through `send` (the real store, with its
-    /// offline queue and Not Delivered state). Addresses only: the email-link start carries the text.
-    @MainActor
-    public static func pageStart(_ fields: [String: JSONValue], contacts: [HomeContact],
-                                 start: @MainActor (_ recipients: [HomeRecipient], _ firstMessage: [MessagePart]) async -> HomeComposeOutcome,
-                                 send: @MainActor (ConversationID, [MessagePart]) async -> Void) async -> HomeComposeOutcome {
-        let recipients = HomeRecipient.page(fields["recipients"], contacts: contacts)
-        guard !recipients.isEmpty else { return .refused("") }
-        let text = (fields["text"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts: [MessagePart] = text.isEmpty ? [] : [.text(text)]
-        let addressesOnly = recipients.allSatisfy { if case .address = $0 { true } else { false } }
-        let outcome = await start(recipients, addressesOnly ? parts : [])
-        if case .opened(let id) = outcome, !addressesOnly, !parts.isEmpty { await send(id, parts) }
-        return outcome
-    }
 }
 
 extension HomeGroupOutcome {
@@ -132,6 +178,16 @@ extension HomeGroupOutcome {
     }
 }
 
+extension HomeGroupOutcome {
+    /// The refusal of a `home.messages.present` the page did not present, as the person reads it:
+    /// Group Info of a conversation the page does not list is an unknown conversation (the native
+    /// TopHomePageView.presentGroupInfo refused it so); nil for any other answer.
+    public static func presentRefusal(sheet: String, answer: JSONValue?) -> String? {
+        guard sheet == "groupInfo", answer?.objectValue?["presented"]?.boolValue == false else { return nil }
+        return unknownConversation.message ?? ""
+    }
+}
+
 extension HomeBubbleColors {
     /// As the Messages page reads it (detail/detailHost.ts).
     public var pageJSON: JSONValue {
@@ -144,8 +200,8 @@ extension HomeBubbleColors {
 }
 
 extension HomeRequestAnswer {
-    /// The page's word for an answer (`requests.answer`): accept, decline or block.
-    public init?(pageValue text: String) {
+    /// The page's answer to a request (`requests.answer`): accept, decline or block.
+    public init?(pageText text: String) {
         switch text {
         case "accept": self = .accept
         case "decline": self = .decline
@@ -156,20 +212,15 @@ extension HomeRequestAnswer {
 }
 
 extension HomeLinkPreview {
-    /// A preview as cards/links/linkPreview.ts reads it, with at most `maxLines` lines.
+    /// As the Messages page reads it (cards/links/linkPreview.ts); at most `maxLines` lines.
     public func pageJSON(maxLines: Int) -> JSONValue {
-        let preview = self
-        var fields: [String: JSONValue] = ["kind": .string(preview.kind.rawValue), "title": .string(preview.title)]
-        if let place = preview.place { fields["place"] = .string(place) }
-        if let status = preview.status { fields["status"] = .string(status) }
-        switch preview.statusTone {
-        case .success: fields["statusTone"] = .string("success")
-        case .danger: fields["statusTone"] = .string("danger")
-        default: fields["statusTone"] = .string("secondary")
-        }
-        if !preview.lines.isEmpty { fields["lines"] = .array(preview.lines.prefix(maxLines).map(JSONValue.string)) }
-        if preview.monospaced { fields["monospaced"] = .bool(true) }
-        if let image = preview.thumbnail, let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
+        var fields: [String: JSONValue] = ["kind": .string(kind.rawValue), "title": .string(title)]
+        if let place { fields["place"] = .string(place) }
+        if let status { fields["status"] = .string(status) }
+        fields["statusTone"] = .string(statusTone == .success ? "success" : statusTone == .danger ? "danger" : "secondary")
+        if !lines.isEmpty { fields["lines"] = .array(lines.prefix(maxLines).map(JSONValue.string)) }
+        if monospaced { fields["monospaced"] = .bool(true) }
+        if let thumbnail, let png = NSBitmapImageRep(cgImage: thumbnail).representation(using: .png, properties: [:]) {
             fields["thumbnail"] = .string("data:image/png;base64," + png.base64EncodedString())
         }
         return .object(fields)
@@ -200,18 +251,6 @@ extension [ConversationID: Seq] {
     /// `{hidden: {id: seq}}`: the conversations deleted from the list, each listed again by a message after its seq.
     public var pageHidden: JSONValue {
         .object(["hidden": .object(reduce(into: [String: JSONValue]()) { $0[$1.key.rawValue] = .number(Double($1.value)) })])
-    }
-}
-
-extension HomeChatColorStore {
-    /// The `appearance` stream: the bubble look, the default colours and each chat's own.
-    public func pageAppearance(_ design: DesignSettings) -> JSONValue {
-        .object([
-            "look": .string("imessage"),
-            "chiefLook": .string(design.homeChiefBubblesThemed ? "theme" : "imessage"),
-            "defaults": Self.colors(fromHexes: design.homeBubbleColors).pageJSON,
-            "colors": .object(chats.reduce(into: [String: JSONValue]()) { $0[$1.key] = $1.value.pageJSON }),
-        ])
     }
 }
 

@@ -221,12 +221,14 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
             });
             console.log(`transcript-cohesion ${variant} ${label}: ${JSON.stringify(measured)}`);
             if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
-              expect(measured.headerHeight).toBeCloseTo(22, 1);
-              // Worked for keeps a grid gap (8) under its line, open or closed (Codex parity;
-              // conversation.css `.cv-worked.has-divider.is-toggle`, model.ts WORKED_GAP_PT).
+              // Worked for's rule sits between its words and the next row, open or closed:
+              // 4 under its 22px line, 8 over the next row, and no stack gap after it (Codex parity,
+              // Lucas, 2026-11-07; conversation.css `.cv-worked.has-divider.is-toggle`, model.ts
+              // WORKED_GAP_PT, transcriptGrid.ts MARK_WORKED).
+              expect(measured.headerHeight).toBeCloseTo(22 + 4, 1);
               if (variant === "codex-closed") {
-                expect(measured.replyGap).toBeCloseTo(16 + 8, 1);
-                expect(Math.abs(measured.replyCenterGap - (38.375 + 8))).toBeLessThan(1);
+                expect(measured.replyGap).toBeCloseTo(8, 1);
+                expect(Math.abs(measured.replyCenterGap - 34.375)).toBeLessThan(1);
               } else expect(measured.nextGap).toBeCloseTo(8, 1);
             }
           }

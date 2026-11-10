@@ -178,6 +178,8 @@ pub enum Input {
         policy: Option<String>,
         /// The harness its session runs on.
         harness: Option<String>,
+        /// Its lifetime (action_lifetime.rs), decided as it starts.
+        made: Option<crate::action_lifetime::Made>,
     },
     /// A subagent's first prompt (view and task) is sent: its inbox follows.
     SubagentPrompted {
@@ -485,6 +487,13 @@ pub enum Input {
     /// chief.stop {name}: stops ONE subagent at work (or queued), the turn
     /// and the other subagents going on; answers `{"stopped": bool, ...}`.
     StopSubagent {
+        name: String,
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {start: name} (Start now on a queued agent in Home):
+    /// that queued subagent starts at once, past the live cap; answers
+    /// `{"started": bool, ...}`.
+    StartSubagent {
         name: String,
         reply: Sender<serde_json::Value>,
     },
@@ -1622,7 +1631,8 @@ impl Brain {
                 session_id,
                 policy,
                 harness,
-            } => self.sub_started(&id, session_id, policy, harness),
+                made,
+            } => self.sub_started(&id, session_id, policy, harness, made),
             Input::SubagentPrompted { id } => {
                 self.sub_prompted(&id);
                 self.stop_if_cancelled(&id);
@@ -1832,6 +1842,9 @@ impl Brain {
             }
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
+            }
+            Input::StartSubagent { name, reply } => {
+                let _ = reply.send(self.start_subagent_now(&name));
             }
             Input::StopAll { reply } => {
                 let _ = reply.send(self.stop_all());

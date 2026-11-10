@@ -7,6 +7,9 @@
 //   group.info    {conversation}  -> {info: GroupInfo, addable: HomeContact[]}
 //   contacts      {}              -> {contacts: HomeContact[], inviteTeam: string | null,
 //                                     pendingInvites?: string[]}
+// Streams (sent on subscribe and after each change, HomeMessagesFollow.swift):
+//   group.follow    {conversation}  -> group.info's answer, or {gone: true} once it is gone (the last)
+//   requests.follow {}              -> requests.list's answer (subscribing reads them again)
 import type { ChiefReplyPolicy, GroupInfo, GroupMember, MemberRole, MessageRequest } from "./model";
 import { CHIEF_REPLY_POLICIES } from "./model";
 import type { ContactSource, HomeContact } from "./recipients";
@@ -15,7 +18,13 @@ export const MessagesDataOps = {
   requests: "cmux.home.messages.requests.list",
   groupInfo: "cmux.home.messages.group.info",
   contacts: "cmux.home.messages.contacts",
+  groupFollow: "cmux.home.messages.group.follow",
+  requestsFollow: "cmux.home.messages.requests.follow",
 } as const;
+
+/** A follow stream's last event: what it followed is gone. */
+export const isGone = (event: unknown): boolean =>
+  !!event && typeof event === "object" && (event as { gone?: unknown }).gone === true;
 
 type Json = Record<string, unknown>;
 
@@ -54,7 +63,15 @@ export function parseContact(value: unknown): HomeContact | undefined {
   const id = text(raw?.id);
   const source = text(raw?.source) as ContactSource | undefined;
   if (!raw || !id || !source || !SOURCES.has(source)) return undefined;
-  return { id, name: text(raw.name) ?? "", source };
+  const look = record(raw.look);
+  const tag = text(look?.tag);
+  const activity = text(look?.activity);
+  return {
+    id,
+    name: text(raw.name) ?? "",
+    source,
+    ...(tag || activity ? { look: { ...(tag ? { tag } : {}), ...(activity ? { activity } : {}) } } : {}),
+  };
 }
 
 export const parseContacts = (value: unknown): HomeContact[] =>

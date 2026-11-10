@@ -1,5 +1,5 @@
 public import CmuxNextDaemon
-import Foundation
+public import Foundation
 
 /// User-facing Cloud text. Keys live in Resources/Cloud.xcstrings (en, ja).
 public enum CloudStrings {
@@ -14,6 +14,8 @@ public enum CloudStrings {
     nonisolated public static func defaultMachineName(numbered number: Int) -> String {
         String(format: String(localized: "cloud.machine.defaultNameNumbered", defaultValue: "Cloud Machine %lld", table: "Cloud", bundle: .module), number)
     }
+    /// A Cloud start's refusal as its card says it: the stable code for bridge callers, but actionable copy for a signed-out first send.
+    nonisolated public static func startRefusal(_ code: String) -> String { code == "not_signed_in" ? signInFirst : code }
     nonisolated public static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`.", table: "Cloud", bundle: .module) }
     /// The Cloud toggle (#26062) is on, but this New Workspace opened on this Mac; `reason` says why.
     public static func newWorkspaceOpenedHere(_ reason: String) -> String {
@@ -47,6 +49,16 @@ public enum CloudStrings {
     /// The app could not start or reach this Mac's connection helper.
     public static var linkHelperNotRunning: String { String(localized: "cloud.link.helperNotRunning", defaultValue: "The Cloud connection helper is not running on this Mac. Click Connect to start it.", table: "Cloud", bundle: .module) }
     public static var linkRevoked: String { String(localized: "cloud.link.revoked", defaultValue: "Access to this Cloud machine was revoked. Click Connect to connect again.", table: "Cloud", bundle: .module) }
+    /// The toast after a person closes a workspace on a Cloud machine. Closing one workspace leaves
+    /// the machine in whatever state it is in (others may still run on it), so the copy names no
+    /// state; it adds the day the server deletes it if it stays paused (cmux-platform `evict_at`).
+    public static func closeKeepsMachine(until date: Date?) -> String {
+        guard let date else {
+            return String(localized: "cloud.workspace.closeKeepsMachine", defaultValue: "The Cloud machine is kept. It pauses when idle, and you can resume it from the sidebar.", table: "Cloud", bundle: .module)
+        }
+        return String(format: String(localized: "cloud.workspace.closeKeepsMachineUntil", defaultValue: "The Cloud machine is kept. It pauses when idle, and you can resume it from the sidebar. If it stays paused, it is deleted on %@.", table: "Cloud", bundle: .module),
+                      date.formatted(date: .abbreviated, time: .omitted))
+    }
     /// Close Workspace on the last row of a window for a machine that is not connected (a paused Cloud VM): nothing closes until it connects.
     public static func closeNotConnected(_ machine: String) -> String { String(format: String(localized: "cloud.workspace.closeNotConnected", defaultValue: "%@ is not connected. Resume or reconnect it to close its workspace.", table: "Cloud", bundle: .module), machine) }
     public static func linkFailed(_ detail: String) -> String {
@@ -60,6 +72,14 @@ public enum CloudStrings {
     /// Team Picker's `team` names no team of this account.
     public static func noSuchTeam(_ team: String) -> String {
         String(format: String(localized: "cloud.failed.noSuchTeam", defaultValue: "No team named “%@” in this account.", table: "Cloud", bundle: .module), team)
+    }
+    /// A team list's second line for the person's own team, when no email is known.
+    public static var teamKindPersonal: String { String(localized: "cloud.team.kind.personal", defaultValue: "Personal", table: "Cloud", bundle: .module) }
+    /// A team list's second line for a team shared with other people.
+    public static var teamKindTeam: String { String(localized: "cloud.team.kind.team", defaultValue: "Team", table: "Cloud", bundle: .module) }
+    /// A team's plan on a team list's second line ("Pro plan"); `plan` is the plan's name.
+    public static func teamPlan(_ plan: String) -> String {
+        String(format: String(localized: "cloud.team.plan", defaultValue: "%@ plan", table: "Cloud", bundle: .module), plan)
     }
     public static var noTeams: String { String(localized: "cloud.failed.noTeams", defaultValue: "This account has no teams.", table: "Cloud", bundle: .module) }
     public static var invalidPort: String { String(localized: "cloud.failed.invalidPort", defaultValue: "Port must be between 1 and 65535.", table: "Cloud", bundle: .module) }
@@ -138,13 +158,12 @@ public enum CloudStrings {
     public static var filePathRequired: String { String(localized: "cloud.failed.filePathRequired", defaultValue: "Pass an absolute Cloud file path without '..'.", table: "Cloud", bundle: .module) }
     public static var fileContentsRequired: String { String(localized: "cloud.failed.fileContentsRequired", defaultValue: "Pass the file's contents with --contents \"<text>\".", table: "Cloud", bundle: .module) }
     public static var publicKeyRequired: String { String(localized: "cloud.failed.publicKeyRequired", defaultValue: "Pass an Ed25519 SSH public key with --public-key \"$(cat ~/.ssh/id_ed25519.pub)\".", table: "Cloud", bundle: .module) }
-    /// Rotate Cloud Tunnel Key without a key: a WireGuard key, not an SSH one.
-    public static var tunnelKeyRequired: String { String(localized: "cloud.failed.tunnelKeyRequired", defaultValue: "Pass this Mac's new WireGuard public key for the tunnel with --public-key <key>.", table: "Cloud", bundle: .module) }
+    /// A Cloud tunnel attach, detach or key rotation this Mac's agent daemon did not take.
+    public static var tunnelDaemonUnavailable: String { String(localized: "cloud.failed.tunnelDaemonUnavailable", defaultValue: "This Mac's agent daemon did not take the Cloud tunnel change. Open an agent chat to start it, then try again.", table: "Cloud", bundle: .module) }
     public static var filesTitle: String { String(localized: "cloud.result.filesTitle", defaultValue: "Cloud Files", table: "Cloud", bundle: .module) }
     public static var fileContentsTitle: String { String(localized: "cloud.result.fileContentsTitle", defaultValue: "Cloud File Contents", table: "Cloud", bundle: .module) }
     public static var fileStatTitle: String { String(localized: "cloud.result.fileStatTitle", defaultValue: "Cloud File Details", table: "Cloud", bundle: .module) }
     public static var scpTitle: String { String(localized: "cloud.result.scpTitle", defaultValue: "Cloud File Transfer", table: "Cloud", bundle: .module) }
-    public static var firewallTitle: String { String(localized: "cloud.result.firewallTitle", defaultValue: "Cloud Firewall Rules", table: "Cloud", bundle: .module) }
     public static var networkTitle: String { String(localized: "cloud.result.networkTitle", defaultValue: "Cloud Networks", table: "Cloud", bundle: .module) }
     public static var removeFileTitle: String { String(localized: "cloud.prompt.removeFile", defaultValue: "Remove this Cloud file?", table: "Cloud", bundle: .module) }
     public static var removeFileBody: String { String(localized: "cloud.prompt.removeFileBody", defaultValue: "The selected file or directory is permanently removed.", table: "Cloud", bundle: .module) }
@@ -163,11 +182,11 @@ public enum CloudStrings {
     }
 
     public static func templateBody(_ id: String) -> String {
-        String(format: String(localized: "cloud.result.templateBody", defaultValue: "Template %@ is ready. Start a machine from it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
+        String(format: String(localized: "cloud.result.templateBody", defaultValue: "Template %@ is being saved. Once it is ready, start a machine from it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
     }
 
     public static func snapshotBody(_ id: String) -> String {
-        String(format: String(localized: "cloud.result.snapshotBody", defaultValue: "Snapshot %@ is ready. Restore it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
+        String(format: String(localized: "cloud.result.snapshotBody", defaultValue: "Snapshot %@ is being taken. Once it is ready, restore it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
     }
 }
 

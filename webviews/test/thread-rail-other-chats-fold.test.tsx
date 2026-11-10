@@ -137,7 +137,8 @@ test("a run of other chats' messages is one tick whose card reads Received N mes
     expect(rail.host.querySelector(".acpmux-minimap__rail")!.hasAttribute("data-incoming-dim")).toBe(false);
 
     await rail.focus(1);
-    expect(rail.host.querySelector(".acpmux-minimap__from")!.textContent).toBe("From lane-box-1/ux-owner");
+    // The run's one sender has a session id, so the card names it as the transcript does.
+    expect(rail.host.querySelector(".acpmux-minimap__from")!.textContent).toBe("lane-box-1/ux-owner · Other session");
     expect(rail.host.querySelector(".acpmux-minimap__prompt")!.textContent).toBe("Received 3 messages");
     expect(rail.tick(1).getAttribute("aria-label")).toContain("Received 3 messages");
     // A single message keeps its own words.

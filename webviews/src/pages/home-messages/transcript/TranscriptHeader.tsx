@@ -9,6 +9,7 @@ import { HomeIcon } from "../../home-channels/icons";
 import type { HomeParticipant } from "../../home-channels/types";
 import type { Strings } from "../../shared/i18n";
 import { initials } from "../../../ui/initials";
+import { attachHeader } from "../seeThrough";
 import { ChiefPlaceChip, type ChiefFace, type ChiefPlace } from "./ChiefPlace";
 
 /** One top-right toggle (`HomeHeaderPanelItem`): a panel beside Home that it opens and closes. */
@@ -82,7 +83,7 @@ export function TranscriptHeader({
 }: TranscriptHeaderProps) {
   const list = new Intl.ListFormat(strings.language, { type: "conjunction" });
   return (
-    <header className="mt-header">
+    <header ref={attachHeader} className="mt-header">
       <div className="mt-header-center">
         <span className="mt-header-avatar" aria-hidden>
           {face?.picture ? (

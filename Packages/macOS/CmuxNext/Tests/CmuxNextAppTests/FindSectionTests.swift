@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import CmuxNextFilesUI
@@ -85,7 +86,7 @@ struct FindSectionTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let suite = "cmux-find-section-test-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         services.rightSidebarDefaults = defaults
         services.windows.ordersWindowsIn = false
         AppActions.bind(services)

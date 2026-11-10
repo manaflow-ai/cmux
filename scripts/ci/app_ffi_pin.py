@@ -2,6 +2,7 @@
 """The app FFI pin of Packages/macOS/CmuxNext/Package.swift, read by one fail-closed canonical match.
 
     python3 scripts/ci/app_ffi_pin.py read [Package.swift]               # prints "SOURCE_SHA CHECKSUM"
+    python3 scripts/ci/app_ffi_pin.py read-pin-file app-ffi-pin.json Package.swift   # the JSON pin, same output
     python3 scripts/ci/app_ffi_pin.py rewrite SHA CHECKSUM [Package.swift]
 
 No Swift is parsed (2026-11-07: five lexer holes in a row, so the reader stopped lexing). The whole file is read as raw
@@ -24,6 +25,7 @@ all read and rewrite the pin through this file alone.
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -102,11 +104,150 @@ def rewrite(text: str, sha: str, checksum: str, repo: str = REPO) -> str:
     return out
 
 
+# The JSON pin (cmux#37645, 2026-11-07), read here before it lands so that feat-cmux-next's classifier
+# (base_red_excuse.py, which always runs from the base) can read a head in either form: app-ffi-pin.json beside
+# Package.swift, which reads it through one fixed loader block whose first line repeats the checksum (SwiftPM caches
+# the evaluated manifest by Package.swift's text). Byte for byte the rules of cmux#37645's app_ffi_pin.py read and
+# check_manifest, under names that leave the template reader above as it is; cmux#37645 replaces both.
+PIN_FILE = "Packages/macOS/CmuxNext/app-ffi-pin.json"
+ASSET = f"{TARGET}.xcframework.zip"
+
+LOADER = '''\
+struct AppFFIPin: Decodable {
+    let url: String
+    let checksum: String
+}
+
+let appFFIPin: AppFFIPin = {
+    let file = Foundation.URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("app-ffi-pin.json")
+    do {
+        return try Foundation.JSONDecoder().decode(AppFFIPin.self, from: Foundation.Data(contentsOf: file))
+    } catch {
+        fatalError("Packages/macOS/CmuxNext/app-ffi-pin.json: cannot read the CCmuxAppFFI pin (\\(file.path)): \\(error)")
+    }
+}()
+
+let appFFI: Target = .binaryTarget(
+    name: "CCmuxAppFFI",
+    url: appFFIPin.url,
+    checksum: appFFIPin.checksum
+)
+'''
+# The loader block's first line: the pinned checksum again, so the manifest text changes with every pin (above).
+CHECKSUM_LINE = "// app-ffi-pin-checksum: "
+CHECKSUM_LINE_RE = re.compile(r"^// app-ffi-pin-checksum: ([0-9a-f]{64})$", re.M)
+
+
+def loader(checksum: str) -> str:
+    """The one loader block Package.swift holds for CHECKSUM: its checksum comment line, then LOADER."""
+    return f"{CHECKSUM_LINE}{checksum}\n{LOADER}"
+
+
+IMPORT = "import Foundation"
+PIN_ABSENT = ("releases/download/", "xcframework.zip", "cmux-app-ffi-")
+PIN_ONCE = ("binaryTarget", "JSONDecoder", "app-ffi-pin.json\")", "#filePath", "app-ffi-pin-checksum")
+# A line outside the loader block that names one of these must be one of PIN_OTHER_LINES.
+PIN_WATCHED = re.compile(r"CCmuxAppFFI|appFFI|AppFFIPin|\bFoundation\b|JSONDecoder")
+PIN_OTHER_LINES = (
+    re.compile(r"^\s*//[^\n]*$"),  # a whole-line comment
+    re.compile(r"^import Foundation$"),  # the loader's import
+    re.compile(rf'^\s+"{TARGET}",?$'),  # an element of a multi-line dependencies list
+    re.compile(r"^\s+appFFI,?$"),  # the target in the package's target list
+    re.compile(r"^\s+\] \+ \[appFFI\],?$"),  # the target list's end, the target appended
+    re.compile(rf"^\s+dependencies: \[{ELEMENT}(?:, {ELEMENT})*\],?$"),  # a one-line dependencies list
+)
+
+
+def pin_url_pattern(repo: str = REPO) -> re.Pattern[str]:
+    return re.compile(r"https://github\.com/" + re.escape(repo) + rf"/releases/download/cmux-app-ffi-([0-9a-f]{{40}})/"
+                      + re.escape(ASSET))
+
+
+def render_pin_file(sha: str, checksum: str, repo: str = REPO) -> str:
+    """The pin file's one accepted text for SHA and CHECKSUM."""
+    url = f"https://github.com/{repo}/releases/download/cmux-app-ffi-{sha}/{ASSET}"
+    return json.dumps({"url": url, "checksum": checksum}) + "\n"
+
+
+def read_pin_file(text: str, repo: str = REPO) -> tuple[str, str]:
+    """(source sha, checksum) of TEXT, app-ffi-pin.json's whole text; NotCanonical unless it is render_pin_file()'s."""
+    def unique(pairs):
+        keys = [key for key, _ in pairs]
+        if len(keys) != len(set(keys)):
+            raise NotCanonical(f"{PIN_FILE} repeats a key: {keys}")
+        return dict(pairs)
+    try:
+        pin = json.loads(text, object_pairs_hook=unique)
+    except NotCanonical:
+        raise
+    except ValueError as error:
+        raise NotCanonical(f"{PIN_FILE} is not JSON: {error}") from error
+    if not isinstance(pin, dict) or list(pin) != ["url", "checksum"]:
+        raise NotCanonical(f"{PIN_FILE} must be exactly {{\"url\": ..., \"checksum\": ...}}, got "
+                           f"{list(pin) if isinstance(pin, dict) else type(pin).__name__}")
+    url, checksum = pin["url"], pin["checksum"]
+    match = pin_url_pattern(repo).fullmatch(url) if isinstance(url, str) else None
+    if not match:
+        raise NotCanonical(f"{PIN_FILE} url is not {repo}'s own cmux-app-ffi-<40 hex> release download of {ASSET}: "
+                           f"{str(url)[:160]!r}")
+    if not (isinstance(checksum, str) and re.fullmatch(r"[0-9a-f]{64}", checksum)):
+        raise NotCanonical(f"{PIN_FILE} checksum is not 64 lowercase hex: {str(checksum)[:80]!r}")
+    if text != render_pin_file(match.group(1), checksum, repo):
+        raise NotCanonical(f"{PIN_FILE} is not in its one format (one line, render_pin_file() of its values, "
+                           "a trailing newline)")
+    return match.group(1), checksum
+
+
+def check_loader(text: str, checksum: str) -> None:
+    """NotCanonical unless TEXT (Package.swift's whole text) holds loader(CHECKSUM) once, CHECKSUM being the pin file's,
+    and no pin of its own (above)."""
+    for token in FORBIDDEN:
+        if token in text:
+            line = text[:text.index(token)].count("\n") + 1
+            raise NotCanonical(f"Package.swift line {line} has {token!r}, which no canonical manifest has")
+    for token in PIN_ABSENT:
+        if token in text:
+            line = text[:text.index(token)].count("\n") + 1
+            raise NotCanonical(f"Package.swift line {line} has {token!r}: the pin lives in {PIN_FILE} only")
+    found = CHECKSUM_LINE_RE.findall(text)
+    if len(found) != 1:
+        raise NotCanonical(f"Package.swift has {len(found)} {CHECKSUM_LINE.strip()!r} <64 hex> lines, not one "
+                           "(the loader block's first line)")
+    if found[0] != checksum:
+        raise NotCanonical(f"Package.swift's {CHECKSUM_LINE.strip()} {found[0]} is not {PIN_FILE}'s checksum "
+                           f"{checksum}: a re-pin rewrites both (scripts/cmux-next/repin-app-ffi.sh)")
+    block = loader(checksum)
+    if text.count(block) != 1:
+        raise NotCanonical(f"Package.swift does not hold the one fixed {PIN_FILE} loader block exactly once "
+                           f"({text.count(block)} copies; scripts/ci/app_ffi_pin.py loader())")
+    for token in PIN_ONCE:
+        if text.count(token) != 1:
+            raise NotCanonical(f"Package.swift has {text.count(token)} {token!r}, not one (the loader's)")
+    lines = text.split("\n")
+    if IMPORT not in lines:
+        raise NotCanonical(f"Package.swift has no {IMPORT!r} line for the loader")
+    start = text[:text.index(block)].count("\n")
+    end = start + block.count("\n")
+    for index, line in enumerate(lines):
+        if start <= index < end or not PIN_WATCHED.search(line):
+            continue
+        if not any(pattern.fullmatch(line) for pattern in PIN_OTHER_LINES):
+            raise NotCanonical(f"Package.swift line {index + 1} names a pin loader symbol outside the loader and its "
+                               f"fixed reference shapes: {line[:160]!r}")
+
+
 def main(argv: list[str]) -> int:
     try:
         if argv[:1] == ["read"] and len(argv) <= 2:
             path = Path(argv[1]) if len(argv) == 2 else MANIFEST
             sha, checksum, _ = read(path.read_text(encoding="utf-8"))
+            print(sha, checksum)
+            return 0
+        if argv[:1] == ["read-pin-file"] and len(argv) == 3:
+            # The JSON pin (below): the pin file's values, once Package.swift holds only their loader block.
+            sha, checksum = read_pin_file(Path(argv[1]).read_text(encoding="utf-8"))
+            check_loader(Path(argv[2]).read_text(encoding="utf-8"), checksum)
             print(sha, checksum)
             return 0
         if argv[:1] == ["rewrite"] and len(argv) in (3, 4):

@@ -1,9 +1,9 @@
 public import Foundation
 
 /// Effective chat discovery preferences, with user and administrator roots kept distinct, and the
-/// effective `agents.defaultPermissionMode` and `sessions.allowFullAccess`: the daemon reads only the
-/// settings file, so a value MDM or the team policy forces reaches it only here
-/// (`cmux-tui/crates/acpmux/src/hub/start_mode_state.rs`).
+/// effective `agents.defaultPermissionMode`, `sessions.allowFullAccess` and `agents.promptSuggestions`:
+/// the daemon reads only the settings file, so a value MDM or the team policy forces reaches it only
+/// here (`cmux-tui/crates/acpmux/src/hub/start_mode_state.rs`).
 public nonisolated struct ChatSettings: Sendable, Equatable {
     public let enabled: Bool
     public let discovery: Bool
@@ -21,6 +21,10 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
     /// not `true`), nil when nothing forces it. acpmux takes a forced off as an upper bound the user
     /// cannot override; a forced on adds nothing; nil changes nothing (claude-sr2, 2026-10-25).
     public let fullAccessManaged: Bool?
+    /// The `agents.promptSuggestions` MDM or the team policy forces (`false` for a forced value that is
+    /// not a boolean), nil when nothing forces it. acpmux takes a forced value over the settings file at
+    /// each Claude or Codex start (`cmux-tui/crates/acpmux/src/claude_stdio/prompt_suggestions.rs`).
+    public let promptSuggestionsManaged: Bool?
 
     // Paths and defaults: schemas/settings/source/chats.json (SettingsSchema+Chats.generated.swift).
     public static let booleanKeys = [enabledPath, discoveryPath, sessionRecapPath].map { $0.joined(separator: ".") }
@@ -44,6 +48,9 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
         let fullAccessPath = SessionSettings.allowFullAccessPath
         fullAccessManaged = managedKeys[fullAccessPath.joined(separator: ".")] == nil
             ? nil : effective.value(at: fullAccessPath)?.boolValue == true
+        let suggestionsPath = SessionSettings.claudePromptSuggestionsPath
+        promptSuggestionsManaged = managedKeys[suggestionsPath.joined(separator: ".")] == nil
+            ? nil : effective.value(at: suggestionsPath)?.boolValue ?? false
     }
 
     /// `_acpmux/chat_settings` params. The daemon persists this device-local projection.
@@ -52,7 +59,9 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
          "roots": .array(roots.map(JSONValue.string)), "managedRoots": .array(managedRoots.map(JSONValue.string)),
          "permissionMode": permissionMode.map(JSONValue.string) ?? .null, "permissionModeManaged": .bool(permissionModeManaged),
          "allowFullAccess": fullAccessManaged.map(JSONValue.bool) ?? .null, "allowFullAccessManaged": .bool(fullAccessManaged != nil),
-         "sessionRecap": .bool(sessionRecap)]
+         "sessionRecap": .bool(sessionRecap),
+         "promptSuggestions": promptSuggestionsManaged.map(JSONValue.bool) ?? .null,
+         "promptSuggestionsManaged": .bool(promptSuggestionsManaged != nil)]
     }
 
     /// Initialize followed by one request, each terminated by a newline.

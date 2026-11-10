@@ -58,10 +58,12 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 pub(super) const LIST_TIMEOUT: Duration = Duration::from_secs(3);
 /// How often `machine add --wait` reads the credentials list.
 const WAIT_EVERY: Duration = Duration::from_secs(2);
-/// A joined machine is online when its last heartbeat is younger than this.
-pub(super) const ONLINE_WITHIN_MS: u64 = 120_000;
+/// A joined machine is online when the platform's row says `online` (its last heartbeat within the
+/// mesh row TTL, by the platform's clock). A platform that predates that field gets this window
+/// instead: its 90 s rows and its heartbeat stamp, which moves at most every 30 s.
+pub(super) const LEGACY_ONLINE_WITHIN_MS: u64 = 120_000;
 /// How soon a revoke takes effect: the platform checks revocation on every heartbeat (each
-/// 30 s) and relay request. A revoke answer that carries `accessEndsWithinSeconds` replaces
+/// 10 s, a third of the hub's row TTL) and relay request. A revoke answer that carries `accessEndsWithinSeconds` replaces
 /// this.
 const REVOKE_BOUND: &str = "30 seconds";
 /// The minted line's default life when the answer's `expiresAt` is unreadable.
@@ -86,7 +88,7 @@ const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|-
 const SIGN_IN: &str = "sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN), or use Add Machine in the app";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(super) struct Auth {
+pub(crate) struct Auth {
     pub platform: Option<String>,
     pub token_file: Option<PathBuf>,
     pub token_stdin: bool,
@@ -397,7 +399,7 @@ fn parse_ttl(text: &str) -> Result<u64, UsageError> {
 /// The caller's cmux credential: stdin, then the file, then the environment.
 /// `None` when no way names one. Errors name neither the file's path nor its
 /// contents (a pasted secret could be in either).
-pub(super) fn read_credential(
+pub(crate) fn read_credential(
     auth: &Auth,
     env: &dyn Fn(&str) -> Option<String>,
     stdin: &mut dyn BufRead,
@@ -701,7 +703,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 }
 
 /// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 46] = [
+const KNOWN_CODES: [&str; 48] = [
     "lease.not_found",
     "reservation.expired",
     "reservation.terminal",
@@ -733,6 +735,7 @@ const KNOWN_CODES: [&str; 46] = [
     "vault.too_large",
     "vault.no_entry",
     "vault.invalid_hosts",
+    "vault.model_key_proxy_only",
     // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
     "cloud_environment.not_found",
     "machine.conflict",
@@ -743,6 +746,9 @@ const KNOWN_CODES: [&str; 46] = [
     "workspace_machine.not_admitted",
     "workspace_machine.machine_taken",
     "workspace_machine.machine_gone",
+    // The acting team has no Cloud plan (reserve, bind, a workspace's machine): the pane says so and
+    // offers the person's own team or the plans (CloudStartView), never a retry or a wait.
+    "cloud.plan.required",
     "bad_request",
     "unauthorized",
     "not_found",
@@ -1043,6 +1049,8 @@ pub(super) struct Joined {
     pub created_at: Value,
     pub last_heartbeat: Value,
     pub last_heartbeat_ms: Option<u64>,
+    /// The platform's `online` for the row; `None` from a platform that predates it.
+    pub online: Option<bool>,
     pub revoked: bool,
     pub join_token_id: Option<String>,
     pub mesh_peer_id: Option<String>,
@@ -1070,6 +1078,7 @@ pub(super) fn joined(entry: &Value) -> Option<Joined> {
         created_at: entry.get("createdAt").cloned().unwrap_or(Value::Null),
         last_heartbeat_ms: epoch_ms(&last_heartbeat),
         last_heartbeat,
+        online: entry.get("online").and_then(Value::as_bool),
         revoked,
         join_token_id: text("joinTokenId"),
         // The mesh daemon id: `meshIdentity` in the platform's rows, `meshPeerId` in the contract.
@@ -1085,12 +1094,20 @@ impl Joined {
     pub(super) fn state(&self, now: u64) -> &'static str {
         if self.revoked {
             "revoked"
-        } else if self.last_heartbeat_ms.is_some_and(|at| now.saturating_sub(at) < ONLINE_WITHIN_MS)
-        {
+        } else if self.is_online(now) {
             "online"
         } else {
             "offline"
         }
+    }
+
+    /// The platform's `online` when it sends one (it follows the mesh row TTL, so the platform
+    /// tunes it without a CLI release); else the heartbeat within [`LEGACY_ONLINE_WITHIN_MS`].
+    pub(super) fn is_online(&self, now: u64) -> bool {
+        self.online.unwrap_or_else(|| {
+            self.last_heartbeat_ms
+                .is_some_and(|at| now.saturating_sub(at) < LEGACY_ONLINE_WITHIN_MS)
+        })
     }
 
     /// The machine as a `machine list` row (`kind: "joined"`).
@@ -1349,7 +1366,9 @@ fn rows_signed_in(platform: Option<&str>, credential: String) -> Result<Vec<Valu
     let platform = Platform::new(origin, credential, LIST_TIMEOUT).map_err(|f| f.message)?;
     let entries = platform.credentials().map_err(|e| e.failure("the machine list").message)?;
     let now = now_ms();
-    Ok(entries.iter().filter_map(joined).map(|machine| machine.row(now)).collect())
+    let rows = entries.iter().filter_map(joined).map(|machine| machine.row(now)).collect();
+    // A machine `cmux device remove` removed leaves the list; one only revoked stays, as revoked.
+    Ok(crate::devices::removed::without(rows, &crate::devices::removed::ids()))
 }
 
 /// The cmux credential `cmux device …` signs in with: `--cloud-token-stdin`, else
