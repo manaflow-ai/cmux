@@ -63,9 +63,11 @@
 //! is `{"ok":false,"error","error_code","install_url"?}`, exit 1; bad usage
 //! exits 64.
 
+mod hop;
 mod pull;
 mod record;
 
+pub(super) use hop::{hop, land, started as hop_started};
 pub(super) use pull::bring_back;
 
 use std::path::{Path, PathBuf};
