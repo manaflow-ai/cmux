@@ -112,9 +112,10 @@ await requireBrowserLane("session-info-resize-browser.test.ts", async () => {
     const { page } = await open("wide", WIDE, false);
     // At 700px it lies over the chat (a push would leave the chat too narrow): there a short window
     // makes it a popover, the case a resize closed before.
-    for (const [width, height] of [[700, 640], [700, 400], [700, 640], [700, 360]] as const) {
+    const width = 700;
+    for (const height of [640, 400, 640, 360]) {
       await resizeTo(page, width, height);
-      expect({ width, height, open: await toggled(page) }).toEqual({ width, height, open: true });
+      expect({ height, open: await toggled(page) }).toEqual({ height, open: true });
     }
     expect(await page.locator(".acpmux-session-info[data-popover]").count()).toBe(1);
     await page.close();
