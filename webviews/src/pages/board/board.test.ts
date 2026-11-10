@@ -4,7 +4,7 @@ import { MockBoardProvider } from "./mockProvider";
 import { addToTotals, compareRows, emptyTotals, joinRows, ownerOf, saneUsd, type BoardTotals } from "./model";
 import { BoardStore } from "./store";
 import type { BoardSnapshot, TeamMachine } from "./types";
-import { OVERSCAN, ROW_HEIGHT, windowOf } from "./BoardPage";
+import { lastText, OVERSCAN, ROW_HEIGHT, windowOf } from "./BoardPage";
 
 const machine = (id: string, extra: Partial<TeamMachine> = {}): TeamMachine => ({
   id,
@@ -465,6 +465,21 @@ describe("store", () => {
       frame();
       expect(store.getRow("a")).toMatchObject({ stopping: false, row: { state: "paused" } });
     }
+  });
+
+  test('a last action with no one named reads as the action alone, never a dangling "by"', () => {
+    const strings = {
+      t: (key: string) => (key === "board.action.snapshot" ? "Snapshot taken" : key),
+      format: (key: string, ...args: string[]) =>
+        key === "board.last" ? `${args[0]} by ${args[1]}` : `${args[0]} (agent)`,
+    };
+    const last = (actor: string, actorKind: "person" | "agent") => ({
+      last: { action: "snapshot", actor, actorKind, at: 1, result: "ok" },
+    });
+    expect(lastText(last("", "person"), strings)).toBe("Snapshot taken");
+    expect(lastText(last("  ", "agent"), strings)).toBe("Snapshot taken");
+    expect(lastText(last("ada", "person"), strings)).toBe("Snapshot taken by ada");
+    expect(lastText(last("claude", "agent"), strings)).toBe("Snapshot taken by claude (agent)");
   });
 
   test("with a filter on, a cost tick neither re-sorts nor refilters; a change of filter result does", async () => {

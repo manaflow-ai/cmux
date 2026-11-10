@@ -346,9 +346,12 @@ export function doingText(row: BoardRow, strings: Strings): string {
   return strings.t(`board.state.${row.state}`);
 }
 
-function lastText(row: BoardRow, strings: Strings): string {
+/** The row's last action and who did it; the action alone when the audit names no one. */
+export function lastText(row: Pick<BoardRow, "last">, strings: Pick<Strings, "t" | "format">): string {
   if (!row.last) return "";
   const action = KNOWN_ACTIONS.has(row.last.action) ? strings.t(`board.action.${row.last.action}`) : row.last.action;
-  const actor = row.last.actorKind === "agent" ? strings.format("board.actor.agent", row.last.actor) : row.last.actor;
+  const name = row.last.actor.trim();
+  if (!name) return action;
+  const actor = row.last.actorKind === "agent" ? strings.format("board.actor.agent", name) : name;
   return strings.format("board.last", action, actor);
 }
