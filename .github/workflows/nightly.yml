@@ -2352,10 +2352,15 @@ jobs:
           restore-keys: |
             xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
+      # acpmux's libghostty-vt (ghostty-vt-sys, ghostty-next) takes CMUX_VT_ZIG,
+      # a job-local install, as in refresh-compilation-cache. Without it a host
+      # whose PATH Zig is the classic tree's fails "Build in-tree acpmux for the
+      # compilation cache" (run 42745422648 on ultra1: Zig 0.16 for a 0.17 pin).
       - name: Install compilation dependencies
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         run: |
           ./scripts/install-rust-ci.sh
+          GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
 
       # The cmux-next Rust helpers below (acpmux, the OptChat Chief) compiled
